@@ -271,6 +271,16 @@ pub fn multiplayer_color_by_name(name: &str) -> Option<MultiplayerColorResidual>
         .find(|(n, _, _, _)| *n == name)
 }
 
+/// Leftover MultiplayerSettings::getNightColor for a day house RGB.
+pub fn multiplayer_night_rgb_for_day(day: (u8, u8, u8)) -> (u8, u8, u8) {
+    MULTIPLAYER_COLOR_RESIDUAL_TABLE
+        .iter()
+        .find(|&&(_, d, _, _)| d == day)
+        .map(|&(_, _, night, _)| night)
+        .unwrap_or(day)
+}
+
+
 /// Host residual: beacon placement allowed when current count < MaxBeaconsPerPlayer.
 pub fn can_place_beacon_residual(current_beacons: i32) -> bool {
     current_beacons < MP_MAX_BEACONS_PER_PLAYER_RESIDUAL

@@ -1547,6 +1547,64 @@ fn capture_object_residual_idle_deselect_ai_sell() {
 }
 
 #[test]
+fn create_stamps_threat_value_not_build_cost_and_capture_restamps_mask() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic
+        .players
+        .insert(1, Player::new(1, Team::GLA, "GLA", false));
+
+    let mut barracks = ThingTemplate::new("ThreatStampBarracks");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .set_health(1000.0)
+        .set_cost(2000, 0);
+    barracks.threat_value = 3;
+    barracks.sight_range = 150.0;
+    logic
+        .templates
+        .insert("ThreatStampBarracks".into(), barracks);
+
+    let id = logic
+        .create_object(
+            "ThreatStampBarracks",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 10.0),
+        )
+        .expect("barracks");
+    {
+        let obj = logic.host_object(id).expect("obj");
+        assert_eq!(obj.partition_cash_value, 2000);
+        assert_eq!(
+            obj.partition_threat_value, 3,
+            "addThreat uses getThreatValue, not BuildCost"
+        );
+        let stamp = obj.partition_last_affect.expect("stamped on create");
+        assert_eq!(stamp.threat, 3);
+        assert_eq!(stamp.value, 2000);
+        assert_eq!(stamp.mask, 1u32 << 0);
+    }
+
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.set_team_and_owner(Team::GLA, Some(1));
+    }
+    logic.on_capture_object_residual(id, Team::USA, Team::GLA);
+    let stamp = logic
+        .host_object(id)
+        .and_then(|o| o.partition_last_affect)
+        .expect("restamped after capture");
+    assert_eq!(stamp.threat, 3);
+    assert_eq!(
+        stamp.mask,
+        1u32 << 1,
+        "handlePartitionCellMaintenance must restamp new owner mask"
+    );
+}
+
+#[test]
 fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -6571,9 +6629,24 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         .unwrap()
         .set_position(glam::Vec3::new(between, 0.0, 0.0));
     logic.tick_guard_retaliate_states();
+    assert_eq!(
+        logic.objects[&id].guard_chase_phase, 2,
+        "INNER leash fail must escalate to OUTER (C++ success AND failure → OUTER)"
+    );
+    assert_eq!(
+        logic.objects[&id].guard_retaliate_victim,
+        Some(sid),
+        "OUTER onEnter re-attacks the same nemesis"
+    );
+    assert!(
+        logic.objects[&id].guard_chase_give_up_frame > 0,
+        "OUTER must stamp GuardChaseUnitsDuration"
+    );
+
+    logic.tick_guard_retaliate_states();
     assert!(
         logic.objects[&id].guard_retaliate_victim.is_none(),
-        "scan victim past 1.5×stdGuard must drop (aggressor leash would keep them)"
+        "scan victim past OUTER 0.67*(vision+std) must then drop"
     );
 }
 
@@ -6663,5 +6736,279 @@ fn without_pursuit_acquires_while_guarder_outside_ring() {
         logic.objects[&gid].target,
         Some(eid),
         "WithoutPursuit must still acquire a target inside the ring while the guarder walks back"
+    );
+}
+
+#[test]
+fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
+    // C++ AIGuardRetaliateOuterState::update: if goal is within stdGuardRange
+    // of the center, m_attackGiveUpFrame = now + GuardChaseUnitsDuration.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("OuterRefresh");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Attackable);
+    let id = ObjectId(6401);
+    let mut o = Object::new(t, id, Team::USA);
+    o.set_position(glam::Vec3::ZERO);
+    o.vision_range = 180.0;
+    o.weapon = Some(wave21_guard_weapon());
+    logic.objects.insert(id, o);
+
+    let vid = ObjectId(6402);
+    let mut vt = ThingTemplate::new("OuterPrey");
+    vt.add_kind_of(KindOf::Infantry);
+    vt.add_kind_of(KindOf::Attackable);
+    logic.objects.insert(vid, {
+        let mut e = Object::new(vt, vid, Team::GLA);
+        e.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+        e
+    });
+
+    {
+        let o = logic.objects.get_mut(&id).unwrap();
+        o.begin_guard_retaliate(vid, Some(glam::Vec3::ZERO), None);
+        o.guard_chase_phase = 2;
+        o.guard_chase_give_up_frame = logic.frame.saturating_add(1);
+        o.target = Some(vid);
+    }
+    let frames = logic.host_guard_chase_unit_frames();
+    logic.tick_guard_retaliate_states();
+    assert_eq!(
+        logic.objects[&id].guard_chase_give_up_frame,
+        logic.frame.saturating_add(frames),
+        "OUTER must refresh give-up while the victim stays inside stdGuard"
+    );
+    assert_eq!(
+        logic.objects[&id].guard_retaliate_victim,
+        Some(vid),
+        "in-range OUTER victim must not be dropped"
+    );
+}
+
+#[test]
+fn tn_guard_nemesis_uses_tunnel_attack_goal() {
+    // C++ AITNGuardIdleState::lookForInnerTarget: tunnel getAI()->getGoalObject()
+    // ENEMIES become the shared nemesis even when the tunnel took no damage.
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
+
+    let tnl = create_test_tunnel_network(&mut logic, glam::Vec3::ZERO);
+    if let Some(o) = logic.host_object_mut(tnl) {
+        o.owner_player_id = Some(1);
+    }
+
+    let mut rebel = ThingTemplate::new("GLARebelGoal");
+    rebel
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    logic.templates.insert("GLARebelGoal".into(), rebel);
+    let uid = logic
+        .create_object(
+            "GLARebelGoal",
+            Team::GLA,
+            glam::Vec3::new(1.0, 0.0, 0.0),
+        )
+        .expect("rebel");
+    if let Some(u) = logic.host_object_mut(uid) {
+        u.owner_player_id = Some(1);
+        u.guard_target = Some(tnl);
+        u.weapon = Some(wave21_guard_weapon());
+        u.team_instance_name = "GLA_TunnelGuard".into();
+        u.set_contained_by(Some(tnl));
+    }
+
+    let mut et = ThingTemplate::new("USARangerGoal");
+    et.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    logic.templates.insert("USARangerGoal".into(), et);
+    let eid = logic
+        .create_object(
+            "USARangerGoal",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("enemy");
+    if let Some(e) = logic.host_object_mut(eid) {
+        e.owner_player_id = Some(0);
+    }
+
+    let gla_key = logic
+        .host_object(tnl)
+        .map(|o| o.tunnel_system_key())
+        .expect("tn key");
+    logic.tunnel_network.on_tunnel_created(gla_key, tnl);
+    assert!(logic.tunnel_network.record_enter(gla_key, uid, tnl));
+
+    logic.objects.get_mut(&tnl).unwrap().target = Some(eid);
+    logic.update_support_states(&[tnl, uid, eid], 1.0 / 30.0);
+    assert_eq!(
+        logic.tunnel_network.get_cur_nemesis_id(gla_key, logic.frame),
+        Some(eid),
+        "tunnel getGoalObject must become the shared nemesis"
+    );
+    assert!(
+        logic.host_object(uid).unwrap().contained_by.is_none(),
+        "pool must sally against the tunnel's attack victim"
+    );
+}
+
+#[test]
+fn tn_guard_nemesis_skips_no_effect_and_stale_scan() {
+    // C++ TunnelContain::update: info->m_noEffect skip + lastDamageTimestamp
+    // windowed by TheAI->getAiData()->m_guardEnemyScanRate.
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
+
+    let tnl = create_test_tunnel_network(&mut logic, glam::Vec3::ZERO);
+    if let Some(o) = logic.host_object_mut(tnl) {
+        o.owner_player_id = Some(1);
+    }
+
+    let mut et = ThingTemplate::new("StatusDmgSrc");
+    et.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    logic.templates.insert("StatusDmgSrc".into(), et);
+    let eid = logic
+        .create_object("StatusDmgSrc", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("enemy");
+    if let Some(e) = logic.host_object_mut(eid) {
+        e.owner_player_id = Some(0);
+    }
+
+    let gla_key = logic
+        .host_object(tnl)
+        .map(|o| o.tunnel_system_key())
+        .expect("tn key");
+    logic.tunnel_network.on_tunnel_created(gla_key, tnl);
+
+    {
+        let o = logic.objects.get_mut(&tnl).unwrap();
+        o.last_damage_source = Some(eid);
+        o.last_damage_timestamp = Some(logic.frame);
+        o.last_damage_info_type = Some(DamageType::Status);
+    }
+    logic.update_support_states(&[tnl, eid], 1.0 / 30.0);
+    assert!(
+        logic
+            .tunnel_network
+            .get_cur_nemesis_id(gla_key, logic.frame)
+            .is_none(),
+        "no-effect (status) damage must not rally the tunnel-guard pool"
+    );
+
+    let rate = logic.host_guard_enemy_scan_rate().max(1);
+    logic.frame = rate;
+    {
+        let o = logic.objects.get_mut(&tnl).unwrap();
+        o.last_damage_info_type = Some(DamageType::Bullet);
+        o.last_damage_timestamp = Some(0);
+    }
+    logic.update_support_states(&[tnl, eid], 1.0 / 30.0);
+    assert!(
+        logic
+            .tunnel_network
+            .get_cur_nemesis_id(gla_key, logic.frame)
+            .is_none(),
+        "stale last-damage outside GuardEnemyScanRate must not write nemesis"
+    );
+
+    {
+        let o = logic.objects.get_mut(&tnl).unwrap();
+        o.last_damage_timestamp = Some(1);
+    }
+    logic.update_support_states(&[tnl, eid], 1.0 / 30.0);
+    assert_eq!(
+        logic.tunnel_network.get_cur_nemesis_id(gla_key, logic.frame),
+        Some(eid),
+        "fresh health-damaging hit inside the scan window must write nemesis"
+    );
+}
+
+#[test]
+fn tn_guard_nemesis_rejects_unattackable_damager() {
+    // C++ lookForInnerTarget: getAbleToAttackSpecificObject(
+    // ATTACK_TUNNEL_NETWORK_GUARD) — Unattackable must not hijack the slot.
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
+
+    let tnl = create_test_tunnel_network(&mut logic, glam::Vec3::ZERO);
+    if let Some(o) = logic.host_object_mut(tnl) {
+        o.owner_player_id = Some(1);
+    }
+
+    let mut rebel = ThingTemplate::new("GLARebelGate");
+    rebel
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    logic.templates.insert("GLARebelGate".into(), rebel);
+    let uid = logic
+        .create_object(
+            "GLARebelGate",
+            Team::GLA,
+            glam::Vec3::new(1.0, 0.0, 0.0),
+        )
+        .expect("rebel");
+    if let Some(u) = logic.host_object_mut(uid) {
+        u.owner_player_id = Some(1);
+        u.guard_target = Some(tnl);
+        u.weapon = Some(wave21_guard_weapon());
+        u.team_instance_name = "GLA_TunnelGate".into();
+        u.set_contained_by(Some(tnl));
+    }
+
+    let mut et = ThingTemplate::new("UnattackableSrc");
+    et.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::Unattackable)
+        .set_health(100.0);
+    logic.templates.insert("UnattackableSrc".into(), et);
+    let eid = logic
+        .create_object(
+            "UnattackableSrc",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("enemy");
+    if let Some(e) = logic.host_object_mut(eid) {
+        e.owner_player_id = Some(0);
+    }
+
+    let gla_key = logic
+        .host_object(tnl)
+        .map(|o| o.tunnel_system_key())
+        .expect("tn key");
+    logic.tunnel_network.on_tunnel_created(gla_key, tnl);
+    assert!(logic.tunnel_network.record_enter(gla_key, uid, tnl));
+
+    {
+        let o = logic.objects.get_mut(&tnl).unwrap();
+        o.last_damage_source = Some(eid);
+        o.last_damage_timestamp = Some(logic.frame);
+        o.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Bullet);
+    }
+    logic.update_support_states(&[tnl, uid, eid], 1.0 / 30.0);
+    assert!(
+        logic
+            .tunnel_network
+            .get_cur_nemesis_id(gla_key, logic.frame)
+            .is_none(),
+        "unattackable damager must not hijack the shared nemesis slot"
+    );
+    assert_eq!(
+        logic.host_object(uid).unwrap().contained_by,
+        Some(tnl),
+        "pool must stay inside when the damager is not attackable"
     );
 }

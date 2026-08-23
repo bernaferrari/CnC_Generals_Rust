@@ -230,9 +230,10 @@ pub enum PendingHackerCommand {
     Stop,
 }
 
-/// C++ per-unit `UnitUnpack` / `UnitPack` events.
+/// C++ per-unit `UnitUnpack` / `UnitPack` / `UnitCashPing` slots (resolve before queue).
 pub const HACKER_UNIT_UNPACK_AUDIO: &str = "UnitUnpack";
 pub const HACKER_UNIT_PACK_AUDIO: &str = "UnitPack";
+pub const HACKER_UNIT_CASH_PING_AUDIO: &str = "UnitCashPing";
 
 /// Host residual honesty + active hacking schedule.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1056,6 +1057,7 @@ mod tests {
             "idle outside after IC evacuate must not deposit"
         );
     }
+
 
     /// Field HackInternet while idle must still deposit (not the IC evacuate leak).
     #[test]

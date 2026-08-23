@@ -817,6 +817,14 @@ impl GameLogic {
             template.build_cost.supplies = cost;
         }
 
+        // C++ ThingTemplate.cpp:223 INI::parseUnsignedShort ThreatValue.
+        // 0 is authored (Object::addThreat stamps getThreatValue as-is).
+        if let Some(threat) = Self::object_definition_attr(definition, "threatvalue")
+            .and_then(|s| s.trim().parse::<u16>().ok())
+        {
+            template.threat_value = threat;
+        }
+
         // C++ ThingTemplate parses `RefundValue` as an unsigned short.  Zero
         // is not missing data: it explicitly retains the normal
         // BuildCost × SellPercentage refund calculation.
@@ -8761,6 +8769,42 @@ End
             .insert("VisionRange".to_string(), "0".to_string());
         let zero = GameLogic::build_template_from_object_definition("Prop", &zero, None);
         assert_eq!(zero.sight_range, 0.0);
+    }
+
+    #[test]
+    fn omitted_threat_value_defaults_to_zero_not_build_cost() {
+        let mut costly = ObjectDefinition::new("AmericaWarFactory".to_string());
+        costly
+            .attributes
+            .insert("BuildCost".to_string(), "2000".to_string());
+        let costly = GameLogic::build_template_from_object_definition(
+            "AmericaWarFactory",
+            &costly,
+            None,
+        );
+        assert_eq!(costly.threat_value, 0);
+        assert_eq!(costly.build_cost.supplies, 2000);
+
+        let mut authored = ObjectDefinition::new("AmericaInfantryRanger".to_string());
+        authored
+            .attributes
+            .insert("ThreatValue".to_string(), "1".to_string());
+        authored
+            .attributes
+            .insert("BuildCost".to_string(), "225".to_string());
+        let authored = GameLogic::build_template_from_object_definition(
+            "AmericaInfantryRanger",
+            &authored,
+            None,
+        );
+        assert_eq!(authored.threat_value, 1);
+        assert_eq!(authored.build_cost.supplies, 225);
+
+        let mut zero = ObjectDefinition::new("Prop".to_string());
+        zero.attributes
+            .insert("ThreatValue".to_string(), "0".to_string());
+        let zero = GameLogic::build_template_from_object_definition("Prop", &zero, None);
+        assert_eq!(zero.threat_value, 0);
     }
 
 }

@@ -2200,6 +2200,29 @@ impl ThingTemplate {
             .get(ThingTemplateAudioType::SoundOnReallyDamaged)
     }
 
+    /// C++ `ThingTemplate::getSoundEnter` / `TTAUDIO_soundEnter`.
+    pub fn get_sound_enter(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::SoundEnter)
+    }
+
+    /// C++ `ThingTemplate::getSoundExit` / `TTAUDIO_soundExit`.
+    pub fn get_sound_exit(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::SoundExit)
+    }
+
+    /// C++ `ThingTemplate::getSoundFalling` / `TTAUDIO_soundFalling`.
+    pub fn get_sound_falling(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::SoundFalling)
+    }
+
+    pub fn audio_event(
+        &self,
+        audio_type: ThingTemplateAudioType,
+    ) -> Option<&AudioEventRts> {
+        self.audioarray.get(audio_type)
+    }
+
+
     pub fn get_per_unit_sound(&self, sound_name: &AsciiString) -> Option<&AudioEventRts> {
         self.per_unit_sounds.get(sound_name)
     }

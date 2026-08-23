@@ -499,12 +499,13 @@ impl GameLogic {
         Some(id)
     }
 
-    /// Advance pending host leaflet drops past Delay and apply DISABLED_EMP residual.
+    /// Advance leaflet clouds past Delay and pulse leftover disable every frame.
     ///
-    /// Matches retail LeafletDropBehavior::doDisableAttack:
-    /// - Delay residual 2500 ms → 75 frames
+    /// Matches leftover LeafletDropBehavior::update_simple / do_disable_attack:
+    /// - Delay residual 2500 ms → 75 frames (`start_frame`)
+    /// - After start, pulse every frame (walk-ins get DISABLED_EMP)
     /// - AffectRadius residual 110
-    /// - DisabledDuration 20000 ms → 600 frames (DISABLED_EMP)
+    /// - DisabledDuration 20000 ms → 600 frames (DISABLED_EMP, now+dur overwrite)
     /// - ENEMIES infantry + vehicles only (player relationship, not faction Team)
     ///
     /// Fail-closed: not full OCL B52 / LeafletContainer drawable / LeafletFX path.
@@ -585,30 +586,31 @@ impl GameLogic {
                 disables = disables.saturating_add(1);
             }
 
-            self.queue_audio_event(
-                AudioEventRequest::new(plan.kind.impact_audio())
-                    .with_object(plan.source_object)
-                    .with_position(plan.target_position)
-                    .with_priority(190),
-            );
-            let _ = self.combat_particles.spawn(
-                CombatParticleKind::WeaponImpact,
-                plan.target_position,
-                self.frame,
-                Some(plan.source_object),
-                None,
-            );
+            if plan.initial_impact {
+                self.queue_audio_event(
+                    AudioEventRequest::new(plan.kind.impact_audio())
+                        .with_object(plan.source_object)
+                        .with_position(plan.target_position)
+                        .with_priority(190),
+                );
+                let _ = self.combat_particles.spawn(
+                    CombatParticleKind::WeaponImpact,
+                    plan.target_position,
+                    self.frame,
+                    Some(plan.source_object),
+                    None,
+                );
+                log::info!(
+                    "Host leaflet drop {} mission {} completed at {:?} (disables={})",
+                    plan.kind.label(),
+                    plan.mission_id,
+                    plan.target_position,
+                    disables
+                );
+            }
 
             self.host_leaflet_drops
                 .record_impact_complete(plan.mission_id, disables);
-
-            log::info!(
-                "Host leaflet drop {} mission {} completed at {:?} (disables={})",
-                plan.kind.label(),
-                plan.mission_id,
-                plan.target_position,
-                disables
-            );
         }
     }
 

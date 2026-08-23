@@ -361,6 +361,10 @@ pub struct HostSpectreOrbitField {
     /// (ticks that used RATE_OF_FIRE 300% interval residual).
     #[serde(default)]
     pub gattling_rof_fast_applications: u32,
+    /// Live gunship world position for `isFairDistanceFromShip` (hq-2ulfq).
+    /// `None` until the host binds a living gunship — acquire then fail-closes.
+    #[serde(default)]
+    pub gunship_position: Option<Vec3>,
 }
 
 impl HostSpectreOrbitField {

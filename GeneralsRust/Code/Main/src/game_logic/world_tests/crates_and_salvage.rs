@@ -2699,6 +2699,40 @@ fn tick_physics_motion_step_clamps_ground() {
     assert!(o.movement.velocity.y >= -1e-3);
 }
 
+#[test]
+fn compute_ground_bounce_force_rights_tilted_unflipped_body() {
+    // hq-9r1qm: leftover handle_bounce + update_simple zero pitch/roll on
+    // every vz<0 bounce, not only when the body is already flipped.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::{Mat4, Vec3};
+    let mut t = ThingTemplate::new("TiltBounce");
+    t.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(t, ObjectId(944), Team::USA);
+    o.set_position(Vec3::new(0.0, 2.0, 0.0));
+    o.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
+    o.shock_allow_bounce = true;
+    o.original_allow_bounce = true;
+    let pos = o.get_position();
+    let yaw = o.get_orientation();
+    o.thing.set_transform_matrix(
+        Mat4::from_translation(pos)
+            * Mat4::from_rotation_y(yaw)
+            * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_4),
+    );
+    let up_before = o.physics_transform_up_y();
+    assert!(
+        up_before > 0.0 && up_before < 0.95,
+        "precondition: tilted but not flipped, up_y={up_before}"
+    );
+    let force = o.compute_ground_bounce_force(2.0, -0.1, 0.0);
+    assert!(force.is_some(), "hq-9r1qm: bounce force must fire");
+    let up_after = o.physics_transform_up_y();
+    assert!(
+        (up_after - 1.0).abs() < 1e-4,
+        "hq-9r1qm: tilted wreck must right to yaw-only, up_y={up_after}"
+    );
+}
+
     #[test]
     fn tick_physics_does_not_apply_per_second_velocity_while_marching() {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};

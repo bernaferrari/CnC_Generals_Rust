@@ -370,6 +370,15 @@ impl ScriptActionDispatcher {
             };
         }
 
+        crate::scripting::request_host_team_override_relation(
+            crate::scripting::HostScriptTeamOverrideRelationRequest::SetPlayerToTeam {
+                source_player: player_name,
+                dest_team: team_name,
+                relationship,
+            },
+        );
+
+
         Ok(ScriptActionResult::Success)
     }
 
@@ -402,6 +411,14 @@ impl ScriptActionDispatcher {
                 }
             };
         }
+
+        crate::scripting::request_host_team_override_relation(
+            crate::scripting::HostScriptTeamOverrideRelationRequest::RemovePlayerToTeam {
+                source_player: player_name,
+                dest_team: team_name,
+            },
+        );
+
 
         Ok(ScriptActionResult::Success)
     }

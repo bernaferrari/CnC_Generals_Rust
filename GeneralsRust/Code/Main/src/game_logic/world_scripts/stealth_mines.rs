@@ -2136,11 +2136,14 @@ impl GameLogic {
             crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
                 | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
         ) {
-            self.queue_audio_event(
-                AudioEventRequest::new(crate::game_logic::host_mines::STICKY_BOMB_CREATED_AUDIO)
-                    .with_object(id)
-                    .with_position(position)
-                    .with_priority(155),
+            // C++ StickyBombUpdate::initStickyBomb: getPerUnitSound("StickyBombCreated") at bomb pos.
+            self.queue_resolved_per_unit_sound(
+                id,
+                crate::game_logic::host_mines::STICKY_BOMB_CREATED_AUDIO,
+                false,
+                true,
+                None,
+                155,
             );
         }
         Some(id)
@@ -2248,7 +2251,7 @@ impl GameLogic {
             }
             self.sticky_bomb_follow_ticks = self.sticky_bomb_follow_ticks.saturating_add(1);
         }
-        for (charge_id, pos) in pings {
+        for (charge_id, _pos) in pings {
             if let Some(obj) = self.objects.get_mut(&charge_id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     let next = md.next_ping_frame.unwrap_or(frame);
@@ -2257,11 +2260,14 @@ impl GameLogic {
                     ));
                 }
             }
-            self.queue_audio_event(
-                AudioEventRequest::new(UNIT_BOMB_PING_AUDIO)
-                    .with_object(charge_id)
-                    .with_position(pos)
-                    .with_priority(140),
+            // C++ StickyBombUpdate::update: getPerUnitSound("UnitBombPing") + setObjectID.
+            self.queue_resolved_per_unit_sound(
+                charge_id,
+                UNIT_BOMB_PING_AUDIO,
+                true,
+                false,
+                None,
+                140,
             );
         }
         for charge_id in destroy_charges {
@@ -2322,15 +2328,17 @@ impl GameLogic {
                 due.push((sid, cid, pos));
             }
         }
-        for (sid, cid, pos) in due {
+        for (sid, cid, _pos) in due {
             if let Some(p) = self.booby_trap.plant_mut(sid) {
                 p.next_ping_frame = Some(frame.saturating_add(UNIT_BOMB_PING_FRAMES));
             }
-            self.queue_audio_event(
-                AudioEventRequest::new(UNIT_BOMB_PING_AUDIO)
-                    .with_object(cid)
-                    .with_position(pos)
-                    .with_priority(140),
+            self.queue_resolved_per_unit_sound(
+                cid,
+                UNIT_BOMB_PING_AUDIO,
+                true,
+                false,
+                None,
+                140,
             );
         }
     }
@@ -2567,6 +2575,10 @@ impl GameLogic {
         };
 
         let frame = self.frame;
+        for id in crate::game_logic::host_status_log::drain_under_construction_mine_sweeps() {
+            self.sweep_under_construction_footprint_mines(id);
+        }
+
         self.update_land_mine_scoot();
 
         self.update_land_mine_regen_and_virtual();
@@ -3673,6 +3685,83 @@ impl GameLogic {
                 }
                 self.camo_netting_order_idle_enemies_count =
                     self.camo_netting_order_idle_enemies_count.saturating_add(1);
+            }
+        }
+    }
+
+    /// C++ Object::setStatus UNDER_CONSTRUCTION edge (Object.cpp:985-1011).
+    /// Leftover `object_status::set_status` is the reference: enemy mines
+    /// `kill(LANDMINE, EXPLODED)`, ally/neutral mines silent `destroyObject`.
+    pub(in super::super) fn sweep_under_construction_footprint_mines(
+        &mut self,
+        building_id: ObjectId,
+    ) {
+        use crate::game_logic::host_mines::HostMineDetonateReason;
+        use gamelogic::common::Relationship;
+
+        let Some(building) = self.objects.get(&building_id) else {
+            return;
+        };
+        if building.status.destroyed {
+            return;
+        }
+        let bpos = building.get_position();
+        let br = if building.thing.template.geometry_info.authored {
+            building
+                .thing
+                .template
+                .geometry_info
+                .bounding_circle_radius()
+        } else {
+            Self::structure_place_radius(building)
+        }
+        .max(1.0);
+
+        let mut hits: Vec<(ObjectId, Relationship, bool)> = Vec::new();
+        for (id, obj) in &self.objects {
+            if *id == building_id || obj.status.destroyed {
+                continue;
+            }
+            let is_mine = obj.is_kind_of(KindOf::Mine) || obj.mine_data.is_some();
+            if !is_mine {
+                continue;
+            }
+            let mpos = obj.get_position();
+            let mr = if obj.thing.template.geometry_info.authored {
+                obj.thing.template.geometry_info.bounding_circle_radius()
+            } else {
+                obj.selection_radius.max(1.0)
+            };
+            let dx = mpos.x - bpos.x;
+            let dz = mpos.z - bpos.z;
+            let limit = br + mr;
+            if dx * dx + dz * dz > limit * limit {
+                continue;
+            }
+            let rel = self.object_relationship(building, obj);
+            hits.push((*id, rel, obj.mine_data.is_some()));
+        }
+
+        for (mine_id, rel, has_data) in hits {
+            match rel {
+                Relationship::Enemies => {
+                    if has_data {
+                        let _ = self.detonate_mine_internal(
+                            mine_id,
+                            HostMineDetonateReason::Proximity,
+                        );
+                    } else if let Some(obj) = self.objects.get_mut(&mine_id) {
+                        obj.take_damage_from_typed_death(
+                            obj.health.maximum.max(1.0),
+                            Some(building_id),
+                            crate::game_logic::combat::DamageType::LandMine,
+                            crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                        );
+                    }
+                }
+                Relationship::Allies | Relationship::Neutral => {
+                    self.destroy_object(mine_id);
+                }
             }
         }
     }

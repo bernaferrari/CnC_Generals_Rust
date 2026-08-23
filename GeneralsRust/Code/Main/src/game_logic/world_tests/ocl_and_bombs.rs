@@ -3554,6 +3554,188 @@ fn point_defense_laser_residual_intercepts_missile() {
     );
 }
 
+/// C++ `scanClosestTarget`: Paladin Secondary INFANTRY skips STEALTHED &&
+/// !DETECTED && !DISGUISED. Cloaked Ninja/Burton/Kell are not lasered.
+#[test]
+fn paladin_pdl_skips_stealthed_undetected_infantry() {
+    use crate::game_logic::host_point_defense::{is_point_defense_carrier, PALADIN_PDL_FIRE_RANGE};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    let mut paladin_tpl = crate::game_logic::ThingTemplate::new("USA_Paladin");
+    paladin_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(600.0)
+        .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Paladin".to_string(), paladin_tpl);
+
+    let paladin_id = game_logic
+        .create_object("USA_Paladin", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("paladin");
+    let infantry_id = game_logic
+        .create_object(
+            "TestInfantry",
+            Team::GLA,
+            Vec3::new(PALADIN_PDL_FIRE_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("infantry");
+    {
+        let inf = game_logic.host_object_mut(infantry_id).expect("infantry");
+        inf.status.stealthed = true;
+        inf.status.detected = false;
+        inf.status.disguised = false;
+    }
+    assert!(is_point_defense_carrier(
+        &game_logic.host_object(paladin_id).unwrap().template_name
+    ));
+    let hp_before = game_logic
+        .host_object(infantry_id)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+
+    game_logic.frame = 1;
+    game_logic.update_point_defense_intercept();
+    assert_eq!(
+        game_logic.point_defense_residual_intercepts(),
+        0,
+        "Paladin PDL must not lock stealthed undetected infantry"
+    );
+    let hp_cloaked = game_logic
+        .host_object(infantry_id)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    assert_eq!(
+        hp_cloaked, hp_before,
+        "cloaked infantry must keep full HP, got {hp_cloaked}"
+    );
+
+    // Detected stealth: C++ scanClosestTarget locks and fires.
+    {
+        let inf = game_logic.host_object_mut(infantry_id).expect("infantry");
+        inf.status.detected = true;
+    }
+    game_logic.update_point_defense_intercept();
+    assert!(
+        game_logic.point_defense_residual_intercepts() >= 1,
+        "Paladin PDL must fire on detected stealthed infantry"
+    );
+    let hp_detected = game_logic
+        .host_object(infantry_id)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    assert!(
+        hp_detected + 0.01 < hp_cloaked,
+        "detected infantry must take Paladin PDL damage ({hp_cloaked} -> {hp_detected})"
+    );
+}
+
+/// Avenger authors two PointDefenseLaserUpdate modules. Each has its own
+/// 500ms clock, so two missiles in the same window can both die.
+#[test]
+fn avenger_pdl_two_independent_lasers() {
+    use crate::game_logic::host_point_defense::{
+        is_avenger_carrier, pdl_module_count, AVENGER_PDL_DELAY_FRAMES, AVENGER_PDL_FIRE_RANGE,
+    };
+
+    let mut game_logic = GameLogic::new();
+
+    let mut avenger_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleAvenger");
+    avenger_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(240.0)
+        .set_primary_weapon_name(super::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+    game_logic
+        .templates
+        .insert("AmericaVehicleAvenger".to_string(), avenger_tpl);
+
+    let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
+    missile_tpl
+        .add_kind_of(KindOf::Projectile)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(50.0);
+    game_logic
+        .templates
+        .insert("TestMissile".to_string(), missile_tpl);
+
+    let avenger_id = game_logic
+        .create_object(
+            "AmericaVehicleAvenger",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("avenger");
+    assert!(is_avenger_carrier(
+        &game_logic.host_object(avenger_id).unwrap().template_name
+    ));
+    assert_eq!(pdl_module_count("AmericaVehicleAvenger"), 2);
+
+    let missile_a = game_logic
+        .create_object(
+            "TestMissile",
+            Team::GLA,
+            Vec3::new(AVENGER_PDL_FIRE_RANGE * 0.3, 0.0, 0.0),
+        )
+        .expect("missile a");
+    let missile_b = game_logic
+        .create_object(
+            "TestMissile",
+            Team::China,
+            Vec3::new(AVENGER_PDL_FIRE_RANGE * 0.5, 0.0, 10.0),
+        )
+        .expect("missile b");
+
+    game_logic.frame = 1;
+    game_logic.update_point_defense_intercept();
+    assert_eq!(
+        game_logic.point_defense_residual_intercepts(),
+        2,
+        "Avenger dual PDL must intercept two missiles in one 500ms window"
+    );
+    for (id, label) in [(missile_a, "a"), (missile_b, "b")] {
+        if let Some(m) = game_logic.host_object(id) {
+            assert!(
+                !m.is_alive() || m.health.current <= 0.0,
+                "missile {label} must die in the dual-laser pass (hp={})",
+                m.health.current
+            );
+        }
+    }
+
+    // Both clocks spent: a third missile in the same delay window survives.
+    let intercepts_after_dual = game_logic.point_defense_residual_intercepts();
+    game_logic.frame = 2;
+    let missile_c = game_logic
+        .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("missile c");
+    game_logic.update_point_defense_intercept();
+    assert_eq!(
+        game_logic.point_defense_residual_intercepts(),
+        intercepts_after_dual,
+        "both Avenger lasers must respect their independent 500ms clocks"
+    );
+    assert!(
+        game_logic
+            .host_object(missile_c)
+            .map(|m| m.is_alive())
+            .unwrap_or(false),
+        "third missile survives while both Avenger clocks are cooling"
+    );
+
+    game_logic.frame = 1 + AVENGER_PDL_DELAY_FRAMES;
+    game_logic.update_point_defense_intercept();
+    assert!(
+        game_logic.point_defense_residual_intercepts() > intercepts_after_dual,
+        "Avenger PDL must fire again after per-module delay"
+    );
+}
+
+
 /// Residual: non-PDL unit does not intercept missiles.
 #[test]
 fn point_defense_laser_residual_skips_non_carrier() {

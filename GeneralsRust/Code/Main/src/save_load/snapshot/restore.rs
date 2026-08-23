@@ -665,6 +665,8 @@ impl SnapshotBuilder {
                 statistics,
                 power_sabotaged_till_frame: 0,
                 color_rgb: (200, 200, 200),
+                color_night_rgb: (200, 200, 200),
+
                 start_position: -1,
                 alliance_team: -1,
                 cash_bounty_percent,
@@ -681,6 +683,7 @@ impl SnapshotBuilder {
                 skill_points: 0,
                 science_purchase_points: 0,
                 skill_points_modifier: 1.0,
+                special_powers_used: 0,
                 can_build_units: true,
                 can_build_base: true,
                 units_should_hunt: false,

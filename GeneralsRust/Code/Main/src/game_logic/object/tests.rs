@@ -3990,6 +3990,47 @@ fn stunned_center_of_mass_offset_scales_pitch() {
     );
 }
 
+#[test]
+fn motion_step_bounce_rights_tilted_not_just_flipped() {
+    let mut tmpl = ThingTemplate::new("TiltWreck");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(tmpl, ObjectId(24), Team::USA);
+    o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    o.apply_physics_ypr(0.0, std::f32::consts::FRAC_PI_4, 0.0);
+    let up_before = o.physics_transform_up_y();
+    assert!(
+        up_before > 0.0 && up_before < 0.99,
+        "tilted but not flipped: {up_before}"
+    );
+    o.shock_allow_bounce = true;
+    o.original_allow_bounce = false;
+    o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    o.immune_to_falling_damage = true;
+    let force = o.compute_ground_bounce_force(2.0, -0.1, 0.0);
+    assert!(force.is_some(), "vy<0 ground contact must bounce");
+    assert!(
+        o.physics_transform_up_y() > 0.99,
+        "tilted wreck must right on bounce, up={}",
+        o.physics_transform_up_y()
+    );
+
+    // Flip is preserved through handleBounce so stun-kill still sees up<0.
+    let mut ftmpl = ThingTemplate::new("FlipKeep");
+    ftmpl.add_kind_of(KindOf::Vehicle);
+    let mut f = Object::new(ftmpl, ObjectId(25), Team::USA);
+    f.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    f.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
+    assert!(f.physics_transform_up_y() < 0.0);
+    f.shock_allow_bounce = true;
+    f.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    assert!(f.compute_ground_bounce_force(2.0, -0.1, 0.0).is_some());
+    assert!(
+        f.physics_transform_up_y() < 0.0,
+        "flipped pose must survive first-righting for stun kill"
+    );
+}
+
+
 
 #[test]
 fn stunned_upside_down_bounce_kills_and_freefall_disables() {

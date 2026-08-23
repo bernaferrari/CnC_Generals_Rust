@@ -1072,6 +1072,53 @@ fn spectre_gunship_impact_spawns_orbit_and_ticks_damage() {
 }
 
 #[test]
+fn spectre_gattling_skips_target_under_gunship() {
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let source = ObjectId(1);
+    let pos = Vec3::new(100.0, 0.0, 100.0);
+    let _ = reg.spawn_orbit_field(source, Team::USA, pos, 90, 1);
+    // Ship passing over the reticle — leftover isFairDistanceFromShip is false.
+    reg.orbit_fields_mut()[0].gunship_position = Some(pos);
+    let objects = vec![
+        (source, Vec3::ZERO, Team::USA, true),
+        (ObjectId(2), pos, Team::GLA, true),
+    ];
+    let plans = reg.plan_due_orbit_ticks(90, &objects);
+    assert_eq!(plans.len(), 1);
+    for hit in &plans[0].hits {
+        assert!(
+            (hit.damage - SPECTRE_GATTLING_DAMAGE).abs() > 0.01,
+            "gattling must not acquire a target under the ship"
+        );
+        assert!(
+            (hit.damage - (SPECTRE_ORBIT_DAMAGE_PER_TICK + SPECTRE_GATTLING_DAMAGE)).abs() > 0.01,
+            "gattling must not stack onto howitzer under the ship"
+        );
+    }
+}
+
+#[test]
+fn spectre_gattling_fail_closes_without_gunship_position() {
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let source = ObjectId(1);
+    let pos = Vec3::new(100.0, 0.0, 100.0);
+    let _ = reg.spawn_orbit_field(source, Team::USA, pos, 90, 1);
+    reg.orbit_fields_mut()[0].gunship_position = None;
+    let objects = vec![
+        (source, Vec3::ZERO, Team::USA, true),
+        (ObjectId(2), pos, Team::GLA, true),
+    ];
+    let plans = reg.plan_due_orbit_ticks(90, &objects);
+    assert_eq!(plans.len(), 1);
+    for hit in &plans[0].hits {
+        assert!(
+            (hit.damage - SPECTRE_GATTLING_DAMAGE).abs() > 0.01,
+            "missing ship position must fail-close acquire"
+        );
+    }
+}
+
+#[test]
 fn anthrax_bomb_impact_spawns_toxin_and_ticks_damage() {
     let mut reg = HostSpecialPowerStrikeRegistry::new();
     let id = reg.queue(

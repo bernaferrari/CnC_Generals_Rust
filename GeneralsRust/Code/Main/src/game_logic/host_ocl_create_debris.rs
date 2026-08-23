@@ -50,6 +50,8 @@ pub struct HostOclCreateDebrisPlan {
     pub max_pitch_deg: f32,
     /// C++ ExtraFriction (already per-frame).
     pub extra_friction: f32,
+    /// C++ ExtraBounciness (stamped; C++ stores as ground-stiffness modifier).
+    pub extra_bounciness: f32,
     /// C++ BounceSound AudioEventRTS name. Empty = silent land.
     pub bounce_sound: String,
 }
@@ -68,6 +70,7 @@ impl HostOclCreateDebrisPlan {
             min_pitch_deg: DAMAGED_BARREL_MIN_PITCH_DEG,
             max_pitch_deg: DAMAGED_BARREL_MAX_PITCH_DEG,
             extra_friction: 0.0,
+            extra_bounciness: 0.0,
             bounce_sound: String::new(),
         }
     }
@@ -85,6 +88,7 @@ impl HostOclCreateDebrisPlan {
             min_pitch_deg: 45.0,
             max_pitch_deg: 80.0,
             extra_friction: 0.0,
+            extra_bounciness: 0.0,
             bounce_sound: String::new(),
         }
     }
@@ -107,6 +111,12 @@ pub fn parse_disposition_names(names: &str) -> u32 {
         }
     }
     bits
+}
+
+/// C++ ObjectCreationList.cpp:1101 SEND_IT_FLYING|SEND_IT_UP|RANDOM_FORCE
+/// is the only path that setAllowBouncing(true).
+pub fn disposition_enables_bounce(disposition: u32) -> bool {
+    disposition & (DEBRIS_SEND_IT_FLYING | DEBRIS_SEND_IT_UP | DEBRIS_RANDOM_FORCE) != 0
 }
 
 /// Deterministic residual force magnitude from min/max + index salt.
@@ -240,5 +250,8 @@ mod tests {
         let tank = HostOclCreateDebrisPlan::generic_tank_debris();
         assert_eq!(tank.count, 3);
         assert!(tank.disposition & DEBRIS_SEND_IT_FLYING != 0);
+        assert!(disposition_enables_bounce(tank.disposition));
+        assert!(disposition_enables_bounce(DEBRIS_RANDOM_FORCE));
+        assert!(!disposition_enables_bounce(DEBRIS_ON_GROUND_ALIGNED));
     }
 }

@@ -490,6 +490,13 @@ impl HostSpecialPowerStrikeRegistry {
             gattling_gun_params_applications: 0,
             gattling_rof_mean_applications: 0,
             gattling_rof_fast_applications: 0,
+            // Residual stand-in: gunship on the orbit ring so gattling acquire
+            // is not fail-closed before the host binds the live ship position.
+            gunship_position: Some(Vec3::new(
+                position.x + SPECTRE_GUNSHIP_ORBIT_RADIUS,
+                position.y,
+                position.z,
+            )),
         };
         self.orbit_fields.push(field);
         self.orbit_spawned_this_frame.push(id);
@@ -568,12 +575,19 @@ impl HostSpecialPowerStrikeRegistry {
                 let reticle_aim = field.override_aim();
                 let reticle_origin = (reticle_aim.x, reticle_aim.z);
                 let wide_origin = (field.position.x, field.position.z);
+                let fair = |c: &crate::game_logic::host_residual_acquire::ResidualAcquireCandidate| {
+                    spectre_is_fair_distance_from_ship(
+                        field.gunship_position,
+                        c.position,
+                        SPECTRE_GUNSHIP_ORBIT_RADIUS,
+                    )
+                };
                 let reticle = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
                     Some(field.source_object),
                     reticle_origin,
                     cands.iter().copied(),
                     SPECTRE_TARGETING_RETICLE_RADIUS,
-                    |_| true,
+                    fair,
                 );
                 let picked = reticle.or_else(|| {
                     if self.spectre_wide_auto_acquire_allowed(field.source_object) {
@@ -582,7 +596,7 @@ impl HostSpecialPowerStrikeRegistry {
                             wide_origin,
                             cands,
                             SPECTRE_ORBIT_RADIUS,
-                            |_| true,
+                            fair,
                         )
                     } else {
                         None
@@ -1060,6 +1074,9 @@ impl HostSpecialPowerStrikeRegistry {
         };
         self.beam_fields.push(field);
         self.beam_spawned_this_frame.push(id);
+        // C++ STATUS_FIRING → FiringToPackSoundLoop (setClientStatus :1158-1175).
+        // GroundAnnihilation is queued separately on beam_spawned_this_frame.
+        self.note_puc_loop_audio(source_object, position, PARTICLE_FIRING_TO_PACK_AUDIO);
         self.beam_fields_spawned_total = self.beam_fields_spawned_total.saturating_add(1);
         id
     }

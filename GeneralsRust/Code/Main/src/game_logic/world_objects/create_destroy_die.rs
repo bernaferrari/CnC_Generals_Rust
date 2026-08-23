@@ -1187,6 +1187,7 @@ impl GameLogic {
             let has_fire_ocl_after_weapon_cooldown =
                 template.has_fire_ocl_after_weapon_cooldown;
             let partition_cash = template.build_cost.supplies;
+            let partition_threat = u32::from(template.get_threat_value());
             let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
             object.owner_player_id = owner_player_id;
             if object.team_instance_name.is_empty() {
@@ -1194,7 +1195,7 @@ impl GameLogic {
                     self.default_host_team_instance_name(owner_player_id, team);
             }
             object.partition_cash_value = partition_cash;
-            object.partition_threat_value = partition_cash.max(1);
+            object.partition_threat_value = partition_threat;
             object.set_position(position);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
@@ -2570,10 +2571,11 @@ impl GameLogic {
             });
             let id = self.allocate_object_id();
             let partition_cash = template.build_cost.supplies;
+            let partition_threat = u32::from(template.get_threat_value());
             let mut object = Object::new_under_construction(template, id, team);
             object.owner_player_id = owner_player_id;
             object.partition_cash_value = partition_cash;
-            object.partition_threat_value = partition_cash.max(1);
+            object.partition_threat_value = partition_threat;
             object.set_position(position);
             // C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain then getGroundHeight Z snap.
             // Applied after insert so the host object exists for snap.
@@ -2867,7 +2869,7 @@ impl GameLogic {
     pub(crate) fn maybe_apply_eject_pilot_die(&mut self, id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
             air_eject_spawn_height, is_significantly_above_terrain, HostDeathType,
-            EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO,
+            EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
         };
         use crate::game_logic::{
             EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotExemptStatus,
@@ -2882,6 +2884,7 @@ impl GameLogic {
             veterancy,
             death_type,
             is_hijacked,
+            dying_template,
         ) = {
             let Some(obj) = self.objects.get(&id) else {
                 return;
@@ -2903,6 +2906,7 @@ impl GameLogic {
                 obj.experience.level,
                 obj.status.death_type,
                 obj.status.hijacked,
+                obj.thing.template.name.clone(),
             )
         };
 
@@ -3044,10 +3048,23 @@ impl GameLogic {
             if invulnerable_frames > 0 {
                 self.usa_pilot.record_invulnerable_grant();
             }
-            self.queue_audio_event(
-                AudioEventRequest::new(PILOT_EJECT_AUDIO)
-                    .with_position(spawn_pos)
-                    .with_priority(170),
+            // C++ EjectPilotDie::ejectPilot playObjectSounds: VoiceEject (pos+player)
+            // then SoundEject (pos). Resolve from the dying vehicle, not the slot key.
+            self.queue_resolved_per_unit_sound_named(
+                &dying_template,
+                PILOT_EJECT_AUDIO,
+                None,
+                Some(death_pos),
+                Some(pilot_owner_player_id as i32),
+                170,
+            );
+            self.queue_resolved_per_unit_sound_named(
+                &dying_template,
+                PILOT_SOUND_EJECT_AUDIO,
+                None,
+                Some(death_pos),
+                None,
+                170,
             );
             let _ = pilot_id;
         }

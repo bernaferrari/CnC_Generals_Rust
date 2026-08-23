@@ -1047,6 +1047,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 gattling_gun_params_applications: 0,
                 gattling_rof_mean_applications: 0,
                 gattling_rof_fast_applications: 0,
+                gunship_position: None,
             },
         )?;
         xfer.xfer_marker_label("OrbitFieldsSpawnedTotal")?;

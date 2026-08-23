@@ -409,6 +409,37 @@ fn camera_mod_final_zoom_uses_remaining_rotate_time() {
     );
 }
 
+#[test]
+fn camera_mod_final_zoom_idle_is_noop() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_mod_final_zoom(CameraModFinalZoomRequest {
+            zoom: 0.8,
+            ease_in: 0.0,
+            ease_out: 0.0,
+        });
+    game_logic
+        .mission_scripts
+        .push_camera_mod_final_pitch(CameraModFinalPitchRequest {
+            pitch: 1.1,
+            ease_in: 0.0,
+            ease_out: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    assert!(
+        game_logic.peek_pending_camera_zoom().is_none(),
+        "idle CAMERA_MOD_SET_FINAL_ZOOM must not snap zoom"
+    );
+    assert!(
+        game_logic.peek_pending_camera_pitch().is_none(),
+        "idle CAMERA_MOD_SET_FINAL_PITCH must not snap pitch"
+    );
+}
+
 
 #[test]
 fn post_ai_commands_flushed_inside_game_logic() {
@@ -701,6 +732,37 @@ fn camera_mod_freeze_angle_pins_move_but_later_rotate_applies() {
 }
 
 #[test]
+fn camera_mod_freeze_angle_pins_in_flight_rotate() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.5,
+            duration_seconds: 2.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.mission_scripts.push_camera_mod_freeze_angle();
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    let rotate = game_logic
+        .take_camera_rotate_request()
+        .expect("FREEZE_ANGLE must pin the in-flight rotate, not drop it");
+    assert!(
+        rotate.rotations.abs() < f32::EPSILON,
+        "in-flight ROTATE_CAMERA must hold current yaw after FREEZE_ANGLE, got {}",
+        rotate.rotations
+    );
+    assert!(
+        (rotate.duration_seconds - 2.0).abs() < 0.001,
+        "pinned rotate must keep remaining time, got {}",
+        rotate.duration_seconds
+    );
+}
+
+#[test]
 fn script_reset_camera_animates_zoom_pitch_and_yaw() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
@@ -725,6 +787,165 @@ fn script_reset_camera_animates_zoom_pitch_and_yaw() {
         (0.4, 0.6)
     );
 }
+
+#[test]
+fn camera_setup_cancels_in_flight_move() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_move_to(CameraMoveToRequest {
+            position: Vec3::new(200.0, 0.0, 120.0),
+            seconds: 4.0,
+            camera_stutter_seconds: 0.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(game_logic.script_camera_move_to_target().is_some());
+
+    game_logic
+        .mission_scripts
+        .push_camera_setup(CameraSetupRequest {
+            position: Vec3::new(10.0, 0.0, 20.0),
+            zoom: 0.7,
+            pitch: 0.4,
+            look_toward: Vec3::new(30.0, 0.0, 40.0),
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        game_logic.script_camera_move_to_target().is_none(),
+        "SETUP_CAMERA must cancel the in-flight MOVE_CAMERA_TO"
+    );
+    assert!(
+        !game_logic.script_camera_path_active(),
+        "SETUP_CAMERA must cancel an in-flight waypoint path"
+    );
+    let look = game_logic
+        .peek_pending_camera_look_toward()
+        .cloned()
+        .expect("setup look-toward must remain queued");
+    assert_eq!(look.position, Vec3::new(30.0, 0.0, 40.0));
+
+    game_logic.update_script_camera(1.0 / 30.0);
+    assert!(
+        game_logic.script_camera_move_to_target().is_none(),
+        "update must not revive the cancelled setup move"
+    );
+    let look = game_logic
+        .peek_pending_camera_look_toward()
+        .cloned()
+        .expect("setup look-toward must not be overwritten by travel look");
+    assert_eq!(look.position, Vec3::new(30.0, 0.0, 40.0));
+}
+
+#[test]
+fn reset_camera_clears_stale_rotate() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.5,
+            duration_seconds: 3.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(game_logic.peek_pending_camera_rotate().is_some());
+
+    game_logic
+        .mission_scripts
+        .push_camera_reset(CameraResetRequest {
+            position: Vec3::new(100.0, 0.0, 80.0),
+            duration_seconds: 2.5,
+            ease_in_seconds: 0.4,
+            ease_out_seconds: 0.6,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        game_logic.peek_pending_camera_rotate().is_none(),
+        "RESET_CAMERA must drop the stale ROTATE_CAMERA"
+    );
+    assert!(game_logic.peek_pending_camera_zoom_reset());
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    assert!(
+        frame.camera_rotate.is_none(),
+        "RESET_CAMERA must not leave ROTATE_CAMERA on the presentation frame"
+    );
+    assert!(frame.camera_zoom_reset);
+}
+
+#[test]
+fn camera_mod_final_zoom_pitch_idle_is_noop() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_mod_final_zoom(CameraModFinalZoomRequest {
+            zoom: 0.8,
+            ease_in: 0.0,
+            ease_out: 0.0,
+        });
+    game_logic
+        .mission_scripts
+        .push_camera_mod_final_pitch(CameraModFinalPitchRequest {
+            pitch: 1.1,
+            ease_in: 0.0,
+            ease_out: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    assert!(
+        game_logic.peek_pending_camera_zoom().is_none(),
+        "idle CAMERA_MOD_SET_FINAL_ZOOM must not snap zoom"
+    );
+    assert!(
+        game_logic.peek_pending_camera_pitch().is_none(),
+        "idle CAMERA_MOD_SET_FINAL_PITCH must not snap pitch"
+    );
+}
+
+#[test]
+fn camera_mod_freeze_angle_pins_in_flight_rotate() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.5,
+            duration_seconds: 2.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        game_logic
+            .peek_pending_camera_rotate()
+            .is_some_and(|r| (r.rotations - 0.5).abs() < f32::EPSILON)
+    );
+
+    game_logic.mission_scripts.push_camera_mod_freeze_angle();
+    game_logic.evaluate_and_execute_scripts(0.0);
+    let rotate = game_logic
+        .peek_pending_camera_rotate()
+        .cloned()
+        .expect("FREEZE_ANGLE must pin the in-flight rotate, not drop it");
+    assert!(
+        rotate.rotations.abs() < f32::EPSILON,
+        "FREEZE_ANGLE must hold current yaw (0 remaining rotations), got {}",
+        rotate.rotations
+    );
+    assert!(
+        (rotate.duration_seconds - 2.0).abs() < 0.001,
+        "pinned rotate must keep remaining duration"
+    );
+}
+
 
 #[test]
 fn script_zoom_pitch_rotate_preserve_ease_on_presentation_frame() {
@@ -3546,6 +3767,120 @@ fn particle_cannon_host_path_queues_and_completes() {
     let _ = PARTICLE_BEAM_DAMAGE_PER_PULSE;
 }
 
+/// hq-l0dl2: C++ setClientStatus plays PoweringUp / UnpackToIdle / FiringToPack
+/// loops. Live must queue those events, not just increment honesty counters.
+#[test]
+fn particle_cannon_queues_charge_unpack_and_firing_loops() {
+    use crate::game_logic::special_power_strikes::{
+        particle_status_for_ready_countdown, HostSuperweaponKind, ParticleUplinkStatus,
+        PARTICLE_BEAM_AUDIO, PARTICLE_BEAM_TRAVEL_FRAMES, PARTICLE_FIRING_TO_PACK_AUDIO,
+        PARTICLE_POWERUP_AUDIO, PARTICLE_UNPACK_AUDIO,
+    };
+    use crate::command_system::SpecialPowerType;
+
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let caster = logic
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("caster");
+    let target = Vec3::new(40.0, 0.0, 0.0);
+    logic
+        .queue_special_power_strike(&SpecialPowerType::ParticleCannon, caster, target)
+        .expect("queued");
+
+    let queued: Vec<&str> = logic
+        .queued_audio_events
+        .iter()
+        .map(|e| e.event_type.as_str())
+        .collect();
+    // Retail BeamTravelTime (75f) is shorter than Charge+Raise+Ready, so the
+    // first pre-fire status is PREPARING → UnpackToIdle. A long impact window
+    // (honesty) still walks CHARGING → PoweringUp.
+    assert!(
+        queued.contains(&PARTICLE_UNPACK_AUDIO) || queued.contains(&PARTICLE_POWERUP_AUDIO),
+        "PUC charge/unpack loop must queue at initiate, got {queued:?}"
+    );
+
+    logic.queued_audio_events.clear();
+    logic.frame = PARTICLE_BEAM_TRAVEL_FRAMES;
+    logic.update_special_power_strikes();
+    let after_beam: Vec<&str> = logic
+        .queued_audio_events
+        .iter()
+        .map(|e| e.event_type.as_str())
+        .collect();
+    assert!(
+        after_beam.contains(&PARTICLE_FIRING_TO_PACK_AUDIO),
+        "STATUS_FIRING must queue FiringToPackSoundLoop, got {after_beam:?}"
+    );
+    assert!(
+        after_beam.contains(&PARTICLE_BEAM_AUDIO),
+        "beam spawn must still queue GroundAnnihilation, got {after_beam:?}"
+    );
+
+    // Long countdown still emits PoweringUp then UnpackToIdle (C++ setClientStatus).
+    let mut long = GameLogic::new();
+    ensure_test_tank_template(&mut long);
+    let src = long
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("src");
+    let id = long
+        .queue_special_power_strike(&SpecialPowerType::ParticleCannon, src, target)
+        .expect("long");
+    {
+        let strike = long.special_power_strikes_mut().get_mut(id).expect("strike");
+        strike.impact_frame = 350;
+        strike.particle_status = ParticleUplinkStatus::Idle;
+        strike.particle_status_peak = ParticleUplinkStatus::Idle;
+    }
+    long.queued_audio_events.clear();
+    long.frame = 0;
+    long.update_special_power_strikes();
+    assert_eq!(
+        particle_status_for_ready_countdown(0, 350),
+        ParticleUplinkStatus::Charging
+    );
+    assert!(
+        long.queued_audio_events
+            .iter()
+            .any(|e| e.event_type == PARTICLE_POWERUP_AUDIO),
+        "long charge window must queue PoweringUpSoundLoop"
+    );
+    let _ = HostSuperweaponKind::ParticleCannon;
+}
+
+/// hq-0myw6: live fire must increment AcademyStats::m_specialPowersUsed so
+/// War School drops ACADEMY:TryUsingSuperweapons after an ACT_SUPERPOWER.
+#[test]
+fn live_special_power_fire_records_academy_special_powers_used() {
+    use crate::command_system::SpecialPowerType;
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let caster = logic
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("caster");
+    if let Some(obj) = logic.host_object_mut(caster) {
+        obj.owner_player_id = Some(0);
+    }
+    assert_eq!(
+        logic.get_player(0).expect("p0").special_powers_used,
+        0
+    );
+    logic
+        .queue_special_power_strike(
+            &SpecialPowerType::ParticleCannon,
+            caster,
+            Vec3::new(40.0, 0.0, 0.0),
+        )
+        .expect("queued");
+    assert_eq!(
+        logic.get_player(0).expect("p0").special_powers_used,
+        1,
+        "initiateIntent analog must record ACT_SUPERPOWER"
+    );
+}
+
 /// Residual: CleanupArea clears toxin/radiation fields + mines at location.
 
 #[test]
@@ -4284,6 +4619,102 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
 
     game_logic.process_destroy_list();
 }
+
+/// C++ `isFairDistanceFromShip`: gattling must not acquire a target the
+/// orbiting gunship is passing over (hq-2ulfq). Howitzer still walks the
+/// reticle; first insertion tick is gattling-only (FollowLag 12f).
+#[test]
+fn spectre_orbit_skips_gattling_when_gunship_overhead() {
+    use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
+    use crate::game_logic::host_spectre_gunship_deployment::SPECTRE_GUNSHIP_TEMPLATE;
+    use crate::game_logic::host_spectre_gunship_update::HostSpectreGunshipUpdateData;
+    use crate::game_logic::special_power_strikes::{
+        SPECTRE_GATTLING_DAMAGE, SPECTRE_ORBIT_DAMAGE_PER_TICK,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    if let Some(p) = logic.get_player_mut(0) {
+        p.unlock_science("SCIENCE_SpectreGunshipSolo");
+    }
+
+    let caster = logic
+        .create_object("TestTank", Team::USA, Vec3::ZERO)
+        .expect("caster");
+    let enemy_pos = Vec3::new(40.0, 0.0, 0.0);
+    let enemy = logic
+        .create_object("TestTank", Team::GLA, enemy_pos)
+        .expect("enemy");
+    {
+        let e = logic.host_object_mut(enemy).expect("enemy");
+        e.health.current = 500.0;
+        e.health.maximum = 500.0;
+        e.thing.template.armor = 0.0;
+    }
+    {
+        let c = logic.host_object_mut(caster).expect("caster");
+        c.set_special_power_ready(true);
+        c.special_power_cooldown_remaining = 0.0;
+        c.special_power_cooldown = 10.0;
+    }
+
+    let mut ship_tpl = crate::game_logic::ThingTemplate::new(SPECTRE_GUNSHIP_TEMPLATE);
+    ship_tpl
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(1000.0);
+    logic
+        .templates
+        .insert(SPECTRE_GUNSHIP_TEMPLATE.to_string(), ship_tpl);
+    let ship = logic
+        .create_object(SPECTRE_GUNSHIP_TEMPLATE, Team::USA, enemy_pos)
+        .expect("gunship");
+    {
+        let g = logic.host_object_mut(ship).expect("gunship");
+        g.producer_id = Some(caster);
+        g.spectre_gunship_update = Some(HostSpectreGunshipUpdateData::initiate_at(enemy_pos));
+    }
+
+    logic.queue_command(GameCommand {
+        command_type: CommandType::DoSpecialPower {
+            power_type: SpecialPowerType::SpectreGunship,
+            target: PowerTarget::Location(enemy_pos),
+        },
+        player_id: 0,
+        command_id: 61,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![caster],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    logic.process_commands();
+
+    let hp0 = logic.host_object(enemy).unwrap().health.current;
+    logic.frame = 90;
+    logic.update_special_power_strikes();
+
+    let bound = logic
+        .special_power_strikes()
+        .orbit_fields()
+        .first()
+        .and_then(|f| f.gunship_position);
+    assert_eq!(
+        bound,
+        Some(enemy_pos),
+        "live gunship position must bind onto the orbit field"
+    );
+
+    let hp1 = logic
+        .host_object(enemy)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    let dealt = hp0 - hp1;
+    assert!(
+        (dealt - SPECTRE_GATTLING_DAMAGE).abs() > 0.1
+            && (dealt - (SPECTRE_ORBIT_DAMAGE_PER_TICK + SPECTRE_GATTLING_DAMAGE)).abs() > 0.1,
+        "gattling must not acquire a target under the ship (dealt={dealt})"
+    );
+}
+
 
 /// C++ StealthDetectorUpdate.cpp:167 PartitionFilterRelationship
 /// ALLOW_ENEMIES|ALLOW_NEUTRAL. Allied players on different Team enums

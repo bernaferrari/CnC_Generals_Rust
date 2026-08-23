@@ -121,6 +121,66 @@ pub const BATTLE_BUS_FX_FINAL_DETONATE: &str = "FX_BuggyNewDeathExplosion";
 /// Retail final detonate OCL residual.
 pub const BATTLE_BUS_OCL_FINAL_DEATH: &str = "OCL_BattleBusDeath";
 
+/// Leftover ThingFactory `BattleBusSlowDeathBehavior` FX names, if loaded.
+pub fn leftover_battle_bus_fx(template_name: &str) -> (Option<String>, Option<String>) {
+    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+        return (None, None);
+    };
+    let Some(factory) = guard.as_ref() else {
+        return (None, None);
+    };
+    let Some(tmpl) = factory.find_template(template_name, false) else {
+        return (None, None);
+    };
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("BattleBusSlowDeathBehavior")
+        {
+            continue;
+        }
+        if let Some(data) = entry.data.downcast_ref::<
+            gamelogic::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModuleData,
+        >()
+        {
+            return (
+                data.fx_start_undeath
+                    .as_ref()
+                    .map(|fx| fx.name().to_string()),
+                data.fx_hit_ground.as_ref().map(|fx| fx.name().to_string()),
+            );
+        }
+        let nonempty = |key: &str| {
+            entry
+                .data
+                .get_ini_field(key)
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("NONE"))
+                .map(str::to_string)
+        };
+        return (nonempty("FXStartUndeath"), nonempty("FXHitGround"));
+    }
+    (None, None)
+}
+
+/// Authored `FXStartUndeath` — leftover store, else retail residual name.
+pub fn battle_bus_start_undeath_fx_name(template_name: &str) -> String {
+    leftover_battle_bus_fx(template_name)
+        .0
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| BATTLE_BUS_FX_START_UNDEATH.to_string())
+}
+
+/// Authored `FXHitGround` — leftover store, else retail residual name.
+pub fn battle_bus_hit_ground_fx_name(template_name: &str) -> String {
+    leftover_battle_bus_fx(template_name)
+        .1
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| BATTLE_BUS_FX_HIT_GROUND.to_string())
+}
+
+
 // --- UndeadBody residual ---
 
 /// Retail MaxHealth residual (first life).
@@ -608,5 +668,42 @@ mod tests {
         assert_eq!(battle_bus_ms_to_frames(200), 6);
         assert_eq!(BATTLE_BUS_TRANSPORT_SLOTS, 8);
         assert!((battle_bus_undeath_passenger_damage(200.0) - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn undeath_fx_names_are_retail_when_leftover_empty() {
+        assert_eq!(
+            battle_bus_start_undeath_fx_name("GLAVehicleBattleBus"),
+            BATTLE_BUS_FX_START_UNDEATH
+        );
+        assert_eq!(
+            battle_bus_hit_ground_fx_name("GLAVehicleBattleBus"),
+            BATTLE_BUS_FX_HIT_GROUND
+        );
+        let orders = include_str!("object/orders.rs");
+        let start = orders
+            .find("pub fn start_battle_bus_second_life")
+            .expect("start_battle_bus_second_life");
+        let start_win = &orders[start..start + 2200];
+        assert!(
+            start_win.contains("battle_bus_start_undeath_fx_name"),
+            "StartUndeath FX name missing: {start_win}"
+        );
+        assert!(
+            start_win.contains("dispatch_fx_list_at_object(&fx, self.id.0, None)"),
+            "C++ doFXObj StartUndeath missing: {start_win}"
+        );
+        let land = orders
+            .find("pub fn tick_battle_bus_slow_death")
+            .expect("tick_battle_bus_slow_death");
+        let land_win = &orders[land..land + 2800];
+        assert!(
+            land_win.contains("battle_bus_hit_ground_fx_name"),
+            "HitGround FX name missing: {land_win}"
+        );
+        assert!(
+            land_win.contains("dispatch_fx_list_at_object(&fx, self.id.0, None)"),
+            "C++ doFXObj HitGround missing: {land_win}"
+        );
     }
 }

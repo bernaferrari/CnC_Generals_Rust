@@ -24,10 +24,12 @@ pub struct HostScriptCaptureNearestUnownedRequest {
 }
 
 /// Live host drain: TEAM_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM/PLAYER
-/// and TEAM_REMOVE_ALL_OVERRIDE_RELATIONS.
+/// and TEAM_REMOVE_ALL_OVERRIDE_RELATIONS, plus
+/// PLAYER_SET/REMOVE_OVERRIDE_RELATION_TO_TEAM.
 /// C++ `doTeamSetOverrideRelationToTeam` / `ToPlayer` / removers write
-/// `Team::m_teamRelations` / `m_playerRelations`. Leftover Team maps stay
-/// leftover-right; live combat reads host Player team-instance maps.
+/// `Team::m_teamRelations` / `m_playerRelations`. `doPlayerSetOverrideRelationToTeam`
+/// writes `Player::m_teamRelations`. Leftover maps stay leftover-right; live
+/// combat and `VictoryConditions::areAllies` read host Player maps.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptTeamOverrideRelationRequest {
     SetTeam {
@@ -50,6 +52,15 @@ pub enum HostScriptTeamOverrideRelationRequest {
     },
     RemoveAll {
         source: String,
+    },
+    SetPlayerToTeam {
+        source_player: String,
+        dest_team: String,
+        relationship: crate::common::Relationship,
+    },
+    RemovePlayerToTeam {
+        source_player: String,
+        dest_team: String,
     },
 }
 

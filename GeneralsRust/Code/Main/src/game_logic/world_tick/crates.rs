@@ -828,6 +828,14 @@ impl GameLogic {
             };
             if started {
                 self.deploy_style_reg.record_deploy();
+                self.queue_resolved_per_unit_sound(
+                    id,
+                    crate::game_logic::host_deploy_style::DEPLOY_STYLE_DEPLOY_AUDIO,
+                    true,
+                    false,
+                    None,
+                    150,
+                );
             }
         }
         // C++ setMyState stamps UNPACKING/PACKING/DEPLOYED on the drawable.
@@ -925,6 +933,14 @@ impl GameLogic {
         };
         if started {
             self.deploy_style_reg.record_deploy();
+            self.queue_resolved_per_unit_sound(
+                id,
+                crate::game_logic::host_deploy_style::DEPLOY_STYLE_DEPLOY_AUDIO,
+                true,
+                false,
+                None,
+                150,
+            );
         }
         if blocked {
             self.deploy_style_reg.record_blocked_fire();
@@ -1802,4 +1818,72 @@ fn leftover_template_command_set(template_name: &str) -> Option<String> {
     }
 }
 
+
+
+#[cfg(test)]
+mod hq_tb5nn_tests {
+    use super::*;
+    use crate::game_logic::host_command_button_hunt::{
+        HostCommandButtonHuntMode, HUNT_CMD_FROM_AI,
+    };
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
+    };
+
+    /// hq-tb5nn: C++ huntWeapon UPDATE_SLEEP_NONE re-arms LOCKED_TEMPORARILY
+    /// every frame after fireCurrentWeapon releases the temp lock on clip reload.
+    #[test]
+    fn fire_weapon_command_button_hunt_relocks_every_frame() {
+        let mut logic = GameLogic::new();
+        let id = ObjectId(4401);
+        let mut ranger_template = ThingTemplate::new("AmericaInfantryRanger");
+        ranger_template.add_kind_of(KindOf::Infantry);
+        let mut ranger = Object::new(ranger_template, id, Team::USA);
+        ranger.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        ranger.secondary_weapon = Some(Weapon {
+            range: 80.0,
+            damage: 5.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+        ranger.start_command_button_hunt(HostCommandButtonHuntMode::FireWeapon, 0);
+        if let Some(h) = ranger.command_button_hunt.as_mut() {
+            h.weapon_slot = 1;
+        }
+        ranger.last_command_source = HUNT_CMD_FROM_AI;
+        logic.objects.insert(id, ranger);
+
+        logic.frame = 5;
+        logic.tick_command_button_hunt_updates();
+        {
+            let u = logic.objects.get(&id).expect("ranger");
+            assert_eq!(u.weapon_lock_type, WeaponLockType::LockedTemporarily);
+            assert_eq!(u.weapon_lock_slot, 1);
+        }
+
+        if let Some(u) = logic.objects.get_mut(&id) {
+            u.release_weapon_lock(WeaponLockType::LockedTemporarily);
+        }
+        assert_eq!(
+            logic.objects.get(&id).expect("ranger").weapon_lock_type,
+            WeaponLockType::NotLocked
+        );
+
+        // Next frame — not +30. Clip-complete release must be re-armed immediately.
+        logic.frame = 6;
+        logic.tick_command_button_hunt_updates();
+        let u = logic.objects.get(&id).expect("ranger");
+        assert_eq!(
+            u.weapon_lock_type,
+            WeaponLockType::LockedTemporarily,
+            "FireWeapon hunt must re-lock every frame, not every 30"
+        );
+        assert_eq!(u.weapon_lock_slot, 1);
+    }
+}
 

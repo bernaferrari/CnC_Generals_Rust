@@ -97,10 +97,22 @@ impl HostCommandButtonHuntData {
     }
 
     pub fn due(&self, current_frame: u32) -> bool {
-        self.active && current_frame >= self.next_scan_frame
+        if !self.active {
+            return false;
+        }
+        // C++ huntWeapon returns UPDATE_SLEEP_NONE — wake every frame so a
+        // temp lock released on clip auto-reload is re-armed next tick.
+        if matches!(self.mode, HostCommandButtonHuntMode::FireWeapon) {
+            return true;
+        }
+        current_frame >= self.next_scan_frame
     }
 
     pub fn schedule_next(&mut self, current_frame: u32) {
+        if matches!(self.mode, HostCommandButtonHuntMode::FireWeapon) {
+            self.next_scan_frame = current_frame;
+            return;
+        }
         self.next_scan_frame = current_frame.saturating_add(COMMAND_BUTTON_HUNT_SCAN_FRAMES);
     }
 }
@@ -477,6 +489,19 @@ mod tests {
             Some(HostCommandButtonHuntMode::SpecialPower)
         );
     }
+
+    #[test]
+    fn fire_weapon_hunt_stays_due_every_frame() {
+        let mut d = HostCommandButtonHuntData::new(HostCommandButtonHuntMode::FireWeapon, 10);
+        assert!(d.due(10));
+        d.schedule_next(10);
+        assert!(
+            d.due(11),
+            "C++ huntWeapon UPDATE_SLEEP_NONE re-arms lock every frame"
+        );
+        assert!(d.due(39));
+    }
+
 
 
     #[test]

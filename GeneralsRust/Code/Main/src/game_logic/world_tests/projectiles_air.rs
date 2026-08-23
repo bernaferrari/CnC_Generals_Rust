@@ -1970,11 +1970,18 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
 /// death spawning remains fail-closed.
 #[test]
 fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::host_usa_pilot::{
         significantly_above_terrain_threshold, EJECT_PILOT_TEMPLATE,
     };
     use crate::game_logic::{EjectPilotCreationList, VeterancyLevel};
     use std::path::Path;
+
+    clear_test_template_voices();
+    set_test_per_unit_sound("AmericaVehicleHumvee", "VoiceEject", "HumveeVoiceEject");
+    set_test_per_unit_sound("AmericaVehicleHumvee", "SoundEject", "HumveeSoundEject");
 
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -2055,6 +2062,33 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
         humvee.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "HumveeVoiceEject"
+                && e.position == Some(Vec3::new(50.0, 0.0, 50.0))
+                && e.player_index == Some(0)
+                && e.object_id.is_none()
+        }),
+        "VoiceEject must resolve from the dying vehicle: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "HumveeSoundEject"
+                && e.position == Some(Vec3::new(50.0, 0.0, 50.0))
+                && e.object_id.is_none()
+        }),
+        "SoundEject must resolve from the dying vehicle: {:?}",
+        game_logic.queued_audio_events
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != "VoiceEject" && e.event_type != "SoundEject"),
+        "must not queue VoiceEject/SoundEject slot tokens: {:?}",
+        game_logic.queued_audio_events
+    );
     game_logic.process_destroy_list();
 
     let pilot_id = game_logic
@@ -2180,6 +2214,7 @@ End
         ejections_before_unknown,
         "unknown selected OCL must not synthesize an ejection"
     );
+    clear_test_template_voices();
 }
 
 /// Residual: EjectPilotDie VeterancyLevels = ALL -REGULAR blocks Rookie eject.

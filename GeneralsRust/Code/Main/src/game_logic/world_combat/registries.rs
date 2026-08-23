@@ -628,6 +628,8 @@ impl GameLogic {
         }
         // C++ OpenContain::removeFromContain doUnloadSound — leftover TheAudio.
         self.play_container_exit_sound(container_id);
+        self.reset_rider_mood_check_on_exit(unit_id);
+        self.play_container_removing_template_sounds(container_id, unit_id);
         // C++ GarrisonContain::exitObjectViaDoor ends in recalcApparentControllingPlayer.
         self.recalc_garrison_apparent_controller(container_id);
         true
@@ -891,6 +893,9 @@ impl GameLogic {
             }
             if walked_transport {
                 self.walk_unit_via_open_contain_exit(*pid, container_id);
+            } else {
+                self.reset_rider_mood_check_on_exit(*pid);
+                self.play_container_removing_template_sounds(container_id, *pid);
             }
             if is_cave {
                 // Leftover CaveContain::onRemoving: record_exit + LastEmpty team revert.
@@ -2647,35 +2652,43 @@ impl GameLogic {
             }
         }
 
-        // Fall containers; ground arrival is visual residual (disable timer separate).
+        // C++ LeafletDropBehavior::update first tick: create + attachToObject.
         let containers: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(_, o)| o.leaflet_container && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
-        let mut destroy = Vec::new();
         for id in containers {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
             };
-            let mut p = o.get_position();
-            p.y += o.movement.velocity.y;
-            o.set_position(p);
-            if p.y <= 5.0 {
-                // LeafletParticles1 residual cue.
-                let _ = self.combat_particles.spawn(
-                    CombatParticleKind::DeathExplosion,
+            let template = o.template_name.clone();
+            let first_fx = self
+                .host_leaflet_drops
+                .try_attach_leaflet_fx(id.0, &template);
+            if first_fx {
+                let fx_name =
+                    crate::game_logic::host_leaflet_drop::leaflet_fx_particle_name(&template);
+                let p = o.get_position();
+                let _ = self.combat_particles.spawn_named(
+                    CombatParticleKind::ParticleSysBone,
+                    fx_name,
                     p,
                     self.frame,
                     Some(id),
                     None,
                 );
-                destroy.push(id);
             }
-        }
-        for id in destroy {
-            self.mark_object_for_destruction(id, None);
+            let mut p = o.get_position();
+            p.y += o.movement.velocity.y;
+            o.set_position(p);
+            if p.y <= 5.0 {
+                p.y = p.y.max(0.0);
+                o.set_position(p);
+                o.movement.velocity = Vec3::ZERO;
+                o.leaflet_container = false;
+            }
         }
     }
 

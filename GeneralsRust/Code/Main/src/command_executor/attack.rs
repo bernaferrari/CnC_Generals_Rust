@@ -163,13 +163,8 @@ impl<'a> CommandExecutor<'a> {
         if self.game_logic.host_object(target_id).is_none() {
             return CommandResult::InvalidTarget;
         }
-        if self
-            .game_logic
-            .host_object(target_id)
-            .is_some_and(|target| !target.is_alive())
-        {
-            return CommandResult::TargetDestroyed;
-        }
+        // C++ `if (!victim) return` — a dead-but-present object still receives
+        // `aiAttackObject` (AIGroup.cpp:2102-2105). Do not TargetDestroyed.
 
         let target_pos = self
             .game_logic
@@ -243,19 +238,22 @@ impl<'a> CommandExecutor<'a> {
             if unit_id == target_id {
                 continue;
             }
-            let can = self
-                .game_logic
-                .host_object(unit_id)
-                .is_some_and(|u| u.can_attack());
-            if !can {
-                continue;
-            }
+            // C++/leftover issue aiAttackObject to every member with AI.
+            // No isAbleToAttack / can_attack gate (AIGroup.cpp:2164-2171).
             let ok = if forced {
                 self.game_logic.unit_command_force_attack(unit_id, target_id)
             } else {
                 self.game_logic.unit_command_attack(unit_id, target_id)
             };
             if ok {
+                any_attacker = true;
+                continue;
+            }
+            if let Some(u) = self.game_logic.host_object_mut(unit_id) {
+                if forced {
+                    u.set_force_attack(true);
+                }
+                u.set_target(Some(target_id));
                 any_attacker = true;
             }
         }
@@ -673,13 +671,14 @@ impl<'a> CommandExecutor<'a> {
         let radius = radius.max(1.0);
         let mut any = false;
         for &unit_id in units {
-            let (alive, can_attack, can_move) = {
+            let (alive, can_move) = {
                 let Some(unit) = self.game_logic.host_object(unit_id) else {
                     continue;
                 };
-                (unit.is_alive(), unit.can_attack(), unit.can_move())
+                (unit.is_alive(), unit.can_move())
             };
-            if !alive || !can_attack {
+            // C++ groupAttackArea: every member with AI (AIGroup.cpp:2545-2551).
+            if !alive {
                 continue;
             }
             if let Some(u) = self.game_logic.host_object_mut(unit_id) {

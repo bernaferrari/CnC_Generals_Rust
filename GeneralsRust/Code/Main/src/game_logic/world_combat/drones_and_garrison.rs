@@ -1602,6 +1602,10 @@ impl GameLogic {
                 unit.apply_motive_force(hull_vel * mass);
             }
         }
+        // C++ TransportContain::onRemoving ResetMoodCheckTimeOnExit + OpenContain
+        // template SoundExit / SoundFallingFromPlane.
+        self.reset_rider_mood_check_on_exit(unit_id);
+        self.play_container_removing_template_sounds(container_id, unit_id);
     }
 
 
@@ -4480,6 +4484,70 @@ mod tests {
         );
         assert_eq!(logic.host_object(a).unwrap().ai_state, AIState::Moving);
         assert_eq!(logic.host_object(b).unwrap().ai_state, AIState::Moving);
+    }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_resets_mood_and_plays_template_audio() {
+        // hq-j0ggx / hq-c77h2: execute_exit walk resets next_mood_check_time
+        // and drains leftover onRemoving SoundExit + SoundFallingFromPlane.
+        let mut logic = GameLogic::new();
+        logic.frame = 77;
+        let mut t = ThingTemplate::new("MOOD_HV");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("MOOD_HV".into(), t);
+        let mut p = ThingTemplate::new("MOOD_HV_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("MOOD_HV_P".into(), p);
+        let transport = logic
+            .create_object("MOOD_HV", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let rider = logic
+            .create_object("MOOD_HV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(u) = logic.host_object_mut(rider) {
+            u.next_mood_check_time = 9999;
+            u.set_contained_by(Some(transport));
+        }
+        logic.walk_unit_via_open_contain_exit(rider, transport);
+        let u = logic.host_object(rider).unwrap();
+        assert_eq!(u.next_mood_check_time, 77);
+        assert_eq!(u.ai_state, AIState::Moving);
+        let audio = gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
+            .expect("onRemoving template audio");
+        assert_eq!(audio.container_template, "MOOD_HV");
+        assert_eq!(audio.container_id, transport.0);
+        assert_eq!(audio.rider_template, "MOOD_HV_P");
+        assert_eq!(audio.rider_id, rider.0);
+    }
+
+    #[test]
+    fn play_container_enter_sound_drains_leftover_template_sound_enter() {
+        // hq-c77h2: live enter path must call leftover onContaining SoundEnter.
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("ENTER_AUD");
+        t.add_kind_of(KindOf::Vehicle);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(1),
+            ..Default::default()
+        };
+        logic.templates.insert("ENTER_AUD".into(), t);
+        let transport = logic
+            .create_object("ENTER_AUD", Team::USA, Vec3::ZERO)
+            .unwrap();
+        logic.play_container_enter_sound(transport);
+        let audio = gamelogic::object::contain::open_contain::leftover_last_on_containing_template_call()
+            .expect("onContaining template audio");
+        assert_eq!(audio.template_name, "ENTER_AUD");
+        assert_eq!(audio.object_id, transport.0);
+        assert!(audio.load_sounds_enabled);
     }
 
 

@@ -312,14 +312,17 @@ fn ray_hit_height(near: Vec3, far: Vec3, height: f32) -> Option<Vec3> {
 }
 
 pub(super) fn airborne_look_at_ground(
-    eye: Vec3,
+    _eye: Vec3,
     object_pos: Vec3,
+    look_dir: Vec3,
     far_clip: f32,
     world_min: Vec3,
     world_max: Vec3,
     world_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
 ) -> Option<Vec3> {
-    let mut dir = object_pos - eye;
+    // Leftover `look_at_pick_ray` / C++ Un_Project(0,0): restart at the object
+    // and cast the current look direction, not camera-to-object.
+    let mut dir = look_dir;
     if dir.length_squared() <= PICK_RAY_EPSILON {
         dir = -Vec3::Y;
     }
@@ -1973,10 +1976,8 @@ impl CnCGameEngine {
     /// command merely because Main owns direct OS input.
     pub(super) fn cancel_world_mouse_targeting(&mut self) -> bool {
         if self.pending_map_command.take().is_some() {
+            // C++ SelectionXlat.cpp:1007-1013 — RMB cancel is silent.
             self.clear_radius_cursor_overlays();
-            let msg = "Cancelled pending command";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return true;
         }
         if self.pending_structure_placement.is_some() {
@@ -4943,6 +4944,15 @@ mod camera_pick_tests {
             recall.contains("Unsaved F1-F8 is silent"),
             "empty bookmark path must remain a silent no-op"
         );
+        let cancel = src
+            .find("fn cancel_world_mouse_targeting")
+            .map(|i| &src[i..src.len().min(i + 700)])
+            .expect("cancel_world_mouse_targeting");
+        assert!(
+            !cancel.contains("push_info_message")
+                && !cancel.contains(concat!("Cancelled pending", " command")),
+            "hq-0foy9: RMB cancel of an armed GUI command must stay silent"
+        );
         assert!(
             src.contains("fn sync_letterbox_os_cursor_visibility")
                 && src.contains("set_cursor_visible(!over_bar)"),
@@ -5015,9 +5025,11 @@ mod camera_pick_tests {
 
     #[test]
     fn airborne_look_at_ray_hits_ground_plane() {
+        let look_dir = Vec3::new(0.0, -40.0, -120.0);
         let hit = airborne_look_at_ground(
             Vec3::new(0.0, 120.0, 120.0),
             Vec3::new(0.0, 80.0, 0.0),
+            look_dir,
             2_000.0,
             Vec3::new(-1_000.0, 0.0, -1_000.0),
             Vec3::new(1_000.0, 0.0, 1_000.0),
@@ -5031,6 +5043,22 @@ mod camera_pick_tests {
         assert!(
             hit.z.abs() > 1.0,
             "ray through an elevated unit must land past the XY origin, got {hit:?}"
+        );
+
+        // Off-axis unit: look dir is screen-center, not camera-to-object.
+        let off_axis = airborne_look_at_ground(
+            Vec3::new(0.0, 120.0, 120.0),
+            Vec3::new(40.0, 80.0, 0.0),
+            look_dir,
+            2_000.0,
+            Vec3::new(-1_000.0, 0.0, -1_000.0),
+            Vec3::new(1_000.0, 0.0, 1_000.0),
+            None,
+        )
+        .expect("off-axis airborne look-at must hit ground");
+        assert!(
+            (off_axis.x - 40.0).abs() < 0.5,
+            "look dir must keep the unit on the screen-center ray, got {off_axis:?}"
         );
     }
 

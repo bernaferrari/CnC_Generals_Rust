@@ -235,8 +235,16 @@ impl GameLogic {
                         std::f32::consts::TAU,
                     ));
                 }
-                // C++ ObjectCreationList.cpp:1086/1122 setExtraFriction, 1124 setBounceSound.
+                // C++ ObjectCreationList.cpp:1086/1121-1124 ExtraFriction/Bounciness/BounceSound.
                 object.set_extra_friction(generic.extra_friction);
+                if generic.disposition.has(
+                    gamelogic::object_creation_list::DebrisDisposition::SEND_IT_FLYING
+                        | gamelogic::object_creation_list::DebrisDisposition::SEND_IT_UP
+                        | gamelogic::object_creation_list::DebrisDisposition::RANDOM_FORCE,
+                ) {
+                    object.set_extra_bounciness(generic.extra_bounciness);
+                    object.set_allow_bouncing(true);
+                }
                 if !generic.bounce_sound.is_empty() {
                     object.set_bounce_sound(generic.bounce_sound.clone());
                 }
@@ -1241,8 +1249,6 @@ impl GameLogic {
         }
         obj.record_host_weapon_stats();
 
-        let pos = obj.get_position();
-
         if slot == 1 {
             self.gattling_building_residual_aa_fires =
                 self.gattling_building_residual_aa_fires.saturating_add(1);
@@ -1260,11 +1266,14 @@ impl GameLogic {
         if became_fast {
             self.gattling_building_residual_ramp_fast =
                 self.gattling_building_residual_ramp_fast.saturating_add(1);
-            self.queue_audio_event(
-                AudioEventRequest::new(GATTLING_BUILDING_RAPID_FIRE_AUDIO)
-                    .with_object(attacker_id)
-                    .with_position(pos)
-                    .with_priority(140),
+            // C++ FiringTracker::speedUp MEAN→FAST: getPerUnitSound("VoiceRapidFire") + setObjectID.
+            self.queue_resolved_per_unit_sound(
+                attacker_id,
+                GATTLING_BUILDING_RAPID_FIRE_AUDIO,
+                true,
+                false,
+                None,
+                140,
             );
         }
     }
@@ -1332,8 +1341,6 @@ impl GameLogic {
         }
         obj.record_host_weapon_stats();
 
-        let pos = obj.get_position();
-
         if slot == 1 {
             self.gattling_tank_residual_aa_fires =
                 self.gattling_tank_residual_aa_fires.saturating_add(1);
@@ -1350,11 +1357,14 @@ impl GameLogic {
         if became_fast {
             self.gattling_tank_residual_ramp_fast =
                 self.gattling_tank_residual_ramp_fast.saturating_add(1);
-            self.queue_audio_event(
-                AudioEventRequest::new(GATTLING_RAPID_FIRE_AUDIO)
-                    .with_object(attacker_id)
-                    .with_position(pos)
-                    .with_priority(140),
+            // C++ FiringTracker::speedUp MEAN→FAST: getPerUnitSound("VoiceRapidFire") + setObjectID.
+            self.queue_resolved_per_unit_sound(
+                attacker_id,
+                GATTLING_RAPID_FIRE_AUDIO,
+                true,
+                false,
+                None,
+                140,
             );
         }
     }

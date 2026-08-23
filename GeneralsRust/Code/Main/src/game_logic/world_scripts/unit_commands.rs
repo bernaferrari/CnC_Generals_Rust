@@ -24,6 +24,16 @@ fn release_hunt_temp_lock_when_entering_guard(unit: &mut Object) {
     }
 }
 
+/// C++ `AIHuntState::onExit` (`AIStates.cpp:7099-7109`) on ANY parent
+/// replacement: halt the hunt machine and `releaseWeaponLock(LOCKED_TEMPORARILY)`.
+/// Player `aiAttackObject` / `aiMoveTo` replace `AI_HUNT` so hunt never resumes.
+fn end_hunt_on_player_parent_order(unit: &mut Object) {
+    if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
+        unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
+    }
+    unit.hunting = false;
+}
+
 /// C++ AIUpdateInterface last command source. Player/script orders are not
 /// CMD_FROM_AI, so CommandButtonHuntUpdate quits on the next scan.
 fn stamp_last_command_from_player(unit: &mut Object) {
@@ -163,12 +173,13 @@ impl GameLogic {
             .request_pack(id, self.frame, pack_frames, pending)
         {
             self.leftover_sa_set_pack_model(id, false, true, false);
-            self.queue_audio_event(
-                AudioEventRequest::new(
-                    crate::game_logic::host_hacker_income::HACKER_UNIT_PACK_AUDIO,
-                )
-                .with_object(id)
-                .with_priority(150),
+            self.queue_resolved_per_unit_sound(
+                id,
+                crate::game_logic::host_hacker_income::HACKER_UNIT_PACK_AUDIO,
+                true,
+                false,
+                None,
+                150,
             );
             return true;
         }
@@ -208,8 +219,10 @@ impl GameLogic {
         };
         if ok {
             if let Some(unit) = self.objects.get_mut(&id) {
+                end_hunt_on_player_parent_order(unit);
                 unit.set_ai_state(AIState::Moving);
             }
+            self.hunt_next_enemy_scan.remove(&id);
         }
         ok
     }
@@ -232,6 +245,10 @@ impl GameLogic {
             return true;
         }
         self.stop_attack_clearing_jet_targeter(id);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            end_hunt_on_player_parent_order(unit);
+        }
+        self.hunt_next_enemy_scan.remove(&id);
         self.assign_unit_path(id, destination, waypoints)
     }
 
@@ -252,8 +269,10 @@ impl GameLogic {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            end_hunt_on_player_parent_order(unit);
             unit.set_ai_state(AIState::Moving);
         }
+        self.hunt_next_enemy_scan.remove(&id);
         true
     }
 
@@ -301,12 +320,14 @@ impl GameLogic {
         };
         unit.mark_jet_command_for_reload_interrupt(false);
         unit.clear_guard_chase();
+        end_hunt_on_player_parent_order(unit);
 
         unit.set_force_attack(false);
         unit.set_target(Some(target_id));
         crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_ai_state(AIState::Attacking);
         drop(unit);
+        self.hunt_next_enemy_scan.remove(&id);
         if let Some(tgt) = self.objects.get_mut(&target_id) {
             tgt.add_jet_targeter(id, true, self.frame);
         }
@@ -356,12 +377,14 @@ impl GameLogic {
         };
         unit.mark_jet_command_for_reload_interrupt(false);
         unit.clear_guard_chase();
+        end_hunt_on_player_parent_order(unit);
 
         unit.set_target(Some(target_id));
         crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_force_attack(true);
         unit.set_ai_state(AIState::Attacking);
         drop(unit);
+        self.hunt_next_enemy_scan.remove(&id);
         if let Some(tgt) = self.objects.get_mut(&target_id) {
             tgt.add_jet_targeter(id, true, self.frame);
         }
@@ -583,6 +606,7 @@ impl GameLogic {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            end_hunt_on_player_parent_order(unit);
             if can_attack {
                 unit.is_attack_path = true;
                 unit.auto_acquire_when_idle = true;
@@ -592,6 +616,8 @@ impl GameLogic {
                 unit.is_attack_path = false;
                 unit.set_ai_state(AIState::Moving);
             }
+            drop(unit);
+            self.hunt_next_enemy_scan.remove(&id);
             return true;
         }
         false
@@ -654,17 +680,19 @@ impl GameLogic {
         if !unit.can_attack() {
             return false;
         }
+        end_hunt_on_player_parent_order(unit);
         unit.set_target_location(Some(location));
         unit.set_ai_state(AIState::AttackingGround);
+        drop(unit);
+        self.hunt_next_enemy_scan.remove(&id);
         true
     }
 
     /// Wave 231: move helper that always leaves unit in Moving state (scatter/formation).
     pub fn unit_command_move_to_moving(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
+        // C++ groupScatter / aiMoveToPosition: stunned members still receive
+        // the order and execute when stun clears. No can_move gate.
         self.stamp_player_command_source(id);
-        if !self.unit_can_move(id) {
-            return false;
-        }
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
@@ -673,10 +701,13 @@ impl GameLogic {
         }
         let path_ok = self.assign_unit_path(id, destination, &[]);
         if let Some(unit) = self.objects.get_mut(&id) {
+            end_hunt_on_player_parent_order(unit);
             if !path_ok {
                 unit.set_destination(destination);
             }
             unit.set_ai_state(AIState::Moving);
+            drop(unit);
+            self.hunt_next_enemy_scan.remove(&id);
             return true;
         }
         false
@@ -749,10 +780,11 @@ impl GameLogic {
         if obj.owner_player_id == Some(player_id) && obj.is_selectable() {
             obj.select();
             obj.flash_as_selected();
-            true
         } else {
-            false
+            return false;
         }
+        self.client_visible_contained_flash_as_selected(id);
+        true
     }
 
     /// Compatibility path for faction-only legacy callers. New player-command
@@ -764,11 +796,13 @@ impl GameLogic {
         if obj.team == player_team && obj.is_selectable() {
             obj.select();
             obj.flash_as_selected();
-            true
         } else {
-            false
+            return false;
         }
+        self.client_visible_contained_flash_as_selected(id);
+        true
     }
+
 
     /// Wave 232: path after stop_attack; optionally clear formation id (free move).
     pub fn unit_command_move_clear_formation(
@@ -800,7 +834,7 @@ impl GameLogic {
             .get(&id)
             .map(|u| {
                 u.is_alive()
-                    && u.can_move()
+                    && !u.status.disabled_held
                     && !u.is_kind_of(KindOf::Immobile)
                     && !u.is_kind_of(KindOf::Structure)
             })
@@ -961,11 +995,14 @@ impl GameLogic {
         if !unit.is_alive() {
             return false;
         }
+        end_hunt_on_player_parent_order(unit);
         unit.set_target(None);
         unit.set_force_attack(true);
         unit.set_max_shots_to_fire(max_shots);
         unit.set_target_location(Some(location));
         unit.set_ai_state(AIState::AttackingGround);
+        drop(unit);
+        self.hunt_next_enemy_scan.remove(&id);
         true
     }
 
@@ -986,6 +1023,7 @@ impl GameLogic {
             return false;
         }
 
+        let entering_hunt = self.objects.get(&id).is_some_and(|u| !u.hunting);
         self.drop_jet_targeters_on_attack_exit(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_target(None);
@@ -1001,6 +1039,11 @@ impl GameLogic {
             unit.mark_jet_command_for_reload_interrupt(true);
 
             unit.set_status_moving(false);
+            drop(unit);
+            // C++ AIHuntState::onEnter reseeds m_nextEnemyScanTime with jitter.
+            if entering_hunt {
+                self.hunt_next_enemy_scan.remove(&id);
+            }
             return true;
         }
         false
@@ -1104,8 +1147,24 @@ impl GameLogic {
         }
         if deployed_direction {
             self.deploy_style_reg.record_deploy();
+            self.queue_resolved_per_unit_sound(
+                id,
+                crate::game_logic::host_deploy_style::DEPLOY_STYLE_DEPLOY_AUDIO,
+                true,
+                false,
+                None,
+                150,
+            );
         } else {
             self.deploy_style_reg.record_undeploy();
+            self.queue_resolved_per_unit_sound(
+                id,
+                crate::game_logic::host_deploy_style::DEPLOY_STYLE_UNDEPLOY_AUDIO,
+                true,
+                false,
+                None,
+                150,
+            );
         }
         true
     }
@@ -1601,6 +1660,11 @@ impl GameLogic {
         }
         unit.set_status_moving(false);
         unit.set_status_attacking(false);
+        drop(unit);
+        self.reset_rider_mood_check_on_exit(id);
+        if let Some(cid) = container_id {
+            self.play_container_removing_template_sounds(cid, id);
+        }
         true
     }
 
@@ -2324,6 +2388,133 @@ mod tests {
         let obj = logic.host_object_mut(id).expect("plant mut");
         obj.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
         assert!(!logic.unit_command_set_rally_point(id, glam::Vec3::new(10.0, 0.0, 10.0)));
+    }
+
+    /// hq-9fqep: player attack/move replaces AI_HUNT; hunt does not resume.
+    fn hunting_infantry_pair() -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        let hunter_id = ObjectId(3203);
+        let mut hunter_template = ThingTemplate::new("HuntAttackSource");
+        hunter_template.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(hunter_id, {
+            let mut hunter = Object::new(hunter_template, hunter_id, Team::USA);
+            hunter.set_position(glam::Vec3::ZERO);
+            hunter.weapon = Some(Weapon {
+                range: 100.0,
+                damage: 10.0,
+                can_target_ground: true,
+                ..Weapon::default()
+            });
+            hunter.secondary_weapon = Some(Weapon {
+                range: 80.0,
+                damage: 5.0,
+                can_target_ground: true,
+                ..Weapon::default()
+            });
+            hunter.hunting = true;
+            hunter.set_ai_state(AIState::Patrolling);
+            let _ = hunter.set_weapon_lock(1, WeaponLockType::LockedTemporarily);
+            hunter
+        });
+        let enemy_id = ObjectId(3204);
+        let mut enemy_template = ThingTemplate::new("HuntAttackTarget");
+        enemy_template.add_kind_of(KindOf::Infantry);
+        logic.objects.insert(enemy_id, {
+            let mut enemy = Object::new(enemy_template, enemy_id, Team::GLA);
+            enemy.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+            enemy
+        });
+        (logic, hunter_id, enemy_id)
+    }
+
+    #[test]
+    fn player_attack_ends_hunt_and_releases_temp_lock() {
+        let (mut logic, hunter_id, enemy_id) = hunting_infantry_pair();
+        assert!(logic.unit_command_attack(hunter_id, enemy_id));
+        let hunter = logic.objects.get(&hunter_id).expect("hunter");
+        assert!(!hunter.hunting, "player attack must end Hunt");
+        assert_eq!(hunter.ai_state, AIState::Attacking);
+        assert_eq!(hunter.target, Some(enemy_id));
+        assert_eq!(
+            hunter.weapon_lock_type,
+            WeaponLockType::NotLocked,
+            "AIHuntState::onExit releases LOCKED_TEMPORARILY"
+        );
+        if let Some(unit) = logic.objects.get_mut(&hunter_id) {
+            unit.set_target(None);
+            unit.set_ai_state(AIState::Idle);
+        }
+        logic.update_ai(&[hunter_id, enemy_id], 1.0 / 30.0);
+        let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
+        assert!(!hunter.hunting);
+        assert!(
+            !matches!(hunter.ai_state, AIState::Patrolling),
+            "Hunt must not resume after the player attack finishes; got {:?}",
+            hunter.ai_state
+        );
+    }
+
+    #[test]
+    fn player_move_ends_hunt_and_does_not_resume() {
+        let (mut logic, hunter_id, enemy_id) = hunting_infantry_pair();
+        assert!(logic.unit_command_move_to(hunter_id, glam::Vec3::new(40.0, 0.0, 0.0)));
+        let hunter = logic.objects.get(&hunter_id).expect("hunter");
+        assert!(!hunter.hunting, "player move must end Hunt");
+        assert_eq!(hunter.ai_state, AIState::Moving);
+        assert_eq!(
+            hunter.weapon_lock_type,
+            WeaponLockType::NotLocked,
+            "AIHuntState::onExit releases LOCKED_TEMPORARILY"
+        );
+        if let Some(unit) = logic.objects.get_mut(&hunter_id) {
+            unit.set_ai_state(AIState::Idle);
+            unit.set_target(None);
+        }
+        logic.update_ai(&[hunter_id, enemy_id], 1.0 / 30.0);
+        let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
+        assert!(!hunter.hunting);
+        assert!(
+            !matches!(hunter.ai_state, AIState::Patrolling),
+            "Hunt must not resume after the player move finishes; got {:?}",
+            hunter.ai_state
+        );
+    }
+
+    #[test]
+    fn capture_kick_exit_drop_resets_mood_check_time() {
+        // hq-j0ggx: garrison capture kick uses unit_command_exit_drop.
+        let mut logic = GameLogic::new();
+        logic.frame = 55;
+        let mut bunker_t = ThingTemplate::new("KICK_BUNKER");
+        bunker_t.add_kind_of(KindOf::Structure).set_health(500.0);
+        bunker_t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Garrison,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("KICK_BUNKER".into(), bunker_t);
+        let mut ranger_t = ThingTemplate::new("KICK_RANGER");
+        ranger_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("KICK_RANGER".into(), ranger_t);
+        let bunker = logic
+            .create_object("KICK_BUNKER", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let ranger = logic
+            .create_object("KICK_RANGER", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
+        if let Some(u) = logic.host_object_mut(ranger) {
+            u.set_contained_by(Some(bunker));
+            u.next_mood_check_time = 9999;
+        }
+        assert!(logic.unit_command_exit_drop(ranger, glam::Vec3::new(4.0, 0.0, 0.0)));
+        let u = logic.host_object(ranger).unwrap();
+        assert_eq!(u.next_mood_check_time, 55);
+        let audio = gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
+            .expect("capture kick onRemoving audio");
+        assert_eq!(audio.container_template, "KICK_BUNKER");
+        assert_eq!(audio.rider_template, "KICK_RANGER");
+        assert_eq!(audio.rider_id, ranger.0);
     }
 
 }

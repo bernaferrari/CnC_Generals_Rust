@@ -229,8 +229,9 @@ pub const PILOT_RECREW_AUDIO: &str = "PilotEnterVehicle";
 /// Retail OCL_EjectPilotOnGround / OCL_EjectPilotViaParachute ObjectNames residual.
 pub const EJECT_PILOT_TEMPLATE: &str = "AmericaInfantryPilot";
 
-/// Residual eject audio (VoiceEject / SoundEject fail-closed host cue).
+/// C++ EjectPilotDie PerUnitSound slots (resolve before queue).
 pub const PILOT_EJECT_AUDIO: &str = "VoiceEject";
+pub const PILOT_SOUND_EJECT_AUDIO: &str = "SoundEject";
 
 /// Retail OCL_EjectPilotOnGround InvulnerableTime (ms).
 pub const EJECT_PILOT_INVULNERABLE_MS: u32 = 2000;

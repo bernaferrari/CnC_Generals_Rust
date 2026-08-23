@@ -147,10 +147,16 @@ fn group_move_destinations_preserves_relative_offset() {
     {
         let oa = logic./* Wave 950 */ host_object_mut(a).unwrap();
         oa.selection_radius = 10.0;
+        oa.thing.geometry.radius = 10.0;
+        oa.thing.geometry.bounds_min = Vec3::new(-10.0, 0.0, -10.0);
+        oa.thing.geometry.bounds_max = Vec3::new(10.0, 0.0, 10.0);
     }
     {
         let ob = logic.host_object_mut(b).unwrap();
         ob.selection_radius = 10.0;
+        ob.thing.geometry.radius = 10.0;
+        ob.thing.geometry.bounds_min = Vec3::new(-10.0, 0.0, -10.0);
+        ob.thing.geometry.bounds_max = Vec3::new(10.0, 0.0, 10.0);
     }
 
     let click = Vec3::new(100.0, 0.0, 50.0);
@@ -855,6 +861,48 @@ fn sell_selected_sells_friendly_structures_only() {
         logic.is_object_being_sold(s)
             || logic.host_object(s).map(|o| o.status.sold).unwrap_or(false)
     );
+}
+
+#[test]
+fn sell_command_sells_every_selected_structure() {
+    // C++ GameLogicDispatch.cpp:1450-1459 MSG_SELL → groupSell.
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType};
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    for name in ["GS_A", "GS_B"] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(500.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let a = logic
+        .create_object("GS_A", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("GS_B", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_command(dispatch_test_command(
+            CommandType::Sell { object_id: a },
+            0,
+            vec![a, b],
+        ))
+        .expect("sell"),
+        CommandResult::Success
+    );
+    for id in [a, b] {
+        assert!(
+            logic.is_object_being_sold(id)
+                || logic.host_object(id).map(|o| o.status.sold).unwrap_or(false),
+            "hq-5mdst: every selected structure must enter sell"
+        );
+    }
 }
 
 #[test]
@@ -6081,6 +6129,214 @@ fn click_to_gather_source_reads_gamedata_and_caps_cells() {
             && w.contains("cells < 2000")
             && !w.contains("hx.max(20.0)"),
         "tighten must use GameData factor, 2000-cell cap, no 20wu pad"
+    );
+}
+
+#[test]
+fn group_attack_object_orders_weaponless_and_dead_victim() {
+    // C++ AIGroup::groupAttackObjectPrivate: no isAbleToAttack gate; dead-but-present
+    // victim still receives aiAttackObject (AIGroup.cpp:2100-2173).
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut dozer = ThingTemplate::new("ATK_DOZ");
+    dozer
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("ATK_DOZ".into(), dozer);
+    let mut vic_tpl = ThingTemplate::new("ATK_VIC");
+    vic_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("ATK_VIC".into(), vic_tpl);
+
+    let dozer_id = logic
+        .create_object("ATK_DOZ", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let victim = logic
+        .create_object("ATK_VIC", Team::China, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let d = logic.host_object(dozer_id).unwrap();
+        assert!(!d.can_attack(), "weaponless dozer must fail can_attack");
+    }
+    {
+        let v = logic.host_object_mut(victim).unwrap();
+        v.health.current = 0.0;
+        assert!(!v.is_alive(), "dead-but-present victim");
+    }
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack(&[dozer_id], victim),
+            CommandResult::Success
+        );
+    }
+    let d = logic.host_object(dozer_id).unwrap();
+    assert_eq!(d.target, Some(victim));
+    assert_eq!(d.ai_state, AIState::Attacking);
+}
+
+#[test]
+fn free_move_dissolves_mixed_formation_stamps() {
+    // C++ groupMoveToPosition free-move: setFormationID(NO_FORMATION_ID) (AIGroup.cpp:1681).
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    for name in ["FMX_A", "FMX_B", "FMX_C", "FMX_D", "FMX_E"] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let stamped: Vec<_> = ["FMX_A", "FMX_B", "FMX_C"]
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            logic
+                .create_object(name, Team::USA, Vec3::new(i as f32 * 10.0, 0.0, 0.0))
+                .unwrap()
+        })
+        .collect();
+    let extra: Vec<_> = ["FMX_D", "FMX_E"]
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            logic
+                .create_object(
+                    name,
+                    Team::USA,
+                    Vec3::new(30.0 + i as f32 * 10.0, 0.0, 0.0),
+                )
+                .unwrap()
+        })
+        .collect();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_create_formation(&stamped),
+            CommandResult::Success
+        );
+    }
+    assert_ne!(logic.host_object(stamped[0]).unwrap().formation_id, 0);
+    let mut all = stamped.clone();
+    all.extend(extra);
+    // Outside gather bbox, closer than MinDistanceForGroup so no column pack.
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_move(&all, Vec3::new(80.0, 0.0, 0.0)),
+            CommandResult::Success
+        );
+    }
+    for id in stamped {
+        assert_eq!(
+            logic.host_object(id).unwrap().formation_id,
+            0,
+            "free-move must dissolve stale formation stamps"
+        );
+    }
+}
+
+#[test]
+fn tighten_scatter_include_stunned_members() {
+    // C++ tighten/scatter/bbox: Held/Immobile/no-AI only. Stun still counts.
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("STN_V");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("STN_V".into(), tpl);
+    let a = logic
+        .create_object("STN_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("STN_V", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let u = logic.host_object_mut(b).unwrap();
+        u.shock_stun_frames = 40;
+        assert!(!u.can_move(), "stun must block can_move");
+    }
+    {
+        let exec = CommandExecutor::new(&mut logic, 0);
+        assert!(
+            exec.should_tighten_group_move(&[a, b], Vec3::new(15.0, 0.0, 0.0)),
+            "stunned member must still count in the gather bbox"
+        );
+    }
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_tighten_to_position(&[a, b], Vec3::new(15.0, 0.0, 0.0)),
+            CommandResult::Success
+        );
+    }
+    assert_eq!(logic.host_object(b).unwrap().ai_state, AIState::Moving);
+    {
+        let u = logic.host_object_mut(b).unwrap();
+        u.shock_stun_frames = 40;
+        u.set_ai_state(AIState::Idle);
+    }
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(exec.execute_scatter(&[a, b]), CommandResult::Success);
+    }
+    assert_eq!(logic.host_object(b).unwrap().ai_state, AIState::Moving);
+}
+
+#[test]
+fn free_move_clamp_uses_geometry_not_selection_radius() {
+    // C++ computeIndividualDestination: 6 * getBoundingCircleRadius (AIGroup.cpp:470-471).
+    use super::CommandExecutor;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    for name in ["CL_A", "CL_B"] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let a = logic
+        .create_object("CL_A", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let b = logic
+        .create_object("CL_B", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    for id in [a, b] {
+        let o = logic.host_object_mut(id).unwrap();
+        o.selection_radius = 100.0;
+        o.thing.geometry.radius = 2.0;
+        o.thing.geometry.bounds_min = Vec3::new(-2.0, 0.0, -2.0);
+        o.thing.geometry.bounds_max = Vec3::new(2.0, 0.0, 2.0);
+    }
+    let click = Vec3::new(100.0, 0.0, 0.0);
+    let exec = CommandExecutor::new(&mut logic, 0);
+    let goals = exec.group_move_destinations(&[a, b], click);
+    let ga = goals.iter().find(|(id, _)| *id == a).unwrap().1;
+    // B is nearer the click → lead. A offset 40 clamps to 6 * 2 = 12.
+    // selection_radius 100 would have allowed 600 (no clamp).
+    assert!(
+        (ga.x - 88.0).abs() < 1.0,
+        "free-move clamp must use geometry radius, ga={ga:?}"
     );
 }
 

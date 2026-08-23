@@ -666,6 +666,12 @@ pub fn apply_skirmish_config(
         // non-zero PlayerTemplate Money value may replace it.
         player.resources.supplies = cash;
         player.color_rgb = slot.color_rgb;
+        player.color_night_rgb =
+            crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
+                slot.color_rgb,
+            );
+
+
         player.start_position = start_position;
         player.alliance_team = slot.team;
         logic.add_player(player);
@@ -691,6 +697,12 @@ pub fn apply_skirmish_config(
             )
         })?;
         player.color_rgb = slot.color_rgb;
+        player.color_night_rgb =
+            crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
+                slot.color_rgb,
+            );
+
+
         player.start_position = start_position;
         player.alliance_team = slot.team;
         let is_observer = player.is_observer;

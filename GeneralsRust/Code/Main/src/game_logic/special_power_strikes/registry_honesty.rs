@@ -1411,10 +1411,20 @@ impl HostSpecialPowerStrikeRegistry {
             })
             .map(|s| s.id)
             .collect();
+        let mut pending_puc_audio: Vec<(ObjectId, Vec3, &'static str)> = Vec::new();
         for id in particle_ids {
             if let Some(strike) = self.strikes.get_mut(&id) {
-                apply_particle_charge_status(strike, current_frame);
+                if let Some(cue) = apply_particle_charge_status(strike, current_frame) {
+                    pending_puc_audio.push((
+                        strike.source_object,
+                        strike.target_position,
+                        cue,
+                    ));
+                }
             }
+        }
+        for (src, pos, cue) in pending_puc_audio {
+            self.note_puc_loop_audio(src, pos, cue);
         }
 
         // ScudStorm PreAttack residual frame counter (until first missile wave).

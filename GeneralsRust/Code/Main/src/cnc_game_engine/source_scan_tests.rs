@@ -1434,9 +1434,14 @@ fn idle_harvesters_and_cancel_all_production_residual() {
     );
     assert!(
         src.contains("fn cancel_all_selected_production")
-            && src.contains("Canceled all production")
             && src.contains("ctrl_down && !shift"),
         "Ctrl+Delete must cancel all production residual"
+    );
+    assert!(
+        !src.contains("Canceled all production")
+            && !src.contains("Select a valid target")
+            && !src.contains("Cancelled pending command"),
+        "hq-0foy9: cancel/reject must not invent English HUD toasts"
     );
 }
 

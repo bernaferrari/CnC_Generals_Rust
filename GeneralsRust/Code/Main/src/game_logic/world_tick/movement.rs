@@ -630,6 +630,57 @@ impl GameLogic {
                             Self::stamp_object_airborne_target(obj, ground_y);
                             break 'unit;
                         }
+                        // C++ locoUpdate_moveTowardsPosition LOCO_THRUST
+                        // → moveTowardsPositionThrust (Locomotor.cpp:1104-1107).
+                        // Live `move_towards_thrust` already ports the 3D mover
+                        // (hq-sw06m); production march must dispatch it (hq-zx7lx).
+                        if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
+                            obj.move_towards_thrust(target_pos, on_path_dist, speed, dt);
+                            obj.notify_terrain_trees_on_unit_move();
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            Self::stamp_object_airborne_target(obj, ground_y);
+                            let mut reached_target = dist < close_enough;
+                            if reached_target {
+                                let finishing = obj.movement.path.is_empty()
+                                    || obj.movement.current_path_index + 1
+                                        >= obj.movement.path.len();
+                                if finishing {
+                                    if let Some(last) = obj.movement.path.last().copied() {
+                                        if !z_motive
+                                            && horiz(current_pos, last) > close_enough_sanity
+                                        {
+                                            reached_target = false;
+                                        }
+                                    }
+                                }
+                            }
+                            if reached_target {
+                                if obj.movement.path.is_empty()
+                                    || obj.movement.current_path_index + 1
+                                        >= obj.movement.path.len()
+                                {
+                                    if obj.holds_air_position_when_idle() {
+                                        obj.movement.path.clear();
+                                        obj.movement.current_path_index = 0;
+                                        obj.movement.target_position = None;
+                                        obj.maintain_pos_valid = false;
+                                        let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                    } else {
+                                        obj.stop_moving();
+                                        plant_snap = true;
+                                    }
+                                } else {
+                                    obj.movement.current_path_index += 1;
+                                    let mut next =
+                                        obj.movement.path[obj.movement.current_path_index];
+                                    if !z_motive {
+                                        next.y = obj.get_position().y;
+                                    }
+                                    obj.movement.target_position = Some(next);
+                                }
+                            }
+                            break 'unit;
+                        }
                         // C++ moveTowardsPositionTreads/Legs/Climb angleCoeff
                         // (Locomotor.cpp:1170-1180, 1638-1646, 1760-1767).
                         if matches!(
@@ -758,8 +809,18 @@ impl GameLogic {
                         let march_from = obj.get_position();
                         let mut new_position = march_from;
                         if allow_2d_motive {
-                            let slide_thresh = speed * obj.ultra_accurate_slide_factor;
-                            let sliding = obj.ultra_accurate
+                            // Leftover Other/Hover (move_ground.rs:511-531):
+                            // threshold = per-frame goalSpeed * parse_duration_real.
+                            let slide_other_or_hover = matches!(
+                                obj.loco_appearance,
+                                LocomotorAppearance::Other | LocomotorAppearance::Hover
+                            );
+                            let frames = game_engine::common::game_common::LOGICFRAMES_PER_SECOND
+                                as f32;
+                            let slide_thresh =
+                                (speed / frames) * obj.ultra_accurate_slide_factor;
+                            let sliding = slide_other_or_hover
+                                && obj.ultra_accurate
                                 && obj.ultra_accurate_slide_factor > 0.0
                                 && (flat_target.x - current_pos.x).abs() <= slide_thresh
                                 && (flat_target.z - current_pos.z).abs() <= slide_thresh;
@@ -2685,6 +2746,112 @@ mod tests {
             y > 0.5 && y <= 5.5,
             "one Euler step is lift-limited (maxLift=5), y={}",
             y
+        );
+    }
+
+    /// hq-si460: leftover Other/Hover slide keeps yaw when ULTRA_ACCURATE
+    /// and inside parse_duration_real(SlideIntoPlaceTime) * per-frame speed.
+    #[test]
+    fn hover_ultra_accurate_slides_without_yaw() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9820);
+        let mut tmpl = ThingTemplate::new("ChinookSlide");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, id, Team::USA);
+        heli.set_position(Vec3::new(0.0, 0.0, 0.0));
+        heli.set_orientation(0.0);
+        heli.ground_height = 0.0;
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.allow_motive_force_while_airborne = true;
+        heli.ultra_accurate = true;
+        heli.ultra_accurate_slide_factor = 3.0;
+        heli.movement.max_speed = 150.0;
+        heli.movement.acceleration = 10_000.0;
+        // Per-frame speed 5 * leftover 3 frames = 15 wu window. Goal at +10 Z
+        // is inside the box; facing +X so yaw would change without slide.
+        heli.movement.target_position = Some(Vec3::new(0.0, 0.0, 10.0));
+        logic.objects.insert(id, heli);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("heli");
+        assert!(
+            obj.get_orientation().abs() < 0.01,
+            "Hover ULTRA_ACCURATE must slide (TURN_NONE), yaw={}",
+            obj.get_orientation()
+        );
+        assert!(
+            obj.get_position().z > 0.2,
+            "slide must still translate toward goal, z={}",
+            obj.get_position().z
+        );
+
+        let mut wheels = Object::new(
+            {
+                let mut t = ThingTemplate::new("TruckNoSlide");
+                t.add_kind_of(KindOf::Vehicle);
+                t
+            },
+            ObjectId(9821),
+            Team::USA,
+        );
+        wheels.set_position(Vec3::new(0.0, 0.0, 0.0));
+        wheels.set_orientation(0.0);
+        wheels.ground_height = 0.0;
+        wheels.loco_appearance = LocomotorAppearance::WheelsFour;
+        wheels.ultra_accurate = true;
+        wheels.ultra_accurate_slide_factor = 3.0;
+        wheels.movement.max_speed = 150.0;
+        wheels.movement.acceleration = 10_000.0;
+        wheels.movement.turn_rate = 10.0;
+        wheels.min_turn_speed = 1.0;
+        wheels.movement.target_position = Some(Vec3::new(0.0, 0.0, 10.0));
+        let mut logic2 = GameLogic::new();
+        logic2.objects.insert(ObjectId(9821), wheels);
+        logic2.update_movement_for_test(&[ObjectId(9821)], 1.0 / 30.0);
+        let truck = logic2.objects.get(&ObjectId(9821)).expect("truck");
+        assert!(
+            truck.get_orientation().abs() > 0.01,
+            "Wheels must still yaw; leftover slide is Other/Hover only, yaw={}",
+            truck.get_orientation()
+        );
+    }
+
+    /// hq-zx7lx: production march must dispatch Thrust to the 3D mover
+    /// (orient-to-velocity), not the generic yaw-at-goal hover-car path.
+    #[test]
+    fn thrust_march_orients_to_velocity_not_goal() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9830);
+        let mut tmpl = ThingTemplate::new("ComancheThrust");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, id, Team::USA);
+        heli.set_position(Vec3::new(0.0, 10.0, 0.0));
+        // Nose already along current velocity (−Z). Generic march would yaw
+        // toward the +X goal; thrust keeps the nose on the velocity vector.
+        heli.set_orientation(std::f32::consts::FRAC_PI_2);
+        heli.ground_height = 0.0;
+        heli.loco_appearance = LocomotorAppearance::Thrust;
+        heli.allow_motive_force_while_airborne = true;
+        heli.min_speed = 5.0;
+        heli.movement.max_speed = 50.0;
+        heli.movement.acceleration = 100.0;
+        heli.movement.turn_rate = 10.0;
+        heli.max_thrust_angle = std::f32::consts::FRAC_PI_2;
+        heli.movement.velocity = Vec3::new(0.0, 0.0, -20.0);
+        heli.movement.target_position = Some(Vec3::new(100.0, 10.0, 0.0));
+        logic.objects.insert(id, heli);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("heli");
+        let yaw = obj.get_orientation();
+        assert!(
+            (yaw - std::f32::consts::FRAC_PI_2).abs() < 0.35,
+            "Thrust must orient to velocity (−Z), not snap yaw to +X goal, yaw={yaw}"
+        );
+        assert!(
+            obj.get_position().distance(Vec3::new(0.0, 10.0, 0.0)) > 1e-3
+                || obj.movement.velocity.length() > 1.0,
+            "Thrust march must apply 3D motive"
         );
     }
 

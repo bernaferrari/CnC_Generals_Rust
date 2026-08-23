@@ -124,6 +124,8 @@ impl Object {
             apply_status_bits_upgrade, object_status_mask_from_names, status_bits_has,
         };
         let before = self.object_status_bits;
+        let uc_before = self.status.under_construction
+            || status_bits_has(before, "UNDER_CONSTRUCTION");
         self.object_status_bits =
             apply_status_bits_upgrade(self.object_status_bits, set_names, clear_names);
         // Mirror a few high-traffic bits onto ObjectStatus bools.
@@ -143,6 +145,11 @@ impl Object {
             if !status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION") {
                 self.status.under_construction = false;
             }
+        }
+        let uc_after = self.status.under_construction
+            || status_bits_has(self.object_status_bits, "UNDER_CONSTRUCTION");
+        if uc_before != uc_after {
+            crate::game_logic::host_status_log::request_under_construction_mine_sweep(self.id);
         }
         if status_bits_has(self.object_status_bits, "REPULSOR") {
             self.status.repulsor = true;
@@ -377,6 +384,9 @@ impl Object {
         crate::game_logic::host_status_log::record_deployed(self.id, v);
     }
     pub fn set_status_under_construction(&mut self, v: bool) {
+        if self.status.under_construction != v {
+            crate::game_logic::host_status_log::request_under_construction_mine_sweep(self.id);
+        }
         self.status.under_construction = v;
         crate::game_logic::host_status_log::record_under_construction(self.id, v);
     }

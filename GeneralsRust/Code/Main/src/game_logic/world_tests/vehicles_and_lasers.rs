@@ -849,6 +849,114 @@ fn supw_emp_scatter_misses_infantry_residual() {
     );
 }
 
+/// Patch 1.01 leftover: intended aircraft outside EffectRadius 10 but within
+/// 40 still gets DISABLED_EMP (hq-qq9jt).
+#[test]
+fn supw_patriot_emp_intended_victim_near_miss_disables() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+
+    let mut pat_tpl = crate::game_logic::ThingTemplate::new("SupW_AmericaPatriotBattery");
+    pat_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0);
+    logic
+        .templates
+        .insert("SupW_AmericaPatriotBattery".to_string(), pat_tpl);
+
+    let mut air_tpl = crate::game_logic::ThingTemplate::new("TestJet");
+    air_tpl
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(400.0);
+    logic.templates.insert("TestJet".to_string(), air_tpl);
+
+    let bat = logic
+        .create_object(
+            "SupW_AmericaPatriotBattery",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("supw patriot");
+    // 30 units from blast: outside EffectRadius 10, inside leftover 40 near-miss.
+    let jet = logic
+        .create_object("TestJet", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+        .expect("jet");
+    if let Some(a) = logic.host_object_mut(jet) {
+        a.status.airborne_target = true;
+    }
+
+    logic.apply_supw_patriot_emp_residual_at(
+        Vec3::new(0.0, 0.0, 0.0),
+        bat,
+        Team::USA,
+        Some(jet),
+    );
+    let victim = logic.host_object(jet).expect("jet");
+    assert!(
+        victim.is_emp_disabled() || victim.status.disabled_emp,
+        "intended aircraft near-miss must DISABLED_EMP"
+    );
+
+    // Farther than 40 and radius*2: leftover miss, stay mobile.
+    let far = logic
+        .create_object("TestJet", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("far jet");
+    if let Some(a) = logic.host_object_mut(far) {
+        a.status.airborne_target = true;
+    }
+    logic.apply_supw_patriot_emp_residual_at(Vec3::ZERO, bat, Team::USA, Some(far));
+    let far_v = logic.host_object(far).expect("far jet");
+    assert!(
+        !far_v.is_emp_disabled() && !far_v.status.disabled_emp,
+        "aircraft farther than 40 and radius*2 must not near-miss disable"
+    );
+
+    // Ground vehicle outside EffectRadius: C++ fallback requires KINDOF_AIRCRAFT.
+    let tank = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("tank");
+    logic.apply_supw_patriot_emp_residual_at(Vec3::ZERO, bat, Team::USA, Some(tank));
+    let tank_v = logic.host_object(tank).expect("tank");
+    assert!(
+        !tank_v.is_emp_disabled() && !tank_v.status.disabled_emp,
+        "non-aircraft intended victim must not near-miss disable"
+    );
+
+    // EMP_HARDENED name marker (cargo plane) — leftover skips fallback.
+    let mut cargo_tpl = crate::game_logic::ThingTemplate::new("AmericaJetCargoPlane");
+    cargo_tpl
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(400.0);
+    logic
+        .templates
+        .insert("AmericaJetCargoPlane".to_string(), cargo_tpl);
+    let cargo = logic
+        .create_object(
+            "AmericaJetCargoPlane",
+            Team::GLA,
+            Vec3::new(30.0, 0.0, 0.0),
+        )
+        .expect("cargo");
+    if let Some(a) = logic.host_object_mut(cargo) {
+        a.status.airborne_target = true;
+    }
+    logic.apply_supw_patriot_emp_residual_at(Vec3::ZERO, bat, Team::USA, Some(cargo));
+    let cargo_v = logic.host_object(cargo).expect("cargo");
+    assert!(
+        !cargo_v.is_emp_disabled() && !cargo_v.status.disabled_emp,
+        "EMP_HARDENED aircraft must not near-miss disable"
+    );
+}
+
 /// Residual: Chem Anthrax Gamma upgrade raises toxin tractor stream damage
 /// (20.5) and upgraded MediumPoisonField DoT (2.5/tick). Chem templates
 /// start at Beta baseline without research.
@@ -3559,6 +3667,144 @@ fn turret_move_loop_missing_unit_sound_stays_silent() {
             e.event_type != "TurretMoveLoop" && e.event_type != "SilentTurretTurretMoveLoop"
         }),
         "missing UnitSpecificSounds.TurretMoveLoop must stay silent: {:?}",
+        logic.queued_audio_events
+    );
+}
+
+#[test]
+fn voice_rapid_fire_plays_authored_per_unit_sound() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+    use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        "ChinaTankGattling",
+        "VoiceRapidFire",
+        "GattlingTankVoiceRapid",
+    );
+    set_test_per_unit_sound(
+        "ChinaGattlingCannon",
+        "VoiceRapidFire",
+        "GattlingCannonVoiceRapid",
+    );
+    set_test_per_unit_sound(
+        "ChinaInfantryMiniGunner",
+        "VoiceRapidFire",
+        "MiniGunnerVoiceRapidFire",
+    );
+
+    let mut logic = GameLogic::new();
+    let mut tank_t = ThingTemplate::new("ChinaTankGattling");
+    tank_t.add_kind_of(KindOf::Vehicle).set_health(300.0);
+    logic
+        .templates
+        .insert("ChinaTankGattling".into(), tank_t);
+    let tank = logic
+        .create_object("ChinaTankGattling", Team::China, Vec3::ZERO)
+        .expect("tank");
+    {
+        let o = logic.objects.get_mut(&tank).unwrap();
+        o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
+        o.continuous_fire_consecutive = 6;
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_gattling_continuous_fire(tank, Some(ObjectId(99)), 0);
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "GattlingTankVoiceRapid" && e.object_id == Some(tank)
+        }),
+        "tank VoiceRapidFire must play the authored event: {:?}",
+        logic.queued_audio_events
+    );
+
+    logic.queued_audio_events.clear();
+    let mut bld_t = ThingTemplate::new("ChinaGattlingCannon");
+    bld_t.add_kind_of(KindOf::Structure).set_health(1000.0);
+    logic
+        .templates
+        .insert("ChinaGattlingCannon".into(), bld_t);
+    let bld = logic
+        .create_object("ChinaGattlingCannon", Team::China, Vec3::ZERO)
+        .expect("cannon");
+    {
+        let o = logic.objects.get_mut(&bld).unwrap();
+        o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
+        o.continuous_fire_consecutive = 6;
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_gattling_building_continuous_fire(bld, Some(ObjectId(99)), 0);
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "GattlingCannonVoiceRapid" && e.object_id == Some(bld)
+        }),
+        "building VoiceRapidFire must play the authored event: {:?}",
+        logic.queued_audio_events
+    );
+
+    logic.queued_audio_events.clear();
+    let mut mini_t = ThingTemplate::new("ChinaInfantryMiniGunner");
+    mini_t.add_kind_of(KindOf::Infantry).set_health(120.0);
+    logic
+        .templates
+        .insert("ChinaInfantryMiniGunner".into(), mini_t);
+    let mini = logic
+        .create_object("ChinaInfantryMiniGunner", Team::China, Vec3::ZERO)
+        .expect("minigunner");
+    {
+        let o = logic.objects.get_mut(&mini).unwrap();
+        o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
+        o.continuous_fire_consecutive = 6;
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_minigunner_continuous_fire(mini, Some(ObjectId(99)), 0);
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "MiniGunnerVoiceRapidFire" && e.object_id == Some(mini)
+        }),
+        "minigunner VoiceRapidFire must play the authored event, not Attack: {:?}",
+        logic.queued_audio_events
+    );
+    assert!(
+        logic.queued_audio_events.iter().all(|e| {
+            e.event_type != "VoiceRapidFire" && e.event_type != "RedMinigunnerVoiceAttack"
+        }),
+        "must not queue the slot token or Attack voice: {:?}",
+        logic.queued_audio_events
+    );
+    clear_test_template_voices();
+}
+
+#[test]
+fn voice_rapid_fire_missing_unit_sound_stays_silent() {
+    use crate::game_logic::audio_dispatch_impl::clear_test_template_voices;
+    use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+    use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("SilentGattling");
+    t.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    logic.templates.insert("SilentGattling".into(), t);
+    let id = logic
+        .create_object("SilentGattling", Team::China, Vec3::ZERO)
+        .expect("silent");
+    {
+        let o = logic.objects.get_mut(&id).unwrap();
+        o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
+        o.continuous_fire_consecutive = 6;
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_gattling_continuous_fire(id, Some(ObjectId(99)), 0);
+    assert!(
+        logic.queued_audio_events.iter().all(|e| {
+            e.event_type != "VoiceRapidFire" && e.event_type != "SilentGattlingVoiceRapidFire"
+        }),
+        "missing UnitSpecificSounds.VoiceRapidFire must stay silent: {:?}",
         logic.queued_audio_events
     );
 }

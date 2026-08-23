@@ -552,31 +552,47 @@ impl Object {
         self.ensure_fx_list_die();
         let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();
         let death_type = self.status.death_type;
-        // C++ FXListDie::onDie → doFXObj(deathFX, obj, source)
+        // C++ FXListDie::onDie → doFXObj when OrientToObject, else doFXPos.
         let killer = self.last_damage_source.map(|id| id.0);
+        let pos = self.get_position();
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
         let leftover_vet =
             crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(self.experience.level);
         let leftover_status = self.object_status_bits;
-        let hits = fx.collect_applicable_mux(&upgrades, death_type, leftover_vet, leftover_status);
-        for (i, (f, a)) in hits.into_iter().enumerate() {
+        let hits = fx.collect_applicable_mux_hits(
+            &upgrades,
+            death_type,
+            leftover_vet,
+            leftover_status,
+        );
+        for (i, hit) in hits.into_iter().enumerate() {
+            if !hit.orient_to_object {
+                if let Some(name) = hit.death_fx {
+                    let _ = crate::game_logic::dispatch_fx_list_at_pos(&name, pos);
+                }
+                if self.pending_death_audio.is_none() {
+                    self.pending_death_audio = hit.death_audio;
+                }
+                continue;
+            }
             if i == 0 {
                 if self.pending_death_fx.is_none() {
-                    self.pending_death_fx = f;
+                    self.pending_death_fx = hit.death_fx;
                 }
                 if self.pending_death_audio.is_none() {
-                    self.pending_death_audio = a;
+                    self.pending_death_audio = hit.death_audio;
                 }
-            } else if let Some(name) = f {
+            } else if let Some(name) = hit.death_fx {
                 let _ = crate::game_logic::dispatch_fx_list_at_object(&name, self.id.0, killer);
                 if self.pending_death_audio.is_none() {
-                    self.pending_death_audio = a;
+                    self.pending_death_audio = hit.death_audio;
                 }
             }
         }
     }
+
 
     pub fn ensure_crush_die(&mut self) {
         if self.crush_die.is_some() {

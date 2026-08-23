@@ -40,6 +40,49 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ AIGroup tighten/scatter/move-bbox filter (`AIGroup.cpp:1625-1635`,
+    /// `:1763`, `:1861`): DISABLED_HELD, KINDOF_IMMOBILE, or no AI. Stun /
+    /// subdue / deploy must still count and still receive the order.
+    fn group_ai_member_receives_move(unit: &crate::game_logic::object::Object) -> bool {
+        if !unit.is_alive() {
+            return false;
+        }
+        if unit.status.disabled_held || unit.contained_by.is_some() {
+            return false;
+        }
+        if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+            || unit.is_kind_of(crate::game_logic::KindOf::Structure)
+        {
+            return false;
+        }
+        unit.is_mobile() || unit.can_attack()
+    }
+
+    /// C++/leftover still queue the AI move when `can_move` is false (stun).
+    fn queue_group_move_goal(&mut self, unit_id: ObjectId, dest: Vec3) -> bool {
+        if self.game_logic.unit_command_move_to_moving(unit_id, dest) {
+            return true;
+        }
+        let Some(unit) = self.game_logic.host_object_mut(unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        unit.set_destination(dest);
+        unit.set_ai_state(AIState::Moving);
+        true
+    }
+
+    /// C++ `theUnit->setFormationID(NO_FORMATION_ID)` in the free-move loop.
+    fn dissolve_free_move_formation_stamps(&mut self, unit_ids: &[ObjectId]) {
+        for &unit_id in unit_ids {
+            let _ = self
+                .game_logic
+                .unit_command_set_formation(unit_id, 0, glam::Vec2::ZERO);
+        }
+    }
+
     /// C++ `pickAndPlayUnitVoiceResponse` force-move VoiceCrush
     /// (`CommandXlat.cpp:413-421`): dest drawable (`m_drawTarget`), not a
     /// pathfind-cell neighborhood. Gate is `canCrushOrSquish` (ALLIES + SquishCollide).
@@ -183,6 +226,9 @@ impl<'a> CommandExecutor<'a> {
         }
         self.apply_group_desired_speed(units, false);
         let goals = self.group_move_destinations(units, destination);
+        // C++ free-move loop: setFormationID(NO_FORMATION_ID) (AIGroup.cpp:1681).
+        let free_ids: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
+        self.dissolve_free_move_formation_stamps(&free_ids);
         if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
             if self.game_logic.assign_shared_group_paths(&goals, destination) {
                 let moved: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
@@ -252,6 +298,10 @@ impl<'a> CommandExecutor<'a> {
         }
         self.apply_group_desired_speed(units, self.group_is_stamped_formation(units));
         let goals = self.group_move_destinations(units, destination);
+        if !self.group_is_stamped_formation(units) {
+            let free_ids: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
+            self.dissolve_free_move_formation_stamps(&free_ids);
+        }
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
             let goal = self
@@ -356,7 +406,7 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-            let radius = obj.selection_radius.max(5.0);
+            let radius = Self::bounding_circle_radius(obj);
             movers.push((
                 unit_id,
                 obj.get_position(),
@@ -600,12 +650,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
-            if !o.is_alive() || !o.can_move() {
-                continue;
-            }
-            if o.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || o.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
+            if !Self::group_ai_member_receives_move(o) {
                 continue;
             }
             // Airborne fixed-wing: C++ disables tighten.
@@ -665,12 +710,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !unit.is_alive() || !unit.can_move() {
-                continue;
-            }
-            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
+            if !Self::group_ai_member_receives_move(unit) {
                 continue;
             }
             let p = unit.get_position();
@@ -689,7 +729,9 @@ impl<'a> CommandExecutor<'a> {
             } else {
                 destination
             };
-            if self.game_logic.unit_command_tighten_to(unit_id, dest) {
+            if self.game_logic.unit_command_tighten_to(unit_id, dest)
+                || self.queue_group_move_goal(unit_id, dest)
+            {
                 any = true;
             }
         }
@@ -1009,6 +1051,10 @@ impl<'a> CommandExecutor<'a> {
         // Wave 232: force-move via GameLogic unit_command_force_move_to.
         self.apply_group_desired_speed(units, self.group_is_stamped_formation(units));
         let goals = self.group_move_destinations(units, destination);
+        if !self.group_is_stamped_formation(units) {
+            let free_ids: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
+            self.dissolve_free_move_formation_stamps(&free_ids);
+        }
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
             if !self.game_logic.unit_command_force_move_to(unit_id, goal) {
@@ -1159,12 +1205,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !unit.is_alive() || !unit.can_move() {
-                continue;
-            }
-            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
+            if !Self::group_ai_member_receives_move(unit) {
                 continue;
             }
             let pos = unit.get_position();
@@ -1203,7 +1244,7 @@ impl<'a> CommandExecutor<'a> {
             }
             let push = 4.0 * radius;
             let dest = Vec3::new(pos.x + dx * push, pos.y, pos.z + dz * push);
-            if self.game_logic.unit_command_move_to_moving(unit_id, dest) {
+            if self.queue_group_move_goal(unit_id, dest) {
                 any = true;
             }
         }

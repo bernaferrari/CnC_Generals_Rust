@@ -773,6 +773,13 @@ fn particle_uplink_sound_residual_pack_honesty() {
         assert!(s.particle_unpack_audio_applications >= 1);
         assert_eq!(s.particle_status, ParticleUplinkStatus::Preparing);
     }
+    {
+        let loops = reg.take_puc_loop_audio_this_frame();
+        assert!(
+            loops.iter().any(|(_, _, cue)| *cue == PARTICLE_UNPACK_AUDIO),
+            "PREPARING must note UnpackToIdleSoundLoop"
+        );
+    }
     // Long impact window can also hit CHARGING → PoweringUpSoundLoop.
     // begin_charge = impact - (ReadyDelay+RaiseAntenna+BeginCharge) =
     // impact - 350; use impact_frame 350 so frame 0 is CHARGING.
@@ -788,6 +795,15 @@ fn particle_uplink_sound_residual_pack_honesty() {
         assert_eq!(s.particle_status, ParticleUplinkStatus::Charging);
         assert!(s.particle_powerup_audio_applications >= 1);
     }
+    {
+        let loops = reg.take_puc_loop_audio_this_frame();
+        assert!(
+            loops
+                .iter()
+                .any(|(_, _, cue)| *cue == PARTICLE_POWERUP_AUDIO),
+            "CHARGING must note PoweringUpSoundLoop"
+        );
+    }
     // Beam spawn arms GroundAnnihilation + FiringToPack + sound pack.
     reg.record_impact_complete(id, 0.0, 0, 0);
     {
@@ -796,6 +812,15 @@ fn particle_uplink_sound_residual_pack_honesty() {
         assert_eq!(f.firing_to_pack_audio_applications, 1);
         assert_eq!(f.sound_residual_pack_armed, 1);
         assert!(f.beam_launch_fx_applications >= 1);
+    }
+    {
+        let loops = reg.take_puc_loop_audio_this_frame();
+        assert!(
+            loops
+                .iter()
+                .any(|(_, _, cue)| *cue == PARTICLE_FIRING_TO_PACK_AUDIO),
+            "FIRING beam spawn must note FiringToPackSoundLoop"
+        );
     }
     assert!(reg.honesty_beam_sound_residual_ok());
 }

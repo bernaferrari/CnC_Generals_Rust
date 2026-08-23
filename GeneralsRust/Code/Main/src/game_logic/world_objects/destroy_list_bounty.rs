@@ -71,6 +71,47 @@ fn transport_contain_kills_unfree_riders(obj: &Object) -> bool {
         || obj.is_listening_outpost_transport
 }
 
+/// C++ `TransportContain::onRemoving` when the hull is effectively dead:
+/// leftover `OpenContain::scatterToNearbyPosition` — place at wreck, face the
+/// ring angle, `aiMoveToPosition` toward a 1.0–1.5× bounding-radius dest.
+fn apply_transport_death_scatter(
+    unit: &mut Object,
+    container_id: ObjectId,
+    container_pos: glam::Vec3,
+    bounding_radius: f32,
+    now: u32,
+) {
+    let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
+        container_pos.x,
+        container_pos.z,
+        container_pos.y,
+        bounding_radius,
+        Some(container_pos.y),
+    );
+    let dest = glam::Vec3::new(leftover.dest_x, leftover.dest_z, leftover.dest_y);
+    unit.stop_moving();
+    unit.target = None;
+    unit.set_contained_by(None);
+    unit.set_position(container_pos);
+    unit.set_orientation(leftover.orientation);
+    unit.set_destination(dest);
+    unit.set_ai_state(AIState::Moving);
+    unit.status.moving = true;
+    unit.ignore_collisions_with = Some(container_id);
+    unit.next_mood_check_time = now;
+    if crate::gameworld_shadow::gameworld_movement_authority_live() {
+        crate::game_logic::host_move_log::record(
+            unit.id,
+            Some([container_pos.x, container_pos.y, container_pos.z]),
+        );
+        unit.record_host_movement();
+    }
+    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        crate::game_logic::host_ai_decision_log::record_set_state(unit.id, 1);
+    }
+    unit.set_status_attacking(false);
+}
+
 /// C++ `Pathfinder::validMovementTerrain` at the hull (AIPathfind.cpp:4763-4783).
 fn valid_rider_movement_terrain(
     grid: &crate::game_logic::PathfindingGrid,
@@ -502,6 +543,16 @@ impl GameLogic {
                     // C++ OpenContain::onDie: processDamageToContained then
                     // killRidersWhoAreNotFreeToExit then removeAllContained.
                     let kill_unfree = transport_contain_kills_unfree_riders(&obj);
+                    let scatter_on_death = kill_unfree;
+                    let scatter_radius = {
+                        let geom = &obj.thing.template.geometry_info;
+                        if geom.authored {
+                            geom.bounding_circle_radius()
+                        } else {
+                            obj.selection_radius.max(obj.thing.geometry.radius)
+                        }
+                    };
+                    let container_template = obj.template_name.clone();
                     for (i, contained_id) in obj.contained_units().into_iter().enumerate() {
                         let free_to_exit = !kill_unfree
                             || self.objects.get(&contained_id).is_some_and(|unit| {
@@ -570,34 +621,54 @@ impl GameLogic {
                                 self.mark_object_for_destruction(contained_id, event.killer);
                                 continue;
                             }
-
-                            let angle = (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
-                                + i as f32 * 0.73;
-                            let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
-                            unit.stop_moving();
-                            unit.set_position(eject_origin + offset);
-                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                                let p = eject_origin + offset;
-                                crate::game_logic::host_move_log::record(
-                                    unit.id,
-                                    Some([p.x, p.y, p.z]),
+                            let rider_template = unit.template_name.clone();
+                            if scatter_on_death {
+                                apply_transport_death_scatter(
+                                    unit,
+                                    event.id,
+                                    eject_origin,
+                                    scatter_radius,
+                                    self.frame,
                                 );
-                                unit.record_host_movement();
+                            } else {
+                                let angle =
+                                    (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
+                                        + i as f32 * 0.73;
+                                let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
+                                unit.stop_moving();
+                                unit.set_position(eject_origin + offset);
+                                if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                                    let p = eject_origin + offset;
+                                    crate::game_logic::host_move_log::record(
+                                        unit.id,
+                                        Some([p.x, p.y, p.z]),
+                                    );
+                                    unit.record_host_movement();
+                                }
+                                unit.set_target(None);
+                                unit.set_contained_by(None);
+                                unit.set_ai_state(AIState::Idle);
+                                if crate::gameworld_shadow::gameworld_ai_decision_authority_live()
+                                {
+                                    crate::game_logic::host_ai_decision_log::record_stop_attack(
+                                        contained_id,
+                                    );
+                                    crate::game_logic::host_ai_decision_log::record_set_state(
+                                        contained_id,
+                                        0,
+                                    );
+                                }
+                                unit.set_status_moving(false);
+                                unit.set_status_attacking(false);
                             }
-                            unit.set_target(None);
-                            unit.set_contained_by(None);
-                            unit.set_ai_state(AIState::Idle);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                crate::game_logic::host_ai_decision_log::record_stop_attack(
-                                    contained_id,
-                                );
-                                crate::game_logic::host_ai_decision_log::record_set_state(
-                                    contained_id,
-                                    0,
-                                );
-                            }
-                            unit.set_status_moving(false);
-                            unit.set_status_attacking(false);
+                            drop(unit);
+                            // C++ OpenContain::onRemoving template SoundExit + SoundFalling.
+                            self.play_container_removing_template_sounds_named(
+                                &container_template,
+                                event.id,
+                                &rider_template,
+                                contained_id,
+                            );
                         }
                     }
                 }
@@ -1444,6 +1515,67 @@ mod tests {
         assert!(r.is_alive(), "airborne hull must eject living riders");
         assert!(!r.status.destroyed);
         assert!(r.contained_by.is_none());
+    }
+
+    #[test]
+    fn transport_death_scatters_survivors_when_damage_percent_below_100() {
+        // hq-lkiem / hq-j0ggx / hq-c77h2: Technical-style 10% DamagePercentToUnits
+        // survivors use leftover scatterToNearbyPosition, not the Idle 8-unit ring.
+        let hull = glam::Vec3::new(10_000.0, 40.0, 10_000.0);
+        let (mut logic, transport, rider) = setup_zero_damage_transport(true, hull);
+        logic.frame = 42;
+        if let Some(c) = logic.host_object_mut(transport) {
+            c.is_technical_transport = true;
+            c.thing.template.geometry_info = crate::game_logic::HostGeometryInfo {
+                geom_type: crate::game_logic::HostGeometryType::Cylinder,
+                is_small: false,
+                height: 10.0,
+                major_radius: 10.0,
+                minor_radius: 10.0,
+                authored: true,
+            };
+        }
+        if let Some(r) = logic.host_object_mut(rider) {
+            r.health.current = 100.0;
+            r.max_health = 100.0;
+            r.next_mood_check_time = 9999;
+        }
+        logic.mark_object_for_destruction(transport, None);
+        logic.process_destroy_list();
+        let r = logic.host_object(rider).expect("survivor stays in world");
+        assert!(r.is_alive(), "10% DamagePercentToUnits must leave a survivor");
+        assert!(!r.status.destroyed);
+        assert!(r.contained_by.is_none());
+        assert_eq!(r.ai_state, crate::game_logic::AIState::Moving);
+        let pos = r.get_position();
+        assert!(
+            (pos - hull).length() < 0.01,
+            "scatter places the rider at the wreck, not an Idle ring offset; got {pos:?}"
+        );
+        let dest = r.movement.target_position.expect("aiMoveToPosition dest");
+        let dx = dest.x - hull.x;
+        let dz = dest.z - hull.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        assert!(
+            dist >= 10.0 - 0.01 && dist <= 15.0 + 0.01,
+            "scatter dest must sit on the 1.0–1.5× bounding-radius ring, got {dist}"
+        );
+        let angle = dz.atan2(dx);
+        assert!(
+            (r.get_orientation() - angle).abs() < 0.05
+                || (r.get_orientation() - angle).abs() > std::f32::consts::TAU - 0.05,
+            "orientation must match the leftover scatter angle"
+        );
+        assert_eq!(
+            r.next_mood_check_time, 42,
+            "ResetMoodCheckTimeOnExit wakes the rider immediately"
+        );
+        let audio = gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
+            .expect("onRemoving template audio");
+        assert_eq!(audio.container_template, "TestAmphibTransport");
+        assert_eq!(audio.container_id, transport.0);
+        assert_eq!(audio.rider_template, "TestInfantry");
+        assert_eq!(audio.rider_id, rider.0);
     }
 
 

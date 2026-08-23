@@ -1165,6 +1165,16 @@ pub(super) fn seed_known_host_weapons() -> usize {
                 5.0
             };
         }
+        // C++ Weapon.ini RequestAssistRange 200 — leftover store field live fire reads.
+        if seed.name == PATRIOT_PRIMARY_WEAPON
+            || seed.name == PATRIOT_SECONDARY_WEAPON
+            || seed.name == LAZR_PATRIOT_PRIMARY_WEAPON
+            || seed.name == LAZR_PATRIOT_SECONDARY_WEAPON
+            || seed.name == SUPW_PATRIOT_PRIMARY_WEAPON
+            || seed.name == SUPW_PATRIOT_SECONDARY_WEAPON
+        {
+            t.request_assist_range = 200.0;
+        }
         if seed.name == STINGER_SECONDARY_WEAPON {
             t.primary_damage_radius = 10.0;
         }

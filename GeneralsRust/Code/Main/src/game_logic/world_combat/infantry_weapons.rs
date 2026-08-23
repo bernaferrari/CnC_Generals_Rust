@@ -583,6 +583,13 @@ impl GameLogic {
                 let spin = spin_rate_rad_per_frame(plan.spin_rate_deg);
                 o.set_orientation(o.get_orientation() + spin * (i as f32 + 1.0));
                 o.set_extra_friction(plan.extra_friction);
+                // C++ ObjectCreationList.cpp:1121-1123 flying/up/random debris.
+                if crate::game_logic::host_ocl_create_debris::disposition_enables_bounce(
+                    plan.disposition,
+                ) {
+                    o.set_extra_bounciness(plan.extra_bounciness);
+                    o.set_allow_bouncing(true);
+                }
                 if !plan.bounce_sound.is_empty() {
                     o.set_bounce_sound(plan.bounce_sound.clone());
                 }

@@ -273,6 +273,9 @@ pub struct HostLocomotorBinding {
     pub stick_to_ground: bool,
     /// C++ LocomotorTemplate::m_closeEnoughDist (default 1.0).
     pub close_enough_dist: f32,
+    /// Leftover `parse_duration_real` of Common `SlideIntoPlaceTime` (msec → frames).
+    /// C++ `m_ultraAccurateSlideIntoPlaceFactor` (Locomotor.cpp:474).
+    pub ultra_accurate_slide_factor: f32,
     pub locomotor_surfaces: u32,
 }
 
@@ -325,6 +328,11 @@ pub fn ensure_host_locomotor_store() -> usize {
     // Always fill missing golden / Wave 81 common-unit locomotors.
     // (INI load may have BasicHuman but omit some residual names.)
     added += seed_known_host_locomotors();
+    // Retail Chinook/Helix author SlideIntoPlaceTime=100 even when the
+    // extracted Locomotor.ini is missing. Patch after generic seed so a
+    // prior speed-only insert still gets the leftover duration.
+    added += ensure_chinook_helix_slide_into_place();
+
     SEED_COMPLETE.store(true, Ordering::Relaxed);
     added
 }
@@ -628,6 +636,9 @@ pub fn resolve_host_movement(locomotor_name: &str) -> Option<HostMovementStats> 
 /// template's normal movement or reusing a rider-name heuristic.
 pub fn resolve_host_locomotor_binding(locomotor_name: &str) -> Option<HostLocomotorBinding> {
     let _ = ensure_host_locomotor_store();
+    if locomotor_name == CHINOOK_LOCOMOTOR || locomotor_name == HELIX_LOCOMOTOR {
+        let _ = ensure_chinook_helix_slide_into_place();
+    }
     let store = get_locomotor_store();
     let template = store.find_template(locomotor_name)?;
     if template.max_speed <= 0.0 {
@@ -931,6 +942,12 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         } else {
             1.0
         },
+        // Common stores SlideIntoPlaceTime as raw msec; leftover ini_bridge
+        // parse_duration_real converts msec → frames (100 msec → 3).
+        ultra_accurate_slide_factor: gamelogic::locomotor::ini_bridge::from_common_ini_template(
+            t,
+        )
+        .ultra_accurate_slide_factor,
         locomotor_surfaces: surface_mask,
     })
 }
@@ -973,6 +990,7 @@ pub fn apply_host_locomotor_binding(
         object.close_enough_dist = Some(binding.close_enough_dist);
     }
     object.wander_width_factor = binding.wander_width_factor;
+    object.ultra_accurate_slide_factor = binding.ultra_accurate_slide_factor;
     seed_wander_phase(object, binding.wander_length_factor);
     object.set_locomotor_physics_options();
     object.record_host_locomotor();
@@ -1025,6 +1043,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.wander_length_factor == right.wander_length_factor
         && left.stick_to_ground == right.stick_to_ground
         && left.close_enough_dist == right.close_enough_dist
+        && left.ultra_accurate_slide_factor == right.ultra_accurate_slide_factor
 }
 
 fn store_has(name: &str) -> bool {
@@ -1145,6 +1164,12 @@ fn seed_known_host_locomotors() -> usize {
                 format!("{}", accel * 0.5),
             );
         }
+        if name == CHINOOK_LOCOMOTOR || name == HELIX_LOCOMOTOR {
+            // Retail ChinookLocomotor / HelixLocomotor: HOVER + 100 msec slide.
+            props.insert("Appearance".to_string(), "HOVER".to_string());
+            props.insert("SlideIntoPlaceTime".to_string(), "100".to_string());
+        }
+
 
         match parse_locomotor_template_definition(name, &props) {
             Ok(template) => match get_locomotor_store_mut().add_template(template) {
@@ -1169,6 +1194,59 @@ fn seed_known_host_locomotors() -> usize {
     }
     added
 }
+
+/// C++ ChinookLocomotor / HelixLocomotor `SlideIntoPlaceTime = 100` (msec).
+/// Common stores raw msec; leftover `parse_duration_real` → 3 frames.
+fn ensure_chinook_helix_slide_into_place() -> usize {
+    const RETAIL_SLIDE_MSEC: f32 = 100.0;
+    let mut patched = 0usize;
+    for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
+        if !store_has(name) {
+            let (speed, accel, turn) = match name {
+                CHINOOK_LOCOMOTOR => (150.0, 60.0, 180.0),
+                _ => (75.0, 60.0, 180.0),
+            };
+            let mut props = HashMap::new();
+            props.insert("Speed".to_string(), format!("{}", speed));
+            props.insert("Acceleration".to_string(), format!("{}", accel));
+            props.insert("TurnRate".to_string(), format!("{}", turn));
+            props.insert("Surfaces".to_string(), "AIR".to_string());
+            props.insert("Appearance".to_string(), "HOVER".to_string());
+            props.insert(
+                "SlideIntoPlaceTime".to_string(),
+                format!("{}", RETAIL_SLIDE_MSEC),
+            );
+            match parse_locomotor_template_definition(name, &props) {
+                Ok(template) => match get_locomotor_store_mut().add_template(template) {
+                    Ok(()) => patched += 1,
+                    Err(e) => log::warn!(
+                        "Host LocomotorStore: cannot seed {name} SlideIntoPlaceTime: {e}"
+                    ),
+                },
+                Err(e) => log::warn!(
+                    "Host LocomotorStore: cannot parse {name} SlideIntoPlaceTime: {e}"
+                ),
+            }
+            continue;
+        }
+        if let Some(template) = get_locomotor_store_mut().find_template_mut(name) {
+            let mut changed = false;
+            if template.ultra_accurate_slide_into_place_factor <= 0.0 {
+                template.ultra_accurate_slide_into_place_factor = RETAIL_SLIDE_MSEC;
+                changed = true;
+            }
+            if template.appearance == SourceLocomotorAppearance::Other {
+                template.appearance = SourceLocomotorAppearance::Hover;
+                changed = true;
+            }
+            if changed {
+                patched += 1;
+            }
+        }
+    }
+    patched
+}
+
 
 fn seed_exact_combat_bike_normal_locomotors() -> usize {
     let mut added = 0usize;
@@ -1428,7 +1506,7 @@ pub fn reset_bootstrap_attempt_flag_for_tests() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
     #[test]
@@ -1612,6 +1690,101 @@ mod tests {
             host_locomotor_binding_from_template(&authored).expect("bind authored height");
         assert_eq!(authored_binding.airborne_targeting_height, 30);
     }
+
+    #[test]
+    fn slide_into_place_time_binds_leftover_duration_real() {
+        let mut properties = HashMap::new();
+        properties.insert("Speed".to_string(), "150".to_string());
+        properties.insert("Surfaces".to_string(), "AIR".to_string());
+        properties.insert("Appearance".to_string(), "HOVER".to_string());
+        properties.insert("SlideIntoPlaceTime".to_string(), "100".to_string());
+        let authored = parse_locomotor_template_definition("ChinookSlide", &properties)
+            .expect("parse SlideIntoPlaceTime");
+        assert!(
+            (authored.ultra_accurate_slide_into_place_factor - 100.0).abs() < 1e-6,
+            "Common stores raw msec, got {}",
+            authored.ultra_accurate_slide_into_place_factor
+        );
+        let leftover = gamelogic::locomotor::ini_bridge::from_common_ini_template(&authored);
+        let binding =
+            host_locomotor_binding_from_template(&authored).expect("bind SlideIntoPlaceTime");
+        assert!(
+            (binding.ultra_accurate_slide_factor - leftover.ultra_accurate_slide_factor).abs()
+                < 1e-6
+        );
+        assert!(
+            (binding.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+            "leftover parse_duration_real(100 msec) is 3 frames, got {}",
+            binding.ultra_accurate_slide_factor
+        );
+
+        let mut tmpl = ThingTemplate::new("SlideProbe");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut obj = Object::new(tmpl, ObjectId(1), Team::USA);
+        apply_host_locomotor_binding(&mut obj, &binding);
+        assert!(
+            (obj.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+            "apply must stamp leftover slide factor, got {}",
+            obj.ultra_accurate_slide_factor
+        );
+
+        let omitted = parse_locomotor_template_definition("NoSlide", &{
+            let mut p = HashMap::new();
+            p.insert("Speed".to_string(), "20".to_string());
+            p.insert("Surfaces".to_string(), "GROUND".to_string());
+            p
+        })
+        .expect("parse omitted SlideIntoPlaceTime");
+        let omitted_binding =
+            host_locomotor_binding_from_template(&omitted).expect("bind omitted slide");
+        assert_eq!(omitted_binding.ultra_accurate_slide_factor, 0.0);
+
+        let mut changed = binding;
+        changed.ultra_accurate_slide_factor += 1.0;
+        assert!(!same_host_locomotor_behavior(&binding, &changed));
+    }
+
+    #[test]
+    fn chinook_helix_seed_binds_slide_into_place_time() {
+        let _ = ensure_chinook_helix_slide_into_place();
+        for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
+            let binding = resolve_host_locomotor_binding(name)
+                .unwrap_or_else(|| panic!("{name} must resolve"));
+            assert!(
+                (binding.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+                "{name} SlideIntoPlaceTime 100 msec → 3 frames, got {}",
+                binding.ultra_accurate_slide_factor
+            );
+            assert_eq!(
+                binding.appearance,
+                crate::game_logic::LocomotorAppearance::Hover,
+                "{name} retail appearance is HOVER"
+            );
+        }
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
+        chinook
+            .add_kind_of(KindOf::Aircraft)
+            .set_locomotor_name(CHINOOK_LOCOMOTOR);
+        logic
+            .templates
+            .insert("AmericaVehicleChinook".to_string(), chinook);
+        let id = logic
+            .create_object(
+                "AmericaVehicleChinook",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("create Chinook");
+        let obj = logic.objects.get(&id).expect("chinook");
+        assert!(
+            (obj.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+            "create_object must stamp Chinook slide factor, got {}",
+            obj.ultra_accurate_slide_factor
+        );
+    }
+
 
     #[test]
     fn lift_and_speed_limit_z_bind_per_frame_units() {

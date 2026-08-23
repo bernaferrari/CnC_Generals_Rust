@@ -274,7 +274,14 @@ impl<'a> CommandExecutor<'a> {
             CommandType::ResumeConstruction { target_id } => {
                 self.execute_resume_construction(&command.selected_units, *target_id)
             }
-            CommandType::Sell { object_id } => self.execute_sell(*object_id, command.player_id),
+            CommandType::Sell { object_id } => {
+                // C++ MSG_SELL → currentlySelectedGroup->groupSell.
+                if command.selected_units.is_empty() {
+                    self.execute_sell(*object_id, command.player_id)
+                } else {
+                    self.execute_sell_selected(&command.selected_units, command.player_id)
+                }
+            }
 
             // Unit production
             CommandType::QueueUnitCreate {

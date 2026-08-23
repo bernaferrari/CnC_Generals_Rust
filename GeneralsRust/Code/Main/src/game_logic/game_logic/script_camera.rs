@@ -234,6 +234,8 @@ pub(super) struct ScriptCameraPathMove {
     pub(in super) speed_ramp_start_t: f32,
     pub(in super) speed_ramp_start_multiplier: f32,
     pub(in super) speed_ramp_final_multiplier: f32,
+    pub(in super) start_angle: f32,
+    pub(in super) frozen_to_start_angle: bool,
 }
 
 impl ScriptCameraPathMove {
@@ -351,6 +353,8 @@ impl ScriptCameraPathMove {
             speed_ramp_start_t: 0.0,
             speed_ramp_start_multiplier: 1.0,
             speed_ramp_final_multiplier: 1.0,
+            start_angle: leftover_tactical_view_angle(),
+            frozen_to_start_angle: false,
         })
     }
 
@@ -383,10 +387,28 @@ impl ScriptCameraPathMove {
         self.freeze_angle
     }
 
+    /// C++ `W3DView::cameraModFreezeAngle` on a waypoint path: remaining
+    /// `cameraAngle[i+1] = cameraAngle[0]` (start yaw, not current facing).
+    pub(super) fn freeze_angles_to_start(&mut self) {
+        self.freeze_angle = true;
+        self.frozen_to_start_angle = true;
+        self.look_toward = None;
+        self.look_toward_is_final = false;
+        self.suppress_travel_look = false;
+    }
+
+    pub(super) fn frozen_start_look_toward(&self, focus: Vec3) -> Option<Vec3> {
+        if !self.frozen_to_start_angle {
+            return None;
+        }
+        Some(look_point_from_angle_xz(focus, self.start_angle))
+    }
+
     pub(super) fn set_look_toward(&mut self, position: Vec3) {
         self.look_toward = Some(position);
         self.look_toward_is_final = false;
         self.freeze_angle = false;
+        self.frozen_to_start_angle = false;
         self.suppress_travel_look = false;
     }
 
@@ -620,6 +642,17 @@ fn normalize_camera_angle(mut angle: f32) -> f32 {
     angle
 }
 
+fn leftover_tactical_view_angle() -> f32 {
+    #[cfg(feature = "game_client")]
+    {
+        game_client::display::view::with_tactical_view_ref(|view| view.angle())
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        0.0
+    }
+}
+
 #[cfg(test)]
 impl ScriptCameraPathMove {
     pub(super) fn from_points_for_test(points: Vec<Vec3>, seconds: f32) -> Self {
@@ -646,6 +679,8 @@ impl ScriptCameraPathMove {
             speed_ramp_start_t: 0.0,
             speed_ramp_start_multiplier: 1.0,
             speed_ramp_final_multiplier: 1.0,
+            start_angle: 0.0,
+            frozen_to_start_angle: false,
         }
     }
 }
@@ -693,6 +728,25 @@ mod camera_mod_look_tests {
             .look_toward_for_current_segment()
             .expect("LOOK_TOWARD faces the target on every remaining segment");
         assert!((look.x - 50.0).abs() < 0.01 && (look.z - 80.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn freeze_angles_to_start_uses_start_yaw() {
+        let mut path = padded_path();
+        path.start_angle = 0.5;
+        path.cur_segment = 2;
+        path.freeze_angles_to_start();
+        let focus = Vec3::new(100.0, 0.0, 0.0);
+        let look = path
+            .frozen_start_look_toward(focus)
+            .expect("FREEZE_ANGLE must rewrite remaining path to start yaw");
+        let expected = super::look_point_from_angle_xz(focus, 0.5);
+        assert!((look - expected).length() < 0.01);
+        let travel = path.travel_look_toward().expect("travel look exists");
+        assert!(
+            (look - travel).length() > 1.0,
+            "start yaw must differ from current travel facing"
+        );
     }
 }
 

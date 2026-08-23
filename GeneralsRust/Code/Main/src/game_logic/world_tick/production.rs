@@ -308,8 +308,9 @@ impl GameLogic {
                     }
                 }
             }
-            for (oid, end) in end_moves {
-                // C++ DozerAIUpdate.cpp:627-635 aiMoveToPosition(END).
+            for (oid, mut end) in end_moves {
+                // C++ DozerAIUpdate.cpp:627-635 adjustToPossibleDestination then aiMoveToPosition(END).
+                self.adjust_to_possible_destination(oid, &mut end);
                 self.path_approach_with_state(oid, end, AIState::Moving);
             }
             if self.objects.contains_key(&completed_id) {
@@ -474,7 +475,8 @@ impl GameLogic {
                     }
                 }
             }
-            for (oid, end) in end_moves {
+            for (oid, mut end) in end_moves {
+                self.adjust_to_possible_destination(oid, &mut end);
                 self.path_approach_with_state(oid, end, AIState::Moving);
             }
             if self.objects.contains_key(&completed_id) {
