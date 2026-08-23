@@ -938,6 +938,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let building_name = self.get_string_param(action, 0)?;
         log::debug!("Exiting specific building '{}'", building_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::ExitSpecificBuilding {
+                    building: building_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let tracker = get_named_object_tracker();
         let Ok(Some(building_id)) = tracker.get_object_id(&building_name) else {

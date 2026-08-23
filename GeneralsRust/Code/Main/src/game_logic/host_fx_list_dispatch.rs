@@ -521,4 +521,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn garrison_hit_kill_fx_uses_do_fx_obj_on_building() {
+        let combat = include_str!("combat.rs");
+        let helper = combat
+            .find("fn play_garrison_hit_kill_fx(")
+            .expect("garrison doFXObj helper");
+        let helper_body = &combat[helper..helper + 700];
+        assert!(
+            helper_body.contains("dispatch_fx_list_at_object(fx_name, building_id.0, None)"),
+            "GarrisonHitKillFX must doFXObj the building, not a pos form"
+        );
+        assert!(
+            !helper_body.contains("dispatch_fx_list_at_pos"),
+            "GarrisonHitKillFX must not use Weapon.cpp detonation doFXPos"
+        );
+        assert!(
+            !helper_body.contains("ProjectileImpactFx"),
+            "GarrisonHitKillFX must not queue detonation impact FX"
+        );
+        let mut rest = combat;
+        let mut windows = 0usize;
+        while let Some(i) = rest.find("apply_garrison_hit_kill") {
+            let chunk = &rest[i..];
+            let end = chunk.find("projectiles_to_remove").unwrap_or(600).min(600);
+            let window = &chunk[..end];
+            assert!(
+                window.contains("play_garrison_hit_kill_fx"),
+                "garrison clear must play doFXObj, got {window}"
+            );
+            assert!(
+                !window.contains("ProjectileImpactFx"),
+                "garrison clear must not queue ProjectileImpactFx, got {window}"
+            );
+            windows += 1;
+            rest = &rest[i + 20..];
+        }
+        assert_eq!(windows, 2, "structure and target garrison paths");
+        let leftover_dumb = include_str!(
+            "../../../GameEngine/GameLogic/src/object/behavior/dumb_projectile_behavior.rs"
+        );
+        assert!(leftover_dumb.contains("do_fx_obj_ids(other_id, None, None)"));
+        let leftover_missile = include_str!(
+            "../../../GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
+        );
+        assert!(leftover_missile.contains("do_fx_obj(&other_arc, None)"));
+    }
+
 }

@@ -15,6 +15,31 @@ impl Object {
         crate::game_logic::host_status_log::record_selected(self.id, false);
     }
 
+    /// C++ `Drawable::m_hidden || m_hiddenByStealth`.
+    #[inline]
+    pub fn drawable_is_effectively_hidden(&self) -> bool {
+        gamelogic::object::draw::leftover_hidden_status_deselects(
+            self.drawable_hidden,
+            self.camo_stealth_look == 5,
+        )
+    }
+
+    /// C++ `Drawable::setDrawableHidden` → `updateHiddenStatus`.
+    pub fn set_drawable_hidden(&mut self, hidden: bool) {
+        if self.drawable_hidden == hidden {
+            return;
+        }
+        self.drawable_hidden = hidden;
+        self.update_drawable_hidden_status();
+    }
+
+    /// C++ `Drawable::updateHiddenStatus` — deselect when hidden/stealth-invisible.
+    pub fn update_drawable_hidden_status(&mut self) {
+        if self.drawable_is_effectively_hidden() && (self.selected || self.status.selected) {
+            self.deselect();
+        }
+    }
+
     /// Host combat residual: mark attacking and log for GameWorld status channel.
     pub fn set_status_attacking(&mut self, attacking: bool) {
         self.status.attacking = attacking;

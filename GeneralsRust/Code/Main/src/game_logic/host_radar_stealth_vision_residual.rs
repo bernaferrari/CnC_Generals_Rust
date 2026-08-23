@@ -587,7 +587,7 @@ pub const DETECTOR_IR_BEACON_PARTICLE: &str = "IRLenzflare";
 pub const DETECTOR_IR_PING_PARTICLE: &str = "IRDetectPing";
 /// C++ `IRBrightParticleSysName` residual (spot scan).
 pub const DETECTOR_IR_BRIGHT_PARTICLE: &str = "IRDetectPingBright";
-/// C++ `IRGridParticleSysName` residual on newly spotted targets.
+/// C++ `IRGridParticleSysName` residual — leftover-refreshed every DetectionRate scan.
 pub const DETECTOR_IR_GRID_PARTICLE: &str = "IRDetectGrid";
 
 

@@ -980,6 +980,40 @@ impl GameLogic {
             return;
         }
 
+        // C++ startMoving TheAudio + splash roll (leftover-play, then queue).
+        let mut audio_jobs: Vec<(ObjectId, String, bool, glam::Vec3)> = Vec::new();
+        for (gid, gpos, _) in &guides {
+            let Some(obj) = self.objects.get_mut(gid) else {
+                continue;
+            };
+            let template = obj.template_name.clone();
+            let Some(wg) = obj.wave_guide_data.as_mut() else {
+                continue;
+            };
+            let (looping, splash) =
+                crate::game_logic::host_wave_guide::leftover_wave_guide_audio_tick(
+                    wg,
+                    &template,
+                    gid.0,
+                    frame,
+                );
+            if let Some(name) = looping {
+                audio_jobs.push((*gid, name, true, *gpos));
+            }
+            if let Some(name) = splash {
+                audio_jobs.push((*gid, name, false, *gpos));
+            }
+        }
+        for (id, name, looping, pos) in audio_jobs {
+            let mut req = AudioEventRequest::new(&name)
+                .with_object(id)
+                .with_position(pos);
+            if looping {
+                req = req.looping();
+            }
+            self.queue_audio_event(req);
+        }
+
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
 
         for (gid, gpos, gori) in guides {

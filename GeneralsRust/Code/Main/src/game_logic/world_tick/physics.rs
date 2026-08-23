@@ -861,24 +861,11 @@ impl GameLogic {
         // Snapshot selection without holding mut borrow across get_mut.
         let slot = u.select_combat_weapon_slot(v, current_time);
         let Some(slot) = slot else {
-            // Not ready this frame — still pick a legal slot that can target
-            // (ammo/reload residual may clear next frame).
-            let primary_legal = u
-                .weapon
-                .as_ref()
-                .is_some_and(|weapon| u.can_target_with_slot(v, weapon, Some(0)));
-            let secondary_legal = u
-                .secondary_weapon
-                .as_ref()
-                .is_some_and(|weapon| u.can_target_with_slot(v, weapon, Some(1)));
-            if !primary_legal && !secondary_legal {
-                return false;
-            }
-            let fallback = if primary_legal { 0u8 } else { 1u8 };
+            // Leftover chooseBest: no valid weapon → reset PRIMARY, return FALSE.
             if let Some(uu) = self.objects.get_mut(&unit_id) {
-                uu.set_active_weapon_slot(fallback);
+                uu.set_active_weapon_slot(0);
             }
-            return true;
+            return false;
         };
         if let Some(uu) = self.objects.get_mut(&unit_id) {
             uu.set_active_weapon_slot(slot);
@@ -999,15 +986,21 @@ impl GameLogic {
             | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
             | LocomotorBehaviorZ::AbsoluteHeight => {
                 // Leftover PhysicsBehavior Euler Z: vel += a; pos += vel.
-                let lift_a = obj.physics_accel.y;
-                if lift_a.abs() > 1.0e-8 {
-                    obj.movement.velocity.y += lift_a;
-                    obj.physics_accel.y = 0.0;
-                    obj.invalidate_velocity_magnitude();
-                    let mut p = obj.get_position();
-                    p.y += obj.movement.velocity.y;
-                    obj.set_position(p);
-                    obj.record_host_movement();
+                // C++ PhysicsUpdate.cpp:626-636 applyGravitationalForces unless
+                // DISABLED_HELD, then integrate. calc_lift_to_use_at_pt returns
+                // desiredAccel - gravity so lift + gravity nets climb/hold (hq-g8oig).
+                if !obj.is_physics_held() {
+                    obj.apply_gravitational_forces();
+                    let y_a = obj.physics_accel.y;
+                    if y_a.abs() > 1.0e-8 {
+                        obj.movement.velocity.y += y_a;
+                        obj.physics_accel.y = 0.0;
+                        obj.invalidate_velocity_magnitude();
+                        let mut p = obj.get_position();
+                        p.y += obj.movement.velocity.y;
+                        obj.set_position(p);
+                        obj.record_host_movement();
+                    }
                 }
             }
             _ => {}

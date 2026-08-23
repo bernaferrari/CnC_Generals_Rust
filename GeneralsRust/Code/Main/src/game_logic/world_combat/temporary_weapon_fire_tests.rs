@@ -15,13 +15,14 @@ use crate::game_logic::host_temporary_weapon_behavior::{
     TemporaryWeaponStatus,
 };
 
-fn ready_weapon(
+fn ready_weapon_on(
     template: &str,
     role: FireWeaponWhenDamagedWeaponRole,
+    module_source_index: u32,
 ) -> TemporaryWeaponRuntimeState {
     let spec = TemporaryWeaponRuntimeSpec {
         key: TemporaryWeaponRuntimeKey {
-            module_source_index: 0,
+            module_source_index,
             role,
         },
         weapon_template_name: template.to_string(),
@@ -48,6 +49,13 @@ fn ready_weapon(
         0,
     );
     state
+}
+
+fn ready_weapon(
+    template: &str,
+    role: FireWeaponWhenDamagedWeaponRole,
+) -> TemporaryWeaponRuntimeState {
+    ready_weapon_on(template, role, 0)
 }
 
 fn damaged_object(id: u32, weapon: TemporaryWeaponRuntimeState) -> Object {
@@ -401,6 +409,185 @@ fn damaged_reaction_rejects_non_matching_damage_type() {
         "EXPLOSION must not spark a FLAME-only reaction"
     );
 }
+
+/// C++ FireWeaponWhenDamagedBehavior::onDamage — every ready module fires.
+#[test]
+fn damaged_reaction_fires_every_ready_module() {
+    let mut logic = GameLogic::new();
+    logic.frame = 10;
+    let first = ready_weapon_on(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+        0,
+    );
+    let second = ready_weapon_on(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+        1,
+    );
+    let mut template = ThingTemplate::new("TempWeaponHostMulti");
+    template.fire_weapon_when_damaged_behaviors = vec![
+        FireWeaponWhenDamagedMetadata {
+            module_source_index: 0,
+            module_tag: None,
+            starts_active: true,
+            damage_types: FireWeaponDamageTypeMask::ALL,
+            damage_amount: 5.0,
+            upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+            weapon_template_names: std::array::from_fn(|index| {
+                (index == first.key.role.index()).then(|| first.weapon_template_name.clone())
+            }),
+        },
+        FireWeaponWhenDamagedMetadata {
+            module_source_index: 1,
+            module_tag: None,
+            starts_active: true,
+            damage_types: FireWeaponDamageTypeMask::ALL,
+            damage_amount: 5.0,
+            upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+            weapon_template_names: std::array::from_fn(|index| {
+                (index == second.key.role.index()).then(|| second.weapon_template_name.clone())
+            }),
+        },
+    ];
+    let mut object = Object::new(template, ObjectId(21), Team::USA);
+    object.health.current = 80.0;
+    object.health.maximum = 100.0;
+    object.max_health = 100.0;
+    let mut runtime0 = FireWeaponWhenDamagedRuntimeState {
+        module_source_index: 0,
+        upgrade_executed: true,
+        ..FireWeaponWhenDamagedRuntimeState::default()
+    };
+    let mut runtime1 = FireWeaponWhenDamagedRuntimeState {
+        module_source_index: 1,
+        upgrade_executed: true,
+        ..FireWeaponWhenDamagedRuntimeState::default()
+    };
+    assert!(runtime0.replace_weapon_state(first));
+    assert!(runtime1.replace_weapon_state(second));
+    object.temporary_weapon_runtime.damaged = vec![runtime0, runtime1];
+    let source = ObjectId(21);
+    logic.objects.insert(source, object);
+    let keys = logic.damaged_reaction_plan(source, 10.0, 0);
+    assert_eq!(
+        keys.len(),
+        2,
+        "hq-4eg3v: leftover/C++ fire every ready module"
+    );
+    assert_eq!(keys[0].module_source_index, 0);
+    assert_eq!(keys[1].module_source_index, 1);
+    let _ = logic.execute_temporary_weapon_on_damage(source, 10.0, 0);
+    let object = logic.host_object(source).expect("source");
+    let state0 = object.temporary_weapon_runtime.damaged[0]
+        .weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: 0,
+            role: FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+        })
+        .expect("role0");
+    let state1 = object.temporary_weapon_runtime.damaged[1]
+        .weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: 1,
+            role: FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+        })
+        .expect("role1");
+    if store_fields_for_weapon_name("CrusaderTankGun").is_some() {
+        assert_eq!(state0.ammo_in_clip, 1, "first module must fire");
+        assert_eq!(state1.ammo_in_clip, 1, "second module must fire");
+        assert_eq!(state0.last_fire_frame, 10);
+        assert_eq!(state1.last_fire_frame, 10);
+    }
+}
+
+/// C++ FireWeaponWhenDamagedBehavior::update — every ready continuous module fires.
+#[test]
+fn damaged_continuous_fires_every_ready_module() {
+    let mut logic = GameLogic::new();
+    logic.frame = 10;
+    let first = ready_weapon_on(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
+        0,
+    );
+    let second = ready_weapon_on(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
+        1,
+    );
+    let mut template = ThingTemplate::new("TempWeaponHostMultiCont");
+    template.fire_weapon_when_damaged_behaviors = vec![
+        FireWeaponWhenDamagedMetadata {
+            module_source_index: 0,
+            module_tag: None,
+            starts_active: true,
+            damage_types: FireWeaponDamageTypeMask::ALL,
+            damage_amount: 5.0,
+            upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+            weapon_template_names: std::array::from_fn(|index| {
+                (index == first.key.role.index()).then(|| first.weapon_template_name.clone())
+            }),
+        },
+        FireWeaponWhenDamagedMetadata {
+            module_source_index: 1,
+            module_tag: None,
+            starts_active: true,
+            damage_types: FireWeaponDamageTypeMask::ALL,
+            damage_amount: 5.0,
+            upgrade_mux: FireWeaponUpgradeMuxMetadata::default(),
+            weapon_template_names: std::array::from_fn(|index| {
+                (index == second.key.role.index()).then(|| second.weapon_template_name.clone())
+            }),
+        },
+    ];
+    let mut object = Object::new(template, ObjectId(22), Team::USA);
+    object.health.current = 80.0;
+    object.health.maximum = 100.0;
+    object.max_health = 100.0;
+    let mut runtime0 = FireWeaponWhenDamagedRuntimeState {
+        module_source_index: 0,
+        upgrade_executed: true,
+        ..FireWeaponWhenDamagedRuntimeState::default()
+    };
+    let mut runtime1 = FireWeaponWhenDamagedRuntimeState {
+        module_source_index: 1,
+        upgrade_executed: true,
+        ..FireWeaponWhenDamagedRuntimeState::default()
+    };
+    assert!(runtime0.replace_weapon_state(first));
+    assert!(runtime1.replace_weapon_state(second));
+    object.temporary_weapon_runtime.damaged = vec![runtime0, runtime1];
+    let source = ObjectId(22);
+    logic.objects.insert(source, object);
+    let keys = logic.damaged_continuous_plan(source);
+    assert_eq!(
+        keys.len(),
+        2,
+        "hq-4eg3v: leftover/C++ continuous fires every ready module"
+    );
+    assert_eq!(keys[0].module_source_index, 0);
+    assert_eq!(keys[1].module_source_index, 1);
+    let _ = logic.execute_temporary_weapon_continuous(source);
+    let object = logic.host_object(source).expect("source");
+    let state0 = object.temporary_weapon_runtime.damaged[0]
+        .weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: 0,
+            role: FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
+        })
+        .expect("role0");
+    let state1 = object.temporary_weapon_runtime.damaged[1]
+        .weapon(TemporaryWeaponRuntimeKey {
+            module_source_index: 1,
+            role: FireWeaponWhenDamagedWeaponRole::ContinuousPristine,
+        })
+        .expect("role1");
+    if store_fields_for_weapon_name("CrusaderTankGun").is_some() {
+        assert_eq!(state0.ammo_in_clip, 1, "first continuous module must fire");
+        assert_eq!(state1.ammo_in_clip, 1, "second continuous module must fire");
+        assert_eq!(state0.last_fire_frame, 10);
+        assert_eq!(state1.last_fire_frame, 10);
+    }
+}
+
 
 
 #[test]

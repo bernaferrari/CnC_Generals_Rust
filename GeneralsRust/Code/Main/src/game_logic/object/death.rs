@@ -158,6 +158,7 @@ impl Object {
             geom.minor_radius,
             self.get_orientation(),
         );
+        data.bind_world_pos(pos.x, pos.y, pos.z);
         if let Some(peel) =
             crate::game_logic::host_structure_topple::leftover_structure_topple_module_peel(
                 &self.template_name,
@@ -171,8 +172,9 @@ impl Object {
                 );
             }
             if !peel.fx.is_empty() {
-                data.crushing_fx = peel.fx;
+                data.crushing_fx = peel.fx.clone();
             }
+            data.bind_topple_fx(&peel);
         } else {
             data.bind_crushing_weapon(
                 crate::game_logic::host_structure_topple::STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME,
@@ -180,6 +182,7 @@ impl Object {
         }
         data.begin(current_frame, dx, dz, 0);
         self.structure_topple_data = Some(data);
+        self.dispatch_pending_structure_topple_fx();
         if let Some(bfx) = self.bone_fx_damage.as_mut() {
             bfx.stop_all_bone_fx();
         }
@@ -799,10 +802,14 @@ impl Object {
 
     /// C++ StructureToppleUpdate::update residual. True when fall completes.
     pub fn tick_structure_topple(&mut self, current_frame: u32) -> bool {
-        let Some(st) = self.structure_topple_data.as_mut() else {
-            return false;
+        let finished = {
+            let Some(st) = self.structure_topple_data.as_mut() else {
+                return false;
+            };
+            st.tick(current_frame)
         };
-        if !st.tick(current_frame) {
+        self.dispatch_pending_structure_topple_fx();
+        if !finished {
             return false;
         }
         // doToppleDoneStuff residual: finalize death.
@@ -811,6 +818,25 @@ impl Object {
         self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
         true
     }
+
+    fn dispatch_pending_structure_topple_fx(&mut self) {
+        let pos = self.get_position();
+        let ori = self.get_orientation();
+        let player = self.owner_player_id.map(|p| p as i32).unwrap_or(-1);
+        let id = self.id.0;
+        if let Some(st) = self.structure_topple_data.as_mut() {
+            st.dispatch_pending_fx(id, pos, ori, player);
+        }
+    }
+
+    /// Drain leftover Start/Delay/Done/AngleFX when a dual-peel owns fall motion.
+    pub fn poll_structure_topple_fx(&mut self, current_frame: u32) {
+        if let Some(st) = self.structure_topple_data.as_mut() {
+            st.poll_fx(current_frame);
+        }
+        self.dispatch_pending_structure_topple_fx();
+    }
+
 
     /// Combined presentation lean (tree topple or structure topple).
     pub fn presentation_topple_lean_radians(&self) -> f32 {

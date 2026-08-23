@@ -201,7 +201,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&id) else {
                 continue;
             };
-            if obj.is_disabled() || !obj.is_alive() {
+            if obj.is_disabled() || obj.host_skip_dead_locomotor() {
                 continue;
             }
             let surfaces = if obj.locomotor_surfaces != 0 {
@@ -341,6 +341,10 @@ impl GameLogic {
                 // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
                 let has_move_goal = obj.movement.target_position.is_some()
                     || !obj.movement.path.is_empty();
+                // C++ POSITION/ANGLE goals clear m_doFinalPosition (AIUpdate.cpp:2151).
+                if has_move_goal {
+                    obj.do_final_position = false;
+                }
                 let skip_loco_move = obj.waiting_for_path;
                 if has_move_goal && !skip_loco_move {
                     obj.apply_motive_force(glam::Vec3::ZERO);
@@ -995,6 +999,7 @@ impl GameLogic {
                         }
                     }
                 } else {
+                    leftover_settle_final_position_on_object(obj);
                     // Idle hover / wings: C++ appearance then handleBehaviorZ.
                     if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
                         let _ = obj.loco_maintain_current_position(surface_y, dt);
@@ -1025,8 +1030,9 @@ impl GameLogic {
         self.drain_pending_transport_exits();
     }
 
-    /// C++ `Pathfinder::snapClosestGoalPosition` when the unit plants.
-    /// Group-move later arrivers offset onto a free 3×3 neighbor.
+    /// C++ `AIUpdateInterface::update` movement-complete `setFinalPosition`
+    /// then NONE-goal leftover settle (AIUpdate.cpp:1039-1041, 2234-2262).
+    /// Snap computes the plant cell; leftover marches 2 cells/s — no teleport.
     fn apply_arrival_goal_snap(&mut self, id: ObjectId) {
         let Some(obj) = self.objects.get(&id) else {
             return;
@@ -1058,7 +1064,11 @@ impl GameLogic {
             &self.objects,
         );
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.set_position(snapped);
+            // Leftover `set_final_position` matches the C++ header (`= false`)
+            // but settle only runs when the flag is armed. Live arms it.
+            obj.final_position = snapped;
+            obj.do_final_position = true;
+            leftover_settle_final_position_on_object(obj);
         }
     }
 
@@ -1069,7 +1079,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            if obj.is_disabled() || !obj.is_alive() || obj.is_shock_stunned() {
+            if obj.is_disabled() || obj.host_skip_dead_locomotor() || obj.is_shock_stunned() {
                 continue;
             }
             if obj.waiting_for_path {
@@ -1263,6 +1273,31 @@ fn try_fix_invalid_position_3x3(
     obj.apply_motive_force(correction);
     obj.record_host_movement();
     true
+}
+
+/// Host Y-up → leftover C++ Z-up.
+fn leftover_host_to_cpp(pos: Vec3) -> gamelogic::common::Coord3D {
+    gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
+}
+
+fn leftover_cpp_to_host(pos: gamelogic::common::Coord3D) -> Vec3 {
+    Vec3::new(pos.x, pos.z, pos.y)
+}
+
+/// Leftover `Locomotor::settle_final_position` (NONE-goal half of
+/// `loco_update_when_goal_none`). Live idle already runs maintain.
+fn leftover_settle_final_position_on_object(obj: &mut Object) {
+    if !obj.do_final_position {
+        return;
+    }
+    let on_ground = !obj.is_above_terrain();
+    let (pos, still) = gamelogic::locomotor::Locomotor::settle_final_position(
+        leftover_host_to_cpp(obj.get_position()),
+        leftover_host_to_cpp(obj.final_position),
+        on_ground,
+    );
+    obj.do_final_position = still;
+    obj.set_position(leftover_cpp_to_host(pos));
 }
 
 
@@ -2586,7 +2621,7 @@ mod tests {
 
 
 
-    /// hq-cg5on: arriving onto an occupied pad snaps to a free neighbor.
+    /// hq-xg2ym: arrival leftover-marches to the plant cell (no teleport).
     #[test]
     fn arrival_snap_offsets_off_occupied_pad() {
         let mut logic = GameLogic::new();
@@ -2602,13 +2637,72 @@ mod tests {
         arriver.set_ai_state(AIState::Moving);
         logic.objects.insert(arriver_id, arriver);
         logic.update_movement_for_test(&[parked_id, arriver_id], 1.0 / 30.0);
+        {
+            let obj = logic.objects.get(&arriver_id).expect("arriver");
+            let pos = obj.get_position();
+            let dx = pos.x - pad.x;
+            let dz = pos.z - pad.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            assert!(
+                obj.do_final_position,
+                "arrival must arm leftover do_final_position, pos={pos:?}"
+            );
+            assert!(
+                dist > 0.1 && dist < crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL,
+                "first settle step must leftover-march, not teleport, pos={pos:?} dist={dist}"
+            );
+        }
+        for _ in 0..20 {
+            logic.update_movement_for_test(&[parked_id, arriver_id], 1.0 / 30.0);
+        }
         let pos = logic.objects.get(&arriver_id).expect("arriver").get_position();
         let dx = pos.x - pad.x;
         let dz = pos.z - pad.z;
         let dist = (dx * dx + dz * dz).sqrt();
         assert!(
             dist > 1.0,
-            "arriver must snap off the occupied pad, pos={pos:?}"
+            "leftover settle must finish off the occupied pad, pos={pos:?}"
+        );
+    }
+
+    /// hq-xg2ym: NONE-goal leftover settle is 2 cells/s then DARN_CLOSE snap.
+    #[test]
+    fn leftover_goal_none_settles_final_position() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(7003);
+        let mut unit = ranger_at(7003, Vec3::ZERO);
+        unit.do_final_position = true;
+        unit.final_position = Vec3::new(20.0, 0.0, 0.0);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        let step = 2.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 30.0;
+        assert!(
+            obj.do_final_position,
+            "far final position must keep leftover-settling"
+        );
+        assert!(
+            (obj.get_position().x - step).abs() < 1.0e-3,
+            "settle steps 2 cells/s, x={} expected {step}",
+            obj.get_position().x
+        );
+
+        let mut logic = GameLogic::new();
+        let mut unit = ranger_at(7004, Vec3::new(20.0, 0.0, 0.0));
+        unit.do_final_position = true;
+        unit.final_position = Vec3::new(20.1, 0.0, 0.0);
+        logic.objects.insert(ObjectId(7004), unit);
+        logic.update_movement_for_test(&[ObjectId(7004)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(7004)).expect("close");
+        assert!(
+            !obj.do_final_position,
+            "dSqr < 0.25 snaps and clears do_final_position"
+        );
+        assert!(
+            (obj.get_position().x - 20.1).abs() < 1.0e-4,
+            "close settle snaps to leftover final_position, x={}",
+            obj.get_position().x
         );
     }
 
@@ -3020,6 +3114,37 @@ mod tests {
             y
         );
     }
+
+    /// hq-g8oig: leftover lift is desiredAccel - gravity; Y Euler must add
+    /// leftover gravity so hover/wings hold preferred height instead of climb.
+    #[test]
+    fn hover_at_preferred_height_does_not_climb() {
+        let mut tmpl = ThingTemplate::new("ComancheHold");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, ObjectId(9822), Team::USA);
+        heli.set_position(Vec3::new(0.0, 30.0, 0.0));
+        heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.loco_preferred_height = 10.0;
+        heli.loco_preferred_height_damping = 1.0;
+        heli.max_lift = 5.0;
+        heli.physics_mass = 1.0;
+        heli.physics_accel = Vec3::ZERO;
+        heli.movement.velocity = Vec3::ZERO;
+        GameLogic::apply_live_handle_behavior_z_for_test(&mut heli, 20.0, None);
+        let y = heli.get_position().y;
+        assert!(
+            (y - 30.0).abs() < 0.02,
+            "hover at preferred must hold, not climb by leftover lift; y={}",
+            y
+        );
+        assert!(
+            heli.movement.velocity.y.abs() < 0.02,
+            "hover hold net accel is 0; vel.y={}",
+            heli.movement.velocity.y
+        );
+    }
+
 
     /// hq-si460: leftover Other/Hover slide keeps yaw when ULTRA_ACCURATE
     /// and inside parse_duration_real(SlideIntoPlaceTime) * per-frame speed.

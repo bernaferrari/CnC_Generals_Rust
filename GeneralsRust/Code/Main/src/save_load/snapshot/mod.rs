@@ -118,6 +118,8 @@ mod turret_aim_persist;
 mod stealth_grant_persist;
 mod weapon_leech_persist;
 mod score_keeper_persist;
+mod garrison_firepoint_persist;
+mod stealth_detector_persist;
 
 
 mod particle_system_save;
@@ -245,6 +247,8 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("stealth_grant_persist.rs"),
     include_str!("weapon_leech_persist.rs"),
     include_str!("score_keeper_persist.rs"),
+    include_str!("garrison_firepoint_persist.rs"),
+    include_str!("stealth_detector_persist.rs"),
 
 
     include_str!("particle_system_save.rs"),

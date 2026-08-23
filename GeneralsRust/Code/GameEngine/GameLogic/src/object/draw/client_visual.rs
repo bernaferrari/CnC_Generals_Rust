@@ -134,24 +134,93 @@ pub fn preload_draw_asset(name: &str) {
     }
 }
 
-/// C++ `Drawable::getShouldAnimate(considerPower)` object checks.
-pub fn object_should_animate(obj: &crate::object::Object, consider_power: bool) -> bool {
-    if consider_power && obj.test_script_status_bit(ObjectScriptStatusBit::ScriptUnderpowered) {
+/// C++ `Drawable::updateHiddenStatus` (`Drawable.cpp:4631-4633`).
+/// Hidden = `m_hidden || m_hiddenByStealth`; that is when retail
+/// `TheInGameUI->deselectDrawable` runs.
+pub fn leftover_hidden_status_deselects(hidden: bool, hidden_by_stealth: bool) -> bool {
+    hidden || hidden_by_stealth
+}
+
+/// C++ `Drawable::getShouldAnimate(considerPower)` object checks (flag form).
+/// Live host drains this — leftover `Object` is a different type.
+pub fn object_should_animate_flags(
+    consider_power: bool,
+    script_underpowered: bool,
+    is_disabled: bool,
+    produced_at_helipad: bool,
+    disabled_hacked: bool,
+    disabled_paralyzed: bool,
+    disabled_emp: bool,
+    disabled_subdued: bool,
+    disabled_unmanned: bool,
+    disabled_underpowered: bool,
+) -> bool {
+    if consider_power && script_underpowered {
         return false;
     }
-    if obj.is_disabled() {
-        if !obj.is_kind_of(KindOf::ProducedAtHelipad)
-            && (obj.is_disabled_by_type(DisabledType::DisabledHacked)
-                || obj.is_disabled_by_type(DisabledType::Paralyzed)
-                || obj.is_disabled_by_type(DisabledType::DisabledEmp)
-                || obj.is_disabled_by_type(DisabledType::DisabledSubdued)
-                || obj.is_disabled_by_type(DisabledType::DisabledUnmanned))
+    if is_disabled {
+        if !produced_at_helipad
+            && (disabled_hacked
+                || disabled_paralyzed
+                || disabled_emp
+                || disabled_subdued
+                || disabled_unmanned)
         {
             return false;
         }
-        if consider_power && obj.is_disabled_by_type(DisabledType::DisabledUnderpowered) {
+        if consider_power && disabled_underpowered {
             return false;
         }
     }
     true
+}
+
+/// C++ `Drawable::getShouldAnimate(considerPower)` object checks.
+pub fn object_should_animate(obj: &crate::object::Object, consider_power: bool) -> bool {
+    object_should_animate_flags(
+        consider_power,
+        obj.test_script_status_bit(ObjectScriptStatusBit::ScriptUnderpowered),
+        obj.is_disabled(),
+        obj.is_kind_of(KindOf::ProducedAtHelipad),
+        obj.is_disabled_by_type(DisabledType::DisabledHacked),
+        obj.is_disabled_by_type(DisabledType::Paralyzed),
+        obj.is_disabled_by_type(DisabledType::DisabledEmp),
+        obj.is_disabled_by_type(DisabledType::DisabledSubdued),
+        obj.is_disabled_by_type(DisabledType::DisabledUnmanned),
+        obj.is_disabled_by_type(DisabledType::DisabledUnderpowered),
+    )
+}
+
+#[cfg(test)]
+mod leftover_should_animate_tests {
+    use super::*;
+
+    #[test]
+    fn emp_hacked_underpowered_pause_like_cpp() {
+        assert!(!object_should_animate_flags(
+            true, false, true, false, false, false, true, false, false, false
+        ));
+        assert!(!object_should_animate_flags(
+            true, false, true, false, true, false, false, false, false, false
+        ));
+        assert!(!object_should_animate_flags(
+            true, false, true, false, false, false, false, false, false, true
+        ));
+        assert!(object_should_animate_flags(
+            false, false, true, false, false, false, false, false, false, true
+        ));
+        assert!(object_should_animate_flags(
+            true, false, true, true, false, false, true, false, false, false
+        ));
+        assert!(object_should_animate_flags(
+            true, false, false, false, false, false, false, false, false, false
+        ));
+    }
+
+    #[test]
+    fn hidden_or_stealth_invisible_deselects() {
+        assert!(leftover_hidden_status_deselects(true, false));
+        assert!(leftover_hidden_status_deselects(false, true));
+        assert!(!leftover_hidden_status_deselects(false, false));
+    }
 }

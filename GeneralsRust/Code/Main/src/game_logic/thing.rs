@@ -2059,7 +2059,7 @@ impl ThingTemplate {
             allow_bouncing: false,
             allow_collide_force: true,
             kill_when_resting_on_ground: false,
-            min_fall_speed_for_damage: 8.944272,
+            min_fall_speed_for_damage: default_template_min_fall_speed(),
             fall_height_damage_factor: 1.0,
             crusher_level: 0,
             crushable_level: 255,
@@ -2922,7 +2922,8 @@ fn default_template_allow_collide_force() -> bool {
     true
 }
 fn default_template_min_fall_speed() -> f32 {
-    (2.0 * 40.0_f32).sqrt()
+    // Leftover height_to_speed(40) with retail Gravity -64/900 (~2.385).
+    (2.0 * (64.0_f32 / 900.0) * 40.0).sqrt()
 }
 fn default_template_fall_height_damage_factor() -> f32 {
     1.0

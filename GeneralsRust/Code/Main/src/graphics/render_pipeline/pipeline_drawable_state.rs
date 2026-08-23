@@ -454,6 +454,43 @@ fn bars_get_with_state<'a>(
     Some((barrels.get(index)?, states.get_mut(index)?))
 }
 
+/// C++ `setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))`.
+fn leftover_should_animate_for_presentation(
+    presentation: Option<&crate::presentation_frame::PresentationFrame>,
+    object_id: crate::game_logic::ObjectId,
+    consider_power: bool,
+) -> bool {
+    let Some(ro) = presentation.and_then(|frame| frame.objects.iter().find(|o| o.id == object_id))
+    else {
+        // C++ Drawable.cpp:638 — no object returns TRUE.
+        return true;
+    };
+    let produced_at_helipad =
+        crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
+            &ro.template_name,
+        );
+    let is_disabled = ro.disabled
+        || ro.disabled_emp
+        || ro.disabled_hacked
+        || ro.disabled_paralyzed
+        || ro.disabled_subdued
+        || ro.disabled_unmanned
+        || ro.disabled_underpowered
+        || ro.disabled_script_underpowered;
+    gamelogic::object::draw::object_should_animate_flags(
+        consider_power,
+        ro.disabled_script_underpowered,
+        is_disabled,
+        produced_at_helipad,
+        ro.disabled_hacked,
+        ro.disabled_paralyzed,
+        ro.disabled_emp,
+        ro.disabled_subdued,
+        ro.disabled_unmanned,
+        ro.disabled_underpowered,
+    )
+}
+
 impl RenderPipeline {
     /// Resolve an exact frozen Draw HAnim without collection-time archive I/O.
     /// Local data is immediately usable; an external companion must already
@@ -798,7 +835,12 @@ impl RenderPipeline {
             .animation
             .as_mut()
             .expect("initialized animation state");
-        if delta_time > 0.0 && delta_time < 1.0 && animation.num_frames > 1 {
+        let should_animate = leftover_should_animate_for_presentation(
+            self.presentation_frame.as_ref(),
+            object_id,
+            draw_model.animations_require_power.get(),
+        );
+        if should_animate && delta_time > 0.0 && delta_time < 1.0 && animation.num_frames > 1 {
             let terminal = (animation.num_frames - 1) as f32;
             let delta = delta_time * animation.frame_rate;
             animation.current_frame = match &animation.mode {
@@ -829,20 +871,28 @@ impl RenderPipeline {
                 }
             };
         }
-        match &animation.mode {
-            crate::assets::AuthoredDrawAnimationMode::Once
-                if animation.num_frames > 0
-                    && animation.current_frame + 1e-3
-                        >= (animation.num_frames.saturating_sub(1) as f32) =>
-            {
-                crate::assets::notify_live_draw_animation_complete(object_id.0, draw_module_index);
+        if should_animate {
+            match &animation.mode {
+                crate::assets::AuthoredDrawAnimationMode::Once
+                    if animation.num_frames > 0
+                        && animation.current_frame + 1e-3
+                            >= (animation.num_frames.saturating_sub(1) as f32) =>
+                {
+                    crate::assets::notify_live_draw_animation_complete(
+                        object_id.0,
+                        draw_module_index,
+                    );
+                }
+                crate::assets::AuthoredDrawAnimationMode::OnceBackwards
+                    if animation.current_frame <= 1e-3 =>
+                {
+                    crate::assets::notify_live_draw_animation_complete(
+                        object_id.0,
+                        draw_module_index,
+                    );
+                }
+                _ => {}
             }
-            crate::assets::AuthoredDrawAnimationMode::OnceBackwards
-                if animation.current_frame <= 1e-3 =>
-            {
-                crate::assets::notify_live_draw_animation_complete(object_id.0, draw_module_index);
-            }
-            _ => {}
         }
 
         let current_frame = animation.current_frame;
@@ -961,4 +1011,36 @@ mod tests {
             crate::save_load::snapshot::ClientDrawableRecoilPhase::RecoilStart
         );
     }
+
+    #[test]
+    fn leftover_get_should_animate_pauses_emp_hacked_underpowered() {
+        assert!(!gamelogic::object::draw::object_should_animate_flags(
+            true, false, true, false, false, false, true, false, false, false
+        ));
+        assert!(!gamelogic::object::draw::object_should_animate_flags(
+            true, false, true, false, true, false, false, false, false, false
+        ));
+        assert!(!gamelogic::object::draw::object_should_animate_flags(
+            true, false, true, false, false, false, false, false, false, true
+        ));
+        assert!(leftover_should_animate_for_presentation(
+            None,
+            crate::game_logic::ObjectId(1),
+            true
+        ));
+    }
+
+    #[test]
+    fn leftover_hidden_status_deselects_hidden_or_stealth() {
+        assert!(gamelogic::object::draw::leftover_hidden_status_deselects(
+            true, false
+        ));
+        assert!(gamelogic::object::draw::leftover_hidden_status_deselects(
+            false, true
+        ));
+        assert!(!gamelogic::object::draw::leftover_hidden_status_deselects(
+            false, false
+        ));
+    }
+
 }

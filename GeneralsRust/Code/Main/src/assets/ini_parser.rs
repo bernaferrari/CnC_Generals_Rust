@@ -544,6 +544,8 @@ pub struct DrawModuleDefinition {
     /// It is frozen with the selected state so a same-named mesh from another
     /// Draw module cannot borrow this module's clip-art policy.
     pub projectile_bone_feedback: AuthoredDrawProjectileBoneFeedback,
+    /// C++ `W3DModelDrawModuleData::m_animationsRequirePower` (ctor TRUE).
+    pub animations_require_power: AuthoredAnimationsRequirePower,
     pub condition_states: Vec<DrawConditionStateDefinition>,
 }
 
@@ -554,6 +556,7 @@ impl DrawModuleDefinition {
             ignored_condition_tokens: Vec::new(),
             recoil_kinematics: AuthoredDrawRecoilKinematics::default(),
             projectile_bone_feedback: AuthoredDrawProjectileBoneFeedback::default(),
+            animations_require_power: AuthoredAnimationsRequirePower::default(),
             condition_states: Vec::new(),
         }
     }
@@ -586,6 +589,24 @@ pub enum AuthoredConditionModelSelection {
 /// separate modules with independent animation state.  The vector returned by
 /// [`ObjectDefinition::select_draw_models_for_conditions`] remains in Object
 /// INI declaration order and deliberately retains duplicate model names.
+/// C++ `W3DModelDrawModuleData::m_animationsRequirePower` (ctor default TRUE).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct AuthoredAnimationsRequirePower(pub bool);
+
+impl Default for AuthoredAnimationsRequirePower {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+impl AuthoredAnimationsRequirePower {
+    #[inline]
+    pub fn get(self) -> bool {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuthoredDrawModel {
     /// Fixed-width snapshot identity for the source Draw module. This is not
@@ -644,8 +665,11 @@ pub struct AuthoredDrawModel {
     /// True when this record is a source `TransitionState`, not a selectable
     /// `ConditionState`. Presentation uses this to keep playing the clip
     /// until `ANIM_MODE_ONCE` finishes.
-    #[serde(default)]
     pub is_transition: bool,
+    /// C++ `W3DModelDrawModuleData::m_animationsRequirePower` (default TRUE).
+    #[serde(default)]
+    pub animations_require_power: AuthoredAnimationsRequirePower,
+
 }
 
 /// C++ `ACBits::ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT` bit index.
@@ -1565,6 +1589,7 @@ impl DrawModuleDefinition {
             allow_to_finish_key: state.allow_to_finish_key.clone(),
             flags: state.flags,
             is_transition: state.is_transition,
+            animations_require_power: self.animations_require_power,
         }
     }
 
@@ -2107,6 +2132,15 @@ impl IniParser {
                         // nested spelling into module-wide clip feedback.
                         "projectilebonefeedbackenabledslots" => {
                             Self::assign_draw_module_projectile_bone_feedback(
+                                obj,
+                                active_draw_module,
+                                active_condition_state,
+                                value,
+                            )
+                        }
+                        // C++ W3DModelDrawModuleData::m_animationsRequirePower.
+                        "animationsrequirepower" => {
+                            Self::assign_draw_module_animations_require_power(
                                 obj,
                                 active_draw_module,
                                 active_condition_state,
@@ -2760,6 +2794,32 @@ impl IniParser {
             DrawRecoilKinematicField::SettleSpeed => {
                 module.recoil_kinematics.set_recoil_settle_speed(value)
             }
+        }
+    }
+
+    fn assign_draw_module_animations_require_power(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        if active_condition_state.is_some() {
+            return;
+        }
+        let token = value.split_whitespace().next().unwrap_or("").trim();
+        // C++ INI::parseBool: Yes/True/1.
+        let parsed = token.eq_ignore_ascii_case("yes")
+            || token.eq_ignore_ascii_case("true")
+            || token == "1";
+        let no = token.eq_ignore_ascii_case("no")
+            || token.eq_ignore_ascii_case("false")
+            || token == "0";
+        if parsed || no {
+            module.animations_require_power = AuthoredAnimationsRequirePower(parsed);
         }
     }
 

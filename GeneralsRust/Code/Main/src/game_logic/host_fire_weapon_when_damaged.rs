@@ -23,8 +23,6 @@ use serde::{Deserialize, Serialize};
 
 /// Fallback continuous interval when the weapon store has no DelayBetweenShots.
 pub const FWWDB_CONTINUOUS_RELOAD_FRAMES: u32 = 30;
-/// Default reaction debounce residual (avoid multi-fire same frame stacks).
-pub const FWWDB_REACTION_DEBOUNCE_FRAMES: u32 = 1;
 
 fn leftover_weapon_reload_frames(name: &str) -> u32 {
     crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(name)
@@ -126,6 +124,9 @@ impl HostFireWeaponWhenDamagedData {
     }
 
     /// C++ onDamage residual. Returns weapon name to force-fire at self position.
+    /// Leftover/C++ gate only on READY_TO_FIRE (weapon DelayBetweenShots). There
+    /// is no extra 1-frame reaction debounce — a second qualifying hit on the
+    /// same or next frame fires again when DelayBetweenShots is 0.
     pub fn on_damage(
         &mut self,
         actual_damage: f32,
@@ -141,11 +142,6 @@ impl HostFireWeaponWhenDamagedData {
             return None;
         }
         if actual_damage < self.damage_amount {
-            return None;
-        }
-        if current_frame.saturating_sub(self.last_reaction_frame) < FWWDB_REACTION_DEBOUNCE_FRAMES
-            && self.last_reaction_frame > 0
-        {
             return None;
         }
         let state = host_calc_body_damage_state(health, max_health);
@@ -238,6 +234,7 @@ pub fn fire_when_damaged_config_for_template(name: &str) -> Option<HostFireWeapo
 mod tests {
     use super::*;
 
+    #[test]
     fn reaction_fires_on_threshold_damage() {
         let mut d = HostFireWeaponWhenDamagedData::battleship_target_residual();
         assert!(d.on_damage(0.5, 100.0, 100.0, 1, 0).is_none()); // below threshold
@@ -248,6 +245,17 @@ mod tests {
         // Authored type filter rejects non-matching ordinals.
         d.damage_types = FireWeaponDamageTypeMask::NONE;
         assert!(d.on_damage(5.0, 80.0, 100.0, 20, 0).is_none());
+    }
+
+    #[test]
+    fn reaction_fires_every_qualifying_hit_without_frame_debounce() {
+        let mut d = HostFireWeaponWhenDamagedData::battleship_target_residual();
+        let first = d.on_damage(5.0, 80.0, 100.0, 2, 0).expect("first");
+        let same_frame = d.on_damage(5.0, 80.0, 100.0, 2, 0).expect("same frame");
+        let next_frame = d.on_damage(5.0, 80.0, 100.0, 3, 0).expect("next frame");
+        assert!(first.contains("BattleshipTarget"));
+        assert!(same_frame.contains("BattleshipTarget"));
+        assert!(next_frame.contains("BattleshipTarget"));
     }
 
     #[test]

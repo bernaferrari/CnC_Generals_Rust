@@ -4410,6 +4410,91 @@ fn kill_garrisoned_residual_microwave_clears_occupants() {
     assert_eq!(remaining, 1, "one occupant must remain after single clear");
 }
 
+/// Ordinary leftover-typed weapons leftover-damage the structure. Name-sniff
+/// (ranger/flame) must not occupant-kill or skip structure HP.
+#[test]
+fn ordinary_weapon_leftover_damages_garrisoned_structure() {
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, RANGER_PRIMARY_WEAPON,
+    };
+
+    ensure_host_weapon_store();
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_garrison_template(&mut game_logic);
+
+    let mut rifle_tpl = crate::game_logic::ThingTemplate::new("Hq0y4ejRifleUnit");
+    rifle_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(180.0)
+        .set_primary_weapon_name(RANGER_PRIMARY_WEAPON);
+    game_logic
+        .templates
+        .insert("Hq0y4ejRifleUnit".to_string(), rifle_tpl);
+
+    let rifle_id = game_logic
+        .create_object("Hq0y4ejRifleUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("rifle");
+    let bunker_id = game_logic
+        .create_object("TestBunker", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("bunker");
+    let inf_a = game_logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(41.0, 0.0, 0.0))
+        .expect("inf_a");
+    {
+        let bunker = game_logic.host_object_mut(bunker_id).unwrap();
+        assert!(bunker.add_occupant(inf_a));
+    }
+    {
+        let u = game_logic.host_object_mut(inf_a).unwrap();
+        u.set_contained_by(Some(bunker_id));
+        u.set_ai_state(AIState::Garrisoned);
+    }
+
+    let bunker_hp_before = game_logic
+        .host_object(bunker_id)
+        .map(|b| b.health.current)
+        .unwrap_or(0.0);
+
+    {
+        let r = game_logic.host_object_mut(rifle_id).unwrap();
+        r.attack_target(bunker_id);
+        if let Some(w) = r.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+            w.damage = 5.0;
+        }
+        r.record_host_weapon_stats();
+    }
+
+    game_logic.set_current_frame(20);
+    game_logic.update_combat(&[rifle_id, bunker_id, inf_a], LOGIC_FRAME_TIMESTEP);
+
+    assert_eq!(
+        game_logic.bunker_buster_residual().occupants_killed,
+        0,
+        "ordinary leftover-typed rifle must not occupant-kill"
+    );
+    let remaining = game_logic
+        .host_object(bunker_id)
+        .map(|b| b.contained_units().len())
+        .unwrap_or(0);
+    assert_eq!(remaining, 1, "occupant must survive ordinary leftover damage");
+    let bunker_hp_after = game_logic
+        .host_object(bunker_id)
+        .map(|b| b.health.current)
+        .unwrap_or(0.0);
+    assert!(
+        bunker_hp_after < bunker_hp_before - 0.01,
+        "ordinary leftover-typed weapon must leftover-damage the structure (before={bunker_hp_before}, after={bunker_hp_after})"
+    );
+}
+
+
 /// Residual: Microwave tank attacking enemy structure applies DISABLED_SUBDUED
 /// (production stop residual) while cooking; clears when attack stops.
 #[test]

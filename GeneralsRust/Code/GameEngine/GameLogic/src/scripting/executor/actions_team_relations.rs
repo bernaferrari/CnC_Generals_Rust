@@ -436,6 +436,16 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         let target_name = self.get_string_param(action, 1)?;
         log::info!("Team '{}' entering '{}'", team_name, target_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::TeamEnter {
+                    team: team_name,
+                    dest: target_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         // Get the target object ID
         let tracker = get_named_object_tracker();
@@ -466,6 +476,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         log::info!("Team '{}' exiting all", team_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::TeamExitAll {
+                    team: team_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let group_arc = self.create_ai_group_from_team(&team_name)?;
         let write_result = group_arc.write();
@@ -491,6 +510,16 @@ impl ScriptActionDispatcher {
             team_name,
             building_name
         );
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::TeamGarrisonSpecific {
+                    team: team_name,
+                    building: building_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let team_player_mask = self
             .get_team_by_name(&team_name)
@@ -558,6 +587,15 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' exiting all buildings", team_name);
+        if super::dual_world_registry_unavailable() {
+            crate::scripting::request_host_script_garrison_enter(
+                crate::scripting::HostScriptGarrisonEnterExitRequest::TeamExitAllBuildings {
+                    team: team_name,
+                },
+            );
+            return Ok(ScriptActionResult::Success);
+        }
+
 
         let Some(team_arc) = self.get_team_by_name(&team_name).ok() else {
             return Ok(ScriptActionResult::Success);

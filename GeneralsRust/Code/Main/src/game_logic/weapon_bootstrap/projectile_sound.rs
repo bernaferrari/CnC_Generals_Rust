@@ -155,22 +155,26 @@ pub fn host_play_fx_when_stealthed_for_weapon_name(name: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// C++ Weapon.ini AllowAttackGarrisonedBldgs residual.
+/// C++ Weapon.ini AllowAttackGarrisonedBldgs / WeaponTemplate::m_allowAttackGarrisonedBldgs.
+///
+/// Leftover store is source of truth. Estimate-only (C++ estimateWeaponTemplateDamage
+/// vs occupied garrisonable). Default false when the template is missing — do
+/// not invent the flag from weapon-name substrings. Occupant-kill is
+/// DamageType=KILL_GARRISONED, not this flag.
 pub fn host_allow_attack_garrisoned_for_weapon_name(name: &str) -> bool {
-    seed_allow_attack_garrisoned_for(name)
-}
-
-pub(super) fn seed_allow_attack_garrisoned_for(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("flame")
-        || n.contains("dragon")
-        || n.contains("toxin")
-        || n.contains("microwave")
-        || n.contains("ranger")
-        || n.contains("flashbang")
-        || n.contains("buildingclearer")
-        || n.contains("cleargarrison")
-        || n.contains("killgarrison")
+    if name.is_empty() {
+        return false;
+    }
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|weapon| weapon.allow_attack_garrisoned_bldgs)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(false)
 }
 
 pub fn host_fire_sound_for_unit_slot(

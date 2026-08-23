@@ -331,6 +331,117 @@ const WAVE_GUIDE_UPDATE_FIELDS: &[FieldParse<WaveGuideUpdateModuleData>] = &[
     },
 ];
 
+/// Retail `Object WaveGuide` WaveGuideUpdate audio (`INIZH.big`).
+pub const WAVE_GUIDE_LOOPING_SOUND: &str = "DamBreakWaveLoop";
+pub const WAVE_GUIDE_RANDOM_SPLASH_SOUND: &str = "WaveRandomSplash";
+pub const WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY: i32 = 50;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeftoverWaveGuideAudio {
+    pub looping_sound: String,
+    pub random_splash_sound: String,
+    pub random_splash_sound_frequency: i32,
+}
+
+impl Default for LeftoverWaveGuideAudio {
+    fn default() -> Self {
+        Self {
+            looping_sound: WAVE_GUIDE_LOOPING_SOUND.to_string(),
+            random_splash_sound: WAVE_GUIDE_RANDOM_SPLASH_SOUND.to_string(),
+            random_splash_sound_frequency: WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY,
+        }
+    }
+}
+
+fn leftover_audio_event_playable(name: &str) -> bool {
+    !name.is_empty() && !name.eq_ignore_ascii_case("NONE")
+}
+
+/// C++ `WaveGuideUpdate::startMoving` / splash `TheAudio->addAudioEvent`.
+pub fn leftover_play_wave_guide_audio_event(
+    mut event: AudioEventRts,
+    object_id: ObjectID,
+) -> bool {
+    event.set_object_id(object_id);
+    let Some(audio) = TheAudio::get() else {
+        return false;
+    };
+    audio.add_audio_event(&event);
+    true
+}
+
+/// Live host: leftover-play a named WaveGuide audio event on the object.
+pub fn leftover_play_wave_guide_named_audio(event_name: &str, object_id: ObjectID) -> bool {
+    if !leftover_audio_event_playable(event_name) {
+        return false;
+    }
+    leftover_play_wave_guide_audio_event(AudioEventRts::new(event_name), object_id)
+}
+
+/// C++ `getFrame() - m_splashSoundFrame > LOGICFRAMES_PER_SECOND / 2.0f`.
+pub fn leftover_wave_guide_splash_due(
+    now: UnsignedInt,
+    splash_sound_frame: &mut UnsignedInt,
+) -> bool {
+    if (now.saturating_sub(*splash_sound_frame) as f32)
+        <= (LOGICFRAMES_PER_SECOND as f32 / 2.0)
+    {
+        return false;
+    }
+    *splash_sound_frame = now;
+    true
+}
+
+/// C++ `GameLogicRandomValue(1, 100) > m_randomSplashSoundFrequency`.
+pub fn leftover_wave_guide_splash_roll(frequency: i32) -> bool {
+    GameLogicRandomValue(1, 100) > frequency
+}
+
+fn leftover_wave_guide_module_data(template_name: &str) -> Option<WaveGuideUpdateModuleData> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry.name.as_str().eq_ignore_ascii_case("WaveGuideUpdate") {
+            continue;
+        }
+        if let Some(data) = entry.data.downcast_ref::<WaveGuideUpdateModuleData>() {
+            return Some(data.clone());
+        }
+    }
+    None
+}
+
+/// Leftover ThingFactory WaveGuideUpdate audio, else retail Object WaveGuide.
+pub fn leftover_wave_guide_audio_from_template(template_name: &str) -> LeftoverWaveGuideAudio {
+    let Some(data) = leftover_wave_guide_module_data(template_name) else {
+        return LeftoverWaveGuideAudio::default();
+    };
+    let looping = data.looping_sound.get_event_name();
+    let splash = data.random_splash_sound.get_event_name();
+    LeftoverWaveGuideAudio {
+        looping_sound: if leftover_audio_event_playable(looping) {
+            looping.to_string()
+        } else {
+            WAVE_GUIDE_LOOPING_SOUND.to_string()
+        },
+        random_splash_sound: if leftover_audio_event_playable(splash) {
+            splash.to_string()
+        } else {
+            WAVE_GUIDE_RANDOM_SPLASH_SOUND.to_string()
+        },
+        random_splash_sound_frequency: if data.random_splash_sound_frequency > 0 {
+            data.random_splash_sound_frequency
+        } else {
+            WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY
+        },
+    }
+}
+
+
 pub struct WaveGuideUpdate {
     object_id: ObjectID,
     module_data: Arc<WaveGuideUpdateModuleData>,
@@ -395,11 +506,10 @@ impl WaveGuideUpdate {
             return false;
         };
 
-        if let Some(audio) = TheAudio::get() {
-            let mut event = self.module_data.looping_sound.clone();
-            event.set_object_id(waveguide.get_id());
-            audio.add_audio_event(&event);
-        }
+        let _ = leftover_play_wave_guide_audio_event(
+            self.module_data.looping_sound.clone(),
+            waveguide.get_id(),
+        );
 
         let terrain = crate::terrain::get_terrain_logic();
         let Ok(terrain_guard) = terrain.read() else {
@@ -873,17 +983,15 @@ impl UpdateModuleInterface for WaveGuideUpdate {
             self.initialized = true;
         }
 
-        if (TheGameLogic::get_frame().saturating_sub(self.splash_sound_frame) as f32)
-            > (crate::common::LOGICFRAMES_PER_SECOND as f32 / 2.0)
+        if leftover_wave_guide_splash_due(
+            TheGameLogic::get_frame(),
+            &mut self.splash_sound_frame,
+        ) && leftover_wave_guide_splash_roll(self.module_data.random_splash_sound_frequency)
         {
-            self.splash_sound_frame = TheGameLogic::get_frame();
-            if GameLogicRandomValue(1, 100) > self.module_data.random_splash_sound_frequency {
-                if let Some(audio) = TheAudio::get() {
-                    let mut event = self.module_data.random_splash_sound.clone();
-                    event.set_object_id(waveguide.get_id());
-                    audio.add_audio_event(&event);
-                }
-            }
+            let _ = leftover_play_wave_guide_audio_event(
+                self.module_data.random_splash_sound.clone(),
+                waveguide.get_id(),
+            );
         }
 
         self.transform_wave_shape();
@@ -998,4 +1106,28 @@ mod tests {
         assert!((parse_duration_real(&["1.5s"]).expect("duration") - 45.0).abs() < 0.001);
         assert!((parse_duration_real(&["500ms"]).expect("duration") - 15.0).abs() < 0.001);
     }
+
+    #[test]
+    fn splash_due_matches_half_second_logic_frames() {
+        let half = crate::common::LOGICFRAMES_PER_SECOND as f32 / 2.0;
+        let mut splash_frame = 0;
+        assert!(!leftover_wave_guide_splash_due(half as u32, &mut splash_frame));
+        assert_eq!(splash_frame, 0);
+        let later = (half as u32) + 1;
+        assert!(leftover_wave_guide_splash_due(later, &mut splash_frame));
+        assert_eq!(splash_frame, later);
+        assert!(!leftover_wave_guide_splash_due(later, &mut splash_frame));
+    }
+
+    #[test]
+    fn retail_wave_guide_audio_defaults() {
+        let audio = leftover_wave_guide_audio_from_template("");
+        assert_eq!(audio.looping_sound, WAVE_GUIDE_LOOPING_SOUND);
+        assert_eq!(audio.random_splash_sound, WAVE_GUIDE_RANDOM_SPLASH_SOUND);
+        assert_eq!(
+            audio.random_splash_sound_frequency,
+            WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY
+        );
+    }
+
 }

@@ -198,12 +198,25 @@ pub fn host_weapon_is_surrender_damage(name: &str) -> bool {
     n.contains("surrender") || n.contains("flashbang")
 }
 
-/// C++ Weapon.ini DamageType=KILL_GARRISONED residual (building clearers).
+/// C++ Weapon.ini DamageType=KILL_GARRISONED.
+///
+/// Leftover store is the occupant-kill gate. Default false when the template
+/// is missing — do not invent KILL_GARRISONED from weapon-name substrings.
+/// AllowAttackGarrisonedBldgs is estimate-only and must not trip this.
 pub fn host_weapon_is_kill_garrisoned_damage(name: &str) -> bool {
-    crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer_weapon(name) || {
-        let n = name.to_ascii_lowercase();
-        n.contains("buildingclearer") || n.contains("killgarrison") || n.contains("clearbuilding")
+    if name.is_empty() {
+        return false;
     }
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|weapon| weapon.damage_type == gamelogic::damage::DamageType::KillGarrisoned)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(false)
 }
 
 /// C++ Weapon.ini / body DamageType=HEALING residual (medics, rebuild holes, flight deck).

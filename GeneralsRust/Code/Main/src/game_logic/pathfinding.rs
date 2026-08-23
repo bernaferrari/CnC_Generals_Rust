@@ -5513,6 +5513,10 @@ pub struct PathfindingSystem {
     seeker_is_dozer: bool,
     /// C++ `locomotorSet.isDownhillOnly()`.
     seeker_downhill_only: bool,
+    /// C++ `AIUpdateInterface::canPathThroughUnits` for findClosestPath goal accept.
+    seeker_can_path_through_units: bool,
+    /// Coarse pathfind-cell heights for LOS_TERRAIN (findAttackPath A*).
+    terrain_height_samples: Option<(i32, i32, Vec<f32>)>,
     /// C++ `m_cumulativeCellsAllocated` this processPathfindQueue call.
     cumulative_cells_allocated: i32,
     /// C++ `PATHFIND_CELLS_PER_FRAME` (test-overridable).
@@ -5550,6 +5554,8 @@ impl PathfindingSystem {
             seeker_is_human: false,
             seeker_is_dozer: false,
             seeker_downhill_only: false,
+            seeker_can_path_through_units: false,
+            terrain_height_samples: None,
             cumulative_cells_allocated: 0,
             pathfind_cells_per_frame: PATHFIND_CELLS_PER_FRAME,
 
@@ -5588,6 +5594,7 @@ impl PathfindingSystem {
             self.seeker_crusher_level = o.crusher_level;
             self.seeker_is_dozer = o.is_kind_of(KindOf::Dozer);
             self.seeker_downhill_only = o.downhill_only;
+            self.seeker_can_path_through_units = o.can_path_through_units;
             self.seeker_path_diameter = PathfindingGrid::path_diameter_for_unit(
                 o.selection_radius,
                 self.grid.grid_size(),
@@ -5609,6 +5616,7 @@ impl PathfindingSystem {
             self.seeker_center_in_cell = true;
             self.seeker_is_dozer = false;
             self.seeker_downhill_only = false;
+            self.seeker_can_path_through_units = false;
         }
     }
 
@@ -6507,6 +6515,30 @@ impl PathfindingSystem {
                 return false;
             }
         }
+        // LOS_TERRAIN: leftover is_attack_view_blocked_by_obstacle
+        // (skip Immobile — cannot path around terrain blockage).
+        if let Some(atk) = attacker {
+            if !atk.is_kind_of(KindOf::Immobile) {
+                let has_weapon = atk.weapon.is_some() || atk.secondary_weapon.is_some();
+                if has_weapon {
+                    // leftover Weapon::is_clear_goal_firing_line_of_sight_terrain
+                    // uses GeometryInfo::getMaxHeightAbovePosition as the eye.
+                    let eye_from = Self::leftover_firing_los_eye_y(atk, from.y);
+                    let eye_to = victim
+                        .map(|v| Self::leftover_firing_los_eye_y(v, to.y))
+                        .unwrap_or(to.y);
+                    if !self.is_clear_line_of_sight_terrain(
+                        Vec3::new(from.x, eye_from, from.z),
+                        Vec3::new(to.x, eye_to, to.z),
+                    ) {
+                        return true;
+                    }
+                } else if !self.is_clear_line_of_sight_terrain(from, to) {
+                    // leftover: no current weapon → terrain.is_clear_line_of_sight
+                    return true;
+                }
+            }
+        }
         let mut skip_ids: Vec<u32> = Vec::new();
         if let Some(atk) = attacker {
             skip_ids.push(atk.id.0);
@@ -6538,6 +6570,64 @@ impl PathfindingSystem {
         };
         self.grid
             .is_attack_view_blocked_static_ex(from, to, skip_count, &skip_ids)
+    }
+
+    /// Install coarse pathfind-cell heights for LOS_TERRAIN (tests + save restore).
+    pub fn set_terrain_height_samples(&mut self, width: i32, height: i32, values: Vec<f32>) {
+        if width > 0 && height > 0 && values.len() == (width as usize) * (height as usize) {
+            self.terrain_height_samples = Some((width, height, values));
+        }
+    }
+
+    fn sample_terrain_height(&self, x: f32, z: f32) -> f32 {
+        if let Some((w, h, vals)) = &self.terrain_height_samples {
+            let cell = self.grid.world_to_grid(Vec3::new(x, 0.0, z));
+            if cell.x >= 0 && cell.y >= 0 && cell.x < *w && cell.y < *h {
+                let idx = (cell.y * *w + cell.x) as usize;
+                if let Some(&v) = vals.get(idx) {
+                    return v;
+                }
+            }
+        }
+        sample_host_ground_height(x, z)
+    }
+
+    /// Leftover `Weapon::is_clear_goal_firing_line_of_sight_terrain` eye:
+    /// `GeometryInfo::getMaxHeightAbovePosition` when authored, else selection radius.
+    fn leftover_firing_los_eye_y(obj: &Object, pos_y: f32) -> f32 {
+        let geom = &obj.thing.template.geometry_info;
+        let h = if geom.authored {
+            geom.max_height_above_position()
+        } else {
+            obj.selection_radius.max(1.0)
+        };
+        pos_y + h
+    }
+
+    /// C++ `Weapon::isClearGoalFiringLineOfSightTerrain` residual (height samples).
+    /// Fail-open when leftover terrain is empty and no cache is installed.
+    pub fn is_clear_line_of_sight_terrain(&self, from: Vec3, to: Vec3) -> bool {
+        let dx = to.x - from.x;
+        let dz = to.z - from.z;
+        let dist_xz = (dx * dx + dz * dz).sqrt();
+        if dist_xz <= 0.001 {
+            return true;
+        }
+        let from_y = from.y;
+        let to_y = to.y;
+        let step_len = 10.0_f32;
+        let steps = (dist_xz / step_len).ceil().clamp(2.0, 512.0) as u32;
+        const CLEARANCE: f32 = 5.0;
+        for i in 1..steps {
+            let tfrac = i as f32 / steps as f32;
+            let x = from.x + dx * tfrac;
+            let z = from.z + dz * tfrac;
+            let expected_y = from_y + (to_y - from_y) * tfrac;
+            if self.sample_terrain_height(x, z) > expected_y + CLEARANCE {
+                return false;
+            }
+        }
+        true
     }
 
     /// C++ `Pathfinder::snapClosestGoalPosition` (AIPathfind.cpp:5101-5156).
@@ -8220,6 +8310,7 @@ impl PathfindingSystem {
         const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
         const MAX_EXPAND: i32 = 4000;
         self.sync_crate_astar();
+        self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         let start = self.grid.cell_for_unit_position(from, self.seeker_center_in_cell);
         let goal_grid = self.grid.cell_for_unit_position(goal, self.seeker_center_in_cell);
         if !self.grid.is_valid_pos(start) || !self.grid.is_valid_pos(goal_grid) {
@@ -8287,7 +8378,8 @@ impl PathfindingSystem {
             let cell = GridPos::new(cx, cy);
             let layer = PathfindLayerEnum::from_u32(lid as u32);
             if cx == goal_grid.x && cy == goal_grid.y {
-                let goal_ok = self.grid.destination_cell_ok(
+                let goal_ok = self.seeker_can_path_through_units
+                    || self.grid.destination_cell_ok(
                     cell,
                     surfaces,
                     is_crusher,
@@ -11658,6 +11750,140 @@ mod tests {
         );
     }
 
+    /// hq-nxr47: findAttackPath A* applies leftover LOS_TERRAIN.
+    #[test]
+    fn attack_los_terrain_blocks_ridge_for_mobile_weapon() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let w = sys.grid.width();
+        let h = sys.grid.height();
+        let mut heights = vec![0.0f32; (w * h) as usize];
+        let mid = w / 2;
+        for y in (h / 2 - 1).max(0)..=(h / 2 + 1).min(h - 1) {
+            for x in (mid - 1).max(0)..=(mid + 1).min(w - 1) {
+                heights[(y * w + x) as usize] = 80.0;
+            }
+        }
+        sys.set_terrain_height_samples(w, h, heights);
+
+        let from = Vec3::new(20.0, 0.0, 50.0);
+        let to = Vec3::new(150.0, 0.0, 50.0);
+        let mut atk_t = ThingTemplate::new("Ranger");
+        atk_t.add_kind_of(KindOf::Infantry);
+        atk_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
+        let mut atk = Object::new(atk_t.clone(), ObjectId(1), Team::USA);
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        atk.selection_radius = 5.0;
+        let mut victim = Object::new(
+            {
+                let mut t = ThingTemplate::new("Rebel");
+                t.add_kind_of(KindOf::Infantry);
+                t
+            },
+            ObjectId(2),
+            Team::GLA,
+        );
+        victim.selection_radius = 5.0;
+
+        assert!(
+            sys.is_attack_view_blocked_for(from, to, Some(&atk), Some(&victim)),
+            "mobile weapon must treat a ridge as blocked LOS_TERRAIN"
+        );
+
+        let unarmed = Object::new(atk_t, ObjectId(4), Team::USA);
+        assert!(
+            sys.is_attack_view_blocked_for(from, to, Some(&unarmed), Some(&victim)),
+            "leftover no-weapon mobile still applies terrain LOS"
+        );
+
+        let mut turret_t = ThingTemplate::new("Patriot");
+        turret_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
+        turret_t.add_kind_of(KindOf::Immobile);
+        let mut turret = Object::new(turret_t, ObjectId(3), Team::USA);
+        turret.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        assert!(
+            !sys.is_attack_view_blocked_for(from, to, Some(&turret), Some(&victim)),
+            "immobile attackers skip terrain LOS (cannot path around)"
+        );
+
+        let src = include_str!("pathfinding.rs");
+        let i = src
+            .find("pub fn is_attack_view_blocked_for(")
+            .expect("is_attack_view_blocked_for");
+        let body = &src[i..src.len().min(i + 3500)];
+        assert!(
+            body.contains("LOS_TERRAIN")
+                && body.contains("KindOf::Immobile")
+                && body.contains("is_clear_line_of_sight_terrain"),
+            "isAttackViewBlockedByObstacle must apply leftover LOS_TERRAIN"
+        );
+    }
+
+    /// hq-nxr47: A* keeps searching when the first in-range cell is ridge-blocked.
+    #[test]
+    fn find_attack_path_circles_ridge_to_clear_shot() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let w = sys.grid.width();
+        let h = sys.grid.height();
+        let mut heights = vec![0.0f32; (w * h) as usize];
+        let mid = w / 2;
+        // Hill only on the east-west midline so a northern firing cell stays clear.
+        for x in (mid - 1).max(0)..=(mid + 1).min(w - 1) {
+            heights[(5 * w + x) as usize] = 80.0;
+        }
+        sys.set_terrain_height_samples(w, h, heights);
+
+        let mut objects = HashMap::new();
+        let mut atk_t = ThingTemplate::new("Ranger");
+        atk_t.add_kind_of(KindOf::Infantry);
+        atk_t.add_kind_of(KindOf::AttackNeedsLineOfSight);
+        let mut atk = Object::new(atk_t, ObjectId(1), Team::USA);
+        atk.set_position(Vec3::new(20.0, 0.0, 50.0));
+        atk.owner_player_id = Some(0);
+        atk.selection_radius = 5.0;
+        atk.locomotor_surfaces = SURFACE_GROUND;
+        atk.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 90.0,
+            ..Weapon::default()
+        });
+        objects.insert(atk.id, atk);
+
+        let mut tgt_t = ThingTemplate::new("Rebel");
+        tgt_t.add_kind_of(KindOf::Infantry);
+        let mut tgt = Object::new(tgt_t, ObjectId(2), Team::GLA);
+        tgt.set_position(Vec3::new(150.0, 0.0, 50.0));
+        tgt.selection_radius = 5.0;
+        objects.insert(tgt.id, tgt);
+
+        let path = sys
+            .find_attack_firing_position(
+                Vec3::new(20.0, 0.0, 50.0),
+                Vec3::new(150.0, 0.0, 50.0),
+                90.0,
+                &objects,
+                false,
+                Some(ObjectId(1)),
+            )
+            .expect("must find a terrain-clear firing cell");
+        let goal = *path.last().unwrap();
+        let atk = objects.get(&ObjectId(1)).unwrap();
+        let tgt = objects.get(&ObjectId(2)).unwrap();
+        assert!(
+            !sys.is_attack_view_blocked_for(goal, Vec3::new(150.0, 0.0, 50.0), Some(atk), Some(tgt)),
+            "chosen firing cell must have leftover LOS_TERRAIN, goal={goal:?}"
+        );
+    }
+
     /// hq-p8eko: findAttackPath A* occupancy costs match leftover.
     #[test]
     fn attack_step_occupancy_matches_leftover() {
@@ -11818,6 +12044,71 @@ mod tests {
         assert!(
             w.contains("enqueue_connect_layer"),
             "closest search must hop checkChangeLayers"
+        );
+    }
+
+    /// hq-ajphf: findClosestPath accepts an occupied goal when canPathThroughUnits.
+    #[test]
+    fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let goal = GridPos::new(12, 5);
+        let from = Vec3::new(20.0, 0.0, 50.0);
+        let to = sys.grid.grid_to_world(goal);
+
+        let mut objects = HashMap::new();
+        let mut inf_t = ThingTemplate::new("Ranger");
+        inf_t.add_kind_of(KindOf::Infantry);
+        let mut seeker = Object::new(inf_t.clone(), ObjectId(1), Team::USA);
+        seeker.set_position(from);
+        seeker.owner_player_id = Some(0);
+        seeker.selection_radius = 1.0;
+        seeker.locomotor_surfaces = SURFACE_GROUND;
+        seeker.can_path_through_units = false;
+        objects.insert(seeker.id, seeker);
+
+        let mut parked = Object::new(inf_t, ObjectId(2), Team::USA);
+        parked.set_position(to);
+        parked.owner_player_id = Some(0);
+        parked.selection_radius = 1.0;
+        objects.insert(parked.id, parked);
+
+        sys.grid.update_dynamic_obstacles(&objects);
+        sys.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
+        sys.apply_seeker_human_flag();
+
+        let without = sys
+            .find_closest_path(from, to, SURFACE_GROUND, false, true)
+            .expect("closest without tunnel");
+        let without_cell = sys.grid.world_to_grid(*without.last().unwrap());
+        assert_ne!(
+            without_cell, goal,
+            "without canPathThroughUnits must walk to a nearby empty cell, end={without_cell:?}"
+        );
+
+        objects.get_mut(&ObjectId(1)).unwrap().can_path_through_units = true;
+        sys.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
+        assert!(
+            sys.seeker_can_path_through_units,
+            "bind must copy leftover canPathThroughUnits"
+        );
+        let with = sys
+            .find_closest_path(from, to, SURFACE_GROUND, false, true)
+            .expect("closest with tunnel");
+        let with_cell = sys.grid.world_to_grid(*with.last().unwrap());
+        assert_eq!(
+            with_cell, goal,
+            "canPathThroughUnits must accept the occupied goal, end={with_cell:?}"
+        );
+
+        let src = include_str!("pathfinding.rs");
+        let i = src
+            .find("pub fn find_closest_path(")
+            .expect("find_closest_path");
+        let body = &src[i..src.len().min(i + 2500)];
+        assert!(
+            body.contains("seeker_can_path_through_units"),
+            "findClosestPath must honor leftover canPathThroughUnits goal accept"
         );
     }
 

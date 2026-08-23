@@ -1931,6 +1931,10 @@ impl Object {
         }
         self.contained_by = container;
         crate::game_logic::host_contain_log::record_contained_by(self.id, container);
+        // C++ OpenContain::onContaining setDrawableHidden(true) when enclosing.
+        if enclosing {
+            self.set_drawable_hidden(container.is_some());
+        }
     }
 
     pub fn add_occupant(&mut self, unit_id: ObjectId) -> bool {

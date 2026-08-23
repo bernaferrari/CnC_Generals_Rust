@@ -1767,7 +1767,7 @@ impl PresentationFrame {
             hive_slave_count: ent.hive_slave_count,
             hive_slave_hp: ent.hive_slave_hp,
             ai_attitude: ent.ai_attitude,
-            camo_friendly_opacity: 1.0,
+            camo_friendly_opacity: ent.camo_friendly_opacity,
             vision_spied_mask: ent.vision_spied_mask,
             vision_range: ent.vision_range,
             shroud_clearing_range: ent.shroud_clearing_range,

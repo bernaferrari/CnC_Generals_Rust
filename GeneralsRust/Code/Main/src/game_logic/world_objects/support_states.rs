@@ -350,7 +350,40 @@ impl GameLogic {
         trigger.point_in_trigger(&gamelogic::common::Coord2D::new(pos.x, pos.z))
     }
 
-    /// C++ AIGuardMachine::lookForInnerTarget residual (polygon + flying + inner ring).
+    /// Leftover `Object::relationship_to` / C++ `PartitionFilterRelationship`.
+    /// Owner ids use leftover `object_relationship`. Missing owners keep the
+    /// faction residual, but Neutral is never Enemies (`ALLOW_ENEMIES`).
+    pub(crate) fn host_guard_leftover_relationship(
+        &self,
+        owner_player: Option<u32>,
+        owner_inst: &str,
+        owner_team: Team,
+        cand: &Object,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+        match (owner_player, cand.owner_player_id) {
+            (Some(_), Some(_)) => Self::object_relationship_from_owners(
+                &self.players,
+                owner_player,
+                owner_inst,
+                cand.owner_player_id,
+                &cand.team_instance_name,
+            ),
+            _ => {
+                if owner_team == cand.team && owner_team != Team::Neutral {
+                    Relationship::Allies
+                } else if owner_team == Team::Neutral || cand.team == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            }
+        }
+    }
+
+
+    /// C++ `lookForInnerTarget` residual: polygon + flying + `ALLOW_ENEMIES`
+    /// (EnterGuard: `ALLOW_NEUTRAL` + can-enter). Leftover `relationship_to`.
     fn scan_guard_inner_target(
         &self,
         object_id: ObjectId,
@@ -376,11 +409,17 @@ impl GameLogic {
             }
         }
         let (world_min, world_max) = self.world_bounds();
-        let owner_off = self
+        let (owner_off, owner_player, owner_inst) = self
             .objects
             .get(&object_id)
-            .map(|o| host_same_map_status_off(o.get_position(), world_min, world_max))
-            .unwrap_or(false);
+            .map(|o| {
+                (
+                    host_same_map_status_off(o.get_position(), world_min, world_max),
+                    o.owner_player_id,
+                    o.team_instance_name.clone(),
+                )
+            })
+            .unwrap_or((false, None, String::new()));
         let radius_sq = acquire_radius * acquire_radius;
         let mut best: Option<(ObjectId, f32)> = None;
         for (cand_id, cand) in self.objects.iter() {
@@ -403,21 +442,28 @@ impl GameLogic {
             if flying_only && !(cand.is_above_terrain() || cand.status.airborne_target) {
                 continue;
             }
+            use gamelogic::common::Relationship;
+            let rel = self.host_guard_leftover_relationship(
+                owner_player,
+                &owner_inst,
+                team,
+                cand,
+            );
             if enter_guard {
                 if hijack_guard {
-                    if !cand.is_targetable_by_enemy_of(team)
+                    if rel != Relationship::Enemies
                         || !cand.is_kind_of(KindOf::Vehicle)
                         || cand.is_hijacked()
                     {
                         continue;
                     }
-                } else if cand.team != Team::Neutral
+                } else if rel != Relationship::Neutral
                     || !self.can_unit_enter_normal_target(object_id, *cand_id)
                 {
                     continue;
                 }
             } else {
-                if !cand.is_targetable_by_enemy_of(team) {
+                if rel != Relationship::Enemies {
                     continue;
                 }
                 if !matches!(

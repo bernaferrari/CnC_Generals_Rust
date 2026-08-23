@@ -417,6 +417,45 @@ impl Object {
         self.record_host_vision_camo();
     }
 
+    /// Leftover `StealthUpdate::update` else-branch (`StealthUpdate.cpp:666-670`).
+    ///
+    /// Every enabled StealthUpdate except mines and disguise-transition writes
+    /// `setEffectiveOpacity(0.5 + sin(phase)*0.5)` and advances `m_pulsePhase`.
+    pub fn apply_stealth_update_pulse(&mut self) {
+        if !self.stealth_or_detector_update_processes() {
+            return;
+        }
+        if self.is_kind_of(KindOf::Mine)
+            || self.is_kind_of(KindOf::DemoTrap)
+            || self.mine_data.is_some()
+        {
+            return;
+        }
+        if self.status.disguise_transition_frames > 0 {
+            return;
+        }
+        // C++ enabled StealthUpdate: heroes, camo rebels, outposts, fighters, GPS.
+        if !(self.innate_stealth
+            || self.status.stealthed
+            || self.stealth_delay_frames > 0
+            || self.temporary_stealth_expires_frame > 0)
+        {
+            return;
+        }
+        let floor = if self.status.stealthed {
+            self.thing.template.stealth_friendly_opacity_min
+        } else {
+            1.0
+        };
+        let (op, next) = stealth_update_pulse_opacity(self.camo_opacity_pulse_phase, floor);
+        self.camo_opacity_pulse_phase = next;
+        if (self.camo_friendly_opacity - op).abs() > 1e-4 {
+            self.camo_friendly_opacity = op;
+            self.record_host_vision_camo();
+        }
+    }
+
+
     /// C++ StealthUpdate.cpp:717-752 — cloak after `m_stealthAllowedFrame` when allowed.
     /// Forbidden frames roll `m_stealthAllowedFrame = now + StealthDelay` every tick.
     pub fn try_recloak_after_stealth_delay(&mut self, now: u32, forbidden: bool) -> bool {
@@ -919,16 +958,28 @@ pub fn drawable_explicit_fade_opacity(mode: u8, start_frame: u32, frames: u32, n
     }
 }
 
-/// C++ `StealthUpdate` pulse + `Drawable::setEffectiveOpacity`.
+/// C++ `StealthUpdate` pulse rate (`m_pulsePhaseRate = 0.2`).
+pub const STEALTH_UPDATE_PULSE_PHASE_RATE: f32 = 0.2;
+
+/// C++ `StealthUpdate.cpp:668-670` + `Drawable::setEffectiveOpacity`.
 ///
 /// Pulse factor is `0.5 + sin(phase)*0.5`. Effective stealth is
 /// `floor + (1-floor)*pulse` so friendly cloak shimmers between min and 1.0.
-/// Phase is presentation-owned: object-id seed + `0.2` rad per logic frame.
+/// Returns `(effective_opacity, next_phase)`.
+pub fn stealth_update_pulse_opacity(phase: f32, floor: f32) -> (f32, f32) {
+    let pulse = (0.5 + phase.sin() * 0.5).clamp(0.0, 1.0);
+    let floor = floor.clamp(0.0, 1.0);
+    let opacity = (floor + (1.0 - floor) * pulse).clamp(0.0, 1.0);
+    (opacity, phase + STEALTH_UPDATE_PULSE_PHASE_RATE)
+}
+
+/// Presentation-owned pulse when the host has not yet written `camo_friendly_opacity`.
+///
+/// Prefer [`stealth_update_pulse_opacity`] / host `camo_friendly_opacity` for leftover
+/// StealthUpdate parity (`m_pulsePhase` stored on the object).
 pub fn friendly_stealth_pulse_opacity(min: f32, object_id: u32, logic_frame: u32) -> f32 {
     let phase = (object_id as f32) * 0.37 + (logic_frame as f32) * 0.2;
-    let pulse = (0.5 + 0.5 * phase.sin()).clamp(0.0, 1.0);
-    let floor = min.clamp(0.0, 1.0);
-    (floor + (1.0 - floor) * pulse).clamp(0.0, 1.0)
+    stealth_update_pulse_opacity(phase, min).0
 }
 
 /// C++ `VERY_TRANSPARENT_MATERIAL_PASS_OPACITY` (`Drawable.cpp:67`).
@@ -1249,7 +1300,8 @@ pub fn reset_drawable_tint_envelopes() {
 #[cfg(test)]
 mod stealth_grant_tests {
     use super::{
-        is_live_stealth_black_market, order_idle_enemies_on_reveal, Object, Team, ThingTemplate,
+        is_live_stealth_black_market, order_idle_enemies_on_reveal, stealth_update_pulse_opacity,
+        Object, Team, ThingTemplate, STEALTH_UPDATE_PULSE_PHASE_RATE,
     };
 
 
@@ -1452,6 +1504,40 @@ mod stealth_grant_tests {
         unit.last_healing_timestamp = Some(10);
         assert!(!unit.stealth_taking_non_healing_damage(10));
     }
+
+    #[test]
+    fn stealth_update_pulse_matches_cpp_set_effective_opacity() {
+        let (op0, ph1) = stealth_update_pulse_opacity(0.0, 0.5);
+        assert!((op0 - 0.75).abs() < 1e-5);
+        assert!((ph1 - STEALTH_UPDATE_PULSE_PHASE_RATE).abs() < 1e-5);
+        let (op_hi, _) = stealth_update_pulse_opacity(std::f32::consts::FRAC_PI_2, 0.5);
+        assert!((op_hi - 1.0).abs() < 1e-5);
+        let (op_lo, _) = stealth_update_pulse_opacity(3.0 * std::f32::consts::FRAC_PI_2, 0.5);
+        assert!((op_lo - 0.5).abs() < 1e-5);
+
+        let mut hero = Object::new(
+            ThingTemplate::new("AmericaInfantryColonelBurton"),
+            super::ObjectId(7),
+            super::Team::USA,
+        );
+        hero.innate_stealth = true;
+        hero.status.stealthed = true;
+        hero.apply_stealth_update_pulse();
+        assert!(
+            hero.camo_friendly_opacity >= 0.5 - 1e-4
+                && hero.camo_friendly_opacity <= 1.0 + 1e-4
+                && (hero.camo_friendly_opacity - 1.0).abs() > 1e-3,
+            "cloaked hero must pulse away from full opacity, got {}",
+            hero.camo_friendly_opacity
+        );
+        assert!(hero.camo_opacity_pulse_phase > 0.0);
+        let phase_after = hero.camo_opacity_pulse_phase;
+        hero.status.stealthed = false;
+        hero.apply_stealth_update_pulse();
+        assert!((hero.camo_friendly_opacity - 1.0).abs() < 1e-4);
+        assert!(hero.camo_opacity_pulse_phase > phase_after);
+    }
+
     #[test]
     fn transport_destalths_non_garrison() {
         assert!(Object::transport_contain_should_destalth(false));

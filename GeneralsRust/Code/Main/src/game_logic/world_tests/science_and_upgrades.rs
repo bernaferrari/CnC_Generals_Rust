@@ -3866,6 +3866,81 @@ fn superweapon_sabotage_recharges_all_special_power_modules() {
 }
 
 #[test]
+fn superweapon_sabotage_resets_shared_n_sync_player_timer() {
+    // Leftover start_power_recharge_at SharedNSync →
+    // player.reset_or_start_special_power_ready_frame (now + ReloadTime).
+    // Live fire gate / HUD read the player timer only for SharedNSync.
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{
+        KindOf, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team, ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+    let mut st = ThingTemplate::new("AmericaParticleCannonUplink");
+    st.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSSuperweapon)
+        .set_health(1000.0);
+    st.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("ModuleTag_PUC".into()),
+        module_kind: SpecialPowerModuleKind::OclSpecialPower,
+        special_power_template: "SuperweaponParticleUplinkCannon".into(),
+        special_power_template_id: 1,
+        command_power: Some(SpecialPowerType::ParticleCannon),
+        reload_time_frames: 7200,
+        required_science: None,
+        public_timer: true,
+        shared_n_sync: true,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    logic
+        .templates
+        .insert("AmericaParticleCannonUplink".into(), st);
+    let id = logic
+        .create_object_for_player(
+            "AmericaParticleCannonUplink",
+            0,
+            glam::Vec3::new(10.0, 0.0, 10.0),
+        )
+        .expect("sw");
+    {
+        let o = logic.objects.get_mut(&id).unwrap();
+        o.set_special_power_ready(true);
+        o.special_power_cooldown_remaining = 0.0;
+        o.special_power_cooldowns.clear();
+    }
+    {
+        let player = logic.get_player_mut(0).expect("player");
+        player.express_shared_special_power_ready_now(&SpecialPowerType::ParticleCannon);
+        assert!(player.is_shared_special_power_ready(&SpecialPowerType::ParticleCannon));
+    }
+    assert!(logic.apply_superweapon_sabotage_recharge(id));
+    let remaining = logic
+        .players
+        .get(&0)
+        .expect("player")
+        .shared_special_power_remaining(&SpecialPowerType::ParticleCannon);
+    assert!(
+        (remaining - 240.0).abs() < 0.01,
+        "SharedNSync player timer must leftover-reset to ReloadTime, remaining={remaining}"
+    );
+    let o = &logic.objects[&id];
+    assert!(!o.special_power_ready);
+    let obj_cd = o
+        .special_power_cooldowns
+        .get(&SpecialPowerType::ParticleCannon)
+        .copied()
+        .unwrap_or(0.0);
+    assert!((obj_cd - 240.0).abs() < 0.01, "obj_cd={obj_cd}");
+}
+
+
+#[test]
 fn internet_center_sabotage_disables_spy_vision_and_hackers() {
     use crate::game_logic::host_saboteur::SABOTEUR_INTERNET_DURATION_FRAMES;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};

@@ -687,7 +687,7 @@ impl Object {
         self.target = None;
         self.set_ai_state(AIState::Idle);
         // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
-        self.drawable_hidden = true;
+        self.set_drawable_hidden(true);
     }
 
     /// C++ HijackerUpdate exit when vehicle dies residual.
@@ -707,7 +707,7 @@ impl Object {
         self.record_host_hijacker();
         self.set_position(eject_pos);
         // C++ HijackerUpdate eject: setDrawableHidden(false) + registerObject.
-        self.drawable_hidden = false;
+        self.set_drawable_hidden(false);
         self.stop_moving();
         self.target = None;
     }

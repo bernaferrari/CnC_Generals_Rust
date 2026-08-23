@@ -318,7 +318,7 @@ fn attack_object_legality(
     }
 
     if !is_forced_attack(attack_type) {
-        if apparent_controller_blocks_player(source, victim, r, command_source) {
+        if object_apparent_controller_blocks_player(source, victim, r, command_source) {
             return CanAttackResult::NotPossible;
         }
     }
@@ -392,7 +392,27 @@ fn container_encloses(container_id: ObjectID, victim: &crate::object::Object) ->
         .unwrap_or(false)
 }
 
-fn apparent_controller_blocks_player(
+/// C++ `WeaponSet.cpp:552-571` — non-force FROM_PLAYER attack is
+/// `NOT_POSSIBLE` when the victim contain's apparent controller is not
+/// ENEMIES to the source team, unless `SCRIPT_TARGETABLE` and not ALLIES.
+#[inline]
+pub fn apparent_controller_blocks_player(
+    apparent_controller_present: bool,
+    source_team_to_apparent_default: Relationship,
+    from_player: bool,
+    script_targetable: bool,
+    source_to_victim: Relationship,
+) -> bool {
+    if !apparent_controller_present {
+        return false;
+    }
+    if source_team_to_apparent_default == Relationship::Enemies {
+        return false;
+    }
+    from_player && (!script_targetable || source_to_victim == Relationship::Allies)
+}
+
+fn object_apparent_controller_blocks_player(
     source: &crate::object::Object,
     victim: &crate::object::Object,
     r: Relationship,
@@ -430,12 +450,13 @@ fn apparent_controller_blocks_player(
     let Ok(source_team_guard) = source_team.read() else {
         return false;
     };
-    if source_team_guard.get_relationship(&apparent_team_guard) == Relationship::Enemies {
-        return false;
-    }
-    command_source == CommandSourceType::FromPlayer
-        && (!victim.test_script_status_bit(ObjectScriptStatusBit::ScriptTargetable)
-            || r == Relationship::Allies)
+    apparent_controller_blocks_player(
+        true,
+        source_team_guard.get_relationship(&apparent_team_guard),
+        command_source == CommandSourceType::FromPlayer,
+        victim.test_script_status_bit(ObjectScriptStatusBit::ScriptTargetable),
+        r,
+    )
 }
 
 fn garrison_fire_goal(
@@ -579,4 +600,62 @@ fn spawn_slave_ground_result(
     } else {
         CanAttackResult::NotPossible
     })
+}
+
+#[cfg(test)]
+mod apparent_controller_blocks_player_tests {
+    use super::*;
+
+    #[test]
+    fn from_player_blocks_non_enemy_apparent_without_script_targetable() {
+        assert!(apparent_controller_blocks_player(
+            true,
+            Relationship::Neutral,
+            true,
+            false,
+            Relationship::Enemies,
+        ));
+        assert!(apparent_controller_blocks_player(
+            true,
+            Relationship::Allies,
+            true,
+            false,
+            Relationship::Enemies,
+        ));
+        assert!(!apparent_controller_blocks_player(
+            true,
+            Relationship::Enemies,
+            true,
+            false,
+            Relationship::Enemies,
+        ));
+        assert!(!apparent_controller_blocks_player(
+            false,
+            Relationship::Neutral,
+            true,
+            false,
+            Relationship::Enemies,
+        ));
+        assert!(!apparent_controller_blocks_player(
+            true,
+            Relationship::Neutral,
+            false,
+            false,
+            Relationship::Enemies,
+        ));
+        assert!(!apparent_controller_blocks_player(
+            true,
+            Relationship::Neutral,
+            true,
+            true,
+            Relationship::Enemies,
+        ));
+        assert!(apparent_controller_blocks_player(
+            true,
+            Relationship::Neutral,
+            true,
+            true,
+            Relationship::Allies,
+        ));
+    }
 }

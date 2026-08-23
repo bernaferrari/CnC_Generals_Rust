@@ -477,13 +477,10 @@ impl Object {
     /// Combat weapon choice.
     ///
     /// Slot: `0` = primary, `1` = secondary, `2` = tertiary.
-    /// Rules:
-    /// - Explicit player lock wins when its concrete slot is ready + in range.
-    /// - C++ WeaponSet.cpp:869-877 PreferredAgainst INI: a matching slot is
-    ///   treated as huge-damage and kept unless OUT_OF_AMMO (Comanche cannon
-    ///   vs infantry beats higher-damage Hellfires).
-    /// - Else residual damage + kind heuristic (FlashBang / TOW / structures).
-    /// - Else primary when ready + in range; else secondary (alternate fire).
+    /// Leftover `choose_best_weapon_for_target` gates:
+    /// pitch elimination, turret-aim ready suppression, zero-damage
+    /// (DAMAGE_UNRESISTABLE exception), and unready-but-valid backup.
+    /// PreferredAgainst INI still wins unless OUT_OF_AMMO.
     pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
         // C++ WeaponSet lock: locked slot wins while ready/in-range.
         if self.weapon_lock_type != WeaponLockType::NotLocked {
@@ -502,16 +499,20 @@ impl Object {
             }
         }
         let target_faerie = target.is_faerie_fire();
-        let primary_ok = self.thing.template.slot_allows_auto_choose(0)
-            && self.weapon_slot(0).is_some_and(|w| {
-                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                    && self.can_target_with_slot(target, w, Some(0))
-            });
-        let secondary_ok = self.thing.template.slot_allows_auto_choose(1)
-            && self.secondary_weapon.as_ref().is_some_and(|w| {
-                self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                    && self.can_target_with_slot(target, w, Some(1))
-            });
+        let primary_valid = self.leftover_choose_best_slot_valid(0, target);
+        let secondary_valid = self.leftover_choose_best_slot_valid(1, target);
+        let primary_ok = self.leftover_choose_best_slot_ready(
+            0,
+            target,
+            current_time,
+            target_faerie,
+        );
+        let secondary_ok = self.leftover_choose_best_slot_ready(
+            1,
+            target,
+            current_time,
+            target_faerie,
+        );
 
         // Manual weapon-slot toggle (command residual).
         if self.active_weapon_slot == 2 {
@@ -520,6 +521,8 @@ impl Object {
             let tertiary_ok = self.tertiary_weapon.as_ref().is_some_and(|w| {
                 self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
                     && self.can_target_with_slot(target, w, Some(2))
+                    && self.is_slot_within_target_pitch(2, target)
+                    && !self.leftover_choose_best_eliminates_zero_damage(2, target)
             });
             if tertiary_ok {
                 return Some(2);
@@ -528,6 +531,16 @@ impl Object {
         }
 
         if !primary_ok && !secondary_ok {
+            if gamelogic::weapon::choose_best_uses_backup(
+                false,
+                primary_valid || secondary_valid,
+            ) {
+                return self.leftover_choose_best_backup_slot(
+                    target,
+                    primary_valid,
+                    secondary_valid,
+                );
+            }
             return None;
         }
 
@@ -536,6 +549,8 @@ impl Object {
             let secondary_explicit = self.secondary_weapon.as_ref().is_some_and(|w| {
                 self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
                     && self.can_target_with_slot(target, w, Some(1))
+                    && self.is_slot_within_target_pitch(1, target)
+                    && !self.leftover_choose_best_eliminates_zero_damage(1, target)
             });
             if secondary_explicit {
                 return Some(1);
@@ -627,6 +642,144 @@ impl Object {
         }
     }
 
+    /// Leftover chooseBest fitness: AutoChoose + anti-mask + pitch + zero-damage.
+    fn leftover_choose_best_slot_valid(&self, slot: u8, target: &Object) -> bool {
+        if !self.thing.template.slot_allows_auto_choose(slot) {
+            return false;
+        }
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        if !self.can_target_with_slot(target, weapon, Some(slot)) {
+            return false;
+        }
+        if !self.is_slot_within_target_pitch(slot, target) {
+            return false;
+        }
+        !self.leftover_choose_best_eliminates_zero_damage(slot, target)
+    }
+
+    /// Leftover chooseBest ready: valid + READY_TO_FIRE, turret-aim demotes.
+    fn leftover_choose_best_slot_ready(
+        &self,
+        slot: u8,
+        target: &Object,
+        current_time: f32,
+        target_faerie: bool,
+    ) -> bool {
+        if !self.leftover_choose_best_slot_valid(slot, target) {
+            return false;
+        }
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        let status_ready =
+            self.weapon_ready_vs_target_bonused(weapon, current_time, target_faerie);
+        gamelogic::weapon::choose_best_ready_after_turret_aim(
+            status_ready,
+            self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target),
+        )
+    }
+
+    fn leftover_choose_best_eliminates_zero_damage(&self, slot: u8, target: &Object) -> bool {
+        let damage = self.estimated_slot_damage_vs(slot, target);
+        let damage_type = self
+            .leftover_slot_damage_type(slot)
+            .unwrap_or(gamelogic::damage::DamageType::Explosion);
+        gamelogic::weapon::choose_best_eliminates_zero_damage(damage, damage_type)
+    }
+
+    fn leftover_slot_damage_type(&self, slot: u8) -> Option<gamelogic::damage::DamageType> {
+        let name = self.weapon_name_for_slot(slot)?;
+        if name.is_empty() {
+            return None;
+        }
+        gamelogic::weapon::with_weapon_store(|store| {
+            store.find_weapon_template(name).map(|wt| wt.get_damage_type())
+        })
+        .ok()
+        .flatten()
+    }
+
+    /// Leftover PreferMostDamage backup: preferred first, then highest estimate.
+    /// Primary wins ties (`damage >= best` while walking slots backwards).
+    fn leftover_choose_best_backup_slot(
+        &self,
+        target: &Object,
+        primary_valid: bool,
+        secondary_valid: bool,
+    ) -> Option<u8> {
+        if self.ini_preferred_slot_usable(0, target) {
+            return Some(0);
+        }
+        if self.ini_preferred_slot_usable(1, target) {
+            return Some(1);
+        }
+        match (primary_valid, secondary_valid) {
+            (true, true) => {
+                let primary = self.estimated_slot_damage_vs(0, target);
+                let secondary = self.estimated_slot_damage_vs(1, target);
+                if secondary > primary {
+                    Some(1)
+                } else {
+                    Some(0)
+                }
+            }
+            (true, false) => Some(0),
+            (false, true) => Some(1),
+            (false, false) => None,
+        }
+    }
+
+    /// Leftover `Weapon::isWithinTargetPitch` via leftover-backed loft limits.
+    fn is_slot_within_target_pitch(&self, slot: u8, victim: &Object) -> bool {
+        use crate::game_logic::weapon_bootstrap::{
+            host_is_contact_weapon_name, host_target_pitch_limits_for_weapon_name,
+            is_pitch_within_limits_geom,
+        };
+        let name = self.weapon_name_for_slot(slot).unwrap_or("");
+        if !name.is_empty() && host_is_contact_weapon_name(name) {
+            return true;
+        }
+        let limits = host_target_pitch_limits_for_weapon_name(name);
+        let src = self.get_position();
+        let tgt = victim.get_position();
+        let src_half = self.thing.template.geometry_info.height.max(0.0) * 0.5;
+        let tgt_above = victim
+            .thing
+            .template
+            .geometry_info
+            .max_height_above_position();
+        let tgt_below = victim.thing.template.geometry_info.height.max(0.0) * 0.5;
+        is_pitch_within_limits_geom(src, tgt, &limits, src_half, tgt_above, tgt_below)
+    }
+
+    /// Leftover `AIUpdateInterface::isWeaponSlotOnTurretAndAimingAtTarget`.
+    pub fn is_weapon_slot_on_turret_and_aiming_at_target(
+        &self,
+        slot: u8,
+        victim: &Object,
+    ) -> bool {
+        self.is_weapon_slot_on_turret(slot) && self.is_trying_to_aim_at_target(victim.id)
+    }
+
+    /// Leftover `TurretAI::isWeaponSlotOnTurret` (ControlledWeaponSlots bit).
+    pub fn is_weapon_slot_on_turret(&self, slot: u8) -> bool {
+        if !self.turret_enabled {
+            return false;
+        }
+        let mask = self.leftover_turret_controlled_weapon_slots_mask();
+        (mask & (1u32 << slot)) != 0
+    }
+
+    fn leftover_turret_controlled_weapon_slots_mask(&self) -> u32 {
+        if let Some(mask) = leftover_parse_controlled_weapon_slots(&self.template_name) {
+            return mask;
+        }
+        // leftover TurretAI default when INI is absent: PRIMARY.
+        1
+    }
+
     /// C++ WeaponSet.cpp:869-877 — PreferredAgainst KindOf match, ready unless
     /// the clip is empty (`OUT_OF_AMMO`). AutoChoose NONE slots stay button-only.
     fn ini_preferred_slot_usable(&self, slot: u8, target: &Object) -> bool {
@@ -644,6 +797,12 @@ impl Object {
             return false;
         };
         if !self.can_target_with_slot(target, weapon, Some(slot)) {
+            return false;
+        }
+        if !self.is_slot_within_target_pitch(slot, target) {
+            return false;
+        }
+        if self.leftover_choose_best_eliminates_zero_damage(slot, target) {
             return false;
         }
         !(weapon.clip_size > 0 && weapon.ammo == Some(0) && !weapon.reloading_clip)
@@ -1170,6 +1329,31 @@ impl Object {
     }
 }
 
+/// Leftover TurretAIData::parseTWS — `ControlledWeaponSlots = PRIMARY SECONDARY`.
+fn leftover_parse_controlled_weapon_slots(template_name: &str) -> Option<u32> {
+    let manager = crate::assets::get_asset_manager()?;
+    let guard = manager.lock().ok()?;
+    let definition = guard
+        .get_object_definition(template_name)
+        .or_else(|| guard.resolve_object_definition(template_name, None))?;
+    let module = definition
+        .behavior_modules
+        .iter()
+        .find(|module| module.attribute("ControlledWeaponSlots").is_some())?;
+    let raw = module.attribute("ControlledWeaponSlots")?;
+    let mut mask = 0u32;
+    for token in raw.split_whitespace() {
+        let bit = match token.to_ascii_uppercase().as_str() {
+            "PRIMARY" => 1u32 << 0,
+            "SECONDARY" => 1u32 << 1,
+            "TERTIARY" => 1u32 << 2,
+            _ => continue,
+        };
+        mask |= bit;
+    }
+    (mask != 0).then_some(mask)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1363,8 +1547,8 @@ mod tests {
         target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
         assert_eq!(
             attacker.select_combat_weapon_slot(&target, 1.1),
-            None,
-            "AutoChooseSources SECONDARY NONE must not snipe during rifle DelayBetweenShots"
+            Some(0),
+            "leftover backup keeps reloading PRIMARY; AutoChoose NONE must not snipe"
         );
     }
 
@@ -1526,5 +1710,113 @@ mod tests {
         attacker.record_shot_at_target(ObjectId(4));
         assert_eq!(attacker.consecutive_shots_at_target, 1);
         assert_eq!(attacker.consecutive_shot_target, Some(ObjectId(4)));
+    }
+
+    #[test]
+    fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("ZeroDmgChooser"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(weapon(0.0));
+        attacker.secondary_weapon = Some(weapon(10.0));
+        let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.0),
+            Some(1),
+            "zero-damage PRIMARY is eliminated so SECONDARY wins"
+        );
+
+        const UNRES: &str = "__RustChooseBestZeroUnresistable";
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(UNRES.to_string());
+            template.primary_damage = 0.0;
+            template.damage_type = gamelogic::damage::DamageType::Unresistable;
+            template.attack_range = 200.0;
+            store.add_weapon_template(template);
+        });
+        attacker.thing.template.set_primary_weapon_name(UNRES);
+        attacker.weapon = Some(weapon(0.0));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.0),
+            Some(0),
+            "DAMAGE_UNRESISTABLE may keep a zero-damage slot"
+        );
+    }
+
+    #[test]
+    fn leftover_choose_best_turret_aim_demotes_ready_slot() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("TurretChooser"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(weapon(100.0));
+        attacker.secondary_weapon = Some(weapon(10.0));
+        attacker.turret_enabled = true;
+        attacker.turret_substate = TurretSubState::Aim;
+        attacker.turret_target_id = Some(ObjectId(2));
+        let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert!(attacker.is_weapon_slot_on_turret_and_aiming_at_target(0, &target));
+        assert!(!attacker.is_weapon_slot_on_turret_and_aiming_at_target(1, &target));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.0),
+            Some(1),
+            "aiming turret PRIMARY is demoted so hull SECONDARY can fire"
+        );
+    }
+
+    #[test]
+    fn leftover_choose_best_skips_slot_outside_target_pitch() {
+        const LOFT: &str = "__RustChooseBestLoftLimited";
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(LOFT.to_string());
+            template.primary_damage = 100.0;
+            template.attack_range = 200.0;
+            template.min_target_pitch = (-15f32).to_radians();
+            template.max_target_pitch = 15f32.to_radians();
+            store.add_weapon_template(template);
+        });
+        let mut t = ThingTemplate::new("PitchChooser");
+        t.set_primary_weapon_name(LOFT);
+        let mut attacker = Object::new(t, ObjectId(1), Team::USA);
+        attacker.weapon = Some(weapon(100.0));
+        attacker.secondary_weapon = Some(weapon(10.0));
+        let mut target = Object::new(ThingTemplate::new("HighTarget"), ObjectId(2), Team::GLA);
+        target.set_position(glam::Vec3::new(10.0, 50.0, 0.0));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.0),
+            Some(1),
+            "loft-failing PRIMARY is eliminated so SECONDARY wins"
+        );
+    }
+
+    #[test]
+    fn leftover_choose_best_backup_picks_unready_valid_slot() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("BackupChooser"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(10.0)
+        });
+        attacker.secondary_weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(40.0)
+        });
+        let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.1),
+            Some(1),
+            "when every auto-choose slot is mid-reload leftover keeps the best backup"
+        );
     }
 }

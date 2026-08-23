@@ -784,7 +784,8 @@ impl PresentationFrame {
                 special_power_override_destination: obj.special_power_override_destination,
                 health_current: auth_health,
                 health_max: obj.health.maximum,
-                selected: obj.selected || obj.status.selected,
+                selected: (obj.selected || obj.status.selected)
+                    && !obj.drawable_is_effectively_hidden(),
                 is_deployed: obj.status.deployed,
                 selection_flash_remaining: obj.selection_flash_remaining,
                 selection_flash_color: obj.selection_flash_color,
@@ -1628,8 +1629,18 @@ impl PresentationFrame {
                 can_make_cameos.truncate(32);
             }
         }
-        let selected = local
-            .map(|p| p.selected_objects.clone())
+        let selected: Vec<ObjectId> = local
+            .map(|p| {
+                p.selected_objects
+                    .iter()
+                    .copied()
+                    .filter(|&id| {
+                        logic
+                            .host_object(id)
+                            .is_some_and(|o| !o.drawable_is_effectively_hidden())
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
 
         // Combat particle residual: freeze host registry for client/presentation observe.

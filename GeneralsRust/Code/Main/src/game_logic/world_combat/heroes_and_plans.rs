@@ -215,47 +215,86 @@ impl GameLogic {
     /// C++ SabotageSuperweaponCrateCollide::executeCrateBehavior
     /// (`SabotageSuperweaponCrateCollide.cpp:117-126`): walk every behavior
     /// module, `getSpecialPower()`, `startPowerRecharge()` on each.
+    ///
+    /// Leftover `start_power_recharge_at` SharedNSync is
+    /// `player.reset_or_start_special_power_ready_frame` (now + ReloadTime).
+    /// Fire gate and HUD read that player timer, not the object module frame.
     pub(crate) fn apply_superweapon_sabotage_recharge(&mut self, target_id: ObjectId) -> bool {
-        let Some(target) = self.objects.get_mut(&target_id) else {
+        let Some(target) = self.objects.get(&target_id) else {
             return false;
         };
         if !target.is_alive() {
             return false;
         }
-        // C++ walks every behavior module and startPowerRecharge()s each
-        // SpecialPowerModuleInterface (Spy + Emergency Repair + CIA, etc.).
+        let owner_id = self.player_owner_for_host_object(target);
         let modules = target.thing.template.special_power_modules.clone();
+
         let mut recharged: Vec<crate::command_system::SpecialPowerType> = Vec::new();
-        for module in &modules {
-            let Some(power) = module.command_power.as_ref() else {
-                continue;
+        let mut shared_resets: Vec<(crate::command_system::SpecialPowerType, f32)> = Vec::new();
+        {
+            let Some(target) = self.objects.get_mut(&target_id) else {
+                return false;
             };
-            if module.reload_time_frames > 0 {
-                target.start_power_recharge_with_frames(power, module.reload_time_frames);
-            } else {
-                target.start_power_recharge(power);
+            // C++ walks every behavior module and startPowerRecharge()s each
+            // SpecialPowerModuleInterface (Spy + Emergency Repair + CIA, etc.).
+            for module in &modules {
+                let Some(power) = module.command_power.as_ref() else {
+                    continue;
+                };
+                let reload_seconds = if module.reload_time_frames > 0 {
+                    target.start_power_recharge_with_frames(power, module.reload_time_frames);
+                    module.reload_time_frames as f32 / 30.0
+                } else {
+                    target.start_power_recharge(power);
+                    crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+                        power,
+                    )
+                    .unwrap_or(target.special_power_cooldown)
+                    .max(0.0)
+                };
+                if !recharged.contains(power) {
+                    recharged.push(power.clone());
+                }
+                if module.shared_n_sync && !shared_resets.iter().any(|(p, _)| p == power) {
+                    shared_resets.push((power.clone(), reload_seconds));
+                }
             }
-            if !recharged.contains(power) {
-                recharged.push(power.clone());
+            let leftover: Vec<crate::command_system::SpecialPowerType> = target
+                .special_power_cooldowns
+                .keys()
+                .filter(|p| !recharged.contains(p))
+                .cloned()
+                .collect();
+            for power in leftover {
+                target.start_power_recharge(&power);
+                if crate::game_logic::host_special_power_enum_residual::special_power_uses_shared_synced_timer(
+                    &power,
+                ) && !shared_resets.iter().any(|(p, _)| p == &power)
+                {
+                    let reload = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+                        &power,
+                    )
+                    .unwrap_or(target.special_power_cooldown)
+                    .max(0.0);
+                    shared_resets.push((power.clone(), reload));
+                }
+                recharged.push(power);
+            }
+            if recharged.is_empty() {
+                // Host residual single-slot when no modules / map entries exist.
+                target.set_special_power_ready(false);
+                if target.special_power_cooldown <= 0.0 {
+                    target.special_power_cooldown = 10.0;
+                }
+                target.special_power_cooldown_remaining = target.special_power_cooldown;
             }
         }
-        let leftover: Vec<crate::command_system::SpecialPowerType> = target
-            .special_power_cooldowns
-            .keys()
-            .filter(|p| !recharged.contains(p))
-            .cloned()
-            .collect();
-        for power in leftover {
-            target.start_power_recharge(&power);
-            recharged.push(power);
-        }
-        if recharged.is_empty() {
-            // Host residual single-slot when no modules / map entries exist.
-            target.set_special_power_ready(false);
-            if target.special_power_cooldown <= 0.0 {
-                target.special_power_cooldown = 10.0;
+        if let Some(pid) = owner_id {
+            if let Some(player) = self.get_player_mut(pid) {
+                for (power, reload) in shared_resets {
+                    player.reset_shared_special_power_timer(&power, reload);
+                }
             }
-            target.special_power_cooldown_remaining = target.special_power_cooldown;
         }
         let _ = self
             .special_power_strikes

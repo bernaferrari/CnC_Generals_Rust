@@ -563,6 +563,21 @@ impl AIPlayer {
                 .iter()
                 .map(|building| building.destroyed_at_time)
                 .collect(),
+            building_object_ids: self
+                .building_queue
+                .iter()
+                .map(|building| building.object_id.map(|id| id.0))
+                .collect(),
+            building_is_built: self
+                .building_queue
+                .iter()
+                .map(|building| building.is_built)
+                .collect(),
+            building_is_priority: self
+                .building_queue
+                .iter()
+                .map(|building| building.is_priority)
+                .collect(),
         }
     }
 
@@ -619,14 +634,35 @@ impl AIPlayer {
         {
             building.rebuild_count = remaining;
         }
-        // Leftover Player::xfer object_timestamp. Write rebuild-delay clock only;
-        // do not rebind pad object_id or under-construction.
+        // Leftover Player::xfer object_timestamp rebuild-delay clock.
         for (building, stamp) in self
             .building_queue
             .iter_mut()
             .zip(persist.building_destroyed_at_times)
         {
             building.destroyed_at_time = stamp;
+        }
+        // Leftover Player::xfer object_id / under_construction / priority_build.
+        for (building, object_id) in self
+            .building_queue
+            .iter_mut()
+            .zip(persist.building_object_ids)
+        {
+            building.object_id = object_id.map(ObjectId);
+        }
+        for (building, is_built) in self
+            .building_queue
+            .iter_mut()
+            .zip(persist.building_is_built)
+        {
+            building.is_built = is_built;
+        }
+        for (building, is_priority) in self
+            .building_queue
+            .iter_mut()
+            .zip(persist.building_is_priority)
+        {
+            building.is_priority = is_priority;
         }
     }
 
@@ -686,6 +722,12 @@ impl AIPlayer {
                     order.supply_center_id = None;
                 }
                 order.observed_unit_ids.retain(|id| valid.contains(id));
+            }
+        }
+        for building in &mut self.building_queue {
+            if building.object_id.is_some_and(|id| !valid.contains(&id)) {
+                building.object_id = None;
+                building.is_built = false;
             }
         }
     }
@@ -1699,10 +1741,9 @@ impl AIPlayer {
 
             if selected_team {
                 // C++ processTeamBuilding invokes queueUnits immediately after
-                // a successful selectTeamToBuild, not on the next TeamSeconds.
+                // a successful selectTeamToBuild. Timer is armed only on a new
+                // pick inside selectTeamToBuild; reinforce returns with ready set.
                 self.process_team_queue(game_logic, current_time);
-                self.next_team_time = current_time
-                    + self.scaled_interval_seconds(game_logic, self.team_seconds, false);
             } else if current_time >= self.next_team_time {
                 // A failed selection leaves m_readyToBuildTeam set.  Retry on
                 // the short m_teamDelay cadence rather than sleeping 10 sec.
@@ -4163,6 +4204,10 @@ impl AIPlayer {
         {
             return false;
         }
+        if !crate::game_logic::host_upgrades::object_can_produce_upgrade(object, upgrade_name) {
+            return false;
+        }
+
         !building
             .production_queue
             .iter()
@@ -4201,57 +4246,65 @@ impl AIPlayer {
         if !player.is_alive {
             return;
         }
-        let Some(upgrade_name) = self.structure_upgrade_candidates().iter().copied().find(|name| {
-            !player.has_unlocked_upgrade(name) && !player.has_queued_upgrade(name)
-        }) else {
-            return;
-        };
-        let kind = HostUpgradeKind::from_name(upgrade_name);
-        let cost = Resources {
-            supplies: kind.retail_build_cost(),
-            power: 0,
-        };
-        if cost.supplies == 0 || !player.can_afford(&cost) {
-            return;
-        }
-        let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
-            return;
-        };
-        let Some(player) = game_logic.get_player_mut(self.player_id) else {
-            return;
-        };
-        if !player.queue_upgrade(upgrade_name, &cost) {
-            return;
-        }
-        let secs = kind.retail_build_time_secs().max(1.0 / LOGIC_FRAMES_PER_SECOND);
-        if !game_logic.unit_command_building_add_upgrade_to_queue(
-            producer_id,
-            upgrade_name,
-            secs,
-            cost,
-        ) {
-            if let Some(player) = game_logic.get_player_mut(self.player_id) {
-                let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
+        let candidates: Vec<&'static str> = self
+            .structure_upgrade_candidates()
+            .iter()
+            .copied()
+            .filter(|name| !player.has_unlocked_upgrade(name) && !player.has_queued_upgrade(name))
+            .collect();
+        for upgrade_name in candidates {
+            let kind = HostUpgradeKind::from_name(upgrade_name);
+            let cost = Resources {
+                supplies: kind.retail_build_cost(),
+                power: 0,
+            };
+            let Some(player) = game_logic.get_player(self.player_id) else {
+                return;
+            };
+            if cost.supplies == 0 || !player.can_afford(&cost) {
+                continue;
             }
+            let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
+                continue;
+            };
+            let Some(player) = game_logic.get_player_mut(self.player_id) else {
+                return;
+            };
+            if !player.queue_upgrade(upgrade_name, &cost) {
+                continue;
+            }
+            let secs = kind.retail_build_time_secs().max(1.0 / LOGIC_FRAMES_PER_SECOND);
+            if !game_logic.unit_command_building_add_upgrade_to_queue(
+                producer_id,
+                upgrade_name,
+                secs,
+                cost,
+            ) {
+                if let Some(player) = game_logic.get_player_mut(self.player_id) {
+                    let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
+                }
+                continue;
+            }
+            game_logic.record_host_upgrade_queued(
+                self.player_id,
+                self.team,
+                upgrade_name,
+                Some(producer_id),
+            );
+            game_logic
+                .host_upgrades_mut()
+                .set_build_cost_paid(upgrade_name, self.player_id, cost.supplies);
+            let frames = (secs * LOGIC_FRAMES_PER_SECOND).round().max(1.0) as u32;
+            game_logic.host_upgrades_mut().set_resolved_research_frames(
+                upgrade_name,
+                self.player_id,
+                frames,
+            );
+            self.activity_count = self.activity_count.saturating_add(1);
             return;
         }
-        game_logic.record_host_upgrade_queued(
-            self.player_id,
-            self.team,
-            upgrade_name,
-            Some(producer_id),
-        );
-        game_logic
-            .host_upgrades_mut()
-            .set_build_cost_paid(upgrade_name, self.player_id, cost.supplies);
-        let frames = (secs * LOGIC_FRAMES_PER_SECOND).round().max(1.0) as u32;
-        game_logic.host_upgrades_mut().set_resolved_research_frames(
-            upgrade_name,
-            self.player_id,
-            frames,
-        );
-        self.activity_count = self.activity_count.saturating_add(1);
     }
+
 
     /// Pick candidate team name for the current strategy (same as select_team_to_build).
     fn candidate_team_name(&self) -> Option<String> {
@@ -4281,6 +4334,8 @@ impl AIPlayer {
     }
 
     /// C++ `AIPlayer::selectTeamToBuild` — player TeamPrototypes only.
+    /// Reinforce returns before the TeamSeconds arm. A new pick then sets
+    /// `next_team_time` from TeamSeconds*FPS / wealth rate (no difficulty).
     fn select_team_to_build(&mut self, game_logic: &mut GameLogic, current_time: f32) -> bool {
         const INVALID_PRI: i32 = -99999;
         let candidates = self.player_team_prototype_candidates();
@@ -4322,7 +4377,68 @@ impl AIPlayer {
             return false;
         }
         log::debug!("AI Player {} queued team: {}", self.player_id, name);
+        // C++ arms m_teamTimer only after a new-team pick, never after reinforce.
+        self.arm_team_timer_after_build(game_logic, current_time);
         true
+    }
+
+    /// C++ `selectTeamToBuild` new-pick arm: ready=false, teamTimer =
+    /// TeamSeconds*FPS divided by TeamsPoorRate / TeamsWealthyRate only.
+    /// Difficulty does not rewrite TeamSeconds (`setAIDifficulty` assigns
+    /// `m_difficulty` only).
+    fn arm_team_timer_after_build(&mut self, game_logic: &GameLogic, current_time: f32) {
+        let mut timer = (self.team_seconds.max(0.0) * LOGIC_FRAMES_PER_SECOND) as u32;
+        let money = game_logic
+            .get_player(self.player_id)
+            .map(|p| p.resources.supplies as i32)
+            .unwrap_or(0);
+        let (poor, wealthy, poor_mod, wealthy_mod) = Self::team_wealth_params();
+        if money < poor && poor_mod > 0.0 {
+            timer = (timer as f32 / poor_mod) as u32;
+        } else if money > wealthy && wealthy_mod > 0.0 {
+            timer = (timer as f32 / wealthy_mod) as u32;
+        }
+        self.next_team_time = current_time + (timer as f32 / LOGIC_FRAMES_PER_SECOND);
+    }
+
+    /// Leftover `AIPlayer::team_wealth_params`: THE_AI AIData with retail
+    /// Default/AIData.ini fallbacks when a field is zero / unset.
+    fn team_wealth_params() -> (i32, i32, f32, f32) {
+        gamelogic::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|data| {
+                    (
+                        if data.resources_poor > 0 {
+                            data.resources_poor
+                        } else {
+                            Self::POOR_RESOURCES as i32
+                        },
+                        if data.resources_wealthy > 0 {
+                            data.resources_wealthy
+                        } else {
+                            Self::WEALTHY_RESOURCES as i32
+                        },
+                        if data.team_poor_mod > 0.0 {
+                            data.team_poor_mod
+                        } else {
+                            Self::TEAMS_POOR_RATE
+                        },
+                        if data.team_wealthy_mod > 0.0 {
+                            data.team_wealthy_mod
+                        } else {
+                            Self::TEAMS_WEALTHY_RATE
+                        },
+                    )
+                })
+            })
+            .unwrap_or((
+                Self::POOR_RESOURCES as i32,
+                Self::WEALTHY_RESOURCES as i32,
+                Self::TEAMS_POOR_RATE,
+                Self::TEAMS_WEALTHY_RATE,
+            ))
     }
 
     fn player_team_prototype_candidates(&self) -> Vec<(String, i32)> {
@@ -7506,7 +7622,7 @@ mod cpp_parity_tests {
         assert!((AIPlayer::TEAMS_WEALTHY_RATE - 2.0).abs() < 1e-5);
         assert!((AIPlayer::TEAMS_POOR_RATE - 0.6).abs() < 1e-5);
         assert!((AIPlayer::TEAM_RESOURCES_TO_START - 0.1).abs() < 1e-5);
-        // Difficulty stretches TeamSeconds (Easy slower, Hard faster).
+        // setAIDifficulty does not rewrite TeamSeconds; modifiers stay unused there.
         assert!((AIDifficulty::Easy.get_build_delay_modifier() - 2.0).abs() < 1e-5);
         assert!((AIDifficulty::Medium.get_build_delay_modifier() - 1.0).abs() < 1e-5);
         assert!((AIDifficulty::Hard.get_build_delay_modifier() - 0.7).abs() < 1e-5);
@@ -7594,9 +7710,114 @@ mod cpp_parity_tests {
         let window = &src[i..src.len().min(i + 2500)];
         assert!(
             window.contains("build_specific_ai_team(game_logic, name, false)")
+                && window.contains("arm_team_timer_after_build")
                 && !window.contains("create_team_queue"),
             "auto selectTeamToBuild must use leftover-right buildSpecificAITeam"
         );
+    }
+
+    #[test]
+    fn arm_team_timer_after_build_uses_wealth_not_difficulty() {
+        // C++: m_teamTimer = TeamSeconds*FPS / TeamsPoorRate|TeamsWealthyRate.
+        // Easy's 2x build-delay modifier must not stretch the interval.
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA", false);
+        player.resources.supplies = 3_000;
+        logic.add_player(player);
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Easy);
+        ai.team_seconds = AIPlayer::TEAM_SECONDS;
+        ai.arm_team_timer_after_build(&logic, 0.0);
+        assert!(
+            (ai.next_team_time - AIPlayer::TEAM_SECONDS).abs() < 1e-5,
+            "mid-cash Easy arm is TeamSeconds not *2, got {}",
+            ai.next_team_time
+        );
+
+        logic.get_player_mut(1).unwrap().resources.supplies = 8_000;
+        ai.arm_team_timer_after_build(&logic, 0.0);
+        assert!(
+            (ai.next_team_time - 5.0).abs() < 1e-5,
+            "wealthy / TeamsWealthyRate 2.0 → 5s, got {}",
+            ai.next_team_time
+        );
+
+        logic.get_player_mut(1).unwrap().resources.supplies = 1_000;
+        ai.arm_team_timer_after_build(&logic, 0.0);
+        let poor_frames = (300f32 / AIPlayer::TEAMS_POOR_RATE) as u32;
+        let poor_secs = poor_frames as f32 / LOGIC_FRAMES_PER_SECOND;
+        assert!(
+            (ai.next_team_time - poor_secs).abs() < 1e-5,
+            "poor / TeamsPoorRate 0.6 → {poor_secs}s, got {}",
+            ai.next_team_time
+        );
+    }
+
+    #[test]
+    fn select_team_to_build_reinforce_does_not_arm_timer() {
+        // C++ selectTeamToReinforce success returns before m_teamTimer is written.
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut tank = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        tank.add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_cost(100, 0);
+        logic.templates.insert("AmericaTankCrusader".into(), tank);
+        let mut wf = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
+        wf.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSWarFactory);
+        logic.templates.insert("AmericaWarFactory".into(), wf);
+
+        let tank_id = logic
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::ZERO)
+            .expect("live crusader");
+        if let Some(obj) = logic.host_object_mut(tank_id) {
+            obj.owner_player_id = Some(1);
+            obj.team_instance_name = "HQ_Timer_TankTeam".into();
+        }
+        let factory = logic
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("idle factory");
+        if let Some(obj) = logic.host_object_mut(factory) {
+            obj.owner_player_id = Some(1);
+        }
+
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("HQ_Timer_TankTeam".into());
+            proto.set_automatically_reinforce(true);
+            proto.set_production_priority(50);
+            proto.set_units_info(
+                0,
+                gamelogic::team::CreateUnitsInfo {
+                    min_units: 1,
+                    max_units: 3,
+                    unit_thing_name: "AmericaTankCrusader",
+                },
+            );
+            tf.replace_team_prototype(proto);
+            if let Some(team) = tf.create_team("HQ_Timer_TankTeam") {
+                if let Ok(mut tg) = team.write() {
+                    tg.add_member(tank_id.0);
+                }
+            }
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Easy);
+        ai.next_team_time = 42.0;
+        assert!(
+            ai.select_team_to_build(&mut logic, 1.0),
+            "reinforce must count as a successful selectTeamToBuild"
+        );
+        let team = ai.team_queue.front().expect("reinforce order");
+        assert!(team.reinforcement, "path must be reinforce, not a new pick");
+        assert!(
+            (ai.next_team_time - 42.0).abs() < f32::EPSILON,
+            "reinforce must not arm TeamSeconds, got {}",
+            ai.next_team_time
+        );
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            tf.reset();
+        }
     }
 
     #[test]
@@ -9580,6 +9801,39 @@ mod cpp_parity_tests {
     }
 
     #[test]
+    fn apply_queue_persist_rebinds_pad_object_and_priority() {
+        let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Hard);
+        ai.initialize(Vec3::ZERO);
+        assert!(
+            ai.building_queue.len() >= 3,
+            "China layout has power + supply pads"
+        );
+        let mut persist = ai.capture_queue_persist();
+        persist.building_object_ids[2] = Some(77);
+        persist.building_is_built[2] = false;
+        persist.building_is_priority[1] = true;
+        persist.building_is_built[0] = true;
+        ai.apply_queue_persist(persist);
+        assert_eq!(ai.building_queue[2].object_id, Some(ObjectId(77)));
+        assert!(!ai.building_queue[2].is_built);
+        assert!(ai.building_queue[1].is_priority);
+        assert!(ai.building_queue[0].is_built);
+    }
+
+    #[test]
+    fn retain_queue_object_ids_drops_missing_pad_binding() {
+        let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Hard);
+        ai.initialize(Vec3::ZERO);
+        ai.building_queue[0].object_id = Some(ObjectId(77));
+        ai.building_queue[0].is_built = true;
+        let mut valid = std::collections::HashSet::new();
+        valid.insert(ObjectId(1));
+        ai.retain_queue_object_ids(&valid);
+        assert!(ai.building_queue[0].object_id.is_none());
+        assert!(!ai.building_queue[0].is_built);
+    }
+
+    #[test]
     fn launch_attack_sets_target_and_logs_host_attack() {
         use crate::game_logic::host_ai_decision_log;
         use crate::game_logic::host_attack_log;
@@ -10195,6 +10449,34 @@ mod cpp_parity_tests {
             "live AI must queue a structure upgrade via AIPlayer::buildUpgrade residual"
         );
     }
+
+    #[test]
+    fn do_upgrades_does_not_research_supply_lines_at_barracks() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 20_000;
+        logic.add_player(player);
+        let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+        let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.do_upgrades_and_skills(&mut logic);
+        let player = logic.get_player(1).expect("AI player");
+        assert!(
+            !player.has_queued_upgrade("Upgrade_AmericaSupplyLines"),
+            "C++ canProduceUpgrade refuses SupplyLines at Barracks"
+        );
+        assert!(
+            player.has_queued_upgrade("Upgrade_AmericaRangerCaptureBuilding"),
+            "Barracks CommandSet still researches Capture"
+        );
+    }
+
 
     #[test]
     fn check_queued_teams_disbands_expired_incomplete_team() {

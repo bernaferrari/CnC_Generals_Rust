@@ -261,7 +261,8 @@ impl World {
             let Some(e) = self.entities.get_mut(id) else {
                 continue;
             };
-            if !e.is_eligible_for_targeting() || e.is_disabled() {
+            if e.is_disabled() || (!e.is_eligible_for_targeting() && !e.locomotor_works_when_dead)
+            {
                 e.move_target = None;
                 e.velocity = [0.0, 0.0, 0.0];
                 e.moving = false;

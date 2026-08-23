@@ -915,6 +915,11 @@ impl GameLogic {
             height,
             values: heights.to_vec(),
         });
+        self.pathfinding_system.set_terrain_height_samples(
+            width as i32,
+            height as i32,
+            heights.to_vec(),
+        );
 
         #[cfg(feature = "game_client")]
         {
