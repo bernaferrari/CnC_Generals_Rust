@@ -1950,7 +1950,7 @@ impl GameLogic {
                     let w = slot.and_then(|s| u.weapon_slot(s));
                     let (min_r, max_r) = w.map(|w| (w.min_range, w.range)).unwrap_or((0.0, 0.0));
                     let name = slot.and_then(|s| u.weapon_name_for_slot(s));
-                    let contact = crate::game_logic::weapon_bootstrap::is_contact_weapon_range(max_r)
+                    let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(max_r)
                         || name
                             .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
                             .unwrap_or(false);

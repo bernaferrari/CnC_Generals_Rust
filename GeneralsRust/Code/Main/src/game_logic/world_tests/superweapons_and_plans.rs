@@ -3071,6 +3071,55 @@ fn sneak_attack_spawns_tunnel_start() {
 }
 
 #[test]
+fn sneak_attack_applies_placement_facing() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    if let Some(p) = logic.get_player_mut(2) {
+        p.unlock_science("SCIENCE_SneakAttack");
+    }
+    let mut cc = crate::game_logic::ThingTemplate::new("GLACommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("GLACommandCenter".into(), cc);
+    let cc_id = logic
+        .create_object("GLACommandCenter", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let angle = 1.25_f32;
+    let id = logic
+        .queue_sneak_attack_facing(
+            &SpecialPowerType::SneakAttack,
+            cc_id,
+            Vec3::new(80.0, 0.0, 40.0),
+            angle,
+        )
+        .expect("sneak");
+    let start_id = logic
+        .host_sneak_attacks
+        .get(id)
+        .and_then(|m| m.tunnel_start_object)
+        .expect("start id");
+    assert!(
+        (logic.host_object(start_id).unwrap().get_orientation() - angle).abs() < 1.0e-5,
+        "TunnelStart must keep PlaceEvent facing"
+    );
+    for f in 0..=160 {
+        logic.frame = f;
+        logic.update_sneak_attacks();
+    }
+    let tunnel_id = logic
+        .host_sneak_attacks
+        .get(id)
+        .and_then(|m| m.spawned_tunnel_id)
+        .expect("tunnel id");
+    assert!(
+        (logic.host_object(tunnel_id).unwrap().get_orientation() - angle).abs() < 1.0e-5,
+        "spawned tunnel must keep PlaceEvent facing"
+    );
+}
+
+
+#[test]
 fn sneak_attack_multi_pulse_shockwaves() {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::host_sneak_attack::sneak_attack_shockwave_pulses;
@@ -5163,6 +5212,199 @@ fn script_idle_all_units_and_resume_supply_write_live() {
         "RESUME_SUPPLY_TRUCKING must setForceWantingState on idle collectors"
     );
 }
+
+#[test]
+fn script_idle_and_guard_for_framecount_write_live() {
+    use crate::game_logic::AIState;
+    use gamelogic::scripting::{
+        request_host_script_hunt_guard, request_host_script_idle, HostScriptHuntGuardRequest,
+        HostScriptIdleRequest,
+    };
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    let named = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .expect("named");
+    let teammate = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("teammate");
+    if let Some(obj) = logic.host_object_mut(named) {
+        obj.name = "NamedRanger".into();
+    }
+    if let Some(obj) = logic.host_object_mut(teammate) {
+        obj.team_instance_name = "USA_RangerSquad".into();
+    }
+    let far = glam::Vec3::new(400.0, 0.0, 0.0);
+    let _ = logic.unit_command_move_to(named, far);
+    let _ = logic.unit_command_move_to(teammate, far);
+
+    let _ = gamelogic::scripting::take_host_script_idle_requests();
+    request_host_script_idle(HostScriptIdleRequest::NamedStop {
+        unit: "NamedRanger".into(),
+    });
+    request_host_script_idle(HostScriptIdleRequest::TeamStop {
+        team: "USA_RangerSquad".into(),
+        disband: false,
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        logic
+            .host_object(named)
+            .map(|o| o.ai_state == AIState::Idle || !o.status.moving)
+            .unwrap_or(false),
+        "UNIT_IDLE_FOR_FRAMECOUNT must aiIdle the live named unit"
+    );
+    assert!(
+        logic
+            .host_object(teammate)
+            .map(|o| o.ai_state == AIState::Idle || !o.status.moving)
+            .unwrap_or(false),
+        "TEAM_IDLE_FOR_FRAMECOUNT must groupIdle live team members"
+    );
+
+    request_host_script_hunt_guard(HostScriptHuntGuardRequest::NamedGuard {
+        unit: "NamedRanger".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    assert!(
+        logic
+            .host_object(named)
+            .map(|o| matches!(
+                o.ai_state,
+                AIState::GuardingArea | AIState::GuardingObject | AIState::Idle
+            ))
+            .unwrap_or(false),
+        "UNIT_GUARD_FOR_FRAMECOUNT must aiGuardPosition(self) on the live unit"
+    );
+}
+
+#[test]
+fn script_move_towards_nearest_writes_live() {
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+    use gamelogic::scripting::{request_host_script_move_attack, HostScriptMoveAttackRequest};
+
+    let trigger = PolygonTrigger::new(
+        8801,
+        AsciiString::from("NearestPad"),
+        vec![
+            ICoord3D::new(0, 0, 0),
+            ICoord3D::new(80, 0, 0),
+            ICoord3D::new(80, 80, 0),
+            ICoord3D::new(0, 80, 0),
+        ],
+    );
+    gamelogic::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain")
+        .add_trigger_area(trigger);
+
+    let mut logic = GameLogic::new();
+    logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    let mut cc = ThingTemplate::new("AmericaCommandCenter");
+    cc.set_health(1000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+
+    let scout = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
+        .expect("scout");
+    let dest = logic
+        .create_object(
+            "AmericaCommandCenter",
+            Team::USA,
+            glam::Vec3::new(40.0, 0.0, 40.0),
+        )
+        .expect("cc");
+    if let Some(obj) = logic.host_object_mut(scout) {
+        obj.name = "NamedScout".into();
+        obj.team_instance_name = "USA_Scout".into();
+    }
+
+    let _ = gamelogic::scripting::take_host_script_move_attack_requests();
+    request_host_script_move_attack(HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
+        unit: "NamedScout".into(),
+        object_type: "AmericaCommandCenter".into(),
+        trigger: "NearestPad".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    let dest_pos = logic.host_object(dest).expect("cc").get_position();
+    let moving = logic.host_object(scout).and_then(|o| o.movement.target_position);
+    assert!(
+        moving
+            .map(|p| (p - dest_pos).length() < 2.0)
+            .unwrap_or(false),
+        "MOVE_TOWARDS_NEAREST must aiMoveToObject the closest live type in the trigger: {moving:?}"
+    );
+
+    let _ = logic.unit_command_stop(scout);
+    request_host_script_move_attack(HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
+        team: "USA_Scout".into(),
+        object_type: "AmericaCommandCenter".into(),
+        trigger: "NearestPad".into(),
+    });
+    logic.evaluate_and_execute_scripts(0.0);
+    let dest_pos = logic.host_object(dest).expect("cc").get_position();
+    let moving = logic.host_object(scout).and_then(|o| o.movement.target_position);
+    assert!(
+        moving
+            .map(|p| (p - dest_pos).length() < 2.0)
+            .unwrap_or(false),
+        "TEAM_MOVE_TOWARDS_NEAREST must aiMoveToObject the closest live type: {moving:?}"
+    );
+}
+
+#[test]
+fn script_wait_for_not_contained_uses_live_contained_by_census() {
+    use gamelogic::scripting::executor::{
+        ScriptActionDispatcher, ScriptActionResult, ScriptContext,
+    };
+    use gamelogic::scripting::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+    use std::sync::{Arc, RwLock};
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_infantry_template(&mut logic);
+    let rider = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .expect("rider");
+    if let Some(obj) = logic.host_object_mut(rider) {
+        obj.team_instance_name = "USA_Contained".into();
+        obj.set_contained_by(Some(ObjectId(99)));
+    }
+    logic.inject_host_script_query_snapshot();
+    assert_eq!(
+        gamelogic::scripting::host_script_query_object_by_id(rider.0)
+            .map(|o| o.contained_by),
+        Some(99)
+    );
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut wait = ScriptAction::new(ScriptActionType::TeamWaitForNotContainedAll);
+    wait.add_parameter(Parameter::with_string(
+        ParameterType::Team,
+        "USA_Contained".into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&wait).unwrap(),
+        ScriptActionResult::Pending(1.0)
+    );
+
+    if let Some(obj) = logic.host_object_mut(rider) {
+        obj.set_contained_by(None);
+    }
+    logic.inject_host_script_query_snapshot();
+    assert_eq!(
+        dispatcher.execute_action(&wait).unwrap(),
+        ScriptActionResult::Success
+    );
+}
+
 
 #[test]
 fn script_named_use_command_button_stops_live_unit() {

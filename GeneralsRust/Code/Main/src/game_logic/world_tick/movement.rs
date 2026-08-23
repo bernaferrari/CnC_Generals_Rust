@@ -346,7 +346,10 @@ impl GameLogic {
                         obj.loco_update_move_towards_angle(obj.locomotor_goal_angle, dt);
                         obj.face_loco_frame = self.frame;
                     }
-                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                    // Leftover unused `handle_behavior_z_for` via leftover
+                    // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
+                    let sy = obj.leftover_surface_ht(surface_y);
+                    Self::apply_live_handle_behavior_z(obj, sy, None);
                     Self::stamp_object_airborne_target(obj, ground_y);
                     break 'unit;
                 }
@@ -460,7 +463,8 @@ impl GameLogic {
                 // goal Z (host Y). Flattening that Y made dz==0 so CLIMBER
                 // never slowed or reversed (Locomotor.cpp:1711-1739).
                 let keep_goal_y = z_motive
-                    || matches!(obj.loco_appearance, LocomotorAppearance::Climber);
+                    || matches!(obj.loco_appearance, LocomotorAppearance::Climber)
+                    || obj.host_uses_close_enough_dist_3d();
                 let close_enough = host_close_enough_dist(obj);
                 let close_enough_sanity =
                     4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
@@ -471,7 +475,7 @@ impl GameLogic {
                 {
                     let current_pos = obj.get_position();
                     let waypoint = obj.movement.path[obj.movement.current_path_index];
-                    if horiz(current_pos, waypoint) < close_enough {
+                    if obj.host_locomotor_distance_to_goal(current_pos, waypoint) < close_enough {
                         let finishing =
                             obj.movement.current_path_index + 1 >= obj.movement.path.len();
                         let last = *obj.movement.path.last().unwrap_or(&waypoint);
@@ -626,21 +630,28 @@ impl GameLogic {
                         };
                         let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement(obj)
                             || matches!(obj.loco_appearance, LocomotorAppearance::Hover);
-                        let mut on_path_dist = path_for_dist
-                            .map(|wps| {
-                                if treat_as_aircraft {
-                                    crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
-                                        current_pos,
-                                        wps,
-                                    )
-                                } else {
-                                    crate::game_logic::PathfindingSystem::dist_along_path(
-                                        current_pos,
-                                        wps,
-                                    )
-                                }
-                            })
-                            .unwrap_or(dist);
+                        let mut on_path_dist = if obj.host_uses_close_enough_dist_3d() {
+                            // Leftover unused `get_locomotor_distance_to_goal`
+                            // FROM_CENTER_3D to last node (AIUpdate.cpp:2448-2456).
+                            let dest = obj.movement.path.last().copied().unwrap_or(target_pos);
+                            obj.host_locomotor_distance_to_goal(current_pos, dest)
+                        } else {
+                            path_for_dist
+                                .map(|wps| {
+                                    if treat_as_aircraft {
+                                        crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
+                                            current_pos,
+                                            wps,
+                                        )
+                                    } else {
+                                        crate::game_logic::PathfindingSystem::dist_along_path(
+                                            current_pos,
+                                            wps,
+                                        )
+                                    }
+                                })
+                                .unwrap_or(dist)
+                        };
                         // C++ Locomotor.cpp:941-946 — far-from-goal IS_BRAKING
                         // clear is unconditional (NO_SLOW_DOWN only skips the
                         // appearance approach-brake, not this un-latch).
@@ -672,7 +683,9 @@ impl GameLogic {
                             obj.notify_terrain_trees_on_unit_move();
                             Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             Self::stamp_object_airborne_target(obj, ground_y);
-                            let mut reached_target = dist < close_enough;
+                            let mut reached_target =
+                                obj.host_locomotor_distance_to_goal(current_pos, target_pos)
+                                    < close_enough;
                             if reached_target {
                                 let finishing = obj.movement.path.is_empty()
                                     || obj.movement.current_path_index + 1
@@ -920,7 +933,9 @@ impl GameLogic {
                             // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
                             new_position = obj.braking_cheat_step(march_from, flat_target, dt);
                         }
-                        let mut reached_target = dist < close_enough;
+                        let mut reached_target =
+                            obj.host_locomotor_distance_to_goal(current_pos, target_pos)
+                                < close_enough;
                         if reached_target {
                             let finishing = obj.movement.path.is_empty()
                                 || obj.movement.current_path_index + 1
@@ -3344,7 +3359,77 @@ mod tests {
         );
     }
 
+    /// hq-jg55x: FACE leftover handleBehaviorZ is leftover-terrain, not pose-Y.
+    /// Hover at preferred must not climb via preferredHeight+currentY.
+    #[test]
+    fn face_angle_does_not_double_lift_off_own_altitude() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(98240);
+        let mut heli = {
+            let mut tmpl = ThingTemplate::new("ComancheFaceZ");
+            tmpl.add_kind_of(KindOf::Aircraft);
+            Object::new(tmpl, id, Team::USA)
+        };
+        heli.set_position(Vec3::new(0.0, 30.0, 0.0));
+        heli.ground_height = 20.0;
+        heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.loco_preferred_height = 10.0;
+        heli.loco_preferred_height_damping = 1.0;
+        heli.max_lift = 5.0;
+        heli.physics_mass = 1.0;
+        heli.physics_accel = Vec3::ZERO;
+        heli.movement.velocity = Vec3::ZERO;
+        heli.min_speed = 0.0;
+        heli.locomotor_goal_type = LocoGoalType::Angle;
+        heli.locomotor_goal_angle = std::f32::consts::FRAC_PI_2;
+        heli.face_loco_frame = 0;
+        logic.objects.insert(id, heli);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("heli");
+        let y = obj.get_position().y;
+        assert!(
+            (y - 30.0).abs() < 0.5,
+            "FACE leftover Z must hold preferred+terrain, not climb via pose-Y; y={y}"
+        );
+    }
 
+    /// hq-v9inf / hq-ij10w: leftover CloseEnoughDist3D keep-Z + 3D remaining.
+    #[test]
+    fn close_enough_dist_3d_does_not_plant_while_high() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(98241);
+        let mut dive = {
+            let mut tmpl = ThingTemplate::new("ScudDiveMarch");
+            tmpl.add_kind_of(KindOf::Projectile);
+            Object::new(tmpl, id, Team::USA)
+        };
+        dive.set_position(Vec3::new(0.0, 40.0, 0.0));
+        dive.ground_height = 0.0;
+        dive.close_enough_dist_3d = true;
+        dive.close_enough_dist = Some(2.0);
+        dive.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
+        dive.loco_appearance = LocomotorAppearance::Thrust;
+        dive.movement.max_speed = 0.0;
+        dive.movement.velocity = Vec3::ZERO;
+        dive.movement.path = vec![Vec3::new(0.0, 40.0, 0.0), Vec3::new(1.0, 0.0, 0.0)];
+        dive.movement.current_path_index = 1;
+        dive.movement.target_position = Some(Vec3::new(1.0, 0.0, 0.0));
+        logic.objects.insert(id, dive);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("dive");
+        assert!(
+            obj.movement.target_position.is_some(),
+            "CloseEnoughDist3D leftover unused must not plant on 2D when 3D > arrive"
+        );
+        assert!(
+            obj.host_locomotor_distance_to_goal(obj.get_position(), Vec3::new(1.0, 0.0, 0.0))
+                > 9.0,
+            "3D remaining must stay large while high"
+        );
+    }
 
     }
 

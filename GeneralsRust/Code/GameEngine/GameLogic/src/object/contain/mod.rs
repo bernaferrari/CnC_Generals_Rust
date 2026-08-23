@@ -61,9 +61,13 @@ pub use internet_hack_contain::{InternetHackContain, InternetHackContainModuleDa
 pub use mob_nexus_contain::{MobNexusContain, MobNexusContainModuleData};
 pub use open_contain::{
     leftover_contain_module_enter_sound, leftover_contain_module_exit_sound,
-    leftover_do_load_sound, leftover_do_unload_sound, leftover_play_container_enter_sound,
-    leftover_play_container_exit_sound, ObjectTemplate, OpenContain, OpenContainModuleData,
-    CONTAIN_MAX_UNKNOWN,
+    leftover_do_load_sound, leftover_do_unload_sound, leftover_open_contain_arm_exit_door,
+    leftover_open_contain_door_open_time, leftover_open_contain_open_exit_door,
+    leftover_open_contain_resolved_door_open_time, leftover_open_contain_start_exit_door,
+    leftover_open_contain_tick_exit_door, leftover_open_contain_update_exit_doors,
+    leftover_play_container_enter_sound, leftover_play_container_exit_sound,
+    LeftoverOpenContainDoorPulse, ObjectTemplate, OpenContain, OpenContainModuleData,
+    CONTAIN_MAX_UNKNOWN, OPEN_CONTAIN_DEFAULT_DOOR_OPEN_TIME,
 };
 pub use overlord_contain::{OverlordContain, OverlordContainModuleData};
 pub use parachute_contain::{ParachuteContain, ParachuteContainModuleData};

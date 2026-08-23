@@ -272,6 +272,10 @@ pub struct ContainModuleMetadata {
     /// No retail Object INI authors this; do not invent a hull-velocity kick.
     #[serde(default)]
     pub keep_container_velocity_on_exit: bool,
+    /// C++ `OpenContainModuleData::m_doorOpenTime` (default 1 frame).
+    /// `0` is DeliverPayloadAIUpdate's opt-out so this module never diddles doors.
+    #[serde(default = "default_door_open_time")]
+    pub door_open_time: u32,
 }
 
 
@@ -315,6 +319,10 @@ const fn default_enclosing_container() -> bool {
     true
 }
 
+const fn default_door_open_time() -> u32 {
+    1
+}
+
 impl Default for ContainModuleMetadata {
     fn default() -> Self {
         Self {
@@ -341,6 +349,7 @@ impl Default for ContainModuleMetadata {
             allow_inside_kind_of: 0,
             forbid_inside_kind_of: 0,
             keep_container_velocity_on_exit: false,
+            door_open_time: 1,
         }
     }
 }
@@ -552,9 +561,8 @@ pub struct DeployStyleMetadata {
     /// generic weapon availability so a missing per-turret mapping cannot
     /// silently disable a unit's non-turret weapon.
     pub turrets_function_only_when_deployed: bool,
-    /// C++ `m_turretsMustCenterBeforePacking`.  The host has no faithful
-    /// per-weapon turret/animation binding here, so this is retained without
-    /// manufacturing a guessed recenter duration.
+    /// C++ `m_turretsMustCenterBeforePacking`. Host DeployStyle waits in
+    /// `AligningTurrets` until `isTurretInNaturalPosition` before packing.
     pub turrets_must_center_before_packing: bool,
     /// C++ `m_manualDeployAnimations`.  The logic state is retained, but the
     /// renderer must not fabricate a manual animation-frame scrub from this
@@ -2480,10 +2488,14 @@ impl ThingTemplate {
         };
         let suspend_fx_frame = crate::game_logic::host_historic_bonus::logic_frame()
             .saturating_add(wt.suspend_fx_delay);
+        // Leftover WeaponTemplate::get_attack_range / get_minimum_attack_range
+        // (Weapon.cpp:437-462, RATIONALIZE_ATTACK_RANGE): −¼ pathfind cell.
+        // Identity RANGE bonus — leftover applies RANGE at fire.
+        let bonus = WeaponBonus::new();
         Some(Weapon {
             damage: wt.primary_damage,
-            range: wt.attack_range,
-            min_range: wt.minimum_attack_range.max(0.0),
+            range: wt.get_attack_range(&bonus),
+            min_range: wt.get_minimum_attack_range(),
             reload_time,
             last_fire_time: 0.0,
             ammo: if wt.clip_size > 0 {
@@ -2978,7 +2990,7 @@ mod weapon_resolve_tests {
             w.damage
         );
         assert!((w.damage - 5.0).abs() < 0.01);
-        assert!((w.range - 100.0).abs() < 0.01);
+        assert!((w.range - 97.5).abs() < 0.01);
     }
 
     #[test]
@@ -2995,8 +3007,9 @@ mod weapon_resolve_tests {
             w.damage
         );
         // Retail RangerFlashBangGrenadeWeapon PrimaryDamage 35, AttackRange 175.
+        // Leftover get_attack_range undersize −¼ cell → 172.5.
         assert!((w.damage - 35.0).abs() < 0.01);
-        assert!((w.range - 175.0).abs() < 0.01);
+        assert!((w.range - 172.5).abs() < 0.01);
     }
 
     #[test]
@@ -3025,7 +3038,7 @@ mod weapon_resolve_tests {
         );
         // Retail TechnicalMachineGunWeapon PrimaryDamage 10.
         assert!((tw.damage - 10.0).abs() < 0.01);
-        assert!((tw.range - 150.0).abs() < 0.01);
+        assert!((tw.range - 147.5).abs() < 0.01);
 
         let mut battle = ThingTemplate::new("China_BattleTank");
         battle
@@ -3041,7 +3054,7 @@ mod weapon_resolve_tests {
         );
         // Retail BattleMasterTankGun PrimaryDamage 60.
         assert!((bw.damage - 60.0).abs() < 0.01);
-        assert!((bw.range - 150.0).abs() < 0.01);
+        assert!((bw.range - 147.5).abs() < 0.01);
     }
 
     #[test]
@@ -3167,6 +3180,82 @@ mod weapon_resolve_tests {
             .expect("leftover ROF yardstick");
         // leftover REAL_TO_INT_FLOOR(6 / 2) = 3 frames → 0.1s, not (6/30)/2.
         assert!((with_rof - 3.0 / 30.0).abs() < 1e-6, "with_rof={with_rof}");
+    }
+
+    #[test]
+    fn weapon_from_store_uses_leftover_rationalize_attack_range() {
+        // Old flatten copied raw AttackRange / MinimumAttackRange.
+        // Leftover get_attack_range / get_minimum_attack_range undersize −¼ cell.
+        const NAME: &str = "__RustLiveRationalizeAttackRange";
+        let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            template.primary_damage = 10.0;
+            template.attack_range = 100.0;
+            template.minimum_attack_range = 10.0;
+            store.add_weapon_template(template);
+        });
+        let weapon = ThingTemplate::weapon_from_store(NAME).expect("store weapon");
+        let leftover = {
+            let mut yardstick = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+            yardstick.attack_range = 100.0;
+            yardstick.minimum_attack_range = 10.0;
+            (
+                yardstick.get_attack_range(&gamelogic::weapon::WeaponBonus::new()),
+                yardstick.get_minimum_attack_range(),
+                yardstick.is_contact_weapon(),
+            )
+        };
+        assert!((leftover.0 - 97.5).abs() < 1e-6, "leftover max={}", leftover.0);
+        assert!((leftover.1 - 7.5).abs() < 1e-6, "leftover min={}", leftover.1);
+        assert!(!leftover.2);
+        assert!(
+            (weapon.range - leftover.0).abs() < 1e-6,
+            "range={} leftover={} raw=100",
+            weapon.range,
+            leftover.0
+        );
+        assert!(
+            (weapon.min_range - leftover.1).abs() < 1e-6,
+            "min_range={} leftover={} raw=10",
+            weapon.min_range,
+            leftover.1
+        );
+    }
+
+    #[test]
+    fn leftover_is_contact_weapon_authored_range_under_12_5() {
+        let mut contact = gamelogic::weapon::WeaponTemplate::new("c".into());
+        contact.attack_range = 10.0;
+        assert!(contact.is_contact_weapon());
+        let mut edge = gamelogic::weapon::WeaponTemplate::new("e".into());
+        edge.attack_range = 12.5;
+        assert!(!edge.is_contact_weapon());
+        assert!(super::super::weapon_bootstrap::is_contact_weapon_range(10.0));
+        assert!(!super::super::weapon_bootstrap::is_contact_weapon_range(12.5));
+
+        // Authored 10: leftover/C++ is contact (7.5 < 10); #else FUDGE was not.
+        const CONTACT: &str = "__RustLiveContactAuthored10";
+        const EDGE: &str = "__RustLiveContactAuthored12_5";
+        let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut t = gamelogic::weapon::WeaponTemplate::new(CONTACT.to_string());
+            t.primary_damage = 10.0;
+            t.attack_range = 10.0;
+            store.add_weapon_template(t);
+            let mut t = gamelogic::weapon::WeaponTemplate::new(EDGE.to_string());
+            t.primary_damage = 10.0;
+            t.attack_range = 12.5;
+            store.add_weapon_template(t);
+        });
+        assert!(super::super::weapon_bootstrap::host_is_contact_weapon_name(CONTACT));
+        assert!(!super::super::weapon_bootstrap::host_is_contact_weapon_name(EDGE));
+        let w = ThingTemplate::weapon_from_store(CONTACT).expect("contact store");
+        assert!((w.range - 7.5).abs() < 1e-6, "range={}", w.range);
+        assert!(super::super::weapon_bootstrap::is_contact_effective_range(w.range));
+        let edge_w = ThingTemplate::weapon_from_store(EDGE).expect("edge store");
+        assert!((edge_w.range - 10.0).abs() < 1e-6, "edge range={}", edge_w.range);
+        assert!(!super::super::weapon_bootstrap::is_contact_effective_range(edge_w.range));
     }
 
 }

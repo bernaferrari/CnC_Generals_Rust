@@ -263,6 +263,30 @@ fn station_occupant_fire_point(
     (0, bd.garrison_station_points[0])
 }
 
+fn apply_leftover_open_contain_door_pulse(
+    obj: &mut Object,
+    pulse: gamelogic::object::contain::open_contain::LeftoverOpenContainDoorPulse,
+) {
+    use crate::game_logic::host_enum_table_residual::{
+        door_1_closing_model_bit, door_1_opening_model_bit,
+    };
+    if !pulse.set_opening && !pulse.set_closing {
+        return;
+    }
+    let open_b = door_1_opening_model_bit();
+    let close_b = door_1_closing_model_bit();
+    if pulse.set_opening {
+        obj.model_condition_bits &= !(1u128 << close_b);
+        obj.model_condition_bits |= 1u128 << open_b;
+    }
+    if pulse.set_closing {
+        obj.model_condition_bits &= !(1u128 << open_b);
+        obj.model_condition_bits |= 1u128 << close_b;
+    }
+    obj.record_host_model_condition();
+}
+
+
 impl GameLogic {
     /// Apply NeutronBlast residual at world impact: kill infantry + unman vehicles
     /// in blast radius. Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
@@ -1222,6 +1246,19 @@ impl GameLogic {
         }
     }
 
+    /// C++ OpenContain::update door countdown → DOOR_1_CLOSING.
+    pub(in super::super) fn update_open_contain_exit_doors(&mut self) {
+        let pulses =
+            gamelogic::object::contain::open_contain::leftover_open_contain_update_exit_doors();
+        for (id, pulse) in pulses {
+            if let Some(obj) = self.objects.get_mut(&ObjectId(id)) {
+                obj.door_close_countdown = pulse.countdown;
+                apply_leftover_open_contain_door_pulse(obj, pulse);
+            }
+        }
+    }
+
+
     pub(in super::super) fn apply_garrison_contain_on_enter(
         &mut self,
         container_id: ObjectId,
@@ -1532,6 +1569,9 @@ impl GameLogic {
             .as_ref()
             .and_then(|b| b.rally_point);
         let is_garrison = container.is_garrison_contain();
+        let container_layer = container.pathfind_layer;
+        let door_open_time = container.thing.template.contain_module.door_open_time;
+        let template_name = container.template_name.clone();
         let (start, end, next) = if is_garrison {
             let origin = container.get_position();
             let geom = container.thing.template.geometry_info;
@@ -1581,7 +1621,21 @@ impl GameLogic {
             unit.target = None;
             unit.set_position(start);
             unit.set_orientation(yaw);
-            unit.set_destination(dest);
+            if !is_garrison {
+                // C++ exitObj->setLayer(me->getLayer()) so bridge/deck unload
+                // does not pick a ground cell.
+                unit.pathfind_layer = container_layer;
+                // Amphibious transports unload ~3ft off the ground. Force
+                // allowToFall off around aiFollowPath so riders pathfind
+                // instead of stacking, then restore (onRemoving airborne
+                // re-enables fall below).
+                let previous_allow_to_fall = unit.allow_to_fall;
+                unit.allow_to_fall = false;
+                unit.set_destination(dest);
+                unit.allow_to_fall = previous_allow_to_fall;
+            } else {
+                unit.set_destination(dest);
+            }
             unit.set_ai_state(AIState::Moving);
             unit.status.moving = true;
             if is_garrison {
@@ -1611,6 +1665,22 @@ impl GameLogic {
         // template SoundExit / SoundFallingFromPlane.
         self.reset_rider_mood_check_on_exit(unit_id);
         self.play_container_removing_template_sounds(container_id, unit_id);
+        // C++ OpenContain::exitObjectViaDoor door countdown + DOOR_1_OPENING.
+        // GarrisonContain overrides and never diddles the door.
+        if !is_garrison {
+            let time = gamelogic::object::contain::open_contain::leftover_open_contain_resolved_door_open_time(
+                &template_name,
+                door_open_time,
+            );
+            let pulse = gamelogic::object::contain::open_contain::leftover_open_contain_arm_exit_door(
+                container_id.0,
+                time,
+            );
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                container.door_close_countdown = pulse.countdown;
+                apply_leftover_open_contain_door_pulse(container, pulse);
+            }
+        }
     }
 
 
@@ -4610,6 +4680,150 @@ mod tests {
         assert!((u.physics_accel.x - 9.0).abs() < 1e-4);
         assert!(!u.allow_to_fall);
     }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_opens_and_closes_leftover_door() {
+        // hq-jl6xr: leftover DoorOpenTime default 1 flashes OPENING then CLOSING.
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit,
+        };
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("DOOR_HV");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("DOOR_HV".into(), t);
+        let mut p = ThingTemplate::new("DOOR_HV_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("DOOR_HV_P".into(), p);
+        let transport = logic
+            .create_object("DOOR_HV", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let rider = logic
+            .create_object("DOOR_HV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(u) = logic.host_object_mut(rider) {
+            u.set_contained_by(Some(transport));
+        }
+        logic.walk_unit_via_open_contain_exit(rider, transport);
+        let open_b = door_1_opening_model_bit();
+        let close_b = door_1_closing_model_bit();
+        let bits = logic.host_object(transport).unwrap().model_condition_bits;
+        assert_ne!(bits & (1u128 << open_b), 0, "exit must leftover-open the door");
+        assert_eq!(bits & (1u128 << close_b), 0);
+        assert_eq!(
+            logic.host_object(transport).unwrap().door_close_countdown,
+            1,
+            "C++ default DoorOpenTime is 1 frame"
+        );
+        logic.update_support_states(&[transport, rider], 1.0 / 30.0);
+        let bits = logic.host_object(transport).unwrap().model_condition_bits;
+        assert_eq!(bits & (1u128 << open_b), 0, "next OpenContain::update closes");
+        assert_ne!(bits & (1u128 << close_b), 0);
+        assert_eq!(logic.host_object(transport).unwrap().door_close_countdown, 0);
+    }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_skips_garrison_door_bits() {
+        // C++ GarrisonContain::exitObjectViaDoor never sets DoorOpenTime bits.
+        use crate::game_logic::host_enum_table_residual::door_1_opening_model_bit;
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("DOOR_BUNKER".into(), garrison_template("DOOR_BUNKER", false, true));
+        logic
+            .templates
+            .insert("DOOR_BUNKER_P".into(), infantry_template("DOOR_BUNKER_P"));
+        let bunker = logic
+            .create_object("DOOR_BUNKER", Team::Neutral, Vec3::ZERO)
+            .unwrap();
+        let rider = logic
+            .create_object("DOOR_BUNKER_P", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        logic.walk_unit_via_open_contain_exit(rider, bunker);
+        let bits = logic.host_object(bunker).unwrap().model_condition_bits;
+        assert_eq!(bits & (1u128 << door_1_opening_model_bit()), 0);
+    }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_door_open_time_zero_skips() {
+        // DeliverPayloadAIUpdate authors DoorOpenTime=0 to opt out.
+        use crate::game_logic::host_enum_table_residual::door_1_opening_model_bit;
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("DOOR_ZERO");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(5),
+            door_open_time: 0,
+            ..Default::default()
+        };
+        logic.templates.insert("DOOR_ZERO".into(), t);
+        let mut p = ThingTemplate::new("DOOR_ZERO_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("DOOR_ZERO_P".into(), p);
+        let transport = logic
+            .create_object("DOOR_ZERO", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let rider = logic
+            .create_object("DOOR_ZERO_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        logic.walk_unit_via_open_contain_exit(rider, transport);
+        let c = logic.host_object(transport).unwrap();
+        assert_eq!(c.door_close_countdown, 0);
+        assert_eq!(c.model_condition_bits & (1u128 << door_1_opening_model_bit()), 0);
+    }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_copies_layer_and_gates_allow_to_fall() {
+        // hq-csdhg: leftover set_layer(owner) + temp setAllowToFall(false).
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("LAYER_HV");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(5),
+            door_open_time: 0,
+            ..Default::default()
+        };
+        logic.templates.insert("LAYER_HV".into(), t);
+        let mut p = ThingTemplate::new("LAYER_HV_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("LAYER_HV_P".into(), p);
+        let transport = logic
+            .create_object("LAYER_HV", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.pathfind_layer = 3;
+        }
+        let rider = logic
+            .create_object("LAYER_HV_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(u) = logic.host_object_mut(rider) {
+            u.allow_to_fall = true;
+            u.pathfind_layer = 1;
+            u.set_contained_by(Some(transport));
+        }
+        logic.walk_unit_via_open_contain_exit(rider, transport);
+        let u = logic.host_object(rider).unwrap();
+        assert_eq!(u.pathfind_layer, 3, "rider must copy container layer");
+        assert!(
+            u.allow_to_fall,
+            "allowToFall restored after pathfind gate (hull not airborne)"
+        );
+        assert_eq!(u.ai_state, AIState::Moving);
+    }
+
 
     #[test]
     fn play_container_enter_sound_drains_leftover_template_sound_enter() {

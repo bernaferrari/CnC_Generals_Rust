@@ -5841,6 +5841,217 @@ fn team_nearest_and_partial_command_button_queue_host_when_dual_world_empty() {
     assert!((partials[0].percentage - 50.0).abs() < f32::EPSILON);
 }
 
+#[test]
+fn idle_and_guard_for_framecount_queue_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_script_idle_requests();
+    let _ = take_host_script_hunt_guard_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut named_idle = ScriptAction::new(ScriptActionType::UnitIdleForFramecount);
+    named_idle
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "NamedRanger".into()))
+        .unwrap();
+    named_idle
+        .add_parameter(Parameter::with_int(ParameterType::Int, 9))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named_idle).unwrap(),
+        ScriptActionResult::Pending(9.0)
+    );
+
+    let mut named_guard = ScriptAction::new(ScriptActionType::UnitGuardForFramecount);
+    named_guard
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "NamedRanger".into()))
+        .unwrap();
+    named_guard
+        .add_parameter(Parameter::with_int(ParameterType::Int, 4))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named_guard).unwrap(),
+        ScriptActionResult::Pending(4.0)
+    );
+
+    let mut team_idle = ScriptAction::new(ScriptActionType::TeamIdleForFramecount);
+    team_idle
+        .add_parameter(Parameter::with_string(ParameterType::Team, "USA_RangerSquad".into()))
+        .unwrap();
+    team_idle
+        .add_parameter(Parameter::with_int(ParameterType::Int, 12))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_idle).unwrap(),
+        ScriptActionResult::Pending(12.0)
+    );
+
+    let mut team_guard = ScriptAction::new(ScriptActionType::TeamGuardForFramecount);
+    team_guard
+        .add_parameter(Parameter::with_string(ParameterType::Team, "USA_RangerSquad".into()))
+        .unwrap();
+    team_guard
+        .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team_guard).unwrap(),
+        ScriptActionResult::Pending(3.0)
+    );
+
+    assert_eq!(
+        take_host_script_idle_requests(),
+        vec![
+            HostScriptIdleRequest::NamedStop {
+                unit: "NamedRanger".into()
+            },
+            HostScriptIdleRequest::TeamStop {
+                team: "USA_RangerSquad".into(),
+                disband: false
+            },
+            HostScriptIdleRequest::TeamStop {
+                team: "USA_RangerSquad".into(),
+                disband: false
+            },
+        ]
+    );
+    assert_eq!(
+        take_host_script_hunt_guard_requests(),
+        vec![HostScriptHuntGuardRequest::NamedGuard {
+            unit: "NamedRanger".into()
+        }]
+    );
+}
+
+#[test]
+fn move_towards_nearest_queues_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_script_move_attack_requests();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+    let mut named = ScriptAction::new(ScriptActionType::UnitMoveTowardsNearestObjectType);
+    named
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "NamedScout".into()))
+        .unwrap();
+    named
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "AmericaCommandCenter".into(),
+        ))
+        .unwrap();
+    named
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "HoldZone".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&named).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    let mut team = ScriptAction::new(ScriptActionType::TeamMoveTowardsNearestObjectType);
+    team.add_parameter(Parameter::with_string(ParameterType::Team, "USA_Scout".into()))
+        .unwrap();
+    team.add_parameter(Parameter::with_string(
+        ParameterType::ObjectType,
+        "AmericaCommandCenter".into(),
+    ))
+    .unwrap();
+    team.add_parameter(Parameter::with_string(
+        ParameterType::TriggerArea,
+        "HoldZone".into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&team).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        take_host_script_move_attack_requests(),
+        vec![
+            HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
+                unit: "NamedScout".into(),
+                object_type: "AmericaCommandCenter".into(),
+                trigger: "HoldZone".into(),
+            },
+            HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
+                team: "USA_Scout".into(),
+                object_type: "AmericaCommandCenter".into(),
+                trigger: "HoldZone".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn team_wait_for_not_contained_uses_host_census_when_leftover_objects_missing() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    get_team_factory().lock().unwrap().reset();
+    // Player path: leftover TeamFactory holds live host ids, leftover
+    // OBJECT_REGISTRY is empty, so find_object_by_id misses. Census must
+    // still use host snapshot contained_by (C++ evaluateTeamIsContained).
+    {
+        let mut factory = get_team_factory().lock().unwrap();
+        factory.init_team(
+            AsciiString::from("USA_Contained"),
+            AsciiString::default(),
+            false,
+            None,
+        );
+        let team = factory
+            .create_team("USA_Contained")
+            .expect("leftover team");
+        team.write().unwrap().add_member(7);
+    }
+
+
+    let mut contained = live_host_named_object("ContainedRanger", 7, true);
+    contained.contained_by = 99;
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        objects: vec![contained],
+        team_instance_ids: [("USA_Contained".into(), vec![7])].into_iter().collect(),
+        ..Default::default()
+    });
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut all = ScriptAction::new(ScriptActionType::TeamWaitForNotContainedAll);
+    all.add_parameter(Parameter::with_string(ParameterType::Team, "USA_Contained".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&all).unwrap(),
+        ScriptActionResult::Pending(1.0)
+    );
+
+    let mut partial = ScriptAction::new(ScriptActionType::TeamWaitForNotContainedPartial);
+    partial
+        .add_parameter(Parameter::with_string(ParameterType::Team, "USA_Contained".into()))
+        .unwrap();
+    assert_eq!(
+        dispatcher.execute_action(&partial).unwrap(),
+        ScriptActionResult::Pending(1.0)
+    );
+
+    let mut free = live_host_named_object("ContainedRanger", 7, true);
+    free.contained_by = 0;
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        objects: vec![free],
+        team_instance_ids: [("USA_Contained".into(), vec![7])].into_iter().collect(),
+        ..Default::default()
+    });
+    assert_eq!(
+        dispatcher.execute_action(&all).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        dispatcher.execute_action(&partial).unwrap(),
+        ScriptActionResult::Success
+    );
+
+    crate::scripting::clear_host_script_query_snapshot();
+    get_team_factory().lock().unwrap().reset();
+}
+
+
 
 
 

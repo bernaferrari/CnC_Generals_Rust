@@ -40,31 +40,38 @@ pub fn normalize_pitch_radians(raw: f32) -> f32 {
 /// controlled by the same player within this radius of the original victim pos.
 /// C++ PATHFIND_CELL_SIZE residual (world units; Sage default cell).
 pub const PATHFIND_CELL_SIZE: f32 = 10.0;
-/// C++ WeaponTemplate::isContactWeapon ATTACK_RANGE_FUDGE residual.
-pub const CONTACT_WEAPON_RANGE_FUDGE: f32 = 1.05;
 /// C++ approach standoff fudge for non-contact weapons.
 pub const ATTACK_RANGE_APPROACH_FUDGE: f32 = 0.9;
 
-/// C++ WeaponTemplate::isContactWeapon residual.
+/// Leftover `WeaponTemplate::is_contact_weapon` (Weapon.cpp:531-537).
 ///
-/// `attackRange * 1.05 < PATHFIND_CELL_SIZE` → contact (melee / car-bomb / disarm).
+/// `RATIONALIZE_ATTACK_RANGE` is on: `(authored - ¼ cell) < PATHFIND_CELL_SIZE`
+/// → contact when authored range < 12.5. The `#else ATTACK_RANGE_FUDGE=1.05`
+/// branch is not compiled.
 pub fn is_contact_weapon_range(attack_range: f32) -> bool {
-    attack_range.max(0.0) * CONTACT_WEAPON_RANGE_FUDGE < PATHFIND_CELL_SIZE
+    const UNDERSIZE: f32 = PATHFIND_CELL_SIZE * 0.25;
+    (attack_range - UNDERSIZE) < PATHFIND_CELL_SIZE
 }
 
-/// Resolve contact residual from weapon name (store attack range peel).
+/// Contact check on leftover `get_attack_range` (already −¼ cell).
+/// C++ `isContactWeapon` ≡ `getAttackRange(identity RANGE) < PATHFIND_CELL_SIZE`.
+pub fn is_contact_effective_range(effective_range: f32) -> bool {
+    effective_range < PATHFIND_CELL_SIZE
+}
+
+/// Leftover `WeaponTemplate::is_contact_weapon` from the live WeaponStore.
 pub fn host_is_contact_weapon_name(name: &str) -> bool {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
-    let range = with_weapon_store(|store| {
+    let leftover = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
-            .map(|wt| wt.attack_range.max(0.0))
+            .map(|wt| wt.is_contact_weapon())
     })
     .ok()
     .flatten();
-    if let Some(r) = range {
-        return is_contact_weapon_range(r);
+    if let Some(contact) = leftover {
+        return contact;
     }
     seed_is_contact_weapon_name(name)
 }
@@ -159,7 +166,7 @@ pub fn compute_approach_target_pos(
     target_pos: glam::Vec3,
     attack_range: f32,
 ) -> glam::Vec3 {
-    if is_contact_weapon_range(attack_range) {
+    if is_contact_effective_range(attack_range) {
         return target_pos;
     }
     let dx = target_pos.x - source_pos.x;

@@ -70,6 +70,18 @@ pub enum HostScriptMoveAttackRequest {
     NamedAttackTeam { unit: String, team: String },
     TeamAttackArea { team: String, area: String },
     TeamAttackNamed { team: String, unit: String },
+    /// C++ `doMoveUnitTowardsNearest` — closest template/ObjectTypes in trigger.
+    NamedMoveTowardsNearest {
+        unit: String,
+        object_type: String,
+        trigger: String,
+    },
+    /// C++ `doMoveTeamTowardsNearest` — same scan from team estimate, every member.
+    TeamMoveTowardsNearest {
+        team: String,
+        object_type: String,
+        trigger: String,
+    },
 }
 
 /// Live host drain: CREATE_OBJECT family when leftover `OBJECT_REGISTRY` is empty.

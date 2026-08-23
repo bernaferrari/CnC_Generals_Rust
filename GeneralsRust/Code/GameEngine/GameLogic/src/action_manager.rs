@@ -675,6 +675,21 @@ impl TheActionManager {
         }
     }
 
+    /// C++ `ActionManager::canDoSpecialPower` type switch after module/ready
+    /// (`ActionManager.cpp:1820-1907`). These fire with neither
+    /// `COMMAND_OPTION_NEED_OBJECT_TARGET` nor `NEED_TARGET_POS`.
+    pub fn special_power_is_no_target(power_type: SpecialPowerType) -> bool {
+        match power_type {
+            SpecialPowerType::RemoteCharges
+            | SpecialPowerType::CiaIntelligence
+            | SpecialPowerType::CommunicationsDownload
+            | SpecialPowerType::DetonateDirtyNuke
+            | SpecialPowerType::ChangeBattlePlans
+            | SpecialPowerType::LaunchBaikonurRocket => true,
+            _ => false,
+        }
+    }
+
     /// Can `obj` execute a special power on a target object.
     /// Matches C++ ActionManager::canDoSpecialPowerAtObject.
     pub fn can_do_special_power_at_object(
@@ -843,63 +858,7 @@ impl TheActionManager {
             return false;
         }
 
-        match sp_template.get_special_power_type() {
-            SpecialPowerType::MissileDefenderLaserGuidedMissiles
-            | SpecialPowerType::TankHunterTntAttack
-            | SpecialPowerType::BoobyTrap
-            | SpecialPowerType::DaisyCutter
-            | SpecialPowerType::AirfDaisyCutter
-            | SpecialPowerType::ParadropAmerica
-            | SpecialPowerType::TankParadrop
-            | SpecialPowerType::InfaParadropAmerica
-            | SpecialPowerType::CarpetBomb
-            | SpecialPowerType::ChinaCarpetBomb
-            | SpecialPowerType::LeafletDrop
-            | SpecialPowerType::EarlyLeafletDrop
-            | SpecialPowerType::EarlyChinaCarpetBomb
-            | SpecialPowerType::AirfCarpetBomb
-            | SpecialPowerType::SuprCruiseMissile
-            | SpecialPowerType::ClusterMines
-            | SpecialPowerType::NukeClusterMines
-            | SpecialPowerType::NapalmStrike
-            | SpecialPowerType::TerrorCell
-            | SpecialPowerType::NeutronMissile
-            | SpecialPowerType::NukeNeutronMissile
-            | SpecialPowerType::SupwNeutronMissile
-            | SpecialPowerType::BlackMarketNuke
-            | SpecialPowerType::AnthraxBomb
-            | SpecialPowerType::SpySatellite
-            | SpecialPowerType::SpyDrone
-            | SpecialPowerType::RadarVanScan
-            | SpecialPowerType::TimedCharges
-            | SpecialPowerType::ScudStorm
-            | SpecialPowerType::A10ThunderboltStrike
-            | SpecialPowerType::AirfA10ThunderboltStrike
-            | SpecialPowerType::SpectreGunship
-            | SpecialPowerType::AirfSpectreGunship
-            | SpecialPowerType::ArtilleryBarrage
-            | SpecialPowerType::Frenzy
-            | SpecialPowerType::EarlyFrenzy
-            | SpecialPowerType::DisguiseAsVehicle
-            | SpecialPowerType::RepairVehicles
-            | SpecialPowerType::EarlyRepairVehicles
-            | SpecialPowerType::GpsScrambler
-            | SpecialPowerType::SlthGpsScrambler
-            | SpecialPowerType::ParticleUplinkCannon
-            | SpecialPowerType::CashBounty
-            | SpecialPowerType::CleanupArea
-            | SpecialPowerType::HelixNapalmBomb
-            | SpecialPowerType::SneakAttack
-            | SpecialPowerType::EmpPulse
-            | SpecialPowerType::CashHack => false,
-            SpecialPowerType::RemoteCharges
-            | SpecialPowerType::CiaIntelligence
-            | SpecialPowerType::CommunicationsDownload
-            | SpecialPowerType::DetonateDirtyNuke
-            | SpecialPowerType::ChangeBattlePlans
-            | SpecialPowerType::LaunchBaikonurRocket => true,
-            _ => false,
-        }
+        Self::special_power_is_no_target(sp_template.get_special_power_type())
     }
 
     /// Can `obj` transfer supplies at `transfer_dest` (C++ ActionManager::canTransferSuppliesAt).
@@ -2753,6 +2712,37 @@ mod tests {
         ));
         assert!(!TheActionManager::special_power_is_location_target_only(
             SpecialPowerType::InfantryCaptureBuilding
+        ));
+    }
+
+    #[test]
+    fn no_target_matches_can_do_special_power_type_switch() {
+        assert!(TheActionManager::special_power_is_no_target(
+            SpecialPowerType::CiaIntelligence
+        ));
+        assert!(TheActionManager::special_power_is_no_target(
+            SpecialPowerType::CommunicationsDownload
+        ));
+        assert!(TheActionManager::special_power_is_no_target(
+            SpecialPowerType::DetonateDirtyNuke
+        ));
+        assert!(TheActionManager::special_power_is_no_target(
+            SpecialPowerType::RemoteCharges
+        ));
+        assert!(TheActionManager::special_power_is_no_target(
+            SpecialPowerType::ChangeBattlePlans
+        ));
+        assert!(TheActionManager::special_power_is_no_target(
+            SpecialPowerType::LaunchBaikonurRocket
+        ));
+        assert!(!TheActionManager::special_power_is_no_target(
+            SpecialPowerType::DaisyCutter
+        ));
+        assert!(!TheActionManager::special_power_is_no_target(
+            SpecialPowerType::CashHack
+        ));
+        assert!(!TheActionManager::special_power_is_no_target(
+            SpecialPowerType::SpySatellite
         ));
     }
 

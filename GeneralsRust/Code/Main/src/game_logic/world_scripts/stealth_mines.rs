@@ -110,11 +110,13 @@ impl GameLogic {
         }
 
 
-        // Pathfinder residual: StealthForbiddenConditions = MOVING.
-        // Uncloak while Moving/AttackMoving; re-cloak immediately when stopped
-        // (StealthDelay = 0, InnateStealth = Yes). Fire does not break stealth.
+        // Pathfinder residual: leftover destalth only when leftover velocity
+        // exceeds leftover MoveThresholdSpeed (C++ StealthUpdate.cpp:389-392).
         {
-            use crate::game_logic::host_pathfinder::pathfinder_stealth_desired;
+            use crate::game_logic::host_pathfinder::{
+                pathfinder_stealth_desired, PATHFINDER_MOVE_THRESHOLD_SPEED,
+            };
+            use gamelogic::stealth_update::leftover_stealth_move_threshold_speed;
             // Class bit set at spawn — no per-frame template-name scan.
             let pf_ids: Vec<ObjectId> = self
                 .objects
@@ -135,14 +137,16 @@ impl GameLogic {
                     }
                     continue;
                 }
-                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
-                    || obj.status.moving;
+                let leftover_velocity = obj.velocity_magnitude();
+                let leftover_speed = leftover_stealth_move_threshold_speed(&obj.template_name)
+                    .unwrap_or(PATHFINDER_MOVE_THRESHOLD_SPEED);
                 if let Some(desired) = pathfinder_stealth_desired(
                     true,
                     obj.innate_stealth,
                     obj.stealth_breaks_on_move,
                     obj.is_alive(),
-                    moving,
+                    leftover_velocity,
+                    leftover_speed,
                 ) {
                     if desired && !obj.status.stealthed {
                         obj.set_status_stealthed(true);
@@ -170,8 +174,15 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&sid) else {
                     continue;
                 };
-                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
-                    || obj.status.moving;
+                let leftover_velocity = obj.velocity_magnitude();
+                let leftover_speed = gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
+                    &obj.template_name,
+                )
+                .unwrap_or(0.0);
+                let moving = gamelogic::stealth_update::leftover_not_while_moving_destalths(
+                    leftover_velocity,
+                    leftover_speed,
+                );
                 let firing = obj.stealth_fired_primary_recently(frame);
                 // Delay is applied in apply_stealth_allowed_update, not allowedToStealth.
                 let Some(allowed) = sentry_stealth_desired(
@@ -235,8 +246,15 @@ impl GameLogic {
                     // C++ ctor: m_stealthAllowedFrame = now + StealthDelay.
                     obj.rearm_stealth_delay(frame);
                 }
-                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
-                    || obj.status.moving;
+                let leftover_velocity = obj.velocity_magnitude();
+                let leftover_speed = gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
+                    &obj.template_name,
+                )
+                .unwrap_or(0.0);
+                let moving = gamelogic::stealth_update::leftover_not_while_moving_destalths(
+                    leftover_velocity,
+                    leftover_speed,
+                );
                 if let Some(allowed) = listening_outpost_stealth_desired(
                     true,
                     obj.innate_stealth,
@@ -835,8 +853,15 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&gid) else {
                     continue;
                 };
-                let moving = matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
-                    || obj.status.moving;
+                let leftover_velocity = obj.velocity_magnitude();
+                let leftover_speed = gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
+                    &obj.template_name,
+                )
+                .unwrap_or(0.0);
+                let moving = gamelogic::stealth_update::leftover_not_while_moving_destalths(
+                    leftover_velocity,
+                    leftover_speed,
+                );
                 let forbidden = obj.stealth_level_forbids_cloak(
                     frame,
                     moving,
@@ -1473,6 +1498,8 @@ impl GameLogic {
             }
         }
         self.drain_hidden_drawable_selection();
+        self.drain_masked_object_selection();
+
     }
 
 

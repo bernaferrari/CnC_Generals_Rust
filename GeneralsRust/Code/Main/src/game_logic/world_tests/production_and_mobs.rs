@@ -1730,8 +1730,8 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
             last_bonus_rof: 0.0,
 });
     // Retail ChinaVehicleNukeLauncher has 3333ms Pack/Unpack, parsed with
-    // C++ duration rounding into 100 logic frames. The source flags remain
-    // data even though turret centering/manual animation are fail-closed.
+    // C++ duration rounding into 100 logic frames. TurretsMustCenterBeforePacking
+    // is live: READY_TO_ATTACK + move waits ALIGNING_TURRETS until natural.
     launcher.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
         pack_time_frames: 100,
         unpack_time_frames: 100,
@@ -1938,6 +1938,115 @@ fn deploy_style_sentry_auto_target_loss_clears_pending_attack() {
             .map(|deploy| deploy.state),
         Some(HostDeployStyleState::Deploying)
     ));
+}
+
+#[test]
+fn deploy_style_must_center_turret_before_pack() {
+    use crate::game_logic::host_deploy_style::HostDeployStyleState;
+
+    let mut logic = GameLogic::new();
+    let mut sentry = ThingTemplate::new("AmericaVehicleSentryDrone");
+    sentry
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(300.0);
+    sentry.deploy_style_metadata = Some(crate::game_logic::DeployStyleMetadata {
+        pack_time_frames: 30,
+        unpack_time_frames: 30,
+        turrets_must_center_before_packing: true,
+        ..Default::default()
+    });
+    logic
+        .templates
+        .insert("AmericaVehicleSentryDrone".to_string(), sentry);
+
+    let id = logic
+        .create_object(
+            "AmericaVehicleSentryDrone",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("sentry");
+    {
+        let obj = logic.host_object_mut(id).unwrap();
+        obj.turret_enabled = true;
+        obj.turret_turn_rate_rad = 0.1;
+        obj.turret_angle_deg = 45.0;
+        obj.turret_natural_angle_deg = 0.0;
+        obj.turret_pitch_deg = 0.0;
+        obj.turret_natural_pitch_deg = 0.0;
+    }
+
+    logic.set_current_frame(0);
+    assert!(logic.unit_command_toggle_deploy_style(id));
+    logic.set_current_frame(30);
+    logic.tick_deploy_style_updates();
+    assert!(
+        matches!(
+            logic
+                .host_object(id)
+                .and_then(|o| o.deploy_style.as_ref())
+                .map(|d| d.state),
+            Some(HostDeployStyleState::ReadyToAttack)
+        ),
+        "unpack must finish before the pack-align path"
+    );
+    assert!(logic.host_object(id).unwrap().is_deployed());
+
+    {
+        let obj = logic.host_object_mut(id).unwrap();
+        obj.turret_angle_deg = 45.0;
+    }
+    logic.set_current_frame(31);
+    assert!(logic.unit_command_toggle_deploy_style(id));
+    assert!(
+        matches!(
+            logic
+                .host_object(id)
+                .and_then(|o| o.deploy_style.as_ref())
+                .map(|d| d.state),
+            Some(HostDeployStyleState::AligningTurrets)
+        ),
+        "TurretsMustCenterBeforePacking must enter ALIGNING_TURRETS"
+    );
+    assert!(
+        logic.host_object(id).unwrap().is_deployed(),
+        "ALIGNING stays DEPLOYED until UNDEPLOY"
+    );
+
+    logic.set_current_frame(32);
+    logic.tick_deploy_style_updates();
+    assert!(
+        matches!(
+            logic
+                .host_object(id)
+                .and_then(|o| o.deploy_style.as_ref())
+                .map(|d| d.state),
+            Some(HostDeployStyleState::AligningTurrets)
+        ),
+        "off-natural turret must not pack"
+    );
+
+    {
+        let obj = logic.host_object_mut(id).unwrap();
+        obj.turret_angle_deg = 0.0;
+    }
+    logic.set_current_frame(33);
+    logic.tick_deploy_style_updates();
+    assert!(
+        matches!(
+            logic
+                .host_object(id)
+                .and_then(|o| o.deploy_style.as_ref())
+                .map(|d| d.state),
+            Some(HostDeployStyleState::Undeploying)
+        ),
+        "isTurretInNaturalPosition must start UNDEPLOY"
+    );
+    assert!(
+        !logic.host_object(id).unwrap().is_deployed(),
+        "C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED immediately"
+    );
 }
 
 #[test]

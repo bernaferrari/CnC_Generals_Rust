@@ -46,6 +46,53 @@ const STEALTH_NOT_WHILE_FIRING_WEAPON: u32 = STEALTH_NOT_WHILE_FIRING_PRIMARY
     | STEALTH_NOT_WHILE_FIRING_TERTIARY;
 const NEVER_FRAME: UnsignedInt = u32::MAX;
 
+/// C++ StealthUpdate.cpp:389-392 / leftover `allowed_to_stealth_runtime`.
+/// Destalth only when leftover physics velocity exceeds leftover MoveThresholdSpeed.
+#[inline]
+pub fn leftover_not_while_moving_destalths(
+    leftover_velocity_magnitude: Real,
+    leftover_move_threshold_speed: Real,
+) -> bool {
+    leftover_velocity_magnitude > leftover_move_threshold_speed
+}
+
+/// Leftover ThingFactory first `StealthUpdate` MoveThresholdSpeed (`stealth_speed`).
+pub fn leftover_stealth_move_threshold_speed(template_name: &str) -> Option<Real> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !entry.name.as_str().eq_ignore_ascii_case("StealthUpdate") {
+            continue;
+        }
+        if let Some(data) = entry.data.as_any().downcast_ref::<StealthUpdateModuleData>() {
+            return Some(data.stealth_speed());
+        }
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<crate::object::behavior::StealthUpdateModuleData>()
+        {
+            return Some(data.stealth_speed);
+        }
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<crate::object::update::stealth_update::StealthUpdateModuleData>()
+        {
+            return Some(data.stealth_speed());
+        }
+        if let Some(speed) = entry.data.get_ini_real("MoveThresholdSpeed") {
+            return Some(speed);
+        }
+    }
+    None
+}
+
+
 fn play_object_stealth_sound(object_id: ObjectID, stealth_on: bool) {
     let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
         if stealth_on {
@@ -184,6 +231,10 @@ impl StealthUpdateModuleData {
 
     pub fn innate_stealth(&self) -> Bool {
         self.innate_stealth
+    }
+
+    pub fn stealth_speed(&self) -> Real {
+        self.stealth_speed
     }
 
     pub fn set_hint_detectable_states_from_tokens(
@@ -1242,7 +1293,10 @@ impl StealthController {
         if (flags & STEALTH_NOT_WHILE_MOVING) != 0 {
             if let Some(physics) = object.get_physics() {
                 if let Ok(physics_guard) = physics.lock() {
-                    if physics_guard.get_velocity().length() > self.data.stealth_speed {
+                    if leftover_not_while_moving_destalths(
+                        physics_guard.get_velocity().length(),
+                        self.data.stealth_speed,
+                    ) {
                         return false;
                     }
                 }
@@ -2242,6 +2296,16 @@ mod tests {
         assert_eq!(data.pulse_frames, 30);
         assert!(data.innate_stealth);
         assert!(!data.use_rider_stealth);
+    }
+
+    #[test]
+    fn leftover_not_while_moving_destalths_uses_move_threshold_speed() {
+        assert!(!leftover_not_while_moving_destalths(0.0, 3.0));
+        assert!(!leftover_not_while_moving_destalths(3.0, 3.0));
+        assert!(leftover_not_while_moving_destalths(3.1, 3.0));
+        assert!(leftover_not_while_moving_destalths(0.1, 0.0));
+        assert!(!leftover_not_while_moving_destalths(0.0, 0.0));
+        assert_eq!(leftover_stealth_move_threshold_speed(""), None);
     }
 
     #[test]

@@ -464,7 +464,7 @@ impl AIPlayer {
             return true;
         };
 
-        let mut radius = THE_AI
+        let aidata_r = THE_AI
             .read()
             .ok()
             .and_then(|ai| {
@@ -472,61 +472,44 @@ impl AIPlayer {
                     .read()
                     .ok()
                     .map(|d| d.supply_center_safe_radius)
-            })
-            .filter(|r| *r > 0.0)
-            .unwrap_or(SUPPLY_CENTER_SAFE_RADIUS);
-        radius += thing
-            .get_template_geometry_info()
-            .get_bounding_circle_radius();
+            });
+        let radius = leftover_is_location_safe_radius(
+            aidata_r,
+            thing
+                .get_template_geometry_info()
+                .get_bounding_circle_radius(),
+        );
 
+        let mut candidates: Vec<LeftoverLocationSafeCandidate> = Vec::new();
         for obj_id in partition.get_objects_in_range(pos, radius) {
-            let is_blocking_enemy = OBJECT_REGISTRY
-                .with_object(obj_id, |obj_guard| {
-                    // PartitionFilterAlive
-                    if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
-                        return false;
-                    }
-                    // PartitionFilterRejectByKindOf harvester/dozer
-                    if obj_guard.is_kind_of(KindOf::Harvester)
-                        || obj_guard.is_kind_of(KindOf::Dozer)
-                    {
-                        return false;
-                    }
-                    // PartitionFilterRejectByObjectStatus stealthed (unless detected/disguised)
-                    if obj_guard.test_status(ObjectStatusTypes::Stealthed)
-                        && !obj_guard.test_status(ObjectStatusTypes::Detected)
-                        && !obj_guard.test_status(ObjectStatusTypes::Disguised)
-                    {
-                        return false;
-                    }
-                    // PartitionFilterPlayerAffiliation: enemies only
-                    // (ALLOW_ALLIES|ALLOW_NEUTRAL rejected via affiliation=false)
-                    let Some(team_arc) = obj_guard.get_team() else {
-                        return false;
-                    };
-                    let Ok(team) = team_arc.read() else {
-                        return false;
-                    };
-                    if player_guard.get_relationship_with_team(&team) != Relationship::Enemies {
-                        return false;
-                    }
-                    // PartitionFilterInsignificantBuildings(true, false): reject bridges /
-                    // bridge towers as insignificant for placement safety (closest match
-                    // without KINDOF_INSIGNIFICANT_BUILDING enum in port).
-                    if obj_guard.is_kind_of(KindOf::Bridge)
-                        || obj_guard.is_kind_of(KindOf::BridgeTower)
-                    {
-                        return false;
-                    }
-                    true
+            if let Some(c) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                // PartitionFilterAlive / harvester / dozer / stealth / enemies
+                let is_enemy = obj_guard.get_team().and_then(|team_arc| {
+                    team_arc.read().ok().map(|team| {
+                        player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                    })
                 })
                 .unwrap_or(false);
-            if is_blocking_enemy {
-                // Any enemy that passes filters fails safety (C++ getClosestObject != NULL).
-                return false;
+                let p = obj_guard.get_position();
+                LeftoverLocationSafeCandidate {
+                    x: p.x,
+                    y: p.y,
+                    is_destroyed: obj_guard.is_destroyed(),
+                    is_effectively_dead: obj_guard.is_effectively_dead(),
+                    is_harvester: obj_guard.is_kind_of(KindOf::Harvester),
+                    is_dozer: obj_guard.is_kind_of(KindOf::Dozer),
+                    stealthed: obj_guard.test_status(ObjectStatusTypes::Stealthed),
+                    detected: obj_guard.test_status(ObjectStatusTypes::Detected),
+                    disguised: obj_guard.test_status(ObjectStatusTypes::Disguised),
+                    is_enemy,
+                    is_bridge: obj_guard.is_kind_of(KindOf::Bridge),
+                    is_bridge_tower: obj_guard.is_kind_of(KindOf::BridgeTower),
+                }
+            }) {
+                candidates.push(c);
             }
         }
-        true
+        leftover_is_location_safe(pos.x, pos.y, radius, candidates)
     }
 
     /// Update loop variant for skirmish AI that supplies its own base-building logic.

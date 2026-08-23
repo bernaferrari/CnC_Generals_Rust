@@ -159,8 +159,7 @@ impl GameLogic {
                     let new_max = max_hps as f32;
                     let old_max = created.health.maximum.max(created.max_health).max(1.0);
                     let ratio = created.health.current / old_max;
-                    created.health.maximum = new_max;
-                    created.max_health = new_max;
+                    created.set_body_max_health(new_max);
                     created.health.current = (new_max * ratio).clamp(0.0, new_max);
                     created.record_host_max_health();
                 }
@@ -169,9 +168,8 @@ impl GameLogic {
 
         if let Some(initial_health) = get_int(well_known_keys::key_object_initial_health()) {
             if let Some(created) = self.objects.get_mut(&id) {
-                let initial = created.health.maximum.max(created.max_health);
-                let new_hp = (initial_health as f32 / 100.0) * initial;
-                created.health.current = new_hp.clamp(0.0, created.health.maximum.max(created.max_health));
+                // C++ setInitialHealth: percent of stored InitialHealth, current HP only.
+                created.set_initial_health_percent(initial_health);
             }
         }
 
@@ -1499,15 +1497,53 @@ impl GameLogic {
         compute_now: bool,
     ) -> bool {
         // C++ DeployStyle: move order packs unit before pathing residual.
+        // TurretsMustCenterBeforePacking stays ALIGNING (still DEPLOYED) until
+        // the turret is natural; only UNDEPLOY clears OBJECT_STATUS_DEPLOYED.
         let mut started_undeploy = false;
         let mut block_path = false;
         if let Some(unit) = self.objects.get_mut(&unit_id) {
-            if let Some(ds) = unit.deploy_style.as_mut() {
-                if !ds.is_ready_to_move() {
-                    if ds.begin_undeploy(self.frame) {
-                        started_undeploy = true;
+            if unit.deploy_style.is_some() {
+                if !unit
+                    .deploy_style
+                    .as_ref()
+                    .is_some_and(|ds| ds.is_ready_to_move())
+                {
+                    let has_turret = unit.turret_enabled || unit.turret_turn_rate_rad > 0.0;
+                    let turret_natural = crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
+                        unit.status.under_construction,
+                        unit.turret_angle_deg,
+                        unit.turret_pitch_deg,
+                        unit.turret_natural_angle_deg,
+                        unit.turret_natural_pitch_deg,
+                    );
+                    let outcome = unit.deploy_style.as_mut().map(|ds| {
+                        let started = ds.begin_undeploy_with_weapon_turret(
+                            self.frame,
+                            has_turret,
+                            turret_natural,
+                        );
+                        (started, ds.is_aligning_turrets())
+                    });
+                    if let Some((started, now_aligning)) = outcome {
+                        if started && now_aligning {
+                            unit.turret_substate =
+                                crate::game_logic::object::TurretSubState::Recenter;
+                            unit.turret_idle_recentering = true;
+                            unit.turret_target_id = None;
+                            unit.turret_holding = false;
+                            unit.record_host_turret();
+                        } else if started && !now_aligning {
+                            started_undeploy = true;
+                            unit.set_deployed(false);
+                        } else if !now_aligning
+                            && !unit
+                                .deploy_style
+                                .as_ref()
+                                .is_some_and(|d| d.is_ready_to_move())
+                        {
+                            unit.set_deployed(false);
+                        }
                     }
-                    unit.set_deployed(false);
                     unit.stop_moving();
                     block_path = true;
                 }
@@ -1636,23 +1672,57 @@ impl GameLogic {
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
-        for goal in goals {
+        let request_is_final = match self.objects.get(&unit_id) {
+            Some(u) => {
+                !u.is_safe_path
+                    && u.attack_substate != crate::game_logic::AttackSubState::ChaseTarget
+            }
+            None => true,
+        };
+        let ignore = self.pathfinding_system.ignore_obstacle();
+        let goal_count = goals.len();
+        for (hop_i, goal) in goals.into_iter().enumerate() {
             if horiz(segment_start, goal) < 0.1 {
                 segment_start = goal;
                 continue;
             }
 
-            // Never fail-open through blocked cells: always ask the pathfinder.
+            // C++ computePath leftover-install: dest-off+start-off or
+            // !isFinalGoal && isLinePassable → computeQuickPath two-node.
+            let hop_is_final = request_is_final && hop_i + 1 == goal_count;
+            let leftover_quick = !is_aircraft
+                && (self
+                    .pathfinding_system
+                    .leftover_should_force_direct_path_for_off_map_start(segment_start, goal)
+                    || self
+                        .pathfinding_system
+                        .leftover_should_use_direct_path_for_line_passable_non_final_goal(
+                            hop_is_final,
+                            segment_start,
+                            goal,
+                            loco,
+                            ignore,
+                        ));
             let straight = horiz(segment_start, goal);
-            let segment = self.pathfinding_system.find_path_ex_surfaces(
-                segment_start,
-                goal,
-                &self.objects,
-                is_aircraft,
-                loco,
-                is_crusher,
-                Some(unit_id),
-            );
+            let segment = if leftover_quick {
+                Some(
+                    super::pathfinding::PathfindingSystem::leftover_compute_quick_path_nodes(
+                        segment_start,
+                        goal,
+                    ),
+                )
+            } else {
+                // Never fail-open through blocked cells: always ask the pathfinder.
+                self.pathfinding_system.find_path_ex_surfaces(
+                    segment_start,
+                    goal,
+                    &self.objects,
+                    is_aircraft,
+                    loco,
+                    is_crusher,
+                    Some(unit_id),
+                )
+            };
 
             match segment {
                 Some(mut segment_path) => {
@@ -1924,7 +1994,7 @@ impl GameLogic {
                 let contact = wname
                     .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
                     .unwrap_or(false)
-                    || crate::game_logic::weapon_bootstrap::is_contact_weapon_range(range);
+                    || crate::game_logic::weapon_bootstrap::is_contact_effective_range(range);
                 (
                     u.get_position(),
                     range,

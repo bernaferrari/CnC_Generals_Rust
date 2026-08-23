@@ -7,6 +7,10 @@ use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
 use std::any::Any;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use game_engine::common::thing::module::BaseModuleData;
+
 use std::sync::Arc;
 
 pub struct AnimatedParticleSysBoneClientUpdateModule {
@@ -45,6 +49,14 @@ impl AnimatedParticleSysBoneClientUpdateModule {
 
         let _ = drawable.update_bones_for_client_particle_systems();
     }
+    pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
+        self.owner_id = owner_id;
+    }
+
+    pub fn life(&self) -> u32 {
+        self.life
+    }
+
 }
 
 impl Module for AnimatedParticleSysBoneClientUpdateModule {
@@ -92,6 +104,66 @@ impl Snapshotable for AnimatedParticleSysBoneClientUpdateModule {
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
+}
+
+thread_local! {
+    static LIVE_ANIMATED_BONE: RefCell<HashMap<ObjectID, AnimatedParticleSysBoneClientUpdateModule>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Leftover-tick C++ `AnimatedParticleSysBoneClientUpdate::clientUpdate`.
+pub fn tick_live_host_animated_particle_sys_bones(owner_id: ObjectID) {
+    LIVE_ANIMATED_BONE.with(|map| {
+        let mut map = map.borrow_mut();
+        let module = map.entry(owner_id).or_insert_with(|| {
+            AnimatedParticleSysBoneClientUpdateModule::new(
+                game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                    "AnimatedParticleSysBoneClientUpdate",
+                ),
+                Arc::new(BaseModuleData::new()),
+                owner_id,
+            )
+        });
+        module.bind_owner_id(owner_id);
+        module.client_update();
+    });
+}
+
+pub fn prune_live_host_animated_particle_sys_bones(owner_id: ObjectID) {
+    LIVE_ANIMATED_BONE.with(|map| {
+        map.borrow_mut().remove(&owner_id);
+    });
+}
+
+/// Template authored `AnimatedParticleSysBoneClientUpdate` or
+/// `ParticlesAttachedToAnimatedBones`.
+pub fn leftover_template_uses_animated_particle_sys_bones(template_name: &str) -> bool {
+    if template_name.is_empty() {
+        return false;
+    }
+    let Ok(guard) = game_engine::common::thing::get_thing_factory() else {
+        return false;
+    };
+    let Some(factory) = guard.as_ref() else {
+        return false;
+    };
+    let Some(template) = factory.find_template(template_name, false) else {
+        return false;
+    };
+    if template
+        .get_client_update_module_info()
+        .iter()
+        .any(|entry| entry.name == "AnimatedParticleSysBoneClientUpdate")
+    {
+        return true;
+    }
+    template.get_draw_module_info().iter().any(|entry| {
+        entry
+            .data
+            .as_any()
+            .downcast_ref::<crate::object::draw::W3DModelDrawModuleData>()
+            .is_some_and(|data| data.particles_attached_to_animated_bones)
+    })
 }
 
 #[cfg(test)]

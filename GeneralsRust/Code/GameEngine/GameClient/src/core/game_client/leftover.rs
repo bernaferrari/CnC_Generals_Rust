@@ -367,6 +367,34 @@ impl GameClient {
                         ));
                     }
                 }
+                "W3DPoliceCarDraw" => {
+                    if let Some(data) = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<W3DPoliceCarDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DPoliceCarDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DScienceModelDraw" => {
+                    if let Some(data) = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<W3DScienceModelDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DScienceModelDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
                 "W3DDebrisDraw" => {
                     let data = entry
                         .data

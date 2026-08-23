@@ -23,19 +23,23 @@ pub enum PresentationSpecializedDrawKind {
     OverlordAircraft,
     Laser,
     Debris,
+    PoliceCar,
+    ScienceModel,
 }
 
 impl PresentationSpecializedDrawKind {
     pub fn from_module_name(name: &str) -> Option<Self> {
         match name {
             "W3DTankDraw" => Some(Self::Tank),
-            "W3DTruckDraw" | "W3DPoliceCarDraw" => Some(Self::Truck),
+            "W3DTruckDraw" => Some(Self::Truck),
+            "W3DPoliceCarDraw" => Some(Self::PoliceCar),
             "W3DTankTruckDraw" => Some(Self::TankTruck),
             "W3DOverlordTankDraw" => Some(Self::OverlordTank),
             "W3DOverlordTruckDraw" => Some(Self::OverlordTruck),
             "W3DOverlordAircraftDraw" => Some(Self::OverlordAircraft),
             "W3DLaserDraw" => Some(Self::Laser),
             "W3DDebrisDraw" => Some(Self::Debris),
+            "W3DScienceModelDraw" => Some(Self::ScienceModel),
             _ => None,
         }
     }
@@ -50,6 +54,8 @@ impl PresentationSpecializedDrawKind {
             Self::OverlordAircraft => "W3DOverlordAircraftDraw",
             Self::Laser => "W3DLaserDraw",
             Self::Debris => "W3DDebrisDraw",
+            Self::PoliceCar => "W3DPoliceCarDraw",
+            Self::ScienceModel => "W3DScienceModelDraw",
         }
     }
 
@@ -73,7 +79,7 @@ impl PresentationSpecializedDrawKind {
     pub fn spins_wheels(self) -> bool {
         matches!(
             self,
-            Self::Truck | Self::TankTruck | Self::OverlordTruck
+            Self::Truck | Self::TankTruck | Self::OverlordTruck | Self::PoliceCar
         )
     }
 
@@ -81,8 +87,16 @@ impl PresentationSpecializedDrawKind {
     pub fn has_truck_dust(self) -> bool {
         matches!(
             self,
-            Self::Truck | Self::TankTruck | Self::OverlordTruck
+            Self::Truck | Self::TankTruck | Self::OverlordTruck | Self::PoliceCar
         )
+    }
+
+    pub fn has_police_light(self) -> bool {
+        self == Self::PoliceCar
+    }
+
+    pub fn has_science_hide(self) -> bool {
+        self == Self::ScienceModel
     }
 }
 
@@ -102,6 +116,8 @@ pub struct PresentationSpecializedDrawSnapshot {
     pub debris_state: u8,
     pub debris_anim_time: f32,
     pub model_name: String,
+    /// C++ `W3DScienceModelDraw::doDrawModule` setHidden residual.
+    pub science_hidden: bool,
 }
 
 impl PresentationSpecializedDrawSnapshot {
@@ -140,6 +156,11 @@ impl PresentationSpecializedDrawSnapshot {
     pub fn is_overlord(&self) -> bool {
         self.kind.is_overlord()
     }
+
+    /// Leftover RequiredScience hide — skip this science-gated mesh.
+    pub fn is_science_hidden(&self) -> bool {
+        self.science_hidden && self.kind.has_science_hide()
+    }
 }
 
 /// Default C++ `W3DLaserDrawModuleData` OuterBeamWidth when INI omitted.
@@ -173,6 +194,8 @@ pub fn prune_presentation_specialized_draw(object_id: u32) {
     }
     prune_live_host_tread_debris(object_id);
     prune_live_host_truck_dust(object_id);
+    prune_live_host_police_car_light(object_id);
+    prune_live_host_animated_particle_sys_bones(object_id);
 }
 
 fn store_specialized_draw_snapshot(snapshot: PresentationSpecializedDrawSnapshot) {
@@ -203,6 +226,13 @@ pub fn infer_presentation_draw_module_names(
     if t.contains("debris") {
         return vec!["W3DDebrisDraw".to_string()];
     }
+    if t.contains("policecar") || t.contains("police_car") || t.contains("civiliansedans") {
+        return vec!["W3DPoliceCarDraw".to_string()];
+    }
+    if t.contains("science") && (t.contains("model") || t.contains("particle") || t.contains("uplink"))
+    {
+        return vec!["W3DScienceModelDraw".to_string()];
+    }
     if t.contains("helix") || t.contains("spectregunship") {
         return vec!["W3DOverlordAircraftDraw".to_string()];
     }
@@ -217,6 +247,9 @@ pub fn infer_presentation_draw_module_names(
         || t.contains("scorpion")
     {
         return vec!["W3DTankDraw".to_string()];
+    }
+    if t.contains("police") {
+        return vec!["W3DPoliceCarDraw".to_string()];
     }
     if t.contains("truck")
         || t.contains("humvee")
@@ -260,6 +293,13 @@ fn leftover_truck_draw_module_data(template_name: &str) -> Option<W3DTruckDrawMo
         {
             return Some(data.base.clone());
         }
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<W3DPoliceCarDrawModuleData>()
+        {
+            return Some(data.base.clone());
+        }
     }
     None
 }
@@ -282,6 +322,7 @@ struct PresentationSpecializedDrawModule {
     debris_anim_time: f32,
     model_name: String,
     scene_line_id: Option<game_engine::common::system::scene_submission::SceneLineId>,
+    science_hidden: bool,
 }
 
 impl PresentationSpecializedDrawModule {
@@ -305,6 +346,7 @@ impl PresentationSpecializedDrawModule {
             debris_frames: 0,
             debris_anim_time: 0.0,
             model_name,
+            science_hidden: false,
             scene_line_id: None,
         }
     }
@@ -320,6 +362,7 @@ impl PresentationSpecializedDrawModule {
             debris_state: self.debris_state,
             debris_anim_time: self.debris_anim_time,
             model_name: self.model_name.clone(),
+            science_hidden: self.science_hidden,
         }
     }
 
@@ -415,6 +458,28 @@ impl PresentationSpecializedDrawModule {
             // C++ W3DLaserDraw.h getLaserTemplateWidth = m_outerBeamWidth * 0.5.
             self.laser_width = DEFAULT_LASER_OUTER_BEAM_WIDTH * 0.5;
             self.publish_laser_line(e);
+        }
+        if self.kind.has_police_light() {
+            // C++ W3DPoliceCarDraw.cpp:77-131 leftover flashing ground light.
+            tick_live_host_police_car_light(
+                e.object_id,
+                pos,
+                e.scene_hidden_by_stealth || e.destroyed,
+            );
+        }
+        let visual = if e.visual_template_name.is_empty() {
+            e.template_name.as_str()
+        } else {
+            e.visual_template_name.as_str()
+        };
+        if leftover_science_model_data(visual).is_some() || self.kind.has_science_hide() {
+            self.science_hidden = tick_live_host_science_model_hide(
+                visual,
+                leftover_science_model_data(visual).as_ref(),
+            );
+        }
+        if leftover_template_uses_animated_particle_sys_bones(visual) {
+            tick_live_host_animated_particle_sys_bones(e.object_id);
         }
         store_specialized_draw_snapshot(self.snapshot());
     }

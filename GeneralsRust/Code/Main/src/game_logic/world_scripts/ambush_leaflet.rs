@@ -622,6 +622,17 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
+        self.queue_sneak_attack_facing(power, source_object, target_position, 0.0)
+    }
+
+    /// Same as [`queue_sneak_attack`] with C++ PlaceEvent placement angle.
+    pub fn queue_sneak_attack_facing(
+        &mut self,
+        power: &crate::command_system::SpecialPowerType,
+        source_object: ObjectId,
+        target_position: Vec3,
+        placement_angle: f32,
+    ) -> Option<u32> {
         use crate::game_logic::host_sneak_attack::{
             HostSneakAttackKind, SNEAK_ATTACK_RESIDUAL_TEMPLATE,
         };
@@ -654,6 +665,7 @@ impl GameLogic {
             target_position,
             frame,
             tunnel_template,
+            placement_angle,
         );
 
         // C++ OCL_CreateSneakAttackTunnelStart residual (Start object, Lifetime 5000ms).
@@ -662,6 +674,7 @@ impl GameLogic {
             source_team,
             source_owner_player_id,
             target_position,
+            placement_angle,
         );
 
         // C++ SuperweaponLaunched Sneak Attack EVA residual.
@@ -804,6 +817,11 @@ impl GameLogic {
                 plan.source_owner_player_id,
                 plan.target_position,
             );
+            if let Some(id) = tunnel_id {
+                if let Some(o) = self.objects.get_mut(&id) {
+                    o.set_orientation(plan.placement_angle);
+                }
+            }
 
             // Shockwave damage is multi-pulse residual (applied above); tunnel spawn
             // only creates the structure + audio residual.
@@ -1086,10 +1104,23 @@ impl GameLogic {
     }
 
     /// Wave 244: hero probe without exposing `&Object`.
+    /// C++ `Object::isHero` includes contained KINDOF_HERO occupants.
     #[inline]
     pub fn unit_is_hero(&self, id: ObjectId) -> bool {
-        self.objects.get(&id).is_some_and(|o| o.is_hero())
+        self.objects.get(&id).is_some_and(|o| self.host_object_is_hero(o))
     }
+
+    /// leftover `Object::is_hero` plus live occupant KindOf residual.
+    pub(crate) fn host_object_is_hero(&self, o: &crate::game_logic::object::Object) -> bool {
+
+        o.is_hero()
+            || o.contained_units().iter().any(|oid| {
+                self.objects
+                    .get(oid)
+                    .is_some_and(|u| u.is_kind_of(KindOf::Hero))
+            })
+    }
+
 
     /// Wave 244: KindOf probe without exposing `&Object`.
     #[inline]

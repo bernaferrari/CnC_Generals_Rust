@@ -154,6 +154,7 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         position: Vec3,
+        placement_angle: f32,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_sneak_attack::SNEAK_ATTACK_TUNNEL_START_TEMPLATE;
         use crate::game_logic::{KindOf, ThingTemplate};
@@ -178,6 +179,7 @@ impl GameLogic {
         )?;
         if let Some(o) = self.objects.get_mut(&sid) {
             o.sneak_tunnel_start = true;
+            o.set_orientation(placement_angle);
         }
         self.host_sneak_attacks.record_tunnel_start(mission_id, sid);
         Some(sid)

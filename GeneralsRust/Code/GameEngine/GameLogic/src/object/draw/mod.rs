@@ -41,17 +41,23 @@ pub use w3d_default_draw::{W3DDefaultDraw, W3DDefaultDrawModuleData};
 pub use w3d_dependency_model_draw::{W3DDependencyModelDraw, W3DDependencyModelDrawModuleData};
 pub use w3d_laser_draw::{W3DLaserDraw, W3DLaserDrawModuleData};
 pub use w3d_model_draw::{
-    lookup_pristine_bone_pose, lookup_pristine_bone_translation, register_pristine_bone_lookup_hook,
-    W3DModelDraw, W3DModelDrawModuleData,
+    lookup_current_client_bone_pose, lookup_pristine_bone_pose, lookup_pristine_bone_translation,
+    register_pristine_bone_lookup_hook, W3DModelDraw, W3DModelDrawModuleData,
 };
 pub use w3d_overlord_aircraft_draw::{W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData};
 pub use w3d_overlord_tank_draw::{W3DOverlordTankDraw, W3DOverlordTankDrawModuleData};
 pub use w3d_overlord_truck_draw::{W3DOverlordTruckDraw, W3DOverlordTruckDrawModuleData};
-pub use w3d_police_car_draw::{W3DPoliceCarDraw, W3DPoliceCarDrawModuleData};
+pub use w3d_police_car_draw::{
+    prune_live_host_police_car_light, tick_live_host_police_car_light, W3DPoliceCarDraw,
+    W3DPoliceCarDrawModuleData,
+};
 pub use w3d_projectile_draw::{W3DProjectileDraw, W3DProjectileDrawModuleData};
 pub use w3d_projectile_stream_draw::{W3DProjectileStreamDraw, W3DProjectileStreamDrawModuleData};
 pub use w3d_rope_draw::{W3DRopeDraw, W3DRopeDrawModuleData};
-pub use w3d_science_model_draw::{W3DScienceModelDraw, W3DScienceModelDrawModuleData};
+pub use w3d_science_model_draw::{
+    leftover_science_model_data, leftover_science_model_should_hide,
+    tick_live_host_science_model_hide, W3DScienceModelDraw, W3DScienceModelDrawModuleData,
+};
 pub use w3d_supply_draw::{W3DSupplyDraw, W3DSupplyDrawModuleData};
 pub use w3d_tank_draw::{
     prune_live_host_tread_debris, tick_live_host_tread_debris, W3DTankDraw, W3DTankDrawModuleData,

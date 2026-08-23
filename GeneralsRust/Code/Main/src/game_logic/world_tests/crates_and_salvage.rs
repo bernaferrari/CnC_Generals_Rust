@@ -3501,6 +3501,69 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
 }
 
 #[test]
+fn apply_immobile_collide_bounce_parachute_walks_contain_chain() {
+    // C++ PhysicsUpdate.cpp:1322-1332 / leftover physics_collide.rs:199-221:
+    // rider PARACHUTING + contained_by chute → jam the chute, not the rider.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+
+    let mut st = ThingTemplate::new("ParaBld");
+    st.add_kind_of(KindOf::Structure);
+    st.add_kind_of(KindOf::Immobile);
+    let iid = ObjectId(182);
+    let mut s = Object::new(st, iid, Team::China);
+    s.set_position(Vec3::new(5.0, 1.0, 0.0));
+    logic.objects.insert(iid, s);
+
+    let mut ct = ThingTemplate::new("AmericaParachute");
+    ct.add_kind_of(KindOf::Aircraft);
+    let cid = ObjectId(181);
+    let mut chute = Object::new(ct, cid, Team::USA);
+    chute.set_position(Vec3::new(0.0, 12.0, 0.0));
+    chute.movement.velocity = Vec3::new(3.0, -1.0, 0.5);
+    logic.objects.insert(cid, chute);
+
+    let mut pt = ThingTemplate::new("ParaRider");
+    pt.add_kind_of(KindOf::Infantry);
+    let pid = ObjectId(180);
+    let mut rider = Object::new(pt, pid, Team::USA);
+    rider.set_position(Vec3::new(0.0, 10.0, 0.0));
+    rider.movement.velocity = Vec3::new(3.0, -1.0, 0.5);
+    rider.set_status_parachuting(true);
+    rider.set_contained_by_enclosing(Some(cid), false);
+    logic.objects.insert(pid, rider);
+
+    let rider_before = logic.objects.get(&pid).unwrap().get_position();
+    let rider_vel_before = logic.objects.get(&pid).unwrap().movement.velocity;
+    assert!(logic.apply_immobile_collide_bounce(pid, iid, 20.0));
+
+    let rider = logic.objects.get(&pid).unwrap();
+    assert_eq!(
+        rider.get_position(),
+        rider_before,
+        "rider must stay in harness"
+    );
+    assert_eq!(
+        rider.movement.velocity, rider_vel_before,
+        "rider lateral must not be scrubbed"
+    );
+
+    let chute = logic.objects.get(&cid).unwrap();
+    assert!(
+        chute.get_position().x < 0.0,
+        "chute jam away from building +X, pos={:?}",
+        chute.get_position()
+    );
+    assert_eq!(chute.movement.velocity.x, 0.0);
+    assert_eq!(chute.movement.velocity.z, 0.0);
+    assert_eq!(
+        chute.movement.velocity.y, -1.0,
+        "scrubVelocity2D keeps vertical"
+    );
+}
+
+#[test]
 fn collide_immobile_is_kindof_immobile_not_can_move() {
     // C++ PhysicsUpdate.cpp:1221-1222 / leftover physics_collide.rs:144:
     // otherImmobile is KINDOF_IMMOBILE only. !can_move (dead, EMP, deployed,

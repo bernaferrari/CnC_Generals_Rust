@@ -465,7 +465,7 @@ impl GameLogic {
             let mut cur = obj.health.current;
             let mut maximum = obj.health.maximum;
             apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
-            obj.max_health = max_h;
+            obj.set_body_max_health(max_h);
             obj.record_host_max_health();
             Self::write_object_health_authority_aware(obj, cur);
             obj.health.maximum = maximum;
@@ -1449,7 +1449,7 @@ impl GameLogic {
             let mut cur = obj.health.current;
             let mut maximum = obj.health.maximum;
             apply_composite_armor_health(&mut max_h, &mut cur, &mut maximum);
-            obj.max_health = max_h;
+            obj.set_body_max_health(max_h);
             obj.record_host_max_health();
             Self::write_object_health_authority_aware(obj, cur);
             obj.health.maximum = maximum;

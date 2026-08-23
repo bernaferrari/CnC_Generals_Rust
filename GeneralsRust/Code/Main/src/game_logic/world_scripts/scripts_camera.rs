@@ -54,6 +54,28 @@ fn leftover_host_template_is_inert(template_name: &str) -> bool {
         })
 }
 
+/// C++ `objectTypesFromParam` / leftover `resolve_object_types_for_action`.
+fn host_script_object_type_names(object_type: &str) -> Vec<String> {
+    if object_type.is_empty() {
+        return Vec::new();
+    }
+    if let Some(Some(list)) = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+        engine.get_object_types(object_type)
+    }) {
+        let mut names = Vec::new();
+        for i in 0..list.list_size() as i32 {
+            if let Some(name) = list.nth_in_list(i) {
+                names.push(name.as_str().to_string());
+            }
+        }
+        if !names.is_empty() {
+            return names;
+        }
+    }
+    vec![object_type.to_string()]
+}
+
+
 /// C++ Object::getShroudedStatus CLEAR|PARTIAL_CLEAR per player (no stealth filter).
 fn host_discovered_by_player_names(
     logic: &crate::game_logic::GameLogic,
@@ -524,7 +546,7 @@ impl GameLogic {
                 alive: obj.is_alive() && !obj.status.destroyed,
                 effectively_dead: obj.status.effectively_dead || obj.status.destroyed,
                 health: obj.health.current,
-                initial_health: obj.health.maximum.max(obj.max_health).max(1.0),
+                initial_health: obj.body_initial_health(),
                 owner_player: obj
                     .owner_player_id
                     .and_then(|pid| self.player_name(pid))
@@ -617,7 +639,9 @@ impl GameLogic {
                     || obj.position.x > self.world_max.x
                     || obj.position.z < self.world_min.z
                     || obj.position.z > self.world_max.z,
-
+                contained_by: obj.contained_by.map(|cid| cid.0).unwrap_or(0),
+                // Live has no AI_EXIT state; leftover Exit is pretend-contained.
+                ai_exiting: false,
 
                 ..Default::default()
             });
@@ -683,7 +707,7 @@ impl GameLogic {
             .values()
             .map(|p| (p.id, p.name.clone(), p.team))
             .collect();
-        for (pid, name, team) in player_rows {
+        for (pid, name, _team) in player_rows {
             let key = name.trim().to_ascii_lowercase();
             if key.is_empty() {
                 continue;
@@ -693,18 +717,19 @@ impl GameLogic {
             };
             let is_attacked = ai.is_supply_source_attacked(self);
             let warehouse = ai.find_supply_center(self, 0);
-            let (cash, location_safe) = match warehouse.and_then(|id| self.host_object(id)) {
-                Some(obj) => {
-                    let pos = obj.get_position();
-                    let cash = obj.stored_resources.supplies as i32;
-                    let enemy_near = self.host_objects().values().any(|other| {
-                        other.is_alive()
-                            && other.team != team
-                            && other.team != crate::game_logic::Team::Neutral
-                            && other.is_mobile()
-                            && (other.get_position() - pos).length_squared() <= 150.0 * 150.0
-                    });
-                    (cash, !enemy_near)
+            let snapshot = warehouse.and_then(|id| {
+                self.host_object(id).map(|obj| {
+                    (
+                        obj.stored_resources.supplies as i32,
+                        obj.get_position(),
+                        obj.template_name.clone(),
+                    )
+                })
+            });
+            let (cash, location_safe) = match snapshot {
+                Some((cash, pos, template_name)) => {
+                    let template = self.templates.get(&template_name);
+                    (cash, ai.is_location_safe(self, pos, template))
                 }
                 None => (-1, true),
             };
@@ -1744,6 +1769,49 @@ impl GameLogic {
                     };
                     for id in self.host_script_team_member_ids(&team) {
                         let _ = self.unit_command_attack(id, vid);
+                    }
+                }
+                HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
+                    unit,
+                    object_type,
+                    trigger,
+                } => {
+                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+                        continue;
+                    };
+                    let Some(target) =
+                        self.host_script_closest_object_of_type_in_trigger(id, &object_type, &trigger)
+                    else {
+                        continue;
+                    };
+                    let Some(dest) = self.host_object(target).map(|o| o.get_position()) else {
+                        continue;
+                    };
+                    let _ = self.apply_unit_locomotor_set(id, "normal");
+                    let _ = self.unit_command_move_to(id, dest);
+                }
+                HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
+                    team,
+                    object_type,
+                    trigger,
+                } => {
+                    let members = self.host_script_team_member_ids(&team);
+                    let Some(&source) = members.first() else {
+                        continue;
+                    };
+                    let Some(target) = self.host_script_closest_object_of_type_in_trigger(
+                        source,
+                        &object_type,
+                        &trigger,
+                    ) else {
+                        continue;
+                    };
+                    let Some(dest) = self.host_object(target).map(|o| o.get_position()) else {
+                        continue;
+                    };
+                    for id in members {
+                        let _ = self.apply_unit_locomotor_set(id, "normal");
+                        let _ = self.unit_command_move_to(id, dest);
                     }
                 }
             }
@@ -4274,6 +4342,73 @@ impl GameLogic {
             })
             .map(|obj| obj.id)
             .collect()
+    }
+
+    /// C++ `ThePartitionManager->getClosestObject` (template or ObjectTypes,
+    /// `FROM_CENTER_2D`, polygon trigger, same on/off-map).
+    fn host_script_closest_object_of_type_in_trigger(
+        &self,
+        source_id: ObjectId,
+        object_type: &str,
+        trigger_name: &str,
+    ) -> Option<ObjectId> {
+        let source = self.host_object(source_id)?;
+        let source_pos = source.get_position();
+        let source_off_map = source.position.x < self.world_min.x
+            || source.position.x > self.world_max.x
+            || source.position.z < self.world_min.z
+            || source.position.z > self.world_max.z;
+        let type_names = host_script_object_type_names(object_type);
+        if type_names.is_empty() {
+            return None;
+        }
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (id, obj) in self.host_objects() {
+            if *id == source_id || !obj.is_alive() || obj.status.destroyed {
+                continue;
+            }
+            let off_map = obj.position.x < self.world_min.x
+                || obj.position.x > self.world_max.x
+                || obj.position.z < self.world_min.z
+                || obj.position.z > self.world_max.z;
+            if off_map != source_off_map {
+                continue;
+            }
+            if !type_names
+                .iter()
+                .any(|name| obj.template_name.eq_ignore_ascii_case(name))
+            {
+                continue;
+            }
+            if !self.host_script_point_in_trigger(obj.get_position(), trigger_name) {
+                continue;
+            }
+            let pos = obj.get_position();
+            let dx = pos.x - source_pos.x;
+            let dz = pos.z - source_pos.z;
+            let dist = dx * dx + dz * dz;
+            if best.map(|(_, best_dist)| dist < best_dist).unwrap_or(true) {
+                best = Some((*id, dist));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
+    fn host_script_point_in_trigger(&self, pos: glam::Vec3, trigger_name: &str) -> bool {
+        if let Some(trigger) = gamelogic::scripting::host_script_lookup_polygon_trigger(trigger_name)
+        {
+            return trigger.point_in_trigger_int(&gamelogic::common::ICoord3D::new(
+                pos.x as i32,
+                pos.z as i32,
+                0,
+            ));
+        }
+        if let Some((min_x, min_z, max_x, max_z)) =
+            gamelogic::scripting::host_script_area_bounds(trigger_name)
+        {
+            return pos.x >= min_x && pos.x <= max_x && pos.z >= min_z && pos.z <= max_z;
+        }
+        false
     }
 
     fn host_script_leftover_waypoint(&self, waypoint_name: &str) -> Option<(u32, glam::Vec3)> {

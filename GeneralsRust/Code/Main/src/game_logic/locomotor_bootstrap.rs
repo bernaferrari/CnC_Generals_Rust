@@ -275,6 +275,8 @@ pub struct HostLocomotorBinding {
     pub stick_to_ground: bool,
     /// C++ LocomotorTemplate::m_closeEnoughDist (default 1.0).
     pub close_enough_dist: f32,
+    /// Leftover `FLAG_CLOSE_ENOUGH_3D` / C++ `m_isCloseEnoughDist3D`.
+    pub close_enough_dist_3d: bool,
     /// Leftover `parse_duration_real` of Common `SlideIntoPlaceTime` (msec → frames).
     /// C++ `m_ultraAccurateSlideIntoPlaceFactor` (Locomotor.cpp:474).
     pub ultra_accurate_slide_factor: f32,
@@ -836,6 +838,8 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
             crate::game_logic::LocomotorBehaviorZ::RelativeToGroundAndBuildings
         }
     };
+    let leftover = gamelogic::locomotor::ini_bridge::from_common_ini_template(t);
+
     Some(HostLocomotorBinding {
         movement,
         visual_physics: HostLocomotorVisualPhysics {
@@ -947,10 +951,8 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         },
         // Common stores SlideIntoPlaceTime as raw msec; leftover ini_bridge
         // parse_duration_real converts msec → frames (100 msec → 3).
-        ultra_accurate_slide_factor: gamelogic::locomotor::ini_bridge::from_common_ini_template(
-            t,
-        )
-        .ultra_accurate_slide_factor,
+        close_enough_dist_3d: leftover.is_close_enough_dist_3d,
+        ultra_accurate_slide_factor: leftover.ultra_accurate_slide_factor,
         locomotor_surfaces: surface_mask,
     })
 }
@@ -993,6 +995,7 @@ pub fn apply_host_locomotor_binding(
     if object.close_enough_dist.is_none() {
         object.close_enough_dist = Some(binding.close_enough_dist);
     }
+    object.close_enough_dist_3d = binding.close_enough_dist_3d;
     object.wander_width_factor = binding.wander_width_factor;
     object.ultra_accurate_slide_factor = binding.ultra_accurate_slide_factor;
     seed_wander_phase(object, binding.wander_length_factor);
@@ -1048,6 +1051,7 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.wander_length_factor == right.wander_length_factor
         && left.stick_to_ground == right.stick_to_ground
         && left.close_enough_dist == right.close_enough_dist
+        && left.close_enough_dist_3d == right.close_enough_dist_3d
         && left.ultra_accurate_slide_factor == right.ultra_accurate_slide_factor
 }
 
@@ -1788,6 +1792,92 @@ mod tests {
         let mut changed = binding;
         changed.locomotor_works_when_dead = false;
         assert!(!same_host_locomotor_behavior(&binding, &changed));
+    }
+
+    #[test]
+    fn close_enough_dist_3d_binds_and_arrival_is_leftover_2d_unless_flag() {
+        let mut properties = HashMap::new();
+        properties.insert("Speed".to_string(), "20".to_string());
+        properties.insert("Surfaces".to_string(), "GROUND".to_string());
+        properties.insert("CloseEnoughDist3D".to_string(), "Yes".to_string());
+        let authored = parse_locomotor_template_definition("ScudDive", &properties)
+            .expect("parse CloseEnoughDist3D");
+        let leftover = gamelogic::locomotor::ini_bridge::from_common_ini_template(&authored);
+        assert!(leftover.is_close_enough_dist_3d);
+        let binding = host_locomotor_binding_from_template(&authored).expect("bind 3d");
+        assert!(binding.close_enough_dist_3d);
+
+        let mut tmpl = ThingTemplate::new("GroundSlope");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut stamped = Object::new(tmpl, ObjectId(3), Team::USA);
+        apply_host_locomotor_binding(&mut stamped, &binding);
+        assert!(stamped.close_enough_dist_3d);
+
+        let omitted = parse_locomotor_template_definition("Ground2d", &{
+            let mut p = HashMap::new();
+            p.insert("Speed".to_string(), "20".to_string());
+            p.insert("Surfaces".to_string(), "GROUND".to_string());
+            p
+        })
+        .expect("parse omitted CloseEnoughDist3D");
+        let omitted_binding =
+            host_locomotor_binding_from_template(&omitted).expect("bind omitted 3d");
+        assert!(!omitted_binding.close_enough_dist_3d);
+        let mut changed = binding;
+        changed.close_enough_dist_3d = false;
+        assert!(!same_host_locomotor_behavior(&binding, &changed));
+
+        // Slope: 2D=1, 3D~10. Leftover ground uses 2D so plants; flag uses 3D.
+        let mut ground = Object::new(ThingTemplate::new("SlopeScout"), ObjectId(4), Team::USA);
+        apply_host_locomotor_binding(&mut ground, &omitted_binding);
+        ground.set_position(Vec3::new(0.0, 10.0, 0.0));
+        ground.close_enough_dist = Some(2.0);
+        ground.movement.target_position = Some(Vec3::new(1.0, 0.0, 0.0));
+        ground.movement.max_speed = 0.0;
+        ground.movement.velocity = Vec3::ZERO;
+        assert!(
+            (ground.host_locomotor_distance_to_goal(
+                ground.get_position(),
+                Vec3::new(1.0, 0.0, 0.0)
+            ) - 1.0)
+                .abs()
+                < 1e-4
+        );
+        ground.update_movement(1.0 / 30.0);
+        assert!(
+            ground.movement.target_position.is_none(),
+            "ground leftover arrival is 2D, 1wu < 2"
+        );
+
+        let mut dive = Object::new(ThingTemplate::new("ScudDiveObj"), ObjectId(5), Team::USA);
+        apply_host_locomotor_binding(&mut dive, &binding);
+        dive.set_position(Vec3::new(0.0, 10.0, 0.0));
+        dive.close_enough_dist = Some(2.0);
+        dive.movement.target_position = Some(Vec3::new(1.0, 0.0, 0.0));
+        dive.movement.max_speed = 0.0;
+        dive.movement.velocity = Vec3::ZERO;
+        let d3 = dive.host_locomotor_distance_to_goal(
+            dive.get_position(),
+            Vec3::new(1.0, 0.0, 0.0),
+        );
+        assert!(d3 > 9.0, "flag uses 3D hypotenuse, got {d3}");
+        dive.update_movement(1.0 / 30.0);
+        assert!(
+            dive.movement.target_position.is_some(),
+            "CloseEnoughDist3D must not plant on 2D when 3D > arrive"
+        );
+
+        let mut proj_tmpl = ThingTemplate::new("Missile");
+        proj_tmpl.add_kind_of(KindOf::Projectile);
+        let mut proj = Object::new(proj_tmpl, ObjectId(6), Team::USA);
+        apply_host_locomotor_binding(&mut proj, &omitted_binding);
+        assert!(!proj.close_enough_dist_3d);
+        proj.set_position(Vec3::new(0.0, 10.0, 0.0));
+        let pd = proj.host_locomotor_distance_to_goal(
+            proj.get_position(),
+            Vec3::new(1.0, 0.0, 0.0),
+        );
+        assert!(pd > 9.0, "KINDOF_PROJECTILE leftover-uses 3D, got {pd}");
     }
 
     #[test]

@@ -447,11 +447,22 @@ impl GameLogic {
     /// Relationship inferred from persistent object ownership. Team-id
     /// overrides (C++ `Player::getRelationship(const Team*)`) win first so a
     /// named team can be allied while the rest of that player stays enemy.
+    ///
+    /// C++ `Object::getRelationship` (`Object.cpp:1548-1568`) applies
+    /// undetected-defector overrides before the team map: self → Neutral
+    /// (do not auto-acquire), that → Allies (treat flashing defector as own).
     pub fn object_relationship(
         &self,
         source: &Object,
         target: &Object,
     ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+        if source.is_undetected_defector() {
+            return Relationship::Neutral;
+        }
+        if target.is_undetected_defector() {
+            return Relationship::Allies;
+        }
         Self::object_relationship_from_owners(
             &self.players,
             source.owner_player_id,
@@ -990,6 +1001,36 @@ impl GameLogic {
         };
         self.is_object_shrouded_for_action(source, target)
     }
+
+    /// C++ `ActionManager::canHijackVehicle` (`ActionManager.cpp:829-887`).
+    /// Guard HijackGuard inner scan installs `PartitionFilterPossibleToHijack`
+    /// which calls this. Relationship `ENEMIES` is applied by the scan
+    /// (`ALLOW_ENEMIES` / leftover `relationship_to`); this gate is live,
+    /// unshrouded, KINDOF_VEHICLE, not AIRCRAFT, not DRONE, plus
+    /// `HijackedVehicleCrateCollide::wouldLikeToCollideWith`.
+    pub(crate) fn can_hijack_vehicle(&self, hijacker_id: ObjectId, target: &Object) -> bool {
+        if !target.is_alive() {
+            return false;
+        }
+        let Some(hijacker) = self.objects.get(&hijacker_id) else {
+            return false;
+        };
+        if self.is_object_shrouded_for_action(hijacker, target) {
+            return false;
+        }
+        if !target.is_kind_of(KindOf::Vehicle) {
+            return false;
+        }
+        if target.is_kind_of(KindOf::Aircraft) {
+            return false;
+        }
+        if target.is_kind_of(KindOf::Drone) {
+            return false;
+        }
+        // C++ wouldLikeToCollideWith → isValidToExecute extra gates.
+        !crate::game_logic::host_car_bomb::hijack_target_rejected(target)
+    }
+
 
 
     /// Authoritative C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)`
@@ -2951,6 +2992,45 @@ mod sides_relationship_tests {
             Relationship::Enemies
         );
     }
+
+    #[test]
+    fn undetected_defector_overrides_owner_map() {
+        // C++ Object::getRelationship: self undetected → Neutral, that → Allies.
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
+        let gla = Player::new(1, Team::GLA, "PlyrGLA", false);
+        usa.set_map_relationship(1, Relationship::Enemies);
+        logic.add_player(usa);
+        logic.add_player(gla);
+
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut src = Object::new(tmpl.clone(), ObjectId(10), Team::USA);
+        src.owner_player_id = Some(0);
+        let mut tgt = Object::new(tmpl, ObjectId(11), Team::GLA);
+        tgt.owner_player_id = Some(1);
+
+        assert_eq!(
+            logic.object_relationship(&src, &tgt),
+            Relationship::Enemies
+        );
+
+        src.begin_undetected_defection(0, 30, false);
+        assert_eq!(
+            logic.object_relationship(&src, &tgt),
+            Relationship::Neutral,
+            "undetected defector must not auto-acquire old enemies"
+        );
+
+        src.blow_defector_cover();
+        tgt.begin_undetected_defection(0, 30, false);
+        assert_eq!(
+            logic.object_relationship(&src, &tgt),
+            Relationship::Allies,
+            "teammates must treat flashing defector as own"
+        );
+    }
+
 }
 
 #[cfg(test)]

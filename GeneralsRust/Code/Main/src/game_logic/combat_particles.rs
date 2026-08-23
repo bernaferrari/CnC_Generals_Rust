@@ -909,6 +909,9 @@ impl CombatParticleRegistry {
         bones: &[(String, String)],
         pose: BodyAutoParticlePose<'_>,
     ) {
+        // C++ AnimatedParticleSysBoneClientUpdate::clientUpdate leftover-tick.
+        // Distinct from spawn-time recalcBonesForClientParticleSystems (pristine).
+        gamelogic::object::update::tick_live_host_animated_particle_sys_bones(owner.0);
         let wanted: Vec<(String, String)> = bones
             .iter()
             .filter_map(|(bone, system)| {
@@ -933,7 +936,7 @@ impl CombatParticleRegistry {
             self.deactivate(id);
         }
         for (bone, system) in wanted {
-            let (local, z_rot) = particle_sys_bone_pose(&pose, &bone);
+            let (local, z_rot) = leftover_or_pristine_particle_sys_bone_pose(&pose, &bone);
             let world = rotate_yaw_host(position, pose.yaw, local);
             let existing = self.systems.values().find_map(|entry| {
                 (entry.active
@@ -1384,6 +1387,22 @@ fn particle_sys_bone_pose(pose: &BodyAutoParticlePose<'_>, bone: &str) -> (Vec3,
     gamelogic::object::draw::lookup_pristine_bone_pose(pose.model, pose.scale, bone)
         .map(|(translation, z_rot)| (cpp_bone_to_host_local(translation), z_rot))
         .unwrap_or((Vec3::ZERO, 0.0))
+}
+
+/// Leftover current-client bone when leftover authored animated-bone follow.
+fn leftover_or_pristine_particle_sys_bone_pose(
+    pose: &BodyAutoParticlePose<'_>,
+    bone: &str,
+) -> (Vec3, f32) {
+    if bone.is_empty() || bone.eq_ignore_ascii_case("none") || pose.model.is_empty() {
+        return (Vec3::ZERO, 0.0);
+    }
+    if let Some((translation, z_rot)) =
+        gamelogic::object::draw::lookup_current_client_bone_pose(pose.model, pose.scale, 0, bone)
+    {
+        return (cpp_bone_to_host_local(translation), z_rot);
+    }
+    particle_sys_bone_pose(pose, bone)
 }
 
 fn body_prefix_bone_locals(model: &str, scale: f32, prefix: &str, max: usize) -> Vec<Vec3> {

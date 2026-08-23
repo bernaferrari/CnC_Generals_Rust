@@ -1722,6 +1722,10 @@ impl GameLogic {
                         .attribute("KeepContainerVelocityOnExit")
                         .and_then(parse_bool)
                         .unwrap_or(false),
+                    door_open_time: module
+                        .attribute("DoorOpenTime")
+                        .and_then(parse_duration_frames)
+                        .unwrap_or(1),
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;

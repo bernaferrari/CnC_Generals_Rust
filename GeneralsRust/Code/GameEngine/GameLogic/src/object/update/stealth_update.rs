@@ -150,6 +150,10 @@ impl StealthUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, STEALTH_UPDATE_MODULE_FIELDS)
     }
+
+    pub fn stealth_speed(&self) -> Real {
+        self.stealth_speed
+    }
 }
 
 impl ModuleData for StealthUpdateModuleData {

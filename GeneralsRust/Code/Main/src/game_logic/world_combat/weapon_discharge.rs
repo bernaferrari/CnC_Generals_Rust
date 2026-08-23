@@ -71,8 +71,11 @@ impl GameLogic {
             self.play_dispatch_fire_fx(source, capture, plan);
         } else if let Some(capture) = pending.as_ref() {
             // No frozen Drawable plan (missing modules / probe fail-closed).
-            // C++ still falls through to FXList::doFXPos when FireFX is non-null.
-            if !capture.selected_fx_name.is_empty() {
+            // C++ still calls handleWeaponFireFX, then FXList::doFXPos when
+            // FireFX is non-null and leftover did not consume the shot.
+            if leftover_handle_weapon_fire_fx_at_fx_bone(source, capture) {
+                // Leftover W3DModelDraw played FireFX at the FX-bone matrix.
+            } else if !capture.selected_fx_name.is_empty() {
                 let pos = Vec3::new(
                     capture.source_pos[0],
                     capture.source_pos[1],
@@ -165,11 +168,12 @@ impl GameLogic {
             capture.source_pos[2],
         );
         let target_pos = self.resolved_visual_target_pos(capture);
-        // C++ handleWeaponFireFX plays at the FX bone when handled, else
-        // Weapon.cpp:934-939 doFXPos at drawable/contact `where`. Live host
-        // has no leftover bone matrix; source pos is the barrel-origin residual.
-        // spawn_weapon_fire_fx_named_ocl dispatches the authored FXList with
-        // victim secondary so Tracer/RayEffect nuggets run.
+        // Leftover handle_weapon_fire_fx is RIGHT (W3DModelDraw.cpp:3672-3727).
+        // C++ Weapon.cpp:923-939 only falls back to drawable/contact origin
+        // when leftover returns false.
+        if leftover_handle_weapon_fire_fx_at_fx_bone(source, capture) {
+            return;
+        }
         let where_pos = if capture.is_contact_weapon {
             target_pos
         } else {
@@ -228,6 +232,46 @@ fn fire_fx_primary_damage_radius(object: Option<&Object>, slot: u8) -> f32 {
         return 0.0;
     };
     crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(name)
+}
+
+/// Leftover `Drawable::handle_weapon_fire_fx` / `W3DModelDraw::handle_weapon_fire_fx`.
+/// Plays FireFX at the barrel FX-bone world matrix when leftover handles it.
+fn leftover_handle_weapon_fire_fx_at_fx_bone(
+    source: ObjectId,
+    capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
+) -> bool {
+    let leftover_obj = gamelogic::helpers::TheGameLogic::find_object_by_id(source.0)
+        .or_else(|| gamelogic::object::registry::OBJECT_REGISTRY.get_object(source.0));
+    let Some(leftover_obj) = leftover_obj else {
+        return false;
+    };
+    let drawable = {
+        let Ok(guard) = leftover_obj.read() else {
+            return false;
+        };
+        guard.get_drawable()
+    };
+    let Some(drawable) = drawable else {
+        return false;
+    };
+    let Ok(mut draw_guard) = drawable.write() else {
+        return false;
+    };
+    let slot = match capture.weapon_slot {
+        0 => gamelogic::common::WeaponSlotType::Primary,
+        1 => gamelogic::common::WeaponSlotType::Secondary,
+        _ => gamelogic::common::WeaponSlotType::Tertiary,
+    };
+    let victim = leftover_fire_fx_victim_coord(capture);
+    draw_guard.handle_weapon_fire_fx(slot, i32::from(capture.fired_barrel), &victim)
+}
+
+/// Host Y-up `(x, height, z_ground)` → leftover/C++ Z-up `(x, y_ground, z_height)`.
+fn leftover_fire_fx_victim_coord(
+    capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
+) -> gamelogic::common::Coord3D {
+    let p = capture.target_pos.unwrap_or(capture.source_pos);
+    gamelogic::common::Coord3D::new(p[0], p[2], p[1])
 }
 
 #[cfg(test)]
@@ -342,5 +386,19 @@ mod tests {
             "seeded howitzer PrimaryDamageRadius residual"
         );
         assert_eq!(fire_fx_primary_damage_radius(None, 0), 0.0);
+    }
+
+    #[test]
+    fn play_dispatch_fire_fx_leftover_calls_handle_weapon_fire_fx() {
+        let src = include_str!("weapon_discharge.rs");
+        assert!(
+            src.contains("leftover_handle_weapon_fire_fx_at_fx_bone"),
+            "live FireFX must leftover-call handle_weapon_fire_fx"
+        );
+        assert!(src.contains("draw_guard.handle_weapon_fire_fx"));
+        assert!(
+            !src.contains("Live host has no leftover bone matrix"),
+            "origin fallback is only after leftover returns false"
+        );
     }
 }

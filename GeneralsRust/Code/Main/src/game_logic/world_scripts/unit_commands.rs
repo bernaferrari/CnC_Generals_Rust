@@ -1096,6 +1096,7 @@ impl GameLogic {
     pub fn unit_command_toggle_deploy_style(&mut self, id: ObjectId) -> bool {
         let frame = self.frame;
         let mut deployed_direction = false;
+        let mut aligning = false;
         let changed = {
             let Some(unit) = self.objects.get_mut(&id) else {
                 return false;
@@ -1117,6 +1118,14 @@ impl GameLogic {
                         | crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
                 )
             );
+            let has_turret = unit.turret_enabled || unit.turret_turn_rate_rad > 0.0;
+            let turret_natural = crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
+                unit.status.under_construction,
+                unit.turret_angle_deg,
+                unit.turret_pitch_deg,
+                unit.turret_natural_angle_deg,
+                unit.turret_natural_pitch_deg,
+            );
             let transitioned = {
                 let Some(style) = unit.deploy_style.as_mut() else {
                     return false;
@@ -1124,7 +1133,7 @@ impl GameLogic {
                 if deployed_direction {
                     style.begin_deploy(frame)
                 } else {
-                    style.begin_undeploy(frame)
+                    style.begin_undeploy_with_weapon_turret(frame, has_turret, turret_natural)
                 }
             };
             let state = unit.deploy_style.as_ref().map(|s| s.state);
@@ -1133,9 +1142,22 @@ impl GameLogic {
                 unit.set_status_moving(false);
                 unit.set_ai_state(AIState::Idle);
                 if !deployed_direction {
-                    // C++ DeployStyleAIUpdate::setMyState(UNDEPLOY) clears
-                    // OBJECT_STATUS_DEPLOYED before the pack timer elapses.
-                    unit.set_deployed(false);
+                    aligning = unit
+                        .deploy_style
+                        .as_ref()
+                        .is_some_and(|ds| ds.is_aligning_turrets());
+                    if aligning {
+                        unit.turret_substate =
+                            crate::game_logic::object::TurretSubState::Recenter;
+                        unit.turret_idle_recentering = true;
+                        unit.turret_target_id = None;
+                        unit.turret_holding = false;
+                        unit.record_host_turret();
+                    } else {
+                        // C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED
+                        // before the pack timer elapses.
+                        unit.set_deployed(false);
+                    }
                 }
                 if let Some(state) = state {
                     crate::game_logic::host_deploy_style::leftover_stamp_deploy_style_conditions(
@@ -1161,6 +1183,8 @@ impl GameLogic {
                 None,
                 150,
             );
+        } else if aligning {
+            // Recenter first; Undeploy audio plays when packing actually starts.
         } else {
             self.deploy_style_reg.record_undeploy();
             self.queue_resolved_per_unit_sound(
@@ -2328,6 +2352,7 @@ mod tests {
                 ready_frame: 0,
                 pack_frames: 30,
                 unpack_frames: 30,
+                ..Default::default()
             });
         }
         let dest = glam::Vec3::new(250.0, 0.0, 0.0);

@@ -620,6 +620,10 @@ impl Object {
     }
 
     /// C++ Locomotor::locoUpdate_moveTowardsAngle residual.
+    ///
+    /// XY only. C++ `handleBehaviorZ` is one leftover `getSurfaceHtAtPt` pass
+    /// (`Locomotor.cpp:884-895`); live FACE caller applies that leftover-terrain
+    /// Z once. Never treat pose-Y as surface (hq-jg55x).
     pub fn loco_update_move_towards_angle(&mut self, goal_angle: f32, dt: f32) {
         self.maintain_pos_valid = false;
         if self.shock_stun_frames > 0 {
@@ -639,7 +643,6 @@ impl Object {
             self.apply_forward_speed_force(min_speed, dt);
             let p = self.get_position() + self.movement.velocity * dt;
             self.set_position(p);
-            let _ = self.handle_behavior_z(p.y, None);
             self.movement.target_position = prev;
         } else {
             let us = self.get_position();
@@ -649,7 +652,6 @@ impl Object {
                 us.z + (-goal_angle.sin()) * 1000.0,
             );
             let _ = self.rotate_towards_position(desired, dt);
-            let _ = self.handle_behavior_z(us.y, None);
         }
     }
 

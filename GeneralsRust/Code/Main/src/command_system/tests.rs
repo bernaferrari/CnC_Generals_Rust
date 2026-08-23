@@ -2840,3 +2840,32 @@ fn leftover_location_target_only_covers_need_target_pos_powers() {
     ));
 }
 
+#[test]
+fn leftover_no_target_covers_can_do_special_power_types() {
+    use SpecialPowerType as P;
+    let no_target = [
+        P::CiaIntelligence,
+        P::CommunicationsDownload,
+        P::DetonateDirtyNuke,
+        P::DemoKellRemoteCharges,
+        P::BurtonRemoteCharges,
+        P::BattlePlanBombardment,
+        P::BattlePlanHoldTheLine,
+        P::BattlePlanSearchAndDestroy,
+        P::BaikonurRocket,
+    ];
+    for power in no_target {
+        assert!(
+            leftover_special_power_is_no_target(&power),
+            "{power:?} must leftover-call can_do_special_power"
+        );
+        assert!(
+            !leftover_special_power_is_location_target_only(&power),
+            "{power:?} is not leftover NEED_TARGET_POS"
+        );
+    }
+    assert!(!leftover_special_power_is_no_target(&P::SpySatellite));
+    assert!(!leftover_special_power_is_no_target(&P::ParticleCannon));
+    assert!(!leftover_special_power_is_no_target(&P::CashHack));
+}
+

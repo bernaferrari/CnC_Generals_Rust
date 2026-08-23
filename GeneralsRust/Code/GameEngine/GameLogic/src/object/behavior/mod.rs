@@ -354,7 +354,7 @@ pub use fire_weapon_update::{
 };
 pub use firestorm_dynamic_geometry_info_update::{
     FirestormDynamicGeometryInfoUpdate, FirestormDynamicGeometryInfoUpdateFactory,
-    FirestormDynamicGeometryInfoUpdateModuleData,
+    FirestormDynamicGeometryInfoUpdateModuleData, MAX_FIRESTORM_SYSTEMS,
 };
 pub use float_update::{FloatUpdate, FloatUpdateFactory, FloatUpdateModule, FloatUpdateModuleData};
 pub use laser_update::{LaserUpdate, LaserUpdateFactory, LaserUpdateModule, LaserUpdateModuleData};

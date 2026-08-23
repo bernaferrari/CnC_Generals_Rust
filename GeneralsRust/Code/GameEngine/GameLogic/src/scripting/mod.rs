@@ -49,6 +49,7 @@ pub use conditions::{
     capture_host_object_trigger_persists, clear_host_script_query_snapshot,
     clear_host_trigger_flags, host_eval_skirmish_command_button_ready,
     host_eval_team_has_object_status, host_eval_unit_has_object_status,
+    host_eval_team_is_contained,
 
     host_eval_skirmish_captured_count, host_eval_skirmish_garrisoned_count,
     host_eval_skirmish_player_has_discovered_player,

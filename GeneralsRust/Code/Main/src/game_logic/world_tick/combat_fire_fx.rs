@@ -207,6 +207,11 @@ impl GameLogic {
             })
             .collect();
         for (id, pos, template, model, scale, yaw, bits, ordinal, aflame) in snapshots {
+            if gamelogic::object::update::leftover_template_uses_animated_particle_sys_bones(
+                &template,
+            ) {
+                gamelogic::object::update::tick_live_host_animated_particle_sys_bones(id.0);
+            }
             let bones =
                 crate::game_logic::combat_particles::particle_sys_bones_for_template(&template, bits);
             let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(

@@ -508,7 +508,8 @@ pub fn leftover_sa_los_iterate_range(start_ability_range: f32) -> f32 {
 /// C++ `ActionManager::canDoSpecialPowerAtObject` charge cases
 /// (`SPECIAL_REMOTE_CHARGES` / `SPECIAL_TIMED_CHARGES` / `SPECIAL_HELIX_NAPALM_BOMB`):
 /// dead / `KINDOF_BRIDGE` / `KINDOF_BRIDGE_TOWER` are illegal; target must be
-/// Structure or Vehicle. Tank Hunter TNT uses the same reject plus aircraft.
+/// Structure or Vehicle. Tank Hunter TNT is a separate arm — see
+/// `leftover_tank_hunter_tnt_target_ok`.
 pub fn leftover_charge_plant_target_ok(
     alive: bool,
     is_bridge: bool,
@@ -517,6 +518,18 @@ pub fn leftover_charge_plant_target_ok(
     is_vehicle: bool,
 ) -> bool {
     alive && !is_bridge && !is_bridge_tower && (is_structure || is_vehicle)
+}
+
+/// C++ `SPECIAL_TANKHUNTER_TNT_ATTACK` (`ActionManager.cpp:1604-1609`):
+/// Structure or (Vehicle && !Aircraft). Bridges are structures, so TNT is legal
+/// on them. Leftover `SpecialAbilityUpdate` plant does not re-test Bridge.
+pub fn leftover_tank_hunter_tnt_target_ok(
+    alive: bool,
+    is_structure: bool,
+    is_vehicle: bool,
+    is_aircraft: bool,
+) -> bool {
+    alive && (is_structure || (is_vehicle && !is_aircraft))
 }
 
 
@@ -1393,6 +1406,22 @@ mod tests {
         ));
         assert!(!leftover_charge_plant_target_ok(
             true, false, false, false, false
+        ));
+        // C++ TankHunter arm allows Structure including KINDOF_BRIDGE.
+        assert!(leftover_tank_hunter_tnt_target_ok(
+            true, true, false, false
+        ));
+        assert!(leftover_tank_hunter_tnt_target_ok(
+            true, false, true, false
+        ));
+        assert!(!leftover_tank_hunter_tnt_target_ok(
+            true, false, true, true
+        ));
+        assert!(!leftover_tank_hunter_tnt_target_ok(
+            false, true, false, false
+        ));
+        assert!(!leftover_tank_hunter_tnt_target_ok(
+            true, false, false, false
         ));
         assert!(leftover_sa_is_facing_target(
             Vec3::new(0.0, 0.0, 0.0),

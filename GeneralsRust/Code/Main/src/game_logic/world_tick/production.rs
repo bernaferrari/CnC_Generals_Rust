@@ -1065,6 +1065,8 @@ impl GameLogic {
                     .unwrap_or(false);
                 if let Some(player) = self.players.get_mut(&pid) {
                     player.complete_researched_upgrade(&upgrade_name);
+                    // record_upgrade_production_complete: leftover AcademyStats::recordUpgrade
+                    // (FALSE) + ScoreKeeper::addMoneySpent (ProductionUpdate.cpp:874-879 / 931).
                 }
                 if !already {
                     self.apply_host_upgrade_complete(team, pid, &upgrade_name);

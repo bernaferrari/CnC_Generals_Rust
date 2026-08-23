@@ -4111,6 +4111,81 @@ fn motion_step_bounce_rights_tilted_not_just_flipped() {
     );
 }
 
+#[test]
+fn motion_step_bounce_keeps_inverted_roll_for_stun_kill() {
+    // hq-p6amn: leftover handle_bounce 0-or-PI must survive the live Euler.
+    // Inverted stunned wrecks die; inverted non-stunned poses stay flipped.
+    let mut st = ThingTemplate::new("StunFlipStep");
+    st.add_kind_of(KindOf::Vehicle);
+    st.max_health = 100.0;
+    let mut stunned = Object::new(st, ObjectId(26), Team::USA);
+    stunned.health.current = 100.0;
+    stunned.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    stunned.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
+    assert!(stunned.physics_transform_up_y() < 0.0);
+    stunned.shock_allow_bounce = true;
+    stunned.shock_stun_frames = 40;
+    stunned.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    stunned.immune_to_falling_damage = true;
+    let _ = stunned.tick_physics_motion_step(0.0);
+    assert!(
+        stunned.status.destroyed,
+        "hq-p6amn: inverted stunned must die on motion-step bounce"
+    );
+
+    let mut wt = ThingTemplate::new("WreckFlipStep");
+    wt.add_kind_of(KindOf::Vehicle);
+    let mut wreck = Object::new(wt, ObjectId(27), Team::USA);
+    wreck.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    wreck.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
+    wreck.shock_allow_bounce = true;
+    wreck.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    wreck.immune_to_falling_damage = true;
+    wreck.kill_when_resting_on_ground = false;
+    let bounced = wreck.tick_physics_motion_step(0.0);
+    assert!(bounced, "hq-p6amn: inverted wreck must bounce");
+    assert!(
+        wreck.physics_transform_up_y() < 0.0,
+        "hq-p6amn: inverted wreck pose must survive motion-step, up={}",
+        wreck.physics_transform_up_y()
+    );
+    assert!(!wreck.status.destroyed);
+}
+
+#[test]
+fn shock_bounce_keep_flip_before_stun_test() {
+    // hq-p6amn: handle_shock_ground_bounce must 0-or-PI right before
+    // testStunned so a flip discretized from up-Y still kills.
+    let mut tmpl = ThingTemplate::new("ShockFlip");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    tmpl.max_health = 100.0;
+    let mut o = Object::new(tmpl, ObjectId(28), Team::USA);
+    o.health.current = 100.0;
+    o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    o.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
+    assert!(o.physics_transform_up_y() < 0.0);
+    o.shock_allow_bounce = true;
+    o.shock_stun_frames = 40;
+    o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    let bounced = o.handle_shock_ground_bounce(2.0, -0.1, 0.0);
+    assert!(o.status.destroyed, "inverted stunned must die after keep_flip");
+    assert_eq!(bounced, 0.0);
+
+    let mut wtmpl = ThingTemplate::new("ShockWreckFlip");
+    wtmpl.add_kind_of(KindOf::Vehicle);
+    let mut w = Object::new(wtmpl, ObjectId(29), Team::USA);
+    w.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    w.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
+    w.shock_allow_bounce = true;
+    w.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
+    assert!(w.handle_shock_ground_bounce(2.0, -0.1, 0.0) > 0.0);
+    assert!(
+        w.physics_transform_up_y() < 0.0,
+        "hq-p6amn: shock bounce must keep inverted roll, up={}",
+        w.physics_transform_up_y()
+    );
+}
+
 
 
 #[test]

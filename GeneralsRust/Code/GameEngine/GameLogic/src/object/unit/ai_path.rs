@@ -9,6 +9,66 @@ use super::imports::*;
 use super::registry::{dual_world_registry_unavailable, get_unit_arc};
 use super::types::*;
 
+
+/// C++ `Region3D::isInRegionNoZ` used by leftover `computePath` off-map gate.
+pub fn leftover_is_in_region_no_z(region: &Region3D, position: &Coord3D) -> bool {
+    position.x >= region.lo.x
+        && position.x <= region.hi.x
+        && position.y >= region.lo.y
+        && position.y <= region.hi.y
+}
+
+/// Leftover `UnitAIUpdate::should_force_direct_path_for_off_map_start`
+/// (C++ `AIUpdateInterface::computePath` AIUpdate.cpp:1663-1671).
+pub fn leftover_should_force_direct_path_for_off_map_start(
+    start: &Coord3D,
+    destination: &Coord3D,
+) -> bool {
+    let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+        return false;
+    };
+    let extent = terrain.get_maximum_pathfind_extent();
+    if leftover_is_in_region_no_z(&extent, destination) {
+        return false;
+    }
+    !leftover_is_in_region_no_z(&extent, start)
+}
+
+/// Leftover `UnitAIUpdate::should_use_direct_path_for_line_passable_non_final_goal`
+/// (C++ `AIUpdateInterface::computePath` AIUpdate.cpp:1691-1694).
+pub fn leftover_should_use_direct_path_for_line_passable_non_final_goal(
+    is_final_goal: bool,
+    start: &Coord3D,
+    destination: &Coord3D,
+    surfaces: u32,
+    ignore_obstacle_id: Option<ObjectID>,
+) -> bool {
+    if is_final_goal {
+        return false;
+    }
+    if surfaces == 0 {
+        return false;
+    }
+    let Some(ai) = THE_AI.read().ok() else {
+        return false;
+    };
+    let Some(pathfinder) = ai.pathfinder() else {
+        return false;
+    };
+    let Ok(pf_guard) = pathfinder.read() else {
+        return false;
+    };
+    pf_guard.is_line_passable_for_surfaces(start, destination, surfaces, ignore_obstacle_id)
+}
+
+/// C++ `AIUpdateInterface::computeQuickPath` two-node start+dest
+/// (AIUpdate.cpp:1624-1630). Start Z is lifted to dest Z.
+pub fn leftover_compute_quick_path_coords(start: &Coord3D, destination: &Coord3D) -> [Coord3D; 2] {
+    let mut pos = *start;
+    pos.z = destination.z;
+    [pos, *destination]
+}
+
 impl UnitAIUpdate {
     pub(super) fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
         let mut snapshot = AiPath::new();
@@ -24,27 +84,16 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn should_force_direct_path_for_off_map_start(&self, destination: &Coord3D) -> bool {
-        let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
-            return false;
-        };
-        let extent = terrain.get_maximum_pathfind_extent();
-        if Self::is_in_region_no_z(&extent, destination) {
-            return false;
-        }
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let position = guard.get_position();
-        !Self::is_in_region_no_z(&extent, &position)
+        leftover_should_force_direct_path_for_off_map_start(&guard.get_position(), destination)
     }
     pub(super) fn is_in_region_no_z(region: &Region3D, position: &Coord3D) -> bool {
-        position.x >= region.lo.x
-            && position.x <= region.hi.x
-            && position.y >= region.lo.y
-            && position.y <= region.hi.y
+        leftover_is_in_region_no_z(region, position)
     }
     pub(super) fn should_use_direct_path_for_line_passable_non_final_goal(
         &self,
@@ -74,21 +123,18 @@ impl UnitAIUpdate {
         let position = guard.get_position();
         drop(guard);
 
-        let Some(ai) = THE_AI.read().ok() else {
-            return false;
-        };
-        let Some(pathfinder) = ai.pathfinder() else {
-            return false;
-        };
-        let Ok(pf_guard) = pathfinder.read() else {
-            return false;
-        };
         let ignore = if self.ignore_obstacle_id == INVALID_ID {
             None
         } else {
             Some(self.ignore_obstacle_id)
         };
-        pf_guard.is_line_passable_for_surfaces(&position, destination, surfaces, ignore)
+        leftover_should_use_direct_path_for_line_passable_non_final_goal(
+            self.is_final_goal,
+            &position,
+            destination,
+            surfaces,
+            ignore,
+        )
     }
     pub(super) fn has_current_path(&self) -> bool {
         if self.current_path_snapshot.is_some() {

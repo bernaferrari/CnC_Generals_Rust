@@ -366,118 +366,73 @@ impl AIPlayer {
             }
         }
 
-        let mut cash_floor = minimum_cash.max(0);
+        let mut candidates: Vec<LeftoverSupplyCenterCandidate> = Vec::new();
+        let mut own_cash_gens: Vec<LeftoverOwnedCashGenerator> = Vec::new();
         // Host path: dual-world factory empty — no supply-center residual.
         if OBJECT_REGISTRY.is_empty() {
             return None;
         }
-        loop {
-            let mut best: Option<(f32, Arc<RwLock<Object>>)> = None;
-            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                let Ok(obj_guard) = obj.read() else {
-                    continue;
-                };
-                if !obj_guard.is_kind_of(KindOf::Structure)
-                    || !obj_guard.is_kind_of(KindOf::SupplySource)
-                {
-                    continue;
-                }
-                if let Some(team_arc) = obj_guard.get_team() {
-                    if let Ok(team) = team_arc.read() {
-                        if player_guard.get_relationship_with_team(&team) == Relationship::Enemies {
-                            continue;
-                        }
-                    }
-                }
-                let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
-                    continue;
-                };
-                let boxes = module.with_module(|module| {
-                    module
-                        .get_supply_warehouse_dock_interface()
-                        .map(|warehouse| warehouse.boxes_stored())
-                });
-                let Some(boxes) = boxes else {
-                    continue;
-                };
-                let available_cash = boxes * BASE_VALUE_PER_SUPPLY_BOX;
-                if available_cash < cash_floor {
-                    continue;
-                }
-
-                let center = *obj_guard.get_position();
-                let radius = SUPPLY_CENTER_CLOSE_DIST
-                    + obj_guard.get_geometry_info().get_bounding_circle_radius();
-
-                // Skip if we already own a cash generator near this warehouse.
-                // Host path: dual-world registry empty → no factory-side cash gens.
-                let mut already_have = false;
-                if OBJECT_REGISTRY.is_empty() {
-                    // fall through with already_have=false
-                } else {
-                    for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                        let cand = match OBJECT_REGISTRY.get_object(obj_id) {
-                            Some(v) => v,
-                            None => continue,
-                        };
-                        let Ok(cg) = cand.read() else {
-                            continue;
-                        };
-                        if !cg.is_kind_of(KindOf::CashGenerator) {
-                            continue;
-                        }
-                        let Some(pid) = cg.get_controlling_player_id() else {
-                            continue;
-                        };
-                        if pid as u32 != self.player_id {
-                            continue;
-                        }
-                        let p = cg.get_position();
-                        let dx = p.x - center.x;
-                        let dy = p.y - center.y;
-                        if dx * dx + dy * dy <= radius * radius {
-                            already_have = true;
-                            break;
-                        }
-                    }
-                } // dual-world registry non-empty
-                if already_have {
-                    continue;
-                }
-
-                let dx = center.x - base_center.x;
-                let dy = center.y - base_center.y;
-                let dist_sqr = dx * dx + dy * dy;
-                if has_enemy {
-                    let ex = center.x - enemy_center.x;
-                    let ey = center.y - enemy_center.y;
-                    let enemy_dist_sqr = ex * ex + ey * ey;
-                    // C++: closer than 60/40 to enemy than to us → skip
-                    if dist_sqr * 0.4 > enemy_dist_sqr * 0.6 {
-                        continue;
-                    }
-                }
-
-                if best.as_ref().map_or(true, |(bd, _)| dist_sqr < *bd) {
-                    best = Some((dist_sqr, obj.clone()));
+        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
+                Some(v) => v,
+                None => continue,
+            };
+            let Ok(obj_guard) = obj.read() else {
+                continue;
+            };
+            if obj_guard.is_kind_of(KindOf::CashGenerator) {
+                if obj_guard.get_controlling_player_id() == Some(self.player_id as _) {
+                    let p = obj_guard.get_position();
+                    own_cash_gens.push(LeftoverOwnedCashGenerator { x: p.x, y: p.y });
                 }
             }
-            if let Some((_, warehouse)) = best {
-                return Some(warehouse);
+            if !obj_guard.is_kind_of(KindOf::Structure)
+                || !obj_guard.is_kind_of(KindOf::SupplySource)
+            {
+                continue;
             }
-            // C++: minimumCash /= 2; while (minimumCash > 100)
-            // After a failed pass, halve then stop once floor is ≤100 — do not
-            // attempt another pass at the halved ≤100 value.
-            cash_floor /= 2;
-            if cash_floor <= 100 {
-                break;
-            }
+            let is_enemy = obj_guard.get_team().and_then(|team_arc| {
+                team_arc.read().ok().map(|team| {
+                    player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                })
+            })
+            .unwrap_or(false);
+            let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
+                continue;
+            };
+            let boxes = module.with_module(|module| {
+                module
+                    .get_supply_warehouse_dock_interface()
+                    .map(|warehouse| warehouse.boxes_stored())
+            });
+            let Some(boxes) = boxes else {
+                continue;
+            };
+            let center = *obj_guard.get_position();
+            candidates.push(LeftoverSupplyCenterCandidate {
+                id: obj_id,
+                x: center.x,
+                y: center.y,
+                bounding_circle: obj_guard.get_geometry_info().get_bounding_circle_radius(),
+                available_cash: boxes * BASE_VALUE_PER_SUPPLY_BOX,
+                is_structure: true,
+                is_supply_source: true,
+                has_warehouse_dock: true,
+                is_enemy,
+            });
         }
-        None
+        // leftover_find_supply_center: SUPPLY_CENTER_CLOSE_DIST, dist_sqr * 0.4,
+        // enemy_dist_sqr * 0.6, cash_floor /= 2, if cash_floor <= 100
+        let enemy = has_enemy.then_some((enemy_center.x, enemy_center.y));
+        let best_id = leftover_find_supply_center(
+            &candidates,
+            &own_cash_gens,
+            base_center.x,
+            base_center.y,
+            enemy,
+            minimum_cash,
+        )?;
+        OBJECT_REGISTRY.get_object(best_id)
     }
 
     /// Legalize helper for buildBySupplies / near-team placement.

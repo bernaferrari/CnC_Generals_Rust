@@ -64,6 +64,78 @@ fn leftover_factory_ai_update_bits(template_name: &str) -> Option<(u32, bool)> {
     None
 }
 
+/// C++ `ActiveBodyModuleData::m_initialHealth` from leftover factory when loaded.
+/// Never calls `find_template(..., true)` (that lazy-inits Object INI).
+fn leftover_factory_body_initial_health(template_name: &str) -> Option<f32> {
+    leftover_factory_body_health(template_name).and_then(|(_, initial)| {
+        if initial > 0.0 {
+            Some(initial)
+        } else {
+            None
+        }
+    })
+}
+
+fn leftover_factory_body_health(template_name: &str) -> Option<(f32, f32)> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    for entry in tmpl.get_behavior_module_info().iter() {
+        if !name_is_body_module(entry.name.as_str()) {
+            continue;
+        }
+        if let Some((max, initial)) = leftover_typed_body_health(entry.data.as_ref()) {
+            if max > 0.0 || initial > 0.0 {
+                return Some((max, initial));
+            }
+        }
+        let max = parse_ini_real(entry.data.get_ini_field("MaxHealth"));
+        let initial = parse_ini_real(entry.data.get_ini_field("InitialHealth"));
+        match (max, initial) {
+            (Some(m), Some(i)) if m > 0.0 || i > 0.0 => return Some((m, i)),
+            (Some(m), None) if m > 0.0 => return Some((m, m)),
+            (None, Some(i)) if i > 0.0 => return Some((i, i)),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn name_is_body_module(name: &str) -> bool {
+    name.eq_ignore_ascii_case("ActiveBody")
+        || name.eq_ignore_ascii_case("StructureBody")
+        || name.eq_ignore_ascii_case("HighlanderBody")
+        || name.eq_ignore_ascii_case("ImmortalBody")
+        || name.eq_ignore_ascii_case("HiveStructureBody")
+        || name.eq_ignore_ascii_case("UndeadBody")
+}
+
+fn leftover_typed_body_health(
+    data: &dyn game_engine::common::thing::module::ModuleData,
+) -> Option<(f32, f32)> {
+    use gamelogic::object::body::active_body::ActiveBodyModuleData;
+    use gamelogic::object::body::hive_structure_body::HiveStructureBodyModuleData;
+    use gamelogic::object::body::structure_body::StructureBodyModuleData;
+    use gamelogic::object::body::undead_body::UndeadBodyModuleData;
+    if let Some(d) = data.as_any().downcast_ref::<ActiveBodyModuleData>() {
+        return Some((d.max_health, d.initial_health));
+    }
+    if let Some(d) = data.as_any().downcast_ref::<StructureBodyModuleData>() {
+        return Some((d.base.max_health, d.base.initial_health));
+    }
+    if let Some(d) = data.as_any().downcast_ref::<HiveStructureBodyModuleData>() {
+        return Some((d.base.base.max_health, d.base.base.initial_health));
+    }
+    if let Some(d) = data.as_any().downcast_ref::<UndeadBodyModuleData>() {
+        return Some((d.base.max_health, d.base.initial_health));
+    }
+    None
+}
+
+fn parse_ini_real(text: Option<&str>) -> Option<f32> {
+    text.and_then(|t| t.trim().parse().ok())
+}
+
 fn name_is_ai_update_module(name: &str) -> bool {
     name.eq_ignore_ascii_case("AIUpdateInterface")
         || name.eq_ignore_ascii_case("AIUpdate")
@@ -217,9 +289,12 @@ impl Object {
         team: Team,
         logic_frame: u32,
     ) -> Self {
-        let max_health = template.max_health;
-        let position = Vec3::ZERO; // Default position
         let template_name = template.name.clone();
+        let max_health = template.max_health;
+        // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
+        let initial_health = leftover_factory_body_initial_health(&template_name)
+            .unwrap_or(max_health);
+        let position = Vec3::ZERO; // Default position
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
         let auto_acquire_when_idle = (auto_acquire_idle_bits
@@ -488,7 +563,7 @@ impl Object {
             create_object_die_transfer_source: None,
             pending_instant_death_weapon: None,
             crush_die: None,
-            previous_health: max_health,
+            previous_health: initial_health,
             lifetime_update: None,
             slow_death: None,
             height_die: None,
@@ -869,7 +944,10 @@ impl Object {
             move_loop_audio: None,
             ambient_audio: None,
             ambient_sound_enabled_from_script: true,
-            health: Health::new(max_health),
+            health: Health {
+                current: initial_health,
+                maximum: max_health,
+            },
             movement: Movement::default(),
             experience: Experience::default(),
             experience_sink: None,
@@ -899,6 +977,7 @@ impl Object {
             template_name: template_name.clone(),
             position,
             max_health,
+            initial_health,
             target_location: None,
             guard_position: None,
             guard_area_trigger: None,
@@ -995,6 +1074,7 @@ impl Object {
             emoticon_frames_left: 0,
             custom_indicator_color: None,
             close_enough_dist: None,
+            close_enough_dist_3d: false,
             is_surrendered: false,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
@@ -1036,6 +1116,8 @@ impl Object {
 
             frame_exit_not_busy: 0,
             which_exit_path: 0,
+            pathfind_layer: 1,
+            door_close_countdown: 0,
 
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -1205,6 +1287,7 @@ impl Object {
         template.bind_weapon_set_from_live_assets();
         let tracker = template.weapon_tracker_bind();
         let team = Team::Neutral;
+        let initial_health = leftover_factory_body_initial_health(&template_name).unwrap_or(100.0);
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
         let auto_acquire_when_idle = (auto_acquire_idle_bits
@@ -1387,7 +1470,7 @@ impl Object {
             create_object_die_transfer_source: None,
             pending_instant_death_weapon: None,
             crush_die: None,
-            previous_health: 100.0,
+            previous_health: initial_health,
             lifetime_update: None,
             slow_death: None,
             height_die: None,
@@ -1768,7 +1851,10 @@ impl Object {
             move_loop_audio: None,
             ambient_audio: None,
             ambient_sound_enabled_from_script: true,
-            health: Health::new(100.0),
+            health: Health {
+                current: initial_health,
+                maximum: 100.0,
+            },
             movement: Movement::default(),
             experience: Experience::default(),
             experience_sink: None,
@@ -1798,6 +1884,7 @@ impl Object {
             template_name: template_name.clone(),
             position: Vec3::ZERO,
             max_health: 100.0,
+            initial_health,
             target_location: None,
             guard_position: None,
             guard_area_trigger: None,
@@ -1894,6 +1981,7 @@ impl Object {
             emoticon_frames_left: 0,
             custom_indicator_color: None,
             close_enough_dist: None,
+            close_enough_dist_3d: false,
             is_surrendered: false,
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
@@ -1935,6 +2023,8 @@ impl Object {
 
             frame_exit_not_busy: 0,
             which_exit_path: 0,
+            pathfind_layer: 1,
+            door_close_countdown: 0,
 
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -2344,6 +2434,38 @@ impl Object {
         }
     }
 
+    /// C++ `BodyModule::getInitialHealth`. Legacy/missing 0 falls back to current max.
+    pub fn body_initial_health(&self) -> f32 {
+        if self.initial_health > 0.0 {
+            self.initial_health
+        } else {
+            self.health.maximum.max(self.max_health).max(1.0)
+        }
+    }
+
+    /// C++ `ActiveBody::setMaxHealth`: overwrite max and initial together.
+    pub fn set_body_max_health(&mut self, new_max: f32) {
+        self.health.maximum = new_max;
+        self.max_health = new_max;
+        if new_max > 0.0 {
+            self.initial_health = new_max;
+        }
+    }
+
+    /// C++ `ActiveBody::setInitialHealth` — scales current HP only.
+    pub fn set_initial_health_percent(&mut self, percent: i32) {
+        let initial = self.body_initial_health();
+        let new_hp = (percent as f32 / 100.0) * initial;
+        let cap = self.health.maximum.max(self.max_health);
+        self.health.current = new_hp.clamp(0.0, cap);
+    }
+
+    /// C++ `ScriptConditions::evaluateUnitHealth` integer percent.
+    pub fn unit_health_script_percent(&self) -> i32 {
+        let initial = self.body_initial_health();
+        ((self.health.current * 100.0 + initial / 2.0) / initial) as i32
+    }
+
     pub fn is_constructed(&self) -> bool {
         if let Some((pct, uc)) = crate::gameworld_shadow::coupled_entity_construction(self.id) {
             return !uc || pct + 1e-6 >= 1.0;
@@ -2405,9 +2527,16 @@ impl Object {
         self.is_kind_of(KindOf::Harvester)
     }
 
+    /// C++ `Object::isHero` — leftover is RIGHT (any contained KINDOF_HERO, else self).
     pub fn is_hero(&self) -> bool {
-        self.is_kind_of(KindOf::Hero) || self.template_name.contains("Hero")
+        leftover_object_is_hero(self.id)
+            || self
+                .contained_units()
+                .iter()
+                .any(|&id| leftover_object_is_kind_of_hero(id))
+            || self.is_kind_of(KindOf::Hero)
     }
+
 
     pub fn is_command_center(&self) -> bool {
         self.is_kind_of(KindOf::CommandCenter)
@@ -2702,6 +2831,101 @@ mod tests {
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE
         );
         assert!(obj.auto_acquire_when_idle);
+
     }
+
+    #[test]
+    fn is_hero_matches_cpp_kindof_not_name_sniff() {
+        let named = Object::new(ThingTemplate::new("AmericaHeroJet"), ObjectId(1), Team::USA);
+        assert!(
+            !named.is_hero(),
+            "C++ isHero is KINDOF_HERO, not template-name sniff"
+        );
+        let mut hero_tpl = ThingTemplate::new("ColonelBurton");
+        hero_tpl.add_kind_of(KindOf::Hero);
+        let hero = Object::new(hero_tpl, ObjectId(2), Team::USA);
+        assert!(hero.is_hero());
+    }
+
+    #[test]
+    fn set_status_masked_deselects_like_cpp_mask_object() {
+        let mut template = ThingTemplate::new("Ranger");
+        template.add_kind_of(KindOf::Selectable);
+        let mut obj = Object::new(template, ObjectId(6), Team::USA);
+        obj.select();
+        assert!(obj.selected);
+        obj.set_status_masked(true);
+        assert!(obj.status.masked);
+        assert!(!obj.selected, "C++ maskObject deselects when masking");
+        obj.set_status_masked(false);
+        assert!(!obj.status.masked);
+        assert!(!obj.selected, "unmask does not reselect");
+    }
+
+    #[test]
+    fn set_script_disabled_fires_disabled_edge() {
+        let mut obj = Object::new(
+            ThingTemplate::new("AmericaCommandCenter"),
+            ObjectId(7),
+            Team::USA,
+        );
+        assert!(!obj.is_disabled());
+        obj.set_script_disabled(true);
+        assert!(obj.is_script_disabled());
+        assert!(obj.is_disabled());
+        obj.set_script_disabled(false);
+        assert!(!obj.is_script_disabled());
+        assert!(!obj.is_disabled());
+        obj.set_script_underpowered(true);
+        assert!(obj.is_script_underpowered());
+        assert!(obj.is_disabled());
+    }
+
+    #[test]
+    fn construct_defaults_initial_health_to_max_without_leftover() {
+        let mut tpl = ThingTemplate::new("NoLeftoverBody");
+        tpl.max_health = 100.0;
+        let obj = Object::new(tpl, ObjectId(11), Team::USA);
+        assert_eq!(obj.max_health, 100.0);
+        assert_eq!(obj.initial_health, 100.0);
+        assert_eq!(obj.health.current, 100.0);
+        assert_eq!(obj.body_initial_health(), 100.0);
+        assert_eq!(obj.unit_health_script_percent(), 100);
+    }
+
+    #[test]
+    fn unit_health_percent_uses_stored_initial_not_current_max() {
+        // C++ evaluateUnitHealth: (cur*100 + initial/2)/initial.
+        // InitialHealth 80 / MaxHealth 100 at authored start → 100%, not 80%.
+        let mut tpl = ThingTemplate::new("MismatchedInitial");
+        tpl.max_health = 100.0;
+        let mut obj = Object::new(tpl, ObjectId(12), Team::USA);
+        obj.initial_health = 80.0;
+        obj.health.current = 80.0;
+        obj.health.maximum = 100.0;
+        obj.max_health = 100.0;
+        obj.previous_health = 80.0;
+        assert_eq!(obj.body_initial_health(), 80.0);
+        assert_eq!(obj.unit_health_script_percent(), 100);
+        obj.set_initial_health_percent(50);
+        assert!((obj.health.current - 40.0).abs() < 1e-4);
+        assert_eq!(obj.initial_health, 80.0);
+        assert_eq!(obj.unit_health_script_percent(), 50);
+        obj.set_body_max_health(160.0);
+        assert_eq!(obj.initial_health, 160.0);
+        assert_eq!(obj.max_health, 160.0);
+    }
+
+    #[test]
+    fn body_initial_health_falls_back_when_legacy_zero() {
+        let mut tpl = ThingTemplate::new("LegacySave");
+        tpl.max_health = 50.0;
+        let mut obj = Object::new(tpl, ObjectId(13), Team::USA);
+        obj.initial_health = 0.0;
+        obj.health.maximum = 50.0;
+        obj.max_health = 50.0;
+        assert_eq!(obj.body_initial_health(), 50.0);
+    }
+
 
 }

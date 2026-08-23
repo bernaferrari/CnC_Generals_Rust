@@ -154,23 +154,11 @@ impl Module for W3DScienceModelDraw {
 }
 impl DrawModule for W3DScienceModelDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        let science = self.data.required_science;
-        if science == SCIENCE_INVALID {
+        if leftover_science_model_should_hide(self.data.required_science) {
+            DrawModule::set_hidden(self, true);
             return;
         }
-        let has_science = ThePlayerList()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|p| {
-                p.read()
-                    .ok()
-                    .map(|g| (!g.is_player_active()) || g.has_science(science))
-            })
-            .unwrap_or(true);
-        if !has_science {
-            return;
-        }
+        DrawModule::set_hidden(self, false);
         self.base.do_draw_module(transform_mtx);
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -226,6 +214,64 @@ impl Snapshotable for W3DScienceModelDraw {
     }
 }
 
+/// C++ `W3DScienceModelDraw::doDrawModule` hide gate.
+/// Invalid science or an active local player lacking it hides the mesh.
+/// Observers (inactive local player) still draw. Missing leftover player list
+/// fails open so observers/headless keep drawing.
+pub fn leftover_science_model_should_hide(science: ScienceType) -> bool {
+    if science == SCIENCE_INVALID {
+        return true;
+    }
+    let has_science = ThePlayerList()
+        .read()
+        .ok()
+        .and_then(|list| list.get_local_player().cloned())
+        .and_then(|p| {
+            p.read()
+                .ok()
+                .map(|g| (!g.is_player_active()) || g.has_science(science))
+        })
+        .unwrap_or(true);
+    !has_science
+}
+
+/// Leftover INI `RequiredScience` for a live presentation template.
+pub fn leftover_science_model_data(template_name: &str) -> Option<W3DScienceModelDrawModuleData> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let Ok(guard) = game_engine::common::thing::get_thing_factory() else {
+        return None;
+    };
+    let factory = guard.as_ref()?;
+    let template = factory.find_template(template_name, false)?;
+    for entry in template.get_draw_module_info().iter() {
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<W3DScienceModelDrawModuleData>()
+        {
+            return Some(data.clone());
+        }
+    }
+    None
+}
+
+/// Leftover-tick `W3DScienceModelDraw::doDrawModule` hide residual for live host.
+pub fn tick_live_host_science_model_hide(
+    template_name: &str,
+    data: Option<&W3DScienceModelDrawModuleData>,
+) -> bool {
+    let module_data = data
+        .cloned()
+        .or_else(|| leftover_science_model_data(template_name))
+        .unwrap_or_else(W3DScienceModelDrawModuleData::new);
+    let hide = leftover_science_model_should_hide(module_data.required_science);
+    let mut draw = W3DScienceModelDraw::new(module_data);
+    draw.do_draw_module(&Matrix3D::IDENTITY);
+    hide
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +290,18 @@ mod tests {
             draw.get_module_name_key(),
             NameKeyGenerator::name_to_key("W3DScienceModelDraw")
         );
+    }
+
+    #[test]
+    fn leftover_invalid_science_hides_like_cpp_do_draw_module() {
+        assert!(leftover_science_model_should_hide(SCIENCE_INVALID));
+    }
+
+    #[test]
+    fn invalid_required_science_hides_like_cpp() {
+        assert!(leftover_science_model_should_hide(SCIENCE_INVALID));
+        let mut draw = W3DScienceModelDraw::new(W3DScienceModelDrawModuleData::new());
+        draw.do_draw_module(&Matrix3D::IDENTITY);
+        assert!(!draw.is_visible());
     }
 }

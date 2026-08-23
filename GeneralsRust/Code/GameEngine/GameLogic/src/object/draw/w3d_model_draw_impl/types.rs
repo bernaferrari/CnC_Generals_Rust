@@ -593,6 +593,25 @@ pub fn lookup_pristine_bone_pose(
     ))
 }
 
+/// C++ `getCurrentBonePositions` translation + `Matrix3D::Get_Z_Rotation`.
+/// Uses leftover current-client frame (distinct from spawn-time pristine frame 0).
+pub fn lookup_current_client_bone_pose(
+    model: &str,
+    scale: Real,
+    frame: i32,
+    bone: &str,
+) -> Option<(Coord3D, Real)> {
+    let (_, mtx) = lookup_pristine_bone(model, scale, frame, bone)?;
+    let (_, _, translation) = mtx.to_scale_rotation_translation();
+    let cols = mtx.to_cols_array();
+    let z_rotation = cols[1].atan2(cols[0]);
+    Some((
+        Coord3D::new(translation.x, translation.y, translation.z),
+        z_rotation,
+    ))
+}
+
+
 /// C++ `doSingleBoneName`: base name plus numbered `name01`..`name99` variants.
 fn do_single_bone_name(
     map: &mut HashMap<NameKeyType, PristineBoneInfo>,

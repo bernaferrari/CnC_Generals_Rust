@@ -378,8 +378,37 @@ pub enum GuardTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PowerTarget {
     Location(Vec3),
+    /// C++ `MSG_DO_SPECIAL_POWER_AT_LOCATION` location + placement angle
+    /// (`PlaceEventTranslator` sneak-attack construct).
+    LocationFacing { pos: Vec3, angle: f32 },
     Object(ObjectId),
     None,
+}
+
+impl PowerTarget {
+    pub fn location_pos(&self) -> Option<Vec3> {
+        match self {
+            Self::Location(pos) => Some(*pos),
+            Self::LocationFacing { pos, .. } => Some(*pos),
+            _ => None,
+        }
+    }
+
+    /// C++ `appendRealArgument(angle)` residual. Zero when no facing was stored.
+    pub fn location_angle(&self) -> f32 {
+        match self {
+            Self::LocationFacing { angle, .. } => *angle,
+            _ => 0.0,
+        }
+    }
+
+    pub fn from_location_and_angle(pos: Vec3, angle: f32) -> Self {
+        if angle.abs() <= f32::EPSILON {
+            Self::Location(pos)
+        } else {
+            Self::LocationFacing { pos, angle }
+        }
+    }
 }
 
 /// Target types for weapon commands

@@ -197,6 +197,45 @@ impl Object {
     }
 
 
+    /// Leftover unused `UnitAIUpdate::get_locomotor_distance_to_goal` 3D gate:
+    /// leftover `FLAG_CLOSE_ENOUGH_3D` or `KINDOF_PROJECTILE`.
+    #[inline]
+    pub fn host_uses_close_enough_dist_3d(&self) -> bool {
+        self.close_enough_dist_3d
+            || self.is_kind_of(KindOf::Projectile)
+            || self.object_type == ObjectType::Projectile
+    }
+
+    /// Leftover unused `get_locomotor_distance_to_goal` metric to `goal`.
+    /// 3D only when leftover flag or projectile; else 2D / aircraft flight-dist.
+    pub fn host_locomotor_distance_to_goal(&self, current: Vec3, goal: Vec3) -> f32 {
+        if self.host_uses_close_enough_dist_3d() {
+            return current.distance(goal);
+        }
+        let treat_as_aircraft =
+            !crate::game_logic::PathfindingGrid::is_doing_ground_movement(self)
+                || matches!(self.loco_appearance, LocomotorAppearance::Hover);
+        let dx = goal.x - current.x;
+        let dz = goal.z - current.z;
+        let dist_2d = (dx * dx + dz * dz).sqrt();
+        if !treat_as_aircraft {
+            return dist_2d;
+        }
+        let flight = if self.movement.path.is_empty() {
+            dist_2d
+        } else {
+            crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
+                current,
+                &self.movement.path[self.movement.current_path_index.saturating_sub(1)..],
+            )
+        };
+        if flight * flight > dist_2d * dist_2d {
+            dist_2d
+        } else {
+            flight
+        }
+    }
+
     pub fn update_movement(&mut self, dt: f32) {
         if matches!(self.ai_state, AIState::Docked | AIState::Garrisoned) {
             self.movement.target_position = None;
@@ -419,11 +458,13 @@ impl Object {
             // C++ Locomotor::getCloseEnoughDist after SET_STOPPING_DISTANCE
             // (`setCloseEnoughDist`, ignore values < 0.5). Host default 2.0
             // is the pre-script residual arrival band.
+            // Leftover get_locomotor_distance_to_goal: 3D only when
+            // CloseEnoughDist3D or KINDOF_PROJECTILE; else 2D / flight-dist.
             let arrive_dist = self
                 .close_enough_dist
                 .filter(|d| d.is_finite() && *d >= 0.5)
                 .unwrap_or(2.0);
-            let distance_to_target = current_pos.distance(target_pos);
+            let distance_to_target = self.host_locomotor_distance_to_goal(current_pos, target_pos);
             if distance_to_target < arrive_dist {
                 let next_waypoint =
                     if self.movement.current_path_index + 1 < self.movement.path.len() {
@@ -900,8 +941,7 @@ impl Object {
         let old_max = self.health.maximum.max(self.max_health).max(1.0);
         let ratio = self.health.current / old_max;
         let new_max = (old_max * scale).max(1.0);
-        self.health.maximum = new_max;
-        self.max_health = new_max;
+        self.set_body_max_health(new_max);
         self.health.current = (new_max * ratio).clamp(0.0, new_max);
     }
 
@@ -965,7 +1005,7 @@ impl Object {
             }
         }
         self.record_host_veterancy_level();
-        self.max_health = self.health.maximum.max(1.0);
+        self.set_body_max_health(self.health.maximum.max(1.0));
         self.record_host_max_health();
         self.set_veterancy_armor_set_flags(new_level);
         self.validate_armor_and_damage_fx();

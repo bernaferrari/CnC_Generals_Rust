@@ -4907,6 +4907,53 @@ impl PathfindingGrid {
         }
     }
 
+    /// Leftover `PathfindingSystem::is_line_passable_for_surfaces`
+    /// (occupancy.rs:265-273): allow_pinched=false, is_crusher=false, no object occupancy.
+    fn leftover_is_line_passable_for_surfaces(
+        &self,
+        from: GridPos,
+        to: GridPos,
+        surfaces: u32,
+    ) -> bool {
+        if from == to {
+            return true;
+        }
+        let mut x0 = from.x;
+        let mut y0 = from.y;
+        let x1 = to.x;
+        let y1 = to.y;
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            let cell = GridPos::new(x0, y0);
+            if !self.is_valid_pos(cell) {
+                return false;
+            }
+            if self.is_pinched(cell) {
+                return false;
+            }
+            if !self.cell_passable_for(cell, surfaces, false) {
+                return false;
+            }
+            if x0 == x1 && y0 == y1 {
+                return true;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+
     /// C++ `Path::optimize` / `optimizeGroundPath` LOS-shortcut + jig removal.
     pub fn optimize_ground_path(
         &self,
@@ -7573,7 +7620,91 @@ impl PathfindingSystem {
     }
 
 
+    /// Leftover XY + Z-up from host XZ + Y-up.
+    fn leftover_coord_from_host(v: Vec3) -> gamelogic::common::Coord3D {
+        gamelogic::common::Coord3D::new(v.x, v.z, v.y)
+    }
+
+    fn leftover_host_from_coord(c: gamelogic::common::Coord3D) -> Vec3 {
+        Vec3::new(c.x, c.z, c.y)
+    }
+
+    /// Leftover `TerrainLogic::get_maximum_pathfind_extent` is ready (not 0..0).
+    fn leftover_maximum_pathfind_extent_ready() -> bool {
+        gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .map(|t| {
+                let e = t.get_maximum_pathfind_extent();
+                e.hi.x > e.lo.x && e.hi.y > e.lo.y
+            })
+            .unwrap_or(false)
+    }
+
+    /// Leftover `should_force_direct_path_for_off_map_start` (ai_path.rs).
+    /// When leftover TerrainLogic extent is ready, use that C++ region.
+    /// Otherwise leftover-install `getMaximumPathfindExtent` onto live world bounds
+    /// so off-map reinforcements still get computeQuickPath.
+    pub fn leftover_should_force_direct_path_for_off_map_start(
+        &self,
+        start: Vec3,
+        dest: Vec3,
+    ) -> bool {
+        if Self::leftover_maximum_pathfind_extent_ready() {
+            return gamelogic::object::unit::leftover_should_force_direct_path_for_off_map_start(
+                &Self::leftover_coord_from_host(start),
+                &Self::leftover_coord_from_host(dest),
+            );
+        }
+        !self.leftover_in_live_world_extent(dest) && !self.leftover_in_live_world_extent(start)
+    }
+
+    /// Leftover `Region3D::isInRegionNoZ` on live `PathfindingGrid` world bounds.
+    fn leftover_in_live_world_extent(&self, pos: Vec3) -> bool {
+        let lo_x = self.grid.origin.x;
+        let lo_z = self.grid.origin.z;
+        let hi_x = lo_x + self.grid.world_extent_w;
+        let hi_z = lo_z + self.grid.world_extent_h;
+        gamelogic::object::unit::leftover_is_in_region_no_z(
+            &gamelogic::common::Region3D::new(
+                gamelogic::common::Coord3D::new(lo_x, lo_z, 0.0),
+                gamelogic::common::Coord3D::new(hi_x, hi_z, 0.0),
+            ),
+            &Self::leftover_coord_from_host(pos),
+        )
+    }
+
+    /// Leftover `should_use_direct_path_for_line_passable_non_final_goal` leftover-installed
+    /// onto live terrain (pinched + passable, no occupancy). Does not consult leftover
+    /// `THE_AI` pathfinder — that grid is not the live map.
+    pub fn leftover_should_use_direct_path_for_line_passable_non_final_goal(
+        &self,
+        is_final_goal: bool,
+        start: Vec3,
+        dest: Vec3,
+        surfaces: u32,
+        _ignore_obstacle: Option<ObjectId>,
+    ) -> bool {
+        if is_final_goal || surfaces == 0 {
+            return false;
+        }
+        let from = self.grid.world_to_grid(start);
+        let to = self.grid.world_to_grid(dest);
+        self.grid
+            .leftover_is_line_passable_for_surfaces(from, to, surfaces)
+    }
+
+    /// C++ `computeQuickPath` two-node start+dest leftover-installed on host Y-up.
+    pub fn leftover_compute_quick_path_nodes(start: Vec3, dest: Vec3) -> Vec<Vec3> {
+        let [a, b] = gamelogic::object::unit::leftover_compute_quick_path_coords(
+            &Self::leftover_coord_from_host(start),
+            &Self::leftover_coord_from_host(dest),
+        );
+        vec![Self::leftover_host_from_coord(a), Self::leftover_host_from_coord(b)]
+    }
+
     /// `aircraft`: apply C++ tall-building aircraft path-around residual after A*.
+
     pub fn find_path_ex(
         &mut self,
         start: Vec3,
@@ -7676,6 +7807,11 @@ impl PathfindingSystem {
             let direct = vec![start_at_dest, goal_adj];
             Self::detour_path_around_tall_buildings_ignoring(&direct, objects, avoid)
         } else {
+            if self.leftover_should_force_direct_path_for_off_map_start(start, goal) {
+                // C++ computePath dest-off + start-off → computeQuickPath
+                // (AIUpdate.cpp:1663-1671). Off-map units cannot A*.
+                Self::leftover_compute_quick_path_nodes(start, goal)
+            } else {
             match self.find_path_via_crate(
                 start_grid,
                 goal_grid,
@@ -7717,6 +7853,7 @@ impl PathfindingSystem {
                         true,
                     )?
                 }
+            }
             }
         };
         // Ground: keep crate/grid terrain-layer Y (hq-gd0jd). Do not lerp start→goal.
@@ -12874,9 +13011,186 @@ mod tests {
         );
     }
 
+    /// hq-00tq6 / hq-m8gg7: leftover computeQuickPath two-node leftover-installed.
+    #[test]
+    fn leftover_compute_quick_path_nodes_are_start_and_dest() {
+        let start = Vec3::new(10.0, 3.0, 20.0);
+        let dest = Vec3::new(50.0, 8.0, 40.0);
+        let path = PathfindingSystem::leftover_compute_quick_path_nodes(start, dest);
+        assert_eq!(path.len(), 2);
+        assert_eq!(path[0], Vec3::new(10.0, 8.0, 20.0));
+        assert_eq!(path[1], dest);
+    }
 
+    #[test]
+    fn leftover_off_map_start_gate_matches_leftover_ai_path() {
+        use gamelogic::common::Coord3D;
+        use gamelogic::object::unit::leftover_should_force_direct_path_for_off_map_start;
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            terrain.reset();
+        }
+        assert!(leftover_should_force_direct_path_for_off_map_start(
+            &Coord3D::new(-100.0, -100.0, 5.0),
+            &Coord3D::new(-50.0, -25.0, 9.0),
+        ));
+        assert!(!leftover_should_force_direct_path_for_off_map_start(
+            &Coord3D::new(0.0, 0.0, 5.0),
+            &Coord3D::new(-50.0, -25.0, 9.0),
+        ));
+        let sys = PathfindingSystem::new(200.0, 200.0);
+        assert!(
+            sys.leftover_should_force_direct_path_for_off_map_start(
+                Vec3::new(-100.0, 5.0, -100.0),
+                Vec3::new(-50.0, 9.0, -25.0),
+            ),
+            "off-map start+dest leftover-installs computeQuickPath on live world bounds"
+        );
+        assert!(
+            !sys.leftover_should_force_direct_path_for_off_map_start(
+                Vec3::new(10.0, 5.0, 10.0),
+                Vec3::new(-50.0, 9.0, -25.0),
+            ),
+            "on-map start does not leftover-install off-map computeQuickPath"
+        );
+    }
 
+    #[test]
+    fn leftover_line_passable_non_final_gate_skips_final_goal() {
+        let sys = PathfindingSystem::new(200.0, 200.0);
+        let start = Vec3::new(10.0, 0.0, 10.0);
+        let dest = Vec3::new(80.0, 0.0, 10.0);
+        assert!(!sys.leftover_should_use_direct_path_for_line_passable_non_final_goal(
+            true,
+            start,
+            dest,
+            SURFACE_GROUND,
+            None,
+        ));
+        assert!(sys.leftover_should_use_direct_path_for_line_passable_non_final_goal(
+            false,
+            start,
+            dest,
+            SURFACE_GROUND,
+            None,
+        ));
+        // Live host world is often origin-centered; leftover THE_AI grid is 0..N.
+        let centered =
+            PathfindingSystem::new_with_origin(Vec3::new(-256.0, 0.0, -256.0), 512.0, 512.0);
+        assert!(
+            centered.leftover_should_use_direct_path_for_line_passable_non_final_goal(
+                false,
+                Vec3::new(-100.0, 0.0, -100.0),
+                Vec3::new(-50.0, 0.0, -50.0),
+                SURFACE_GROUND,
+                None,
+            ),
+            "non-final line-passable must leftover-install onto live cells, not leftover THE_AI"
+        );
+        let mut walled = PathfindingSystem::new(200.0, 200.0);
+        for y in 0..20 {
+            walled
+                .grid
+                .set_cell_type(GridPos::new(10, y), PathfindCellType::Impassable);
+        }
+        assert!(
+            !walled.leftover_should_use_direct_path_for_line_passable_non_final_goal(
+                false,
+                Vec3::new(10.0, 0.0, 10.0),
+                Vec3::new(180.0, 0.0, 10.0),
+                SURFACE_GROUND,
+                None,
+            ),
+            "blocked leftover isLinePassable must not leftover-install computeQuickPath"
+        );
+    }
 
+    #[test]
+    fn compute_assigned_unit_path_leftover_installs_compute_quick_path() {
+        let src = include_str!("world_save.rs");
+        let i = src
+            .find("fn compute_assigned_unit_path")
+            .expect("compute_assigned_unit_path");
+        let w = &src[i..src.len().min(i + 3500)];
+        assert!(
+            w.contains("leftover_should_force_direct_path_for_off_map_start")
+                && w.contains("leftover_should_use_direct_path_for_line_passable_non_final_goal")
+                && w.contains("leftover_compute_quick_path_nodes"),
+            "live compute_assigned_unit_path must leftover-install computeQuickPath"
+        );
+        assert!(
+            w.contains("is_safe_path") && w.contains("ChaseTarget"),
+            "non-final hops must include requestSafePath and attack-pursue"
+        );
+        let pf = include_str!("pathfinding.rs");
+        assert!(
+            pf.contains("leftover_should_force_direct_path_for_off_map_start(start, goal)")
+                && pf.contains("leftover_compute_quick_path_nodes(start, goal)"),
+            "find_path_ex_surfaces must leftover-install off-map computeQuickPath"
+        );
+    }
 
+    #[test]
+    fn assign_unit_path_non_final_line_passable_is_two_node() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), tmpl);
+        let start = Vec3::new(10.0, 0.0, 10.0);
+        let dest = Vec3::new(80.0, 0.0, 10.0);
+        let id = logic
+            .create_object("Ranger", Team::USA, start)
+            .expect("ranger");
+        if let Some(u) = logic.host_object_mut(id) {
+            u.movement.max_speed = 20.0;
+            u.is_safe_path = true;
+            u.locomotor_surfaces = SURFACE_GROUND;
+        }
+        logic.force_map_loaded_for_path_test(true);
+        assert!(logic.assign_unit_path_for_test(id, dest, &[]));
+        let unit = logic.host_object(id).expect("unit");
+        assert_eq!(
+            unit.movement.path.len(),
+            2,
+            "leftover computeQuickPath is two-node start+dest"
+        );
+        assert!((unit.movement.path[0].x - start.x).abs() < 0.01);
+        assert!((unit.movement.path[1].x - dest.x).abs() < 0.01);
+    }
+
+    #[test]
+    fn assign_unit_path_off_map_start_is_two_node() {
+        use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            terrain.reset();
+        }
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), tmpl);
+        // GameLogic::new world is -256..256. Start and dest are off that region.
+        let start = Vec3::new(-300.0, 0.0, -300.0);
+        let dest = Vec3::new(-280.0, 0.0, -280.0);
+        let id = logic
+            .create_object("Ranger", Team::USA, start)
+            .expect("ranger");
+        if let Some(u) = logic.host_object_mut(id) {
+            u.movement.max_speed = 20.0;
+            u.locomotor_surfaces = SURFACE_GROUND;
+        }
+        logic.force_map_loaded_for_path_test(true);
+        assert!(
+            logic.assign_unit_path_for_test(id, dest, &[]),
+            "off-map start+dest must leftover-install computeQuickPath, not fail A*"
+        );
+        let unit = logic.host_object(id).expect("unit");
+        assert_eq!(
+            unit.movement.path.len(),
+            2,
+            "off-map computeQuickPath is two-node start+dest"
+        );
+        assert!((unit.movement.path[0].x - start.x).abs() < 0.01);
+        assert!((unit.movement.path[1].x - dest.x).abs() < 0.01);
+    }
 
 }

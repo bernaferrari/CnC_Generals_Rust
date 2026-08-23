@@ -181,6 +181,71 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     get_named_object_tracker().clear().unwrap();
 }
 
+#[test]
+fn unit_health_injects_leftover_initial_health_not_current_max() {
+    // hq-um3v2: C++ evaluateUnitHealth divides by BodyModule::getInitialHealth,
+    // not current max. Live inject used to send max, so INI InitialHealth 80 /
+    // MaxHealth 100 at authored start fired at ~80% instead of 100%.
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
+    use gamelogic::scripting::engine::get_named_object_tracker;
+    use gamelogic::scripting::executor::{
+        ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
+    };
+    use gamelogic::scripting::{clear_host_script_query_snapshot, host_script_query_object};
+    use std::sync::{Arc, RwLock};
+
+    assert!(OBJECT_REGISTRY.is_empty());
+    clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().unwrap();
+
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("HurtHero");
+    t.set_health(100.0);
+    logic.templates.insert("HurtHero".into(), t);
+    let id = logic
+        .create_object("HurtHero", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("unit");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.name = "MapHurtHero".into();
+        o.initial_health = 80.0;
+        o.health.current = 80.0;
+        o.health.maximum = 100.0;
+        o.max_health = 100.0;
+    }
+    logic.inject_host_named_unit_map_into_crate_tracker();
+
+    let host = host_script_query_object("MapHurtHero").expect("injected");
+    assert!(
+        (host.initial_health - 80.0).abs() < 1e-4,
+        "inject must send leftover InitialHealth, got {}",
+        host.initial_health
+    );
+    assert!((host.health - 80.0).abs() < 1e-4);
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut ge = Condition::new(ConditionType::UnitHealth);
+    ge.add_parameter(Parameter::with_string(ParameterType::Unit, "MapHurtHero".into()))
+        .unwrap();
+    ge.add_parameter(Parameter::with_int(ParameterType::Comparison, 3))
+        .unwrap();
+    ge.add_parameter(Parameter::with_int(ParameterType::Int, 100))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut ge).unwrap(),
+        ScriptConditionResult::True,
+        "authored start at InitialHealth is 100% vs leftover InitialHealth"
+    );
+
+    // Current-max denominator would report 80 and fail GREATER_EQUAL 100.
+    if let Some(o) = logic.host_object_mut(id) {
+        assert_eq!(o.unit_health_script_percent(), 100);
+    }
+
+    clear_host_script_query_snapshot();
+    get_named_object_tracker().clear().unwrap();
+}
+
 
 
 

@@ -187,7 +187,11 @@ impl GameLogic {
             if oid == unit_id {
                 continue;
             }
-            let is_enemy = if self.has_object_ownership_provenance(me, obj) {
+            let is_enemy = if me.is_undetected_defector() || obj.is_undetected_defector() {
+                // C++ Object::getRelationship: self undetected → Neutral,
+                // that undetected → Allies. Neither is ENEMIES.
+                false
+            } else if self.has_object_ownership_provenance(me, obj) {
                 self.object_relationship(me, obj) == gamelogic::common::Relationship::Enemies
             } else {
                 obj.is_targetable_by_enemy_of(me_team)
@@ -1641,6 +1645,77 @@ mod common_target_parity {
             "FROM_BOUNDINGSPHERE_2D ranks nearer hull (building) over nearer center (infantry)"
         );
     }
+
+    #[test]
+    fn find_closest_enemy_skips_undetected_defector() {
+        // C++ PartitionFilterLiveMapEnemies uses getRelationship == ENEMIES.
+        use crate::game_logic::{find_enemy_flags, Player};
+        use gamelogic::common::Relationship;
+        let mut logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
+        let mut gla = Player::new(1, Team::GLA, "PlyrGLA", false);
+        usa.set_map_relationship(1, Relationship::Enemies);
+        gla.set_map_relationship(0, Relationship::Enemies);
+        logic.add_player(usa);
+        logic.add_player(gla);
+
+        let mut at = ThingTemplate::new("HuntDefectorOwner");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        let aid = ObjectId(2730);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.owner_player_id = Some(0);
+            o.set_position(glam::Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 9999.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+
+        let mut dt = ThingTemplate::new("FlashingDefector");
+        dt.add_kind_of(KindOf::Infantry);
+        dt.add_kind_of(KindOf::Attackable);
+        let did = ObjectId(2731);
+        logic.objects.insert(did, {
+            let mut o = Object::new(dt, did, Team::GLA);
+            o.owner_player_id = Some(1);
+            o.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
+            o.begin_undetected_defection(0, 30, false);
+            o
+        });
+
+        let mut et = ThingTemplate::new("LiveEnemy");
+        et.add_kind_of(KindOf::Infantry);
+        et.add_kind_of(KindOf::Attackable);
+        let eid = ObjectId(2732);
+        logic.objects.insert(eid, {
+            let mut o = Object::new(et, eid, Team::GLA);
+            o.owner_player_id = Some(1);
+            o.set_position(glam::Vec3::new(80.0, 0.0, 0.0));
+            o
+        });
+
+        assert_eq!(
+            logic.find_closest_enemy(aid, 9999.9, find_enemy_flags::CAN_ATTACK),
+            Some(eid),
+            "closer undetected defector must lose to farther live enemy"
+        );
+
+        if let Some(o) = logic.objects.get_mut(&aid) {
+            o.begin_undetected_defection(0, 30, false);
+        }
+        assert!(
+            logic
+                .find_closest_enemy(aid, 9999.9, find_enemy_flags::CAN_ATTACK)
+                .is_none(),
+            "undetected defector hunter must not auto-acquire"
+        );
+    }
+
 
 
 }
