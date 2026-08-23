@@ -331,7 +331,9 @@ impl GameLogic {
         if let Some(tgt) = self.objects.get_mut(&target_id) {
             tgt.add_jet_targeter(id, true, self.frame);
         }
+        self.assault_transport_on_player_attack(id);
         true
+
 
     }
 
@@ -414,8 +416,9 @@ impl GameLogic {
         }
         ok
     }
-
     fn unit_command_stop_self(&mut self, id: ObjectId) -> bool {
+        // C++ AssaultTransportAIUpdate AICMD_IDLE: retrieveMembers then reset.
+        self.assault_transport_on_player_idle(id);
         self.drop_jet_targeters_on_attack_exit(id);
         if self.flight_deck_ai_do_command(
             id,
@@ -618,6 +621,7 @@ impl GameLogic {
             }
             drop(unit);
             self.hunt_next_enemy_scan.remove(&id);
+            self.assault_transport_on_player_attack_move(id, destination);
             return true;
         }
         false

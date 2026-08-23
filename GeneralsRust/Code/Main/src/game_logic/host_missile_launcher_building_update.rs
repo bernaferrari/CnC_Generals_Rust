@@ -412,15 +412,40 @@ mod tests {
     }
 
     #[test]
+    fn door_open_stashes_pending_idle_audio_like_cpp() {
+        let mut d = HostMissileLauncherBuildingUpdateData::from_ini(
+            residual_missile_launcher_ini("GLAScudStorm").unwrap(),
+        );
+        d.update(0, 240, false);
+        assert!(d.pending_idle_audio.is_none());
+        assert!(d.stop_idle_audio);
+        d.update(239, 240, true);
+        assert_eq!(d.door_state, HostMissileLauncherDoorState::Open);
+        assert_eq!(d.pending_idle_audio.as_deref(), Some("ScudStormIdleLoop"));
+        assert!(!d.stop_idle_audio);
+        d.initiate_intent(300);
+        assert!(d.stop_idle_audio);
+        assert!(d.pending_idle_audio.is_none());
+    }
+
+    #[test]
     fn live_tick_dispatches_pending_door_fx_at_building_pos() {
         let tick = include_str!("object/update.rs");
         let start = tick
             .find("pub fn tick_missile_launcher_building")
             .expect("tick_missile_launcher_building");
-        let win = &tick[start..start + 1800];
+        let win = &tick[start..start + 2800];
         assert!(
             win.contains("let pending_fx = data.pending_fx.take()"),
             "door pending_fx must be consumed: {win}"
+        );
+        assert!(
+            win.contains("let pending_idle = data.pending_idle_audio.take()"),
+            "DoorOpenIdleAudio pending_idle_audio must be consumed: {win}"
+        );
+        assert!(
+            win.contains("let stop_idle = std::mem::take(&mut data.stop_idle_audio)"),
+            "DoorOpenIdleAudio stop_idle_audio must be consumed: {win}"
         );
         assert!(
             win.contains("dispatch_fx_list_at_pos(&fx, self.get_position())"),

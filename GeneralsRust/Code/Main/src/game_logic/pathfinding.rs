@@ -8385,6 +8385,39 @@ impl PathfindingSystem {
         remaining
     }
 
+    /// C++ `Path::computeFlightDistToGoal` (AIPathfind.cpp:1022-1074).
+    /// Remaining 2D projection along subsequent path segments — not
+    /// closest-point winding. Hover/air use this so a dogleg shortcut
+    /// does not snap remaining onto a later segment and brake early.
+    pub fn compute_flight_dist_to_goal(pos: Vec3, waypoints: &[Vec3]) -> f32 {
+        if waypoints.is_empty() {
+            return 0.0;
+        }
+        if waypoints.len() == 1 {
+            let dx = waypoints[0].x - pos.x;
+            let dz = waypoints[0].z - pos.z;
+            return (dx * dx + dz * dz).sqrt();
+        }
+        let mut distance = 0.0f32;
+        for i in 0..waypoints.len() - 1 {
+            let start = waypoints[i];
+            let end = waypoints[i + 1];
+            let pvx = end.x - start.x;
+            let pvz = end.z - start.z;
+            let plen = (pvx * pvx + pvz * pvz).sqrt();
+            if plen <= 1.0e-8 {
+                continue;
+            }
+            let nx = pvx / plen;
+            let nz = pvz / plen;
+            let dot = (end.x - pos.x) * nx + (end.z - pos.z) * nz;
+            if dot >= 0.0 {
+                distance += dot;
+            }
+        }
+        distance
+    }
+
 
     fn is_allied_to(&self, mover: &Object, other: &Object) -> bool {
         let mover_p = mover.owner_player_id.unwrap_or(mover.team as u32);

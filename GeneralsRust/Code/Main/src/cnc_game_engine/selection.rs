@@ -797,15 +797,9 @@ impl CnCGameEngine {
             }
         });
         let Some(target_id) = target else {
-            let msg = "No unfinished construction to resume";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         };
         if builders.is_empty() {
-            let msg = "No dozer/worker available to resume";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         self.host_queue_command(crate::command_system::GameCommand {
@@ -817,9 +811,7 @@ impl CnCGameEngine {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
         self.host_process_commands_with_command_sound();
-        let msg = "Resuming construction";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
+        // C++ resume construction has no invented HUD toast.
     }
 
     pub(super) fn cycle_unfinished_construction(&mut self, delta: i32) {
@@ -861,9 +853,6 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
-        let msg = "Unfinished construction selected";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     pub(super) fn cycle_damaged_structure_selection(&mut self, delta: i32) {
@@ -905,9 +894,6 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
-        let msg = "Damaged structure selected";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Select all idle friendly combat units residual (Ctrl+I).
@@ -963,9 +949,6 @@ impl CnCGameEngine {
             self.camera_target.x = clamped.x;
             self.camera_target.z = clamped.z;
         }
-        let msg = "Idle military selected";
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
     /// Select all friendly units currently repairing residual (Ctrl+Alt+R).
@@ -978,17 +961,11 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_repairing_ids(team);
         if ids.is_empty() {
-            let msg = "No repairing units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
         self.play_sound_effect(SoundType::Select);
-        let msg = format!("Selected {} repairing", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     pub(super) fn select_all_idle_military(&mut self) {
@@ -1001,16 +978,10 @@ impl CnCGameEngine {
         let ids: Vec<crate::game_logic::ObjectId> =
             frame.alive_selectable_friendly_idle_military_ids(team);
         if ids.is_empty() {
-            let msg = "No idle military units";
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, ids);
-        let msg = format!("Selected {} idle military", self.selected_objects.len());
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
     }
 
     /// Select all friendly harvesters / supply collectors residual (Ctrl+Shift+I).
@@ -1134,9 +1105,6 @@ impl CnCGameEngine {
         if selected.is_empty() {
             if self.sticky_waypoint_mode {
                 self.sticky_waypoint_mode = false;
-                let msg = "Waypoint mode: OFF";
-                self.game_hud.push_info_message(msg);
-                self.ui_manager.game_hud_mut().push_info_message(msg);
             }
             return;
         }

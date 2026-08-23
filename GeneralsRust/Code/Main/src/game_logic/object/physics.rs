@@ -423,6 +423,15 @@ impl Object {
         self.record_host_locomotor();
     }
 
+    /// C++ `Locomotor::setAllowInvalidPosition` (ALLOW_INVALID_POSITION).
+    pub fn set_allow_invalid_position(&mut self, allow: bool) {
+        if self.allow_invalid_position == allow {
+            return;
+        }
+        self.allow_invalid_position = allow;
+        self.record_host_locomotor();
+    }
+
     /// C++ JetTaxi / JetTakeoffOrLanding / HeliTakeoffOrLanding /
     /// ChinookTakeoffOrLanding pair: `setUsePreciseZPos` + `setUltraAccurate`.
     pub fn set_precise_z_and_ultra_accurate(&mut self, enable: bool) {
@@ -615,21 +624,9 @@ impl Object {
                 self.apply_surface_relative_lift(surface, goal_y)
             }
             LocomotorBehaviorZ::AbsoluteHeight => {
-                if self.loco_preferred_height == 0.0 && !self.precise_z_pos {
-                    return true;
-                }
-                let mut p = self.get_position();
-                // C++ Locomotor.cpp:2298-2300 — goal Z only when PRECISE_Z_POS.
-                let preferred = if self.precise_z_pos {
-                    goal_y.unwrap_or(self.loco_preferred_height)
-                } else {
-                    self.loco_preferred_height
-                };
-                let mut delta = preferred - p.y;
-                delta *= self.loco_preferred_height_damping.clamp(0.0, 1.0);
-                p.y += delta;
-                self.set_position(p);
-                true
+                // C++ Locomotor.cpp:2288-2317 — same lift as SurfaceRelative
+                // with surfaceHt = 0 (not kinematic snap).
+                self.apply_surface_relative_lift(0.0, goal_y)
             }
         }
     }

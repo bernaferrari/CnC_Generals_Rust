@@ -18,11 +18,17 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const AITQ_MAGIC: &[u8; 4] = b"AITQ";
-const AITQ_VERSION: u32 = 1;
+const AITQ_VERSION: u32 = 2;
+const AITQ_VERSION_V1: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AIPlayerQueuePersistPayload {
     players: Vec<AIPlayerQueuePersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AIPlayerQueuePersistPayloadV1 {
+    players: Vec<AIPlayerQueuePersistV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +49,65 @@ pub struct AIPlayerQueuePersist {
     pub dozer_is_repairing: bool,
     pub last_bridge_repair_time: f32,
     pub skillset_selector: i32,
+    pub cur_front_base_defense: i32,
+    pub cur_flank_base_defense: i32,
+    pub cur_front_left_defense_angle: f32,
+    pub cur_front_right_defense_angle: f32,
+    pub cur_left_flank_left_defense_angle: f32,
+    pub cur_left_flank_right_defense_angle: f32,
+    pub cur_right_flank_left_defense_angle: f32,
+    pub cur_right_flank_right_defense_angle: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AIPlayerQueuePersistV1 {
+    player_id: u32,
+    team_queue: Vec<AITeamQueuePersist>,
+    team_ready_queue: Vec<AITeamQueuePersist>,
+    next_building_time: f32,
+    next_team_queue_time: f32,
+    next_team_time: f32,
+    team_seconds: f32,
+    last_update_time: f32,
+    current_warehouse_id: Option<u32>,
+    repair_dozer: Option<u32>,
+    repair_dozer_origin: [f32; 3],
+    structures_to_repair: Vec<u32>,
+    dozer_queued_for_repair: bool,
+    dozer_is_repairing: bool,
+    last_bridge_repair_time: f32,
+    skillset_selector: i32,
+}
+
+impl From<AIPlayerQueuePersistV1> for AIPlayerQueuePersist {
+    fn from(old: AIPlayerQueuePersistV1) -> Self {
+        Self {
+            player_id: old.player_id,
+            team_queue: old.team_queue,
+            team_ready_queue: old.team_ready_queue,
+            next_building_time: old.next_building_time,
+            next_team_queue_time: old.next_team_queue_time,
+            next_team_time: old.next_team_time,
+            team_seconds: old.team_seconds,
+            last_update_time: old.last_update_time,
+            current_warehouse_id: old.current_warehouse_id,
+            repair_dozer: old.repair_dozer,
+            repair_dozer_origin: old.repair_dozer_origin,
+            structures_to_repair: old.structures_to_repair,
+            dozer_queued_for_repair: old.dozer_queued_for_repair,
+            dozer_is_repairing: old.dozer_is_repairing,
+            last_bridge_repair_time: old.last_bridge_repair_time,
+            skillset_selector: old.skillset_selector,
+            cur_front_base_defense: 0,
+            cur_flank_base_defense: 0,
+            cur_front_left_defense_angle: 0.0,
+            cur_front_right_defense_angle: 0.0,
+            cur_left_flank_left_defense_angle: 0.0,
+            cur_left_flank_right_defense_angle: 0.0,
+            cur_right_flank_left_defense_angle: 0.0,
+            cur_right_flank_right_defense_angle: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,7 +237,7 @@ pub fn apply_from_lifecycle_tail(
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != AITQ_VERSION {
+    if version != AITQ_VERSION && version != AITQ_VERSION_V1 {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown AITQ suffix version {version}"
         )));
@@ -183,8 +248,17 @@ pub fn apply_from_lifecycle_tail(
             "AITQ payload truncated".to_string(),
         ));
     }
-    let payload: AIPlayerQueuePersistPayload = bincode::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("AITQ payload decode: {err}")))?;
+    let encoded = &rest[..payload_len];
+    let payload = if version == AITQ_VERSION_V1 {
+        let old: AIPlayerQueuePersistPayloadV1 = bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v1 payload decode: {err}")))?;
+        AIPlayerQueuePersistPayload {
+            players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
+        }
+    } else {
+        bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("AITQ payload decode: {err}")))?
+    };
     game_logic.apply_ai_player_queue_persist(payload.players);
     Ok(())
 }
@@ -321,6 +395,14 @@ mod tests {
             next_team_queue_time: 3.0,
             next_team_time: 11.0,
             team_seconds: 10.0,
+            cur_front_base_defense: 3,
+            cur_flank_base_defense: 2,
+            cur_front_left_defense_angle: 0.5,
+            cur_front_right_defense_angle: -0.25,
+            cur_left_flank_left_defense_angle: 1.1,
+            cur_left_flank_right_defense_angle: -1.2,
+            cur_right_flank_left_defense_angle: 0.75,
+            cur_right_flank_right_defense_angle: -0.8,
             last_update_time: 40.0,
             current_warehouse_id: Some(warehouse.0),
             repair_dozer: Some(dozer.0),
@@ -362,6 +444,14 @@ mod tests {
         assert!(row.team_ready_queue[0].completed);
         assert!((row.next_building_time - 8.5).abs() < 1e-4);
         assert!((row.next_team_queue_time - 3.0).abs() < 1e-4);
+        assert_eq!(row.cur_front_base_defense, 3);
+        assert_eq!(row.cur_flank_base_defense, 2);
+        assert!((row.cur_front_left_defense_angle - 0.5).abs() < 1e-4);
+        assert!((row.cur_front_right_defense_angle + 0.25).abs() < 1e-4);
+        assert!((row.cur_left_flank_left_defense_angle - 1.1).abs() < 1e-4);
+        assert!((row.cur_left_flank_right_defense_angle + 1.2).abs() < 1e-4);
+        assert!((row.cur_right_flank_left_defense_angle - 0.75).abs() < 1e-4);
+        assert!((row.cur_right_flank_right_defense_angle + 0.8).abs() < 1e-4);
         assert!((row.next_team_time - 11.0).abs() < 1e-4);
         assert!((row.team_seconds - 10.0).abs() < 1e-4);
         assert_eq!(row.repair_dozer, Some(dozer.0));
@@ -372,4 +462,58 @@ mod tests {
         assert!((row.last_bridge_repair_time - 22.0).abs() < 1e-4);
         assert_eq!(row.skillset_selector, 2);
     }
+
+    #[test]
+    fn v1_suffix_loads_queues_and_leaves_defense_fan_at_zero() {
+        let mut logic = china_ai_logic();
+        let v1 = AIPlayerQueuePersistPayloadV1 {
+            players: vec![AIPlayerQueuePersistV1 {
+                player_id: 1,
+                team_queue: vec![AITeamQueuePersist {
+                    name: "LegacyTeam".into(),
+                    team_id: Some(4),
+                    work_orders: Vec::new(),
+                    priority_build: false,
+                    frame_started: 0,
+                    completed: false,
+                    execute_actions: false,
+                    sent_to_start_location: false,
+                    activated: false,
+                    reinforcement: false,
+                    reinforcement_id: None,
+                }],
+                team_ready_queue: Vec::new(),
+                next_building_time: 4.0,
+                next_team_queue_time: 1.0,
+                next_team_time: 2.0,
+                team_seconds: 10.0,
+                last_update_time: 0.0,
+                current_warehouse_id: None,
+                repair_dozer: None,
+                repair_dozer_origin: [0.0, 0.0, 0.0],
+                structures_to_repair: Vec::new(),
+                dozer_queued_for_repair: false,
+                dozer_is_repairing: false,
+                last_bridge_repair_time: -1.0,
+                skillset_selector: 0,
+            }],
+        };
+        let encoded = bincode::serialize(&v1).expect("encode v1");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(AITQ_MAGIC);
+        append_u32(&mut bytes, AITQ_VERSION_V1);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v1");
+        let row = logic
+            .capture_ai_player_queue_persist()
+            .into_iter()
+            .find(|row| row.player_id == 1)
+            .expect("row");
+        assert_eq!(row.team_queue[0].name, "LegacyTeam");
+        assert!((row.next_building_time - 4.0).abs() < 1e-4);
+        assert_eq!(row.cur_front_base_defense, 0);
+        assert_eq!(row.cur_flank_base_defense, 0);
+    }
+
 }

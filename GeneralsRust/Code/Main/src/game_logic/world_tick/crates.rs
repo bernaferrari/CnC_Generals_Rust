@@ -968,111 +968,390 @@ impl GameLogic {
             .collect();
 
         for crawler_id in crawler_ids {
-            let (target_raw, members) = {
+            // C++ update: isEffectivelyDead → giveFinalOrders + sleep forever.
+            let crawler_dead = self
+                .objects
+                .get(&crawler_id)
+                .map(|c| !c.is_alive())
+                .unwrap_or(true);
+            if crawler_dead {
+                self.assault_transport_give_final_orders(crawler_id);
+                continue;
+            }
+
+            self.assault_transport_prune_members(crawler_id);
+            self.assault_transport_add_new_members(crawler_id);
+
+            if self.assault_transport_is_attack_pointless(crawler_id) {
+                // C++ aiIdle(CMD_FROM_AI) — idle the transport only.
+                if let Some(c) = self.objects.get_mut(&crawler_id) {
+                    c.set_ai_state(AIState::Idle);
+                    c.set_status_attacking(false);
+                }
+                continue;
+            }
+
+            let (target_raw, members, member_new, is_attack_move, is_attack_object, goal) = {
                 let Some(c) = self.objects.get(&crawler_id) else {
                     continue;
                 };
                 let Some(a) = c.assault_transport.as_ref() else {
                     continue;
                 };
-                (a.designated_target, a.member_ids.clone())
+                (
+                    a.designated_target,
+                    a.member_ids.clone(),
+                    a.member_new.clone(),
+                    a.is_attack_move,
+                    a.is_attack_object,
+                    a.attack_move_goal_pos,
+                )
             };
-            let Some(target_raw) = target_raw else {
-                continue;
-            };
-            let target_id = ObjectId(target_raw);
-            // Target dead → clear assault.
-            let target_alive = self
-                .objects
-                .get(&target_id)
-                .map(|t| t.is_alive())
-                .unwrap_or(false);
-            if !target_alive {
-                if let Some(c) = self.objects.get_mut(&crawler_id) {
-                    if let Some(a) = c.assault_transport.as_mut() {
-                        a.clear();
+
+            let target_id = target_raw.and_then(|raw| {
+                let id = ObjectId(raw);
+                self.objects
+                    .get(&id)
+                    .filter(|t| t.is_alive())
+                    .map(|_| id)
+            });
+
+            if let Some(target_id) = target_id {
+                let crawler_pos = self
+                    .objects
+                    .get(&crawler_id)
+                    .map(|c| c.get_position())
+                    .unwrap_or(Vec3::ZERO);
+
+                for (idx, mid_raw) in members.iter().copied().enumerate() {
+                    let mid = ObjectId(mid_raw);
+                    let Some(member) = self.objects.get(&mid) else {
+                        continue;
+                    };
+                    if !member.is_alive() {
+                        continue;
                     }
-                }
-                continue;
-            }
+                    let contained = member.contained_by == Some(crawler_id);
+                    let wounded =
+                        is_assault_member_wounded(member.health.current, member.health.maximum);
+                    let healthy =
+                        is_assault_member_healthy(member.health.current, member.health.maximum);
+                    let is_new = member_new.get(idx).copied().unwrap_or(false);
 
-            let mut still_members: Vec<u32> = Vec::new();
-            let crawler_pos = self
-                .objects
-                .get(&crawler_id)
-                .map(|c| c.get_position())
-                .unwrap_or(Vec3::ZERO);
+                    if contained {
+                        // C++: healthy contained eject only when !m_newMember.
+                        if healthy && !is_new {
+                            if let Some(c) = self.objects.get_mut(&crawler_id) {
+                                c.remove_occupant(mid);
+                            }
+                            if let Some(unit) = self.objects.get_mut(&mid) {
+                                unit.set_contained_by(None);
+                                let offset = Vec3::new(6.0, 0.0, 0.0);
+                                unit.set_position(crawler_pos + offset);
+                            }
+                            if self.apply_engagement_decision_aware(mid, target_id) {
+                                self.troop_crawler.record_healthy_redeploy();
+                            }
+                        }
+                        continue;
+                    }
 
-            for mid_raw in members {
-                let mid = ObjectId(mid_raw);
-                let Some(member) = self.objects.get(&mid) else {
-                    continue;
-                };
-                if !member.is_alive() {
-                    continue;
-                }
-                still_members.push(mid_raw);
-                let contained = member.contained_by == Some(crawler_id);
-                let wounded =
-                    is_assault_member_wounded(member.health.current, member.health.maximum);
-                let healthy =
-                    is_assault_member_healthy(member.health.current, member.health.maximum);
-
-                if contained {
-                    // Full health → re-exit and resume attack (C++ isMemberHealthy).
-                    if healthy {
+                    if wounded {
                         if let Some(c) = self.objects.get_mut(&crawler_id) {
-                            c.remove_occupant(mid);
+                            if !c.occupants.contains(&mid) && c.can_contain() {
+                                let _ = c.add_occupant(mid);
+                            }
                         }
                         if let Some(unit) = self.objects.get_mut(&mid) {
-                            unit.set_contained_by(None);
-                            let offset = Vec3::new(6.0, 0.0, 0.0);
-                            unit.set_position(crawler_pos + offset);
+                            unit.set_contained_by(Some(crawler_id));
+                            unit.stop_moving();
+                            unit.target = None;
+                            unit.set_status_attacking(false);
+                            unit.set_position(crawler_pos);
                         }
-                        if self.apply_engagement_decision_aware(mid, target_id) {
-                            self.troop_crawler.record_healthy_redeploy();
+                        self.troop_crawler.record_wounded_retrieve();
+                        continue;
+                    }
+
+                    if let Some(unit) = self.objects.get(&mid) {
+                        if unit.target != Some(target_id) {
+                            let _ = self.apply_engagement_decision_aware(mid, target_id);
                         }
                     }
-                    continue;
                 }
-
-                // Outside + wounded → re-enter for heal.
-                if wounded {
-                    // Instant residual enter (path AI deferred).
+            } else if is_attack_move {
+                // C++: target gone + attack-move → continue aiAttackMoveToPosition.
+                let already = self
+                    .objects
+                    .get(&crawler_id)
+                    .map(|c| matches!(c.ai_state, AIState::AttackMoving))
+                    .unwrap_or(false);
+                if !already {
+                    let dest = Vec3::new(goal[0], goal[1], goal[2]);
+                    let _ = self.assign_unit_path(crawler_id, dest, &[]);
                     if let Some(c) = self.objects.get_mut(&crawler_id) {
-                        if !c.occupants.contains(&mid) && c.can_contain() {
-                            let _ = c.add_occupant(mid);
+                        c.is_attack_path = true;
+                        c.auto_acquire_when_idle = true;
+                        c.requested_destination = Some(dest);
+                        c.set_ai_state(AIState::AttackMoving);
+                    }
+                }
+            } else if is_attack_object {
+                // C++: target gone + attack-object → retrieveMembers.
+                self.assault_transport_retrieve_members(crawler_id);
+            }
+        }
+    }
+
+    /// C++ `aiDoCommand` Attack — reset new-member flags so a fresh order can eject.
+    pub fn assault_transport_on_player_attack(&mut self, id: ObjectId) {
+        let Some(c) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if !c.is_troop_crawler_style_container() {
+            return;
+        }
+        if let Some(a) = c.assault_transport.as_mut() {
+            a.on_player_attack();
+        }
+    }
+
+    /// C++ `aiDoCommand` AttackMove.
+    pub fn assault_transport_on_player_attack_move(&mut self, id: ObjectId, dest: Vec3) {
+        let Some(c) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if !c.is_troop_crawler_style_container() {
+            return;
+        }
+        match c.assault_transport.as_mut() {
+            Some(a) => a.on_player_attack_move([dest.x, dest.y, dest.z]),
+            None => {
+                let mut a = crate::game_logic::host_troop_crawler::HostAssaultTransportState::default();
+                a.on_player_attack_move([dest.x, dest.y, dest.z]);
+                c.assault_transport = Some(a);
+            }
+        }
+    }
+
+    /// C++ `aiDoCommand` IDLE: retrieveMembers then reset.
+    pub fn assault_transport_on_player_idle(&mut self, id: ObjectId) {
+        let active = self
+            .objects
+            .get(&id)
+            .and_then(|c| c.assault_transport.as_ref())
+            .map(|a| a.active)
+            .unwrap_or(false);
+        if !active {
+            return;
+        }
+        if !self
+            .objects
+            .get(&id)
+            .map(|c| c.is_troop_crawler_style_container())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        self.assault_transport_retrieve_members(id);
+        if let Some(c) = self.objects.get_mut(&id) {
+            if let Some(a) = c.assault_transport.as_mut() {
+                a.clear();
+            }
+        }
+    }
+
+    /// C++ giveFinalOrders: transfer the original order as CMD_FROM_PLAYER.
+    pub fn assault_transport_give_final_orders(&mut self, crawler_id: ObjectId) {
+        use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER;
+
+        let snapshot = {
+            let Some(c) = self.objects.get(&crawler_id) else {
+                return;
+            };
+            let Some(a) = c.assault_transport.as_ref() else {
+                return;
+            };
+            if a.final_orders_given || !a.active {
+                return;
+            }
+            (
+                a.member_ids.clone(),
+                a.is_attack_object,
+                a.is_attack_move,
+                a.designated_target,
+                a.attack_move_goal_pos,
+            )
+        };
+        if let Some(c) = self.objects.get_mut(&crawler_id) {
+            if let Some(a) = c.assault_transport.as_mut() {
+                a.final_orders_given = true;
+                a.active = false;
+            }
+        }
+
+        let (members, is_attack_object, is_attack_move, target_raw, goal) = snapshot;
+        let target_id = target_raw.and_then(|raw| {
+            let id = ObjectId(raw);
+            self.objects
+                .get(&id)
+                .filter(|t| t.is_alive())
+                .map(|_| id)
+        });
+
+        for mid_raw in members {
+            let mid = ObjectId(mid_raw);
+            let Some(member) = self.objects.get(&mid) else {
+                continue;
+            };
+            if !member.is_alive() {
+                continue;
+            }
+            if is_attack_object {
+                if let Some(target_id) = target_id {
+                    let engaged = self.apply_engagement_decision_aware(mid, target_id);
+                    if let Some(unit) = self.objects.get_mut(&mid) {
+                        unit.last_command_source = HUNT_CMD_FROM_PLAYER;
+                        if !engaged {
+                            unit.set_target(Some(target_id));
+                            unit.set_ai_state(AIState::Attacking);
+                            unit.set_status_attacking(true);
                         }
                     }
-                    if let Some(unit) = self.objects.get_mut(&mid) {
-                        unit.set_contained_by(Some(crawler_id));
-                        unit.stop_moving();
-                        unit.target = None;
-                        unit.set_status_attacking(false);
-                        unit.set_position(crawler_pos);
-                    }
-                    self.troop_crawler.record_wounded_retrieve();
-                    continue;
                 }
+            } else if is_attack_move {
+                let dest = Vec3::new(goal[0], goal[1], goal[2]);
+                let _ = self.assign_unit_path(mid, dest, &[]);
+                if let Some(unit) = self.objects.get_mut(&mid) {
+                    unit.is_attack_path = true;
+                    unit.auto_acquire_when_idle = true;
+                    unit.requested_destination = Some(dest);
+                    unit.set_ai_state(AIState::AttackMoving);
+                    unit.last_command_source = HUNT_CMD_FROM_PLAYER;
+                }
+            } else if let Some(unit) = self.objects.get_mut(&mid) {
+                unit.last_command_source = HUNT_CMD_FROM_PLAYER;
+            }
+        }
+    }
 
-                // Outside + not wounded → keep attacking designated target.
-                if let Some(unit) = self.objects.get(&mid) {
-                    if unit.target != Some(target_id) {
-                        let _ = self.apply_engagement_decision_aware(mid, target_id);
-                    }
+    /// C++ retrieveMembers: outside members `aiEnter` the crawler.
+    pub fn assault_transport_retrieve_members(&mut self, crawler_id: ObjectId) {
+        let (members, crawler_pos) = {
+            let Some(c) = self.objects.get(&crawler_id) else {
+                return;
+            };
+            let Some(a) = c.assault_transport.as_ref() else {
+                return;
+            };
+            (a.member_ids.clone(), c.get_position())
+        };
+        for mid_raw in members {
+            let mid = ObjectId(mid_raw);
+            let Some(member) = self.objects.get(&mid) else {
+                continue;
+            };
+            if !member.is_alive() {
+                continue;
+            }
+            if member.contained_by == Some(crawler_id) {
+                continue;
+            }
+            if let Some(c) = self.objects.get_mut(&crawler_id) {
+                if !c.occupants.contains(&mid) && c.can_contain() {
+                    let _ = c.add_occupant(mid);
                 }
             }
+            if let Some(unit) = self.objects.get_mut(&mid) {
+                unit.set_contained_by(Some(crawler_id));
+                unit.stop_moving();
+                unit.target = None;
+                unit.set_status_attacking(false);
+                unit.set_position(crawler_pos);
+            }
+        }
+    }
 
-            if let Some(c) = self.objects.get_mut(&crawler_id) {
-                if let Some(a) = c.assault_transport.as_mut() {
-                    a.member_ids = still_members;
-                    if a.member_ids.is_empty() && c.occupants.is_empty() {
-                        a.clear();
-                    }
+    fn assault_transport_prune_members(&mut self, crawler_id: ObjectId) {
+        use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+
+        let members = {
+            let Some(c) = self.objects.get(&crawler_id) else {
+                return;
+            };
+            let Some(a) = c.assault_transport.as_ref() else {
+                return;
+            };
+            a.member_ids.clone()
+        };
+        let mut drop: Vec<usize> = Vec::new();
+        for (i, mid_raw) in members.iter().copied().enumerate() {
+            let mid = ObjectId(mid_raw);
+            let Some(member) = self.objects.get(&mid) else {
+                drop.push(i);
+                continue;
+            };
+            if !member.is_alive() || member.last_command_source != HUNT_CMD_FROM_AI {
+                drop.push(i);
+            }
+        }
+        if drop.is_empty() {
+            return;
+        }
+        if let Some(c) = self.objects.get_mut(&crawler_id) {
+            if let Some(a) = c.assault_transport.as_mut() {
+                for i in drop.into_iter().rev() {
+                    a.remove_member_at(i);
                 }
             }
         }
     }
+
+    fn assault_transport_add_new_members(&mut self, crawler_id: ObjectId) {
+        use crate::game_logic::host_troop_crawler::is_assault_member_wounded;
+
+        let occupants = {
+            let Some(c) = self.objects.get(&crawler_id) else {
+                return;
+            };
+            c.occupants.clone()
+        };
+        for occ in occupants {
+            let wounded = self
+                .objects
+                .get(&occ)
+                .map(|u| is_assault_member_wounded(u.health.current, u.health.maximum))
+                .unwrap_or(false);
+            if let Some(c) = self.objects.get_mut(&crawler_id) {
+                if let Some(a) = c.assault_transport.as_mut() {
+                    let _ = a.try_add_member(occ.0, wounded);
+                }
+            }
+        }
+        if let Some(c) = self.objects.get_mut(&crawler_id) {
+            if let Some(a) = c.assault_transport.as_mut() {
+                a.new_occupants_are_new_members = true;
+            }
+        }
+    }
+
+    fn assault_transport_is_attack_pointless(&self, crawler_id: ObjectId) -> bool {
+        let Some(c) = self.objects.get(&crawler_id) else {
+            return false;
+        };
+        if !matches!(c.ai_state, AIState::Attacking) && !c.status.attacking {
+            return false;
+        }
+        let Some(a) = c.assault_transport.as_ref() else {
+            return false;
+        };
+        if a.member_ids.is_empty() {
+            return false;
+        }
+        // C++: attacking + every member is new → idle.
+        (0..a.member_ids.len()).all(|i| a.is_new_member(i))
+    }
+
 
     /// C++ UndeadBody + BattleBusSlowDeathBehavior first-life / empty-hulk residual.
     pub fn tick_battle_bus_slow_deaths(&mut self) {

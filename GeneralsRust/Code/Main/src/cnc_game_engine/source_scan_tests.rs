@@ -870,8 +870,9 @@ fn sticky_waypoint_mode_toggle_residual() {
     assert!(
         src.contains("sticky_waypoint_mode")
             && src.contains("eq_ignore_ascii_case(\"z\")")
-            && src.contains("Waypoint mode: ON"),
-        "Z must toggle sticky waypoint mode residual"
+            && !src.contains("Waypoint mode: ON")
+            && !src.contains("Waypoint mode: OFF"),
+        "Z must toggle sticky waypoint mode residual without HUD toast"
     );
 }
 
@@ -913,8 +914,10 @@ fn structure_cycle_and_auto_attack_residual() {
         "sticky auto-attack residual required"
     );
     assert!(
-        src.contains("Auto-attack: ON") && src.contains("AttackMoveTo"),
-        "sticky auto-attack must convert moves to attack-move"
+        src.contains("AttackMoveTo")
+            && !src.contains("Auto-attack: ON")
+            && !src.contains("Auto-attack: OFF"),
+        "sticky auto-attack must convert moves to attack-move without HUD toast"
     );
 }
 
@@ -924,8 +927,8 @@ fn force_attack_ground_t_key_and_home_structure_residual() {
     assert!(
         src.contains("ForceAttackGround")
             && src.contains("eq_ignore_ascii_case(\"t\")")
-            && src.contains("Force-attack ground"),
-        "T must issue ForceAttackGround at cursor residual"
+            && !src.contains("Force-attack ground"),
+        "T must issue ForceAttackGround at cursor residual without HUD toast"
     );
     // Home/End are CommandMap-bindable (VIEW_COMMAND_CENTER), not
     // invented SELECT_NEXT_STRUCTURE.
@@ -1134,8 +1137,8 @@ fn idle_military_select_residual() {
         src.contains("fn select_all_idle_military")
             && src.contains("eq_ignore_ascii_case(\"i\")")
             && src.contains("select_all_idle_military()")
-            && src.contains("No idle military units"),
-        "Ctrl+I must select idle military residual"
+            && !src.contains("No idle military units"),
+        "Ctrl+I must select idle military residual without HUD toast"
     );
 }
 
@@ -1406,10 +1409,10 @@ fn resume_construction_hotkey_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("fn resume_selected_construction")
-            && src.contains("Resuming construction")
             && src.contains("eq_ignore_ascii_case(\"e\")")
-            && src.contains("NamedKey::Alt"),
-        "Alt+E must resume construction residual"
+            && src.contains("NamedKey::Alt")
+            && !src.contains("Resuming construction"),
+        "Alt+E must resume construction residual without HUD toast"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
@@ -1559,15 +1562,49 @@ fn idle_military_cycle_and_repairing_select_residual() {
     assert!(
         src.contains("fn cycle_idle_military_selection")
             && src.contains("cycle_idle_military_selection(1)")
-            && src.contains("No idle military"),
-        "Ctrl+Alt+,/. must cycle idle military residual"
+            && !src.contains("Idle military selected"),
+        "Ctrl+Alt+,/. must cycle idle military residual without HUD toast"
     );
     assert!(
         src.contains("fn select_all_repairing_units")
             && src.contains("select_all_repairing_units()")
-            && src.contains("No repairing units"),
-        "Ctrl+Alt+R must select repairing units residual"
+            && !src.contains("No repairing units"),
+        "Ctrl+Alt+R must select repairing units residual without HUD toast"
     );
+}
+
+#[test]
+fn hq_0djue_hotkey_selection_residuals_must_not_invent_english_hud_toasts() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    for toast in [
+        "Force-attack ground",
+        "Waypoint mode: ON",
+        "Waypoint mode: OFF",
+        "Auto-attack: ON",
+        "Auto-attack: OFF",
+        "Chat (All)",
+        "Chat (Allies)",
+        "Chat (Whisper)",
+        "Screenshot:",
+        "Screenshot failed:",
+        "Diplomacy panel opened",
+        "Diplomacy panel closed",
+        "No unfinished construction to resume",
+        "No dozer/worker available to resume",
+        "Resuming construction",
+        "Unfinished construction selected",
+        "Damaged structure selected",
+        "Idle military selected",
+        "No repairing units",
+        "Selected {} repairing",
+        "No idle military units",
+        "Selected {} idle military",
+    ] {
+        assert!(
+            !src.contains(toast),
+            "hq-0djue: invented English HUD toast must stay gone: {toast}"
+        );
+    }
 }
 
 #[test]

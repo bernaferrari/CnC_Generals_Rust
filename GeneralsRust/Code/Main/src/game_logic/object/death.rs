@@ -26,6 +26,11 @@ impl Object {
         data.building_height = (self.health.maximum.max(100.0) * 0.12)
             .clamp(15.0, 60.0)
             .max(radius * 0.8);
+        if let Some(ini) =
+            crate::game_logic::host_structure_collapse::collapse_ini_for_template(&self.template_name)
+        {
+            data.bind_ini(&ini);
+        }
         // Mid delay residual (average of 15–30).
         data.begin(current_frame, 22);
         self.structure_collapse_data = Some(data);
@@ -39,6 +44,8 @@ impl Object {
             self.health.current = 0.01;
         }
         self.status.destroyed = false;
+        // C++ beginStructureCollapse: doPhaseStuff(SCPHASE_INITIAL) → FXList::doFXPos.
+        self.dispatch_pending_collapse_fx();
         true
     }
 
@@ -47,7 +54,9 @@ impl Object {
         let Some(sc) = self.structure_collapse_data.as_mut() else {
             return false;
         };
-        if !sc.tick(current_frame) {
+        let done = sc.tick(current_frame);
+        self.dispatch_pending_collapse_fx();
+        if !done {
             return false;
         }
         self.health.current = 0.0;
@@ -55,6 +64,29 @@ impl Object {
         self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
         true
     }
+
+    /// Drain INITIAL/BURST/DELAY/FINAL when a dual-peel owns sink motion.
+    pub fn poll_structure_collapse_phase_fx(&mut self, current_frame: u32) {
+        let Some(sc) = self.structure_collapse_data.as_mut() else {
+            return;
+        };
+        sc.poll_phase_fx(current_frame);
+        self.dispatch_pending_collapse_fx();
+    }
+
+    /// C++ `doPhaseStuff` → `FXList::doFXPos` at the building position.
+    fn dispatch_pending_collapse_fx(&mut self) {
+        let pos = self.get_position();
+        let Some(sc) = self.structure_collapse_data.as_mut() else {
+            return;
+        };
+        for fx in sc.take_pending_phase_fx() {
+            if !fx.is_empty() && !fx.eq_ignore_ascii_case("None") {
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, pos);
+            }
+        }
+    }
+
 
     /// Presentation vertical offset from structure collapse residual.
     pub fn presentation_collapse_height_offset(&self) -> f32 {

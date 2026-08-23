@@ -85,17 +85,18 @@ impl Object {
     }
 
     /// C++ MissileLauncherBuildingUpdate::update — door bits keyed to ready-frame.
-    pub fn tick_missile_launcher_building(&mut self, now: u32) {
+    /// Returns `(DoorOpenIdleAudio play, stop)` for GameLogic to queue.
+    pub fn tick_missile_launcher_building(&mut self, now: u32) -> (Option<String>, bool) {
         if self.status.under_construction {
-            return;
+            return (None, false);
         }
         use crate::game_logic::host_missile_launcher_building_update::{
             missile_launcher_ini_for_template, missile_launcher_special_power,
-            HostMissileLauncherBuildingUpdateData, HostMissileLauncherDoorState,
+            HostMissileLauncherBuildingUpdateData,
         };
         if self.missile_launcher_building.is_none() {
             let Some(ini) = missile_launcher_ini_for_template(&self.template_name) else {
-                return;
+                return (None, false);
             };
             self.missile_launcher_building =
                 Some(HostMissileLauncherBuildingUpdateData::from_ini(ini));
@@ -114,13 +115,15 @@ impl Object {
             (0, false)
         };
         let Some(data) = self.missile_launcher_building.as_mut() else {
-            return;
+            return (None, false);
         };
         let before = data.door_state;
         data.update(now, ready_frame, is_ready);
         // Leftover `TheFXList::do_fx_at_position` on every door-state enter
         // (C++ `FXList::doFXPos` at the building). `pending_fx` is the name.
         let pending_fx = data.pending_fx.take();
+        let pending_idle = data.pending_idle_audio.take();
+        let stop_idle = std::mem::take(&mut data.stop_idle_audio);
         if data.door_state != before || data.pending_initiate {
             // pending_initiate is consumed inside update; bits still need apply.
         }
@@ -130,6 +133,7 @@ impl Object {
                 let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, self.get_position());
             }
         }
+        (pending_idle, stop_idle)
     }
 
     fn apply_missile_launcher_door_bits(&mut self) {

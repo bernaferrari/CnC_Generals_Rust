@@ -6,7 +6,7 @@
 //!
 //! No WorldSnapshot version bump: pending bytes ride the named chunks.
 
-use crate::game_logic::GameLogic;
+use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -17,7 +17,7 @@ use std::sync::Mutex;
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 1;
+const PLAYERS_CHUNK_VERSION: u8 = 2;
 const TEAM_FACTORY_CHUNK_VERSION: u8 = 1;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
@@ -63,6 +63,8 @@ pub struct PlayerRuntimePersist {
     pub radar_disabled: bool,
     pub cash_bounty_percent: f32,
     pub kind_of_changes: Vec<KindOfChangePersist>,
+    pub units_should_hunt: bool,
+    pub current_selection: Vec<u32>,
 }
 
 impl Default for PlayerRuntimePersist {
@@ -86,6 +88,8 @@ impl Default for PlayerRuntimePersist {
             radar_disabled: false,
             cash_bounty_percent: 0.0,
             kind_of_changes: Vec::new(),
+            units_should_hunt: false,
+            current_selection: Vec::new(),
         }
     }
 }
@@ -291,11 +295,20 @@ fn write_player_entry<W: Write + Seek>(
         map_xfer(xfer.xfer_real(&mut percent))?;
         map_xfer(xfer.xfer_unsigned_int(&mut refs))?;
     }
+    let mut units_should_hunt = player.units_should_hunt;
+    map_xfer(xfer.xfer_bool(&mut units_should_hunt))?;
+    let mut sel_count = player.current_selection.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut sel_count))?;
+    for id in &player.current_selection {
+        let mut value = *id;
+        map_xfer(xfer.xfer_unsigned_int(&mut value))?;
+    }
     Ok(())
 }
 
 fn parse_player_entry(
     xfer: &mut CommonXferLoad<Cursor<&[u8]>>,
+    version: u8,
 ) -> SaveLoadResult<PlayerRuntimePersist> {
     let mut player = PlayerRuntimePersist::default();
     map_xfer(xfer.xfer_unsigned_int(&mut player.player_id))?;
@@ -362,6 +375,17 @@ fn parse_player_entry(
             refs,
         });
     }
+    if version >= 2 {
+        map_xfer(xfer.xfer_bool(&mut player.units_should_hunt))?;
+        let mut sel_count = 0u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut sel_count))?;
+        player.current_selection.reserve(sel_count as usize);
+        for _ in 0..sel_count {
+            let mut id = 0u32;
+            map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+            player.current_selection.push(id);
+        }
+    }
     Ok(player)
 }
 
@@ -391,7 +415,7 @@ pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist
     map_xfer(xfer.xfer_unsigned_short(&mut count))?;
     let mut players = Vec::with_capacity(count as usize);
     for _ in 0..count {
-        players.push(parse_player_entry(&mut xfer)?);
+        players.push(parse_player_entry(&mut xfer, version)?);
     }
     Ok(PlayersChunkPersist { players })
 }
@@ -516,6 +540,8 @@ fn capture_leftover_players() -> Vec<PlayerRuntimePersist> {
             disable_proof_radar_count: player.get_disable_proof_radar_count(),
             radar_disabled: player.is_radar_disabled(),
             cash_bounty_percent: player.get_cash_bounty(),
+            units_should_hunt: player.get_units_should_hunt(),
+            current_selection: player.get_current_selection_ids(),
             ..PlayerRuntimePersist::default()
         };
         persist.sciences = player
@@ -661,6 +687,12 @@ fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist 
                 refs: entry.ref_count,
             })
             .collect();
+        slot.units_should_hunt = player.units_should_hunt;
+        slot.current_selection = player
+            .selected_objects
+            .iter()
+            .map(|id| id.0)
+            .collect();
     }
     persist
 }
@@ -780,6 +812,13 @@ fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersi
     player.disable_proof_radar_count = persist.disable_proof_radar_count;
     player.radar_disabled = persist.radar_disabled;
     player.cash_bounty_percent = persist.cash_bounty_percent;
+    player.units_should_hunt = persist.units_should_hunt;
+    player.selected_objects = persist
+        .current_selection
+        .iter()
+        .copied()
+        .map(ObjectId)
+        .collect();
 
     player.kind_of_production_cost_changes.clear();
     for entry in &persist.kind_of_changes {
@@ -848,6 +887,11 @@ fn apply_player_to_leftover(persist: &PlayerRuntimePersist) {
         persist.radar_disabled,
     );
     player.set_cash_bounty(persist.cash_bounty_percent);
+    player.restore_units_should_hunt(persist.units_should_hunt);
+    player.set_currently_selected_ai_group(None);
+    for &id in &persist.current_selection {
+        player.add_object_to_current_selection(id);
+    }
     for (i, &flag) in persist.attacked_by.iter().enumerate() {
         if flag {
             player.set_attacked_by(i as i32);
@@ -925,7 +969,7 @@ pub fn apply_pending(game_logic: &mut GameLogic) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{Player, Team};
+    use crate::game_logic::{ObjectId, Player, Team};
     use game_engine::common::system::xfer::Xfer as CommonXfer;
 
     #[test]
@@ -939,6 +983,8 @@ mod tests {
             radar_disabled: true,
             skill_points_modifier: 1.5,
             cash_bounty_percent: 0.2,
+            units_should_hunt: true,
+            current_selection: vec![11, 22],
             ..PlayerRuntimePersist::default()
         };
         player.team_relations.push(TeamRelPersist {
@@ -991,6 +1037,8 @@ mod tests {
         assert!((parsed_players.players[0].skill_points_modifier - 1.5).abs() < f32::EPSILON);
         assert_eq!(parsed_players.players[0].team_relations[0].team_name, "CivilianConvoy");
         assert!(parsed_players.players[0].attacked_by[2]);
+        assert!(parsed_players.players[0].units_should_hunt);
+        assert_eq!(parsed_players.players[0].current_selection, [11, 22]);
 
         let mut teams_only = Cursor::new(Vec::<u8>::new());
         {
@@ -1018,6 +1066,8 @@ mod tests {
         usa.can_build_units = false;
         usa.radar_disabled = true;
         usa.set_attacked_by(3);
+        usa.units_should_hunt = true;
+        usa.selected_objects = vec![ObjectId(11), ObjectId(22)];
         logic.add_player(usa);
 
         stamp_from_live(&logic);
@@ -1035,5 +1085,10 @@ mod tests {
         assert!(!player.can_build_units);
         assert!(player.radar_disabled);
         assert!(player.get_attacked_by(3));
+        assert!(player.units_should_hunt);
+        assert_eq!(
+            player.selected_objects,
+            vec![ObjectId(11), ObjectId(22)]
+        );
     }
 }

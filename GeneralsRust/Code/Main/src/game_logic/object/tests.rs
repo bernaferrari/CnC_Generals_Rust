@@ -1713,6 +1713,63 @@ fn structure_collapse_on_lethal() {
 }
 
 #[test]
+fn structure_collapse_binds_and_plays_phase_fx() {
+    use crate::game_logic::host_structure_collapse::{
+        clear_collapse_ini_override_for_tests, collapse_ini_from_behavior_attrs,
+        override_collapse_ini_for_tests,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let ini = collapse_ini_from_behavior_attrs(&[
+        ("MinBurstDelay", "66"),
+        ("MaxBurstDelay", "66"),
+        (
+            "FXList",
+            "INITIAL FX_DieInitial\nDELAY FX_DieDelay\nBURST FX_DieBurst\nFINAL FX_DieFinal",
+        ),
+    ]);
+    override_collapse_ini_for_tests("CivilianBarn01", ini);
+    let mut t = ThingTemplate::new("CivilianBarn01");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Structure);
+    let mut b = Object::new(t, ObjectId(1), Team::Neutral);
+    assert!(b.begin_structure_collapse(0));
+    {
+        let sc = b.structure_collapse_data.as_ref().unwrap();
+        assert!(sc.initial_played);
+        assert_eq!(sc.fx_initial.as_deref(), Some("FX_DieInitial"));
+        assert_eq!(sc.fx_burst.as_deref(), Some("FX_DieBurst"));
+        assert_eq!(sc.fx_delay.as_deref(), Some("FX_DieDelay"));
+        assert_eq!(sc.fx_final.as_deref(), Some("FX_DieFinal"));
+        assert!(sc.pending_phase_fx.is_empty(), "INITIAL dispatched at begin");
+    }
+    let mut saw_start_burst = false;
+    let mut done = false;
+    for f in 0..800 {
+        if b.tick_structure_collapse(f) {
+            done = true;
+            break;
+        }
+        if b
+            .structure_collapse_data
+            .as_ref()
+            .map(|d| d.start_burst_played)
+            .unwrap_or(false)
+        {
+            saw_start_burst = true;
+        }
+    }
+    assert!(saw_start_burst);
+    assert!(done);
+    assert!(b
+        .structure_collapse_data
+        .as_ref()
+        .map(|d| d.final_played)
+        .unwrap_or(false));
+    clear_collapse_ini_override_for_tests();
+}
+
+
+#[test]
 fn structure_topple_on_lethal_damage() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaWarFactory");
@@ -4461,12 +4518,20 @@ fn jet_taxi_takeoff_sets_precise_z_and_ultra_accurate() {
     );
     assert!(jet.precise_z_pos, "JetTaxi PRECISE_Z_POS");
     assert!(jet.ultra_accurate, "JetTaxi ULTRA_ACCURATE");
+    assert!(
+        jet.allow_invalid_position,
+        "JetTaxi ALLOW_INVALID_POSITION"
+    );
     jet.begin_jet_runway_takeoff(10, Vec3::new(120.0, 50.0, 0.0), 80.0, false);
     assert!(jet.precise_z_pos, "JetTakeoff PRECISE_Z_POS");
     assert!(jet.ultra_accurate, "JetTakeoff ULTRA_ACCURATE");
     jet.finish_jet_takeoff();
     assert!(!jet.precise_z_pos, "takeoff onExit clears PRECISE_Z_POS");
     assert!(!jet.ultra_accurate, "takeoff onExit clears ULTRA_ACCURATE");
+    assert!(
+        !jet.allow_invalid_position,
+        "takeoff onExit clears ALLOW_INVALID_POSITION"
+    );
 }
 
 

@@ -169,6 +169,13 @@ impl Player {
         self.units_should_hunt
     }
 
+    /// C++ `Player::xfer` writes `m_unitsShouldHunt` only. Load must not
+    /// re-walk members and re-issue `aiHunt`/`aiIdle`.
+    pub fn restore_units_should_hunt(&mut self, should_hunt: Bool) {
+        self.units_should_hunt = should_hunt;
+    }
+
+
     pub fn set_units_should_hunt(&mut self, should_hunt: Bool, source: CommandSourceType) {
         self.units_should_hunt = should_hunt;
 

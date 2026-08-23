@@ -802,6 +802,9 @@ pub struct Object {
     /// C++ PRECISE_Z_POS flag residual.
     #[serde(default)]
     pub precise_z_pos: bool,
+    /// C++ `Locomotor::ALLOW_INVALID_POSITION` (Locomotor.h:398).
+    #[serde(default)]
+    pub allow_invalid_position: bool,
     /// C++ LocomotorTemplate::m_maxThrustAngle residual (radians, parseAngleReal).
     #[serde(default)]
     pub max_thrust_angle: f32,

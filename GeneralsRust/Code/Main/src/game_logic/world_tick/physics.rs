@@ -996,7 +996,8 @@ impl GameLogic {
         let _ = obj.handle_behavior_z(ground_y, goal_y);
         match obj.loco_behavior_z {
             LocomotorBehaviorZ::SurfaceRelativeHeight
-            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+            | LocomotorBehaviorZ::AbsoluteHeight => {
                 // Leftover PhysicsBehavior Euler Z: vel += a; pos += vel.
                 let lift_a = obj.physics_accel.y;
                 if lift_a.abs() > 1.0e-8 {

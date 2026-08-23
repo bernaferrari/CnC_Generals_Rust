@@ -859,6 +859,7 @@ impl Object {
         {
             crate::game_logic::host_supply_gather::cancel_live_dock_for_docker(self.id);
         }
+        let was_entering = matches!(self.ai_state, AIState::Entering);
         let ordinal = match state {
             AIState::Idle => 0u8,
             AIState::Moving => 1,
@@ -889,6 +890,14 @@ impl Object {
         ) {
             // Assignment: ULTRA_ACCURATE on dozer/worker precision approach.
             self.set_ultra_accurate(true);
+        }
+        // C++ AIEnterState::onEnter / onExit setAllowInvalidPosition
+        // (AIStates.cpp:6227, :6247) so infantry are not 3x3-shoved off
+        // building cells while walking in.
+        if matches!(self.ai_state, AIState::Entering) {
+            self.set_allow_invalid_position(true);
+        } else if was_entering {
+            self.set_allow_invalid_position(false);
         }
         crate::game_logic::host_ai_state_log::record(self.id, ordinal);
         self.record_host_ai_mood();
