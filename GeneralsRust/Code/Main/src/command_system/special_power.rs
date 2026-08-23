@@ -226,6 +226,26 @@ pub enum SpecialPowerType {
     Invalid,
 }
 
+/// Leftover ActionManager NEED_TARGET_POS-only specials (C++ CommandXlat).
+/// Unit-under-cursor clicks are AT_LOCATION, not AT_OBJECT.
+pub(crate) fn leftover_special_power_is_location_target_only(
+    power_type: &SpecialPowerType,
+) -> bool {
+    let Some(name) =
+        crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
+            power_type,
+        )
+    else {
+        return false;
+    };
+    let Some(leftover) = gamelogic::object::special_power_types::SpecialPowerType::from_str(name)
+    else {
+        return false;
+    };
+    gamelogic::action_manager::TheActionManager::special_power_is_location_target_only(leftover)
+}
+
+
 /// Resolve an exact retail `CommandButton.ini` `SpecialPower` name.
 ///
 /// Command buttons carry the INI identity as text, whereas the authoritative

@@ -477,26 +477,19 @@ impl Object {
     /// Combat weapon choice.
     ///
     /// Slot: `0` = primary, `1` = secondary, `2` = tertiary.
-    /// Leftover `choose_best_weapon_for_target` gates:
-    /// pitch elimination, turret-aim ready suppression, zero-damage
-    /// (DAMAGE_UNRESISTABLE exception), and unready-but-valid backup.
-    /// PreferredAgainst INI still wins unless OUT_OF_AMMO.
+    /// Leftover `choose_best_weapon_for_target` gates: lock early-return,
+    /// OUT_OF_AMMO+!AutoReloadsClip skip, pitch elimination, turret-aim
+    /// ready suppression, zero-damage (DAMAGE_UNRESISTABLE exception),
+    /// and unready-but-valid backup.
     pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
-        // C++ WeaponSet lock: locked slot wins while ready/in-range.
-        if self.weapon_lock_type != WeaponLockType::NotLocked {
-            let slot = self.weapon_lock_slot;
-            if let Some(w) = self.weapon_slot(slot) {
-                let target_faerie = target.is_faerie_fire();
-                if self.weapon_ready_vs_target_bonused(w, current_time, target_faerie)
-                    && self.can_target_with_slot(target, w, Some(slot))
-                {
-                    return Some(slot);
-                }
-            }
-            // Temporary lock may fall through if clip empty / not ready.
-            if self.weapon_lock_type == WeaponLockType::LockedPermanently {
-                return Some(self.weapon_lock_slot);
-            }
+        // C++ WeaponSet.cpp:782-783 / leftover weapon_set.rs:683-685 —
+        // locked current slot stays until someone unlocks. A reloading
+        // FireWeapon/flashbang/snipe waits; it does not auto-choose PRIMARY.
+        if let Some(slot) = gamelogic::weapon::choose_best_locked_slot(
+            self.weapon_lock_type != WeaponLockType::NotLocked,
+            self.weapon_lock_slot,
+        ) {
+            return Some(slot);
         }
         let target_faerie = target.is_faerie_fire();
         let primary_valid = self.leftover_choose_best_slot_valid(0, target);
@@ -642,7 +635,8 @@ impl Object {
         }
     }
 
-    /// Leftover chooseBest fitness: AutoChoose + anti-mask + pitch + zero-damage.
+    /// Leftover chooseBest fitness: AutoChoose + OUT_OF_AMMO+!autoReload
+    /// + anti-mask + pitch + zero-damage.
     fn leftover_choose_best_slot_valid(&self, slot: u8, target: &Object) -> bool {
         if !self.thing.template.slot_allows_auto_choose(slot) {
             return false;
@@ -650,6 +644,13 @@ impl Object {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
+        // C++ WeaponSet.cpp:834-836 / leftover weapon_set.rs:732-737 —
+        // empty clip that does not AutoReloadsClip is skipped entirely
+        // (not even backup). Live maps that to weapon_has_ammo_for_shot
+        // (HostReloadType::Manual | ReturnToBase + ammo == 0).
+        if !Self::weapon_has_ammo_for_shot(weapon, self.weapon_name_for_slot(slot)) {
+            return false;
+        }
         if !self.can_target_with_slot(target, weapon, Some(slot)) {
             return false;
         }
@@ -728,6 +729,23 @@ impl Object {
             (true, false) => Some(0),
             (false, true) => Some(1),
             (false, false) => None,
+        }
+    }
+
+    /// Leftover chooseBest no-victim: lock keeps slot, else PRIMARY.
+    pub fn leftover_choose_best_ground_slot(&self) -> u8 {
+        gamelogic::weapon::choose_best_ground_attack_slot(
+            self.weapon_lock_type != WeaponLockType::NotLocked,
+            self.weapon_lock_slot,
+        )
+    }
+
+    /// Leftover chooseBest no-victim: unlocked units reset PRIMARY.
+    pub fn leftover_choose_best_reset_primary_for_ground(&mut self) {
+        if gamelogic::weapon::choose_best_resets_primary_for_ground(
+            self.weapon_lock_type != WeaponLockType::NotLocked,
+        ) {
+            self.set_active_weapon_slot(0);
         }
     }
 
@@ -1818,5 +1836,102 @@ mod tests {
             Some(1),
             "when every auto-choose slot is mid-reload leftover keeps the best backup"
         );
+    }
+
+    #[test]
+    fn leftover_choose_best_skips_empty_no_auto_reload_slot() {
+        // C++ WeaponSet.cpp:834-836: OUT_OF_AMMO && !getAutoReloadsClip()
+        // continues past the slot; leftover weapon_set.rs:732-737 ports it.
+        // An empty no-auto-reload PRIMARY must not win leftover backup.
+        const EMPTY: &str = "__RustChooseBestEmptyNoReload";
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(EMPTY.to_string());
+            template.primary_damage = 100.0;
+            template.attack_range = 200.0;
+            template.reload_type = gamelogic::weapon::WeaponReloadType::NoReload;
+            store.add_weapon_template(template);
+        });
+        let mut t = ThingTemplate::new("EmptyNoReloadChooser");
+        t.set_primary_weapon_name(EMPTY);
+        let mut attacker = Object::new(t, ObjectId(1), Team::USA);
+        attacker.weapon = Some(Weapon {
+            ammo: Some(0),
+            clip_size: 1,
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(100.0)
+        });
+        attacker.secondary_weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ..weapon(10.0)
+        });
+        let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.1),
+            Some(1),
+            "empty no-auto-reload PRIMARY is skipped so leftover backup keeps SECONDARY"
+        );
+    }
+
+    #[test]
+    fn leftover_choose_best_temp_lock_keeps_unready_slot() {
+        // C++ WeaponSet.cpp:782-783: isCurWeaponLocked → keep current slot.
+        // Reloading FireWeapon/flashbang/snipe must not fall through to PRIMARY.
+        let mut attacker = Object::new(
+            ThingTemplate::new("AmericaInfantryRanger"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: -10.0,
+            reload_time: 0.0,
+            ..weapon(5.0)
+        });
+        attacker.secondary_weapon = Some(Weapon {
+            last_fire_time: 1.0,
+            reload_time: 1.0,
+            ammo: Some(0),
+            clip_size: 1,
+            ..weapon(35.0)
+        });
+        assert!(attacker.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
+        let mut target = Object::new(
+            {
+                let mut t = ThingTemplate::new("Infantry");
+                t.add_kind_of(KindOf::Infantry);
+                t
+            },
+            ObjectId(2),
+            Team::GLA,
+        );
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert_eq!(
+            attacker.select_combat_weapon_slot(&target, 1.1),
+            Some(1),
+            "temp-locked reloading SECONDARY must wait, not auto-choose PRIMARY"
+        );
+    }
+
+    #[test]
+    fn leftover_choose_best_ground_resets_primary_unless_locked() {
+        let mut attacker = Object::new(
+            ThingTemplate::new("AmericaVehicleHumvee"),
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(weapon(10.0));
+        attacker.secondary_weapon = Some(weapon(30.0));
+        attacker.set_active_weapon_slot(1);
+        assert_eq!(attacker.leftover_choose_best_ground_slot(), 0);
+        attacker.leftover_choose_best_reset_primary_for_ground();
+        assert_eq!(attacker.active_weapon_slot, 0);
+
+        assert!(attacker.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
+        assert_eq!(attacker.leftover_choose_best_ground_slot(), 1);
+        attacker.leftover_choose_best_reset_primary_for_ground();
+        assert_eq!(attacker.active_weapon_slot, 1);
+        assert_eq!(attacker.weapon_lock_slot, 1);
     }
 }

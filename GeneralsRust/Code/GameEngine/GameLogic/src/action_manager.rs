@@ -618,6 +618,63 @@ impl TheActionManager {
         )
     }
 
+    /// C++ `CommandXlat::issueSpecialPowerCommand` NEED_TARGET_POS-only specials.
+    ///
+    /// Leftover `canDoSpecialPowerAtObject` is unconditionally FALSE and
+    /// `canDoSpecialPowerAtLocation` evaluates underwater / shroud / on-map.
+    /// Dual-path Battleship, object-charge HelixNapalmBomb, and no-target
+    /// LaunchBaikonurRocket stay off this list.
+    pub fn special_power_is_location_target_only(power_type: SpecialPowerType) -> bool {
+        match power_type {
+            SpecialPowerType::DaisyCutter
+            | SpecialPowerType::AirfDaisyCutter
+            | SpecialPowerType::ParadropAmerica
+            | SpecialPowerType::TankParadrop
+            | SpecialPowerType::InfaParadropAmerica
+            | SpecialPowerType::CarpetBomb
+            | SpecialPowerType::ChinaCarpetBomb
+            | SpecialPowerType::LeafletDrop
+            | SpecialPowerType::EarlyLeafletDrop
+            | SpecialPowerType::EarlyChinaCarpetBomb
+            | SpecialPowerType::AirfCarpetBomb
+            | SpecialPowerType::SuprCruiseMissile
+            | SpecialPowerType::ClusterMines
+            | SpecialPowerType::NukeClusterMines
+            | SpecialPowerType::EmpPulse
+            | SpecialPowerType::CrateDrop
+            | SpecialPowerType::NapalmStrike
+            | SpecialPowerType::BlackMarketNuke
+            | SpecialPowerType::AnthraxBomb
+            | SpecialPowerType::TerrorCell
+            | SpecialPowerType::Ambush
+            | SpecialPowerType::NeutronMissile
+            | SpecialPowerType::NukeNeutronMissile
+            | SpecialPowerType::SupwNeutronMissile
+            | SpecialPowerType::ScudStorm
+            | SpecialPowerType::Demoralize
+            | SpecialPowerType::A10ThunderboltStrike
+            | SpecialPowerType::AirfA10ThunderboltStrike
+            | SpecialPowerType::SpectreGunship
+            | SpecialPowerType::AirfSpectreGunship
+            | SpecialPowerType::RepairVehicles
+            | SpecialPowerType::EarlyRepairVehicles
+            | SpecialPowerType::GpsScrambler
+            | SpecialPowerType::SlthGpsScrambler
+            | SpecialPowerType::ArtilleryBarrage
+            | SpecialPowerType::Frenzy
+            | SpecialPowerType::EarlyFrenzy
+            | SpecialPowerType::ParticleUplinkCannon
+            | SpecialPowerType::SupwParticleUplinkCannon
+            | SpecialPowerType::LazrParticleUplinkCannon
+            | SpecialPowerType::CleanupArea
+            | SpecialPowerType::SneakAttack
+            | SpecialPowerType::SpySatellite
+            | SpecialPowerType::RadarVanScan
+            | SpecialPowerType::SpyDrone => true,
+            _ => false,
+        }
+    }
+
     /// Can `obj` execute a special power on a target object.
     /// Matches C++ ActionManager::canDoSpecialPowerAtObject.
     pub fn can_do_special_power_at_object(
@@ -2668,6 +2725,34 @@ mod tests {
             None,
             0,
             true,
+        ));
+    }
+
+    #[test]
+    fn location_target_only_matches_need_target_pos_action_manager() {
+        assert!(TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::A10ThunderboltStrike
+        ));
+        assert!(TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::DaisyCutter
+        ));
+        assert!(TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::Frenzy
+        ));
+        assert!(TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::ParadropAmerica
+        ));
+        assert!(!TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::BattleshipBombardment
+        ));
+        assert!(!TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::MissileDefenderLaserGuidedMissiles
+        ));
+        assert!(!TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::LaunchBaikonurRocket
+        ));
+        assert!(!TheActionManager::special_power_is_location_target_only(
+            SpecialPowerType::InfantryCaptureBuilding
         ));
     }
 

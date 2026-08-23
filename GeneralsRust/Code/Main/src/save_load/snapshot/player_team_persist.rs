@@ -2,8 +2,10 @@
 //!
 //! C++ writes PlayerList::xfer v1 / TeamFactory::xfer v1. Live used to emit
 //! NullSnapshot, so science hide/disable, team-relation overrides, build/radar
-//! script locks, team OnCreate/OnDestroyed latches, and leftover Team::xfer
-//! `entered_or_exited` / `check_enemy_sighted` reset after load.
+//! script locks, team OnCreate/OnDestroyed latches, leftover Team::xfer
+//! `entered_or_exited` / `check_enemy_sighted`, leftover TeamPrototype::xfer
+//! `attack_priority_name`, and leftover TeamTemplateInfo::xfer
+//! `production_priority` reset after load.
 //!
 //! No WorldSnapshot version bump: pending bytes ride the named chunks.
 
@@ -19,7 +21,7 @@ pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
 const PLAYERS_CHUNK_VERSION: u8 = 3;
-const TEAM_FACTORY_CHUNK_VERSION: u8 = 3;
+const TEAM_FACTORY_CHUNK_VERSION: u8 = 4;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
 
@@ -156,6 +158,15 @@ pub struct PlayersChunkPersist {
 pub struct TeamFactoryChunkPersist {
     pub unique_team_id: u32,
     pub teams: Vec<TeamRuntimePersist>,
+    pub prototypes: Vec<TeamPrototypePersist>,
+}
+
+/// Leftover `TeamPrototype::xfer` v2 + `TeamTemplateInfo::xfer` v1 fields.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TeamPrototypePersist {
+    pub team_name: String,
+    pub attack_priority_name: String,
+    pub production_priority: i32,
 }
 
 static PENDING_PLAYERS: Mutex<Option<PlayersChunkPersist>> = Mutex::new(None);
@@ -511,6 +522,16 @@ pub fn write_team_factory_block<W: Write + Seek>(
         map_xfer(xfer.xfer_bool(&mut entered_or_exited))?;
         map_xfer(xfer.xfer_bool(&mut check_enemy_sighted))?;
     }
+    let mut proto_count = persist.prototypes.len() as u16;
+    map_xfer(xfer.xfer_unsigned_short(&mut proto_count))?;
+    for proto in &persist.prototypes {
+        let mut name = proto.team_name.clone();
+        let mut attack_priority_name = proto.attack_priority_name.clone();
+        let mut production_priority = proto.production_priority;
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+        map_xfer(xfer.xfer_ascii_string(&mut attack_priority_name))?;
+        map_xfer(xfer.xfer_int(&mut production_priority))?;
+    }
     Ok(())
 }
 
@@ -590,9 +611,23 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
         }
         teams.push(team);
     }
+    let mut prototypes = Vec::new();
+    if version >= 4 {
+        let mut proto_count = 0u16;
+        map_xfer(xfer.xfer_unsigned_short(&mut proto_count))?;
+        prototypes.reserve(proto_count as usize);
+        for _ in 0..proto_count {
+            let mut proto = TeamPrototypePersist::default();
+            map_xfer(xfer.xfer_ascii_string(&mut proto.team_name))?;
+            map_xfer(xfer.xfer_ascii_string(&mut proto.attack_priority_name))?;
+            map_xfer(xfer.xfer_int(&mut proto.production_priority))?;
+            prototypes.push(proto);
+        }
+    }
     Ok(TeamFactoryChunkPersist {
         unique_team_id,
         teams,
+        prototypes,
     })
 }
 
@@ -830,9 +865,20 @@ fn capture_team_factory_chunk() -> TeamFactoryChunkPersist {
                 .collect(),
         });
     }
+    let mut prototypes: Vec<TeamPrototypePersist> = factory
+        .list_team_prototypes()
+        .into_iter()
+        .map(|proto| TeamPrototypePersist {
+            team_name: proto.get_name().to_string(),
+            attack_priority_name: proto.get_attack_priority_name().to_string(),
+            production_priority: proto.get_production_priority(),
+        })
+        .collect();
+    prototypes.sort_by(|a, b| a.team_name.cmp(&b.team_name));
     TeamFactoryChunkPersist {
         unique_team_id,
         teams,
+        prototypes,
     }
 }
 
@@ -1020,6 +1066,18 @@ fn apply_teams_to_leftover(persist: &TeamFactoryChunkPersist) {
     if persist.unique_team_id != 0 {
         factory.set_next_team_id(persist.unique_team_id);
     }
+    for proto_persist in &persist.prototypes {
+        if proto_persist.team_name.trim().is_empty() {
+            continue;
+        }
+        let Some(prototype) = factory.find_team_prototype(&proto_persist.team_name) else {
+            continue;
+        };
+        let mut updated = (*prototype).clone();
+        updated.set_attack_priority_name(proto_persist.attack_priority_name.clone().into());
+        updated.set_production_priority(proto_persist.production_priority);
+        factory.replace_team_prototype(updated);
+    }
     for team_persist in &persist.teams {
         let team_arc = if team_persist.team_id != 0 {
             factory.find_team_by_id(team_persist.team_id)
@@ -1164,6 +1222,11 @@ mod tests {
                     relationship: 2,
                 }],
             }],
+            prototypes: vec![TeamPrototypePersist {
+                team_name: "HuntWave".into(),
+                attack_priority_name: "PrioritySetA".into(),
+                production_priority: 42,
+            }],
         };
         teams.teams[0].generic_script_attempts[0] = true;
 
@@ -1212,6 +1275,9 @@ mod tests {
         assert!(parsed_teams.teams[0].entered_or_exited);
         assert!(parsed_teams.teams[0].check_enemy_sighted);
         assert!(parsed_teams.teams[0].persist_edge_flags);
+        assert_eq!(parsed_teams.prototypes[0].team_name, "HuntWave");
+        assert_eq!(parsed_teams.prototypes[0].attack_priority_name, "PrioritySetA");
+        assert_eq!(parsed_teams.prototypes[0].production_priority, 42);
         let _ = parsed_players;
     }
 

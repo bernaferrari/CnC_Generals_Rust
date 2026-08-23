@@ -64,6 +64,22 @@ pub enum AttackSubState {
     ChaseTarget,
 }
 
+/// C++ `AIUpdateInterface::LocoGoalType` (AIUpdate.h). Saved numeric values
+/// must not change.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LocoGoalType {
+    #[default]
+    None = 0,
+    PositionOnPath = 1,
+    PositionExplicit = 2,
+    Angle = 3,
+}
+
+/// C++ `AIFaceState::update` relative-angle success (`0.035` rad ≈ 2°).
+pub const FACE_REL_THRESH_RAD: f32 = 0.035;
+
+
 /// The durable marker for one actually accepted WeaponSet discharge.
 ///
 /// This is deliberately separate from `last_fire_*` / `fire_intent_count`:
@@ -792,6 +808,25 @@ pub struct Object {
     /// C++ m_minSpeed residual (host units/sec).
     #[serde(default)]
     pub min_speed: f32,
+    /// C++ `AIUpdateInterface::m_locomotorGoalType`.
+    #[serde(default)]
+    pub locomotor_goal_type: LocoGoalType,
+    /// C++ `m_locomotorGoalData.x` when the goal is ANGLE.
+    #[serde(default)]
+    pub locomotor_goal_angle: f32,
+    /// C++ `AIFaceState::m_canTurnInPlace` (`minSpeed == 0`).
+    #[serde(default)]
+    pub face_can_turn_in_place: bool,
+    /// Host persist: FACE is still marching toward the goal.
+    #[serde(default)]
+    pub face_active: bool,
+    /// C++ Face-position machine goal (`m_obj == false`).
+    #[serde(default)]
+    pub face_goal_pos: Option<glam::Vec3>,
+    /// Logic frame last leftover-marched by Face (prevents double apply).
+    #[serde(default)]
+    pub face_loco_frame: u32,
+
     /// C++ LocomotorTemplate `m_ultraAccurateSlideIntoPlaceFactor`.
     #[serde(default)]
     pub ultra_accurate_slide_factor: f32,
@@ -2854,6 +2889,10 @@ pub enum AIState {
     Entering,
     Docking,
     Capturing,
+    /// C++ `AI_FACE_OBJECT`.
+    FacingObject,
+    /// C++ `AI_FACE_POSITION`.
+    FacingPosition,
 }
 
 /// C++ `SpecialAbilityUpdate::PackingState` subset for capture abilities.

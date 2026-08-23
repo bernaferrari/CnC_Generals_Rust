@@ -221,9 +221,9 @@ impl GameLogic {
                 continue;
             }
             let opos = obj.get_position();
-            let dx = opos.x - me_pos.x;
-            let dz = opos.z - me_pos.z;
-            let dist = (dx * dx + dz * dz).sqrt();
+            // C++ AI::findClosestEnemy / leftover FROM_BOUNDINGSPHERE_2D:
+            // center XY minus both bounding-circle radii (0 if hulls overlap).
+            let dist = me.distance_to_object(obj);
             if dist > range {
                 continue;
             }
@@ -1564,6 +1564,81 @@ mod common_target_parity {
                 .find_closest_enemy(aid, 9999.9, find_enemy_flags::CAN_ATTACK)
                 .is_none(),
             "on-map hunt must not acquire off-map cargo/A10"
+        );
+    }
+
+    #[test]
+    fn find_closest_enemy_ranks_by_bounding_sphere_2d() {
+        use crate::game_logic::{
+            find_enemy_flags, HostGeometryInfo, HostGeometryType, ObjectType,
+        };
+        let mut logic = GameLogic::new();
+        let mut at = ThingTemplate::new("HuntHullRanker");
+        at.add_kind_of(KindOf::Infantry);
+        at.add_kind_of(KindOf::Attackable);
+        at.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Sphere,
+            is_small: true,
+            height: 5.0,
+            major_radius: 5.0,
+            minor_radius: 5.0,
+            authored: true,
+        };
+        let aid = ObjectId(2720);
+        logic.objects.insert(aid, {
+            let mut o = Object::new(at, aid, Team::USA);
+            o.set_position(glam::Vec3::ZERO);
+            o.weapon = Some(Weapon {
+                range: 9999.0,
+                can_target_ground: true,
+                damage: 5.0,
+                ..Default::default()
+            });
+            o
+        });
+
+        let mut bt = ThingTemplate::new("HuntHullBuilding");
+        bt.add_kind_of(KindOf::Structure);
+        bt.add_kind_of(KindOf::Attackable);
+        bt.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Sphere,
+            is_small: false,
+            height: 50.0,
+            major_radius: 50.0,
+            minor_radius: 50.0,
+            authored: true,
+        };
+        let bid = ObjectId(2721);
+        logic.objects.insert(bid, {
+            let mut o = Object::new(bt, bid, Team::GLA);
+            o.object_type = ObjectType::Building;
+            o.set_position(glam::Vec3::new(200.0, 0.0, 0.0));
+            o
+        });
+
+        let mut it = ThingTemplate::new("HuntHullInfantry");
+        it.add_kind_of(KindOf::Infantry);
+        it.add_kind_of(KindOf::Attackable);
+        it.geometry_info = HostGeometryInfo {
+            geom_type: HostGeometryType::Sphere,
+            is_small: true,
+            height: 5.0,
+            major_radius: 5.0,
+            minor_radius: 5.0,
+            authored: true,
+        };
+        let iid = ObjectId(2722);
+        logic.objects.insert(iid, {
+            let mut o = Object::new(it, iid, Team::GLA);
+            o.set_position(glam::Vec3::new(180.0, 0.0, 0.0));
+            o
+        });
+
+        // Center: infantry 180 < building 200. Hull: building 145 < infantry 170.
+        assert_eq!(
+            logic.find_closest_enemy(aid, 9999.9, find_enemy_flags::CAN_ATTACK),
+            Some(bid),
+            "FROM_BOUNDINGSPHERE_2D ranks nearer hull (building) over nearer center (infantry)"
         );
     }
 

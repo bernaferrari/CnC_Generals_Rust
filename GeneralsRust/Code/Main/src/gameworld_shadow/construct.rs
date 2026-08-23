@@ -168,6 +168,8 @@ impl GameWorldShadow {
             A::Entering => 17,
             A::Docking => 18,
             A::Capturing => 19,
+            A::FacingObject => 21,
+            A::FacingPosition => 22,
         }
     }
 
@@ -194,6 +196,8 @@ impl GameWorldShadow {
             18 => A::Docking,
             19 => A::Capturing,
             20 => A::GuardRetaliating,
+            21 => A::FacingObject,
+            22 => A::FacingPosition,
             _ => A::Idle,
         }
     }

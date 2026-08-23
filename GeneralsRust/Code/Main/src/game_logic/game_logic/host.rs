@@ -1249,7 +1249,6 @@ pub struct GameLogic {
     pub(super) script_camera_pitch_remaining: f32,
     pub(super) script_camera_freeze_angle_armed: bool,
     pub(super) script_camera_pending_final_speed_multiplier: Option<f32>,
-    pub(super) script_camera_pending_rolling_average_frames: Option<i32>,
     pub(super) visual_speed_multiplier: f32,
     pub(super) script_time_frozen_by_script: bool,
     pub(super) pending_script_fps_limit: Option<i32>,

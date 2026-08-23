@@ -239,11 +239,10 @@ impl GameLogic {
                 b.is_ignoring_collisions_with(a_id),
                 a.is_parachuting(),
                 b.is_parachuting(),
-                b.is_kind_of(crate::game_logic::KindOf::Structure)
-                    || b.is_kind_of(
-                        crate::game_logic::KindOf::Structure, /* immobile residual */
-                    )
-                    || !b.can_move(),
+                // C++ PhysicsUpdate.cpp:1221-1222 / leftover physics_collide.rs:144:
+                // otherImmobile = isKindOf(KINDOF_IMMOBILE) only. Dead, EMP,
+                // deployed, docked, or garrisoned mobiles stay processCollision.
+                b.is_kind_of(crate::game_logic::KindOf::Immobile),
                 a.is_kind_of(crate::game_logic::KindOf::Infantry),
                 b.status.disabled_unmanned,
                 a.ignored_obstacle_id == Some(b_id),
@@ -599,11 +598,8 @@ impl GameLogic {
             let Some(imm) = self.objects.get(&immobile_id) else {
                 return false;
             };
-            let imm_ok = imm.is_kind_of(crate::game_logic::KindOf::Structure)
-                || imm.is_kind_of(
-                    crate::game_logic::KindOf::Structure, /* immobile residual */
-                )
-                || !imm.can_move();
+            // C++ PhysicsUpdate.cpp:1222 / leftover: KINDOF_IMMOBILE only.
+            let imm_ok = imm.is_kind_of(crate::game_logic::KindOf::Immobile);
             (m.is_parachuting(), imm.get_position(), imm_ok)
         };
         if !imm_ok {
@@ -754,7 +750,11 @@ impl GameLogic {
     /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
 
+
     /// C++ AIUpdateInterface::privateFaceObject residual.
+    ///
+    /// Enter persist-until-faced Face (ANGLE vs POSITION_EXPLICIT). Do not
+    /// one-frame yaw-snap; leftover `AIFaceState` marches via doLocomotor.
     pub fn private_face_object(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
         let Some(target_pos) = self.objects.get(&target_id).map(|o| o.get_position()) else {
             return false;
@@ -767,10 +767,15 @@ impl GameLogic {
         }
         u.is_blocked = false;
         u.is_blocked_and_stuck = false;
-        // Host-immediate engagement residual; log for GameWorld last-write.
         u.target = Some(target_id);
-        // Face without full path — spin in place residual.
-        let _ = u.face_position(target_pos, 1.0 / 30.0);
+        u.face_goal_pos = None;
+        u.face_can_turn_in_place = u.min_speed == 0.0;
+        u.face_active = true;
+        u.face_loco_frame = 0;
+        let _ = u.arm_face_locomotor_goal(target_pos);
+        if !matches!(u.ai_state, AIState::SpecialAbility | AIState::Capturing) {
+            u.set_ai_state(AIState::FacingObject);
+        }
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
         }
@@ -787,7 +792,14 @@ impl GameLogic {
         }
         u.is_blocked = false;
         u.is_blocked_and_stuck = false;
-        let _ = u.face_position(pos, 1.0 / 30.0);
+        u.face_goal_pos = Some(pos);
+        u.face_can_turn_in_place = u.min_speed == 0.0;
+        u.face_active = true;
+        u.face_loco_frame = 0;
+        let _ = u.arm_face_locomotor_goal(pos);
+        if !matches!(u.ai_state, AIState::SpecialAbility | AIState::Capturing) {
+            u.set_ai_state(AIState::FacingPosition);
+        }
         true
     }
 
@@ -849,10 +861,15 @@ impl GameLogic {
         if u.weapon_lock_type != WeaponLockType::NotLocked {
             return u.weapon_slot(u.weapon_lock_slot).is_some();
         }
-        // Ground attack residual: any ready weapon is enough.
+        // Leftover chooseBest no-victim: lock already returned; else PRIMARY.
         let Some(vid) = victim_id else {
             let has =
                 u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some();
+            if has {
+                if let Some(uu) = self.objects.get_mut(&unit_id) {
+                    uu.leftover_choose_best_reset_primary_for_ground();
+                }
+            }
             return has;
         };
         let Some(v) = self.objects.get(&vid) else {

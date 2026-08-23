@@ -288,6 +288,32 @@ impl GameLogic {
                     continue;
                 }
 
+                // C++ WeaponSet.cpp:782-783 chooseBest lock returns TRUE;
+                // FireCurrentWeapon then waits if that slot is not READY or
+                // not in range. Do not PreferMostDamage-fall-through to PRIMARY.
+                let selected_slot = if let Some(slot) = selected_slot {
+                    let (ready, in_range) = if let (Some(attacker), Some(target)) =
+                        (self.objects.get(&attacker_id), self.objects.get(&target_id))
+                    {
+                        let faerie = target.is_faerie_fire();
+                        let ready = attacker.weapon_slot(slot).is_some_and(|w| {
+                            attacker.weapon_ready_vs_target_bonused(w, current_time, faerie)
+                        });
+                        let in_range = attacker.weapon_slot(slot).is_some_and(|w| {
+                            attacker.can_target_with_slot(target, w, Some(slot))
+                        });
+                        (ready, in_range)
+                    } else {
+                        (false, false)
+                    };
+                    if !ready {
+                        continue;
+                    }
+                    in_range.then_some(slot)
+                } else {
+                    None
+                };
+
                 if let Some(slot) = selected_slot {
                     // C++ DeployStyleAIUpdate::update only enters DEPLOY once
                     // its current victim is within the current weapon's attack
@@ -2397,15 +2423,10 @@ impl GameLogic {
             } else if let Some(target_location) = target_location {
                 // Force-attack-ground: consume a shot when the location is in range and apply damage
                 // to the nearest hittable object around the designated impact point.
-                // A manually selected/locked slot is authoritative here.  Normal
-                // ground fire stays primary, while an explicit tertiary command
-                // can fire the real Comanche rocket pods.
+                // Leftover chooseBest no-victim: lock keeps the slot (FireWeapon
+                // / rocket pods); unlocked ground fire leftover-resets PRIMARY.
                 let ground_slot = self.objects.get(&attacker_id).and_then(|attacker| {
-                    let requested = if attacker.weapon_lock_type != WeaponLockType::NotLocked {
-                        attacker.weapon_lock_slot
-                    } else {
-                        attacker.active_weapon_slot
-                    };
+                    let requested = attacker.leftover_choose_best_ground_slot();
                     if attacker.weapon_slot(requested).is_some() {
                         Some(requested)
                     } else {

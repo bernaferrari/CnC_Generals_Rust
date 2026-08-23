@@ -609,7 +609,6 @@ impl GameLogic {
             script_camera_pitch_remaining: 0.0,
             script_camera_freeze_angle_armed: false,
             script_camera_pending_final_speed_multiplier: None,
-            script_camera_pending_rolling_average_frames: None,
             visual_speed_multiplier: 1.0,
             script_time_frozen_by_script: false,
             pending_script_fps_limit: None,
@@ -1203,7 +1202,6 @@ impl GameLogic {
         self.script_camera_pitch_remaining = 0.0;
         self.script_camera_freeze_angle_armed = false;
         self.script_camera_pending_final_speed_multiplier = None;
-        self.script_camera_pending_rolling_average_frames = None;
         self.visual_speed_multiplier = 1.0;
         self.script_time_frozen_by_script = false;
         self.pending_script_fps_limit = None;

@@ -2002,7 +2002,7 @@ fn private_idle_clears_state() {
 
 #[test]
 fn private_face_turns_toward_target() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, LocoGoalType, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("FcA");
@@ -2012,6 +2012,7 @@ fn private_face_turns_toward_target() {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_orientation(0.0);
         o.movement.turn_rate = std::f32::consts::PI * 30.0;
+        o.min_speed = 0.0;
         o.set_position(Vec3::ZERO);
         o
     });
@@ -2025,9 +2026,83 @@ fn private_face_turns_toward_target() {
     });
     let yaw0 = logic.objects.get(&aid).unwrap().get_orientation();
     assert!(logic.private_face_object(aid, vid));
-    let yaw1 = logic.objects.get(&aid).unwrap().get_orientation();
+    let after_cmd = logic.objects.get(&aid).unwrap();
+    assert_eq!(after_cmd.ai_state, crate::game_logic::AIState::FacingObject);
+    assert!(after_cmd.face_active);
+    assert!(after_cmd.face_can_turn_in_place);
+    assert_eq!(after_cmd.locomotor_goal_type, LocoGoalType::Angle);
+    assert_eq!(after_cmd.get_orientation(), yaw0);
+    logic.update_ai(&[aid, vid], 1.0 / 30.0);
+    let after_tick = logic.objects.get(&aid).unwrap();
+    let yaw1 = after_tick.get_orientation();
     assert!((yaw1 - yaw0).abs() > 1e-4);
+    assert_eq!(after_tick.locomotor_goal_type, LocoGoalType::Angle);
 }
+
+#[test]
+fn private_face_position_sets_angle_goal_without_yaw_snap() {
+    use crate::game_logic::{KindOf, LocoGoalType, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("FcPos");
+    at.add_kind_of(KindOf::Vehicle);
+    let aid = ObjectId(1323);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.set_orientation(0.0);
+        o.movement.turn_rate = std::f32::consts::PI * 30.0;
+        o.min_speed = 0.0;
+        o.set_position(Vec3::ZERO);
+        o
+    });
+    let goal = Vec3::new(0.0, 0.0, 10.0);
+    let yaw0 = logic.objects.get(&aid).unwrap().get_orientation();
+    assert!(logic.private_face_position(aid, goal));
+    {
+        let o = logic.objects.get(&aid).unwrap();
+        assert_eq!(o.ai_state, crate::game_logic::AIState::FacingPosition);
+        assert!(o.face_active);
+        assert_eq!(o.locomotor_goal_type, LocoGoalType::Angle);
+        assert_eq!(o.get_orientation(), yaw0);
+    }
+    logic.update_movement(&[aid], 1.0 / 30.0);
+    let o = logic.objects.get(&aid).unwrap();
+    assert!((o.get_orientation() - yaw0).abs() > 1e-4);
+    assert_eq!(o.locomotor_goal_type, LocoGoalType::Angle);
+}
+
+#[test]
+fn private_face_object_min_speed_uses_position_explicit() {
+    use crate::game_logic::{KindOf, LocoGoalType, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("FcJet");
+    at.add_kind_of(KindOf::Aircraft);
+    let aid = ObjectId(1324);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.set_orientation(0.0);
+        o.min_speed = 25.0;
+        o.set_position(Vec3::ZERO);
+        o
+    });
+    let mut vt = ThingTemplate::new("FcJetV");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(1325);
+    let vpos = Vec3::new(0.0, 0.0, 40.0);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(vpos);
+        o
+    });
+    assert!(logic.private_face_object(aid, vid));
+    let o = logic.objects.get(&aid).unwrap();
+    assert!(!o.face_can_turn_in_place);
+    assert_eq!(o.locomotor_goal_type, LocoGoalType::PositionExplicit);
+    assert_eq!(o.movement.target_position, Some(vpos));
+    assert_eq!(o.get_orientation(), 0.0);
+}
+
 
 #[test]
 fn attack_can_fire_at_requires_range() {
@@ -3376,7 +3451,7 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
 
     let mut st = ThingTemplate::new("BounceImm");
     st.add_kind_of(KindOf::Structure);
-    st.add_kind_of(KindOf::Structure /* immobile residual */);
+    st.add_kind_of(KindOf::Immobile);
     let iid = ObjectId(82);
     let mut s = Object::new(st, iid, Team::China);
     s.set_position(Vec3::new(5.0, 1.0, 0.0));
@@ -3426,6 +3501,89 @@ fn apply_immobile_collide_bounce_scrubs_and_pushes() {
 }
 
 #[test]
+fn collide_immobile_is_kindof_immobile_not_can_move() {
+    // C++ PhysicsUpdate.cpp:1221-1222 / leftover physics_collide.rs:144:
+    // otherImmobile is KINDOF_IMMOBILE only. !can_move (dead, EMP, deployed,
+    // docked, or garrisoned) stays mobile-mobile processCollision.
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut vt = ThingTemplate::new("ImmGateTank");
+    vt.add_kind_of(KindOf::Vehicle);
+    let mid = ObjectId(91);
+    let mut m = Object::new(vt.clone(), mid, Team::USA);
+    m.set_position(Vec3::new(0.0, 1.0, 0.0));
+    m.movement.velocity = Vec3::new(8.0, 0.0, 0.0);
+    logic.objects.insert(mid, m);
+
+    let spawn_other = |logic: &mut GameLogic, id: u32, name: &str, tweak: fn(&mut Object)| {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Vehicle);
+        let oid = ObjectId(id);
+        let mut o = Object::new(t, oid, Team::China);
+        o.set_position(Vec3::new(5.0, 1.0, 0.0));
+        tweak(&mut o);
+        assert!(
+            !o.can_move(),
+            "{name} fixture must fail can_move so the old gate would misfire"
+        );
+        assert!(
+            !o.is_kind_of(KindOf::Immobile),
+            "{name} must not carry KINDOF_IMMOBILE"
+        );
+        logic.objects.insert(oid, o);
+        oid
+    };
+
+    let dead = spawn_other(&mut logic, 92, "DeadWreck", |o| {
+        o.status.destroyed = true;
+        o.health.current = 0.0;
+    });
+    let emp = spawn_other(&mut logic, 93, "EmpHumvee", |o| {
+        o.set_status_disabled_emp(true);
+    });
+    let deployed = spawn_other(&mut logic, 94, "DeployedTomahawk", |o| {
+        o.set_deployed(true);
+    });
+    let garrisoned = spawn_other(&mut logic, 95, "GarrisonedHusk", |o| {
+        o.ai_state = AIState::Garrisoned;
+    });
+    let docked = spawn_other(&mut logic, 97, "DockedHumvee", |o| {
+        o.ai_state = AIState::Docked;
+    });
+
+    for other in [dead, emp, deployed, garrisoned, docked] {
+        let before = logic.objects.get(&mid).unwrap().movement.velocity;
+        assert!(
+            !logic.apply_immobile_collide_bounce(mid, other, 10.0),
+            "other {other:?} is not KINDOF_IMMOBILE"
+        );
+        let after = logic.objects.get(&mid).unwrap().movement.velocity;
+        assert_eq!(after, before, "stiffness must not fire vs {other:?}");
+    }
+
+    let mut tree_t = ThingTemplate::new("ImmTree");
+    tree_t.add_kind_of(KindOf::Immobile);
+    let tid = ObjectId(96);
+    let mut tree = Object::new(tree_t, tid, Team::Neutral);
+    tree.set_position(Vec3::new(5.0, 1.0, 0.0));
+    logic.objects.insert(tid, tree);
+    assert!(logic.apply_immobile_collide_bounce(mid, tid, 10.0));
+
+    // Pair loop: dead wreck stays mobile-mobile (last_collidee, no vel zero).
+    logic.objects.get_mut(&mid).unwrap().movement.velocity = Vec3::new(8.0, 0.0, 0.0);
+    logic.objects.get_mut(&mid).unwrap().allow_collide_force = true;
+    assert!(logic.try_physics_collide(mid, dead, 10.0));
+    let tank = logic.objects.get(&mid).unwrap();
+    assert_eq!(tank.last_collidee, Some(dead));
+    assert!(
+        tank.movement.velocity != Vec3::ZERO,
+        "mobile-mobile must not stiffness-zero vel; vel={:?}",
+        tank.movement.velocity
+    );
+}
+
+#[test]
 fn apply_vehicle_crash_into_building_destroys() {
     use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
@@ -3442,7 +3600,7 @@ fn apply_vehicle_crash_into_building_destroys() {
 
     let mut st = ThingTemplate::new("SCrash");
     st.add_kind_of(KindOf::Structure);
-    st.add_kind_of(KindOf::Structure /* immobile residual */);
+    st.add_kind_of(KindOf::Immobile);
     let sid = ObjectId(62);
     logic.objects.insert(sid, Object::new(st, sid, Team::GLA));
 

@@ -919,7 +919,19 @@ impl Object {
             AIState::Docking => 18,
             AIState::Capturing => 19,
             AIState::GuardRetaliating => 20,
+            AIState::FacingObject => 21,
+            AIState::FacingPosition => 22,
         };
+        if !matches!(
+            state,
+            AIState::FacingObject | AIState::FacingPosition | AIState::SpecialAbility
+        ) && self.face_active
+        {
+            self.face_active = false;
+            if self.locomotor_goal_type == LocoGoalType::Angle {
+                self.set_locomotor_goal_none();
+            }
+        }
         self.ai_state = state;
         if matches!(
             self.ai_state,

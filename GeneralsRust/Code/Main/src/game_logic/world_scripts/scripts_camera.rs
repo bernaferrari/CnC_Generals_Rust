@@ -750,11 +750,17 @@ impl GameLogic {
                 }
                 let dead =
                     !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead;
+                // C++ Team::hasAnyObjects / leftover Player::has_any_objects:
+                // skip dead, projectile, inert (radiation fields), and mine.
+                // leftover_host_template_is_inert matches the kind_inert already
+                // stamped onto HostScriptQueryObject in this same inject.
                 if !dead
                     && !obj.is_kind_of(KindOf::Projectile)
                     && !obj.is_kind_of(KindOf::Mine)
                     && !obj.is_kind_of(KindOf::SmallMissile)
                     && !obj.is_kind_of(KindOf::BallisticMissile)
+                    && !obj.is_kind_of(KindOf::Inert)
+                    && !leftover_host_template_is_inert(&obj.template_name)
                 {
                     census.has_any_objects = true;
                 }
@@ -5502,9 +5508,6 @@ impl GameLogic {
             if let Some(multiplier) = self.script_camera_pending_final_speed_multiplier.take() {
                 move_state.set_final_speed_multiplier(multiplier);
             }
-            if let Some(frames) = self.script_camera_pending_rolling_average_frames.take() {
-                move_state.set_rolling_average_frames(frames);
-            }
             self.mission_scripts.set_camera_movement_finished(false);
             self.script_camera_path = Some(move_state);
         } else {
@@ -5542,6 +5545,27 @@ impl GameLogic {
     #[cfg(test)]
     pub fn script_camera_path_active(&self) -> bool {
         self.script_camera_path.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn install_script_camera_path_for_test(&mut self) {
+        self.script_camera_path = Some(ScriptCameraPathMove::from_points_for_test(
+            vec![
+                Vec3::new(-10.0, 0.0, 0.0),
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(100.0, 0.0, 0.0),
+                Vec3::new(200.0, 0.0, 0.0),
+                Vec3::new(300.0, 0.0, 0.0),
+            ],
+            4.0,
+        ));
+    }
+
+    #[cfg(test)]
+    pub fn script_camera_path_rolling_average_frames(&self) -> Option<i32> {
+        self.script_camera_path
+            .as_ref()
+            .map(|path| path.rolling_average_frames)
     }
 
     #[cfg(test)]
@@ -5794,11 +5818,11 @@ impl GameLogic {
         &mut self,
         request: &CameraModRollingAverageRequest,
     ) {
-        let frames = request.frames.max(1);
+        // C++ cameraModRollingAverage writes m_mcwpInfo, but setupWaypointPath
+        // hard-resets rollingAverageFrames=1. Leftover View applies only to an
+        // in-flight camera_path and drops idle requests. Do not arm the next path.
         if let Some(path) = self.script_camera_path.as_mut() {
-            path.set_rolling_average_frames(frames);
-        } else {
-            self.script_camera_pending_rolling_average_frames = Some(frames);
+            path.set_rolling_average_frames(request.frames.max(1));
         }
     }
 

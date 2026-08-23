@@ -2713,3 +2713,130 @@ fn mixed_dozer_colonel_repairs_damaged_civilian_before_capture() {
         other => panic!("expected Repair before Capture, got {other:?}"),
     }
 }
+
+#[test]
+fn location_power_unit_click_issues_at_location_not_object() {
+    let mut system = CommandSystem::new();
+    system.current_mode = CommandMode::SpecialPower {
+        power_type: SpecialPowerType::Airstrike,
+    };
+    let click = Vec3::new(100.0, 0.0, 50.0);
+    let context = MouseCommandContext {
+        world_position: click,
+        target_object: Some(ObjectId(99)),
+        target_presentation: None,
+        selected_presentation: Vec::new(),
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: Vec2::new(0.0, 0.0),
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Left,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+    let command = system
+        .process_mouse_input(&context, &[ObjectId(1)], 0, None)
+        .expect("location-power click must issue a command");
+    match command.command_type {
+        CommandType::DoSpecialPower {
+            power_type,
+            target,
+        } => {
+            assert_eq!(power_type, SpecialPowerType::Airstrike);
+            assert_eq!(
+                target,
+                PowerTarget::Location(click),
+                "C++ NEED_TARGET_POS unit click is AT_LOCATION"
+            );
+        }
+        other => panic!("expected DoSpecialPower, got {other:?}"),
+    }
+
+    system.current_mode = CommandMode::SpecialPower {
+        power_type: SpecialPowerType::MissileDefenderLaserGuided,
+    };
+    let command = system
+        .process_mouse_input(&context, &[ObjectId(1)], 0, None)
+        .expect("object-power click must issue a command");
+    match command.command_type {
+        CommandType::DoSpecialPower {
+            power_type,
+            target,
+        } => {
+            assert_eq!(power_type, SpecialPowerType::MissileDefenderLaserGuided);
+            assert_eq!(
+                target,
+                PowerTarget::Object(ObjectId(99)),
+                "NEED_OBJECT_TARGET unit click stays AT_OBJECT"
+            );
+        }
+        other => panic!("expected DoSpecialPower, got {other:?}"),
+    }
+}
+
+#[test]
+fn leftover_location_target_only_covers_need_target_pos_powers() {
+    use SpecialPowerType as P;
+    let location_only = [
+        P::Airstrike,
+        P::DaisyCutter,
+        P::FuelAirBomb,
+        P::Frenzy,
+        P::EarlyFrenzy,
+        P::Paradrop,
+        P::InfantryParadrop,
+        P::TankParadrop,
+        P::CrateDrop,
+        P::ParticleCannon,
+        P::SuperweaponParticleCannon,
+        P::LaserCannon,
+        P::SpectreGunship,
+        P::AirForceSpectreGunship,
+        P::Artillery,
+        P::NuclearMissile,
+        P::NukeNeutronMissile,
+        P::Ambush,
+        P::LeafletDrop,
+        P::GpsScrambler,
+        P::StealthGpsScrambler,
+        P::EmergencyRepair,
+        P::SneakAttack,
+        P::CleanupArea,
+        P::CarpetBomb,
+        P::ScudStorm,
+        P::AnthraxBomb,
+        P::EmpPulse,
+        P::ClusterMines,
+        P::SpySatellite,
+        P::SpyDrone,
+        P::RadarScan,
+    ];
+    for power in location_only {
+        assert!(
+            leftover_special_power_is_location_target_only(&power),
+            "{power:?} must be leftover NEED_TARGET_POS"
+        );
+    }
+    assert!(!leftover_special_power_is_location_target_only(
+        &P::BattleshipBombardment
+    ));
+    assert!(!leftover_special_power_is_location_target_only(
+        &P::MissileDefenderLaserGuided
+    ));
+    assert!(!leftover_special_power_is_location_target_only(
+        &P::LaserGuidedHowitzer
+    ));
+    assert!(!leftover_special_power_is_location_target_only(
+        &P::BaikonurRocket
+    ));
+    assert!(!leftover_special_power_is_location_target_only(
+        &P::RangerCaptureBuilding
+    ));
+}
+

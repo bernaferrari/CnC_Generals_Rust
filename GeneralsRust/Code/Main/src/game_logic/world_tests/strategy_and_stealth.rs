@@ -1036,7 +1036,7 @@ fn camera_mod_final_speed_multiplier_applies_to_next_script_camera_move() {
 }
 
 #[test]
-fn camera_mod_rolling_average_arms_for_next_camera_path() {
+fn camera_mod_rolling_average_idle_does_not_arm_next_path() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
 
@@ -1045,8 +1045,33 @@ fn camera_mod_rolling_average_arms_for_next_camera_path() {
         .push_camera_mod_rolling_average(CameraModRollingAverageRequest { frames: 7 });
     game_logic.evaluate_and_execute_scripts(0.0);
 
+    assert!(
+        !game_logic.script_camera_path_active(),
+        "idle CAMERA_MOD_SET_ROLLING_AVERAGE must not start a path"
+    );
+
+    // C++ setupWaypointPath hard-resets rollingAverageFrames=1. A later path
+    // must start unsmoothed even if an idle request already ran.
+    game_logic.install_script_camera_path_for_test();
     assert_eq!(
-        game_logic.script_camera_pending_rolling_average_frames,
+        game_logic.script_camera_path_rolling_average_frames(),
+        Some(1)
+    );
+}
+
+#[test]
+fn camera_mod_rolling_average_applies_to_in_flight_path() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+    game_logic.install_script_camera_path_for_test();
+
+    game_logic
+        .mission_scripts
+        .push_camera_mod_rolling_average(CameraModRollingAverageRequest { frames: 7 });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    assert_eq!(
+        game_logic.script_camera_path_rolling_average_frames(),
         Some(7)
     );
 }

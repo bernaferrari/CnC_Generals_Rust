@@ -339,6 +339,18 @@ impl GameLogic {
                 }
                 // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
                 // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
+                if obj.locomotor_goal_type == LocoGoalType::Angle {
+                    // C++ doLocomotor ANGLE: locoUpdate_moveTowardsAngle, not path.
+                    obj.do_final_position = false;
+                    if obj.face_loco_frame != self.frame || self.frame == 0 {
+                        obj.loco_update_move_towards_angle(obj.locomotor_goal_angle, dt);
+                        obj.face_loco_frame = self.frame;
+                    }
+                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                    Self::stamp_object_airborne_target(obj, ground_y);
+                    break 'unit;
+                }
+
                 let has_move_goal = obj.movement.target_position.is_some()
                     || !obj.movement.path.is_empty();
                 // C++ POSITION/ANGLE goals clear m_doFinalPosition (AIUpdate.cpp:2151).
