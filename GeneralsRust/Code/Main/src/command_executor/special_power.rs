@@ -99,7 +99,7 @@ fn leftover_can_do_special_power_at_object(
         | SpecialPowerType::LaserGuidedHowitzer => {
             target_is_vehicle && relationship == Relationship::Enemies
         }
-        _ => true,
+        _ => !crate::command_system::leftover_special_power_is_location_target_only(power_type),
     }
 }
 
@@ -242,6 +242,30 @@ impl<'a> CommandExecutor<'a> {
         power_type: &SpecialPowerType,
         target: &PowerTarget,
     ) -> CommandResult {
+        // C++ CommandXlat.cpp:1055-1078 NEED_TARGET_POS: unit under the cursor
+        // is only object-in-way. Leftover canDoSpecialPowerAtObject is FALSE;
+        // leftover canDoSpecialPowerAtLocation is the gate.
+        let location_from_unit = match target {
+            PowerTarget::Object(id)
+                if crate::command_system::leftover_special_power_is_location_target_only(
+                    power_type,
+                ) =>
+            {
+                match self.game_logic.host_object(*id).map(|o| o.get_position()) {
+                    Some(pos) => Some(pos),
+                    None => return CommandResult::InvalidTarget,
+                }
+            }
+            _ => None,
+        };
+        let retargeted;
+        let target = if let Some(pos) = location_from_unit {
+            retargeted = PowerTarget::Location(pos);
+            &retargeted
+        } else {
+            target
+        };
+
         // Basic validation: ensure object targets exist when required and power is ready.
         if let PowerTarget::Object(id) = target {
             if self.game_logic.host_object(*id).is_none() {
@@ -1295,7 +1319,7 @@ mod can_use_special_power_caster_filter_tests {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(0, Team::China, "China", true));
         logic.add_player(Player::new(1, Team::USA, "USA", false));
-        if let Some(p) = logic.players.get_mut(&1) {
+        if let Some(p) = logic.get_player_mut(1) {
             p.resources.supplies = 8_000;
         }
 
@@ -1688,12 +1712,219 @@ mod can_use_special_power_caster_filter_tests {
             Relationship::Neutral,
             true,
         ));
-        assert!(leftover_can_do_special_power_at_object(
+        assert!(!leftover_can_do_special_power_at_object(
             &SpecialPowerType::Frenzy,
             Relationship::Allies,
             false,
         ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::Airstrike,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::DaisyCutter,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::Paradrop,
+            Relationship::Neutral,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::CrateDrop,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::ParticleCannon,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::NuclearMissile,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::LeafletDrop,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::GpsScrambler,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::EmergencyRepair,
+            Relationship::Allies,
+            true,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::SneakAttack,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::Ambush,
+            Relationship::Enemies,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::CleanupArea,
+            Relationship::Neutral,
+            false,
+        ));
+        assert!(!leftover_can_do_special_power_at_object(
+            &SpecialPowerType::TankParadrop,
+            Relationship::Enemies,
+            true,
+        ));
     }
+
+    #[test]
+    fn location_power_unit_click_leftover_gates_shroud() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::KindOf;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        {
+            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            shroud.clear_all();
+            shroud.init_shroud_grid(512.0, 512.0);
+        }
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+        let mut a10_mod = test_module(
+            SpecialPowerType::Airstrike,
+            "SuperweaponA10ThunderboltMissileStrike",
+        );
+        a10_mod.reload_time_frames = 300;
+
+        let mut cc = ThingTemplate::new("HqHr2aeCommandCenter");
+        cc.set_health(5000.0);
+        cc.special_power_modules.push(a10_mod);
+        logic.templates.insert("HqHr2aeCommandCenter".into(), cc);
+
+        let mut enemy = ThingTemplate::new("HqHr2aeEnemy");
+        enemy.set_health(200.0);
+        enemy.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("HqHr2aeEnemy".into(), enemy);
+
+        let cc_id = logic
+            .create_object_for_player("HqHr2aeCommandCenter", 0, Vec3::ZERO)
+            .expect("cc");
+        let enemy_id = logic
+            .create_object_for_player("HqHr2aeEnemy", 0, Vec3::new(80.0, 0.0, 40.0))
+            .expect("enemy");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[cc_id],
+                    &SpecialPowerType::Airstrike,
+                    &PowerTarget::Object(enemy_id),
+                ),
+                CommandResult::InvalidLocation,
+                "C++/leftover refuse NEED_TARGET_POS unit clicks on CELLSHROUD_SHROUDED"
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(cc_id, &SpecialPowerType::Airstrike),
+            "shrouded location-power unit click must not consume charge"
+        );
+
+        if let Ok(mut shroud) = get_shroud_manager().lock() {
+            shroud.clear_all();
+        }
+    }
+
+    #[test]
+    fn location_power_unit_click_leftover_gates_underwater_paradrop() {
+        use crate::command_system::PowerTarget;
+        use crate::game_logic::KindOf;
+        use gamelogic::common::{AsciiString, ICoord3D};
+        use gamelogic::polygon_trigger::PolygonTrigger;
+        use gamelogic::system::map_loader::MapData;
+
+        // C++ ActionManager.cpp:1459-1468: paradrop / crate-drop / tank-paradrop
+        // refuse underwater. Unit-under-cursor is AT_LOCATION at the object's pos.
+        struct ResetLeftoverTerrain;
+        impl Drop for ResetLeftoverTerrain {
+            fn drop(&mut self) {
+                if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
+                    tl.reset();
+                }
+            }
+        }
+        let _reset_terrain = ResetLeftoverTerrain;
+        if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
+            tl.reset();
+        }
+        {
+            let mut trigger = PolygonTrigger::new(3, AsciiString::from("HqHr2aeLake"), Vec::new());
+            trigger.set_water_area(true);
+            trigger.add_point(ICoord3D::new(0, 0, 12));
+            trigger.add_point(ICoord3D::new(200, 0, 12));
+            trigger.add_point(ICoord3D::new(200, 200, 12));
+            trigger.add_point(ICoord3D::new(0, 200, 12));
+            let mut map_data = MapData::new();
+            map_data.polygon_triggers.push(trigger);
+            if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
+                tl.load_map_data(map_data);
+            }
+        }
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+
+        let mut para_mod = test_module(SpecialPowerType::Paradrop, "SuperweaponParadropAmerica");
+        para_mod.reload_time_frames = 300;
+
+        let mut cc = ThingTemplate::new("HqHr2aeParaCC");
+        cc.set_health(5000.0);
+        cc.special_power_modules.push(para_mod);
+        logic.templates.insert("HqHr2aeParaCC".into(), cc);
+
+        let mut enemy = ThingTemplate::new("HqHr2aeWaterUnit");
+        enemy.set_health(200.0);
+        enemy.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("HqHr2aeWaterUnit".into(), enemy);
+
+        let cc_id = logic
+            .create_object_for_player("HqHr2aeParaCC", 0, Vec3::ZERO)
+            .expect("cc");
+        let enemy_id = logic
+            .create_object_for_player("HqHr2aeWaterUnit", 0, Vec3::new(80.0, 0.0, 40.0))
+            .expect("enemy");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power(
+                    &[cc_id],
+                    &SpecialPowerType::Paradrop,
+                    &PowerTarget::Object(enemy_id),
+                ),
+                CommandResult::InvalidLocation,
+                "C++/leftover refuse NEED_TARGET_POS unit clicks underwater for paradrop"
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(cc_id, &SpecialPowerType::Paradrop),
+            "underwater location-power unit click must not consume charge"
+        );
+
+        if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
+            tl.reset();
+        }
+    }
+
 
     #[test]
     fn battleship_object_click_rejects_allies_without_consuming() {

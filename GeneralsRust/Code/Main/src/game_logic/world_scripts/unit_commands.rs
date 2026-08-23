@@ -685,6 +685,7 @@ impl GameLogic {
             return false;
         }
         end_hunt_on_player_parent_order(unit);
+        unit.leftover_choose_best_reset_primary_for_ground();
         unit.set_target_location(Some(location));
         unit.set_ai_state(AIState::AttackingGround);
         drop(unit);
@@ -1003,6 +1004,7 @@ impl GameLogic {
         unit.set_target(None);
         unit.set_force_attack(true);
         unit.set_max_shots_to_fire(max_shots);
+        unit.leftover_choose_best_reset_primary_for_ground();
         unit.set_target_location(Some(location));
         unit.set_ai_state(AIState::AttackingGround);
         drop(unit);

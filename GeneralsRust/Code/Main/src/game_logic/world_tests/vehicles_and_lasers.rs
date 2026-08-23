@@ -4214,6 +4214,145 @@ fn choose_best_weapon_prefers_ready_slot() {
     assert_eq!(logic.objects[&aid].active_weapon_slot, 1);
 }
 
+#[test]
+fn update_combat_temp_lock_waits_instead_of_firing_primary() {
+    // hq-8t90d: LOCKED_TEMPORARILY mid-reload must wait on that slot.
+    // PreferMostDamage must not fall through to ready PRIMARY.
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon, WeaponLockType};
+    let mut logic = GameLogic::new();
+    for (name, kinds) in [
+        ("LockWaitAtk", vec![KindOf::Infantry, KindOf::Attackable]),
+        ("LockWaitTgt", vec![KindOf::Infantry, KindOf::Attackable]),
+    ] {
+        if !logic.templates.contains_key(name) {
+            let mut tmpl = ThingTemplate::new(name);
+            tmpl.set_health(200.0);
+            for k in kinds {
+                tmpl.add_kind_of(k);
+            }
+            logic.templates.insert(name.into(), tmpl);
+        }
+    }
+    let atk = logic
+        .create_object("LockWaitAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("atk");
+    let tgt = logic
+        .create_object(
+            "LockWaitTgt",
+            Team::GLA,
+            glam::Vec3::new(30.0, 0.0, 0.0),
+        )
+        .expect("tgt");
+    if let Some(o) = logic.objects.get_mut(&atk) {
+        o.weapon = Some(Weapon {
+            damage: 25.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+        o.secondary_weapon = Some(Weapon {
+            damage: 80.0,
+            range: 200.0,
+            reload_time: 10.0,
+            last_fire_time: 1.0,
+            ammo: Some(0),
+            clip_size: 1,
+            ..Weapon::default()
+        });
+        assert!(o.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
+        o.target = Some(tgt);
+        o.set_ai_state(AIState::Attacking);
+        o.set_status_attacking(true);
+    }
+    logic.set_current_frame(30);
+    let hp_before = logic.objects[&tgt].health.current;
+    let primary_last = logic.objects[&atk].weapon.as_ref().unwrap().last_fire_time;
+    let secondary_last = logic.objects[&atk]
+        .secondary_weapon
+        .as_ref()
+        .unwrap()
+        .last_fire_time;
+    logic.update_combat(&[atk, tgt], LOGIC_FRAME_TIMESTEP);
+    assert_eq!(
+        logic.objects[&tgt].health.current, hp_before,
+        "temp-locked reloading SECONDARY must wait, not auto-choose PRIMARY"
+    );
+    assert_eq!(
+        logic.objects[&atk].weapon.as_ref().unwrap().last_fire_time,
+        primary_last
+    );
+    assert_eq!(
+        logic.objects[&atk]
+            .secondary_weapon
+            .as_ref()
+            .unwrap()
+            .last_fire_time,
+        secondary_last
+    );
+    assert_eq!(
+        logic.objects[&atk].weapon_lock_type,
+        WeaponLockType::LockedTemporarily
+    );
+}
+
+#[test]
+fn choose_best_and_attack_ground_reset_primary_unless_locked() {
+    // hq-xpdwb: unlocked chooseBest/attack-ground leftover-resets PRIMARY.
+    // A leftover PreferMostDamage SECONDARY (Humvee TOW) must not stick.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType};
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("GroundResetHumvee");
+    at.add_kind_of(KindOf::Vehicle);
+    at.add_kind_of(KindOf::Attackable);
+    at.set_health(200.0);
+    let aid = ObjectId(4010);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 150.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        o.secondary_weapon = Some(Weapon {
+            damage: 30.0,
+            range: 150.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        o.set_active_weapon_slot(1);
+        o
+    });
+    assert!(logic.choose_best_weapon_for_target(aid, None, 10.0));
+    assert_eq!(
+        logic.objects[&aid].active_weapon_slot, 0,
+        "unlocked chooseBest no-victim leftover-resets PRIMARY"
+    );
+
+    logic.objects.get_mut(&aid).unwrap().set_active_weapon_slot(1);
+    assert!(logic.unit_command_attack_ground(aid, glam::Vec3::new(20.0, 0.0, 0.0)));
+    assert_eq!(
+        logic.objects[&aid].active_weapon_slot, 0,
+        "unlocked attack-ground leftover-resets PRIMARY"
+    );
+    assert_eq!(
+        logic.objects[&aid].ai_state,
+        AIState::AttackingGround
+    );
+
+    assert!(logic.objects.get_mut(&aid).unwrap().set_weapon_lock(
+        1,
+        WeaponLockType::LockedTemporarily
+    ));
+    assert!(logic.unit_command_attack_ground(aid, glam::Vec3::new(25.0, 0.0, 0.0)));
+    assert_eq!(
+        logic.objects[&aid].active_weapon_slot, 1,
+        "locked attack-ground keeps the locked slot"
+    );
+    assert_eq!(logic.objects[&aid].weapon_lock_slot, 1);
+}
+
 
 #[test]
 fn hijack_hides_in_eject_capable_vehicle() {

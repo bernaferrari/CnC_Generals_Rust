@@ -483,8 +483,8 @@ impl Object {
         };
         let is_vehicle = self.is_kind_of(KindOf::Vehicle);
         let other_structure = other.is_kind_of(KindOf::Structure);
-        let other_immobile =
-            other_structure || other.is_kind_of(KindOf::Immobile) || !other.can_move();
+        // C++ otherImmobile = isKindOf(KINDOF_IMMOBILE); crash is inside that gate.
+        let other_immobile = other.is_kind_of(KindOf::Immobile);
         // C++ delta.z < 0 → host Y-up falling.
         let falling = self.movement.velocity.y < 0.0;
         vehicle_crash_into_immobile_outcome(

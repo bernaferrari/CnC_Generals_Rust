@@ -1332,6 +1332,9 @@ impl GameLogic {
     }
 
     /// Continue facing; returns true while the unit is still turning.
+    ///
+    /// Leftover-march ANGLE/`locoUpdate_moveTowardsAngle` (or POSITION_EXPLICIT
+    /// when minSpeed>0). Do not one-frame yaw-snap via `rotate_towards_position`.
     fn leftover_continue_facing(
         &mut self,
         object_id: ObjectId,
@@ -1347,8 +1350,13 @@ impl GameLogic {
         let Some(target_pos) = self.objects.get(&target_id).map(|t| t.get_position()) else {
             return false;
         };
+        let frame = self.frame;
         if let Some(obj) = self.objects.get_mut(&object_id) {
-            !obj.face_position(target_pos, dt.max(1.0 / 30.0))
+            if !obj.face_active {
+                obj.face_can_turn_in_place = obj.min_speed == 0.0;
+                obj.face_active = true;
+            }
+            obj.tick_face_towards(target_pos, dt.max(1.0 / 30.0), frame)
         } else {
             false
         }

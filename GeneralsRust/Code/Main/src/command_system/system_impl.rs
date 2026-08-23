@@ -248,11 +248,17 @@ impl CommandSystem {
                 ))
             }
             CommandMode::SpecialPower { power_type } => {
-                // Use special power
-                let target = if let Some(target_id) = context.target_object {
-                    PowerTarget::Object(target_id)
-                } else {
-                    PowerTarget::Location(context.world_position)
+                // C++ CommandXlat.cpp:1055-1078 NEED_TARGET_POS: always
+                // MSG_DO_SPECIAL_POWER_AT_LOCATION. Unit under the cursor is
+                // only the optional object-in-way id. Leftover ActionManager
+                // canDoSpecialPowerAtObject is FALSE for these types.
+                let target = match context.target_object {
+                    Some(target_id)
+                        if !leftover_special_power_is_location_target_only(power_type) =>
+                    {
+                        PowerTarget::Object(target_id)
+                    }
+                    _ => PowerTarget::Location(context.world_position),
                 };
 
                 Some(self.create_command(

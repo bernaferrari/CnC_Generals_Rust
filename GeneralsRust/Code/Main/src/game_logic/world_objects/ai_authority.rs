@@ -15,7 +15,7 @@ impl GameLogic {
         team: Team,
         can_attack: bool,
         frame: u32,
-        _dt: f32,
+        dt: f32,
     ) -> Option<AICommand> {
         let should_scan =
             |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
@@ -63,6 +63,23 @@ impl GameLogic {
             }
             return self.tick_attack_move_blocked_progress(object_id, frame);
         }
+
+        if self.tick_persisted_face(object_id, target_id, dt, frame) {
+            if matches!(ai_state, AIState::FacingObject | AIState::FacingPosition) {
+                // C++ AIFaceState SUCCESS → AI_IDLE. Apply host-immediate so
+                // decision-authority log-only SetAIState cannot leave FACE stuck.
+                if let Some(u) = self.objects.get_mut(&object_id) {
+                    u.set_ai_state(AIState::Idle);
+                }
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                    crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
+                }
+                return None;
+            }
+        } else if matches!(ai_state, AIState::FacingObject | AIState::FacingPosition) {
+            return None;
+        }
+
 
         // C++ AIAttackState / AIIdleState never auto-retreat on low HP.
         // Mood targeting (getNextMoodTarget) only issues aiAttackObject.
@@ -354,8 +371,65 @@ impl GameLogic {
                 // Continue until capture completes
                 None
             }
+
+            AIState::FacingObject | AIState::FacingPosition => None,
         }
     }
+
+    /// Leftover `AIFaceState::update` + ANGLE `locoUpdate_moveTowardsAngle`.
+    /// Returns true when Face just succeeded or the goal vanished.
+    fn tick_persisted_face(
+        &mut self,
+        object_id: ObjectId,
+        target_id: Option<ObjectId>,
+        dt: f32,
+        frame: u32,
+    ) -> bool {
+        let (active, facing_object, face_pos, ai) = match self.objects.get(&object_id) {
+            Some(o) => (
+                o.face_active,
+                matches!(o.ai_state, AIState::FacingObject),
+                o.face_goal_pos,
+                o.ai_state.clone(),
+            ),
+            None => return false,
+        };
+        if !active && !matches!(ai, AIState::FacingObject | AIState::FacingPosition) {
+            return false;
+        }
+        let target_pos = if facing_object || (active && face_pos.is_none()) {
+            let Some(tid) = target_id else {
+                if let Some(u) = self.objects.get_mut(&object_id) {
+                    u.face_active = false;
+                    u.set_locomotor_goal_none();
+                }
+                return true;
+            };
+            match self.objects.get(&tid).map(|o| o.get_position()) {
+                Some(p) => p,
+                None => {
+                    if let Some(u) = self.objects.get_mut(&object_id) {
+                        u.face_active = false;
+                        u.set_locomotor_goal_none();
+                    }
+                    return true;
+                }
+            }
+        } else if let Some(p) = face_pos {
+            p
+        } else {
+            if let Some(u) = self.objects.get_mut(&object_id) {
+                u.face_active = false;
+                u.set_locomotor_goal_none();
+            }
+            return true;
+        };
+        let Some(u) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
+        !u.tick_face_towards(target_pos, dt, frame)
+    }
+
 
     /// Apply AI command to the game state
     /// Engage a target, honoring AI decision authority (log-only when GameWorld applies).

@@ -108,6 +108,8 @@ pub fn host_ai_state_cpp_enum_name(state: &AIState) -> &'static str {
         AIState::SeekingHealing => "AI_GET_REPAIRED",
         AIState::Entering => "AI_ENTER",
         AIState::Capturing => "AI_BUSY",
+        AIState::FacingObject => "AI_FACE_OBJECT",
+        AIState::FacingPosition => "AI_FACE_POSITION",
     }
 }
 

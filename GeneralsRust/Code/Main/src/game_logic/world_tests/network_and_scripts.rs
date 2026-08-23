@@ -252,6 +252,51 @@ fn host_player_census_injected_for_script_player_conditions() {
     clear_host_script_query_snapshot();
 }
 
+#[test]
+fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use gamelogic::scripting::{clear_host_script_query_snapshot, host_query_player_census};
+
+    assert!(OBJECT_REGISTRY.is_empty());
+    clear_host_script_query_snapshot();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+
+    let mut field = ThingTemplate::new("TestInertRadiationField");
+    field.set_health(100.0);
+    field.add_kind_of(KindOf::Inert);
+    logic.templates.insert("TestInertRadiationField".into(), field);
+
+    logic
+        .create_object_for_player("TestInertRadiationField", 1, Vec3::new(10.0, 0.0, 20.0))
+        .expect("radiation field");
+    logic.inject_host_script_query_snapshot();
+    let census = host_query_player_census("PlyrAmerica").expect("host census");
+    assert!(
+        !census.has_any_objects,
+        "KINDOF_INERT keepalives must not stall PLAYER_ALL_DESTROYED"
+    );
+
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger.set_health(100.0);
+    ranger.add_kind_of(KindOf::Infantry);
+    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    logic
+        .create_object_for_player("AmericaInfantryRanger", 1, Vec3::new(12.0, 0.0, 22.0))
+        .expect("ranger");
+
+    logic.inject_host_script_query_snapshot();
+    let census = host_query_player_census("PlyrAmerica").expect("host census");
+    assert!(
+        census.has_any_objects,
+        "a living non-inert unit still counts"
+    );
+
+    clear_host_script_query_snapshot();
+}
+
+
 
 #[test]
 fn create_object_script_request_spawns_named_host_unit() {

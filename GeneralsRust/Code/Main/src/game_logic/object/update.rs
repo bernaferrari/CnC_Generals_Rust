@@ -211,6 +211,12 @@ impl Object {
         if self.shock_stun_frames > 0 {
             return;
         }
+        if self.locomotor_goal_type == LocoGoalType::Angle {
+            // C++ doLocomotor ANGLE — Face leftover-marches via
+            // locoUpdate_moveTowardsAngle; do not maintain/follow a path.
+            return;
+        }
+
         if matches!(self.ai_state, AIState::AttackMoving) && self.target.is_some() {
             let dest_walk = self.requested_destination.map(|dest| {
                 let near = |p: Vec3| {

@@ -1209,6 +1209,28 @@ pub fn choose_best_uses_backup(found_ready: bool, found_backup: bool) -> bool {
     !found_ready && found_backup
 }
 
+/// C++ WeaponSet.cpp:782-783 — locked current slot wins immediately.
+#[inline]
+pub fn choose_best_locked_slot(is_locked: bool, locked_slot: u8) -> Option<u8> {
+    is_locked.then_some(locked_slot)
+}
+
+/// C++ WeaponSet.cpp:785-790 — unlocked no-victim chooseBest resets PRIMARY.
+#[inline]
+pub fn choose_best_resets_primary_for_ground(is_locked: bool) -> bool {
+    !is_locked
+}
+
+/// C++ WeaponSet.cpp:782-790 — lock keeps slot; unlocked ground is PRIMARY.
+#[inline]
+pub fn choose_best_ground_attack_slot(is_locked: bool, locked_slot: u8) -> u8 {
+    if is_locked {
+        locked_slot
+    } else {
+        0
+    }
+}
+
 impl Default for WeaponSet {
     fn default() -> Self {
         Self::new()
@@ -1528,5 +1550,21 @@ mod tests {
         assert!(choose_best_uses_backup(false, true));
         assert!(!choose_best_uses_backup(true, true));
         assert!(!choose_best_uses_backup(false, false));
+    }
+
+    #[test]
+    fn choose_best_lock_keeps_current_slot() {
+        assert_eq!(choose_best_locked_slot(true, 1), Some(1));
+        assert_eq!(choose_best_locked_slot(true, 2), Some(2));
+        assert_eq!(choose_best_locked_slot(false, 1), None);
+    }
+
+    #[test]
+    fn choose_best_ground_resets_primary_unless_locked() {
+        assert!(choose_best_resets_primary_for_ground(false));
+        assert!(!choose_best_resets_primary_for_ground(true));
+        assert_eq!(choose_best_ground_attack_slot(false, 1), 0);
+        assert_eq!(choose_best_ground_attack_slot(true, 1), 1);
+        assert_eq!(choose_best_ground_attack_slot(true, 2), 2);
     }
 }
