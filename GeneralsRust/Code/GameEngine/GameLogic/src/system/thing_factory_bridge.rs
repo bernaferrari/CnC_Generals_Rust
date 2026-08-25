@@ -3,13 +3,13 @@
 use crate::common::{Coord3D, ObjectStatusMaskType as GameLogicStatusMask};
 use crate::helpers::{TheGameClient, TheThingFactory};
 use crate::object::Object as GameLogicObject;
-use crate::object_manager::{get_object_manager, ObjectCreationFlags};
+use crate::object_manager::{ObjectCreationFlags, get_object_manager};
 use crate::team::get_team_factory;
 use crate::upgrade_legacy::upgrade_mask_for_ascii;
 use game_engine::common::thing::module as engine_module;
 use game_engine::common::thing::thing_factory::{
-    set_drawable_creator, set_object_creator, DrawableCreator, DrawableStatus, ObjectCreator,
-    ObjectStatusMaskType, Team as EngineTeam, ThingCreationError,
+    DrawableCreator, DrawableStatus, ObjectCreator, ObjectStatusMaskType, Team as EngineTeam,
+    ThingCreationError, set_drawable_creator, set_object_creator,
 };
 use game_engine::common::thing::thing_template::ThingTemplate;
 use std::sync::{Arc, RwLock};

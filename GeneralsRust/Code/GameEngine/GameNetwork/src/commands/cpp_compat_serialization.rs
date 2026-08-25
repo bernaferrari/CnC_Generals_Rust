@@ -216,9 +216,7 @@ pub fn deserialize_command_cpp_compat(data: &[u8]) -> NetworkResult<NetCommandRe
 
     trace!(
         "Deserialized C++ compat command type={:?} id={} frame={}",
-        cmd_type,
-        cmd_id,
-        frame
+        cmd_type, cmd_id, frame
     );
 
     Ok(NetCommandRef {

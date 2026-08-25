@@ -5,12 +5,12 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::common::xfer::XferExt;
 use crate::common::ObjectStatus;
+use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, CommandSourceType, Coord3D, DisabledType, Int, ModelConditionFlag, ObjectID,
+    AsciiString, Bool, CommandSourceType, Coord3D, DisabledType, FROM_BOUNDING_SPHERE_2D,
+    FROM_CENTER_3D, INVALID_ID, Int, LOGICFRAMES_PER_SECOND, ModelConditionFlag, ObjectID,
     ObjectStatusMaskType, Real, Relationship, UnsignedInt, WeaponBonusConditionType,
-    FROM_BOUNDING_SPHERE_2D, FROM_CENTER_3D, INVALID_ID, LOGICFRAMES_PER_SECOND,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
@@ -20,9 +20,9 @@ use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, BodyModuleInterfaceExt, SlavedUpdateInterface,
     StealthControllerExt, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};

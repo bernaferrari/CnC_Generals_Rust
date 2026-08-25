@@ -39,6 +39,9 @@ pub fn parse_dazzle_chunk(data: &[u8]) -> Option<W3dDazzleProto> {
 }
 
 fn w3d_cstring_payload(payload: &[u8]) -> String {
-    let end = payload.iter().position(|&b| b == 0).unwrap_or(payload.len());
+    let end = payload
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(payload.len());
     String::from_utf8_lossy(&payload[..end]).into_owned()
 }

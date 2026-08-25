@@ -77,8 +77,8 @@ pub fn residual_presentation_object_fx_particles_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_object_fx_particles_last_action(
-) -> ResidualPresentationObjectFxParticlesAction {
+pub fn residual_presentation_object_fx_particles_last_action()
+-> ResidualPresentationObjectFxParticlesAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationObjectFxParticlesAction::MethodNames,
         2 => ResidualPresentationObjectFxParticlesAction::SourceMarkers,

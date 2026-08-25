@@ -585,7 +585,7 @@ pub mod async_streaming {
 mod tests {
     use super::*;
     use std::io::{Cursor, Write};
-    use tempfile::{tempdir, NamedTempFile};
+    use tempfile::{NamedTempFile, tempdir};
 
     #[test]
     fn test_streaming_config() {

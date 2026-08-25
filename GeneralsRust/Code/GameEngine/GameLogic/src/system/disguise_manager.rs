@@ -141,9 +141,7 @@ impl DisguiseManager {
 
         trace!(
             "Set disguise for object {} as template {} for player {:?}",
-            object_id,
-            template_name,
-            player_id
+            object_id, template_name, player_id
         );
         Ok(())
     }
@@ -199,9 +197,7 @@ impl DisguiseManager {
 
         trace!(
             "Set friendly opacity for object {} to min={}, max={}",
-            object_id,
-            min_opacity,
-            max_opacity
+            object_id, min_opacity, max_opacity
         );
         Ok(())
     }
@@ -467,9 +463,11 @@ mod disguise_tests {
         manager.register_object(1).unwrap();
 
         // Set disguise as specific template
-        assert!(manager
-            .set_disguise(1, "MediumTank".to_string(), Some(0))
-            .is_ok());
+        assert!(
+            manager
+                .set_disguise(1, "MediumTank".to_string(), Some(0))
+                .is_ok()
+        );
 
         // Check disguise was set
         assert_eq!(manager.get_disguise(1).unwrap(), "MediumTank".to_string());

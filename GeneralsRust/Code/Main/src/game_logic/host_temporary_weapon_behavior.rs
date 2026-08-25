@@ -16,12 +16,12 @@
 //! - `UpgradeMux` / `DieMuxData`
 
 use crate::assets::BehaviorModuleDefinition;
-use crate::game_logic::host_enum_table_residual::{
-    damage_type_bit_name_index, death_type_name_index, object_status_bit_name_index,
-    veterancy_level_name_index, DAMAGE_NUM_TYPES, DEATH_NUM_TYPES, OBJECT_STATUS_COUNT,
-    VETERANCY_LEVEL_COUNT,
-};
 use crate::game_logic::ObjectId;
+use crate::game_logic::host_enum_table_residual::{
+    DAMAGE_NUM_TYPES, DEATH_NUM_TYPES, OBJECT_STATUS_COUNT, VETERANCY_LEVEL_COUNT,
+    damage_type_bit_name_index, death_type_name_index, object_status_bit_name_index,
+    veterancy_level_name_index,
+};
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use serde::{Deserialize, Serialize};
 
@@ -197,7 +197,6 @@ impl FireWeaponUpgradeMuxMetadata {
                 .any(|need| Self::owns_named_upgrade(owned, need))
     }
 }
-
 
 /// The four C++ `BodyDamageType` choices used by this behavior.
 #[repr(u8)]
@@ -551,7 +550,11 @@ impl TemporaryWeaponRuntimeState {
     /// Wire only the C++ `Weapon::xfer` payload.  The Rust ownership key is
     /// supplied by the containing behavior's fixed role order and is never
     /// serialized as an extra C++ Weapon field.
-    fn xfer_payload(&mut self, xfer: &mut dyn Xfer, key: TemporaryWeaponRuntimeKey) -> SaveLoadResult<()> {
+    fn xfer_payload(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        key: TemporaryWeaponRuntimeKey,
+    ) -> SaveLoadResult<()> {
         const CURRENT_VERSION: crate::save_load::XferVersion = TEMPORARY_WEAPON_XFER_VERSION;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)?;
@@ -572,7 +575,7 @@ impl TemporaryWeaponRuntimeState {
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid temporary Weapon slot {other}"
-                )))
+                )));
             }
         };
 
@@ -589,7 +592,7 @@ impl TemporaryWeaponRuntimeState {
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid temporary Weapon status {other}"
-                )))
+                )));
             }
         };
         xfer.xfer_marker_label("AmmoInClip")?;
@@ -880,7 +883,10 @@ impl TemporaryWeaponRuntimeBundle {
     /// Missing WeaponStore templates fail closed for that individual C++
     /// pointer, just as `findWeaponTemplate("None")` yields null; no
     /// template-name or object-kind fallback is permitted here.
-    pub fn from_thing_template(template: &crate::game_logic::ThingTemplate, logic_frame: u32) -> Self {
+    pub fn from_thing_template(
+        template: &crate::game_logic::ThingTemplate,
+        logic_frame: u32,
+    ) -> Self {
         let damaged = template
             .fire_weapon_when_damaged_behaviors
             .iter()
@@ -1103,10 +1109,9 @@ impl XferData for TemporaryWeaponRuntimeBundle {
 fn temporary_weapon_defaults_for_name(
     name: &str,
 ) -> Option<(TemporaryWeaponConstructionDefaults, String)> {
-    let template = gamelogic::weapon::with_weapon_store(|store| {
-        store.find_weapon_template(name).cloned()
-    })
-    .ok()??;
+    let template =
+        gamelogic::weapon::with_weapon_store(|store| store.find_weapon_template(name).cloned())
+            .ok()??;
     Some((
         TemporaryWeaponConstructionDefaults {
             min_target_pitch: template.min_target_pitch,
@@ -1627,11 +1632,13 @@ mod tests {
         assert!(dead.required_status.contains_ordinal(44));
         assert!(dead.die_mux_allows(4, 1, 1u64 << 44));
         assert!(!dead.die_mux_allows(4, 1, (1u64 << 44) | (1u64 << 3)));
-        assert!(FireWeaponWhenDeadRuntimeState {
-            module_source_index: 4,
-            upgrade_executed: true,
-        }
-        .belongs_to_metadata(&dead));
+        assert!(
+            FireWeaponWhenDeadRuntimeState {
+                module_source_index: 4,
+                upgrade_executed: true,
+            }
+            .belongs_to_metadata(&dead)
+        );
 
         let defaults = module("FireWeaponWhenDamagedBehavior", None, &[]);
         let defaults = parse_fire_weapon_when_damaged_metadata(&defaults, 0).expect("defaults");
@@ -1653,7 +1660,6 @@ mod tests {
         assert!(!mux.triggered_by_owned(&[]));
         assert!(mux.triggered_by_owned(&["Upgrade_HE"]));
     }
-
 
     #[test]
     fn rejects_non_cxx_flag_or_bool_syntax_instead_of_guessing() {
@@ -1718,9 +1724,11 @@ mod tests {
         assert_eq!(specs.len(), 2);
         assert_ne!(specs[0].key, specs[1].key);
         assert_eq!(specs[0].weapon_template_name, specs[1].weapon_template_name);
-        assert!(specs
-            .iter()
-            .all(|spec| spec.weapon_slot == TemporaryWeaponSlot::Primary));
+        assert!(
+            specs
+                .iter()
+                .all(|spec| spec.weapon_slot == TemporaryWeaponSlot::Primary)
+        );
 
         let mut runtime = FireWeaponWhenDamagedRuntimeState {
             module_source_index: 9,
@@ -1761,14 +1769,18 @@ mod tests {
             runtime.weapon(specs[1].key).map(|state| state.status),
             Some(TemporaryWeaponStatus::ReadyToFire)
         );
-        assert!(runtime
-            .weapon(specs[0].key)
-            .unwrap()
-            .matches_spec(&specs[0]));
-        assert!(runtime
-            .weapon(specs[1].key)
-            .unwrap()
-            .matches_spec(&specs[1]));
+        assert!(
+            runtime
+                .weapon(specs[0].key)
+                .unwrap()
+                .matches_spec(&specs[0])
+        );
+        assert!(
+            runtime
+                .weapon(specs[1].key)
+                .unwrap()
+                .matches_spec(&specs[1])
+        );
         assert_eq!(runtime.next_call_frame_and_phase, 0x1234_567a);
     }
 

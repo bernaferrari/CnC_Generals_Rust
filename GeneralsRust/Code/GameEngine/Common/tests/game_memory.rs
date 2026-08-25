@@ -9,8 +9,8 @@
 //! sizes may round up slightly vs C++ — that is OK.
 
 use game_engine::common::system::game_memory::{
-    debug_block_header_from_user, debug_write_header_pointer_fields, MemoryPoolFactory,
-    MEM_BOUND_ALIGNMENT,
+    MEM_BOUND_ALIGNMENT, MemoryPoolFactory, debug_block_header_from_user,
+    debug_write_header_pointer_fields,
 };
 use std::ptr;
 

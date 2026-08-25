@@ -76,8 +76,8 @@ pub fn residual_presentation_particle_spawn_audio_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_particle_spawn_audio_last_action(
-) -> ResidualPresentationParticleSpawnAudioAction {
+pub fn residual_presentation_particle_spawn_audio_last_action()
+-> ResidualPresentationParticleSpawnAudioAction {
     ResidualPresentationParticleSpawnAudioAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

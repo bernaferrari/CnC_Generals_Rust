@@ -8,11 +8,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::action_manager::TheActionManager;
 use crate::ai::object_registry::get_legacy_object;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::{ObjectID, Real, UnsignedInt, INVALID_ID, LOGICFRAMES_PER_SECOND};
+use crate::common::{INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID, Real, UnsignedInt};
 use crate::helpers::{TheGameLogic, TheGameText, TheGlobalData, TheInGameUI, ThePartitionManager};
 use crate::modules::{AIUpdateInterface, POWTruckAIUpdateInterface};
 use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -50,7 +50,6 @@ fn format_gui_add_cash(amount: u32) -> String {
         format!("{}{}", template, amount)
     }
 }
-
 
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug, Clone)]
@@ -205,9 +204,7 @@ mod tests {
     #[test]
     fn find_best_target_requires_quick_path() {
         let src = include_str!("pow_truck_ai_update.rs");
-        let start = src
-            .find("fn find_best_target(")
-            .expect("find_best_target");
+        let start = src.find("fn find_best_target(").expect("find_best_target");
         let body = &src[start..start + 2200];
         assert!(
             body.contains("is_quick_path_available"),
@@ -240,7 +237,6 @@ mod tests {
         assert!(src.contains("pub fn on_player_command"));
         assert!(src.contains("POWTruckTask::Waiting"));
     }
-
 }
 
 /// Module wrapper for POWTruckAIUpdate to align with module system expectations.
@@ -395,7 +391,6 @@ impl POWTruckAIUpdate {
     pub fn on_player_command(&mut self) {
         self.set_task(POWTruckTask::Waiting, None);
     }
-
 
     pub fn update(
         &mut self,
@@ -940,11 +935,7 @@ impl POWTruckAIUpdate {
                             pf.read()
                                 .ok()
                                 .map(|guard| {
-                                    guard.client_safe_quick_does_path_exist(
-                                        loco,
-                                        &owner_pos,
-                                        &dest,
-                                    )
+                                    guard.client_safe_quick_does_path_exist(loco, &owner_pos, &dest)
                                 })
                                 .unwrap_or(false)
                         })
@@ -1065,9 +1056,7 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                 if let Some(player) = owner_guard.get_controlling_player() {
                     if let Ok(mut player_guard) = player.write() {
                         let _ = player_guard.get_money_mut().deposit(bounty);
-                        player_guard
-                            .get_score_keeper_mut()
-                            .add_money_earned(bounty);
+                        player_guard.get_score_keeper_mut().add_money_earned(bounty);
                     }
                 }
 

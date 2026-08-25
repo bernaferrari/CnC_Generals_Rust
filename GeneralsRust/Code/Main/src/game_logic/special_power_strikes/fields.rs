@@ -205,7 +205,6 @@ pub struct HostSpectreOrbitField {
     #[serde(default)]
     pub ok_to_fire_howitzer_counter: u32,
 
-
     pub spawn_frame: u32,
     pub expires_frame: u32,
     /// Next absolute frame at which howitzer residual ticks apply.
@@ -444,8 +443,6 @@ impl HostSpectreOrbitField {
         self.gattling_target_position = next;
         self.ok_to_fire_howitzer_counter = counter;
     }
-
-
 }
 
 /// Deterministic residual RandomOffsetForHowitzer for howitzer tick index.

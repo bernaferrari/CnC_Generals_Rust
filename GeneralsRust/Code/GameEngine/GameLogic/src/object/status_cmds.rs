@@ -65,8 +65,8 @@ impl Object {
         let Some(helper) = &self.repulsor_helper else {
             return;
         };
-        let wake_frame = crate::helpers::TheGameLogic::get_frame()
-            .saturating_add(2 * LOGICFRAMES_PER_SECOND);
+        let wake_frame =
+            crate::helpers::TheGameLogic::get_frame().saturating_add(2 * LOGICFRAMES_PER_SECOND);
         if let Ok(mut guard) = helper.lock() {
             guard.wake_for_clear(wake_frame);
         }

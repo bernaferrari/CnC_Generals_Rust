@@ -1,7 +1,5 @@
 use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::ini::ini_command_button::{
-    get_control_bar_mut, initialize_control_bar,
-};
+use game_engine::common::ini::ini_command_button::{get_control_bar_mut, initialize_control_bar};
 use game_engine::common::ini::ini_command_set::{
     get_command_set_manager, initialize_command_set_manager,
 };
@@ -39,7 +37,6 @@ End
         .expect("map.ini CREATE_OVERRIDES must dispatch CommandSet/Upgrade");
     assert!(applied >= 2, "expected CommandSet+Upgrade, got {applied}");
 
-
     let manager = get_command_set_manager().expect("CommandSet manager");
     let set = manager
         .find_command_set_resolved("MapIniDozerCommandSet")
@@ -57,5 +54,3 @@ End
         .expect("map.ini Upgrade CREATE_OVERRIDES must apply");
     assert_eq!(upgrade.display_name.as_str(), "MapOverrideCapture");
 }
-
-

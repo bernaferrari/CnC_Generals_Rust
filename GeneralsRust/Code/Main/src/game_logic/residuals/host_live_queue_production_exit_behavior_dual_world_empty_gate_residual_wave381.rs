@@ -44,8 +44,8 @@ pub const RUNTIME_HOST_LIVE_QUEUE_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE
 
 /// Honesty: method names residual pack.
 // 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
-pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_method_names_residual_wave381(
-) -> bool {
+pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_method_names_residual_wave381()
+-> bool {
     LIVE_QUEUE_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE381.len() == 4
         && residual_name_index(
             LIVE_QUEUE_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE381,
@@ -62,8 +62,8 @@ pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_method_
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_nav_commands_residual_wave381(
-) -> bool {
+pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_nav_commands_residual_wave381()
+-> bool {
     LIVE_QUEUE_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE381.len() == 4
         && residual_name_index(
             LIVE_QUEUE_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE381,
@@ -79,8 +79,8 @@ pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_nav_com
 }
 
 /// Wave 381 composite residual honesty pack.
-pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_residual_pack_wave381(
-) -> bool {
+pub fn honesty_live_queue_production_exit_behavior_dual_world_empty_gate_residual_pack_wave381()
+-> bool {
     honesty_live_queue_production_exit_behavior_dual_world_empty_gate_method_names_residual_wave381()
         && honesty_live_queue_production_exit_behavior_dual_world_empty_gate_nav_commands_residual_wave381()
 }
@@ -128,7 +128,7 @@ pub fn honesty_queue_production_exit_behavior_dual_world_empty_gate_source() -> 
     {
         return false;
     }
-        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
     let helper_ok = g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()")
         && g.contains("false");

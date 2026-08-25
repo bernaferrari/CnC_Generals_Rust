@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use wp_audio::{AudioSystemConfig, Priority, Volume};
 
 fn benchmark_volume_conversion(c: &mut Criterion) {

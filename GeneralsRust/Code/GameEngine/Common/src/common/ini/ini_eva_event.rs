@@ -40,7 +40,7 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::common::ini::{INIError, INIResult, INI};
+use crate::common::ini::{INI, INIError, INIResult};
 
 /// EVA message enumeration
 /// Matches C++ EvaMessage enum from Eva.h lines 29-80

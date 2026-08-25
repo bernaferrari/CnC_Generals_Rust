@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{
-    unwrap_special_zero_slot_rider, ContainerIniParse, ContainerInterface, ObjectTemplate,
+    ContainerIniParse, ContainerInterface, ObjectTemplate, unwrap_special_zero_slot_rider,
 };
 use crate::common::{
     DisabledType, GameResult, KindOf, ModelConditionState, ObjectID, PlayerMaskType,
@@ -16,11 +16,11 @@ use crate::common::{
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
+use crate::object::Object;
 use crate::object::contain::OpenContain;
 use crate::object::contain::open_contain::ObjectRelationship;
-use crate::object::Object;
 use crate::object::production::AIFreeToExitType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data for MobNexusContain module
@@ -357,12 +357,7 @@ impl MobNexusContain {
                 if let Some((parent_vel, parent_ok)) = self.with_owner_object(|owner| {
                     owner
                         .get_physics()
-                        .and_then(|physics| {
-                            physics
-                                .lock()
-                                .ok()
-                                .map(|p| (p.get_velocity(), true))
-                        })
+                        .and_then(|physics| physics.lock().ok().map(|p| (p.get_velocity(), true)))
                         .unwrap_or_default()
                 }) {
                     let _ = parent_ok;
@@ -749,11 +744,7 @@ impl ContainModuleInterface for MobNexusContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

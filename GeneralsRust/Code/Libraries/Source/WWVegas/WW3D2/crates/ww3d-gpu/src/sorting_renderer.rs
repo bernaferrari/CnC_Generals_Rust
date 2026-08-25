@@ -4,7 +4,7 @@
 //! Objects are sorted back-to-front based on camera distance to ensure correct
 //! alpha blending.
 
-use crate::{pipeline, GpuBuffer};
+use crate::{GpuBuffer, pipeline};
 use parking_lot::Mutex;
 use std::sync::Arc;
 

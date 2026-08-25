@@ -3,7 +3,7 @@
 //! Used by the crate translator and exported for the live host click path.
 
 use super::game_message::Coord3D;
-use crate::eva::{get_eva, EvaMessage};
+use crate::eva::{EvaMessage, get_eva};
 use crate::helpers::{PendingSpecialPower, TheInGameUI};
 use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::common::audio::AudioEventRts;

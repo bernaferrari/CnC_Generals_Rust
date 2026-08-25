@@ -7,12 +7,11 @@
 use std::any::Any;
 use std::sync::atomic::AtomicU8;
 
-
 use crate::drawable::DrawableShroudClearState;
 use crate::drawable_info::DrawableInfo;
 use game_engine::common::audio::audio_event_rts::AudioEventRts;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
-use game_engine::common::bit_flags::{create_model_condition_flags, ModelConditionBitFlags};
+use game_engine::common::bit_flags::{ModelConditionBitFlags, create_model_condition_flags};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
 mod basic_core;
@@ -21,12 +20,12 @@ mod basic_modules;
 mod basic_overlay;
 mod basic_visual;
 mod condition_apply;
-mod hidden_status;
-mod selection_flash;
 mod draw_module;
 mod drawable_trait;
+mod hidden_status;
 mod icons;
 mod leftover;
+mod selection_flash;
 mod snapshot;
 mod tint_envelope;
 mod types;
@@ -35,24 +34,24 @@ mod xfer;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use types::{xfer_vector3, DEFAULT_STEALTH_FRIENDLY_OPACITY};
+pub(crate) use types::{DEFAULT_STEALTH_FRIENDLY_OPACITY, xfer_vector3};
 
 pub use types::{
-    format_under_construction_desc, health_bar_colors, Color, DrawableId, DrawableOverlayData,
-    DrawableStatus, DrawableXferVisualSnapshot, ICoord2D, IRegion2D, Matrix4, StealthLook,
-    TintStatus, Vector3, DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR, FRENZY_COLOR_INFANTRY,
-    INVALID_DRAWABLE_ID, RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
+    Color, DARK_GRAY_DISABLED_COLOR, DrawableId, DrawableOverlayData, DrawableStatus,
+    DrawableXferVisualSnapshot, FRENZY_COLOR, FRENZY_COLOR_INFANTRY, ICoord2D, INVALID_DRAWABLE_ID,
+    IRegion2D, Matrix4, RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
+    StealthLook, TintStatus, Vector3, format_under_construction_desc, health_bar_colors,
 };
 
 pub use icons::{Anim2DIcon, Icon, IconInfo, IconType};
 
-pub(crate) use tint_envelope::{envelope_state_from_u8, envelope_state_to_u8, snap_denorm};
 pub use tint_envelope::{
-    EnvelopeState, FadingMode, LocoInfo, TintEnvelope, WheelInfo, DEFAULT_TINT_COLOR_FADE_RATE,
-    DEF_ATTACK_FRAMES, DEF_DECAY_FRAMES, DEF_SUSTAIN_FRAMES, DRAWABLE_FRAMES_PER_FLASH,
-    MATERIAL_PASS_OPACITY_FADE_SCALAR, SUSTAIN_INDEFINITELY,
-    VERY_TRANSPARENT_MATERIAL_PASS_OPACITY,
+    DEF_ATTACK_FRAMES, DEF_DECAY_FRAMES, DEF_SUSTAIN_FRAMES, DEFAULT_TINT_COLOR_FADE_RATE,
+    DRAWABLE_FRAMES_PER_FLASH, EnvelopeState, FadingMode, LocoInfo,
+    MATERIAL_PASS_OPACITY_FADE_SCALAR, SUSTAIN_INDEFINITELY, TintEnvelope,
+    VERY_TRANSPARENT_MATERIAL_PASS_OPACITY, WheelInfo,
 };
+pub(crate) use tint_envelope::{envelope_state_from_u8, envelope_state_to_u8, snap_denorm};
 
 pub use draw_module::{
     BoneData, DrawModule, FXListRef, LogicDrawModuleSnapshotAdapter, TerrainDecalType,

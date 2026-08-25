@@ -6,11 +6,11 @@
 use crate::core::error::{Error, RendererResult};
 use crate::core::ww3dformat::{FormatManager, WW3DFormat};
 use crate::rendering::texture_decode::{
-    decode_texture_file, TextureData, TextureDataKind, TextureMipLevel,
+    TextureData, TextureDataKind, TextureMipLevel, decode_texture_file,
 };
 use crate::rendering::texture_quality;
 use crate::rendering::texture_system::texture_base::{
-    PoolType, TextureBaseClass, TextureUsagePolicy, MISSING_TEXTURE_NAME,
+    MISSING_TEXTURE_NAME, PoolType, TextureBaseClass, TextureUsagePolicy,
 };
 use log::warn;
 use std::collections::HashMap;
@@ -440,7 +440,9 @@ impl TextureLoader {
         let mut candidates = Vec::new();
         if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
             candidates.push(
-                PathBuf::from(manifest).join("assets").join(MISSING_TEXTURE_NAME),
+                PathBuf::from(manifest)
+                    .join("assets")
+                    .join(MISSING_TEXTURE_NAME),
             );
         }
         candidates.push(PathBuf::from("assets").join(MISSING_TEXTURE_NAME));
@@ -559,8 +561,8 @@ fn w3d_texture_cache_key(name: &str, request: &TextureDescriptorRequest) -> Stri
 #[cfg(test)]
 mod tests {
     use super::{
-        texture_request_from_w3d_descriptor, w3d_texture_cache_key, w3d_texture_name,
         PendingTextureLoad, TextureDescriptorRequest, TextureLoadPriority, TextureLoader,
+        texture_request_from_w3d_descriptor, w3d_texture_cache_key, w3d_texture_name,
     };
     use crate::core::WW3DFormat;
     use crate::rendering::texture_system::texture_base::TextureAddressMode;

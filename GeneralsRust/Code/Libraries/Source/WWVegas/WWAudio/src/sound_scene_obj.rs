@@ -1,9 +1,9 @@
 //! Base representation of sound objects inserted into the virtual audio scene.
 
 use crate::{
+    Priority,
     math::{Matrix3D, Vector3},
     sound_types::{SoundClassId, SoundFlags, SoundState},
-    Priority,
 };
 
 /// Unique identifier for scene objects.

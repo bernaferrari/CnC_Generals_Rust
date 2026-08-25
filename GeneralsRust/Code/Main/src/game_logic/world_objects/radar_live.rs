@@ -10,9 +10,9 @@
 use super::super::*;
 
 use game_engine::common::system::radar::{
-    get_radar_system, register_radar_map_source, register_radar_object_provider,
-    resolve_radar_object_color, Coord3D, RadarMapSource, RadarObject, RadarObjectInsert,
-    RadarObjectProvider, RadarPriorityType,
+    Coord3D, RadarMapSource, RadarObject, RadarObjectInsert, RadarObjectProvider,
+    RadarPriorityType, get_radar_system, register_radar_map_source, register_radar_object_provider,
+    resolve_radar_object_color,
 };
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -284,11 +284,7 @@ impl GameLogic {
 
     /// C++ `ContainModuleInterface::getApparentControllingPlayer(local)`.
     /// Stealth-garrison hide returns the original team's player to non-allies.
-    fn host_contain_apparent(
-        &self,
-        obj: &Object,
-        owner_color: u32,
-    ) -> (Option<i32>, Option<u32>) {
+    fn host_contain_apparent(&self, obj: &Object, owner_color: u32) -> (Option<i32>, Option<u32>) {
         let occupants = obj.contained_units();
         let hide = obj
             .building_data
@@ -314,7 +310,6 @@ impl GameLogic {
                     .players
                     .get(&pid)
                     .map(|p| pack_player_color_argb(p.house_color_rgb()))
-
                     .unwrap_or(owner_color);
                 return (Some(pid as i32), Some(color));
             }
@@ -335,14 +330,12 @@ impl GameLogic {
                 .players
                 .get(&pid)
                 .map(|p| pack_player_color_argb(p.house_color_rgb()))
-
                 .unwrap_or(owner_color);
             (Some(pid as i32), Some(color))
         } else {
             (None, None)
         }
     }
-
 
     fn host_radar_insert_spec(&self, obj: &Object) -> RadarObjectInsert {
         let owner_id = obj.owner_player_id;
@@ -375,7 +368,6 @@ impl GameLogic {
 
         let (contain_apparent_player_index, contain_apparent_color) =
             self.host_contain_apparent(obj, owner_color);
-
 
         let pos = obj.get_position();
         let mut radar_obj = RadarObject::new(obj.id.0);
@@ -600,7 +592,6 @@ impl GameLogic {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -625,7 +616,8 @@ mod tests {
         logic.host_radar_add_object(id);
 
         {
-            let radar = get_radar_system().read().expect("radar");
+            let radar_system = get_radar_system();
+            let radar = radar_system.read().expect("radar");
             let blip = radar
                 .get_all_objects()
                 .find(|o| o.object_id == id.0)
@@ -642,7 +634,8 @@ mod tests {
         }
         logic.host_radar_sync_live_objects();
 
-        let radar = get_radar_system().read().expect("radar");
+        let radar_system = get_radar_system();
+        let radar = radar_system.read().expect("radar");
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == id.0)
@@ -675,7 +668,8 @@ mod tests {
             .create_object_for_player("Decoy", 1, Vec3::new(2.0, 0.0, 2.0))
             .expect("spawn");
         logic.host_radar_add_object(id);
-        let radar = get_radar_system().read().expect("radar");
+        let radar_system = get_radar_system();
+        let radar = radar_system.read().expect("radar");
         assert!(
             radar.get_all_objects().all(|o| o.object_id != id.0),
             "authored NOT_ON_RADAR must not leak a KindOf infantry blip"
@@ -697,7 +691,8 @@ mod tests {
             obj.drawable_hidden = true;
         }
         logic.host_radar_add_object(id);
-        let radar = get_radar_system().read().expect("radar");
+        let radar_system = get_radar_system();
+        let radar = radar_system.read().expect("radar");
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == id.0)
@@ -714,7 +709,9 @@ mod tests {
         logic.add_player(Player::new(1, Team::USA, "USA", true));
         let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
         humvee.add_kind_of(KindOf::Vehicle).set_health(200.0);
-        logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".into(), humvee);
         let mut burton = ThingTemplate::new("ColonelBurton");
         burton
             .add_kind_of(KindOf::Hero)
@@ -735,12 +732,16 @@ mod tests {
             "C++ Object::isHero walks contained KINDOF_HERO"
         );
         logic.host_radar_add_object(container);
-        let radar = get_radar_system().read().expect("radar");
+        let radar_system = get_radar_system();
+        let radar = radar_system.read().expect("radar");
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == container.0)
             .expect("blip");
-        assert!(blip.is_hero, "Chinook/Humvee carrying Burton is a hero blip");
+        assert!(
+            blip.is_hero,
+            "Chinook/Humvee carrying Burton is a hero blip"
+        );
     }
 
     #[test]
@@ -757,7 +758,8 @@ mod tests {
             obj.apply_convert_to_car_bomb();
         }
         logic.host_radar_add_object(id);
-        let radar = get_radar_system().read().expect("radar");
+        let radar_system = get_radar_system();
+        let radar = radar_system.read().expect("radar");
         let blip = radar
             .get_all_objects()
             .find(|o| o.object_id == id.0)
@@ -770,7 +772,8 @@ mod tests {
         use crate::game_logic::host_radar::host_create_radar_event;
         use game_engine::common::system::radar::RadarEventType;
         host_create_radar_event(Vec3::new(40.0, 0.0, 80.0), RadarEventType::Construction);
-        let radar = get_radar_system().read().expect("radar");
+        let radar_system = get_radar_system();
+        let radar = radar_system.read().expect("radar");
         let loc = radar.get_last_event_loc().expect("last event");
         assert!((loc.x - 40.0).abs() < 0.01);
         assert!((loc.y - 80.0).abs() < 0.01);
@@ -954,9 +957,7 @@ mod tests {
         logic.add_player(civ);
 
         let mut bunker_tpl = ThingTemplate::new("CivBunker");
-        bunker_tpl
-            .add_kind_of(KindOf::Structure)
-            .set_health(1000.0);
+        bunker_tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
         bunker_tpl.garrison_contain_max = Some(5);
         logic.templates.insert("CivBunker".into(), bunker_tpl);
 
@@ -1015,9 +1016,7 @@ mod tests {
         logic.add_player(civ);
 
         let mut bunker_tpl = ThingTemplate::new("CivBunker");
-        bunker_tpl
-            .add_kind_of(KindOf::Structure)
-            .set_health(1000.0);
+        bunker_tpl.add_kind_of(KindOf::Structure).set_health(1000.0);
         bunker_tpl.garrison_contain_max = Some(5);
         logic.templates.insert("CivBunker".into(), bunker_tpl);
         let mut ninja_tpl = ThingTemplate::new("JarmenKell");
@@ -1050,10 +1049,7 @@ mod tests {
             Some(1),
             "ally must see occupier, not civilian original"
         );
-        assert_eq!(
-            resolve_radar_object_color(&spec),
-            pack_rgb((80, 160, 255))
-        );
+        assert_eq!(resolve_radar_object_color(&spec), pack_rgb((80, 160, 255)));
     }
 
     /// C++ StealthUpdate.cpp:481-485 — defeated/observer local is ALLIES.
@@ -1107,6 +1103,4 @@ mod tests {
             "observer local also sees enemy stealth blips"
         );
     }
-
-
 }

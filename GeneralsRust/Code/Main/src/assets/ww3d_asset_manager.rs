@@ -443,8 +443,7 @@ impl WW3DAssetManager {
 
         discovered.insert(
             0,
-            default_object_ini
-                .unwrap_or_else(|| "Data/INI/Default/Object.ini".to_string()),
+            default_object_ini.unwrap_or_else(|| "Data/INI/Default/Object.ini".to_string()),
         );
         discovered
     }
@@ -562,23 +561,23 @@ impl WW3DAssetManager {
             .get(&lookup_key)
             .cloned()
             .unwrap_or_else(|| name.to_string());
-        let mut definition = if let Some(existing) = self.object_definitions.get(&canonical).cloned()
-        {
-            existing
-        } else if !reskin_from.is_empty() {
-            if let Some(parent) = self.resolve_object_definition(reskin_from, None).cloned() {
-                let mut child = parent;
-                child.name = name.to_string();
-                child.parent_name = Some(reskin_from.to_string());
-                child
+        let mut definition =
+            if let Some(existing) = self.object_definitions.get(&canonical).cloned() {
+                existing
+            } else if !reskin_from.is_empty() {
+                if let Some(parent) = self.resolve_object_definition(reskin_from, None).cloned() {
+                    let mut child = parent;
+                    child.name = name.to_string();
+                    child.parent_name = Some(reskin_from.to_string());
+                    child
+                } else {
+                    let mut child = ObjectDefinition::new(name.to_string());
+                    child.parent_name = Some(reskin_from.to_string());
+                    child
+                }
             } else {
-                let mut child = ObjectDefinition::new(name.to_string());
-                child.parent_name = Some(reskin_from.to_string());
-                child
-            }
-        } else {
-            ObjectDefinition::new(name.to_string())
-        };
+                ObjectDefinition::new(name.to_string())
+            };
         definition.apply_create_override_properties(properties);
         self.register_definition_indices(&definition.name, &definition);
         if let Some(model) = definition.model_name.as_deref() {
@@ -592,7 +591,6 @@ impl WW3DAssetManager {
         self.object_definitions
             .insert(definition.name.clone(), definition);
     }
-
 
     /// Check if an object is defined
     pub fn has_object(&self, object_name: &str) -> bool {
@@ -735,9 +733,11 @@ mod tests {
             ["AlphaUnit", "ZuluUnit"]
         );
         snapshot[0].1.display_name = "owned copy".to_string();
-        assert!(manager
-            .get_object_definition("AlphaUnit")
-            .is_some_and(|definition| definition.display_name.is_empty()));
+        assert!(
+            manager
+                .get_object_definition("AlphaUnit")
+                .is_some_and(|definition| definition.display_name.is_empty())
+        );
     }
 
     #[test]
@@ -916,7 +916,6 @@ End
         );
     }
 
-
     #[test]
     fn catalogue_discovery_loads_default_object_ini_first() {
         let discovered = WW3DAssetManager::select_catalogue_object_ini_files([
@@ -930,22 +929,27 @@ End
             discovered[0].replace('\\', "/").to_ascii_lowercase(),
             "data/ini/default/object.ini"
         );
-        assert!(discovered
-            .iter()
-            .any(|path| path.eq_ignore_ascii_case("Data/INI/Crate.ini")));
-        assert!(discovered
-            .iter()
-            .any(|path| path.eq_ignore_ascii_case("Data/INI/Object/America.ini")));
-        assert!(!discovered
-            .iter()
-            .any(|path| path.to_ascii_lowercase().contains("weapon.ini")));
+        assert!(
+            discovered
+                .iter()
+                .any(|path| path.eq_ignore_ascii_case("Data/INI/Crate.ini"))
+        );
+        assert!(
+            discovered
+                .iter()
+                .any(|path| path.eq_ignore_ascii_case("Data/INI/Object/America.ini"))
+        );
+        assert!(
+            !discovered
+                .iter()
+                .any(|path| path.to_ascii_lowercase().contains("weapon.ini"))
+        );
     }
 
     #[test]
     fn catalogue_discovery_requests_default_object_ini_even_when_unlistable() {
-        let discovered = WW3DAssetManager::select_catalogue_object_ini_files([
-            "Data/INI/Object/America.ini",
-        ]);
+        let discovered =
+            WW3DAssetManager::select_catalogue_object_ini_files(["Data/INI/Object/America.ini"]);
         assert_eq!(discovered[0], "Data/INI/Default/Object.ini");
     }
 
@@ -1011,11 +1015,12 @@ End
         )
         .expect("UnauthoredUnit");
 
-        let attr = |definition: &ObjectDefinition, key: &str| {
-            definition.attributes.iter().find_map(|(name, value)| {
-                name.eq_ignore_ascii_case(key).then(|| value.as_str())
-            })
-        };
+        fn attr<'a>(definition: &'a ObjectDefinition, key: &str) -> Option<&'a str> {
+            definition
+                .attributes
+                .iter()
+                .find_map(|(name, value)| name.eq_ignore_ascii_case(key).then(|| value.as_str()))
+        }
 
         assert_eq!(attr(&authored, "visionrange"), Some("150.0"));
         assert_eq!(attr(&authored, "geometry"), Some("SPHERE"));
@@ -1034,5 +1039,3 @@ End
         assert!(authored.behavior_modules.is_empty());
     }
 }
-
-

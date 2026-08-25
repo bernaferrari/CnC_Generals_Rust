@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostGoldenRangerTemplateOptInAction) {
 pub fn residual_host_golden_ranger_template_opt_in_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_golden_ranger_template_opt_in_last_action(
-) -> ResidualHostGoldenRangerTemplateOptInAction {
+pub fn residual_host_golden_ranger_template_opt_in_last_action()
+-> ResidualHostGoldenRangerTemplateOptInAction {
     ResidualHostGoldenRangerTemplateOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
@@ -117,7 +117,7 @@ pub fn simulate_host_golden_ranger_template_opt_in_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_golden_ranger_template_opt_in_dispatch_source() -> bool {
-    let ok=eng_source().contains("Wave 722")
+    let ok = eng_source().contains("Wave 722")
         && eng_source().contains("if allow_golden_template")
         && eng_source().contains("self.host_ensure_golden_ranger_template();");
     residual_action_store(ResidualHostGoldenRangerTemplateOptInAction::DispatchSource);

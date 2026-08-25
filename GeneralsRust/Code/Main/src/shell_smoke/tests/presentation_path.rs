@@ -97,8 +97,7 @@ fn play_sound_effect_prefers_presentation_audio_queue() {
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("MoveOrdered { unit")
-            && !pf.contains("Some((\"UnitMove\", Some(*unit)))"),
+        pf.contains("MoveOrdered { unit") && !pf.contains("Some((\"UnitMove\", Some(*unit)))"),
         "MoveOrdered must not invent a UnitMove SFX; VoiceMove is pickAndPlay"
     );
 }
@@ -111,14 +110,14 @@ fn presentation_shell_input_audio_without_draw_dual_own() {
         .expect("presentation shell");
     let window = &gc[start..start + 12_000.min(gc.len() - start)];
     assert!(
-            gc.contains("update_presentation_shell")
-                && window.contains("without Main-owned input/audio or Display DRAW dual-ownership")
-                && window.contains("update_drawables_local")
-                && !window.contains("self.draw_display()?")
-                && window.contains("update_input")
-                && window.contains("update_audio"),
-            "presentation shell ticks drawables/UI without dual-owning Main OS input/3D draw; client audio queue drains"
-        );
+        gc.contains("update_presentation_shell")
+            && window.contains("without Main-owned input/audio or Display DRAW dual-ownership")
+            && window.contains("update_drawables_local")
+            && !window.contains("self.draw_display()?")
+            && window.contains("update_input")
+            && window.contains("update_audio"),
+        "presentation shell ticks drawables/UI without dual-owning Main OS input/3D draw; client audio queue drains"
+    );
     assert!(
         gc.contains("fn update_post_draw_ui") && gc.contains("crate::eva::update_eva_system()"),
         "Eva must tick from post-draw UI residual used by shell"
@@ -190,7 +189,7 @@ fn presentation_popup_music_fps_residual() {
     ));
     let scripts_camera = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/world_scripts/scripts_camera.rs"
+        "/src/game_logic/world_scripts/scripts_camera/script_runtime_camera.rs"
     ));
     let popup_dismiss = popup_bridge
         .find("fn host_dismiss_in_game_popup_message")

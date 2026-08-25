@@ -103,12 +103,12 @@ pub fn honesty_engine_seeds_gameworld_presentation_view_source() -> bool {
 /// Live residual: after map load + shadow sync, presentation view is non-empty.
 pub fn simulate_live_gameworld_presentation_view_honesty() -> bool {
     use crate::game_logic::{
-        resolve_retail_map_path, GameLogic, GameMode, DEFAULT_SKIRMISH_MAP_WAVE169,
-        LONE_EAGLE_MAP_WAVE169,
+        DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
+        resolve_retail_map_path,
     };
     use crate::gameworld_shadow::{
-        ensure_gate_damage_authority, gameworld_shadow_enabled, presentation_view_from_shadow,
-        GameWorldShadow,
+        GameWorldShadow, ensure_gate_damage_authority, gameworld_shadow_enabled,
+        presentation_view_from_shadow,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
@@ -215,7 +215,7 @@ mod tests {
     fn presentation_view_from_shadow_reports_created_host_object() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
         use crate::gameworld_shadow::{
-            ensure_gate_damage_authority, presentation_view_from_shadow, GameWorldShadow,
+            GameWorldShadow, ensure_gate_damage_authority, presentation_view_from_shadow,
         };
         use glam::Vec3;
 

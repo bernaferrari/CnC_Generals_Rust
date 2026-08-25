@@ -300,7 +300,7 @@ impl SpecialPowerModuleInterface for DemoralizeSpecialPower {
             None => {
                 return ActivationResult::InvalidTarget {
                     reason: "Demoralize power requires targeting".to_string(),
-                }
+                };
             }
         };
 

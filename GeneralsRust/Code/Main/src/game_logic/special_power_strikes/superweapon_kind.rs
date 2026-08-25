@@ -92,7 +92,6 @@ impl HostSuperweaponKind {
         })
     }
 
-
     /// Human-readable label for logs / honesty reports.
     pub fn label(self) -> &'static str {
         match self {
@@ -125,7 +124,6 @@ impl HostSuperweaponKind {
             _ => 900,
         }
     }
-
 
     /// Impact delay in logic frames before area damage applies.
     pub fn impact_delay_frames(self) -> u32 {
@@ -482,7 +480,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NapalmStrike => DamageType::Fire,
             _ => DamageType::Explosive,
         }
-}
+    }
 
     /// C++ DamageInfo.m_deathType for the blast.
     pub fn authored_death_type(self) -> crate::game_logic::host_usa_pilot::HostDeathType {
@@ -501,8 +499,7 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::NapalmStrike => HostDeathType::Burned,
             _ => HostDeathType::Exploded,
         }
-}
-
+    }
 }
 
 /// Residual `WeaponErrorRadius` scatter for artillery formation index.
@@ -661,11 +658,7 @@ pub fn carpet_bomb_points(target: Vec3) -> Vec<Vec3> {
 /// X:30 Y:40 Z:0. PreferredHeight honesty on tier. Axis is +X unless the
 /// caller supplies launch via [`carpet_bomb_points_for_tier_along`].
 pub fn carpet_bomb_points_for_tier(target: Vec3, tier: CarpetBombFactionTier) -> Vec<Vec3> {
-    carpet_bomb_points_for_tier_along(
-        target,
-        tier,
-        Vec3::new(target.x - 1.0, target.y, target.z),
-    )
+    carpet_bomb_points_for_tier_along(target, tier, Vec3::new(target.x - 1.0, target.y, target.z))
 }
 
 /// Bomb epicenters along `launch → target` (C++ DeliverPayload approach).

@@ -28,23 +28,23 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 
-use crate::ai::object_registry::{register_legacy_object, unregister_legacy_object};
 use crate::ai::AiCommandInterface;
 use crate::ai::TeamName;
+use crate::ai::object_registry::{register_legacy_object, unregister_legacy_object};
 use crate::common::DisabledType;
-use crate::common::ObjectStatusTypes;
 use crate::common::INVALID_ID;
+use crate::common::ObjectStatusTypes;
 use crate::common::{
     AsciiString, Bool, Coord3D, Int, Matrix3D, ObjectID, ObjectScriptStatusBits,
     ObjectStatusMaskType, PlayerMaskType, Real, ThingTemplate, UnsignedInt,
 };
-use crate::helpers::{get_game_logic_random_value, TheGameLogic};
+use crate::helpers::{TheGameLogic, get_game_logic_random_value};
 use crate::modules::{
-    AIUpdateInterface, BehaviorModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    AIUpdateInterface, BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateSleepTime,
 };
 use crate::object::{
-    crate_registry_bind::bind_crate_object, registry::OBJECT_REGISTRY, CrushSquishTestType, Object,
-    MAX_TRIGGER_AREA_INFOS,
+    CrushSquishTestType, MAX_TRIGGER_AREA_INFOS, Object, crate_registry_bind::bind_crate_object,
+    registry::OBJECT_REGISTRY,
 };
 use crate::physics::{PhysicsState, PhysicsType};
 use crate::player::{Player, PlayerIndex};
@@ -1500,7 +1500,7 @@ pub fn get_object_manager() -> Arc<RwLock<ObjectManager>> {
 mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
-    use crate::player::{player_list, Player};
+    use crate::player::{Player, player_list};
     use std::sync::{Arc, Mutex};
 
     /// Global player_list is process-wide; serialize tests that mutate it.

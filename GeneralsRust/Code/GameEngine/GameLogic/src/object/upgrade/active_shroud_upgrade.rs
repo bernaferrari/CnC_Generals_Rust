@@ -2,10 +2,12 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::INVALID_ID;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     ActiveShroudUpgradeConfig, Module, ModuleData, NameKeyType,
@@ -262,12 +264,11 @@ fn parse_shroud_clearing_range_field(
 
 crate::impl_upgrade_mux_field_parsers!(ActiveShroudUpgradeModuleData);
 
-const ACTIVE_SHROUD_UPGRADE_FIELDS: &[FieldParse<ActiveShroudUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
-    token: "NewShroudRange",
-    parse: parse_shroud_clearing_range_field,
-},
-);
+const ACTIVE_SHROUD_UPGRADE_FIELDS: &[FieldParse<ActiveShroudUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!(FieldParse {
+        token: "NewShroudRange",
+        parse: parse_shroud_clearing_range_field,
+    },);
 
 #[cfg(test)]
 mod tests {

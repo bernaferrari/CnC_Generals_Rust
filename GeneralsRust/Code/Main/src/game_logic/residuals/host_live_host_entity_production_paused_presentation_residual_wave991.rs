@@ -58,8 +58,8 @@ fn entity_source() -> &'static str {
     include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs")
 }
 
-pub fn honesty_host_entity_production_paused_presentation_residual_method_names_residual_wave991(
-) -> bool {
+pub fn honesty_host_entity_production_paused_presentation_residual_method_names_residual_wave991()
+-> bool {
     let names = LIVE_HOST_ENTITY_PRODUCTION_PAUSED_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE991;
     let ok = residual_name_index(names, "ent.production_paused").is_some()
         && residual_name_index(names, "Wave 991").is_some();
@@ -70,8 +70,8 @@ pub fn honesty_host_entity_production_paused_presentation_residual_method_names_
     ok
 }
 
-pub fn honesty_host_entity_production_paused_presentation_residual_nav_commands_residual_wave991(
-) -> bool {
+pub fn honesty_host_entity_production_paused_presentation_residual_nav_commands_residual_wave991()
+-> bool {
     let steps = LIVE_HOST_ENTITY_PRODUCTION_PAUSED_PRESENTATION_RESIDUAL_NAV_STEPS_WAVE991;
     let ok = residual_name_index(
         steps,

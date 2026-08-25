@@ -7,8 +7,8 @@
 //! - Memory-efficient sliding window management
 
 use crate::{
-    deflate::Compressor as DeflateCompressor, inflate::Decompressor as InflateDecompressor,
-    CompressionLevel, Result, ZlibError, ZlibHeader,
+    CompressionLevel, Result, ZlibError, ZlibHeader, deflate::Compressor as DeflateCompressor,
+    inflate::Decompressor as InflateDecompressor,
 };
 use std::io::{Read, Write};
 

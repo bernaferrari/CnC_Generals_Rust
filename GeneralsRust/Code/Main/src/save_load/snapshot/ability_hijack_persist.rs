@@ -18,9 +18,7 @@
 //! (and after SPCD / BPPL / SUBD / HSQD / BTRY / CBPD) so older decoders
 //! ignore the extra bytes. No world snapshot version bump.
 
-use crate::game_logic::host_hero_abilities::{
-    LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
-};
+use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
 use crate::game_logic::{CaptureChannelState, GameLogic, ObjectId, PendingSpecialAbility};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -69,10 +67,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_sabl_suffix(bytes) else {
         return Ok(());
     };
@@ -217,7 +212,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AbilityHijackPersistPayloa
 
     for entry in payload.hijackers {
         let object_id = ObjectId(entry.object_id);
-        let vehicle_id = (entry.hijack_vehicle_id != 0).then_some(ObjectId(entry.hijack_vehicle_id));
+        let vehicle_id =
+            (entry.hijack_vehicle_id != 0).then_some(ObjectId(entry.hijack_vehicle_id));
         let vehicle_alive = vehicle_id.is_some_and(|vid| {
             game_logic
                 .host_object(vid)
@@ -270,11 +266,11 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{
-        AIState, CaptureChannelPhase, CaptureChannelState, Player, Team, ThingTemplate,
-    };
     use crate::game_logic::host_hero_abilities::{
         LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
+    };
+    use crate::game_logic::{
+        AIState, CaptureChannelPhase, CaptureChannelState, Player, Team, ThingTemplate,
     };
     use glam::Vec3;
 
@@ -309,11 +305,7 @@ mod tests {
             .create_object("USARanger", Team::USA, Vec3::new(10.0, 0.0, 8.0))
             .expect("ranger");
         let burton_id = source
-            .create_object(
-                "AmericaColonelBurton",
-                Team::USA,
-                Vec3::new(14.0, 0.0, 8.0),
-            )
+            .create_object("AmericaColonelBurton", Team::USA, Vec3::new(14.0, 0.0, 8.0))
             .expect("burton");
         let barracks_id = source
             .create_object("AmericaBarracks", Team::USA, Vec3::new(40.0, 0.0, 8.0))
@@ -411,9 +403,7 @@ mod tests {
         hijacker
             .add_kind_of(crate::game_logic::KindOf::Infantry)
             .add_kind_of(crate::game_logic::KindOf::Selectable);
-        source
-            .templates
-            .insert("GLAHijacker".to_string(), hijacker);
+        source.templates.insert("GLAHijacker".to_string(), hijacker);
         let mut tank = ThingTemplate::new("AmericaTankCrusader");
         tank.add_kind_of(crate::game_logic::KindOf::Vehicle)
             .add_kind_of(crate::game_logic::KindOf::Selectable);
@@ -426,16 +416,9 @@ mod tests {
             .create_object("GLAHijacker", Team::GLA, Vec3::new(4.0, 0.0, 6.0))
             .expect("hijacker");
         let vid = source
-            .create_object(
-                "AmericaTankCrusader",
-                Team::GLA,
-                Vec3::new(8.0, 0.0, 6.0),
-            )
+            .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(8.0, 0.0, 6.0))
             .expect("tank");
-        source
-            .host_object_mut(vid)
-            .expect("tank")
-            .apply_hijacked();
+        source.host_object_mut(vid).expect("tank").apply_hijacked();
         source
             .host_object_mut(hid)
             .expect("hijacker")
@@ -464,10 +447,7 @@ mod tests {
         assert!(loaded.hijacker_in_vehicle);
         assert!(loaded.hijacker_update_active);
         assert!(loaded.hijacker_was_airborne);
-        assert_eq!(
-            loaded.hijacker_eject_pos,
-            Some(Vec3::new(8.0, 4.0, 6.0))
-        );
+        assert_eq!(loaded.hijacker_eject_pos, Some(Vec3::new(8.0, 4.0, 6.0)));
         assert!(
             loaded.status.masked && loaded.drawable_hidden,
             "hidden rider residual must be reapplied after load"

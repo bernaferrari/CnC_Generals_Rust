@@ -124,7 +124,7 @@ pub fn honesty_script_conditions_dual_world_empty_gate_source() -> bool {
         return false;
     }
     // helper must not recurse
-        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
     let helper_ok = g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()")
         && g.contains("false");

@@ -308,10 +308,7 @@ mod tests {
             crush_location_check((0.0, 0.0), victim, dir, radius, true, true),
             None
         );
-        assert_eq!(
-            flags_from_crush_kind(HostCrushKind::Front),
-            (true, false)
-        );
+        assert_eq!(flags_from_crush_kind(HostCrushKind::Front), (true, false));
         assert_eq!(flags_from_crush_kind(HostCrushKind::Total), (true, true));
     }
 

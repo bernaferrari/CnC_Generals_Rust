@@ -61,8 +61,8 @@ fn residual_action_store(a: ResidualHostWritebackSkipPendingCombatMovementLogsAc
 pub fn residual_host_writeback_skip_pending_combat_movement_logs_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_writeback_skip_pending_combat_movement_logs_last_action(
-) -> ResidualHostWritebackSkipPendingCombatMovementLogsAction {
+pub fn residual_host_writeback_skip_pending_combat_movement_logs_last_action()
+-> ResidualHostWritebackSkipPendingCombatMovementLogsAction {
     ResidualHostWritebackSkipPendingCombatMovementLogsAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -70,8 +70,8 @@ pub fn residual_host_writeback_skip_pending_combat_movement_logs_last_action(
 fn sh_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
-pub fn honesty_host_writeback_skip_pending_combat_movement_logs_method_names_residual_wave757(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_combat_movement_logs_method_names_residual_wave757()
+-> bool {
     let names = LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS_METHOD_NAMES_WAVE757;
     let ok = residual_name_index(names, "has_pending").is_some()
         && residual_name_index(names, "writeback_body_damage_to_host").is_some()
@@ -82,8 +82,8 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_method_names_res
     residual_action_store(ResidualHostWritebackSkipPendingCombatMovementLogsAction::MethodNames);
     ok
 }
-pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_residual_wave757(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_residual_wave757()
+-> bool {
     let sh = sh_source();
     // 2026-08-14 last-writer correction: `host_ai_state_log` no longer skips
     // host writeback while pending — the GameWorld SetAiState channel is the
@@ -131,8 +131,8 @@ pub fn honesty_host_writeback_skip_pending_combat_movement_logs_source_markers_r
     residual_action_store(ResidualHostWritebackSkipPendingCombatMovementLogsAction::SourceMarkers);
     ok
 }
-pub fn honesty_host_writeback_skip_pending_combat_movement_logs_nav_commands_residual_wave757(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_combat_movement_logs_nav_commands_residual_wave757()
+-> bool {
     let steps = LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS_NAV_STEPS_WAVE757;
     let cmds = RUNTIME_HOST_LIVE_HOST_WRITEBACK_SKIP_PENDING_COMBAT_MOVEMENT_LOGS_CMD_NAMES_WAVE757;
     let ok = residual_name_index(steps, "REQUIRE_HAS_PENDING").is_some()

@@ -1,13 +1,13 @@
-use super::{player_list, Player, PlayerType};
+use super::{Player, PlayerType, player_list};
 use crate::commands::command_processor::{
     AIManager, GameObject, ObjectManager, PlayerManager, PlayerResources, ResourceCost,
 };
-use crate::common::{CommandSourceType, Coord3D, CoordOrigin, Int, ObjectID, INVALID_ID};
+use crate::common::{CommandSourceType, Coord3D, CoordOrigin, INVALID_ID, Int, ObjectID};
 use crate::helpers::TheThingFactory;
 use crate::modules::AIUpdateInterfaceExt;
-use crate::object::object_factory::{get_object_factory, ObjectCreationFlags, ObjectFactory};
+use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory, get_object_factory};
 use log::{trace, warn};
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Object manager bridge implementing the command processor trait.
@@ -687,8 +687,7 @@ impl AIManager for AIManagerBridge {
 
                     trace!(
                         "AIManagerBridge::issue_targeted_order: AI module rejected {:?} for {}",
-                        command,
-                        object_id
+                        command, object_id
                     );
                 }
             }

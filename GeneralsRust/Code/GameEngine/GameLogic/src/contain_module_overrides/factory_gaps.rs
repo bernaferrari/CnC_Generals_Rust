@@ -38,9 +38,5 @@ pub(super) fn prone_update_module_factory(
         }
     };
     let module_name = AsciiString::from("ProneUpdate");
-    Box::new(ProneUpdateModule::new(
-        behavior,
-        &module_name,
-        data_arc,
-    ))
+    Box::new(ProneUpdateModule::new(behavior, &module_name, data_arc))
 }

@@ -63,8 +63,8 @@ fn cb_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
-pub fn honesty_host_catalog_command_set_presentation_residual_method_names_residual_wave1015(
-) -> bool {
+pub fn honesty_host_catalog_command_set_presentation_residual_method_names_residual_wave1015()
+-> bool {
     let names = LIVE_HOST_CATALOG_COMMAND_SET_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE1015;
     let ok = residual_name_index(names, "command_set_name").is_some()
         && residual_name_index(names, "Wave 1015").is_some();
@@ -73,8 +73,8 @@ pub fn honesty_host_catalog_command_set_presentation_residual_method_names_resid
     ok
 }
 
-pub fn honesty_host_catalog_command_set_presentation_residual_nav_commands_residual_wave1015(
-) -> bool {
+pub fn honesty_host_catalog_command_set_presentation_residual_nav_commands_residual_wave1015()
+-> bool {
     let steps = LIVE_HOST_CATALOG_COMMAND_SET_PRESENTATION_RESIDUAL_NAV_STEPS_WAVE1015;
     let ok = residual_name_index(steps, "LIVE_HOST_CATALOG_COMMAND_SET_PRESENTATION_RESIDUAL")
         .is_some()

@@ -496,9 +496,11 @@ mod stealth_tests {
         manager.register_object(1).unwrap();
 
         // Invalid player ID should fail
-        assert!(manager
-            .set_stealth_status(1, 8, StealthStatus::Invisible)
-            .is_err());
+        assert!(
+            manager
+                .set_stealth_status(1, 8, StealthStatus::Invisible)
+                .is_err()
+        );
         assert!(manager.get_stealth_status(1, 255).is_err());
     }
 }

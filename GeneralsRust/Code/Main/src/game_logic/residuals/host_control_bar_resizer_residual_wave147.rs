@@ -123,9 +123,9 @@ mod tests {
     #[test]
     fn simulate_control_bar_resizer_prepare_default_residual_live() {
         use game_client::gui::control_bar::{
-            residual_control_bar_resizer_base_resolution, residual_control_bar_resizer_last_action,
-            residual_control_bar_resizer_window_count,
-            simulate_control_bar_resizer_prepare_default, ResidualControlBarResizerAction,
+            ResidualControlBarResizerAction, residual_control_bar_resizer_base_resolution,
+            residual_control_bar_resizer_last_action, residual_control_bar_resizer_window_count,
+            simulate_control_bar_resizer_prepare_default,
         };
         assert!(
             simulate_control_bar_resizer_prepare_default(),

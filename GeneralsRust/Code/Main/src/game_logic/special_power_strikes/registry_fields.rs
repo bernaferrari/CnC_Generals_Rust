@@ -434,7 +434,6 @@ impl HostSpecialPowerStrikeRegistry {
             position_to_shoot_at: position,
             ok_to_fire_howitzer_counter: 0,
 
-
             spawn_frame,
             expires_frame: spawn_frame.saturating_add(duration),
             // First howitzer residual tick on orbit insertion frame.
@@ -575,20 +574,22 @@ impl HostSpecialPowerStrikeRegistry {
                 let reticle_aim = field.override_aim();
                 let reticle_origin = (reticle_aim.x, reticle_aim.z);
                 let wide_origin = (field.position.x, field.position.z);
-                let fair = |c: &crate::game_logic::host_residual_acquire::ResidualAcquireCandidate| {
-                    spectre_is_fair_distance_from_ship(
-                        field.gunship_position,
-                        c.position,
-                        SPECTRE_GUNSHIP_ORBIT_RADIUS,
-                    )
-                };
-                let reticle = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                    Some(field.source_object),
-                    reticle_origin,
-                    cands.iter().copied(),
-                    SPECTRE_TARGETING_RETICLE_RADIUS,
-                    fair,
-                );
+                let fair =
+                    |c: &crate::game_logic::host_residual_acquire::ResidualAcquireCandidate| {
+                        spectre_is_fair_distance_from_ship(
+                            field.gunship_position,
+                            c.position,
+                            SPECTRE_GUNSHIP_ORBIT_RADIUS,
+                        )
+                    };
+                let reticle =
+                    crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                        Some(field.source_object),
+                        reticle_origin,
+                        cands.iter().copied(),
+                        SPECTRE_TARGETING_RETICLE_RADIUS,
+                        fair,
+                    );
                 let picked = reticle.or_else(|| {
                     if self.spectre_wide_auto_acquire_allowed(field.source_object) {
                         crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
@@ -607,7 +608,6 @@ impl HostSpecialPowerStrikeRegistry {
                     *dmg_map.entry(id).or_insert(0.0) += SPECTRE_GATTLING_DAMAGE;
                 }
             }
-
 
             let hits: Vec<HostSpectreOrbitDamageHit> = dmg_map
                 .into_iter()
@@ -655,16 +655,14 @@ impl HostSpecialPowerStrikeRegistry {
                 if ready {
                     field.howitzer_consecutive = field.howitzer_consecutive.saturating_add(1);
                 }
-                let interval =
-                    spectre_howitzer_interval_frames(field.howitzer_consecutive).max(1);
+                let interval = spectre_howitzer_interval_frames(field.howitzer_consecutive).max(1);
                 field.next_tick_frame = current_frame.saturating_add(interval);
                 if ready {
                     field.howitzer_ticks = field.howitzer_ticks.saturating_add(1);
                     // SpectreHowitzerShell projectile residual + Object spawn request.
                     // Retail: ProjectileObject=SpectreHowitzerShell, FireFX, detonation
                     // FX, FireSound, HeightDie InitialDelay pad-safe loft residual.
-                    field.howitzer_shells_spawned =
-                        field.howitzer_shells_spawned.saturating_add(1);
+                    field.howitzer_shells_spawned = field.howitzer_shells_spawned.saturating_add(1);
                     let off = spectre_howitzer_offset(field.howitzer_ticks.saturating_sub(1));
                     let aim = field.gattling_aim();
                     shell_spawn_evt = Some((
@@ -672,8 +670,7 @@ impl HostSpecialPowerStrikeRegistry {
                         field.source_team,
                         Vec3::new(aim.x + off.x, aim.y + 80.0, aim.z + off.z),
                     ));
-                    field.howitzer_shell_fire_fx =
-                        field.howitzer_shell_fire_fx.saturating_add(1);
+                    field.howitzer_shell_fire_fx = field.howitzer_shell_fire_fx.saturating_add(1);
                     field.howitzer_shell_detonation_fx =
                         field.howitzer_shell_detonation_fx.saturating_add(1);
                     field.howitzer_shell_height_die_delays =
@@ -724,9 +721,8 @@ impl HostSpecialPowerStrikeRegistry {
                         .howitzer_shell_thing_factory_spawn_applications
                         .saturating_add(1);
                     // SpectreHowitzerGun AcceptableAimDelta / AttackRange residual.
-                    field.howitzer_gun_aim_params_applications = field
-                        .howitzer_gun_aim_params_applications
-                        .saturating_add(1);
+                    field.howitzer_gun_aim_params_applications =
+                        field.howitzer_gun_aim_params_applications.saturating_add(1);
                     // SpectreHowitzerGun fire residual (Delay/DamageType/FireFX/Clip).
                     field.howitzer_gun_fire_params_applications = field
                         .howitzer_gun_fire_params_applications
@@ -777,8 +773,7 @@ impl HostSpecialPowerStrikeRegistry {
                     }
                     // VoiceRapidFire residual when entering FAST (FiringTracker::speedUp).
                     if prev_level < 2 && field.howitzer_fire_level == 2 {
-                        field.rapid_fire_voice_cues =
-                            field.rapid_fire_voice_cues.saturating_add(1);
+                        field.rapid_fire_voice_cues = field.rapid_fire_voice_cues.saturating_add(1);
                     }
                     // MODELCONDITION_CONTINUOUS_FIRE_* residual (FiringTracker::speedUp).
                     if prev_level < 1 && field.howitzer_fire_level >= 1 {
@@ -1172,8 +1167,6 @@ impl HostSpecialPowerStrikeRegistry {
         }
     }
 
-
-
     /// Apply a live Object override click to matching PUC beam / Spectre orbit.
     pub fn apply_source_override_destination(
         &mut self,
@@ -1204,10 +1197,8 @@ impl HostSpecialPowerStrikeRegistry {
             .filter(|field| field.source_object == source && !field.is_expired(current_frame))
             .filter(|field| {
                 let current = field.override_aim();
-                (current.x - destination.x).abs() > 1e-4
-                    || (current.z - destination.z).abs() > 1e-4
+                (current.x - destination.x).abs() > 1e-4 || (current.z - destination.z).abs() > 1e-4
             })
-
             .map(|field| field.id)
             .collect();
         for field_id in orbit_ids {

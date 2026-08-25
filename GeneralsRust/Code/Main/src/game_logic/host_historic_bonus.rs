@@ -150,8 +150,8 @@ pub fn honesty_snapshot() -> HostHistoricBonusHonesty {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::weapon_bootstrap::HostHistoricBonusPeel;
     use crate::game_logic::Team;
+    use crate::game_logic::weapon_bootstrap::HostHistoricBonusPeel;
 
     #[test]
     fn historic_bonus_triggers_on_third_close_impact() {

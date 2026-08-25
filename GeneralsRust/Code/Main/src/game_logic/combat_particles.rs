@@ -243,7 +243,6 @@ impl CombatParticleRegistry {
         self.spawn_with_template(kind, template_name.into(), position, frame, source, target)
     }
 
-
     /// Spawn with an exact particle-system template rather than the generic
     /// kind preset. `ProjectileExhaust` needs this because Weapon.ini names a
     /// ParticleSystem template directly; it is not an FXList entry.
@@ -644,7 +643,8 @@ impl CombatParticleRegistry {
 
     /// C++ `W3DModelDraw::handleWeaponFireFX` `setMuzzleFlashHidden(false)`.
     pub fn note_muzzle_flash_unhide(&mut self, source: ObjectId, frame: u32) {
-        self.muzzle_flash_until.insert(source, frame.saturating_add(1));
+        self.muzzle_flash_until
+            .insert(source, frame.saturating_add(1));
     }
 
     /// True while the live drawable should show muzzle-flash subobjects.
@@ -1012,9 +1012,7 @@ impl CombatParticleRegistry {
                 prefix_bones
                     .iter()
                     .find(|(name, _)| name.eq_ignore_ascii_case(prefix))
-                    .map(|(_, bones)| {
-                        bones.iter().map(|world| *world - position).collect()
-                    })
+                    .map(|(_, bones)| bones.iter().map(|world| *world - position).collect())
                     .unwrap_or_default()
             },
         );
@@ -1506,8 +1504,8 @@ fn spawn_body_systems_on_bones(
     let mut used = vec![false; num_bones];
     for i in 0..target_count {
         let slot_hi = (target_count - i - 1) as i32;
-        let pick = game_engine::common::random_value::get_game_client_random_value(0, slot_hi)
-            as usize;
+        let pick =
+            game_engine::common::random_value::get_game_client_random_value(0, slot_hi) as usize;
         let mut selected = None;
         let mut free_count = 0usize;
         for (idx, used_bone) in used.iter().enumerate() {
@@ -1602,8 +1600,8 @@ pub(crate) fn mirror_spawn_to_client_manager(template_name: &str, position: Vec3
     #[cfg(feature = "game_client")]
     {
         use game_client::effects::{
-            get_particle_system_manager_mut, initialize_particle_system_manager,
-            register_particle_system_manager_bridge, ParticleSystemManager,
+            ParticleSystemManager, get_particle_system_manager_mut,
+            initialize_particle_system_manager, register_particle_system_manager_bridge,
         };
 
         // Position/destroy updates go through GameLogic's C++-shaped bridge.
@@ -1848,7 +1846,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn impact_detonation_ocl_stamps_name() {
         let mut reg = CombatParticleRegistry::new();
@@ -1982,9 +1979,10 @@ mod tests {
             !reg.get(exhaust_id).expect("retained history entry").active,
             "trail is destroyed when the projectile impacts or expires"
         );
-        assert!(reg
-            .systems_of_kind(CombatParticleKind::ProjectileExhaust)
-            .is_empty());
+        assert!(
+            reg.systems_of_kind(CombatParticleKind::ProjectileExhaust)
+                .is_empty()
+        );
 
         reg.sync_projectile_exhausts(
             13,
@@ -2069,15 +2067,21 @@ mod tests {
         assert!(!fires.is_empty());
         assert!(!smokes.is_empty());
         assert!(
-            fires.iter().any(|e| (e.position - fire_bone).length() < 0.01),
+            fires
+                .iter()
+                .any(|e| (e.position - fire_bone).length() < 0.01),
             "small fire must sit on FIRESMALL bone, not origin"
         );
         assert!(
-            fires.iter().any(|e| (e.position - large_bone).length() < 0.01),
+            fires
+                .iter()
+                .any(|e| (e.position - large_bone).length() < 0.01),
             "large fire tier must spawn when FIRELARGE bones exist"
         );
         assert!(
-            smokes.iter().any(|e| (e.position - smoke_bone).length() < 0.01),
+            smokes
+                .iter()
+                .any(|e| (e.position - smoke_bone).length() < 0.01),
             "smoke must sit on SMOKESMALL bone, not origin"
         );
         assert!(fires.iter().all(|e| (e.position - pos).length() > 0.5));
@@ -2089,7 +2093,10 @@ mod tests {
             2,
             true,
             &[
-                ("FIRESMALL".to_string(), vec![fire_bone, fire_bone + Vec3::X]),
+                (
+                    "FIRESMALL".to_string(),
+                    vec![fire_bone, fire_bone + Vec3::X],
+                ),
                 ("SMOKESMALL".to_string(), vec![smoke_bone]),
                 ("AFLAME".to_string(), vec![aflame_bone]),
             ],
@@ -2117,8 +2124,7 @@ mod tests {
         assert!(
             aflame_smokes
                 .iter()
-                .any(|e| e.template_name == "FireSmall"
-                    || e.template_name.contains("FireSmall")),
+                .any(|e| e.template_name == "FireSmall" || e.template_name.contains("FireSmall")),
             "aflame swaps smoke templates to small fire"
         );
 
@@ -2152,13 +2158,9 @@ mod tests {
 
     #[test]
     fn repair_and_frenzy_markers_have_cloud_bones() {
-        let repair = particle_sys_bones_for_template(
-            "RepairVehiclesInArea_InvisibleMarker_Level1",
-            0,
-        );
-        assert!(repair
-            .iter()
-            .any(|(_, system)| system == "RepairCloud"));
+        let repair =
+            particle_sys_bones_for_template("RepairVehiclesInArea_InvisibleMarker_Level1", 0);
+        assert!(repair.iter().any(|(_, system)| system == "RepairCloud"));
         let frenzy = particle_sys_bones_for_template("Frenzy_InvisibleMarker", 0);
         assert!(frenzy.iter().any(|(_, system)| system == "FrenzyCloud"));
     }
@@ -2218,7 +2220,8 @@ mod tests {
             "DisableFX must not be culled as a stale ParticleSysBone"
         );
         assert_eq!(
-            reg.systems_of_kind(CombatParticleKind::ParticleSysBone).len(),
+            reg.systems_of_kind(CombatParticleKind::ParticleSysBone)
+                .len(),
             0
         );
     }

@@ -172,11 +172,7 @@ impl Coord2D {
         // bound it in case of numerical error
         let c = math::clamp(-1.0, c, 1.0);
 
-        if self.y < 0.0 {
-            -c.acos()
-        } else {
-            c.acos()
-        }
+        if self.y < 0.0 { -c.acos() } else { c.acos() }
     }
 }
 

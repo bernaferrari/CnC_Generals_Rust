@@ -333,6 +333,11 @@ impl GameLogic {
         self.cinematic_letterbox
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_cinematic_letterbox(&mut self, enabled: bool) {
+        self.cinematic_letterbox = enabled;
+    }
+
     pub fn cinematic_text(&self) -> Option<&str> {
         self.cinematic_text.as_ref().map(|(t, _)| t.as_str())
     }
@@ -596,14 +601,14 @@ impl GameLogic {
         options: u32,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            cell_shroud_blocks_build_residual, footprint_height_delta_residual,
-            legal_build_code_from_checks_complete_residual,
+            STRUCTURE_PLACE_CLEARANCE_RESIDUAL, cell_shroud_blocks_build_residual,
+            footprint_height_delta_residual, legal_build_code_from_checks_complete_residual,
             legal_build_objects_in_the_way_residual, legal_build_too_close_to_supplies_residual,
-            min_dist_from_map_edge_residual, STRUCTURE_PLACE_CLEARANCE_RESIDUAL,
+            min_dist_from_map_edge_residual,
         };
         use crate::game_logic::host_structure_economy_residual::{
-            is_legal_build_distance_from_map_edge, is_legal_build_height_variation,
             MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
+            is_legal_build_distance_from_map_edge, is_legal_build_height_variation,
         };
         let (min, max) = self.world_bounds();
         // Use real map extent (no generous pad) for C++ off-map / edge residual.
@@ -709,7 +714,11 @@ impl GameLogic {
         }
 
         let in_way = busy_ally_in_way
-            || legal_build_objects_in_the_way_residual((position.x, position.z), place_r, &blockers);
+            || legal_build_objects_in_the_way_residual(
+                (position.x, position.z),
+                place_r,
+                &blockers,
+            );
         if stealth_fail_no_bib {
             return crate::game_logic::host_production_buildable_command_residual::LBC_GENERIC_FAILURE;
         }
@@ -858,7 +867,8 @@ impl GameLogic {
         }
         if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
             let dest = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
-            if terrain.get_layer_for_destination(&dest) != gamelogic::path::PathfindLayerEnum::Ground
+            if terrain.get_layer_for_destination(&dest)
+                != gamelogic::path::PathfindLayerEnum::Ground
             {
                 return true;
             }
@@ -933,8 +943,9 @@ impl GameLogic {
             let enemy = if let Some(b) = &builder {
                 self.object_relationship(b, obj) == gamelogic::common::Relationship::Enemies
             } else if let Some(pid) = player_id {
-                obj.owner_player_id
-                    .is_some_and(|oid| self.player_relationship(pid, oid) == gamelogic::common::Relationship::Enemies)
+                obj.owner_player_id.is_some_and(|oid| {
+                    self.player_relationship(pid, oid) == gamelogic::common::Relationship::Enemies
+                })
             } else {
                 false
             };
@@ -1044,7 +1055,6 @@ impl GameLogic {
             }
         }
         self.sweep_under_construction_footprint_mines(id);
-
     }
 
     /// C++ AIUpdateInterface::isQuickPathAvailable residual (simplified host pathfind).
@@ -1071,7 +1081,6 @@ impl GameLogic {
         // No dist<=64 early-true: a walled-off dozer 50 units from the pad is stuck.
         self.pathfinding_system
             .client_safe_quick_does_path_exist(start, goal)
-
     }
 
     /// C++ Pathfinder::clientSafeQuickDoesPathExistForUI residual.
@@ -1123,13 +1132,9 @@ impl GameLogic {
     /// C++ PartitionManager::getShroudStatusForPlayer == CELLSHROUD_CLEAR residual.
     ///
     /// Fail-open when shroud grid is not initialized (synthetic/host tests).
-    pub fn is_build_location_shroud_clear(
-        &self,
-        player_id: u32,
-        position: glam::Vec3,
-    ) -> bool {
+    pub fn is_build_location_shroud_clear(&self, player_id: u32, position: glam::Vec3) -> bool {
         use gamelogic::common::Coord3D;
-        use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
+        use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
         let Ok(shroud) = get_shroud_manager().lock() else {
             return true;
         };
@@ -1355,9 +1360,9 @@ impl GameLogic {
             }
             let required = leftover_template_name_for_handle(*handle)
                 .or_else(|| {
-                    units.get(i).and_then(|rec| {
-                        (!rec.name.is_empty()).then(|| rec.name.clone())
-                    })
+                    units
+                        .get(i)
+                        .and_then(|rec| (!rec.name.is_empty()).then(|| rec.name.clone()))
                 })
                 .unwrap_or_default();
             if required.is_empty() {
@@ -1380,7 +1385,6 @@ impl GameLogic {
                 .count() as i32;
         }
     }
-
 
     /// C++ MaxSimultaneousOfType Superweapon residual gate.
     pub fn can_start_superweapon_building(&self, team: Team, template_name: &str) -> bool {
@@ -1690,7 +1694,7 @@ impl GameLogic {
     pub fn can_make_unit(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
         use crate::game_logic::host_production_buildable_command_residual::{
-            can_make_type_from_checks_residual, CANMAKE_OK,
+            CANMAKE_OK, can_make_type_from_checks_residual,
         };
 
         let Some(template) = self.templates.get(template_name) else {
@@ -1801,8 +1805,7 @@ impl GameLogic {
             template.is_kind_of(KindOf::Structure),
             template.buildable_status,
         );
-        let has_prereq =
-            player_can_build && command_set_ok && (ignore_prereq || has_prereq);
+        let has_prereq = player_can_build && command_set_ok && (ignore_prereq || has_prereq);
         let owner = match owner_player_id {
             Some(player_id) => self.get_player(player_id),
             None => self.get_player_by_team(team),
@@ -1847,8 +1850,8 @@ impl GameLogic {
     /// No factory queue or parking place.
     fn can_make_dozer_construct(&self, producer_id: ObjectId, template_name: &str) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
-            can_make_type_from_checks_residual, command_set_allows_unit,
-            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ,
+            CANMAKE_FACTORY_IS_DISABLED, CANMAKE_NO_PREREQ, can_make_type_from_checks_residual,
+            command_set_allows_unit,
         };
 
         let Some(template) = self.templates.get(template_name) else {
@@ -1860,13 +1863,14 @@ impl GameLogic {
         if !producer.is_alive() {
             return CANMAKE_NO_PREREQ;
         }
-        let command_set_ok =
-            !matches!(command_set_allows_unit(&producer.template_name, template_name), Some(false));
+        let command_set_ok = !matches!(
+            command_set_allows_unit(&producer.template_name, template_name),
+            Some(false)
+        );
         let team = producer.team;
         let owner_player_id = producer.owner_player_id;
         // C++ ControlBarCommand.cpp:1139-1141 — pending BUILD greys every construct cameo.
-        let factory_disabled =
-            producer.is_disabled() || producer.dozer_task_build_target.is_some();
+        let factory_disabled = producer.is_disabled() || producer.dozer_task_build_target.is_some();
         let has_prereq = match owner_player_id {
             Some(player_id) => {
                 self.player_satisfies_build_prerequisites(player_id, template_name)
@@ -1884,8 +1888,7 @@ impl GameLogic {
             template.is_kind_of(KindOf::Structure),
             template.buildable_status,
         );
-        let has_prereq =
-            player_can_build && command_set_ok && (ignore_prereq || has_prereq);
+        let has_prereq = player_can_build && command_set_ok && (ignore_prereq || has_prereq);
         let owner = match owner_player_id {
             Some(player_id) => self.get_player(player_id),
             None => self.get_player_by_team(team),
@@ -2013,7 +2016,6 @@ impl GameLogic {
             return false;
         }
 
-
         let producer_template_name = self
             .objects
             .get(&producer_id)
@@ -2051,7 +2053,6 @@ impl GameLogic {
             self.unreserve_airfield_door_for_exit(producer_id, door);
         }
         false
-
     }
 
     /// Unlock a science for a team and record residual honesty hooks.
@@ -2229,7 +2230,6 @@ fn object_matches_prereq_template(obj: &Object, required: &str) -> bool {
     owned.is_equivalent_to(wanted.as_ref())
 }
 
-
 fn leftover_structure_place_footprint(name: &str) -> Option<(f32, f32, bool)> {
     let tmpl = leftover_thing_template(name)?;
     let g = tmpl.get_template_geometry_info();
@@ -2251,7 +2251,12 @@ fn leftover_structure_place_footprint(name: &str) -> Option<(f32, f32, bool)> {
 
 fn leftover_factory_exit_widths(name: &str) -> (f32, f32) {
     leftover_thing_template(name)
-        .map(|tmpl| (tmpl.get_factory_exit_width(), tmpl.get_factory_extra_bib_width()))
+        .map(|tmpl| {
+            (
+                tmpl.get_factory_exit_width(),
+                tmpl.get_factory_extra_bib_width(),
+            )
+        })
         .unwrap_or((0.0, 0.0))
 }
 

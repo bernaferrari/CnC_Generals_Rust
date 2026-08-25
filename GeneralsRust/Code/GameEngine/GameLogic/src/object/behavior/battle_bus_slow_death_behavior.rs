@@ -24,18 +24,17 @@ use crate::modules::{
     SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::slow_death_behavior::{
-    parse_death_types, parse_destruction_altitude, parse_destruction_delay,
-    parse_destruction_delay_variance, parse_exempt_status, parse_fling_force,
-    parse_fling_force_variance, parse_fling_pitch, parse_fling_pitch_variance, parse_fx,
-    parse_modifier_bonus_per_overkill_percent, parse_ocl, parse_probability_modifier,
-    parse_required_status, parse_sink_delay, parse_sink_delay_variance, parse_sink_rate,
-    parse_veterancy_levels, parse_weapon, SlowDeathBehavior, SlowDeathBehaviorModuleData,
-    SlowDeathPhaseType,
+    SlowDeathBehavior, SlowDeathBehaviorModuleData, SlowDeathPhaseType, parse_death_types,
+    parse_destruction_altitude, parse_destruction_delay, parse_destruction_delay_variance,
+    parse_exempt_status, parse_fling_force, parse_fling_force_variance, parse_fling_pitch,
+    parse_fling_pitch_variance, parse_fx, parse_modifier_bonus_per_overkill_percent, parse_ocl,
+    parse_probability_modifier, parse_required_status, parse_sink_delay, parse_sink_delay_variance,
+    parse_sink_rate, parse_veterancy_levels, parse_weapon,
 };
 use crate::object::{
-    registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
+    INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, registry::OBJECT_REGISTRY,
 };
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{
@@ -1152,11 +1151,13 @@ mod tests {
             Arc::new(BattleBusSlowDeathBehaviorModuleData::default()) as Arc<dyn ThingModuleData>;
         let thing: Arc<dyn ModuleThing> = Arc::new(StubThing);
         let module = battle_bus_slow_death_module_factory(thing, data);
-        assert!(module
-            .get_module_data()
-            .as_any()
-            .downcast_ref::<BattleBusSlowDeathBehaviorModuleData>()
-            .is_some());
+        assert!(
+            module
+                .get_module_data()
+                .as_any()
+                .downcast_ref::<BattleBusSlowDeathBehaviorModuleData>()
+                .is_some()
+        );
     }
 
     #[test]

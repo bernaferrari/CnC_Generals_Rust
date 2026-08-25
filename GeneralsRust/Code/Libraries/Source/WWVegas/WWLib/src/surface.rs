@@ -1296,7 +1296,7 @@ mod tests {
 
         // Transparent pixel should not overwrite destination
         assert_eq!(dest.get_pixel(Point2D::new(5, 5)).unwrap(), 0x0000FF); // Still blue
-                                                                           // Opaque pixel should overwrite destination
+        // Opaque pixel should overwrite destination
         assert_eq!(dest.get_pixel(Point2D::new(6, 6)).unwrap(), 0xFF0000); // Now red
     }
 }

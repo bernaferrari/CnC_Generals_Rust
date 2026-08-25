@@ -404,14 +404,14 @@ pub fn init_object_creation_list_store() {
 }
 
 /// Get reference to global store
-pub fn get_object_creation_list_store(
-) -> std::sync::RwLockReadGuard<'static, Option<ObjectCreationListStore>> {
+pub fn get_object_creation_list_store()
+-> std::sync::RwLockReadGuard<'static, Option<ObjectCreationListStore>> {
     GLOBAL_STORE.read().unwrap()
 }
 
 /// Get mutable reference to global store
-pub fn get_object_creation_list_store_mut(
-) -> std::sync::RwLockWriteGuard<'static, Option<ObjectCreationListStore>> {
+pub fn get_object_creation_list_store_mut()
+-> std::sync::RwLockWriteGuard<'static, Option<ObjectCreationListStore>> {
     GLOBAL_STORE.write().unwrap()
 }
 

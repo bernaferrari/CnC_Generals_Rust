@@ -32,7 +32,7 @@
 use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::common::ini::{INIError, INIResult, INI};
+use crate::common::ini::{INI, INIError, INIResult};
 
 /// Space offset between credit lines
 /// Matches C++ CREDIT_SPACE_OFFSET from Credits.h line 54

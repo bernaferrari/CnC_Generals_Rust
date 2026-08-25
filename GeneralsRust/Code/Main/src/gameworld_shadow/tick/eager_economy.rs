@@ -61,8 +61,8 @@ pub fn take_early_special_power_batch() -> Option<(
     EARLY_SPECIAL_POWER_BATCH.with(|c| c.borrow_mut().take())
 }
 
-pub fn take_early_radar_batch(
-) -> Option<(Vec<crate::game_logic::host_radar_log::HostRadarEvent>, bool)> {
+pub fn take_early_radar_batch()
+-> Option<(Vec<crate::game_logic::host_radar_log::HostRadarEvent>, bool)> {
     EARLY_RADAR_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -360,8 +360,8 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-pub fn take_early_spawn_batch(
-) -> Option<(Vec<crate::game_logic::host_spawn_log::HostSpawnEvent>, bool)> {
+pub fn take_early_spawn_batch()
+-> Option<(Vec<crate::game_logic::host_spawn_log::HostSpawnEvent>, bool)> {
     EARLY_SPAWN_BATCH.with(|c| c.borrow_mut().take())
 }
 

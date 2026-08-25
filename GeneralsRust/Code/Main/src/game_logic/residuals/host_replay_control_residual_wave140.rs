@@ -105,7 +105,6 @@ pub fn host_replay_control_window_hidden() -> bool {
     crate::save_load::host_replay_controls_hidden()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,9 +128,9 @@ mod tests {
     #[test]
     fn simulate_replay_control_prepare_play_residual_live() {
         use game_client::gui::callbacks::{
-            residual_replay_control_last_action, residual_replay_control_position,
-            simulate_replay_control_pause, simulate_replay_control_prepare_play_at,
-            simulate_replay_control_stop, ResidualReplayControlAction,
+            ResidualReplayControlAction, residual_replay_control_last_action,
+            residual_replay_control_position, simulate_replay_control_pause,
+            simulate_replay_control_prepare_play_at, simulate_replay_control_stop,
         };
         assert!(
             simulate_replay_control_prepare_play_at(0.25),

@@ -131,10 +131,11 @@ pub fn honesty_script_msg_helper_source_markers_residual_wave570() -> bool {
     };
     // 2026-08-15: Wave 900 fail-closed — host helper clones freeze messages,
     // no live take_new_script_messages drain (camera_drain.rs:945-956).
-    let body_ok = (body.contains("Wave 570") || body.contains("Wave 607") || body.contains("Wave 900"))
-        && body.contains("new_script_messages")
-        && body.contains("presentation_frame()")
-        && !body.contains("self.game_logic.take_new_script_messages()");
+    let body_ok =
+        (body.contains("Wave 570") || body.contains("Wave 607") || body.contains("Wave 900"))
+            && body.contains("new_script_messages")
+            && body.contains("presentation_frame()")
+            && !body.contains("self.game_logic.take_new_script_messages()");
     let call_ok = eng.contains("self.take_presentation_or_boot_new_script_messages()");
     let ok = field_ok
         && body_ok

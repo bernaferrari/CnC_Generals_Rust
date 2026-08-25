@@ -79,8 +79,8 @@ pub fn residual_engine_env_free_fn_game_logic_only_seed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_engine_env_free_fn_game_logic_only_seed_last_action(
-) -> ResidualEngineEnvFreeFnGameLogicOnlySeedAction {
+pub fn residual_engine_env_free_fn_game_logic_only_seed_last_action()
+-> ResidualEngineEnvFreeFnGameLogicOnlySeedAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualEngineEnvFreeFnGameLogicOnlySeedAction::MethodNames,
         2 => ResidualEngineEnvFreeFnGameLogicOnlySeedAction::SourceMarkers,

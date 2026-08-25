@@ -3,26 +3,26 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, GameLogicRandomValue, ModelConditionFlags, ModuleData, ObjectID, Real,
-    UnsignedInt, PLAYERMASK_ALL,
+    AsciiString, Coord3D, GameLogicRandomValue, ModelConditionFlags, ModuleData, ObjectID,
+    PLAYERMASK_ALL, Real, UnsignedInt,
 };
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    game_client_random_value_real, TheFXListStore, TheGameLogic, TheObjectCreationListStore,
+    TheFXListStore, TheGameLogic, TheObjectCreationListStore, game_client_random_value_real,
 };
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::die::{
-    parse_death_type_flags_tokens, parse_object_status_mask_tokens,
-    parse_veterancy_level_flags_tokens, DieMuxData, ObjectStatusMask,
-};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::die::{
+    DieMuxData, ObjectStatusMask, parse_death_type_flags_tokens, parse_object_status_mask_tokens,
+    parse_veterancy_level_flags_tokens,
+};
 use crate::physics::GRAVITY;
 use game_engine::common::global_data;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::system::Xfer;

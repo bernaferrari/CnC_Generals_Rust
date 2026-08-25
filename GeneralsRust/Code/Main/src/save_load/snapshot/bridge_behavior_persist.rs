@@ -17,8 +17,8 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore replaces the live registry and never calls `create_scaffolding`.
 
-use crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -44,10 +44,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_brbh_suffix(bytes) else {
         return Ok(());
     };
@@ -99,11 +96,11 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_bridge_behavior::{
-        HostScaffoldAnim, HostScaffoldMotion, BRIDGE_SCAFFOLD_LATERAL_SPEED,
-        BRIDGE_SCAFFOLD_VERTICAL_SPEED,
-    };
     use crate::game_logic::ObjectId;
+    use crate::game_logic::host_bridge_behavior::{
+        BRIDGE_SCAFFOLD_LATERAL_SPEED, BRIDGE_SCAFFOLD_VERTICAL_SPEED, HostScaffoldAnim,
+        HostScaffoldMotion,
+    };
     use glam::Vec3;
 
     #[test]
@@ -117,9 +114,10 @@ mod tests {
             Vec3::new(-16.0, 0.0, 4.0),
             Vec3::new(16.0, 0.0, 4.0),
         );
-        source
-            .bridge_behavior
-            .bind_towers(span, [ObjectId(21), ObjectId(22), ObjectId(23), ObjectId(24)]);
+        source.bridge_behavior.bind_towers(
+            span,
+            [ObjectId(21), ObjectId(22), ObjectId(23), ObjectId(24)],
+        );
         assert!(source.bridge_behavior.create_scaffolding(span));
         if let Some(live) = source.bridge_behavior.span_mut(span) {
             live.death_frame = 90;

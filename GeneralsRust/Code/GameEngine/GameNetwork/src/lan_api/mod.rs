@@ -68,7 +68,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use tokio::sync::{broadcast, watch, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast, watch};
 use tracing::{debug, error, info, warn};
 
 pub mod bus;
@@ -87,7 +87,7 @@ pub mod lobby;
 pub mod messages;
 pub mod player;
 
-pub use bus::{lan_event_channel, LanBridgeEvent, LanEventReceiver, LanEventSender};
+pub use bus::{LanBridgeEvent, LanEventReceiver, LanEventSender, lan_event_channel};
 pub use chat::{ChatMessage, ChatType, LanChat};
 pub use discovery::{DiscoveryConfig, DiscoveryMethod, GameDiscovery};
 pub use game_info::{GameOptions, GameState as LanGameState, LanGameInfo};
@@ -1544,11 +1544,11 @@ mod tests {
     use super::*;
     use crate::error::NetworkResult;
     use crate::observability::{
-        initialize_telemetry, telemetry, HealthStatus, ObservabilityConfig,
+        HealthStatus, ObservabilityConfig, initialize_telemetry, telemetry,
     };
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::time::Duration;
-    use tokio::sync::{watch, OnceCell};
+    use tokio::sync::{OnceCell, watch};
     use tokio::time::sleep;
 
     fn next_port() -> u16 {

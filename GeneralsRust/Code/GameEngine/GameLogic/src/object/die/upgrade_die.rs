@@ -8,14 +8,14 @@ use super::{DieModule, DieModuleData, DieModuleInterface};
 use crate::common::{AsciiString, ModuleData};
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
+use crate::object::INVALID_ID;
+use crate::object::Object;
 use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
 };
-use crate::object::Object;
-use crate::object::INVALID_ID;
 use crate::upgrade::center::with_upgrade_center;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 
@@ -261,15 +261,21 @@ mod tests {
     fn upgrade_die_parses_die_mux_keys() {
         // C++ UpgradeDie.h:30 DieModuleData::buildFieldParse(p)
         assert!(UPGRADE_DIE_FIELDS.iter().any(|f| f.token == "DeathTypes"));
-        assert!(UPGRADE_DIE_FIELDS
-            .iter()
-            .any(|f| f.token == "VeterancyLevels"));
+        assert!(
+            UPGRADE_DIE_FIELDS
+                .iter()
+                .any(|f| f.token == "VeterancyLevels")
+        );
         assert!(UPGRADE_DIE_FIELDS.iter().any(|f| f.token == "ExemptStatus"));
-        assert!(UPGRADE_DIE_FIELDS
-            .iter()
-            .any(|f| f.token == "RequiredStatus"));
-        assert!(UPGRADE_DIE_FIELDS
-            .iter()
-            .any(|f| f.token == "UpgradeToRemove"));
+        assert!(
+            UPGRADE_DIE_FIELDS
+                .iter()
+                .any(|f| f.token == "RequiredStatus")
+        );
+        assert!(
+            UPGRADE_DIE_FIELDS
+                .iter()
+                .any(|f| f.token == "UpgradeToRemove")
+        );
     }
 }

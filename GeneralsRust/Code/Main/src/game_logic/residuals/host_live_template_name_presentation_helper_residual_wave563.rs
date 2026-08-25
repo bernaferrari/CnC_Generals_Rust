@@ -79,8 +79,8 @@ pub fn residual_template_name_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_template_name_presentation_helper_last_action(
-) -> ResidualTemplateNamePresentationHelperAction {
+pub fn residual_template_name_presentation_helper_last_action()
+-> ResidualTemplateNamePresentationHelperAction {
     ResidualTemplateNamePresentationHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

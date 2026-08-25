@@ -76,8 +76,8 @@ pub fn residual_camera_center_presentation_height_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_camera_center_presentation_height_last_action(
-) -> ResidualCameraCenterPresentationHeightAction {
+pub fn residual_camera_center_presentation_height_last_action()
+-> ResidualCameraCenterPresentationHeightAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualCameraCenterPresentationHeightAction::MethodNames,
         2 => ResidualCameraCenterPresentationHeightAction::SourceMarkers,

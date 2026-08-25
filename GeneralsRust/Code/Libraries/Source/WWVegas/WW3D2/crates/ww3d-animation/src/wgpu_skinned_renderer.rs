@@ -4,7 +4,7 @@
 //! Implements vertex skinning on the GPU using bone matrices in uniform buffers.
 //!
 //! Reference: Modern GPU skinning techniques, wgpu best practices
-use crate::skeletal_animation::{AnimatedModel, SkeletonState, MAX_BONES};
+use crate::skeletal_animation::{AnimatedModel, MAX_BONES, SkeletonState};
 use crate::w3d_model_loader::{W3DMeshData, W3DModel};
 use glam::Vec3;
 use std::mem;

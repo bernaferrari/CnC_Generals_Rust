@@ -2,7 +2,7 @@
 //!
 //! This mirrors the original C++ GhostObject/GhostObjectManager implementation.
 
-use crate::common::{Bool, Coord3D, Int, ObjectID, Real, INVALID_ID};
+use crate::common::{Bool, Coord3D, INVALID_ID, Int, ObjectID, Real};
 use crate::helpers::TheGameLogic;
 use crate::object::{Object, PartitionData};
 use game_engine::common::system::{GeometryType, Snapshotable, Xfer, XferMode, XferVersion};

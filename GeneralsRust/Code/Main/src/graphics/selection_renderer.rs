@@ -681,13 +681,10 @@ impl SelectionRenderer {
 /// C++ `GameClient.cpp:694` `setFullyObscuredByShroud(ss >= OBJECTSHROUD_FOGGED)`
 /// then `W3DModelDraw::setFullyObscuredByShroud` → `enableShadowInvisible`.
 /// Fogged ghosts and black-shrouded units cast no disc.
-fn blob_shadow_visible_through_shroud(
-    u: &crate::presentation_frame::UnitRenderInput,
-) -> bool {
+fn blob_shadow_visible_through_shroud(u: &crate::presentation_frame::UnitRenderInput) -> bool {
     use crate::presentation_frame::PresentationObjectShroudStatus;
     if u.drawable_shroud.lifetime.is_direct_host_object()
-        && (u.drawable_shroud.raw_status as u8)
-            >= (PresentationObjectShroudStatus::Fogged as u8)
+        && (u.drawable_shroud.raw_status as u8) >= (PresentationObjectShroudStatus::Fogged as u8)
     {
         return false;
     }
@@ -989,7 +986,6 @@ mod presentation_selection_tests {
         t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_DECAL;
         logic.templates.insert("SelUnit".into(), t);
 
-
         let id = logic
             .create_object("SelUnit", Team::USA, Vec3::new(12.0, 4.0, -7.0))
             .expect("unit");
@@ -1125,8 +1121,7 @@ mod presentation_selection_tests {
             blobs[0].position
         );
         assert!(
-            (blobs[0].position.x - 20.0).abs() < 0.01
-                && (blobs[0].position.z - 15.0).abs() < 0.01,
+            (blobs[0].position.x - 20.0).abs() < 0.01 && (blobs[0].position.z - 15.0).abs() < 0.01,
             "blob XZ follows unit XY: {:?}",
             blobs[0].position
         );
@@ -1256,7 +1251,6 @@ mod presentation_selection_tests {
         restore();
     }
 
-
     #[test]
     fn production_cnc_render_path_enqueues_selection_with_presentation() {
         // Structural proof: CncGameEngine::render ships enqueue_selection_render with
@@ -1299,9 +1293,9 @@ mod presentation_selection_tests {
 #[cfg(test)]
 mod selection_shader_residual_tests {
     use super::{
-        drag_rect_screen_vertices, rmb_scroll_anchor_screen_vertices, DragSelectRect,
-        RmbScrollAnchorOverlay, DRAG_RECT_COLOR, RMB_SCROLL_ANCHOR_DROP_COLOR,
-        RMB_SCROLL_ANCHOR_MAIN_COLOR,
+        DRAG_RECT_COLOR, DragSelectRect, RMB_SCROLL_ANCHOR_DROP_COLOR,
+        RMB_SCROLL_ANCHOR_MAIN_COLOR, RmbScrollAnchorOverlay, drag_rect_screen_vertices,
+        rmb_scroll_anchor_screen_vertices,
     };
     use glam::Vec2;
 
@@ -1390,31 +1384,37 @@ mod selection_shader_residual_tests {
     #[test]
     fn rmb_scroll_anchor_requires_the_enabled_active_gesture() {
         let display_size = (400.0, 300.0);
-        assert!(RmbScrollAnchorOverlay::from_active_rmb_scroll(
-            false,
-            true,
-            Some((100.0, 125.0)),
-            display_size,
-        )
-        .is_none());
-        assert!(RmbScrollAnchorOverlay::from_active_rmb_scroll(
-            true,
-            false,
-            Some((100.0, 125.0)),
-            display_size,
-        )
-        .is_none());
+        assert!(
+            RmbScrollAnchorOverlay::from_active_rmb_scroll(
+                false,
+                true,
+                Some((100.0, 125.0)),
+                display_size,
+            )
+            .is_none()
+        );
+        assert!(
+            RmbScrollAnchorOverlay::from_active_rmb_scroll(
+                true,
+                false,
+                Some((100.0, 125.0)),
+                display_size,
+            )
+            .is_none()
+        );
         assert!(
             RmbScrollAnchorOverlay::from_active_rmb_scroll(true, true, None, display_size,)
                 .is_none()
         );
-        assert!(RmbScrollAnchorOverlay::from_active_rmb_scroll(
-            true,
-            true,
-            Some((f32::NAN, 125.0)),
-            display_size,
-        )
-        .is_none());
+        assert!(
+            RmbScrollAnchorOverlay::from_active_rmb_scroll(
+                true,
+                true,
+                Some((f32::NAN, 125.0)),
+                display_size,
+            )
+            .is_none()
+        );
     }
 
     /// hq-6gq7: world-space unit circles are the allowed wgpu representation

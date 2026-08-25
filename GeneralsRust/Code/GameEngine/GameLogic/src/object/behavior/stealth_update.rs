@@ -15,8 +15,8 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::{Object as GameObject, ObjectID, INVALID_ID as OBJECT_INVALID_ID};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, ObjectID};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Thing as ModuleThing;
 use log::{debug, trace};
@@ -311,7 +311,6 @@ impl StealthUpdate {
         self.disguise_as_template_name.is_some()
     }
 
-
     /// Get disguised player index
     pub fn get_disguised_player_index(&self) -> Int {
         self.disguise_as_player_index
@@ -375,9 +374,9 @@ impl StealthUpdate {
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
-                owner.get_stealth().and_then(|handle| {
-                    handle.lock().ok().map(|guard| guard.get_stealth_delay())
-                })
+                owner
+                    .get_stealth()
+                    .and_then(|handle| handle.lock().ok().map(|guard| guard.get_stealth_delay()))
             })
             .flatten()
             .unwrap_or(self.module_data.stealth_delay)
@@ -389,9 +388,9 @@ impl StealthUpdate {
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
-                owner.get_stealth().and_then(|handle| {
-                    handle.lock().ok().map(|guard| guard.get_stealth_level())
-                })
+                owner
+                    .get_stealth()
+                    .and_then(|handle| handle.lock().ok().map(|guard| guard.get_stealth_level()))
             })
             .flatten()
             .unwrap_or(self.module_data.stealth_level)
@@ -404,9 +403,10 @@ impl StealthUpdate {
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
                 owner.get_stealth().and_then(|handle| {
-                    handle.lock().ok().map(|guard| {
-                        guard.get_order_idle_enemies_to_attack_me_upon_reveal()
-                    })
+                    handle
+                        .lock()
+                        .ok()
+                        .map(|guard| guard.get_order_idle_enemies_to_attack_me_upon_reveal())
                 })
             })
             .flatten()
@@ -811,7 +811,9 @@ impl StealthUpdate {
                 } else {
                     OBJECT_REGISTRY
                         .with_object(stealth_owner_id, |owner| {
-                            owner.get_status_bits().intersects(OBJECT_STATUS_CAN_STEALTH)
+                            owner
+                                .get_status_bits()
+                                .intersects(OBJECT_STATUS_CAN_STEALTH)
                         })
                         .unwrap_or(false)
                 };
@@ -1149,10 +1151,7 @@ impl Snapshotable for StealthUpdate {
             })?;
 
         // disguise as template -- C++ StealthUpdate.cpp line 1145-1165
-        let mut disguise_template_name = self
-            .disguise_as_template_name
-            .clone()
-            .unwrap_or_default();
+        let mut disguise_template_name = self.disguise_as_template_name.clone().unwrap_or_default();
         xfer.xfer_ascii_string(&mut disguise_template_name)
             .map_err(|e| format!("StealthUpdate disguise_template_name xfer failed: {:?}", e))?;
         if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
@@ -1193,7 +1192,6 @@ impl Snapshotable for StealthUpdate {
         // disguised -- C++ StealthUpdate.cpp line 1177
         xfer.xfer_bool(&mut self.disguised)
             .map_err(|e| format!("StealthUpdate disguised xfer failed: {:?}", e))?;
-
 
         // version 2 fields -- C++ StealthUpdate.cpp line 1179-1182
         if version >= 2 {

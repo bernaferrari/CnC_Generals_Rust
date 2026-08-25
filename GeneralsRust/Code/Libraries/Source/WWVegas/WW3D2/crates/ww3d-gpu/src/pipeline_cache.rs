@@ -4,7 +4,7 @@
 //! pipeline creation. Pipelines are expensive to create, so caching based on
 //! pipeline state is critical for performance.
 
-use crate::{pipeline, GpuError};
+use crate::{GpuError, pipeline};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};

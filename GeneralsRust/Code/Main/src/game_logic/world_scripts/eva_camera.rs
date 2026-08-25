@@ -185,7 +185,6 @@ impl GameLogic {
         // the authored bit without FS_FACTORY.
         let is_mp_count = is_structure && obj.is_kind_of(KindOf::MpCountForVictory);
 
-
         // C++ Radar.cpp:1293-1294 operator-precedence quirk: 250² is not a
         // real distance filter. Same-type UnderAttack pings throttle map-wide
         // for 10s (LOGICFRAMES_PER_SECOND * 10).
@@ -329,8 +328,7 @@ impl GameLogic {
         let victim_owner = self.player_owner_for_host_object(obj);
         if let Some(src_id) = obj.last_damage_source {
             if let Some(src) = self.objects.get(&src_id) {
-                if victim_owner.is_some()
-                    && self.player_owner_for_host_object(src) == victim_owner
+                if victim_owner.is_some() && self.player_owner_for_host_object(src) == victim_owner
                 {
                     return false;
                 }
@@ -354,7 +352,6 @@ impl GameLogic {
     pub fn honesty_eva_ally_under_attack_ok(&self) -> bool {
         self.eva_ally_under_attack > 0
     }
-
 
     pub fn try_eva_on_local_object_death(
         &mut self,
@@ -385,7 +382,6 @@ impl GameLogic {
         let is_mp_count_for_victory = self
             .objects
             .get(&victim_id)
-
             .map(|o| o.is_kind_of(KindOf::MpCountForVictory))
             .unwrap_or(is_mp_count_for_victory);
         if is_structure && is_mp_count_for_victory {
@@ -402,9 +398,7 @@ impl GameLogic {
             crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
             // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) — spacebar jump, no text.
-            if let Ok(mut radar) =
-                game_engine::common::system::radar::get_radar_system().write()
-            {
+            if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
                 let loc = game_engine::common::system::radar::Coord3D {
                     x: death_pos.x,
                     y: death_pos.z,
@@ -622,7 +616,6 @@ impl GameLogic {
         self.pending_camera_focus = None;
         self.mission_scripts.set_camera_movement_finished(true);
     }
-
 
     pub(in super::super) fn selected_objects_center_for_local_player(&self) -> Option<Vec3> {
         let local_player_id = self.local_player_id()?;
@@ -935,7 +928,6 @@ impl GameLogic {
             }
         }
     }
-
 
     pub fn set_script_cameo_flash(&mut self, button: impl Into<String>, flash_count: i32) {
         self.script_cameo_flash_count
@@ -1375,11 +1367,7 @@ mod tests {
             .set_health(5000.0);
         logic.templates.insert("AmericaCommandCenter".into(), st);
         let id = logic
-            .create_object_for_player(
-                "AmericaCommandCenter",
-                1,
-                glam::Vec3::new(10.0, 0.0, 20.0),
-            )
+            .create_object_for_player("AmericaCommandCenter", 1, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("ally cc");
         assert!(logic.try_under_attack_event(id));
         assert!(!logic.honesty_eva_base_under_attack_ok());
@@ -1394,7 +1382,6 @@ mod tests {
             "{events:?}"
         );
     }
-
 
     #[test]
     fn try_under_attack_from_damage_skips_non_local() {
@@ -1413,11 +1400,7 @@ mod tests {
         t.add_kind_of(KindOf::Vehicle).set_health(400.0);
         logic.templates.insert("ChinaTankBattleMaster".into(), t);
         let victim = logic
-            .create_object_for_player(
-                "ChinaTankBattleMaster",
-                1,
-                glam::Vec3::new(10.0, 0.0, 10.0),
-            )
+            .create_object_for_player("ChinaTankBattleMaster", 1, glam::Vec3::new(10.0, 0.0, 10.0))
             .expect("ai victim");
         assert!(
             !logic.try_under_attack_from_damage(victim),
@@ -1431,11 +1414,7 @@ mod tests {
             .templates
             .insert("AmericaInfantryRanger".into(), ranger_t);
         let local = logic
-            .create_object_for_player(
-                "AmericaInfantryRanger",
-                0,
-                glam::Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("local ranger");
         assert!(logic.try_under_attack_from_damage(local));
         assert!(logic.honesty_under_attack_event_ok());
@@ -1457,11 +1436,7 @@ mod tests {
             .set_health(5000.0);
         logic.templates.insert("ChinaCommandCenter".into(), st);
         let id = logic
-            .create_object_for_player(
-                "ChinaCommandCenter",
-                1,
-                glam::Vec3::new(10.0, 0.0, 20.0),
-            )
+            .create_object_for_player("ChinaCommandCenter", 1, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("china cc");
         assert!(logic.try_under_attack_event(id));
         assert!(!logic.honesty_eva_base_under_attack_ok());
@@ -1527,11 +1502,7 @@ mod tests {
             .create_object_for_player("AmericaInfantryRanger", 0, glam::Vec3::ZERO)
             .expect("local ranger");
         let ally = logic
-            .create_object_for_player(
-                "AmericaInfantryRanger",
-                1,
-                glam::Vec3::new(10.0, 0.0, 0.0),
-            )
+            .create_object_for_player("AmericaInfantryRanger", 1, glam::Vec3::new(10.0, 0.0, 0.0))
             .expect("ally ranger");
 
         if let Some(obj) = logic.objects.get_mut(&mine) {
@@ -1571,7 +1542,4 @@ mod tests {
             .count();
         assert_eq!(funds, 2, "{events:?}");
     }
-
-
 }
-

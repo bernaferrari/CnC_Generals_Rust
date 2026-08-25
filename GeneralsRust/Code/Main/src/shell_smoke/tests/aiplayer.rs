@@ -26,9 +26,9 @@ fn aiplayer_update_with_frame_cpp_phase_order() {
         .expect("upgrades");
     let bridge = window.find("self.update_bridge_repair()?").expect("bridge");
     assert!(
-            base < ready && ready < queued && queued < team && team < upg && upg < bridge,
-            "update_with_frame must match C++ AIPlayer::update phase order (got base={base} ready={ready} queued={queued} team={team} upg={upg} bridge={bridge})"
-        );
+        base < ready && ready < queued && queued < team && team < upg && upg < bridge,
+        "update_with_frame must match C++ AIPlayer::update phase order (got base={base} ready={ready} queued={queued} team={team} upg={upg} bridge={bridge})"
+    );
     // Attack residual must not interrupt the C++ phase block.
     if let Some(atk) = window.find("self.process_attack_decisions") {
         assert!(

@@ -4,16 +4,16 @@ use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D,
 };
 use super::message_stream::{
-    emit_message, take_emitted_messages, GameMessageDisposition, GameMessageTranslator,
+    GameMessageDisposition, GameMessageTranslator, emit_message, take_emitted_messages,
 };
-use crate::display::view::{with_tactical_view, with_tactical_view_ref, ViewLocation};
-use crate::gui::{get_shell, MouseCursor};
+use crate::display::view::{ViewLocation, with_tactical_view, with_tactical_view_ref};
+use crate::gui::{MouseCursor, get_shell};
 use crate::helpers::TheInGameUI;
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
-use game_engine::common::ini::ini_game_data::get_global_data;
-use gamelogic::helpers::TheGameLogic;
 use game_engine::common::global_data;
+use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::recorder::with_recorder;
+use gamelogic::helpers::TheGameLogic;
 
 const MAX_VIEW_LOCS: usize = 8;
 const SCROLL_AMT: f32 = 100.0;
@@ -79,7 +79,6 @@ pub struct LookAtTranslator {
     /// C++ `LookAtXlat.cpp:47` static `prevCursor`.
     prev_cursor: MouseCursor,
 }
-
 
 fn should_emit_replay_camera() -> bool {
     if !global_data::read().save_camera_in_replay {
@@ -540,10 +539,7 @@ mod tests {
         assert!(with_tactical_view_ref(|view| view.is_mouse_locked()));
         assert_eq!(translator.prev_cursor, MouseCursor::Waypoint);
         // C++ InGameUI::setScrolling(TRUE) clears lock + drawable.
-        assert_eq!(
-            with_tactical_view_ref(|view| view.camera_lock_id()),
-            None
-        );
+        assert_eq!(with_tactical_view_ref(|view| view.camera_lock_id()), None);
         assert_eq!(
             with_tactical_view_ref(|view| view.camera_lock_drawable_id()),
             None
@@ -570,13 +566,11 @@ mod tests {
         TheInGameUI::set_mouse_cursor(MouseCursor::Select);
         let mut translator = LookAtTranslator::new();
         translator.set_scrolling(ScrollType::Rmb);
-        let _ = translator.translate_game_message(&GameMessage::new(
-            GameMessageType::RawMouseWheel(1),
-        ));
+        let _ =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::RawMouseWheel(1)));
         assert!(!translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::None);
     }
-
 
     #[test]
     fn frame_tick_emits_set_replay_camera_for_skirmish_when_save_flag() {

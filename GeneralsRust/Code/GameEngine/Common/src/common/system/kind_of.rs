@@ -639,10 +639,7 @@ mod tests {
             kind_of_type_to_mask(53),
             Some(KindOfMask::ALWAYS_SELECTABLE)
         );
-        assert_eq!(
-            kind_of_type_to_mask(63),
-            Some(KindOfMask::FORCEATTACKABLE)
-        );
+        assert_eq!(kind_of_type_to_mask(63), Some(KindOfMask::FORCEATTACKABLE));
         assert_eq!(kind_of_type_to_mask(KINDOF_COUNT as i32), None);
     }
 

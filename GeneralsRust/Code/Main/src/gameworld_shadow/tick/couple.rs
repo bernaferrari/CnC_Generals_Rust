@@ -269,8 +269,8 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
         return None;
     }
     with_coupled_shadow_slot(|shadow| {
-        use gamelogic::world::entities::EntityId;
         use gamelogic::world::WorldMutation;
+        use gamelogic::world::entities::EntityId;
         shadow.world.queue_mutation(WorldMutation::Spawn {
             template: template.to_string(),
             owner: None,

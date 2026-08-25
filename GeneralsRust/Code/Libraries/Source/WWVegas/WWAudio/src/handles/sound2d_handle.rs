@@ -9,7 +9,7 @@ use crate::{
     mixer::{AudioMixer, VoiceHandle, VoiceParams, VoiceSpatialParams},
 };
 
-use super::base_handle::{miles_to_volume, volume_to_miles, BaseSoundHandle};
+use super::base_handle::{BaseSoundHandle, miles_to_volume, volume_to_miles};
 
 /// 2D sound handle implementation mirroring `Sound2DHandleClass`
 pub struct Sound2DHandle {

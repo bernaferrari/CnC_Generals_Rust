@@ -142,6 +142,9 @@ fn next_chunk<'a>(data: &'a [u8], offset: &mut usize) -> Option<(u32, &'a [u8])>
 }
 
 fn cstring_payload(payload: &[u8]) -> String {
-    let end = payload.iter().position(|&b| b == 0).unwrap_or(payload.len());
+    let end = payload
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(payload.len());
     String::from_utf8_lossy(&payload[..end]).into_owned()
 }

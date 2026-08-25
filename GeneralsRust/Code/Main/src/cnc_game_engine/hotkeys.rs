@@ -72,7 +72,11 @@ impl CnCGameEngine {
 
     /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
     fn write_leftover_player_select_team(&self, group_num: u8, add: bool) {
-        crate::command_system::tap_host_team_slot_for_recorder(group_num, if add { 2 } else { 1 }, &[]);
+        crate::command_system::tap_host_team_slot_for_recorder(
+            group_num,
+            if add { 2 } else { 1 },
+            &[],
+        );
         let Ok(list) = gamelogic::player::ThePlayerList().read() else {
             return;
         };
@@ -377,7 +381,10 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // C++ MSG_META_TOGGLE_ATTACKMOVE flips InGameUI attack-move mode.
-                if matches!(self.pending_map_command, Some(PendingMapCommand::AttackMove)) {
+                if matches!(
+                    self.pending_map_command,
+                    Some(PendingMapCommand::AttackMove)
+                ) {
                     self.pending_map_command = None;
                     self.clear_radius_cursor_overlays();
                 } else if !self.ui_selected_ids(self.current_player_id).is_empty() {
@@ -1038,9 +1045,10 @@ impl CnCGameEngine {
                 {
                     #[cfg(feature = "game_client")]
                     {
-                        let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
-                            true,
-                        );
+                        let _ =
+                            game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
+                                true,
+                            );
                     }
                     self.game_hud.toggle_visibility();
                     self.ui_manager.game_hud_mut().toggle_visibility();
@@ -1313,9 +1321,11 @@ impl CnCGameEngine {
             } else {
                 game_client::message_stream::meta_event::COMMAND_MAP_USABLE_GAME
             };
-            let Some(name) = game_client::message_stream::meta_event::lookup_command_map_name_usable(
-                code, mods, usable,
-            ) else {
+            let Some(name) =
+                game_client::message_stream::meta_event::lookup_command_map_name_usable(
+                    code, mods, usable,
+                )
+            else {
                 return false;
             };
             let upper = name.to_ascii_uppercase();
@@ -1423,9 +1433,10 @@ impl CnCGameEngine {
                     }
                     #[cfg(feature = "game_client")]
                     {
-                        let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
-                            true,
-                        );
+                        let _ =
+                            game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
+                                true,
+                            );
                     }
                     self.game_hud.toggle_visibility();
                     self.ui_manager.game_hud_mut().toggle_visibility();
@@ -1591,7 +1602,6 @@ impl CnCGameEngine {
     }
 }
 
-
 fn command_map_binds_host(name: &str) -> bool {
     #[cfg(feature = "game_client")]
     {
@@ -1610,7 +1620,6 @@ fn command_map_view_slot(prefix: &str, name: &str) -> Option<usize> {
     let slot: usize = rest.parse().ok()?;
     (1..=8).contains(&slot).then_some(slot - 1)
 }
-
 
 fn host_localized_gui_label(key: &str) -> String {
     #[cfg(feature = "game_client")]
@@ -1754,7 +1763,7 @@ mod tests {
     fn escape_options_stops_rmb_scroll_and_cancels_drag() {
         let src = include_str!("hotkeys.rs");
         assert!(src.contains("self.apply_meta_options_interrupt()"));
-        let mouse = include_str!("mouse.rs");
+        let mouse = super::ENGINE_SRC;
         assert!(mouse.contains("fn apply_meta_options_interrupt"));
         assert!(mouse.contains("self.stop_rmb_lookat_scroll()"));
         assert!(mouse.contains("self.cancel_area_select_from_control_bar()"));
@@ -1762,11 +1771,26 @@ mod tests {
 
     #[test]
     fn command_map_view_slot_parses_save_and_view() {
-        assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW1"), Some(0));
-        assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW8"), Some(7));
-        assert_eq!(super::command_map_view_slot("VIEW_VIEW", "VIEW_VIEW4"), Some(3));
-        assert_eq!(super::command_map_view_slot("VIEW_VIEW", "VIEW_LAST_RADAR_EVENT"), None);
-        assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW9"), None);
+        assert_eq!(
+            super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW1"),
+            Some(0)
+        );
+        assert_eq!(
+            super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW8"),
+            Some(7)
+        );
+        assert_eq!(
+            super::command_map_view_slot("VIEW_VIEW", "VIEW_VIEW4"),
+            Some(3)
+        );
+        assert_eq!(
+            super::command_map_view_slot("VIEW_VIEW", "VIEW_LAST_RADAR_EVENT"),
+            None
+        );
+        assert_eq!(
+            super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW9"),
+            None
+        );
         assert_eq!(super::command_map_view_slot("SAVE_VIEW", "SAVE_VIEW"), None);
     }
 
@@ -1810,5 +1834,4 @@ mod tests {
             "Ctrl+A must not call select_all_friendly_units"
         );
     }
-
 }

@@ -1141,7 +1141,7 @@ impl GameLogic {
                 continue;
             };
             // Skip if host production path already completed this upgrade.
-            use crate::game_logic::host_upgrades::{normalize_upgrade_identity, HostUpgradePhase};
+            use crate::game_logic::host_upgrades::{HostUpgradePhase, normalize_upgrade_identity};
             let key = normalize_upgrade_identity(&ev.upgrade_name);
             let already = self.host_upgrades().entries_snapshot().iter().any(|e| {
                 e.player_id == ev.player_id
@@ -1187,10 +1187,7 @@ impl GameLogic {
             let model = obj.thing.template.get_model_name().to_string();
             let scale = obj.thing.template.asset_scale;
             let aflame = obj.has_object_status_bit("AFLAME")
-                || obj
-                    .fire_spread
-                    .as_ref()
-                    .is_some_and(|f| f.is_aflame());
+                || obj.fire_spread.as_ref().is_some_and(|f| f.is_aflame());
             let owner = ev.object;
             let ordinal = ev.new_ordinal;
             drop(obj);
@@ -1200,9 +1197,7 @@ impl GameLogic {
                 self.frame,
                 ordinal,
                 aflame,
-                crate::game_logic::combat_particles::BodyAutoParticlePose::new(
-                    &model, scale, yaw,
-                ),
+                crate::game_logic::combat_particles::BodyAutoParticlePose::new(&model, scale, yaw),
             );
             self.mirror_overlord_addon_damage_to_occupant(owner);
             n = n.saturating_add(1);

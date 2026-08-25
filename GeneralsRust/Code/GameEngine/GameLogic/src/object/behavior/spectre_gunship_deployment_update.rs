@@ -2,7 +2,7 @@
 //! Spawns and dispatches the Spectre gunship from the command center.
 
 use crate::command_button::CommandButton;
-use crate::common::science::{ScienceType, SCIENCE_INVALID};
+use crate::common::science::{SCIENCE_INVALID, ScienceType};
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Coord3D, DisabledMaskType, ModuleData, ObjectID, ObjectStatusTypes,
@@ -14,15 +14,15 @@ use crate::modules::{
     SpecialPowerModuleInterface, SpecialPowerUpdateInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::Object as GameObject;
+use crate::object::SpecialPowerTemplate;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::special_power_module::Waypoint;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::update::does_special_power_update_pass_science_test_for_object;
-use crate::object::Object as GameObject;
-use crate::object::SpecialPowerTemplate;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
 use crate::weapon::WeaponTemplate;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::get_science_store;
 use game_engine::common::system::{Snapshotable, Xfer};

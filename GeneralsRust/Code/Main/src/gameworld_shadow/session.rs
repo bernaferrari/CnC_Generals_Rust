@@ -1441,9 +1441,7 @@ pub fn shadow_session_after_host_tick(
                     )
                     .toxin_object()
                 })
-                .unwrap_or(
-                    crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_OBJECT_NAME,
-                );
+                .unwrap_or(crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_OBJECT_NAME);
             let _ = logic.special_power_strikes.spawn_toxin_field_with_params(
                 src,
                 ev.team,

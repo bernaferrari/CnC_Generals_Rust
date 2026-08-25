@@ -79,8 +79,8 @@ pub fn residual_construct_template_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_construct_template_presentation_helper_last_action(
-) -> ResidualConstructTemplatePresentationHelperAction {
+pub fn residual_construct_template_presentation_helper_last_action()
+-> ResidualConstructTemplatePresentationHelperAction {
     ResidualConstructTemplatePresentationHelperAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

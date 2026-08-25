@@ -201,7 +201,7 @@ pub use crate::{
     audible_sound::AudibleSound,
     audio_3d_complete::{
         AttenuationModel, Audio3DBatchProcessor, Audio3DConfig, Audio3DProcessor, Audio3DResult,
-        Listener3DConfig, DEFAULT_MAX_DISTANCE, DEFAULT_MIN_DISTANCE, DEFAULT_ROLLOFF_FACTOR,
+        DEFAULT_MAX_DISTANCE, DEFAULT_MIN_DISTANCE, DEFAULT_ROLLOFF_FACTOR, Listener3DConfig,
         SPEED_OF_SOUND_M_S,
     },
     audio_events_complete::{
@@ -230,16 +230,16 @@ pub use crate::{
     save_load::{
         AudioLoadDeserializer, AudioSaveSerializer, DynamicAudioSaveLoad, StaticAudioSaveLoad,
     },
-    sound3d::Sound3D,
     sound_buffer::{SoundBufferClass, StreamSoundBufferClass},
     sound_pseudo3d::SoundPseudo3D,
     sound_scene::SceneSound,
     sound_scene::SoundScene,
     sound_scene_obj::{SoundObjectId, SoundSceneObject},
     sound_types::{SoundClassId, SoundFlags, SoundState, SoundType},
+    sound3d::Sound3D,
     source::AudioSource,
     streaming::{AudioStreamer, StreamEvent, StreamHandle, StreamState},
-    utils::{get_filename_from_path, MMSLockClass},
+    utils::{MMSLockClass, get_filename_from_path},
     voice_system::{VoiceCategory, VoiceSystem, VoiceSystemConfig},
     wwaudio::WWAudioClass,
     wwaudio_handles::WWHandle,
@@ -248,9 +248,9 @@ pub use crate::{
 // Platform-specific re-exports
 #[cfg(windows)]
 pub use crate::aud_windows::{
-    get_windows_handle, millis_to_duration, read_wave_file_format, seconds_to_duration,
-    set_windows_handle, windows_debug_print, AudThread, AudThreadCallback, AudThreadPriority,
-    AudioCompression, AudioFormatFlags, AudioServiceInfo, ExtendedAudioFormat, ProfileCPU,
+    AudThread, AudThreadCallback, AudThreadPriority, AudioCompression, AudioFormatFlags,
+    AudioServiceInfo, ExtendedAudioFormat, ProfileCPU, get_windows_handle, millis_to_duration,
+    read_wave_file_format, seconds_to_duration, set_windows_handle, windows_debug_print,
 };
 
 /// Audio priority levels for channel and event management

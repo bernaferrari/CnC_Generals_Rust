@@ -4,16 +4,16 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::Coord3D;
-use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
+use crate::common::Relationship;
+use crate::common::{INVALID_ID, ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion};
 use crate::common::{KindOf, PathfindLayerEnum};
 use crate::common::{Matrix3D, TurretType};
-use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
 use crate::damage::{DamageType, DeathType};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
-    TheThingFactory,
+    TheGameLogic, TheTerrainLogic, TheThingFactory, get_game_logic_random_value,
+    get_game_logic_random_value_real,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::collide::GameObject;
@@ -21,15 +21,15 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::update::MissileAIUpdateModuleData;
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::projectile_launch_cast::{
-    module_projectile_launch_kind, ProjectileLaunchKindMut,
+    ProjectileLaunchKindMut, module_projectile_launch_kind,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
 use super::helpers::{
-    dual_world_registry_unavailable, weapon_slot_from_u32, weapon_slot_to_u32,
-    weapon_status_from_u32, weapon_status_to_u32, ObjectId, INVALID_OBJECT_ID,
+    INVALID_OBJECT_ID, ObjectId, dual_world_registry_unavailable, weapon_slot_from_u32,
+    weapon_slot_to_u32, weapon_status_from_u32, weapon_status_to_u32,
 };
 use super::store::with_weapon_store;
 use super::weapon_instance::Weapon;

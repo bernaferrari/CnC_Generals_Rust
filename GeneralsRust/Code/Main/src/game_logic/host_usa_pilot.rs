@@ -746,16 +746,16 @@ pub fn pilot_levels_to_gain(pilot_level: VeterancyLevel) -> u8 {
 /// Gain whatever levels fit up to Heroic (`LEVEL_LAST`). Elite + 2 still
 /// promotes to Heroic; only a Heroic vehicle (or `levels == 0`) is blocked.
 pub fn vehicle_can_gain_exp_for_levels(vehicle_level: VeterancyLevel, levels: u8) -> bool {
-        if levels == 0 {
-            return false;
-        }
-        let current = veterancy_rank(vehicle_level);
-        let mut new_level = current.saturating_add(levels);
-        if new_level > 3 {
-            new_level = 3;
-        }
-        new_level > current
+    if levels == 0 {
+        return false;
     }
+    let current = veterancy_rank(vehicle_level);
+    let mut new_level = current.saturating_add(levels);
+    if new_level > 3 {
+        new_level = 3;
+    }
+    new_level > current
+}
 
 /// Combined PilotFindVehicle scan target residual (recrewable + MinHealth + range
 /// + CollideModule wouldLikeToCollideWith).
@@ -1025,21 +1025,21 @@ pub fn should_recrew_on_enter(is_pilot: bool, vehicle_recrewable: bool) -> bool 
 /// Pilot levels are the pilot's veterancy rank (Regular=0, Veteran=1, …),
 /// added to the vehicle and clamped to Heroic. Not `max(vehicle, pilot)`.
 pub fn merged_recrew_veterancy(
-        vehicle_level: VeterancyLevel,
-        pilot_level: VeterancyLevel,
-    ) -> VeterancyLevel {
-        let add = pilot_levels_to_gain(pilot_level);
-        let mut rank = veterancy_rank(vehicle_level).saturating_add(add);
-        if rank > 3 {
-            rank = 3;
-        }
-        match rank {
-            0 => VeterancyLevel::Rookie,
-            1 => VeterancyLevel::Veteran,
-            2 => VeterancyLevel::Elite,
-            _ => VeterancyLevel::Heroic,
-        }
+    vehicle_level: VeterancyLevel,
+    pilot_level: VeterancyLevel,
+) -> VeterancyLevel {
+    let add = pilot_levels_to_gain(pilot_level);
+    let mut rank = veterancy_rank(vehicle_level).saturating_add(add);
+    if rank > 3 {
+        rank = 3;
     }
+    match rank {
+        0 => VeterancyLevel::Rookie,
+        1 => VeterancyLevel::Veteran,
+        2 => VeterancyLevel::Elite,
+        _ => VeterancyLevel::Heroic,
+    }
+}
 
 /// Host residual honesty counters for USA Pilot recrew + EjectPilotDie.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1462,8 +1462,14 @@ mod tests {
         // C++ Damage.h:161-172 DEATH_POISONED_BETA=12, EXTRA_2=13, POISONED_GAMMA=20.
         assert_eq!(HostDeathType::PoisonedBeta.ordinal(), 12);
         assert_eq!(HostDeathType::PoisonedGamma.ordinal(), 20);
-        assert_eq!(HostDeathType::from_ordinal(20), HostDeathType::PoisonedGamma);
-        assert_ne!(HostDeathType::from_ordinal(13), HostDeathType::PoisonedGamma);
+        assert_eq!(
+            HostDeathType::from_ordinal(20),
+            HostDeathType::PoisonedGamma
+        );
+        assert_ne!(
+            HostDeathType::from_ordinal(13),
+            HostDeathType::PoisonedGamma
+        );
     }
 
     #[test]
@@ -1640,7 +1646,7 @@ mod tests {
         assert!(!auto_find_healing_scan_eligible(true, true, true, false)); // human
         assert!(!auto_find_healing_scan_eligible(true, true, false, true)); // not idle
         assert!(!auto_find_healing_scan_eligible(false, true, true, true)); // no module
-                                                                            // AlwaysHeal busy-interrupt is dead code in retail C++ — host residual closed as idle-only.
+        // AlwaysHeal busy-interrupt is dead code in retail C++ — host residual closed as idle-only.
         assert!(!auto_find_healing_always_heal_busy_interrupt_live());
         assert!((AUTO_FIND_HEALING_ALWAYS_HEAL - 0.25).abs() < 0.001);
 

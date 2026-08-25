@@ -77,8 +77,8 @@ pub fn residual_presentation_env_seed_gameworld_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_env_seed_gameworld_last_action(
-) -> ResidualPresentationEnvSeedGameworldAction {
+pub fn residual_presentation_env_seed_gameworld_last_action()
+-> ResidualPresentationEnvSeedGameworldAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationEnvSeedGameworldAction::MethodNames,
         2 => ResidualPresentationEnvSeedGameworldAction::SourceMarkers,
@@ -221,7 +221,7 @@ pub fn simulate_presentation_env_seed_gameworld_callsites() -> bool {
     let def_ok = src.contains("fn ensure_presentation_env_seeded")
         && src.contains("last_presentation_frame.is_none()")
         && src.contains("self.gameworld_shadow.as_ref()"); // on ensure instance body
-                                                           // No free-fn Self::ensure_presentation_env_for_hints call sites remain.
+    // No free-fn Self::ensure_presentation_env_for_hints call sites remain.
     let free_call = src.contains("Self::ensure_presentation_env_for_hints(");
     let ok = seeded >= 1
         && def_ok
@@ -294,10 +294,10 @@ mod tests {
     #[test]
     fn seed_presentation_env_frame_includes_gameworld_shadow_objects() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+        use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
         use crate::presentation_frame::presentation_from_gameworld_enabled;
-        use gamelogic::world::entities::TemplateRef;
         use gamelogic::world::PlayerId;
+        use gamelogic::world::entities::TemplateRef;
         use glam::Vec3;
 
         ensure_gate_damage_authority();
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn seed_presentation_env_frame_matches_build_for_engine() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+        use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
         use crate::presentation_frame::PresentationFrame;
         use glam::Vec3;
 

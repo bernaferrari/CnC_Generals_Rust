@@ -118,8 +118,8 @@ pub fn honesty_host_objectid_store_source() -> bool {
 /// Live residual: boundary source honesty + post-map presentation seed non-empty when maps load.
 pub fn simulate_presentation_client_boundary_honesty() -> bool {
     use crate::game_logic::{
-        resolve_retail_map_path, GameLogic, GameMode, DEFAULT_SKIRMISH_MAP_WAVE169,
-        LONE_EAGLE_MAP_WAVE169,
+        DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
+        resolve_retail_map_path,
     };
     use crate::presentation_frame::PresentationFrame;
 

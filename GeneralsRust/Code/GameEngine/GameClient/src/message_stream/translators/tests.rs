@@ -1,12 +1,12 @@
 use super::*;
 use game_engine::common::game_engine::init_game_engine;
 use game_engine::common::system::radar::{
-    get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
+    Coord3D as RadarCoord3D, RadarEventType, get_radar_system,
 };
 use gamelogic::common::{AsciiString, GeometryInfo, ObjectStatusTypes, Real};
-use gamelogic::player::{player_list, Player, PlayerType};
+use gamelogic::player::{Player, PlayerType, player_list};
 use gamelogic::system::game_logic::{
-    get_game_logic, GAME_LAN, GAME_NONE, GAME_REPLAY, GAME_SINGLE_PLAYER,
+    GAME_LAN, GAME_NONE, GAME_REPLAY, GAME_SINGLE_PLAYER, get_game_logic,
 };
 use gamelogic::team::Team;
 use gamelogic::thing_template::ThingTemplate;
@@ -604,11 +604,13 @@ fn test_meta_all_cheer_only_enqueues_in_multiplayer() {
         translator.translate_game_message(&GameMessage::new(GameMessageType::MetaAllCheer));
 
     assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
-    assert!(get_command_list()
-        .read()
-        .unwrap()
-        .snapshot_messages()
-        .is_empty());
+    assert!(
+        get_command_list()
+            .read()
+            .unwrap()
+            .snapshot_messages()
+            .is_empty()
+    );
 
     get_game_logic().lock().unwrap().set_game_mode(GAME_LAN);
     let mut translator = CommandTranslator::new();
@@ -709,11 +711,13 @@ fn test_unimplemented_cpp_meta_commands_are_consumed_without_commands() {
         let disposition = translator.translate_game_message(&GameMessage::new(message_type));
 
         assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
-        assert!(get_command_list()
-            .read()
-            .unwrap()
-            .snapshot_messages()
-            .is_empty());
+        assert!(
+            get_command_list()
+                .read()
+                .unwrap()
+                .snapshot_messages()
+                .is_empty()
+        );
     }
 }
 
@@ -1216,9 +1220,7 @@ fn evaluate_context_action_checks_hijack_before_enter_and_attack() {
         .find("fn evaluate_context_action")
         .expect("evaluate_context_action");
     let body = &src[start..start + 8000];
-    let hijack = body
-        .find("selection_can_hijack_target")
-        .expect("hijack");
+    let hijack = body.find("selection_can_hijack_target").expect("hijack");
     let carbomb = body
         .find("selection_can_convert_to_carbomb_target")
         .expect("carbomb");
@@ -1243,11 +1245,8 @@ fn select_next_worker_is_dozer_only_and_looks_at() {
         vec![KindOf::Selectable, KindOf::Dozer],
         team.clone(),
     );
-    let _harvester = register_test_object(
-        78_081,
-        vec![KindOf::Selectable, KindOf::Harvester],
-        team,
-    );
+    let _harvester =
+        register_test_object(78_081, vec![KindOf::Selectable, KindOf::Harvester], team);
     set_test_object_position(&dozer, 40.0, 10.0, 0.0);
 
     let messages = handle_select_next_or_prev_worker(true);

@@ -254,5 +254,4 @@ mod tests {
             HostDeathType::PoisonedGamma
         );
     }
-
 }

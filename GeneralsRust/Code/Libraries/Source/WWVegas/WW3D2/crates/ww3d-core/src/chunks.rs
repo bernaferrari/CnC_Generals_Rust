@@ -443,7 +443,6 @@ pub const W3D_CHUNK_DAZZLE: u32 = 0x00000900;
 pub const W3D_CHUNK_DAZZLE_NAME: u32 = 0x00000901;
 pub const W3D_CHUNK_DAZZLE_TYPENAME: u32 = 0x00000902;
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

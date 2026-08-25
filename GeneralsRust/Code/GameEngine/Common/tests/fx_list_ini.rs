@@ -1,5 +1,5 @@
 use game_engine::common::ini::ini::INI;
-use game_engine::common::ini::ini_fx_list::{get_fx_list_store, CameraShakeType, FXNugget};
+use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXNugget, get_fx_list_store};
 use std::sync::Mutex;
 use std::{fs, path::PathBuf};
 

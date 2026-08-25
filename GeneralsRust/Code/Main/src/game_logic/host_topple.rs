@@ -32,7 +32,6 @@ pub const TOPPLE_BOUNCE_VELOCITY_PERCENT: f32 = 0.3;
 /// C++ VELOCITY_BOUNCE_LIMIT
 pub const TOPPLE_VELOCITY_BOUNCE_LIMIT: f32 = 0.01;
 
-
 fn default_topple_shadows_enabled() -> bool {
     true
 }

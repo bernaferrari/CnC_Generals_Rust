@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostTrainTryNamesGoldenOptInAction) {
 pub fn residual_host_train_try_names_golden_opt_in_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_train_try_names_golden_opt_in_last_action(
-) -> ResidualHostTrainTryNamesGoldenOptInAction {
+pub fn residual_host_train_try_names_golden_opt_in_last_action()
+-> ResidualHostTrainTryNamesGoldenOptInAction {
     ResidualHostTrainTryNamesGoldenOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
@@ -81,7 +81,7 @@ pub fn honesty_host_train_try_names_golden_opt_in_method_names_residual_wave724(
 }
 pub fn honesty_host_train_try_names_golden_opt_in_source_markers_residual_wave724() -> bool {
     let eng = eng_source();
-    let eng_ok=eng.contains("Wave 724")
+    let eng_ok = eng.contains("Wave 724")
         && (eng.contains("GoldenRanger enqueue fallback is opt-in only")
             || eng.contains("alias + GoldenRanger enqueue fallbacks are opt-in only"))
         && (eng.contains("try_names.push(\"GoldenRanger\")")

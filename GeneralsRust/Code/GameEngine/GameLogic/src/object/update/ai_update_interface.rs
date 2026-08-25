@@ -10,7 +10,7 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
-use game_engine::common::ini::{FieldParse, INIError, INILoadType, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -18,9 +18,9 @@ use std::collections::HashMap;
 
 use crate::ai::turret::TurretAI;
 use crate::common::{
-    AsciiString, Bool, Coord3D, FormationID, ICoord2D, Int, KindOf, LocomotorSetType, ObjectID,
-    ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt, Vec3D, WhichTurretType, INVALID_ID,
-    LOGICFRAMES_PER_SECOND, WEAPONSLOT_COUNT,
+    AsciiString, Bool, Coord3D, FormationID, ICoord2D, INVALID_ID, Int, KindOf,
+    LOGICFRAMES_PER_SECOND, LocomotorSetType, ObjectID, ObjectStatusMaskType, ObjectStatusTypes,
+    Real, UnsignedInt, Vec3D, WEAPONSLOT_COUNT, WhichTurretType,
 };
 use crate::helpers::TheGameLogic;
 use crate::locomotor::LOCOMOTOR_STORE;
@@ -1776,7 +1776,6 @@ impl AIUpdateInterface {
             })
             .unwrap_or(self.cur_locomotor_speed)
     }
-
 
     fn clamped_desired_speed(&self, locomotor: &Locomotor, condition: LocoBodyDamageType) -> Real {
         let max_speed = locomotor.get_max_speed_for_condition(condition);

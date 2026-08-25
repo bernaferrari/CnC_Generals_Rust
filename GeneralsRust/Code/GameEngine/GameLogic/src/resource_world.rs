@@ -4,7 +4,7 @@ use game_engine::rts::resource_gathering_manager::{ObjectId, ResourceWorld};
 
 use crate::common::Relationship;
 use crate::object::Object;
-use crate::system::game_logic::{get_game_logic, GameLogic};
+use crate::system::game_logic::{GameLogic, get_game_logic};
 
 /// Default implementation of `ResourceWorld` backed by the live `GameLogic` singleton.
 ///

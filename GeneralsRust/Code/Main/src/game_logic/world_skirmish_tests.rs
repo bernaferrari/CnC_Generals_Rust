@@ -142,15 +142,17 @@ fn cached_player_start_waypoints_pairs_rally() {
 #[test]
 fn spawn_skirmish_starting_units_uses_player_rally() {
     let mut map_data = gamelogic::system::map_loader::MapData::new();
-    map_data.waypoints.push(gamelogic::system::map_loader::MapWaypoint {
-        id: 1,
-        name: "Player_1_Rally".to_string(),
-        location: gamelogic::system::map_loader::Coord3D::new(321.0, 654.0, 12.0),
-        path_label1: String::new(),
-        path_label2: String::new(),
-        path_label3: String::new(),
-        bi_directional: false,
-    });
+    map_data
+        .waypoints
+        .push(gamelogic::system::map_loader::MapWaypoint {
+            id: 1,
+            name: "Player_1_Rally".to_string(),
+            location: gamelogic::system::map_loader::Coord3D::new(321.0, 654.0, 12.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
     {
         let mut terrain = gamelogic::terrain::get_terrain_logic()
             .write()

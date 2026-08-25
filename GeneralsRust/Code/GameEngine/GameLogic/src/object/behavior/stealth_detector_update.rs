@@ -5,9 +5,9 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, Coord3D, DisabledMaskType, KindOf, KindOfMaskType, ModuleData, NameKeyType,
-    ObjectShroudStatus, ObjectStatusMaskType, ObjectStatusTypes, ParticleSystemID, Real,
-    UnsignedInt, XferVersion, ALL_KIND_OF,
+    ALL_KIND_OF, AsciiString, Bool, Coord3D, DisabledMaskType, KindOf, KindOfMaskType, ModuleData,
+    NameKeyType, ObjectShroudStatus, ObjectStatusMaskType, ObjectStatusTypes, ParticleSystemID,
+    Real, UnsignedInt, XferVersion,
 };
 use crate::helpers::{
     EvaEvent, TheAudio, TheEva, TheGameText, TheInGameUI, TheParticleSystemManager,
@@ -15,9 +15,9 @@ use crate::helpers::{
 };
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
-use crate::object::{Object as GameObject, ObjectID, INVALID_ID as OBJECT_INVALID_ID};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, ObjectID};
 use crate::stealth_update::StealthUpdateHandle;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Thing as ModuleThing;
@@ -72,9 +72,9 @@ fn emit_first_detection_feedback(
     stealth: &StealthUpdateHandle,
 ) {
     use crate::common::Relationship;
-    use crate::player::{player_list, PLAYER_INDEX_INVALID};
+    use crate::player::{PLAYER_INDEX_INVALID, player_list};
     use game_engine::common::system::radar::{
-        get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
+        Coord3D as RadarCoord3D, RadarEventType, get_radar_system,
     };
 
     if detector.relationship_to(target) == Relationship::Allies {
@@ -717,11 +717,7 @@ impl StealthDetectorUpdate {
                                     .contains(ObjectStatusMaskType::DETECTED);
                                 if !was_detected {
                                     if let Some(stealth_module) = &stealth {
-                                        emit_first_detection_feedback(
-                                            &obj,
-                                            target,
-                                            stealth_module,
-                                        );
+                                        emit_first_detection_feedback(&obj, target, stealth_module);
                                     }
                                 }
                                 return Some((true, stealth, *target.get_position(), None));
@@ -922,8 +918,7 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                         .map(|list| list.get_local_player_index() as i32)
                         .unwrap_or(-1);
                     let shroud = obj_guard.get_shrouded_status(local_player_index as i32);
-                    let shroud_visible =
-                        (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8);
+                    let shroud_visible = (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8);
                     let stealthed = obj_guard
                         .get_status_bits()
                         .contains(ObjectStatusMaskType::STEALTHED);

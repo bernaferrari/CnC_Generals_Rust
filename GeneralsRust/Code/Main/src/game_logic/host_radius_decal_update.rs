@@ -20,10 +20,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 fn game_make_color(color: gamelogic::common::Color) -> u32 {
-    ((color.a as u32) << 24)
-        | ((color.r as u32) << 16)
-        | ((color.g as u32) << 8)
-        | (color.b as u32)
+    ((color.a as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
 }
 
 fn local_player_index() -> Option<i32> {
@@ -41,7 +38,12 @@ fn player_argb_for_index(index: Option<i32>) -> u32 {
         .read()
         .ok()
         .and_then(|list| list.get_player(index).cloned())
-        .and_then(|player| player.read().ok().map(|p| game_make_color(p.get_player_color())))
+        .and_then(|player| {
+            player
+                .read()
+                .ok()
+                .map(|p| game_make_color(p.get_player_color()))
+        })
         .unwrap_or(0)
 }
 
@@ -51,11 +53,7 @@ fn host_draw_icon_ui() -> bool {
 
 fn host_logic_frame(fallback: u32) -> u32 {
     let now = gamelogic::helpers::TheGameLogic::get_frame();
-    if now == 0 {
-        fallback
-    } else {
-        now
-    }
+    if now == 0 { fallback } else { now }
 }
 pub const RADIUS_DECAL_LOGIC_FPS: f32 = 30.0;
 
@@ -77,7 +75,6 @@ pub const NUCLEAR_MISSILE_DECAL_TEXTURE: &str = "SCCNuclearMissile_China";
 pub const ANTHRAX_BOMB_DECAL_TEXTURE: &str = "SCCAnthraxBomb_GLA";
 /// Retail SUPERWEAPON_AnthraxBomb DeliveryDecal Color R:33 G:255 B:67 A:255 (ARGB).
 pub const ANTHRAX_BOMB_DECAL_COLOR: u32 = 0xFF21_FF43;
-
 
 pub fn radius_decal_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) * RADIUS_DECAL_LOGIC_FPS / 1000.0).round() as u32

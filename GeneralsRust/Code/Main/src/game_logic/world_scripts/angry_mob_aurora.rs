@@ -29,11 +29,7 @@ fn spy_vision_target_is_enemy(
                 .filter(|player| player.is_alive && player.team == obj.team)
                 .map(|player| player.id);
             let first = ids.next();
-            if ids.next().is_none() {
-                first
-            } else {
-                None
-            }
+            if ids.next().is_none() { first } else { None }
         }
     };
     match owner {
@@ -48,7 +44,6 @@ fn spy_vision_target_is_enemy(
             .unwrap_or(true),
     }
 }
-
 
 impl GameLogic {
     // -----------------------------------------------------------------------
@@ -107,8 +102,8 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_cia_intelligence::{
-            cia_intelligence_duration_frames, HostCiaIntelligence, HostCiaIntelligenceSpiedUnit,
             CIA_INTELLIGENCE_ACTIVATE_AUDIO, CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
+            HostCiaIntelligence, HostCiaIntelligenceSpiedUnit, cia_intelligence_duration_frames,
         };
         use gamelogic::common::Coord3D;
 
@@ -262,9 +257,9 @@ impl GameLogic {
                 .iter()
                 .flat_map(|scan| {
                     let remain = scan.expires_frame.saturating_sub(self.frame).max(1);
-                    scan.spied_units.iter().map(move |u| {
-                        (u.object_id, remain, scan.player_mask)
-                    })
+                    scan.spied_units
+                        .iter()
+                        .map(move |u| (u.object_id, remain, scan.player_mask))
                 })
                 .collect();
             if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
@@ -325,8 +320,8 @@ impl GameLogic {
         spec: crate::game_logic::host_satellite_hack::SatelliteHackSpySpec,
     ) -> bool {
         use crate::game_logic::host_cia_intelligence::{
-            HostCiaIntelligence, HostCiaIntelligenceSpiedUnit,
-            CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS,
+            CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS, HostCiaIntelligence,
+            HostCiaIntelligenceSpiedUnit,
         };
         use crate::game_logic::host_satellite_hack::spy_vision_deactivate_frame;
         use crate::game_logic::host_upgrades::{
@@ -571,7 +566,6 @@ impl GameLogic {
         }
     }
 
-
     // -----------------------------------------------------------------------
     // China FireWall / Firestorm residual (Dragon Tank FIRE_WEAPON secondary)
     // Fail-closed: not full OCL FireWallSegment / InchForwardLocomotor / projectile stream.
@@ -784,8 +778,8 @@ impl GameLogic {
         upgraded: bool,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_inferno_cannon::{
-            inferno_shell_flight_frames, INFERNO_CANNON_PROJECTILE,
-            INFERNO_CANNON_PROJECTILE_UPGRADED, INFERNO_SHELL_MAX_HEALTH,
+            INFERNO_CANNON_PROJECTILE, INFERNO_CANNON_PROJECTILE_UPGRADED,
+            INFERNO_SHELL_MAX_HEALTH, inferno_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -974,8 +968,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_inferno_cannon::{
-            inferno_shell_damage_at, is_inferno_cannon_template, INFERNO_CANNON_DAMAGE_TYPE,
-            INFERNO_CANNON_DEATH_TYPE, INFERNO_CANNON_SHELL_DAMAGE, INFERNO_CANNON_SHELL_RADIUS,
+            INFERNO_CANNON_DAMAGE_TYPE, INFERNO_CANNON_DEATH_TYPE, INFERNO_CANNON_SHELL_DAMAGE,
+            INFERNO_CANNON_SHELL_RADIUS, inferno_shell_damage_at, is_inferno_cannon_template,
         };
 
         let (source_team, shell_dmg) = {
@@ -1422,7 +1416,7 @@ impl GameLogic {
         for (mid, pos, ahead) in moves {
             if let Some(o) = self.objects.get_mut(&mid) {
                 use crate::game_logic::host_upgrade_module_residuals::{
-                    apply_choose_locomotor_set, HostLocomotorSetKind,
+                    HostLocomotorSetKind, apply_choose_locomotor_set,
                 };
                 if ahead {
                     apply_choose_locomotor_set(o, HostLocomotorSetKind::Wander, false);
@@ -1501,7 +1495,7 @@ impl GameLogic {
 
     pub fn update_angry_mobs(&mut self) {
         use crate::game_logic::host_angry_mob::{
-            is_angry_mob_nexus_template, ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB,
+            ANGRY_MOB_FIRE_AUDIO, UPGRADE_GLA_ARM_THE_MOB, is_angry_mob_nexus_template,
         };
 
         let frame = self.frame;
@@ -1531,12 +1525,12 @@ impl GameLogic {
         self.angry_mobs.sync_mobs(&living, frame);
 
         // C++ SpawnBehavior::onSpawnDeath — shrink live count; last member kills nexus.
-        let destroy_nexuses = self.angry_mobs.process_dead_members(frame, |mid| {
-            match self.objects.get(&mid) {
-                None => true,
-                Some(o) => !o.is_alive() || o.status.destroyed || o.status.effectively_dead,
-            }
-        });
+        let destroy_nexuses =
+            self.angry_mobs
+                .process_dead_members(frame, |mid| match self.objects.get(&mid) {
+                    None => true,
+                    Some(o) => !o.is_alive() || o.status.destroyed || o.status.effectively_dead,
+                });
         for nid in destroy_nexuses {
             if let Some(o) = self.objects.get_mut(&nid) {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
@@ -1636,8 +1630,7 @@ impl GameLogic {
             .iter()
             .map(|(id, obj)| {
                 let air_ok = angry_mob_possible_to_attack(
-                    obj.is_kind_of(KindOf::Aircraft)
-                        || obj.object_type == ObjectType::Aircraft,
+                    obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft,
                     obj.status.airborne_target,
                     obj.weapon_target_anti_mask(),
                 );
@@ -1683,12 +1676,7 @@ impl GameLogic {
             |team| armed_teams.contains(&team),
             |mob_id, mob_team, tgt_id, tgt_team| {
                 Self::angry_mob_relationship_enemies_from_maps(
-                    players,
-                    objects,
-                    mob_id,
-                    mob_team,
-                    tgt_id,
-                    tgt_team,
+                    players, objects, mob_id, mob_team, tgt_id, tgt_team,
                 )
             },
         );
@@ -2359,7 +2347,10 @@ mod spawn_behavior_parity {
             .host_object(nid)
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true);
-        assert!(nexus_gone, "last member death must destroy AggregateHealth nexus");
+        assert!(
+            nexus_gone,
+            "last member death must destroy AggregateHealth nexus"
+        );
     }
 
     #[test]
@@ -2370,7 +2361,10 @@ mod spawn_behavior_parity {
         logic.update_angry_mobs();
         let nexus = logic.host_object(nid).expect("nexus");
         assert!(!nexus.status.masked, "nexus must stay selectable");
-        assert!(nexus.is_selectable(), "player can select the Angry Mob nexus");
+        assert!(
+            nexus.is_selectable(),
+            "player can select the Angry Mob nexus"
+        );
         assert!(nexus.can_move(), "nexus locomotor/AI accepts move orders");
         drop(nexus);
         if let Some(n) = logic.objects.get_mut(&nid) {

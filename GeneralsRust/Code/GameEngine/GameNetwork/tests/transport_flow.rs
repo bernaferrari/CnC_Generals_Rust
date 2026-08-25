@@ -1,7 +1,7 @@
 #![allow(unused_crate_dependencies)]
 
 use game_network::observability::{
-    initialize_telemetry, telemetry, HealthStatus, ObservabilityConfig,
+    HealthStatus, ObservabilityConfig, initialize_telemetry, telemetry,
 };
 use game_network::transport::{Transport, TransportConfig, TransportMessage, TransportProtocol};
 use rustls::crypto::ring;

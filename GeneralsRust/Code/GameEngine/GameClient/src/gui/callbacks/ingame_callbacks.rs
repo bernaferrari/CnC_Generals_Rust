@@ -6,8 +6,8 @@
 use crate::game_text::GameText;
 use crate::gui::control_bar::publish_host_select_next_idle_worker;
 use crate::gui::{
-    get_disconnect_menu, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_disconnect_menu,
+    with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;

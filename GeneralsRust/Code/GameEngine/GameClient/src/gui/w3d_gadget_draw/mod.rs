@@ -5,19 +5,19 @@
 pub(in crate::gui::w3d_gadget_draw) use crate::display::image::{
     ensure_client_mapped_image, get_mapped_image_collection,
 };
-pub(in crate::gui::w3d_gadget_draw) use crate::display::view::{with_tactical_view_ref, IPoint2};
+pub(in crate::gui::w3d_gadget_draw) use crate::display::view::{IPoint2, with_tactical_view_ref};
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::callbacks::get_menu_manager;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::display_string::DisplayString;
-pub(in crate::gui::w3d_gadget_draw) use crate::gui::font::{get_font_library, FontDesc};
+pub(in crate::gui::w3d_gadget_draw) use crate::gui::font::{FontDesc, get_font_library};
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::gadgets::tabcontrol::{
-    TP_BOTTOMRIGHT, TP_BOTTOM_SIDE, TP_CENTER, TP_LEFT_SIDE, TP_RIGHT_SIDE, TP_TOP_SIDE,
+    TP_BOTTOM_SIDE, TP_BOTTOMRIGHT, TP_CENTER, TP_LEFT_SIDE, TP_RIGHT_SIDE, TP_TOP_SIDE,
 };
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::gadgets::{
     ClockMode, PushButton, TabControl, TextAlignment, TextEntry, VerticalAlignment,
 };
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::game_window::{
-    read_video_frame, resolve_window_text, WindowId, WindowState, WindowStatus, GWS_COMBO_BOX,
-    WIN_COLOR_UNDEFINED,
+    GWS_COMBO_BOX, WIN_COLOR_UNDEFINED, WindowId, WindowState, WindowStatus, read_video_frame,
+    resolve_window_text,
 };
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::shell::get_shell;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::ui_globals::with_ui_renderer_mut;
@@ -32,15 +32,15 @@ pub(in crate::gui::w3d_gadget_draw) use crate::map_util::{
 };
 pub(in crate::gui::w3d_gadget_draw) use crate::message_stream::game_message::IRegion2D;
 pub(in crate::gui::w3d_gadget_draw) use chrono::Local;
+pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::ICoord2D;
+pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::SchemeDrawFunc;
 pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::get_control_bar_scheme_manager;
 pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::get_global_data;
 pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::ini_map_cache::MapMetaData;
 pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::set_scheme_draw_func;
-pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::ICoord2D;
-pub(in crate::gui::w3d_gadget_draw) use game_engine::common::ini::SchemeDrawFunc;
 pub(in crate::gui::w3d_gadget_draw) use game_engine::common::system::radar::{
-    get_radar_system, radar_draw_positions, radar_event_marker, should_refresh_w3d_object_overlay,
-    Coord3D, RGBAColorInt, RadarEventMarkerKind, RadarEventType, Region3D,
+    Coord3D, RGBAColorInt, RadarEventMarkerKind, RadarEventType, Region3D, get_radar_system,
+    radar_draw_positions, radar_event_marker, should_refresh_w3d_object_overlay,
 };
 pub(in crate::gui::w3d_gadget_draw) use gamelogic::player::{RankProgressInfo, ThePlayerList};
 pub(in crate::gui::w3d_gadget_draw) use std::sync::atomic::{AtomicU8, Ordering};

@@ -733,8 +733,6 @@ impl MeshRenderManager {
         self.cascade_depth_pipeline_skinned = Some(Arc::new(skinned));
     }
 
-
-
     pub fn render_pass(
         &mut self,
         render_pass: &mut wgpu::RenderPass<'_>,
@@ -1575,9 +1573,11 @@ mod per_mesh_lighting_tests {
         scene_info.set_lighting_environment(LightEnvironmentClass::new());
 
         let mut mesh = MeshClass::new();
-        assert!(MeshRenderManager::render_info_for_mesh(&mesh, &scene_info)
-            .lighting
-            .is_some());
+        assert!(
+            MeshRenderManager::render_info_for_mesh(&mesh, &scene_info)
+                .lighting
+                .is_some()
+        );
 
         let mesh_environment = Arc::new(LightEnvironmentClass::new());
         mesh.set_lighting_environment(Some(Arc::clone(&mesh_environment)));
@@ -1712,11 +1712,11 @@ mod per_mesh_lighting_tests {
         mesh.model = Some(Arc::new(model));
         mesh.transform = Mat4::IDENTITY;
 
-        let mut encoder = gpu
-            .wgpu_device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("live-csm-fill-encoder"),
-            });
+        let mut encoder =
+            gpu.wgpu_device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("live-csm-fill-encoder"),
+                });
         manager.update_and_fill_live_cascade(&mut encoder, &info, &[Arc::new(mesh)]);
         gpu.queue().submit(Some(encoder.finish()));
         let _ = gpu.wgpu_device().poll(wgpu::PollType::wait_indefinitely());
@@ -1771,11 +1771,11 @@ mod per_mesh_lighting_tests {
         model.index_count = 3;
         hidden.model = Some(Arc::new(model));
 
-        let mut encoder = gpu
-            .wgpu_device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("live-csm-skip-encoder"),
-            });
+        let mut encoder =
+            gpu.wgpu_device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("live-csm-skip-encoder"),
+                });
         manager.update_and_fill_live_cascade(&mut encoder, &info, &[Arc::new(hidden)]);
         gpu.queue().submit(Some(encoder.finish()));
 
@@ -1788,8 +1788,7 @@ pub(crate) fn live_cascade_light_direction(render_info: &RenderInfoClass) -> gla
         for light in &environment.lights {
             if let Ok(light) = light.lock() {
                 if light.enabled
-                    && light.light_type
-                        == crate::rendering::lighting_system::LightType::Directional
+                    && light.light_type == crate::rendering::lighting_system::LightType::Directional
                     && light.direction.length_squared() > 1e-6
                 {
                     return light.direction;

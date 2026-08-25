@@ -62,8 +62,8 @@ fn residual_action_store(a: ResidualHostProductionObjectIdPrefersGwEntityAction)
 pub fn residual_host_production_object_id_prefers_gw_entity_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_production_object_id_prefers_gw_entity_last_action(
-) -> ResidualHostProductionObjectIdPrefersGwEntityAction {
+pub fn residual_host_production_object_id_prefers_gw_entity_last_action()
+-> ResidualHostProductionObjectIdPrefersGwEntityAction {
     ResidualHostProductionObjectIdPrefersGwEntityAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

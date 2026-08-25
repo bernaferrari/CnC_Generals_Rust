@@ -13,16 +13,18 @@
 //! - EVA notifications
 //! - Radar events for discovered stealth
 
-use crate::common::*;
 use crate::common::audio::AudioEventRts;
-use crate::helpers::{TheAudio, TheEva, TheGameText, TheInGameUI, TheParticleSystemManager};
+use crate::common::*;
 use crate::helpers::EvaEvent;
-use crate::object::registry::OBJECT_REGISTRY;
+use crate::helpers::{TheAudio, TheEva, TheGameText, TheInGameUI, TheParticleSystemManager};
 use crate::object::Object;
-use crate::player::{player_list, PLAYER_INDEX_INVALID};
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::player::{PLAYER_INDEX_INVALID, player_list};
 use crate::stealth_update::StealthUpdateHandle;
-use game_engine::common::system::radar::{get_radar_system, Coord3D as RadarCoord3D, RadarEventType};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::system::radar::{
+    Coord3D as RadarCoord3D, RadarEventType, get_radar_system,
+};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData, NameKeyType, StealthDetectorControlInterface,
@@ -509,18 +511,12 @@ impl StealthDetectorController {
                 if !was_detected {
                     if let Some(stealth_module) = obj_guard.get_stealth_module() {
                         let _ = OBJECT_REGISTRY.with_object(self.object_id, |self_guard| {
-                            emit_first_detection_feedback(
-                                self_guard,
-                                &obj_guard,
-                                &stealth_module,
-                            );
+                            emit_first_detection_feedback(self_guard, &obj_guard, &stealth_module);
                         });
                     }
                     trace!(
                         "Detector {} discovered stealthed unit {} at distance {}",
-                        self.object_id,
-                        target_id,
-                        distance
+                        self.object_id, target_id, distance
                     );
                 }
 

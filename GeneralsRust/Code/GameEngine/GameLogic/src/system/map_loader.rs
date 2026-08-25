@@ -19,9 +19,9 @@ use crate::polygon_trigger::{PolygonTrigger, PolygonTriggerList};
 use crate::sides_list::get_sides_list;
 use game_engine::common::dict::{Dict, DictType};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::compression::{decompress_data, is_data_compressed};
 use game_engine::common::system::DataChunkInfo;
 use game_engine::common::system::DataChunkInput;
+use game_engine::common::system::compression::{decompress_data, is_data_compressed};
 
 /// Waypoint identifier type
 pub type WaypointID = u32;
@@ -869,11 +869,7 @@ fn bridge_width_from_template(name: &str) -> Option<f32> {
     let template = TheThingFactory::find_template(name)?;
     let geom = template.get_template_geometry_info();
     let width = (geom.get_minor_radius() * 2.0).max(0.0);
-    if width > 0.0 {
-        Some(width)
-    } else {
-        None
-    }
+    if width > 0.0 { Some(width) } else { None }
 }
 
 impl BridgeData {
@@ -1128,7 +1124,7 @@ mod tests {
     #[test]
     fn test_map_loader_accepts_compressed_map_chunks() {
         use game_engine::common::system::compression::{
-            compress_data, CompressionLevel, CompressionType,
+            CompressionLevel, CompressionType, compress_data,
         };
 
         let raw = make_heightmap_chunk(2, 2, 0, &[1, 2, 3, 4]);

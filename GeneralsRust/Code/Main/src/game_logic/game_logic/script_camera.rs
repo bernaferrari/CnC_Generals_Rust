@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::prelude::*;
-use super::*;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::host::*;
 use super::player::*;
+use super::prelude::*;
+use super::*;
 
 impl Default for RuntimeWeatherState {
     fn default() -> Self {
@@ -22,8 +22,8 @@ impl Default for RuntimeWeatherState {
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ParabolicEase {
-    pub(in super) in_t: f32,
-    pub(in super) out_t: f32,
+    pub(super) in_t: f32,
+    pub(super) out_t: f32,
 }
 
 impl ParabolicEase {
@@ -59,21 +59,21 @@ impl ParabolicEase {
 
 #[derive(Debug, Clone)]
 pub(super) struct ScriptCameraMoveTo {
-    pub(in super) start: Vec3,
-    pub(in super) target: Vec3,
-    pub(in super) ease: ParabolicEase,
-    pub(in super) total_time_seconds: f32,
-    pub(in super) elapsed_seconds: f32,
-    pub(in super) shutter_frames: u32,
-    pub(in super) cur_shutter: u32,
-    pub(in super) last_ease: f32,
-    pub(in super) freeze_time: bool,
-    pub(in super) freeze_angle: bool,
-    pub(in super) look_toward: Option<Vec3>,
-    pub(in super) suppress_travel_look: bool,
-    pub(in super) speed_ramp_start_t: f32,
-    pub(in super) speed_ramp_start_multiplier: f32,
-    pub(in super) speed_ramp_final_multiplier: f32,
+    pub(super) start: Vec3,
+    pub(super) target: Vec3,
+    pub(super) ease: ParabolicEase,
+    pub(super) total_time_seconds: f32,
+    pub(super) elapsed_seconds: f32,
+    pub(super) shutter_frames: u32,
+    pub(super) cur_shutter: u32,
+    pub(super) last_ease: f32,
+    pub(super) freeze_time: bool,
+    pub(super) freeze_angle: bool,
+    pub(super) look_toward: Option<Vec3>,
+    pub(super) suppress_travel_look: bool,
+    pub(super) speed_ramp_start_t: f32,
+    pub(super) speed_ramp_start_multiplier: f32,
+    pub(super) speed_ramp_final_multiplier: f32,
 }
 
 impl ScriptCameraMoveTo {
@@ -160,7 +160,6 @@ impl ScriptCameraMoveTo {
         self.suppress_travel_look
     }
 
-
     pub(super) fn current_speed_multiplier(&self, progress: f32) -> f32 {
         let progress = progress.clamp(0.0, 1.0);
         if progress <= self.speed_ramp_start_t {
@@ -213,29 +212,29 @@ impl ScriptCameraMoveTo {
 
 #[derive(Debug, Clone)]
 pub(super) struct ScriptCameraPathMove {
-    pub(in super) points: Vec<Vec3>,
-    pub(in super) segment_length: Vec<f32>,
-    pub(in super) total_distance: f32,
-    pub(in super) ease: ParabolicEase,
-    pub(in super) total_time_seconds: f32,
-    pub(in super) elapsed_seconds: f32,
-    pub(in super) cur_segment: usize,
-    pub(in super) cur_seg_distance: f32,
-    pub(in super) shutter_frames: u32,
-    pub(in super) cur_shutter: u32,
-    pub(in super) last_ease: f32,
-    pub(in super) freeze_time: bool,
-    pub(in super) freeze_angle: bool,
-    pub(in super) look_toward: Option<Vec3>,
-    pub(in super) look_toward_is_final: bool,
-    pub(in super) suppress_travel_look: bool,
-    pub(in super) rolling_average_frames: i32,
-    pub(in super) smoothed_focus: Option<Vec3>,
-    pub(in super) speed_ramp_start_t: f32,
-    pub(in super) speed_ramp_start_multiplier: f32,
-    pub(in super) speed_ramp_final_multiplier: f32,
-    pub(in super) start_angle: f32,
-    pub(in super) frozen_to_start_angle: bool,
+    pub(super) points: Vec<Vec3>,
+    pub(super) segment_length: Vec<f32>,
+    pub(super) total_distance: f32,
+    pub(super) ease: ParabolicEase,
+    pub(super) total_time_seconds: f32,
+    pub(super) elapsed_seconds: f32,
+    pub(super) cur_segment: usize,
+    pub(super) cur_seg_distance: f32,
+    pub(super) shutter_frames: u32,
+    pub(super) cur_shutter: u32,
+    pub(super) last_ease: f32,
+    pub(super) freeze_time: bool,
+    pub(super) freeze_angle: bool,
+    pub(super) look_toward: Option<Vec3>,
+    pub(super) look_toward_is_final: bool,
+    pub(super) suppress_travel_look: bool,
+    pub(super) rolling_average_frames: i32,
+    pub(super) smoothed_focus: Option<Vec3>,
+    pub(super) speed_ramp_start_t: f32,
+    pub(super) speed_ramp_start_multiplier: f32,
+    pub(super) speed_ramp_final_multiplier: f32,
+    pub(super) start_angle: f32,
+    pub(super) frozen_to_start_angle: bool,
 }
 
 impl ScriptCameraPathMove {
@@ -465,7 +464,6 @@ impl ScriptCameraPathMove {
         self.suppress_travel_look
     }
 
-
     pub(super) fn travel_look_toward(&self) -> Option<Vec3> {
         let i = self.cur_segment.max(1);
         let a = self.points.get(i)?;
@@ -539,11 +537,8 @@ impl ScriptCameraPathMove {
         let last = self.points[last_meaningful];
         let prev = self.points[last_meaningful - 1];
         if self.points.len() > last_meaningful + 1 {
-            self.points[last_meaningful + 1] = Vec3::new(
-                last.x + (last.x - prev.x),
-                0.0,
-                last.z + (last.z - prev.z),
-            );
+            self.points[last_meaningful + 1] =
+                Vec3::new(last.x + (last.x - prev.x), 0.0, last.z + (last.z - prev.z));
         }
         self.rebuild_segments();
     }
@@ -751,8 +746,8 @@ mod camera_mod_look_tests {
 }
 
 pub(super) struct ScriptBroadcast {
-    pub(in super) text: String,
-    pub(in super) expires_at: f32,
+    pub(super) text: String,
+    pub(super) expires_at: f32,
 }
 
 pub(super) fn localized_objective_string(id: &str, suffix: &str, fallback: &str) -> String {

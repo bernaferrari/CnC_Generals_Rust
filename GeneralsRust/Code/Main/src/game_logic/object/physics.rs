@@ -3,8 +3,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 
-static PREV_ACCEL: Lazy<Mutex<HashMap<u32, glam::Vec3>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static PREV_ACCEL: Lazy<Mutex<HashMap<u32, glam::Vec3>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 impl Object {
     pub fn take_damage(&mut self, damage: f32) -> bool {
@@ -74,8 +73,7 @@ impl Object {
         // C++ Object.cpp:1806-1832: no Infantry/Structure skip before applyShock.
         // C++ applyShock: scale by (1 - clamp(shockResistance, 0, 1)), then
         // applyForce divides by getMass(). Resistance >= 1 yields zero toss.
-        let resisted =
-            force * (1.0 - self.shock_resistance.clamp(0.0, 1.0));
+        let resisted = force * (1.0 - self.shock_resistance.clamp(0.0, 1.0));
         if resisted.length_squared() > 0.0 {
             // C++ applyShock: resist then applyForce (a = F/m). No post-impulse speed cap.
             self.movement.velocity += resisted / self.physics_get_mass();
@@ -373,7 +371,12 @@ impl Object {
     ///
     /// Returns true if physics should apply bounce force. Sets is_blocked /
     /// cur_max_blocked_speed when self is moving into other.
-    pub fn ai_process_collision(&mut self, other: &Object, current_frame: u32, is_ally: bool) -> bool {
+    pub fn ai_process_collision(
+        &mut self,
+        other: &Object,
+        current_frame: u32,
+        is_ally: bool,
+    ) -> bool {
         if !self.allow_collide_force {
             return false;
         }
@@ -437,7 +440,6 @@ impl Object {
         false
     }
 
-
     /// Apply cur_max_blocked_speed cap residual (2D XZ).
     pub fn apply_blocked_speed_cap(&mut self) {
         if !self.is_blocked || !self.cur_max_blocked_speed.is_finite() {
@@ -473,8 +475,8 @@ impl Object {
         let mut mod_force = force;
         if self.is_motive() {
             let dir = self.unit_direction_vector_2d(); // (x,z)
-                                                       // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
-                                                       // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
+            // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
+            // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
             let lateral_dot = force.x * (-dir.y) + force.z * dir.x;
             mod_force.x = lateral_dot * (-dir.y);
             mod_force.z = lateral_dot * dir.x;
@@ -543,7 +545,9 @@ impl Object {
             turn_speed = max_speed / 4.0;
         }
         if turn_speed > 0.0 {
-            (self.movement.velocity.length() / turn_speed).abs().min(1.0)
+            (self.movement.velocity.length() / turn_speed)
+                .abs()
+                .min(1.0)
         } else {
             0.0
         }
@@ -837,10 +841,9 @@ impl Object {
         cell_type: gamelogic::ai::pathfind_astar::PathfindCellType,
     ) {
         if self.locomotor_set_names.len() < 2 {
-            let fallback =
-                crate::game_logic::locomotor_bootstrap::locomotor_set_names_for_unit(
-                    &self.thing.template.name,
-                );
+            let fallback = crate::game_logic::locomotor_bootstrap::locomotor_set_names_for_unit(
+                &self.thing.template.name,
+            );
             if fallback.len() >= 2 {
                 self.locomotor_set_names = fallback;
             }
@@ -852,17 +855,18 @@ impl Object {
             crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
                 cell_type,
             );
-        let chosen = crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
-            &self.locomotor_set_names,
-            acceptable,
-        )
-        .or_else(|| self.cur_locomotor_name.clone())
-        .or_else(|| {
+        let chosen =
             crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
                 &self.locomotor_set_names,
-                crate::game_logic::object::LOCO_SURFACE_GROUND,
+                acceptable,
             )
-        });
+            .or_else(|| self.cur_locomotor_name.clone())
+            .or_else(|| {
+                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+                    &self.locomotor_set_names,
+                    crate::game_logic::object::LOCO_SURFACE_GROUND,
+                )
+            });
         let Some(name) = chosen else {
             return;
         };
@@ -885,7 +889,6 @@ impl Object {
         self.ultra_accurate = false;
     }
 
-
     /// C++ `Locomotor::moveTowardsPositionHover` OVER_WATER (Locomotor.cpp:1868-1886).
     pub fn apply_hover_over_water(&mut self, underwater: bool) {
         if !matches!(self.loco_appearance, LocomotorAppearance::Hover) {
@@ -903,7 +906,6 @@ impl Object {
         self.refresh_model_condition_bits();
         self.record_host_locomotor();
     }
-
 
     /// C++ `AIUpdateInterface::needToRotate` (AIUpdate.cpp:1380-1403).
     pub fn need_to_rotate(&self) -> bool {
@@ -973,7 +975,6 @@ impl Object {
         speed.max(0.0)
     }
 
-
     /// Wings/thrust hold the last waypoint by circling instead of `stop_moving`.
     pub fn holds_air_position_when_idle(&self) -> bool {
         matches!(
@@ -1028,7 +1029,6 @@ impl Object {
     pub fn set_extra_bounciness(&mut self, bounciness: f32) {
         self.extra_bounciness = bounciness;
     }
-
 
     /// C++ PhysicsBehavior::setBounceSound.
     pub fn set_bounce_sound(&mut self, name: impl Into<String>) {
@@ -1250,8 +1250,6 @@ impl Object {
         ok
     }
 
-
-
     /// Tick path queue delay residual.
     pub fn tick_path_queue(&mut self) {
         if self.queue_for_path_frames > 0 {
@@ -1435,7 +1433,7 @@ impl Object {
             let nz = -v.z * inv;
             // If already leaving (dot with correction > 0.25), skip.
             let leaving = v.x * nx + v.z * nz; // nx opposite vel so leaving is negative of progress
-                                               // correction direction is opposite into-invalid → along -velocity when moving in
+            // correction direction is opposite into-invalid → along -velocity when moving in
             if leaving > 0.25 {
                 return false;
             }
@@ -1497,7 +1495,6 @@ impl Object {
         // C++ maintainCurrentPositionWings is 2D circling only
         // (Locomotor.cpp:2488-2524). handleBehaviorZ uses terrain.
     }
-
 
     /// C++ `Locomotor::moveTowardsPositionThrust` (`Locomotor.cpp:1891-2004`).
     ///
@@ -1569,8 +1566,7 @@ impl Object {
             }
             if adjust {
                 let desired_yaw = (-vel.z).atan2(vel.x);
-                let aim = us
-                    + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin());
+                let aim = us + glam::Vec3::new(desired_yaw.cos(), 0.0, -desired_yaw.sin());
                 let _ = self.rotate_obj_around_loco_pivot(aim, max_turn_rate * dt);
             }
         }
@@ -1745,11 +1741,7 @@ impl Object {
         let vz = v.z * dir.y;
         let dot = vx + vz;
         let speed = (vx * vx + vz * vz).sqrt();
-        if dot >= 0.0 {
-            speed
-        } else {
-            -speed
-        }
+        if dot >= 0.0 { speed } else { -speed }
     }
 
     /// C++ getAerodynamicFriction residual (clamped).
@@ -1792,7 +1784,6 @@ impl Object {
                 .get_cur_locomotor_set_token()
                 .is_some_and(|set| set.eq_ignore_ascii_case("SET_TAXIING"))
     }
-
 
     /// C++ PhysicsBehavior::applyFrictionalForces residual (host XZ ground).
     pub fn apply_frictional_forces(&mut self) {
@@ -1881,12 +1872,7 @@ fn leftover_physics_gravity() -> f32 {
     const RETAIL: f32 = Object::SHOCK_GRAVITY;
     let raw = leftover_global_gravity();
     match raw {
-        Some(g)
-            if g.is_finite()
-                && g < 0.0
-                && (g + 1.0).abs() > 1e-4
-                && (g + 9.8).abs() > 1e-3 =>
-        {
+        Some(g) if g.is_finite() && g < 0.0 && (g + 1.0).abs() > 1e-4 && (g + 9.8).abs() > 1e-3 => {
             g
         }
         _ => RETAIL,
@@ -1909,7 +1895,10 @@ pub(super) fn leftover_ground_stiffness() -> f32 {
 
 /// Leftover `TheGlobalData->m_structureStiffness`. Ctor 0.5 / leftover 1.0 → retail 0.3.
 pub(super) fn leftover_structure_stiffness() -> f32 {
-    sanitize_stiffness(leftover_global_stiffness_pair().1, Object::STRUCTURE_STIFFNESS)
+    sanitize_stiffness(
+        leftover_global_stiffness_pair().1,
+        Object::STRUCTURE_STIFFNESS,
+    )
 }
 
 fn leftover_global_stiffness_pair() -> (Option<f32>, Option<f32>) {
@@ -1949,7 +1938,6 @@ fn leftover_surface_ht_at_pt(pos: glam::Vec3, ground_y: f32) -> f32 {
         ground_y
     }
 }
-
 
 /// C++ `handleBehaviorZ` `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER`
 /// (`Locomotor.cpp:2248-2285`): if leftover terrain has a bridge/wall
@@ -2084,4 +2072,3 @@ fn leftover_try_to_rotate_vector3d(
         (rotated / rot_len, max_angle)
     }
 }
-

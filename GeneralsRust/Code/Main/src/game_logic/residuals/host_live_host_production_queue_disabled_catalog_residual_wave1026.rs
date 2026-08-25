@@ -64,8 +64,8 @@ fn cb_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
-pub fn honesty_host_production_queue_disabled_catalog_residual_method_names_residual_wave1026(
-) -> bool {
+pub fn honesty_host_production_queue_disabled_catalog_residual_method_names_residual_wave1026()
+-> bool {
     let names = LIVE_HOST_PRODUCTION_QUEUE_DISABLED_CATALOG_RESIDUAL_METHOD_NAMES_WAVE1026;
     let ok = residual_name_index(names, "update_context_command").is_some()
         && residual_name_index(names, "Wave 1026").is_some();
@@ -74,8 +74,8 @@ pub fn honesty_host_production_queue_disabled_catalog_residual_method_names_resi
     ok
 }
 
-pub fn honesty_host_production_queue_disabled_catalog_residual_nav_commands_residual_wave1026(
-) -> bool {
+pub fn honesty_host_production_queue_disabled_catalog_residual_nav_commands_residual_wave1026()
+-> bool {
     let steps = LIVE_HOST_PRODUCTION_QUEUE_DISABLED_CATALOG_RESIDUAL_NAV_STEPS_WAVE1026;
     let ok = residual_name_index(
         steps,

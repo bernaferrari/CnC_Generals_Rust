@@ -15,8 +15,10 @@ fn letterbox_lifts_min_max_camera_height_clamp() {
         }
     }
     assert!((height_after_zoom_steps(120.0, -20.0, 40.0, 200.0, true) - 40.0).abs() < f32::EPSILON);
-    assert!((height_after_zoom_steps(120.0, -20.0, 40.0, 200.0, false) + 80.0).abs() < f32::EPSILON);
-    let src = include_str!("../src/cnc_game_engine/mouse.rs");
+    assert!(
+        (height_after_zoom_steps(120.0, -20.0, 40.0, 200.0, false) + 80.0).abs() < f32::EPSILON
+    );
+    let src = generals_main::cnc_game_engine::ENGINE_SRC;
     assert!(src.contains("live_camera_zoom_limited"));
     assert!(src.contains("height_after_zoom_steps"));
 }

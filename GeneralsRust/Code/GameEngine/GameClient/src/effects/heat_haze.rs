@@ -104,9 +104,7 @@ pub fn build_heat_haze_quad(
     Some(verts)
 }
 
-pub fn collect_heat_haze_smudges(
-    smudges: &[crate::system::smudge::Smudge],
-) -> Vec<HeatHazeSmudge> {
+pub fn collect_heat_haze_smudges(smudges: &[crate::system::smudge::Smudge]) -> Vec<HeatHazeSmudge> {
     smudges
         .iter()
         .filter(|smudge| smudge.size > 0.0 && smudge.opacity > 0.0)
@@ -203,6 +201,9 @@ mod tests {
             offset: [0.0, 0.0],
             opacity: 1.0,
         };
-        assert!(build_heat_haze_quad(smudge, &identity(), &identity(), [0.5, 0.5], [1.0, 1.0]).is_none());
+        assert!(
+            build_heat_haze_quad(smudge, &identity(), &identity(), [0.5, 0.5], [1.0, 1.0])
+                .is_none()
+        );
     }
 }

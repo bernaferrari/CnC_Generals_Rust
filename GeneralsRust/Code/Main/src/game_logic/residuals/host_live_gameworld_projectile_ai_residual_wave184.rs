@@ -120,8 +120,8 @@ pub fn simulate_live_gameworld_projectile_ai_honesty() -> bool {
     use crate::game_logic::host_projectile_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        ensure_gate_damage_authority, gameworld_ai_decision_authority_enabled,
-        gameworld_projectile_authority_enabled, GameWorldShadow,
+        GameWorldShadow, ensure_gate_damage_authority, gameworld_ai_decision_authority_enabled,
+        gameworld_projectile_authority_enabled,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

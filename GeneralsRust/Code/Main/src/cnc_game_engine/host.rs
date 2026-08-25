@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::assets::W3DModel;
-use crate::graphics::{graphics_system::MAX_STAGE_TEXTURES, GraphicsSystem};
+use crate::graphics::{GraphicsSystem, graphics_system::MAX_STAGE_TEXTURES};
 use log::{debug, info, warn};
 use std::collections::HashSet;
 use std::sync::Arc;

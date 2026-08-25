@@ -1,7 +1,7 @@
 //! C++ `WeaponSet` targeting: getVictimAntiMask, getAbleToAttackSpecificObject,
 //! getAbleToUseWeaponAgainstTarget (WeaponSet.cpp:347-760).
 
-use crate::attack::{is_forced_attack, AbleToAttackType, CanAttackResult};
+use crate::attack::{AbleToAttackType, CanAttackResult, is_forced_attack};
 use crate::common::{CommandSourceType, Coord3D, KindOf, ObjectID, Relationship};
 use crate::object::ObjectScriptStatusBit;
 use crate::player::player_list;
@@ -56,14 +56,13 @@ impl WeaponSet {
             return CanAttackResult::NotPossible;
         }
 
-        let Some(legality) = crate::object::registry::OBJECT_REGISTRY.with_object(
-            source_obj,
-            |source| {
+        let Some(legality) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source| {
                 crate::object::registry::OBJECT_REGISTRY.with_object(target_obj, |victim| {
                     attack_object_legality(source, victim, attack_type, command_source)
                 })
-            },
-        ) else {
+            })
+        else {
             return CanAttackResult::NotPossible;
         };
         let Some(legality) = legality else {
@@ -73,8 +72,8 @@ impl WeaponSet {
             return legality;
         }
 
-        let victim_pos = crate::object::registry::OBJECT_REGISTRY
-            .with_object(target_obj, |v| *v.get_position());
+        let victim_pos =
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_obj, |v| *v.get_position());
         self.get_able_to_use_weapon_against_target(
             attack_type,
             source_obj,
@@ -212,15 +211,23 @@ impl WeaponSet {
             }
         }
 
-        if let Some(passenger_result) =
-            passenger_fire_result(source_obj, attack_type, target_obj, &resolved_pos, command_source)
-        {
+        if let Some(passenger_result) = passenger_fire_result(
+            source_obj,
+            attack_type,
+            target_obj,
+            &resolved_pos,
+            command_source,
+        ) {
             return passenger_result;
         }
 
-        if let Some(slave_result) =
-            spawn_slave_result(source_obj, attack_type, target_obj, &resolved_pos, command_source)
-        {
+        if let Some(slave_result) = spawn_slave_result(
+            source_obj,
+            attack_type,
+            target_obj,
+            &resolved_pos,
+            command_source,
+        ) {
             if crate::object::registry::OBJECT_REGISTRY
                 .with_object(source_obj, |src| {
                     src.is_kind_of(KindOf::Immobile)
@@ -326,10 +333,7 @@ fn attack_object_legality(
     CanAttackResult::Possible
 }
 
-fn disguised_as_non_enemy(
-    source: &crate::object::Object,
-    victim: &crate::object::Object,
-) -> bool {
+fn disguised_as_non_enemy(source: &crate::object::Object, victim: &crate::object::Object) -> bool {
     let Some(stealth) = victim.get_stealth() else {
         return false;
     };
@@ -430,8 +434,7 @@ fn object_apparent_controller_blocks_player(
     let Ok(source_player_guard) = source_player.read() else {
         return false;
     };
-    let Some(apparent) =
-        contain_guard.get_apparent_controlling_player(Some(&source_player_guard))
+    let Some(apparent) = contain_guard.get_apparent_controlling_player(Some(&source_player_guard))
     else {
         return false;
     };

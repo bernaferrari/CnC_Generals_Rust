@@ -49,15 +49,16 @@ pub use network_bridge_stub::{BridgeStatistics, NetworkCommandBridge};
 
 // Re-export commonly used initialization types
 pub use map_loader::{
-    BridgeData, Coord2D, Coord3D, HeightMap, ICoord2D, LoadError, MapCache, MapData, MapLoader,
-    MapMetaData, Region3D, WaypointID, WaypointMap, INVALID_WAYPOINT_ID, MAP_XY_FACTOR, MAX_SLOTS,
+    BridgeData, Coord2D, Coord3D, HeightMap, ICoord2D, INVALID_WAYPOINT_ID, LoadError,
+    MAP_XY_FACTOR, MAX_SLOTS, MapCache, MapData, MapLoader, MapMetaData, Region3D, WaypointID,
+    WaypointMap,
 };
 
 pub use game_engine::common::rts::player_template::PlayerTemplate;
 pub use player_init::{
-    make_observer_template, make_player_template, Difficulty, Player, PlayerColor, PlayerIndex,
-    PlayerInitializer, PlayerList, PlayerRelationship, DEFAULT_PLAYER_COLORS,
-    DEFAULT_STARTING_MONEY, MAX_PLAYER_COUNT,
+    DEFAULT_PLAYER_COLORS, DEFAULT_STARTING_MONEY, Difficulty, MAX_PLAYER_COUNT, Player,
+    PlayerColor, PlayerIndex, PlayerInitializer, PlayerList, PlayerRelationship,
+    make_observer_template, make_player_template,
 };
 
 pub use game_start::{
@@ -70,8 +71,8 @@ pub use victory_conditions::{
 };
 
 pub use game_initialization::{
-    load_map_ini_create_overrides_from_contents, load_map_ini_ui_overrides_from_contents,
     GameDifficulty, GameInitParams, GameInitializer, GameMode, GameState, MapCacheManager,
+    load_map_ini_create_overrides_from_contents, load_map_ini_ui_overrides_from_contents,
 };
 
 #[cfg(test)]

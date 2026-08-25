@@ -33,8 +33,8 @@ use serde::{Deserialize, Serialize};
 
 // Re-export neutron helpers used by GameLogic residual gates.
 pub use crate::game_logic::host_neutron_shell::{
-    is_nuke_cannon_template, should_apply_neutron_blast, NUKE_CANNON_NEUTRON_WEAPON,
-    NUKE_CANNON_PRIMARY_WEAPON, UPGRADE_CHINA_NEUTRON_SHELLS,
+    NUKE_CANNON_NEUTRON_WEAPON, NUKE_CANNON_PRIMARY_WEAPON, UPGRADE_CHINA_NEUTRON_SHELLS,
+    is_nuke_cannon_template, should_apply_neutron_blast,
 };
 
 /// Logic frames per second (host fixed step).

@@ -13,8 +13,8 @@
 
 use crossbeam::queue::SegQueue;
 use parking_lot::RwLock;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -198,8 +198,7 @@ impl EventSystem {
             SystemEvent::PerformanceSample { metrics } => {
                 trace!(
                     "Performance sample frame {} FPS {:.1}",
-                    metrics.frame_number,
-                    metrics.graphics.fps
+                    metrics.frame_number, metrics.graphics.fps
                 );
                 *self.latest_performance_sample.write() = Some(metrics.clone());
             }
@@ -209,8 +208,7 @@ impl EventSystem {
             SystemEvent::ResourceUsageSample { usage } => {
                 trace!(
                     "Resource usage sample: total={}MB assets={}",
-                    usage.total_memory_mb,
-                    usage.loaded_assets
+                    usage.total_memory_mb, usage.loaded_assets
                 );
                 *self.latest_resource_usage.write() = Some(usage.clone());
             }

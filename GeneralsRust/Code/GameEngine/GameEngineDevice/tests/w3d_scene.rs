@@ -1,10 +1,10 @@
 #![cfg(feature = "w3d")]
 
 use game_engine_device::w3d::scene::{
-    player_index_to_color_index, BoundingSphere, CameraInfo, CustomScenePassMode, DrawableState,
-    LightEnvKind, ObjectShroudStatus, Ray, RenderEvent, RenderInfo, RenderObject,
+    BoundingSphere, CameraInfo, CustomScenePassMode, DrawableState, KINDOF_INFANTRY, KINDOF_SCORE,
+    KINDOF_STRUCTURE, LightEnvKind, ObjectShroudStatus, Ray, RenderEvent, RenderInfo, RenderObject,
     RenderObjectClass, RenderPassKind, SceneConfig, W3D2DScene, W3DInterfaceScene, W3DLight,
-    W3DScene, KINDOF_INFANTRY, KINDOF_SCORE, KINDOF_STRUCTURE,
+    W3DScene, player_index_to_color_index,
 };
 use glam::Vec3;
 
@@ -84,38 +84,46 @@ fn visibility_check_classifies_translucent_occluder_occludee_and_regular_queues(
     scene.visibility_check(&CameraInfo::default());
 
     assert_eq!(scene.queue_counts(), (1, 1, 1, 1));
-    assert!(scene
-        .get_render_object(transparent_id)
-        .unwrap()
-        .drawable_info
-        .as_ref()
-        .unwrap()
-        .flags
-        .contains(1 << 0));
-    assert!(scene
-        .get_render_object(building_id)
-        .unwrap()
-        .drawable_info
-        .as_ref()
-        .unwrap()
-        .flags
-        .contains(1 << 2));
-    assert!(scene
-        .get_render_object(score_id)
-        .unwrap()
-        .drawable_info
-        .as_ref()
-        .unwrap()
-        .flags
-        .contains(1 << 3));
-    assert!(scene
-        .get_render_object(regular_id)
-        .unwrap()
-        .drawable_info
-        .as_ref()
-        .unwrap()
-        .flags
-        .contains(1 << 4));
+    assert!(
+        scene
+            .get_render_object(transparent_id)
+            .unwrap()
+            .drawable_info
+            .as_ref()
+            .unwrap()
+            .flags
+            .contains(1 << 0)
+    );
+    assert!(
+        scene
+            .get_render_object(building_id)
+            .unwrap()
+            .drawable_info
+            .as_ref()
+            .unwrap()
+            .flags
+            .contains(1 << 2)
+    );
+    assert!(
+        scene
+            .get_render_object(score_id)
+            .unwrap()
+            .drawable_info
+            .as_ref()
+            .unwrap()
+            .flags
+            .contains(1 << 3)
+    );
+    assert!(
+        scene
+            .get_render_object(regular_id)
+            .unwrap()
+            .drawable_info
+            .as_ref()
+            .unwrap()
+            .flags
+            .contains(1 << 4)
+    );
 }
 
 #[test]
@@ -152,9 +160,11 @@ fn render_orders_terrain_first_delays_occluders_and_flushes_translucent_with_alp
     scene.render(&mut rinfo);
 
     let events = scene.render_events();
-    assert!(events
-        .iter()
-        .any(|event| *event == RenderEvent::Terrain(terrain_id, RenderPassKind::Shroud)));
+    assert!(
+        events
+            .iter()
+            .any(|event| *event == RenderEvent::Terrain(terrain_id, RenderPassKind::Shroud))
+    );
     assert!(events.iter().any(|event| *event
         == RenderEvent::Object(building_id, RenderPassKind::Normal, LightEnvKind::Default)));
     assert!(events.iter().any(|event| *event
@@ -217,10 +227,12 @@ fn shroud_mask_heatvision_and_fogged_paths_match_render_one_object_decisions() {
     scene.clear_render_events();
     scene.set_custom_pass_mode(CustomScenePassMode::AlphaMask);
     scene.render(&mut rinfo);
-    assert!(scene
-        .render_events()
-        .iter()
-        .any(|event| matches!(event, RenderEvent::Object(_, RenderPassKind::Mask, _))));
+    assert!(
+        scene
+            .render_events()
+            .iter()
+            .any(|event| matches!(event, RenderEvent::Object(_, RenderPassKind::Mask, _)))
+    );
 }
 
 #[test]
@@ -276,13 +288,8 @@ fn flag_occluded_objects_marks_units_hidden_by_buildings() {
         .with_drawable(drawable(1, KINDOF_STRUCTURE)),
     );
     let hidden_id = scene.add_render_object(
-        object(
-            "hidden",
-            RenderObjectClass::Model,
-            Vec3::ZERO,
-            2.0,
-        )
-        .with_drawable(drawable(2, KINDOF_SCORE)),
+        object("hidden", RenderObjectClass::Model, Vec3::ZERO, 2.0)
+            .with_drawable(drawable(2, KINDOF_SCORE)),
     );
     let clear_id = scene.add_render_object(
         object(
@@ -298,24 +305,27 @@ fn flag_occluded_objects_marks_units_hidden_by_buildings() {
     scene.flag_occluded_objects(&camera);
 
     assert_eq!(scene.occluded_objects_count(), 1);
-    assert!(scene
-        .get_render_object(hidden_id)
-        .unwrap()
-        .drawable_info
-        .as_ref()
-        .unwrap()
-        .flags
-        .contains(1 << 1));
-    assert!(!scene
-        .get_render_object(clear_id)
-        .unwrap()
-        .drawable_info
-        .as_ref()
-        .unwrap()
-        .flags
-        .contains(1 << 1));
+    assert!(
+        scene
+            .get_render_object(hidden_id)
+            .unwrap()
+            .drawable_info
+            .as_ref()
+            .unwrap()
+            .flags
+            .contains(1 << 1)
+    );
+    assert!(
+        !scene
+            .get_render_object(clear_id)
+            .unwrap()
+            .drawable_info
+            .as_ref()
+            .unwrap()
+            .flags
+            .contains(1 << 1)
+    );
 }
-
 
 #[test]
 fn reflection_visibility_uses_draws_in_mirror_and_skips_frame_update() {

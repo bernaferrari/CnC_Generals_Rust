@@ -239,9 +239,9 @@ pub fn jarmen_kell_weapon(has_ap: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// (damage, range, delay_frames) for pilot-snipe residual weapon honesty.
@@ -271,9 +271,9 @@ pub fn jarmen_pilot_snipe_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Legal residual fire target (intended-only sniper residual).

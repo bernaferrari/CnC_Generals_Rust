@@ -641,17 +641,17 @@ impl UnitAIUpdate {
 
                                     if let Err(err) = obj_guard.set_position(&start_position) {
                                         log::debug!(
-                                                "Unit::update_rappel_state failed to set start position for {}: {}",
-                                                obj_guard.get_id(),
-                                                err
-                                            );
+                                            "Unit::update_rappel_state failed to set start position for {}: {}",
+                                            obj_guard.get_id(),
+                                            err
+                                        );
                                     }
                                     if let Err(err) = obj_guard.set_orientation(exit_angle) {
                                         log::debug!(
-                                                "Unit::update_rappel_state failed to set exit orientation for {}: {}",
-                                                obj_guard.get_id(),
-                                                err
-                                            );
+                                            "Unit::update_rappel_state failed to set exit orientation for {}: {}",
+                                            obj_guard.get_id(),
+                                            err
+                                        );
                                     }
 
                                     let mut options = FindPositionOptions::default();
@@ -689,9 +689,9 @@ impl UnitAIUpdate {
                                                     false,
                                                 ) {
                                                     log::debug!(
-                                                            "Unit::update_rappel_state give_move_order failed: {}",
-                                                            err
-                                                        );
+                                                        "Unit::update_rappel_state give_move_order failed: {}",
+                                                        err
+                                                    );
                                                 }
                                             }
                                         }

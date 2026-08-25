@@ -1,9 +1,9 @@
 //! Split from `gui/game_window.rs` for module-size parity.
 //! Observable window behavior is unchanged.
 
-use crate::gui::gadgets::tabcontrol;
 use crate::gui::gadgets::RadioButtonGroup;
 use crate::gui::gadgets::Rect;
+use crate::gui::gadgets::tabcontrol;
 use crate::gui::shell::Color as ShellColor;
 
 use super::prelude::*;
@@ -962,29 +962,35 @@ fn slider_mouse_enter_leave_hilites_thumb_child_like_cpp() {
     window.add_child(thumb.clone());
     window.set_slider_thumb(77);
 
-    assert!(!thumb
-        .borrow()
-        .instance_data()
-        .state
-        .contains(WindowState::HILITED));
+    assert!(
+        !thumb
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
     assert_eq!(
         window.send_input_message(WindowMessage::MouseEntering, 0, 0),
         WindowMsgHandled::Handled
     );
-    assert!(thumb
-        .borrow()
-        .instance_data()
-        .state
-        .contains(WindowState::HILITED));
+    assert!(
+        thumb
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
     assert_eq!(
         window.send_input_message(WindowMessage::MouseLeaving, 0, 0),
         WindowMsgHandled::Handled
     );
-    assert!(!thumb
-        .borrow()
-        .instance_data()
-        .state
-        .contains(WindowState::HILITED));
+    assert!(
+        !thumb
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
 }
 
 #[test]
@@ -1048,10 +1054,12 @@ fn radio_set_selection_system_message_matches_cpp_notify_rules() {
         silent_window.widget(),
         Some(WindowWidget::RadioButton(radio)) if radio.is_selected()
     ));
-    assert!(silent_window
-        .instance_data()
-        .state
-        .contains(WindowState::SELECTED));
+    assert!(
+        silent_window
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED)
+    );
     assert!(owner_seen.borrow().is_empty());
 
     let mut notifying_window = GameWindow::new();
@@ -1073,10 +1081,12 @@ fn radio_set_selection_system_message_matches_cpp_notify_rules() {
         owner_seen.borrow().as_slice(),
         &[(WindowMessage::GadgetSelected, 18)]
     );
-    assert!(notifying_window
-        .instance_data()
-        .state
-        .contains(WindowState::SELECTED));
+    assert!(
+        notifying_window
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED)
+    );
 
     assert_eq!(
         notifying_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
@@ -1123,11 +1133,13 @@ fn radio_set_selection_clears_group_peers_like_cpp() {
     parent.borrow_mut().add_child(first.clone());
     parent.borrow_mut().add_child(second.clone());
 
-    assert!(first
-        .borrow()
-        .instance_data()
-        .state
-        .contains(WindowState::SELECTED));
+    assert!(
+        first
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED)
+    );
 
     assert_eq!(
         second
@@ -1136,20 +1148,24 @@ fn radio_set_selection_clears_group_peers_like_cpp() {
         WindowMsgHandled::Handled
     );
 
-    assert!(!first
-        .borrow()
-        .instance_data()
-        .state
-        .contains(WindowState::SELECTED));
+    assert!(
+        !first
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED)
+    );
     assert!(matches!(
         first.borrow().widget(),
         Some(WindowWidget::RadioButton(radio)) if !radio.is_selected()
     ));
-    assert!(second
-        .borrow()
-        .instance_data()
-        .state
-        .contains(WindowState::SELECTED));
+    assert!(
+        second
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED)
+    );
 }
 
 #[test]
@@ -1528,19 +1544,23 @@ fn text_entry_input_focus_sets_selected_and_hilite_like_cpp() {
         window.send_system_message(WindowMessage::InputFocus, 1, 0),
         WindowMsgHandled::Handled
     );
-    assert!(window
-        .instance_data()
-        .state
-        .contains(WindowState::SELECTED | WindowState::HILITED));
+    assert!(
+        window
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED | WindowState::HILITED)
+    );
 
     assert_eq!(
         window.send_system_message(WindowMessage::InputFocus, 0, 0),
         WindowMsgHandled::Handled
     );
-    assert!(!window
-        .instance_data()
-        .state
-        .intersects(WindowState::SELECTED | WindowState::HILITED));
+    assert!(
+        !window
+            .instance_data()
+            .state
+            .intersects(WindowState::SELECTED | WindowState::HILITED)
+    );
 
     assert_eq!(
         owner_seen.borrow().as_slice(),
@@ -2033,11 +2053,13 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
         single_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
-    assert!(single_window
-        .list_box_mut()
-        .unwrap()
-        .selected_indices()
-        .is_empty());
+    assert!(
+        single_window
+            .list_box_mut()
+            .unwrap()
+            .selected_indices()
+            .is_empty()
+    );
 
     let mut multi_window = GameWindow::new();
     multi_window.set_owner(Some(&owner));
@@ -2082,11 +2104,13 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
         ),
         WindowMsgHandled::Handled
     );
-    assert!(multi_window
-        .list_box_mut()
-        .unwrap()
-        .selected_indices()
-        .is_empty());
+    assert!(
+        multi_window
+            .list_box_mut()
+            .unwrap()
+            .selected_indices()
+            .is_empty()
+    );
     assert!(owner_seen.borrow().is_empty());
 }
 
@@ -2585,7 +2609,7 @@ fn image_status_with_defined_color_does_not_emit_draw_rect_fill() {
 
 #[test]
 fn clamp_border_span_rejects_runaway_window_size() {
-    use super::window_impl_draw::{clamp_border_span, MAX_BORDER_SPAN};
+    use super::window_impl_draw::{MAX_BORDER_SPAN, clamp_border_span};
     assert_eq!(clamp_border_span(-20), 0);
     assert_eq!(clamp_border_span(800), 800);
     assert_eq!(clamp_border_span(i32::MAX), MAX_BORDER_SPAN);
@@ -2720,11 +2744,13 @@ fn combo_input_focus_forwards_to_edit_child_like_cpp() {
         WindowMsgHandled::Handled
     );
     assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
-    assert!(edit_box
-        .borrow()
-        .instance_data()
-        .state
-        .contains(WindowState::HILITED));
+    assert!(
+        edit_box
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
 }
 
 #[test]
@@ -2886,4 +2912,3 @@ fn tab_pane_forwards_selected_to_tab_control_parent_like_cpp() {
         &[(WindowMessage::GadgetSelected, 21, 0)]
     );
 }
-

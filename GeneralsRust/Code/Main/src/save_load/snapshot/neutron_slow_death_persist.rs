@@ -12,9 +12,9 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes completed-blast clocks only; it never calls `begin`.
 
+use crate::game_logic::GameLogic;
 use crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData;
 use crate::game_logic::special_power_strikes::HostNeutronSlowDeathMeta;
-use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -43,10 +43,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     game_logic
         .special_power_strikes_mut()
         .restore_neutron_slow_death_persist(0, 0, Vec::new(), Vec::new());
@@ -118,13 +115,15 @@ mod tests {
     #[test]
     fn snapshot_round_trips_neutron_completed_blasts() {
         let mut source = GameLogic::new();
-        source.special_power_strikes_mut().spawn_neutron_slow_death_field(
-            ObjectId(4),
-            Team::USA,
-            Vec3::new(10.0, 0.0, 8.0),
-            20,
-            1,
-        );
+        source
+            .special_power_strikes_mut()
+            .spawn_neutron_slow_death_field(
+                ObjectId(4),
+                Team::USA,
+                Vec3::new(10.0, 0.0, 8.0),
+                20,
+                1,
+            );
         {
             let fields = source
                 .special_power_strikes_mut()
@@ -134,7 +133,10 @@ mod tests {
             fields[0].completed_scorch[0] = true;
             fields[0].scorch_placed = true;
             fields[0].radiation_ocl_spawned = true;
-            let metas = source.special_power_strikes().neutron_slow_death_meta().to_vec();
+            let metas = source
+                .special_power_strikes()
+                .neutron_slow_death_meta()
+                .to_vec();
             source
                 .special_power_strikes_mut()
                 .restore_neutron_slow_death_fields(fields, metas);
@@ -162,7 +164,9 @@ mod tests {
             assert!(!fields[0].done);
         }
         assert_eq!(
-            restored.special_power_strikes().neutron_slow_death_next_id(),
+            restored
+                .special_power_strikes()
+                .neutron_slow_death_next_id(),
             source.special_power_strikes().neutron_slow_death_next_id()
         );
     }
@@ -170,16 +174,14 @@ mod tests {
     #[test]
     fn absent_suffix_clears_stale_neutron() {
         let mut logic = GameLogic::new();
-        logic.special_power_strikes_mut().spawn_neutron_slow_death_field(
-            ObjectId(4),
-            Team::USA,
-            Vec3::ZERO,
-            0,
-            1,
-        );
+        logic
+            .special_power_strikes_mut()
+            .spawn_neutron_slow_death_field(ObjectId(4), Team::USA, Vec3::ZERO, 0, 1);
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         assert_eq!(
-            logic.special_power_strikes().neutron_slow_death_field_count(),
+            logic
+                .special_power_strikes()
+                .neutron_slow_death_field_count(),
             0
         );
     }

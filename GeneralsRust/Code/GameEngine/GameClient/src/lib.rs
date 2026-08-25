@@ -100,10 +100,10 @@ extern crate game_network_crate;
 pub use game_network_crate::game_info::MAX_SLOTS;
 #[cfg(feature = "network")]
 pub use game_network_crate::{
-    game_info_to_ascii_string, get_network, parse_ascii_string_to_game_info, ExecutedFrame,
-    FirewallBehaviorType, FrameListener, FrameListenerId, GameInfo, GameSlot, Money,
-    NetCommandType, NetworkInterface, SkirmishGameInfo, SlotState, PLAYERTEMPLATE_MIN,
-    PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
+    ExecutedFrame, FirewallBehaviorType, FrameListener, FrameListenerId, GameInfo, GameSlot, Money,
+    NetCommandType, NetworkInterface, PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_OBSERVER,
+    PLAYERTEMPLATE_RANDOM, SkirmishGameInfo, SlotState, game_info_to_ascii_string, get_network,
+    parse_ascii_string_to_game_info,
 };
 #[cfg(feature = "network")]
 pub mod commands {

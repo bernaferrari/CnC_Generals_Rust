@@ -650,19 +650,11 @@ impl GameFile for BigArchiveFile {
                     crate::common::system::file::SeekMode::Start => pos.max(0) as u64,
                     crate::common::system::file::SeekMode::Current => {
                         let current = (*position as i64).saturating_add(pos as i64);
-                        if current < 0 {
-                            0
-                        } else {
-                            current as u64
-                        }
+                        if current < 0 { 0 } else { current as u64 }
                     }
                     crate::common::system::file::SeekMode::End => {
                         let end = (*size as i64).saturating_add(pos as i64);
-                        if end < 0 {
-                            0
-                        } else {
-                            end as u64
-                        }
+                        if end < 0 { 0 } else { end as u64 }
                     }
                 };
                 *position = new_pos.min(*size);
@@ -1429,7 +1421,7 @@ impl BigFileSystem {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     "File not found in any BIG file",
-                ))
+                ));
             }
         };
 

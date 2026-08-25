@@ -1172,8 +1172,8 @@ impl GameLogic {
     /// Apply AP Rockets residual to a Stinger Site (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_stinger_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_base_defense::{
-            is_stinger_site_structure, stinger_air_weapon, stinger_ground_weapon,
-            UPGRADE_GLA_AP_ROCKETS,
+            UPGRADE_GLA_AP_ROCKETS, is_stinger_site_structure, stinger_air_weapon,
+            stinger_ground_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1409,9 +1409,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_rocket_buggy::{
+            BUGGY_DAMAGE_TYPE, BUGGY_DEATH_TYPE, BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
             is_legal_rocket_buggy_splash_target, rocket_buggy_damage_at, rocket_buggy_scatter_aim,
-            rocket_buggy_scatter_misses_infantry, BUGGY_DAMAGE_TYPE, BUGGY_DEATH_TYPE,
-            BUGGY_FIRE_AUDIO, BUGGY_SECONDARY_RADIUS,
+            rocket_buggy_scatter_misses_infantry,
         };
 
         // C++ BuggyRocketWeapon ScatterRadiusVsInfantry residual on instant apply (**20**).

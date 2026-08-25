@@ -5,7 +5,7 @@
 //! Purpose: Parse a control Bar Scheme
 
 use super::ini::INILoadType;
-use super::ini::{FieldParse, INIError, INIResult, INI};
+use super::ini::{FieldParse, INI, INIError, INIResult};
 use super::ini_mapped_image::ICoord2D;
 use log::warn;
 use once_cell::sync::OnceCell;

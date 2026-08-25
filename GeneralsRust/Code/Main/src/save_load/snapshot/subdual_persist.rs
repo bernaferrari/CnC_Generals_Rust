@@ -49,10 +49,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_subd_suffix(bytes) else {
         return Ok(());
     };
@@ -145,11 +142,7 @@ mod tests {
         );
         source.add_player(Player::new(0, Team::USA, "USA", true));
         let factory_id = source
-            .create_object(
-                "AmericaWarFactory",
-                Team::USA,
-                Vec3::new(20.0, 0.0, 16.0),
-            )
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(20.0, 0.0, 16.0))
             .expect("factory");
         {
             let factory = source.host_object_mut(factory_id).expect("factory");
@@ -165,9 +158,7 @@ mod tests {
         }
 
         let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
             find_subd_suffix(&snapshot.lifecycle_tail).is_some(),
             "SUBD suffix must be appended to lifecycle tail"

@@ -1,10 +1,10 @@
 //! DifficultySelect.cpp callback port.
 
-use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty};
-use crate::gui::shell::main_menu::{get_main_menu, GameDifficulty as MainMenuDifficulty};
+use crate::gui::campaign_manager::{GameDifficulty, get_campaign_manager};
+use crate::gui::shell::main_menu::{GameDifficulty as MainMenuDifficulty, get_main_menu};
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowWidget,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::user_preferences::UserPreferences;

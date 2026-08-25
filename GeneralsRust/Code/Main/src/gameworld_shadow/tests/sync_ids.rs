@@ -591,9 +591,9 @@ fn sync_from_host_copies_entity_path_waypoints_residual() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-});
+        });
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -861,9 +861,9 @@ fn sync_from_host_copies_entity_weapon_move_residual() {
             pre_attack_delay: 0.1,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-});
+        });
         obj.secondary_weapon = Some(Weapon::default());
         obj.movement.max_speed = 12.5;
         obj.movement.velocity = glam::Vec3::new(1.0, 0.0, 2.0);
@@ -1512,8 +1512,8 @@ fn shared_special_power_sole_ticks_player_cds() {
     begin_shadow_coupled_tick();
     assert!(gameworld_special_power_sole_tick_enabled());
     use crate::command_system::SpecialPowerType;
-    use crate::game_logic::host_player_cooldown_log;
     use crate::game_logic::GameLogic;
+    use crate::game_logic::host_player_cooldown_log;
     let mut logic = GameLogic::new();
     let pid = 0u32;
     let Some(p) = logic.get_player_mut(pid) else {

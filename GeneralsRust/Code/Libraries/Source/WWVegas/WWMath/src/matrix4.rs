@@ -3,11 +3,11 @@
 //! This module provides 4x4 matrix functionality,
 //! converted from the original C++ Matrix4x4 class.
 
+use crate::WWMath;
 use crate::matrix3::Matrix3;
 use crate::matrix3d::Matrix3D;
 use crate::vector3::Vector3;
 use crate::vector4::Vector4;
-use crate::WWMath;
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign,
 };
@@ -70,11 +70,7 @@ impl Matrix4 {
 
     /// Create from identity flag
     pub fn with_identity(identity: bool) -> Self {
-        if identity {
-            Self::IDENTITY
-        } else {
-            Self::ZERO
-        }
+        if identity { Self::IDENTITY } else { Self::ZERO }
     }
 
     /// Create from Matrix3D

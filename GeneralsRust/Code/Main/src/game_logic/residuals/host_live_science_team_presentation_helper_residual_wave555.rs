@@ -80,8 +80,8 @@ pub fn residual_science_team_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_science_team_presentation_helper_last_action(
-) -> ResidualScienceTeamPresentationHelperAction {
+pub fn residual_science_team_presentation_helper_last_action()
+-> ResidualScienceTeamPresentationHelperAction {
     ResidualScienceTeamPresentationHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

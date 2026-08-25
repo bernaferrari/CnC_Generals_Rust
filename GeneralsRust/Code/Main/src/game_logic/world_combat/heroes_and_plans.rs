@@ -18,10 +18,10 @@ impl GameLogic {
     /// - Busy gun (attacking / target / pack recenter) cancels mid residual.
     pub(in super::super) fn tick_strategy_center_turret_idle_scan(&mut self) {
         use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, HostBattlePlanTransition, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
             hold_turret_elapsed, hold_turret_until_frame, idle_scan_desired_angle_deg,
             idle_scan_interval_frames, is_strategy_center_template, step_turret_toward_angles,
             step_turret_toward_natural, turret_angles_are_natural, turret_angles_at,
-            HostBattlePlan, HostBattlePlanTransition, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
         };
 
         let frame = self.frame;
@@ -379,8 +379,8 @@ impl GameLogic {
     pub fn destroy_eject_parachute_midair(&mut self, id: ObjectId) -> bool {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
-            free_fall_damage_amount, should_apply_parachute_free_fall_damage, HostDeathType,
-            PILOT_FREE_FALL_DAMAGE_AUDIO,
+            HostDeathType, PILOT_FREE_FALL_DAMAGE_AUDIO, free_fall_damage_amount,
+            should_apply_parachute_free_fall_damage,
         };
 
         let Some(obj) = self.objects.get(&id) else {
@@ -439,8 +439,8 @@ impl GameLogic {
         eject_pos: glam::Vec3,
     ) -> bool {
         use crate::game_logic::host_usa_pilot::{
-            free_fall_damage_amount, should_apply_parachute_free_fall_damage, HostDeathType,
-            PILOT_FREE_FALL_DAMAGE_AUDIO,
+            HostDeathType, PILOT_FREE_FALL_DAMAGE_AUDIO, free_fall_damage_amount,
+            should_apply_parachute_free_fall_damage,
         };
 
         let Some(rider) = self.objects.get(&rider_id) else {
@@ -537,7 +537,7 @@ impl GameLogic {
     /// Also ticks TurretAI idle-scan residual for Bombardment ACTIVE centers.
     pub(in super::super) fn tick_battle_plan_door_residuals(&mut self) {
         use crate::game_logic::host_strategy_center::{
-            step_turret_toward_natural, HostBattlePlanDoorEvent,
+            HostBattlePlanDoorEvent, step_turret_toward_natural,
         };
 
         // Step Bombardment turret angles toward natural while recenter residual runs.
@@ -598,7 +598,8 @@ impl GameLogic {
                         false, // paralyze only on NONE
                     );
                     self.battle_plans.record_delayed_active_apply();
-                    if plan == crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy
+                    if plan
+                        == crate::game_logic::host_strategy_center::HostBattlePlan::SearchAndDestroy
                     {
                         self.queue_search_and_destroy_idle_audio(center_id, false);
                     }
@@ -659,13 +660,19 @@ impl GameLogic {
             obj.model_condition_bits &= !clear;
             let set_bit = match door {
                 HostBattlePlanDoor::Door1Opening => Some(door_1_opening_model_bit()),
-                HostBattlePlanDoor::Door1WaitingToClose => Some(door_1_waiting_to_close_model_bit()),
+                HostBattlePlanDoor::Door1WaitingToClose => {
+                    Some(door_1_waiting_to_close_model_bit())
+                }
                 HostBattlePlanDoor::Door1Closing => Some(door_1_closing_model_bit()),
                 HostBattlePlanDoor::Door2Opening => Some(door_2_opening_model_bit()),
-                HostBattlePlanDoor::Door2WaitingToClose => Some(door_2_waiting_to_close_model_bit()),
+                HostBattlePlanDoor::Door2WaitingToClose => {
+                    Some(door_2_waiting_to_close_model_bit())
+                }
                 HostBattlePlanDoor::Door2Closing => Some(door_2_closing_model_bit()),
                 HostBattlePlanDoor::Door3Opening => Some(door_3_opening_model_bit()),
-                HostBattlePlanDoor::Door3WaitingToClose => Some(door_3_waiting_to_close_model_bit()),
+                HostBattlePlanDoor::Door3WaitingToClose => {
+                    Some(door_3_waiting_to_close_model_bit())
+                }
                 HostBattlePlanDoor::Door3Closing => Some(door_3_closing_model_bit()),
                 HostBattlePlanDoor::None => None,
             };
@@ -675,7 +682,6 @@ impl GameLogic {
             obj.record_host_model_condition();
         }
     }
-
 
     /// C++ BattlePlanUpdate::setBattlePlan residual (army + building effects).
     ///
@@ -689,13 +695,12 @@ impl GameLogic {
         paralyze_on_none: bool,
     ) {
         use crate::game_logic::host_strategy_center::{
-            battle_plan_paralyze_until_frame, is_dozer_template_name, is_drone_template_name,
-            is_legal_battle_plan_member, is_strategy_center_template,
-            apply_strategy_center_search_and_destroy_sight,
-            remove_strategy_center_search_and_destroy_sight,
+            HostBattlePlan, STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
+            apply_strategy_center_search_and_destroy_sight, battle_plan_paralyze_until_frame,
+            is_dozer_template_name, is_drone_template_name, is_legal_battle_plan_member,
+            is_strategy_center_template, remove_strategy_center_search_and_destroy_sight,
             strategy_center_stealth_detection_range_when_enabled,
-            strategy_center_stealth_detector_enabled_for_plan, HostBattlePlan,
-            STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
+            strategy_center_stealth_detector_enabled_for_plan,
         };
 
         let frame = self.frame;
@@ -1010,8 +1015,8 @@ impl GameLogic {
         level: crate::game_logic::host_frenzy::HostFrenzyLevel,
     ) -> bool {
         use crate::game_logic::host_frenzy::{
-            in_frenzy_radius_2d, is_legal_frenzy_target, HostFrenzy, FRENZY_ACTIVATE_AUDIO,
-            HOST_FRENZY_RADIUS,
+            FRENZY_ACTIVATE_AUDIO, HOST_FRENZY_RADIUS, HostFrenzy, in_frenzy_radius_2d,
+            is_legal_frenzy_target,
         };
         use gamelogic::common::Relationship;
         use std::collections::HashSet;
@@ -1087,13 +1092,8 @@ impl GameLogic {
             if is_ally {
                 contained_ids.extend(occupants);
             }
-            if !is_legal_frenzy_target(
-                is_structure,
-                true,
-                is_ally,
-                can_attack,
-                under_construction,
-            ) {
+            if !is_legal_frenzy_target(is_structure, true, is_ally, can_attack, under_construction)
+            {
                 continue;
             }
             if !applied.insert(id) {
@@ -1205,8 +1205,8 @@ impl GameLogic {
         strategy_center_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_strategy_center::{
+            BATTLE_PLAN_TURRET_RECENTER_FRAMES, HostBattlePlanDoorEvent, HostBattlePlanSelection,
             strategy_center_turret_is_natural_with_angles, strategy_center_turret_recenter_frames,
-            HostBattlePlanDoorEvent, HostBattlePlanSelection, BATTLE_PLAN_TURRET_RECENTER_FRAMES,
         };
 
         let frame = self.frame;
@@ -1426,9 +1426,8 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_cleanup_area::{
-            is_cleanup_area_caster, HostCleanupArea, HostCleanupAreaOrder,
-            CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
-            HOST_CLEANUP_MAX_MOVE_DISTANCE,
+            CLEANUP_AREA_ACTIVATE_AUDIO, HOST_CLEANUP_AREA_RADIUS, HOST_CLEANUP_MAX_MOVE_DISTANCE,
+            HostCleanupArea, HostCleanupAreaOrder, is_cleanup_area_caster,
         };
 
         let Some(cid) = caster_id else {
@@ -1437,7 +1436,9 @@ impl GameLogic {
         let Some(caster) = self.objects.get(&cid) else {
             return false;
         };
-        if !caster.is_alive() || caster.is_disabled() || !is_cleanup_area_caster(&caster.template_name)
+        if !caster.is_alive()
+            || caster.is_disabled()
+            || !is_cleanup_area_caster(&caster.template_name)
         {
             return false;
         }
@@ -1515,13 +1516,11 @@ impl GameLogic {
             let arriving = {
                 let dx = cpos.x - order.location.x;
                 let dz = cpos.z - order.location.z;
-                dx * dx + dz * dz
-                    <= HOST_CLEANUP_ARRIVE_DISTANCE * HOST_CLEANUP_ARRIVE_DISTANCE
+                dx * dx + dz * dz <= HOST_CLEANUP_ARRIVE_DISTANCE * HOST_CLEANUP_ARRIVE_DISTANCE
             };
             // C++ fireWhenReady only attacks when idle/busy. Drive first while Moving.
-            let can_spray = arriving
-                || matches!(ai, AIState::Idle | AIState::SpecialAbility)
-                || dest.is_none();
+            let can_spray =
+                arriving || matches!(ai, AIState::Idle | AIState::SpecialAbility) || dest.is_none();
             if !can_spray {
                 keep.push(order);
                 continue;
@@ -1554,8 +1553,7 @@ impl GameLogic {
                             Some(order.caster_id),
                         );
                     }
-                    order.next_shot_frame =
-                        frame.saturating_add(HOST_CLEANUP_WEAPON_DELAY_FRAMES);
+                    order.next_shot_frame = frame.saturating_add(HOST_CLEANUP_WEAPON_DELAY_FRAMES);
                 }
 
                 keep.push(order);
@@ -1615,8 +1613,8 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_cleanup_area::{
-            HostCleanupArea, CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO,
-            CLEANUP_AREA_MINE_AUDIO, HOST_CLEANUP_AREA_RADIUS,
+            CLEANUP_AREA_ACTIVATE_AUDIO, CLEANUP_AREA_HAZARD_AUDIO, CLEANUP_AREA_MINE_AUDIO,
+            HOST_CLEANUP_AREA_RADIUS, HostCleanupArea,
         };
 
         let frame = self.frame;
@@ -1768,8 +1766,8 @@ impl GameLogic {
 
     pub fn update_cleanup_stream_projectiles(&mut self) {
         use crate::game_logic::host_cleanup_area::{
-            cleanup_stream_missile_step_speed, CLEANUP_STREAM_MISSILE_TURN_DISTANCE,
-            HOST_CLEANUP_PROJECTILE_STREAM,
+            CLEANUP_STREAM_MISSILE_TURN_DISTANCE, HOST_CLEANUP_PROJECTILE_STREAM,
+            cleanup_stream_missile_step_speed,
         };
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1883,7 +1881,7 @@ impl GameLogic {
         kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_angry_mob::{
-            angry_mob_projectile_flight_frames, ANGRY_MOB_PROJ_MAX_HEALTH,
+            ANGRY_MOB_PROJ_MAX_HEALTH, angry_mob_projectile_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1922,8 +1920,8 @@ impl GameLogic {
 
     pub fn update_angry_mob_projectiles(&mut self) {
         use crate::game_logic::host_angry_mob::{
-            angry_mob_projectile_bezier_point, angry_mob_projectile_damage_at,
-            AngryMobProjectileKind,
+            AngryMobProjectileKind, angry_mob_projectile_bezier_point,
+            angry_mob_projectile_damage_at,
         };
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -2015,10 +2013,10 @@ impl GameLogic {
         kind: crate::game_logic::host_angry_mob::AngryMobProjectileKind,
     ) -> (u32, bool) {
         use crate::game_logic::host_angry_mob::{
-            angry_mob_possible_to_attack, angry_mob_projectile_damage_at,
-            is_legal_angry_mob_damage_target, AngryMobProjectileKind,
             ANGRY_MOB_MOLOTOV_DAMAGE_TYPE, ANGRY_MOB_MOLOTOV_DEATH_TYPE,
-            ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE,
+            ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE, AngryMobProjectileKind,
+            angry_mob_possible_to_attack, angry_mob_projectile_damage_at,
+            is_legal_angry_mob_damage_target,
         };
 
         let source_team = source
@@ -2038,8 +2036,7 @@ impl GameLogic {
                     return None;
                 }
                 if !angry_mob_possible_to_attack(
-                    obj.is_kind_of(KindOf::Aircraft)
-                        || obj.object_type == ObjectType::Aircraft,
+                    obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft,
                     obj.status.airborne_target,
                     obj.weapon_target_anti_mask(),
                 ) {
@@ -2120,9 +2117,9 @@ impl GameLogic {
         level: crate::game_logic::host_emergency_repair::HostEmergencyRepairLevel,
     ) -> bool {
         use crate::game_logic::host_emergency_repair::{
+            EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS, HostEmergencyRepair,
             emergency_repair_is_ally, in_emergency_repair_radius_2d,
-            is_legal_emergency_repair_target, HostEmergencyRepair,
-            EMERGENCY_REPAIR_ACTIVATE_AUDIO, HOST_EMERGENCY_REPAIR_RADIUS,
+            is_legal_emergency_repair_target,
         };
         use gamelogic::common::Relationship;
 

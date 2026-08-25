@@ -2,7 +2,7 @@
 // Path Smoothing and Optimization
 // Reference: /GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp:450-696
 
-use super::pathfind_astar::{GridCoord, PathfindLayerEnum, PATHFIND_CELL_SIZE_F};
+use super::pathfind_astar::{GridCoord, PATHFIND_CELL_SIZE_F, PathfindLayerEnum};
 use crate::common::{Coord2D, Coord3D};
 
 /// Path optimizer that removes redundant waypoints

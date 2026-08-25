@@ -79,8 +79,8 @@ pub fn residual_map_difficulty_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_map_difficulty_presentation_helper_last_action(
-) -> ResidualMapDifficultyPresentationHelperAction {
+pub fn residual_map_difficulty_presentation_helper_last_action()
+-> ResidualMapDifficultyPresentationHelperAction {
     ResidualMapDifficultyPresentationHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

@@ -1438,10 +1438,12 @@ mod tests {
             button: MouseButton::Right,
         });
 
-        assert!(events
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .is_empty());
+        assert!(
+            events
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .is_empty()
+        );
         clear_button_audio_hook();
     }
 
@@ -1460,10 +1462,12 @@ mod tests {
             Some((ClockMode::Normal, 50, Color::GREEN))
         );
         assert_eq!(button.clock_request(), None);
-        assert!(button
-            .render_commands(&GadgetTheme::default())
-            .iter()
-            .all(|command| !matches!(command, PushButtonRenderCommand::Clock { .. })));
+        assert!(
+            button
+                .render_commands(&GadgetTheme::default())
+                .iter()
+                .all(|command| !matches!(command, PushButtonRenderCommand::Clock { .. }))
+        );
 
         button.set_inverse_clock(25, Color::RED);
         assert_eq!(
@@ -1501,5 +1505,4 @@ mod tests {
         assert!(played.is_empty());
         clear_button_audio_hook();
     }
-
 }

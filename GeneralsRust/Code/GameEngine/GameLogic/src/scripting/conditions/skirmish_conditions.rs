@@ -5,17 +5,17 @@
 //! resources, enemy positions, and build capabilities.
 
 use super::{
-    get_player_arc, get_str_param, lookup_named_object_id, perform_comparison, ConditionRegistry,
-    ScriptCondition, ScriptContext, ScriptValue,
+    ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue, get_player_arc, get_str_param,
+    lookup_named_object_id, perform_comparison,
 };
-use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
+use crate::ai::integration::{IntegratedAiPlayer, with_ai_integration_mut};
 use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheThingFactory};
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
 use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::special_power_template::{SpecialPowerTemplate, get_special_power_store};
 use crate::object_manager::get_object_manager;
-use crate::player::{player_list, GameDifficulty, PlayerType};
+use crate::player::{GameDifficulty, PlayerType, player_list};
 use crate::scripting::engine::get_area_tracker;
 use crate::team::get_team_factory;
 use crate::{GameLogicError, GameLogicResult};

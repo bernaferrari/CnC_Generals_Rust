@@ -17,10 +17,8 @@
 //! +------------------------------------------------------------------+
 //! ```
 
-use crate::chrome::{
-    Chrome, ChromeLayout, MenuBar, PaletteTool, StatusBar, ToolPalette,
-};
-use gpui::{div, prelude::*, px, rgb, Div};
+use crate::chrome::{Chrome, ChromeLayout, MenuBar, PaletteTool, StatusBar, ToolPalette};
+use gpui::{Div, div, prelude::*, px, rgb};
 
 /// GPUI-facing wrapper around the shared chrome models.
 #[derive(Debug, Clone)]
@@ -148,7 +146,10 @@ fn render_body(chrome: &Chrome) -> Div {
         .min_h(px(1.0));
 
     if chrome.layout.show_left_palette {
-        body = body.child(render_palette(&chrome.tool_palette, chrome.layout.left_width));
+        body = body.child(render_palette(
+            &chrome.tool_palette,
+            chrome.layout.left_width,
+        ));
     }
 
     body = body.child(
@@ -189,7 +190,10 @@ fn render_palette(palette: &ToolPalette, width: f32) -> Div {
         .child(div().text_sm().child("Tools"));
 
     for tool in palette.tools() {
-        list = list.child(render_palette_tool(tool, palette.selected_id() == Some(tool.id.as_str())));
+        list = list.child(render_palette_tool(
+            tool,
+            palette.selected_id() == Some(tool.id.as_str()),
+        ));
     }
     list
 }

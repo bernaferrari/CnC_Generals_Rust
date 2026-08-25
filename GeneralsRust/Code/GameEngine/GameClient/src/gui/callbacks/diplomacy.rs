@@ -6,8 +6,8 @@
 use crate::game_text::GameText;
 use crate::gui::gadgets::{ListBoxAddEntry, ListBoxItemData};
 use crate::gui::{
-    get_disconnect_menu, with_window_manager, AnimateWindowManager, AnimationType, Color,
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
+    AnimateWindowManager, AnimationType, Color, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, WindowWidget, get_disconnect_menu, with_window_manager,
 };
 use crate::helpers::TheInGameUI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -854,15 +854,19 @@ mod tests {
         diplomacy.update_player_info(0, player_info).unwrap();
 
         // Test setting relationship
-        assert!(diplomacy
-            .set_relationship(0, DiplomaticRelationship::Ally)
-            .is_ok());
+        assert!(
+            diplomacy
+                .set_relationship(0, DiplomaticRelationship::Ally)
+                .is_ok()
+        );
         assert_eq!(diplomacy.get_relationship(0), DiplomaticRelationship::Ally);
 
         // Test setting relationship for non-existent player
-        assert!(diplomacy
-            .set_relationship(99, DiplomaticRelationship::Enemy)
-            .is_err());
+        assert!(
+            diplomacy
+                .set_relationship(99, DiplomaticRelationship::Enemy)
+                .is_err()
+        );
 
         // Test default relationship for non-existent player
         assert_eq!(
@@ -994,9 +998,11 @@ mod tests {
             ..PlayerInfo::default()
         };
         assert!(system.update_player_info(0, player_info).is_ok());
-        assert!(system
-            .set_relationship(0, DiplomaticRelationship::Ally)
-            .is_ok());
+        assert!(
+            system
+                .set_relationship(0, DiplomaticRelationship::Ally)
+                .is_ok()
+        );
         assert!(system.set_player_muted(0, true).is_ok());
     }
 
@@ -1078,11 +1084,7 @@ pub fn residual_diplomacy_is_active() -> bool {
 /// Residual: last mute/unmute slot (-1 if none).
 pub fn residual_diplomacy_mute_slot() -> Option<i32> {
     let slot = RESIDUAL_DIPLOMACY_MUTE_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 {
-        None
-    } else {
-        Some(slot)
-    }
+    if slot < 0 { None } else { Some(slot) }
 }
 
 /// Residual: bind Diplomacy control name keys (no layout load).

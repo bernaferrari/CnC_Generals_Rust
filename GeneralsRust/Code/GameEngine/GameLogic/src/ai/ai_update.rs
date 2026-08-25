@@ -7,7 +7,7 @@
 //! Author: Converted from C++ original by Michael S. Booth
 
 use super::pathfinding_system::{PathRequest, PathResult, PathfindingSystem};
-use crate::ai::{AiCommandInterface, AiCommandParams, AiError, AiGroup, AttitudeType, AI, THE_AI};
+use crate::ai::{AI, AiCommandInterface, AiCommandParams, AiError, AiGroup, AttitudeType, THE_AI};
 use crate::common::{Coord3D, ObjectID, Real};
 use crate::modules::UpdateModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;

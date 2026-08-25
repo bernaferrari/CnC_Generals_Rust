@@ -1,5 +1,5 @@
 use game_engine::common::rts::score_keeper::{
-    KindOf, KindOfMaskType, ScoreKeeper, MAX_PLAYER_COUNT,
+    KindOf, KindOfMaskType, MAX_PLAYER_COUNT, ScoreKeeper,
 };
 use game_engine::common::system::snapshot::Snapshotable;
 use game_engine::common::system::xfer_load::XferLoad;

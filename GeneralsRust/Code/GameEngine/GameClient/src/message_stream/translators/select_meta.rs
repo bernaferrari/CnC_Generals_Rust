@@ -53,7 +53,10 @@ fn apply_single_selection(id: ObjectID) {
     }
     if let Ok(mut manager) = get_selection_manager().write() {
         if let Some(selection) = manager.get_player_selection(local_player) {
-            selection.select_objects(vec![id], gamelogic::commands::selection::SelectionType::Replace);
+            selection.select_objects(
+                vec![id],
+                gamelogic::commands::selection::SelectionType::Replace,
+            );
         }
     }
 }

@@ -6,11 +6,11 @@ use super::helpers::{
     parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
-use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
+use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Relationship};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
-use crate::player::{player_list, Player, PlayerType};
+use crate::player::{Player, PlayerType, player_list};
 use crate::scripting::engine::{
     get_area_tracker, get_event_manager, get_named_object_tracker, get_script_engine,
 };
@@ -20,7 +20,7 @@ use crate::terrain::get_terrain_logic;
 use crate::upgrade::center::get_upgrade_center;
 use crate::{GameLogicError, GameLogicResult};
 use async_trait::async_trait;
-use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
+use game_engine::common::rts::{SCIENCE_INVALID, get_science_store};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -182,7 +182,7 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
             let rel = player_guard.get_relationship_with_team(&owner_team_guard);
             match rel {
                 crate::common::Relationship::Enemies | crate::common::Relationship::Neutral => {
-                    return Ok(false)
+                    return Ok(false);
                 }
                 _ => {}
             }
@@ -587,12 +587,12 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
         if dual_world_registry_unavailable() {
             let building_name = get_str_param(parameters, "building_name")?;
             let player_name = get_str_param(parameters, "player")?;
-            return Ok(
-                super::helpers::host_building_entered_by_player(&building_name, &player_name)
-                    .unwrap_or(false),
-            );
+            return Ok(super::helpers::host_building_entered_by_player(
+                &building_name,
+                &player_name,
+            )
+            .unwrap_or(false));
         }
-
 
         let building_name = get_str_param(parameters, "building_name")?;
         let player_arc = match get_player_arc(parameters, "player")? {

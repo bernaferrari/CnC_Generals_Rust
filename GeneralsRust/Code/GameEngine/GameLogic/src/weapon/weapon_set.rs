@@ -9,13 +9,13 @@ use super::{
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::{
-    CommandSourceType, Coord3D, KindOf, ModelConditionFlags, ObjectID, Xfer, XferMode, XferVersion,
-    WEAPONSLOT_COUNT,
+    CommandSourceType, Coord3D, KindOf, ModelConditionFlags, ObjectID, WEAPONSLOT_COUNT, Xfer,
+    XferMode, XferVersion,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::system::kind_of::KindOfMask;
 use game_engine::common::system::Snapshotable;
+use game_engine::common::system::kind_of::KindOfMask;
 use game_engine::thing::thing_template::WeaponTemplateSet as EngineWeaponTemplateSet;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -423,7 +423,6 @@ impl WeaponSet {
                 self.current_weapon_template_set = Some(matched);
             }
         }
-
 
         for slot in [
             WeaponSlotType::Primary,
@@ -1224,11 +1223,7 @@ pub fn choose_best_resets_primary_for_ground(is_locked: bool) -> bool {
 /// C++ WeaponSet.cpp:782-790 — lock keeps slot; unlocked ground is PRIMARY.
 #[inline]
 pub fn choose_best_ground_attack_slot(is_locked: bool, locked_slot: u8) -> u8 {
-    if is_locked {
-        locked_slot
-    } else {
-        0
-    }
+    if is_locked { locked_slot } else { 0 }
 }
 
 impl Default for WeaponSet {
@@ -1392,12 +1387,16 @@ mod tests {
         template_set.set_weapon_template(WeaponSlotType::Primary, weapon_template);
 
         assert!(template_set.has_any_weapons());
-        assert!(template_set
-            .get_weapon_template(WeaponSlotType::Primary)
-            .is_some());
-        assert!(template_set
-            .get_weapon_template(WeaponSlotType::Secondary)
-            .is_none());
+        assert!(
+            template_set
+                .get_weapon_template(WeaponSlotType::Primary)
+                .is_some()
+        );
+        assert!(
+            template_set
+                .get_weapon_template(WeaponSlotType::Secondary)
+                .is_none()
+        );
     }
 
     #[test]

@@ -168,11 +168,13 @@ impl ScriptActionDispatcher {
         }
         log::debug!("Skirmish building base defense front");
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
-                player: super::current_script_player_name(),
-                structure: None,
-                flank: false,
-            });
+            super::request_host_skirmish_base_defense(
+                super::HostScriptSkirmishBaseDefenseRequest {
+                    player: super::current_script_player_name(),
+                    structure: None,
+                    flank: false,
+                },
+            );
             return Ok(ScriptActionResult::Success);
         }
         self.with_current_player_ai(|ai_player| {
@@ -190,11 +192,13 @@ impl ScriptActionDispatcher {
         }
         log::debug!("Skirmish building base defense flank");
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
-                player: super::current_script_player_name(),
-                structure: None,
-                flank: true,
-            });
+            super::request_host_skirmish_base_defense(
+                super::HostScriptSkirmishBaseDefenseRequest {
+                    player: super::current_script_player_name(),
+                    structure: None,
+                    flank: true,
+                },
+            );
             return Ok(ScriptActionResult::Success);
         }
         self.with_current_player_ai(|ai_player| {
@@ -210,11 +214,13 @@ impl ScriptActionDispatcher {
         let structure_type = self.get_string_param(action, 0)?;
         log::debug!("Skirmish building structure front '{}'", structure_type);
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
-                player: super::current_script_player_name(),
-                structure: Some(structure_type),
-                flank: false,
-            });
+            super::request_host_skirmish_base_defense(
+                super::HostScriptSkirmishBaseDefenseRequest {
+                    player: super::current_script_player_name(),
+                    structure: Some(structure_type),
+                    flank: false,
+                },
+            );
             return Ok(ScriptActionResult::Success);
         }
         let structure = structure_type.clone();
@@ -231,11 +237,13 @@ impl ScriptActionDispatcher {
         let structure_type = self.get_string_param(action, 0)?;
         log::debug!("Skirmish building structure flank '{}'", structure_type);
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(super::HostScriptSkirmishBaseDefenseRequest {
-                player: super::current_script_player_name(),
-                structure: Some(structure_type),
-                flank: true,
-            });
+            super::request_host_skirmish_base_defense(
+                super::HostScriptSkirmishBaseDefenseRequest {
+                    player: super::current_script_player_name(),
+                    structure: Some(structure_type),
+                    flank: true,
+                },
+            );
             return Ok(ScriptActionResult::Success);
         }
         let structure = structure_type.clone();
@@ -327,8 +335,7 @@ impl ScriptActionDispatcher {
                     OBJECT_REGISTRY
                         .with_object(obj_id, |object_guard| {
                             !object_guard.is_destroyed()
-                                && object_guard.get_controlling_player_id()
-                                    == Some(player_id)
+                                && object_guard.get_controlling_player_id() == Some(player_id)
                         })
                         .unwrap_or(false)
                 })
@@ -396,10 +403,8 @@ impl ScriptActionDispatcher {
                             let legalized = with_ai_integration_mut(|manager| {
                                 manager
                                     .with_ai_player(player_id, |ai_player| {
-                                        ai_player.calc_closest_construction_zone_at(
-                                            template_name,
-                                            &seed,
-                                        )
+                                        ai_player
+                                            .calc_closest_construction_zone_at(template_name, &seed)
                                     })
                                     .flatten()
                             })
@@ -412,9 +417,7 @@ impl ScriptActionDispatcher {
                 let Some(target_location) = target_location else {
                     continue;
                 };
-                if target_location.x == 0.0
-                    && target_location.y == 0.0
-                    && target_location.z == 0.0
+                if target_location.x == 0.0 && target_location.y == 0.0 && target_location.z == 0.0
                 {
                     continue;
                 }
@@ -513,8 +516,7 @@ impl ScriptActionDispatcher {
                 if other_guard.get_player_index() == player_index {
                     continue;
                 }
-                if controlling_player_guard.get_relationship(&other_guard)
-                    == Relationship::Enemies
+                if controlling_player_guard.get_relationship(&other_guard) == Relationship::Enemies
                 {
                     enemy_mask |= other_guard.get_player_mask().bits();
                 }
@@ -554,11 +556,7 @@ impl ScriptActionDispatcher {
         let range = self.get_real_param(action, 2)?;
         let _all_team_members = self.get_bool_param_optional(action, 3).unwrap_or(false);
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_command_button_most_valuable(
-                &team_name,
-                &ability,
-                range,
-            );
+            super::request_host_skirmish_command_button_most_valuable(&team_name, &ability, range);
             return Ok(ScriptActionResult::Success);
         }
 
@@ -947,7 +945,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(building_id)) = tracker.get_object_id(&building_name) else {
             return Ok(ScriptActionResult::Success);
@@ -1007,7 +1004,8 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         let leftover_id = tracker.get_object_id(&loco_name).ok().flatten();
-        let object_id = leftover_id.or_else(|| crate::scripting::host_script_named_unit_id(&loco_name));
+        let object_id =
+            leftover_id.or_else(|| crate::scripting::host_script_named_unit_id(&loco_name));
         if let Some(object_id) = object_id {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(obj_guard) = obj_arc.read() {

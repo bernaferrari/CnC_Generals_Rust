@@ -12,10 +12,10 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::HijackerControlInterface;
 use std::sync::{Arc, RwLock, Weak};

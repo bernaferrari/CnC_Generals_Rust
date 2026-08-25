@@ -306,7 +306,9 @@ impl SequenceValidator {
         if seq < expected && (expected - seq) > 10 {
             return Some(format!(
                 "Backward sequence jump: {} -> {} (delta: {}). Possible reordering or duplicate packet.",
-                self.last_sequence, seq, expected - seq
+                self.last_sequence,
+                seq,
+                expected - seq
             ));
         }
 

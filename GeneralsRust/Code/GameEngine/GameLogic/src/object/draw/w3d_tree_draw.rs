@@ -9,7 +9,7 @@
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::TheGameClient;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::any::Any;
@@ -435,14 +435,7 @@ impl W3DTreeDraw {
         };
         // C++ sets `m_treeAdded` before `addTree`.
         self.tree_added = true;
-        client.add_tree(
-            self.drawable_id,
-            &location,
-            scale,
-            angle,
-            0.0,
-            &self.data,
-        );
+        client.add_tree(self.drawable_id, &location, scale, angle, 0.0, &self.data);
     }
 
     fn register_from_current_drawable(&mut self) {

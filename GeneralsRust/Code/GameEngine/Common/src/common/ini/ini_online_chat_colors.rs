@@ -9,7 +9,7 @@
 //!
 //! Rust port: 2025
 
-use crate::common::ini::ini::{INIError, INIResult, INI};
+use crate::common::ini::ini::{INI, INIError, INIResult};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 

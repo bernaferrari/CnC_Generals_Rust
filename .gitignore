@@ -1,6 +1,12 @@
 # Rust build artifacts
 /target/
 **/target/
+**/.cargo-*/
+*.rlib
+*.rmeta
+/check_send
+/exitObjectViaDoor
+/newObject
 
 # Cargo.lock for executables (keep for libraries)
 # Cargo.lock
@@ -28,13 +34,25 @@ Thumbs.db
 **/*.rs.bk
 *.orig
 
+# Python tooling caches
+__pycache__/
+*.py[cod]
+
 # Dolt database files (added by bd init)
 .dolt/
 *.db
 .beads/dolt-config.log
 
 # Local retail/extracted game data — never commit
-windows_game/
+/windows_game/
+
+# Local agent/session scratch data — never commit
+/.omo/
+/.omp/
+/local:/
+/GeneralsRust/*-context.md
+/GeneralsRust/hunt*-findings.json
+/GeneralsRust/hunt*-bead-ids.json
 =
 .events.jsonl
 .events.jsonl.lock
@@ -43,3 +61,8 @@ daemon/*.pid
 daemon/*.lock
 daemon/*.log
 
+
+# Beads / Dolt files (added by bd init)
+.beads-credential-key
+.beads/interactions.jsonl
+.beads/*.pid.lock

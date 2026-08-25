@@ -17,7 +17,7 @@ use std::sync::Arc;
 use ww3d_core::{W3DError, W3DResult};
 
 use crate::assets::{Prototype, RenderObj};
-use crate::prototype_loader::{find_loader, DefaultLoaders, PrototypeLoader};
+use crate::prototype_loader::{DefaultLoaders, PrototypeLoader, find_loader};
 
 /// Hash table size for prototype lookup
 /// C++ reference: assetmgr.h:378-383
@@ -406,9 +406,8 @@ impl AssetManagerExt {
         // (`proto.create_instance`). MeshPrototype ignores the manager argument.
         // Unknown names stay None — C++ `Create_Render_Obj` fail-closed
         // (assetmgr.cpp:799-842). Game draw uses the live manager, not Ext.
-        let instantiate = |proto: &Arc<dyn Prototype>| {
-            proto.create_instance(&crate::assets::AssetManager::new())
-        };
+        let instantiate =
+            |proto: &Arc<dyn Prototype>| proto.create_instance(&crate::assets::AssetManager::new());
 
         if let Some(proto) = self.find_prototype(name) {
             self.stats.cache_hits += 1;
@@ -527,7 +526,9 @@ mod tests {
         let mut manager = AssetManagerExt::new();
         manager.add_prototype(
             "CaseMesh".to_string(),
-            Box::new(crate::prototypes::MeshPrototype::new("CaseMesh".to_string())),
+            Box::new(crate::prototypes::MeshPrototype::new(
+                "CaseMesh".to_string(),
+            )),
         );
         assert!(manager.create_render_obj("CASEMESH").is_some());
         assert!(manager.create_render_obj("missing").is_none());

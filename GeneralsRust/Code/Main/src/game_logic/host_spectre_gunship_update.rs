@@ -19,22 +19,20 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-use crate::game_logic::host_spectre_gunship_deployment::{
-    default_map_extents, SPECTRE_PREFERRED_ELEVATION,
-};
+use crate::game_logic::ObjectId;
 use crate::game_logic::host_radius_decal_update::{
-    radius_decal_ms_to_frames, HostRadiusDecal, HostRadiusDecalTemplate,
+    HostRadiusDecal, HostRadiusDecalTemplate, radius_decal_ms_to_frames,
+};
+use crate::game_logic::host_spectre_gunship_deployment::{
+    SPECTRE_PREFERRED_ELEVATION, default_map_extents,
 };
 use crate::game_logic::special_power_strikes::{
-    clamp_spectre_override_destination, HostSpectreOrbitField, SPECTRE_ATTACK_AREA_DECAL_TEXTURE,
-    SPECTRE_ATTACK_AREA_DECAL_THROB_MS, SPECTRE_DECAL_COLOR, SPECTRE_GATTLING_STRAFE_FX,
-    SPECTRE_GUNSHIP_ORBIT_RADIUS, SPECTRE_ORBIT_DURATION_FRAMES, SPECTRE_ORBIT_INSERTION_SLOPE,
-    SPECTRE_ORBIT_RADIUS, SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE,
-    SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS, SPECTRE_TARGETING_RETICLE_RADIUS,
+    HostSpectreOrbitField, SPECTRE_ATTACK_AREA_DECAL_TEXTURE, SPECTRE_ATTACK_AREA_DECAL_THROB_MS,
+    SPECTRE_DECAL_COLOR, SPECTRE_GATTLING_STRAFE_FX, SPECTRE_GUNSHIP_ORBIT_RADIUS,
+    SPECTRE_ORBIT_DURATION_FRAMES, SPECTRE_ORBIT_INSERTION_SLOPE, SPECTRE_ORBIT_RADIUS,
+    SPECTRE_TARGETING_RETICLE_DECAL_TEXTURE, SPECTRE_TARGETING_RETICLE_DECAL_THROB_MS,
+    SPECTRE_TARGETING_RETICLE_RADIUS, clamp_spectre_override_destination,
 };
-use crate::game_logic::ObjectId;
-
-
 
 /// C++ `ORBIT_INSERTION_SLOPE_MAX`.
 pub const ORBIT_INSERTION_SLOPE_MAX: f32 = 0.8;
@@ -46,7 +44,6 @@ pub const SPECTRE_INSERTION_SPEED: f32 = 22.0;
 pub const SPECTRE_DEPART_MAP_SIZE: f32 = 99_999.0;
 /// C++ `GameClientRandomValueReal(-5, 5)` jitter on the gattling impact XY.
 pub const SPECTRE_GATTLING_STRAFE_SMOKE_JITTER: f32 = 5.0;
-
 
 /// C++ `GunshipStatus` (Inserting < Orbiting < Departing < Idle).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -284,7 +281,8 @@ impl HostSpectreGunshipUpdateData {
 
     fn place_engagement_decals(&mut self) {
         self.attack_area_decal.set_position(self.initial_target);
-        self.targeting_reticle_decal.set_position(self.override_target);
+        self.targeting_reticle_decal
+            .set_position(self.override_target);
     }
 
     /// C++ `SpectreGunshipUpdate::cleanUp` — clear AttackArea + Reticle.
@@ -292,7 +290,6 @@ impl HostSpectreGunshipUpdateData {
         self.attack_area_decal.clear();
         self.targeting_reticle_decal.clear();
     }
-
 
     /// C++ `SpectreGunshipUpdate::update` insertion / orbit / depart slice.
     pub fn tick(&mut self, pos: Vec3, facing: f32, frame: u32) -> SpectreGunshipTick {
@@ -391,11 +388,10 @@ pub fn honesty_spectre_gunship_update_residual_ok() -> bool {
                 && {
                     let start = Vec3::new(-250.0, 120.0, -250.0);
                     let tick = d.tick(start, 0.785_398_2, 0);
-                    let moved = (tick.pos.x - start.x).abs() > 1.0
-                        || (tick.pos.z - start.z).abs() > 1.0;
+                    let moved =
+                        (tick.pos.x - start.x).abs() > 1.0 || (tick.pos.z - start.z).abs() > 1.0;
                     let placed = (d.attack_area_decal.position - d.initial_target).length() < 0.01
-                        && (d.targeting_reticle_decal.position - d.override_target).length()
-                            < 0.01;
+                        && (d.targeting_reticle_decal.position - d.override_target).length() < 0.01;
                     moved && tick.afterburners_on && !tick.door_opening && !tick.destroy && placed
                 }
         }
@@ -455,8 +451,7 @@ pub fn spectre_gunship_visible_for_strafe_fx(
 ) -> bool {
     match shroud {
         Some(status) => {
-            (status as u8)
-                <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
+            (status as u8) <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
         }
         None => true,
     }

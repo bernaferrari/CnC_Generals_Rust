@@ -12,18 +12,16 @@
 
 #![cfg(test)]
 
-use std::collections::HashMap;
-
 /// Damage types matching C&C Generals
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum DamageType {
-    Small,          // Anti-infantry
-    Ap,             // Armor piercing
-    ArmorPiercing,  // Heavy armor piercing
-    Explosion,      // Explosive damage
-    Fire,           // Flame weapons
-    Laser,          // Energy weapons
-    Sniper,         // Sniper rifles
+    Small,         // Anti-infantry
+    Ap,            // Armor piercing
+    ArmorPiercing, // Heavy armor piercing
+    Explosion,     // Explosive damage
+    Fire,          // Flame weapons
+    Laser,         // Energy weapons
+    Sniper,        // Sniper rifles
 }
 
 /// Armor types
@@ -153,8 +151,7 @@ fn get_damage_modifier(damage_type: DamageType, armor: ArmorType) -> f32 {
 fn test_weapon_creation() {
     println!("Testing weapon creation...");
 
-    let rifle = WeaponTemplate::new("Rifle")
-        .with_damage(25, DamageType::Small);
+    let rifle = WeaponTemplate::new("Rifle").with_damage(25, DamageType::Small);
 
     assert_eq!(rifle.name, "Rifle");
     assert_eq!(rifle.damage, 25);
@@ -237,9 +234,9 @@ fn test_splash_damage() {
         Target::new(3, ArmorType::Infantry, 100),
     ];
 
-    targets[0].position = (0.0, 0.0, 0.0);   // At impact point
-    targets[1].position = (5.0, 0.0, 0.0);   // 5m away
-    targets[2].position = (15.0, 0.0, 0.0);  // 15m away (outside splash)
+    targets[0].position = (0.0, 0.0, 0.0); // At impact point
+    targets[1].position = (5.0, 0.0, 0.0); // 5m away
+    targets[2].position = (15.0, 0.0, 0.0); // 15m away (outside splash)
 
     let weapon = WeaponTemplate::new("Grenade")
         .with_damage(100, DamageType::Explosion)
@@ -289,9 +286,9 @@ fn test_weapon_range() {
 
     let weapon_pos = (0.0, 0.0, 0.0);
 
-    assert!(in_range(weapon_pos, (50.0, 0.0, 0.0), 100.0));   // In range
+    assert!(in_range(weapon_pos, (50.0, 0.0, 0.0), 100.0)); // In range
     assert!(!in_range(weapon_pos, (150.0, 0.0, 0.0), 100.0)); // Out of range
-    assert!(in_range(weapon_pos, (70.0, 70.0, 0.0), 100.0));  // Diagonal, in range
+    assert!(in_range(weapon_pos, (70.0, 70.0, 0.0), 100.0)); // Diagonal, in range
 
     log::info!("Weapon range test passed");
 }
@@ -312,9 +309,6 @@ fn test_weapon_accuracy() {
     // Simulate 100 shots
     let mut hits_accurate = 0;
     let mut hits_inaccurate = 0;
-
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hash, Hasher};
 
     let mut seed = 12345u64;
     for _ in 0..100 {
@@ -381,9 +375,7 @@ fn test_reload_time() {
         }
     }
 
-    let mut weapon = WeaponState::new(
-        WeaponTemplate::new("MachineGun")
-    );
+    let mut weapon = WeaponState::new(WeaponTemplate::new("MachineGun"));
     weapon.template.reload_time = 0.5;
 
     let mut time = 0.0;
@@ -482,8 +474,7 @@ mod performance_tests {
         const NUM_UNITS: usize = 1000;
         const NUM_SHOTS: usize = 10;
 
-        let weapon = WeaponTemplate::new("StandardRifle")
-            .with_damage(25, DamageType::Small);
+        let weapon = WeaponTemplate::new("StandardRifle").with_damage(25, DamageType::Small);
 
         let mut targets: Vec<Target> = (0..NUM_UNITS)
             .map(|i| Target::new(i as u32, ArmorType::Infantry, 100))
@@ -503,12 +494,18 @@ mod performance_tests {
         let total_shots = NUM_UNITS * NUM_SHOTS;
         let shots_per_sec = total_shots as f64 / elapsed.as_secs_f64();
 
-        println!("Processed {} shots in {:?} ({:.0} shots/sec)", total_shots, elapsed, shots_per_sec);
+        println!(
+            "Processed {} shots in {:?} ({:.0} shots/sec)",
+            total_shots, elapsed, shots_per_sec
+        );
 
         let alive_count = targets.iter().filter(|t| t.is_alive()).count();
         println!("Units remaining: {}/{}", alive_count, NUM_UNITS);
 
-        assert!(shots_per_sec > 100000.0, "Should process >100k shots/second");
+        assert!(
+            shots_per_sec > 100000.0,
+            "Should process >100k shots/second"
+        );
 
         log::info!("Mass combat simulation passed");
     }

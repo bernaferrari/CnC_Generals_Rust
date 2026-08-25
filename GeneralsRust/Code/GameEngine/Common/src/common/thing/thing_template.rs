@@ -8,17 +8,17 @@
 //! Contains all the data needed to construct objects and drawables
 
 use crate::common::bit_flags::{
-    create_armor_set_flags, create_weapon_set_flags, ArmorSetBitFlags, BitFlags, WeaponSetBitFlags,
+    ArmorSetBitFlags, BitFlags, WeaponSetBitFlags, create_armor_set_flags, create_weapon_set_flags,
 };
-use crate::common::ini::ini_mapped_image::{get_mapped_image_collection, Image};
 use crate::common::ini::INI;
+use crate::common::ini::ini_mapped_image::{Image, get_mapped_image_collection};
 
 use crate::common::system::Snapshotable;
 use crate::common::thing::module::{BaseModuleData, CapturedModuleData};
 #[cfg(test)]
 use crate::common::thing::module_factory::clear_pending_descriptors_for_test;
 use crate::common::thing::module_factory::{
-    get_module_factory, register_descriptor_set_global, ModuleFactory,
+    ModuleFactory, get_module_factory, register_descriptor_set_global,
 };
 use crate::common::thing::sparse_match_finder::{
     SparseBitSet, SparseMatchCandidate, SparseMatchFinder,
@@ -28,12 +28,12 @@ use crate::common::{
     global_data,
     name_key_generator::NameKeyGenerator,
     rts::{
-        get_science_store, AsciiString, Color, NameKeyType, ProductionPrerequisite, Real,
-        UnicodeString, UnsignedByte, UnsignedShort, SCIENCE_INVALID,
+        AsciiString, Color, NameKeyType, ProductionPrerequisite, Real, SCIENCE_INVALID,
+        UnicodeString, UnsignedByte, UnsignedShort, get_science_store,
     },
     system::{
-        geometry::{GeometryInfo, GeometryType},
         Overridable, Xfer,
+        geometry::{GeometryInfo, GeometryType},
     },
     thing::module::{ModuleData, ModuleInterfaceType, ModuleType},
 };
@@ -41,6 +41,13 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock},
 };
+
+#[path = "thing_template_snapshot.rs"]
+mod thing_template_snapshot;
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;
 
 const CPP_OBJECT_FIELDS: &[&str] = &[
     "DisplayName",
@@ -229,7 +236,6 @@ fn is_reskin_property(key: &str) -> bool {
         .unwrap_or(false)
 }
 
-
 fn collect_module_body(
     properties: &HashMap<String, String>,
     header_key: &str,
@@ -352,7 +358,6 @@ fn current_repeatable_local(properties: &HashMap<String, String>, field: &str) -
     }
     last
 }
-
 
 fn module_data_from_body(
     module_name: &str,
@@ -612,7 +617,6 @@ impl ShadowType {
     }
 }
 
-
 /// Module parsing modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -816,7 +820,6 @@ impl ModuleInfo {
         false
     }
 
-
     pub fn descriptors(&self) -> Vec<ModuleDescriptor> {
         self.info
             .iter()
@@ -904,7 +907,6 @@ impl ModuleInfo {
 
         removed_any
     }
-
 
     pub fn clear_ai_module_info(&mut self) -> bool {
         let initial_len = self.info.len();
@@ -1731,7 +1733,6 @@ impl ThingTemplate {
         self.upgrade_cameo_upgrade_names.clone()
     }
 
-
     /// Number of production prerequisites attached to this template.
     pub fn get_prereq_count(&self) -> usize {
         self.prereq_info.len()
@@ -1789,7 +1790,6 @@ impl ThingTemplate {
     pub fn get_shadow_texture_name(&self) -> &AsciiString {
         &self.shadow_texture_name
     }
-
 
     pub fn calc_vision_range(&self) -> Real {
         // C++ ThingTemplate.h:405 friend_calcVisionRange — raw field, no geometry fallback.
@@ -2058,7 +2058,6 @@ impl ThingTemplate {
         self.is_bridge
     }
 
-
     /// C++ ThingTemplate.cpp:384-409 KindOf masks used when clearing default modules.
     fn gps_scrambler_inherit_flags(&self) -> (bool, bool, bool) {
         use crate::common::system::kind_of::KindOfMask;
@@ -2215,13 +2214,9 @@ impl ThingTemplate {
         self.audioarray.get(ThingTemplateAudioType::SoundFalling)
     }
 
-    pub fn audio_event(
-        &self,
-        audio_type: ThingTemplateAudioType,
-    ) -> Option<&AudioEventRts> {
+    pub fn audio_event(&self, audio_type: ThingTemplateAudioType) -> Option<&AudioEventRts> {
         self.audioarray.get(audio_type)
     }
-
 
     pub fn get_per_unit_sound(&self, sound_name: &AsciiString) -> Option<&AudioEventRts> {
         self.per_unit_sounds.get(sound_name)
@@ -2491,13 +2486,14 @@ impl ThingTemplate {
                 disallowed,
                 candidate,
             );
-            self.client_update_module_info.clear_copied_from_default_entries(
-                mask,
-                &new_name,
-                is_trainable,
-                disallowed,
-                candidate,
-            );
+            self.client_update_module_info
+                .clear_copied_from_default_entries(
+                    mask,
+                    &new_name,
+                    is_trainable,
+                    disallowed,
+                    candidate,
+                );
         }
 
         if self.module_parsing_mode == ModuleParseMode::AddRemoveReplace
@@ -2780,8 +2776,6 @@ impl ThingTemplate {
         crate::common::thing::thing_template_locomotor::set_locomotor_overrides_allowed(false);
         result
     }
-
-
 
     pub fn locomotor_sets(&self) -> &HashMap<String, Vec<AsciiString>> {
         &self.locomotor_sets
@@ -3074,8 +3068,7 @@ impl ThingTemplate {
         }
 
         // Mark build facilities
-        if self.is_kind_of_mask(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits())
-        {
+        if self.is_kind_of_mask(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits()) {
             self.is_build_facility = true;
         }
 
@@ -3104,7 +3097,6 @@ impl ThingTemplate {
             self.button_image_name.clear();
         }
     }
-
 
     #[cfg(feature = "load_test_assets")]
     pub fn init_for_lta(&mut self, name: &AsciiString) {
@@ -3307,7 +3299,8 @@ impl ThingTemplate {
                 // --- Display ---
                 "DisplayName" => {
                     // C++ INI::parseAndTranslateLabel
-                    let translated = INI::translate_label(trimmed).unwrap_or_else(|_| trimmed.to_string());
+                    let translated =
+                        INI::translate_label(trimmed).unwrap_or_else(|_| trimmed.to_string());
                     self.display_name = UnicodeString::from(translated.as_str());
                 }
                 "DisplayColor" => {
@@ -3318,7 +3311,6 @@ impl ThingTemplate {
                 "EditorSorting" => {
                     self.editor_sorting = parse_editor_sorting(trimmed)?;
                 }
-
 
                 // --- Physical ---
                 "Scale" => {
@@ -3716,7 +3708,6 @@ impl ThingTemplate {
         Ok(())
     }
 
-
     /// Set the KindOf mask from a resolved bitmask (`u64` or full `u128`).
     ///
     /// Called by the GameLogic layer after resolving KindOf flag names to bits.
@@ -3740,7 +3731,6 @@ fn parse_bool_simple(s: &str) -> Result<bool, ()> {
 fn parse_color_int(s: &str) -> Result<Color, ()> {
     crate::common::thing::thing_template_color::parse_color_int(s)
 }
-
 
 fn parse_editor_sorting(s: &str) -> Result<EditorSortingType, String> {
     match s.trim() {
@@ -3851,7 +3841,6 @@ fn parse_geometry_type(s: &str) -> Result<GeometryType, String> {
     }
 }
 
-
 /// Parse a space-separated list of integers into a fixed-size array.
 /// Mirrors C++ ThingTemplate::parseIntList.
 fn parse_int_list_into(s: &str, out: &mut [i32; LEVEL_COUNT]) {
@@ -3868,910 +3857,6 @@ fn parse_int_list_into(s: &str, out: &mut [i32; LEVEL_COUNT]) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::common::bit_flags::{
-        ArmorSetFlags as ArmorSetBits, WeaponSetFlags as WeaponSetBits,
-    };
-    use crate::common::thing::module::ModuleType;
-    use std::sync::Arc;
-
-    #[test]
-    fn editor_sorting_matches_cpp_thing_sort_order() {
-        assert_eq!(EditorSortingType::None as u8, 0);
-        assert_eq!(EditorSortingType::Structure as u8, 1);
-        assert_eq!(EditorSortingType::Infantry as u8, 2);
-        assert_eq!(EditorSortingType::Vehicle as u8, 3);
-        assert_eq!(EditorSortingType::Shrubbery as u8, 4);
-        assert_eq!(EditorSortingType::MiscManMade as u8, 5);
-        assert_eq!(EditorSortingType::MiscNatural as u8, 6);
-        assert_eq!(EditorSortingType::Debris as u8, 7);
-        assert_eq!(EditorSortingType::System as u8, 8);
-        assert_eq!(EditorSortingType::Audio as u8, 9);
-        assert_eq!(EditorSortingType::Test as u8, 10);
-        assert_eq!(EditorSortingType::ForReview as u8, 11);
-        assert_eq!(EditorSortingType::Road as u8, 12);
-        assert_eq!(EditorSortingType::Waypoint as u8, 13);
-
-        assert_eq!(
-            parse_editor_sorting("STRUCTURE"),
-            EditorSortingType::Structure
-        );
-        assert_eq!(
-            parse_editor_sorting("INFANTRY"),
-            EditorSortingType::Infantry
-        );
-        assert_eq!(
-            parse_editor_sorting("MISC_MAN_MADE"),
-            EditorSortingType::MiscManMade
-        );
-        assert_eq!(
-            parse_editor_sorting("WAYPOINT"),
-            EditorSortingType::Waypoint
-        );
-
-        assert_eq!(
-            parse_editor_sorting("Building"),
-            EditorSortingType::Structure
-        );
-        assert_eq!(parse_editor_sorting("Unit"), EditorSortingType::Infantry);
-        assert_eq!(
-            parse_editor_sorting("Civilian"),
-            EditorSortingType::MiscNatural
-        );
-    }
-
-    #[test]
-    fn object_field_parse_rejects_unknown_fields_like_cpp() {
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([("NotARealObjectField".to_string(), "1".to_string())]);
-
-        let result = template.parse_object_fields_from_ini(&properties);
-
-        assert!(matches!(result, Err(message) if message.contains("NotARealObjectField")));
-    }
-
-    #[test]
-    fn occlusion_delay_uses_cpp_duration_frame_conversion() {
-        let mut template = ThingTemplate::new();
-
-        // C++ INI::parseDurationUnsignedInt stores a 500 ms duration as 15
-        // logic frames, rather than the literal integer 500.
-        let properties = HashMap::from([("OcclusionDelay".to_string(), "500ms".to_string())]);
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("known C++ field should parse");
-        assert_eq!(template.get_occlusion_delay(), 15);
-
-        let properties = HashMap::from([("OcclusionDelay".to_string(), "1s".to_string())]);
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("duration suffix should parse");
-        assert_eq!(template.get_occlusion_delay(), 30);
-    }
-
-    #[test]
-    fn shadow_parser_accepts_retail_cpp_shadow_tokens() {
-        // These are the tokens in GameClient/Shadow.h's TheShadowNames table
-        // and in the extracted Zero Hour object INIs.
-        assert_eq!(
-            parse_shadow_type("SHADOW_VOLUME").unwrap(),
-            ShadowType::Volume
-        );
-        assert_eq!(
-            parse_shadow_type("shadow_decal").unwrap(),
-            ShadowType::Decal
-        );
-        assert_eq!(parse_shadow_type("NONE").unwrap(), ShadowType::None);
-        assert_eq!(
-            parse_shadow_type("SHADOW_DECAL").unwrap().bits(),
-            0x01
-        );
-        assert_eq!(
-            parse_shadow_type("SHADOW_VOLUME").unwrap().bits(),
-            0x02
-        );
-        let combo = parse_shadow_type("SHADOW_ALPHA_DECAL SHADOW_DIRECTIONAL_PROJECTION").unwrap();
-        assert!(combo.contains(ShadowType::AlphaDecal));
-        assert!(combo.contains(ShadowType::DirectionalProjection));
-    }
-
-    #[test]
-    fn radar_priority_parser_preserves_cpp_radar_categories() {
-        let mut template = ThingTemplate::new();
-        for (token, expected) in [
-            ("NOT_ON_RADAR", RadarPriorityType::NotOnRadar),
-            ("STRUCTURE", RadarPriorityType::Structure),
-            ("UNIT", RadarPriorityType::Unit),
-            ("LOCAL_UNIT_ONLY", RadarPriorityType::LocalUnitOnly),
-        ] {
-            let properties = HashMap::from([("RadarPriority".to_string(), token.to_string())]);
-            template
-                .parse_object_fields_from_ini(&properties)
-                .expect("retail radar priority should parse");
-            assert_eq!(template.get_radar_priority(), expected);
-        }
-    }
-
-    #[test]
-    fn build_parsers_accept_retail_cpp_enum_tokens() {
-        assert_eq!(
-            parse_build_completion("PLACED_BY_PLAYER").unwrap(),
-            BuildCompletionType::PlacedByPlayer
-        );
-        assert_eq!(
-            parse_build_completion("APPEARS_AT_RALLY_POINT").unwrap(),
-            BuildCompletionType::AppearsAtRallyPoint
-        );
-        assert_eq!(
-            parse_buildable_status("Ignore_Prerequisites").unwrap(),
-            BuildableStatus::IgnorePrerequisites
-        );
-        assert_eq!(
-            parse_buildable_status("Only_By_AI").unwrap(),
-            BuildableStatus::OnlyByAi
-        );
-    }
-
-    #[test]
-    fn experience_and_trainable_fields_are_parsed() {
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            ("IsTrainable".to_string(), "Yes".to_string()),
-            ("EnterGuard".to_string(), "Yes".to_string()),
-            ("HijackGuard".to_string(), "No".to_string()),
-            ("ExperienceValue".to_string(), "50 100 150 200".to_string()),
-            ("ExperienceRequired".to_string(), "0 100 200 300".to_string()),
-            ("SkillPointValue".to_string(), "1 2 3 4".to_string()),
-            ("PlacementViewAngle".to_string(), "90".to_string()),
-        ]);
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("experience fields should parse");
-        assert!(template.is_trainable());
-        assert!(template.is_enter_guard());
-        assert!(!template.is_hijack_guard());
-        assert_eq!(template.get_experience_value(0), 50);
-        assert_eq!(template.get_experience_required(1), 100);
-        assert!((template.get_placement_view_angle() - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
-    }
-
-
-
-
-    #[test]
-    fn object_field_parse_accepts_cpp_fields_not_yet_wired() {
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            ("Behavior".to_string(), "AIUpdate ModuleTag_AI".to_string()),
-            (
-                "UnitSpecificSounds".to_string(),
-                "VoiceEnter RangerVoiceEnter".to_string(),
-            ),
-            (
-                "UnitSpecificFX".to_string(),
-                "DeathFX FX_RangerDie".to_string(),
-            ),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("valid C++ object fields should be accepted");
-    }
-
-    #[test]
-    fn object_field_parse_populates_module_descriptors_from_module_fields() {
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            (
-                "Behavior".to_string(),
-                "SlowDeathBehavior ModuleTag_Die".to_string(),
-            ),
-            (
-                "Behavior#1".to_string(),
-                "StealthUpdate ModuleTag_Stealth".to_string(),
-            ),
-            ("Body".to_string(), "ActiveBody ModuleTag_Body".to_string()),
-            (
-                "Draw".to_string(),
-                "W3DModelDraw ModuleTag_Draw".to_string(),
-            ),
-            (
-                "ClientUpdate".to_string(),
-                "LaserUpdate ModuleTag_Client".to_string(),
-            ),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("module fields should parse");
-
-        let descriptors = template.module_descriptors();
-        assert_eq!(descriptors.behavior.len(), 3);
-        assert_eq!(descriptors.draw.len(), 1);
-        assert_eq!(descriptors.client_update.len(), 1);
-
-        assert_eq!(descriptors.behavior[0].name.as_str(), "SlowDeathBehavior");
-        assert_eq!(descriptors.behavior[0].module_tag.as_str(), "ModuleTag_Die");
-        assert!(descriptors.behavior[0].supports(ModuleInterfaceType::DIE));
-        assert_eq!(
-            descriptors.behavior[1].module_tag.as_str(),
-            "ModuleTag_Stealth"
-        );
-        assert_eq!(descriptors.behavior[2].name.as_str(), "ActiveBody");
-        assert!(descriptors.behavior[2].supports(ModuleInterfaceType::BODY));
-
-        assert_eq!(descriptors.draw[0].name.as_str(), "W3DModelDraw");
-        assert_eq!(descriptors.draw[0].module_tag.as_str(), "ModuleTag_Draw");
-        assert!(descriptors.draw[0].supports(ModuleInterfaceType::DRAW));
-
-        assert_eq!(descriptors.client_update[0].name.as_str(), "LaserUpdate");
-        assert_eq!(
-            descriptors.client_update[0].module_tag.as_str(),
-            "ModuleTag_Client"
-        );
-        assert!(descriptors.client_update[0].supports(ModuleInterfaceType::CLIENT_UPDATE));
-    }
-
-    #[test]
-    fn object_field_parse_reads_active_body_and_production_update_bodies() {
-        use crate::common::thing::module::BaseModuleData;
-
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            ("Body".to_string(), "ActiveBody Tag".to_string()),
-            ("Body.MaxHealth".to_string(), "4000".to_string()),
-            ("Body.InitialHealth".to_string(), "4000".to_string()),
-            (
-                "Body.__body".to_string(),
-                "MaxHealth = 4000\nInitialHealth = 4000".to_string(),
-            ),
-            (
-                "Behavior".to_string(),
-                "ProductionUpdate ModuleTag_04".to_string(),
-            ),
-            ("Behavior.NumDoorAnimations".to_string(), "1".to_string()),
-            (
-                "Behavior.__body".to_string(),
-                "NumDoorAnimations = 1".to_string(),
-            ),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("module bodies should parse");
-
-        let body = template
-            .get_behavior_module_info()
-            .iter()
-            .find(|entry| entry.name.as_str() == "ActiveBody")
-            .expect("ActiveBody");
-        assert!(body.data.downcast_ref::<BaseModuleData>().is_none());
-        assert_eq!(body.data.get_ini_real("MaxHealth"), Some(4000.0));
-
-        let production = template
-            .get_behavior_module_info()
-            .iter()
-            .find(|entry| entry.name.as_str() == "ProductionUpdate")
-            .expect("ProductionUpdate");
-        assert_eq!(production.data.get_ini_int("NumDoorAnimations"), Some(1));
-    }
-
-    #[test]
-    fn object_field_parse_populates_audio_events_and_max_link_key() {
-        NameKeyGenerator::reset();
-
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            ("VoiceSelect".to_string(), "RangerVoiceSelect".to_string()),
-            ("SoundMoveStart".to_string(), "RangerMoveStart".to_string()),
-            (
-                "MaxSimultaneousLinkKey".to_string(),
-                "SharedLimitKey".to_string(),
-            ),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("audio and max simultaneous link fields should parse");
-
-        assert_eq!(
-            template
-                .get_voice_select()
-                .map(AudioEventRts::get_event_name),
-            Some("RangerVoiceSelect")
-        );
-        assert_eq!(
-            template
-                .get_sound_move_start()
-                .map(AudioEventRts::get_event_name),
-            Some("RangerMoveStart")
-        );
-        assert_eq!(
-            template.get_max_simultaneous_link_key(),
-            NameKeyGenerator::name_to_key("SharedLimitKey")
-        );
-    }
-
-    #[test]
-    fn object_field_parse_populates_unit_specific_sound_and_fx_maps() {
-        use crate::common::ini::ini_fx_list::{get_fx_list_store_mut, FXList};
-
-        get_fx_list_store_mut().add_fx_list(FXList::new(
-            crate::common::ascii_string::AsciiString::from("FX_RangerDie"),
-        ));
-
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            (
-                "UnitSpecificSounds.TurretMoveStart".to_string(),
-                "RangerTurretMoveStart".to_string(),
-            ),
-            (
-                "UnitSpecificSounds.TurretMoveLoop".to_string(),
-                "RangerTurretMoveLoop".to_string(),
-            ),
-            (
-                "UnitSpecificFX.DeathFX".to_string(),
-                "FX_RangerDie".to_string(),
-            ),
-            ("UnitSpecificFX.VeteranFX".to_string(), "None".to_string()),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("per-unit sound and FX maps should parse");
-
-        assert_eq!(
-            template
-                .get_per_unit_sound(&AsciiString::from("TurretMoveStart"))
-                .map(AudioEventRts::get_event_name),
-            Some("RangerTurretMoveStart")
-        );
-        assert_eq!(
-            template
-                .get_per_unit_sound(&AsciiString::from("TurretMoveLoop"))
-                .map(AudioEventRts::get_event_name),
-            Some("RangerTurretMoveLoop")
-        );
-        assert!(template
-            .get_per_unit_fx(&AsciiString::from("DeathFX"))
-            .is_some());
-        assert!(template
-            .per_unit_fx
-            .get(&AsciiString::from("VeteranFX"))
-            .is_some_and(Option::is_none));
-    }
-
-    #[test]
-    fn object_field_parse_populates_prerequisites_from_collected_subblock() {
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            (
-                "Prerequisites.Object".to_string(),
-                "AmericaBarracks AmericaWarFactory".to_string(),
-            ),
-            (
-                "Prerequisites.Object#1".to_string(),
-                "AmericaStrategyCenter".to_string(),
-            ),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("collected prerequisites should parse");
-
-        assert_eq!(template.get_prereq_count(), 2);
-
-        let first = template.get_prereq(0).expect("first prereq");
-        let first_units = first.get_unit_prereqs();
-        assert_eq!(first_units.len(), 2);
-        assert_eq!(first_units[0].name, "AmericaBarracks");
-        assert!(!first_units[0].flags.has_or_with_prev());
-        assert_eq!(first_units[1].name, "AmericaWarFactory");
-        assert!(first_units[1].flags.has_or_with_prev());
-
-        let second = template.get_prereq(1).expect("second prereq");
-        let second_units = second.get_unit_prereqs();
-        assert_eq!(second_units.len(), 1);
-        assert_eq!(second_units[0].name, "AmericaStrategyCenter");
-        assert!(!second_units[0].flags.has_or_with_prev());
-    }
-
-    #[test]
-    fn object_field_parse_populates_weapon_sets_from_collected_subblocks() {
-        use crate::common::system::kind_of::KindOfMask;
-
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            ("WeaponSet0.Conditions".to_string(), "HERO".to_string()),
-            (
-                "WeaponSet0.Weapon".to_string(),
-                "PRIMARY HeroPrimary".to_string(),
-            ),
-            (
-                "WeaponSet0.Weapon#1".to_string(),
-                "SECONDARY HeroSecondary".to_string(),
-            ),
-            (
-                "WeaponSet0.AutoChooseSources".to_string(),
-                "PRIMARY FROM_PLAYER FROM_AI".to_string(),
-            ),
-            (
-                "WeaponSet0.PreferredAgainst".to_string(),
-                "SECONDARY AIRCRAFT BALLISTIC_MISSILE".to_string(),
-            ),
-            (
-                "WeaponSet0.ShareWeaponReloadTime".to_string(),
-                "Yes".to_string(),
-            ),
-            (
-                "WeaponSet0.WeaponLockSharedAcrossSets".to_string(),
-                "No".to_string(),
-            ),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("weapon set properties should parse");
-
-        assert_eq!(template.weapon_template_sets().len(), 1);
-        let set = &template.weapon_template_sets()[0];
-        assert!(set.types().test(WeaponSetBits::HERO));
-        assert_eq!(
-            set.weapon_template_name(0).map(|name| name.as_str()),
-            Some("HeroPrimary")
-        );
-        assert_eq!(
-            set.weapon_template_name(1).map(|name| name.as_str()),
-            Some("HeroSecondary")
-        );
-        assert_eq!(set.auto_choose_mask(0), (1 << 0) | (1 << 2));
-        assert_eq!(
-            set.preferred_against_mask(1),
-            KindOfMask::AIRCRAFT | KindOfMask::BALLISTIC_MISSILE
-        );
-        assert!(set.is_reload_time_shared());
-        assert!(!set.is_weapon_lock_shared_across_sets());
-    }
-
-    #[test]
-    fn object_field_parse_populates_armor_sets_from_collected_subblocks() {
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            (
-                "ArmorSet0.Conditions".to_string(),
-                "PLAYER_UPGRADE".to_string(),
-            ),
-            (
-                "ArmorSet0.Armor".to_string(),
-                "StructureArmorTough".to_string(),
-            ),
-            (
-                "ArmorSet0.DamageFX".to_string(),
-                "StructureDamageFXNoShake".to_string(),
-            ),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("armor set properties should parse");
-
-        assert_eq!(template.armor_template_sets().len(), 1);
-        let set = &template.armor_template_sets()[0];
-        assert!(set.types().test(ArmorSetBits::PLAYER_UPGRADE));
-        assert_eq!(
-            set.armor_template_name().map(|name| name.as_str()),
-            Some("StructureArmorTough")
-        );
-        assert_eq!(
-            set.damage_fx_name().map(|name| name.as_str()),
-            Some("StructureDamageFXNoShake")
-        );
-    }
-
-    #[test]
-    fn object_field_parse_treats_none_weapon_and_armor_conditions_as_empty() {
-        let mut template = ThingTemplate::new();
-        let properties = HashMap::from([
-            ("WeaponSet0.Conditions".to_string(), "None".to_string()),
-            ("WeaponSet0.Weapon".to_string(), "PRIMARY None".to_string()),
-            (
-                "WeaponSet0.AutoChooseSources".to_string(),
-                "PRIMARY None".to_string(),
-            ),
-            ("ArmorSet0.Conditions".to_string(), "None".to_string()),
-            ("ArmorSet0.Armor".to_string(), "None".to_string()),
-            ("ArmorSet0.DamageFX".to_string(), "None".to_string()),
-        ]);
-
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("None values should parse like empty C++ masks/references");
-
-        let weapon_set = &template.weapon_template_sets()[0];
-        assert!(!weapon_set.types().any());
-        assert!(weapon_set.weapon_template_name(0).is_none());
-        assert_eq!(weapon_set.auto_choose_mask(0), 0);
-
-        let armor_set = &template.armor_template_sets()[0];
-        assert!(!armor_set.types().any());
-        assert!(armor_set.armor_template_name().is_none());
-        assert!(armor_set.damage_fx_name().is_none());
-    }
-
-    #[test]
-    fn find_weapon_template_set_respects_flags() {
-        let mut template = ThingTemplate::new();
-
-        let mut base = WeaponTemplateSet::new();
-        base.set_weapon_template_name(0, Some(AsciiString::from("BasePrimary")));
-        template.add_weapon_template_set(base);
-
-        let mut hero = WeaponTemplateSet::new();
-        hero.types_mut().set(WeaponSetBits::HERO, true);
-        hero.set_weapon_template_name(0, Some(AsciiString::from("HeroPrimary")));
-        template.add_weapon_template_set(hero);
-
-        let flags = create_weapon_set_flags();
-        let base_set = template
-            .find_weapon_template_set(&flags)
-            .expect("expected base weapon set");
-        assert_eq!(
-            base_set.weapon_template_name(0).map(|name| name.as_str()),
-            Some("BasePrimary"),
-        );
-
-        let mut hero_flags = create_weapon_set_flags();
-        hero_flags.set(WeaponSetBits::HERO, true);
-        let hero_set = template
-            .find_weapon_template_set(&hero_flags)
-            .expect("expected hero weapon set");
-        assert_eq!(
-            hero_set.weapon_template_name(0).map(|name| name.as_str()),
-            Some("HeroPrimary"),
-        );
-    }
-
-    #[test]
-    fn load_weapon_sets_from_definitions_populates_template() {
-        use crate::common::system::kind_of::KindOfMask;
-
-        let mut definition = WeaponSetDefinition::new();
-        definition.add_condition("Hero");
-        definition.set_weapon_name(0, Some(AsciiString::from("HeroPrimary")));
-        definition.set_auto_choose_mask(0, Some(0x1));
-        definition.set_preferred_against_mask(0, Some(KindOfMask::from_bits_retain(0x2)));
-        definition.set_share_reload_time(Some(true));
-        definition.set_share_weapon_lock(Some(false));
-
-        let mut template = ThingTemplate::new();
-        template
-            .load_weapon_sets_from_definitions(&[definition])
-            .expect("load weapon sets");
-
-        assert_eq!(template.weapon_template_sets().len(), 1);
-        let engine_set = &template.weapon_template_sets()[0];
-        assert!(engine_set.types().test(WeaponSetBits::HERO));
-        assert_eq!(
-            engine_set.weapon_template_name(0).map(|name| name.as_str()),
-            Some("HeroPrimary"),
-        );
-        assert_eq!(engine_set.auto_choose_mask(0), 0x1);
-        assert_eq!(
-            engine_set.preferred_against_mask(0),
-            KindOfMask::from_bits_retain(0x2)
-        );
-        assert!(engine_set.is_reload_time_shared());
-        assert!(!engine_set.is_weapon_lock_shared_across_sets());
-    }
-
-    #[test]
-    fn module_descriptor_helpers_reflect_module_info() {
-        let mut template = ThingTemplate::new();
-
-        let behavior_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
-        template.behavior_module_info.add_module_info(
-            AsciiString::from("TestBehavior"),
-            AsciiString::from("TagBehavior"),
-            behavior_data,
-            ModuleInterfaceType::BODY.0 as i32,
-            false,
-            false,
-        );
-
-        let draw_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
-        template.draw_module_info.add_module_info(
-            AsciiString::from("TestDraw"),
-            AsciiString::from("TagDraw"),
-            draw_data,
-            ModuleInterfaceType::DRAW.0 as i32,
-            false,
-            false,
-        );
-
-        let client_update_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
-        template.client_update_module_info.add_module_info(
-            AsciiString::from("TestClientUpdate"),
-            AsciiString::from("TagClient"),
-            client_update_data,
-            ModuleInterfaceType::CLIENT_UPDATE.0 as i32,
-            false,
-            false,
-        );
-
-        let descriptor_set = template.module_descriptors();
-
-        assert_eq!(descriptor_set.behavior.len(), 1);
-        assert_eq!(descriptor_set.draw.len(), 1);
-        assert_eq!(descriptor_set.client_update.len(), 1);
-
-        assert_eq!(
-            template
-                .module_descriptors_for_type(ModuleType::Behavior)
-                .len(),
-            1
-        );
-        assert_eq!(
-            template
-                .module_descriptors_for_type(ModuleType::Behavior)
-                .first()
-                .map(|d| d.name.as_str()),
-            Some("TestBehavior"),
-        );
-        assert_eq!(
-            descriptor_set
-                .for_type(ModuleType::Draw)
-                .first()
-                .map(|d| d.module_tag.as_str()),
-            Some("TagDraw"),
-        );
-        assert_eq!(
-            template
-                .module_descriptors_for_type(ModuleType::ClientUpdate)
-                .first()
-                .map(|d| d.name.as_str()),
-            Some("TestClientUpdate"),
-        );
-
-        let behavior_descriptor = &descriptor_set.behavior[0];
-        assert!(behavior_descriptor.supports(ModuleInterfaceType::BODY));
-        assert_eq!(behavior_descriptor.name.as_str(), "TestBehavior");
-
-        let draw_descriptor = &descriptor_set.draw[0];
-        assert!(draw_descriptor.supports(ModuleInterfaceType::DRAW));
-        assert_eq!(draw_descriptor.module_tag.as_str(), "TagDraw");
-
-        let client_descriptor = &descriptor_set.client_update[0];
-        assert!(client_descriptor.supports(ModuleInterfaceType::CLIENT_UPDATE));
-        assert_eq!(client_descriptor.name.as_str(), "TestClientUpdate");
-    }
-
-    #[test]
-    fn module_descriptors_register_with_global_factory() {
-        clear_pending_descriptors_for_test();
-        let mut guard = get_module_factory().expect("module factory mutex poisoned");
-        let previous = guard.take();
-        *guard = Some(ModuleFactory::new());
-        drop(guard);
-
-        let mut template = ThingTemplate::new();
-        let behavior_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
-        template.behavior_module_info.add_module_info(
-            AsciiString::from("AutoHealBehavior"),
-            AsciiString::from("TagBehavior"),
-            behavior_data,
-            ModuleInterfaceType::BODY.0 as i32,
-            false,
-            false,
-        );
-
-        let descriptors = template.module_descriptors();
-        assert_eq!(descriptors.behavior.len(), 1, "descriptor not surfaced");
-
-        {
-            let guard = get_module_factory().expect("module factory mutex poisoned");
-            let factory = guard
-                .as_ref()
-                .expect("module factory should be initialized for descriptor sync");
-            let name = AsciiString::from("AutoHealBehavior");
-            assert!(
-                factory
-                    .descriptor_for(ModuleType::Behavior, &name)
-                    .is_some(),
-                "descriptor should be recorded in global factory"
-            );
-        }
-
-        let mut guard = get_module_factory().expect("module factory mutex poisoned");
-        *guard = previous;
-        drop(guard);
-        clear_pending_descriptors_for_test();
-    }
-
-    #[test]
-    fn can_possibly_have_any_weapon_reflects_assigned_templates() {
-        let mut template = ThingTemplate::new();
-        assert!(!template.can_possibly_have_any_weapon());
-
-        template.add_weapon_template_set(WeaponTemplateSet::new());
-        assert!(!template.can_possibly_have_any_weapon());
-
-        let mut armed_set = WeaponTemplateSet::new();
-        armed_set.set_weapon_template_name(0, Some(AsciiString::from("ArmedPrimary")));
-        template.add_weapon_template_set(armed_set);
-        assert!(template.can_possibly_have_any_weapon());
-    }
-
-    #[test]
-    fn is_kind_of_handles_high_bit_masks_without_panicking() {
-        use crate::common::system::kind_of::KindOfMask;
-        let mut template = ThingTemplate::new();
-        template.kindof = KindOfMask::DOZER.bits();
-
-        assert!(template.is_kind_of_mask(KindOfMask::DOZER.bits()));
-        assert!(!template.is_kind_of_mask(KindOfMask::COMMANDCENTER.bits()));
-    }
-
-    // C++ KindOf.h:96 / ThingTemplate.h m_kindof BitFlags<KINDOF_COUNT>.
-    #[test]
-    fn forceattackable_survives_template_store() {
-        use crate::common::system::kind_of::KindOfMask;
-        let mut template = ThingTemplate::new();
-        template.set_kindof_mask(KindOfMask::FORCEATTACKABLE.bits());
-        assert!(template.is_kind_of_mask(KindOfMask::FORCEATTACKABLE.bits()));
-        assert_eq!(
-            template.get_kindof_bits() & KindOfMask::FORCEATTACKABLE.bits(),
-            KindOfMask::FORCEATTACKABLE.bits()
-        );
-
-        // Bits >= 64 used to vanish when kindof was stored as u64.
-        template.set_kindof_mask(KindOfMask::HERO.bits() | KindOfMask::FORCEATTACKABLE.bits());
-        assert!(template.is_kind_of_mask(KindOfMask::HERO.bits()));
-        assert!(template.is_kind_of_mask(KindOfMask::FORCEATTACKABLE.bits()));
-    }
-
-    // C++ BitFlagsIO.h:38-107 via ThingTemplate KindOf INI field.
-    #[test]
-    fn kindof_ini_plus_hero_is_incremental() {
-        use crate::common::system::kind_of::KindOfMask;
-        let mut template = ThingTemplate::new();
-        template
-            .parse_object_fields_from_ini(&HashMap::from([(
-                "KindOf".to_string(),
-                "INFANTRY SELECTABLE".to_string(),
-            )]))
-            .expect("base KindOf should parse");
-        template
-            .parse_object_fields_from_ini(&HashMap::from([(
-                "KindOf".to_string(),
-                "+HERO".to_string(),
-            )]))
-            .expect("+HERO should parse incrementally");
-        assert!(template.is_kind_of_mask(KindOfMask::INFANTRY.bits()));
-        assert!(template.is_kind_of_mask(KindOfMask::SELECTABLE.bits()));
-        assert!(template.is_kind_of_mask(KindOfMask::HERO.bits()));
-    }
-
-    // C++ ThingTemplate.h:374-377 isKindOf(KindOfType t) / KindOf.h:158-161 TEST_KINDOFMASK.
-    // ALWAYS_SELECTABLE is bit 53 (`1<<53`). Passing 53 as a mask must not match that bit.
-    #[test]
-    fn is_kind_of_treats_always_selectable_index_not_mask() {
-        use crate::common::system::kind_of::KindOfMask;
-        let mut template = ThingTemplate::new();
-        template.set_kindof_mask(KindOfMask::ALWAYS_SELECTABLE.bits());
-
-        // C++ `isKindOf(KINDOF_ALWAYS_SELECTABLE)` tests bit 53, not AND with 53.
-        assert!(template.is_kind_of(53u32));
-        assert!(!template.is_kind_of_mask(53u32));
-        assert!(template.is_kind_of_mask(KindOfMask::ALWAYS_SELECTABLE.bits()));
-
-        // 53 as a mask would only hit bits 0/2/4/5; those flags must not be implied.
-        assert!(!template.is_kind_of(0u32));
-        assert!(!template.is_kind_of(2u32));
-        assert!(!template.is_kind_of(4u32));
-        assert!(!template.is_kind_of(5u32));
-    }
-
-    #[test]
-    fn kindof_ini_unknown_name_errors() {
-        let mut template = ThingTemplate::new();
-        let err = template
-            .parse_object_fields_from_ini(&HashMap::from([(
-                "KindOf".to_string(),
-                "NOT_A_REAL_KIND".to_string(),
-            )]))
-            .expect_err("unknown KindOf token must error");
-        assert!(err.contains("NOT_A_REAL_KIND"), "{err}");
-    }
-
-    // C++ ThingTemplate.cpp:384-409 — real KindOf bits, not fabricated u64 wraps.
-    #[test]
-    fn gps_scrambler_masks_use_retail_kindof_bits() {
-        use crate::common::system::kind_of::KindOfMask;
-
-        let data: Arc<dyn ModuleData> = Arc::new(CapturedModuleData::new(
-            "ModuleTag_Gps",
-            String::new(),
-            HashMap::new(),
-        ));
-
-        let mut immune_template = ThingTemplate::new();
-        immune_template.set_kindof_mask(KindOfMask::OPTIMIZED_TREE.bits());
-        let mut immune_info = ModuleInfo::new();
-        immune_info.add_module_info(
-            AsciiString::from("StealthUpdate"),
-            AsciiString::from("ModuleTag_Gps"),
-            Arc::clone(&data),
-            1,
-            false,
-            true,
-        );
-        immune_info.set_copied_from_default(true);
-        let (immune_trainable, immune_disallowed, immune_candidate) =
-            immune_template.gps_scrambler_inherit_flags();
-        assert!(immune_info.clear_copied_from_default_entries(
-            1,
-            &AsciiString::from("OtherModule"),
-            immune_trainable,
-            immune_disallowed,
-            immune_candidate,
-        ));
-        assert_eq!(immune_info.get_count(), 0);
-
-        let mut candidate_template = ThingTemplate::new();
-        candidate_template.set_kindof_mask(KindOfMask::VEHICLE.bits() | KindOfMask::SCORE.bits());
-        let mut candidate_info = ModuleInfo::new();
-        candidate_info.add_module_info(
-            AsciiString::from("StealthUpdate"),
-            AsciiString::from("ModuleTag_Gps"),
-            data,
-            1,
-            false,
-            true,
-        );
-        candidate_info.set_copied_from_default(true);
-        let (candidate_trainable, candidate_disallowed, candidate_candidate) =
-            candidate_template.gps_scrambler_inherit_flags();
-        assert!(!candidate_info.clear_copied_from_default_entries(
-            1,
-            &AsciiString::from("OtherModule"),
-            candidate_trainable,
-            candidate_disallowed,
-            candidate_candidate,
-        ));
-        assert_eq!(candidate_info.get_count(), 1);
-    }
-
-    #[test]
-    fn find_armor_template_set_respects_flags() {
-        let mut template = ThingTemplate::new();
-
-        let mut base = ArmorTemplateSet::new();
-        base.set_armor_template_name(Some(AsciiString::from("Base")));
-        template.add_armor_template_set(base);
-
-        let mut hero = ArmorTemplateSet::new();
-        hero.types_mut().set(ArmorSetBits::HERO, true);
-        hero.set_armor_template_name(Some(AsciiString::from("Hero")));
-        template.add_armor_template_set(hero);
-
-        let flags = create_armor_set_flags();
-        let base_set = template
-            .find_armor_template_set(&flags)
-            .expect("expected base set");
-        assert_eq!(base_set.armor_template_name().unwrap().as_str(), "Base");
-
-        let mut hero_flags = create_armor_set_flags();
-        hero_flags.set(ArmorSetBits::HERO, true);
-        let hero_set = template
-            .find_armor_template_set(&hero_flags)
-            .expect("expected hero set");
-        assert_eq!(hero_set.armor_template_name().unwrap().as_str(), "Hero");
-    }
-}
-
 impl Overridable for ThingTemplate {
     fn is_override(&self) -> bool {
         ThingTemplate::is_override(self)
@@ -4779,250 +3864,5 @@ impl Overridable for ThingTemplate {
 
     fn delete_overrides(&self) {
         ThingTemplate::delete_overrides(self)
-    }
-}
-
-impl Snapshotable for ThingTemplate {
-    /// C++ Reference: ThingTemplate::crc (auto-generated via Snapshot macro)
-    /// Iterates all module data entries and CRCs each one.
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let xfer_modules = |info: &ModuleInfo, xfer: &mut dyn Xfer| -> Result<(), String> {
-            let count = info.get_count() as u32;
-            xfer.xfer_unsigned_int(&mut count.clone())
-                .map_err(|e| e.to_string())?;
-            for i in 0..info.get_count() {
-                if let Some(data) = info.get_nth_data(i) {
-                    data.crc(xfer)?;
-                }
-            }
-            Ok(())
-        };
-
-        xfer_modules(&self.behavior_module_info, xfer)?;
-        xfer_modules(&self.draw_module_info, xfer)?;
-        xfer_modules(&self.client_update_module_info, xfer)?;
-
-        Ok(())
-    }
-
-    /// C++ Reference: ThingTemplate::xfer (auto-generated via Snapshot macro)
-    /// Xfers all persistent template fields in C++ field order.
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let xfer_err = |e: std::io::Error| e.to_string();
-
-        xfer.xfer_unsigned_short(&mut self.template_id)
-            .map_err(xfer_err)?;
-        xfer.xfer_ascii_string(&mut self.name_string)
-            .map_err(xfer_err)?;
-        xfer.xfer_unicode_string(&mut self.display_name)
-            .map_err(xfer_err)?;
-        let mut display_color_u32 = self.display_color.0;
-        xfer.xfer_unsigned_int(&mut display_color_u32)
-            .map_err(xfer_err)?;
-        self.display_color = Color(display_color_u32);
-
-        // EditorSorting as u8
-        let mut editor_sorting = self.editor_sorting as u8;
-        xfer.xfer_unsigned_byte(&mut editor_sorting)
-            .map_err(xfer_err)?;
-        self.editor_sorting = match editor_sorting {
-            1 => EditorSortingType::Structure,
-            2 => EditorSortingType::Infantry,
-            3 => EditorSortingType::Vehicle,
-            4 => EditorSortingType::Shrubbery,
-            5 => EditorSortingType::MiscManMade,
-            6 => EditorSortingType::MiscNatural,
-            7 => EditorSortingType::Debris,
-            8 => EditorSortingType::System,
-            9 => EditorSortingType::Audio,
-            10 => EditorSortingType::Test,
-            11 => EditorSortingType::ForReview,
-            12 => EditorSortingType::Road,
-            13 => EditorSortingType::Waypoint,
-            _ => EditorSortingType::None,
-        };
-
-        // GeometryInfo fields (xfered inline since GeometryInfo is not Snapshotable)
-        let mut geom_type_u8 = match self.geometry_info.geometry_type {
-            GeometryType::Box => 0u8,
-            GeometryType::Sphere => 1u8,
-            GeometryType::Cylinder => 2u8,
-        };
-        xfer.xfer_unsigned_byte(&mut geom_type_u8)
-            .map_err(xfer_err)?;
-        self.geometry_info.geometry_type = match geom_type_u8 {
-            0 => GeometryType::Box,
-            1 => GeometryType::Sphere,
-            _ => GeometryType::Cylinder,
-        };
-        xfer.xfer_bool(&mut self.geometry_info.is_small)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.geometry_info.width)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.geometry_info.height)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.geometry_info.depth)
-            .map_err(xfer_err)?;
-
-        xfer.xfer_real(&mut self.asset_scale).map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.instance_scale_fuzziness)
-            .map_err(xfer_err)?;
-
-        // Build properties
-        xfer.xfer_unsigned_short(&mut self.build_cost)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.build_time).map_err(xfer_err)?;
-        xfer.xfer_unsigned_short(&mut self.refund_value)
-            .map_err(xfer_err)?;
-
-        // Buildable as u8
-        let mut buildable_u8 = self.buildable as u8;
-        xfer.xfer_unsigned_byte(&mut buildable_u8)
-            .map_err(xfer_err)?;
-        self.buildable = match buildable_u8 {
-            0 => BuildableStatus::Yes,
-            1 => BuildableStatus::IgnorePrerequisites,
-            2 => BuildableStatus::No,
-            3 => BuildableStatus::OnlyByAi,
-            _ => BuildableStatus::Yes,
-        };
-
-        // BuildCompletion as u8
-        let mut completion_u8 = self.build_completion as u8;
-        xfer.xfer_unsigned_byte(&mut completion_u8)
-            .map_err(xfer_err)?;
-        self.build_completion = match completion_u8 {
-            1 => BuildCompletionType::AppearsAtRallyPoint,
-            2 => BuildCompletionType::PlacedByPlayer,
-            _ => BuildCompletionType::Invalid,
-        };
-
-        xfer.xfer_bool(&mut self.is_build_facility)
-            .map_err(xfer_err)?;
-        xfer.xfer_bool(&mut self.is_prerequisite)
-            .map_err(xfer_err)?;
-        xfer.xfer_bool(&mut self.is_forbidden).map_err(xfer_err)?;
-
-        // KindOf mask as u128 (retail KINDOF_COUNT = 116)
-        let mut kindof = self.kindof;
-        xfer.xfer_u128(&mut kindof).map_err(xfer_err)?;
-        self.kindof = kindof;
-
-        xfer.xfer_ascii_string(&mut self.default_owning_side)
-            .map_err(xfer_err)?;
-        xfer.xfer_ascii_string(&mut self.command_set_string)
-            .map_err(xfer_err)?;
-
-        // Experience/skill arrays
-        for val in self.skill_point_values.iter_mut() {
-            xfer.xfer_int(val).map_err(xfer_err)?;
-        }
-        for val in self.experience_values.iter_mut() {
-            xfer.xfer_int(val).map_err(xfer_err)?;
-        }
-        for val in self.experience_required.iter_mut() {
-            xfer.xfer_int(val).map_err(xfer_err)?;
-        }
-
-        xfer.xfer_bool(&mut self.is_trainable).map_err(xfer_err)?;
-        xfer.xfer_bool(&mut self.enter_guard).map_err(xfer_err)?;
-        xfer.xfer_bool(&mut self.hijack_guard).map_err(xfer_err)?;
-
-        // Shadow properties — raw C++ bit values (SHADOW_DECAL=1, VOLUME=2, …)
-        let mut shadow_type_u8 = self.shadow_type.bits();
-        xfer.xfer_unsigned_byte(&mut shadow_type_u8)
-            .map_err(xfer_err)?;
-        self.shadow_type = ShadowType(shadow_type_u8);
-
-
-        xfer.xfer_real(&mut self.shadow_size_x).map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.shadow_size_y).map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.shadow_offset_x)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.shadow_offset_y)
-            .map_err(xfer_err)?;
-        xfer.xfer_ascii_string(&mut self.shadow_texture_name)
-            .map_err(xfer_err)?;
-        xfer.xfer_unsigned_int(&mut self.occlusion_delay)
-            .map_err(xfer_err)?;
-
-        // Radar priority as u8
-        let mut radar_u8 = self.radar_priority as u8;
-        xfer.xfer_unsigned_byte(&mut radar_u8).map_err(xfer_err)?;
-        self.radar_priority = match radar_u8 {
-            1 => RadarPriorityType::NotOnRadar,
-            2 => RadarPriorityType::Structure,
-            3 => RadarPriorityType::Unit,
-            4 => RadarPriorityType::LocalUnitOnly,
-            _ => RadarPriorityType::Invalid,
-        };
-
-        xfer.xfer_unsigned_byte(&mut self.transport_slot_count)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.fence_width).map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.fence_x_offset).map_err(xfer_err)?;
-        xfer.xfer_bool(&mut self.is_bridge).map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.vision_range).map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.shroud_clearing_range)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.shroud_reveal_to_all_range)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.placement_view_angle)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.factory_exit_width)
-            .map_err(xfer_err)?;
-        xfer.xfer_real(&mut self.factory_extra_bib_width)
-            .map_err(xfer_err)?;
-
-        // Energy
-        xfer.xfer_int(&mut self.energy_production)
-            .map_err(xfer_err)?;
-        xfer.xfer_int(&mut self.energy_bonus).map_err(xfer_err)?;
-
-        // Combat
-        xfer.xfer_unsigned_short(&mut self.threat_value)
-            .map_err(xfer_err)?;
-        xfer.xfer_unsigned_short(&mut self.max_simultaneous_of_type)
-            .map_err(xfer_err)?;
-        xfer.xfer_unsigned_int(&mut self.max_simultaneous_link_key)
-            .map_err(xfer_err)?;
-        xfer.xfer_bool(&mut self.max_simultaneous_determined_by_superweapon_restriction)
-            .map_err(xfer_err)?;
-        xfer.xfer_unsigned_byte(&mut self.crusher_level)
-            .map_err(xfer_err)?;
-        xfer.xfer_unsigned_byte(&mut self.crushable_level)
-            .map_err(xfer_err)?;
-        xfer.xfer_unsigned_byte(&mut self.structure_rubble_height)
-            .map_err(xfer_err)?;
-
-        // Module infos
-        let xfer_module_info = |info: &mut ModuleInfo, xfer: &mut dyn Xfer| -> Result<(), String> {
-            let mut count = info.get_count() as u32;
-            xfer.xfer_unsigned_int(&mut count).map_err(xfer_err)?;
-            for i in 0..info.get_count() {
-                if let Some(name_str) = info.get_nth_name(i).cloned() {
-                    let mut name = name_str;
-                    xfer.xfer_ascii_string(&mut name).map_err(xfer_err)?;
-                }
-                if let Some(tag_str) = info.get_nth_tag(i).cloned() {
-                    let mut tag = tag_str;
-                    xfer.xfer_ascii_string(&mut tag).map_err(xfer_err)?;
-                }
-            }
-            Ok(())
-        };
-
-        xfer_module_info(&mut self.behavior_module_info, xfer)?;
-        xfer_module_info(&mut self.draw_module_info, xfer)?;
-        xfer_module_info(&mut self.client_update_module_info, xfer)?;
-
-        Ok(())
-    }
-
-    /// C++ Reference: ThingTemplate::loadPostProcess
-    /// Resolves name references after loading from save game.
-    fn load_post_process(&mut self) -> Result<(), String> {
-        self.resolve_names();
-        Ok(())
     }
 }

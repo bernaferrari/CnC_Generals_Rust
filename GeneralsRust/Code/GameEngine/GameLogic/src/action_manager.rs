@@ -3,9 +3,9 @@
 //! Implements targeted C++ parity checks (starting with canPickUpPrisoner).
 
 use crate::ai::CommandSourceType;
-use crate::attack::{AbleToAttackType, CanAttackResult, ATTACKRESULT_NOT_POSSIBLE};
-use crate::commands::command::{command_builder, Command, CommandType};
-use crate::commands::command_queue::{get_command_queue_manager, CommandPriority, QueuedCommand};
+use crate::attack::{ATTACKRESULT_NOT_POSSIBLE, AbleToAttackType, CanAttackResult};
+use crate::commands::command::{Command, CommandType, command_builder};
+use crate::commands::command_queue::{CommandPriority, QueuedCommand, get_command_queue_manager};
 use crate::commands::selection::get_selection_manager;
 use crate::common::ObjectID;
 use crate::common::{
@@ -16,20 +16,20 @@ use crate::helpers::TheGameLogic;
 use crate::helpers::ThePartitionManager;
 use crate::helpers::TheTerrainLogic;
 use crate::modules::SpecialPowerModuleInterface;
+use crate::object::Object;
 use crate::object::behavior::spawn_behavior::SpawnBehaviorInterface;
 use crate::object::collide::COLLISION_MANAGER;
 use crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdate;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::SpecialPowerTemplate;
 use crate::object::special_power_types::SpecialPowerType;
-use crate::object::Object;
 use crate::player::PlayerType;
 use crate::weapon::DamageType;
 use crate::weapon::WeaponSlotType;
+use game_engine::common::rts::ActionManager as RtsActionManager;
 use game_engine::common::rts::action_manager::{
     ActionExecutor, ActionType, Coord3D as ActionCoord3D,
 };
-use game_engine::common::rts::ActionManager as RtsActionManager;
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
@@ -108,7 +108,6 @@ fn is_location_cell_shrouded_for_player(
         == game_engine::common::system::radar::CellShroudStatus::Shrouded
 }
 
-
 /// C++ ActionManager.cpp:1459-1551 after source/module checks.
 ///
 /// `shroud_unknown_is_clear` fail-opens the cell-shroud arm when leftover
@@ -125,9 +124,9 @@ fn special_power_at_location_ok(
         | SpecialPowerType::InfaParadropAmerica
         | SpecialPowerType::CrateDrop
         | SpecialPowerType::TankParadrop => {
-            if TheTerrainLogic::get().is_some_and(|terrain| {
-                terrain.is_underwater(loc.x, loc.y, None, None)
-            }) {
+            if TheTerrainLogic::get()
+                .is_some_and(|terrain| terrain.is_underwater(loc.x, loc.y, None, None))
+            {
                 return false;
             }
         }
@@ -610,12 +609,7 @@ impl TheActionManager {
         player_index: crate::common::Int,
         shroud_unknown_is_clear: bool,
     ) -> bool {
-        special_power_at_location_ok(
-            power_type,
-            loc,
-            player_index,
-            shroud_unknown_is_clear,
-        )
+        special_power_at_location_ok(power_type, loc, player_index, shroud_unknown_is_clear)
     }
 
     /// C++ `CommandXlat::issueSpecialPowerCommand` NEED_TARGET_POS-only specials.
@@ -2238,10 +2232,10 @@ mod tests {
     use crate::modules::{
         BehaviorModuleInterface, SpecialPowerCommandOptions, SpecialPowerUpdateInterface,
     };
+    use crate::object::SpecialPowerTemplate;
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::special_power_module::Waypoint;
-    use crate::object::SpecialPowerTemplate;
-    use crate::player::{player_list, Player};
+    use crate::player::{Player, player_list};
     use crate::system::shroud_manager::get_shroud_manager;
     use crate::team::Team;
     use std::sync::Mutex;

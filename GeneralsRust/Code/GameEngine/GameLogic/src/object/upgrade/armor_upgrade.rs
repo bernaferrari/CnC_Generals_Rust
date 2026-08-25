@@ -4,16 +4,17 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::INVALID_ID;
 use crate::object::body::body_module::ArmorSetType;
 use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade, UpgradeMuxData};
-use crate::object::INVALID_ID;
-use game_engine::common::ini::{INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade,
+};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
 
 /// Wave 319: host-only path has no dual-world factory objects.
 #[inline]
@@ -27,7 +28,6 @@ pub struct ArmorUpgradeModuleData {
     module_tag_name_key: NameKeyType,
     pub upgrade_mux_data: UpgradeMuxData,
 }
-
 
 impl Default for ArmorUpgradeModuleData {
     fn default() -> Self {
@@ -43,7 +43,6 @@ impl ArmorUpgradeModuleData {
         self.upgrade_mux_data.parse_from_ini(ini)
     }
 }
-
 
 crate::impl_legacy_module_data_with_key_field!(ArmorUpgradeModuleData, module_tag_name_key);
 
@@ -388,8 +387,8 @@ impl Drop for ArmorUpgrade {
 mod tests {
     use super::*;
     use crate::common::UpgradeMaskType;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use crate::upgrade::UpgradeTemplate;
     use game_engine::common::thing::module::NameKeyType;
     use once_cell::sync::Lazy;
@@ -474,19 +473,21 @@ mod tests {
         chem.upgrade_mux_data
             .activation_upgrade_names
             .push(AsciiString::from("Upgrade_AmericaChemicalSuits"));
-        assert!(chem
-            .upgrade_mux_data
-            .is_triggered_by("Upgrade_AmericaChemicalSuits"));
+        assert!(
+            chem.upgrade_mux_data
+                .is_triggered_by("Upgrade_AmericaChemicalSuits")
+        );
 
         let other = ArmorUpgradeModuleData::default();
-        assert!(!other
-            .upgrade_mux_data
-            .is_triggered_by("Upgrade_AmericaChemicalSuits"));
+        assert!(
+            !other
+                .upgrade_mux_data
+                .is_triggered_by("Upgrade_AmericaChemicalSuits")
+        );
         assert!(!mux_can_upgrade(
             &other.upgrade_mux_data,
             false,
             UpgradeMaskType::from_bits_retain(1)
         ));
     }
-
 }

@@ -348,8 +348,8 @@ impl MessageRouter {
     }
 
     /// Create default priority mappings
-    fn create_default_priority_map(
-    ) -> HashMap<std::mem::Discriminant<GameMessageType>, MessagePriority> {
+    fn create_default_priority_map()
+    -> HashMap<std::mem::Discriminant<GameMessageType>, MessagePriority> {
         let mut map = HashMap::new();
 
         // Critical messages

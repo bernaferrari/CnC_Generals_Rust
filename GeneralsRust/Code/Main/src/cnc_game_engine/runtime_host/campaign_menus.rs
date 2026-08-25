@@ -794,7 +794,8 @@ impl CnCGameEngine {
                 .map(|v| v.trim().to_string())
                 .filter(|s| !s.is_empty());
             if let Some(dispatch) = Self::take_new_game_dispatch_from_common_stream() {
-                let Some(mut request) = self.build_start_request_from_pending_globals(Some(dispatch))
+                let Some(mut request) =
+                    self.build_start_request_from_pending_globals(Some(dispatch))
                 else {
                     self.runtime_host_last_gameplay_cmd = "click_campaign_start_rejected".into();
                     return;

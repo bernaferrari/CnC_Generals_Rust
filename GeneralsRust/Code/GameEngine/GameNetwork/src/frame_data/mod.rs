@@ -35,12 +35,12 @@ pub mod synchronization;
 pub mod validation;
 
 pub use buffer::{FrameBuffer, FrameReadyState};
-pub use crc::{CRCValidator, FrameCRC, GameStateCRC, CRC};
+pub use crc::{CRC, CRCValidator, FrameCRC, GameStateCRC};
 pub use metrics::{FrameMetrics, MetricsSnapshot};
 pub use sync_manager::{
-    FrameData as SyncFrameData, FrameDataManager as SyncFrameDataManager, FrameDataReturnType,
-    SyncFrameExecutor, FRAME_DATA_LENGTH, FRAME_TIME_MS, KEEPALIVE_INTERVAL_FRAMES,
-    MAX_FRAMES_AHEAD, TARGET_FPS,
+    FRAME_DATA_LENGTH, FRAME_TIME_MS, FrameData as SyncFrameData,
+    FrameDataManager as SyncFrameDataManager, FrameDataReturnType, KEEPALIVE_INTERVAL_FRAMES,
+    MAX_FRAMES_AHEAD, SyncFrameExecutor, TARGET_FPS,
 };
 
 /// Frame data containing all commands for a specific game frame

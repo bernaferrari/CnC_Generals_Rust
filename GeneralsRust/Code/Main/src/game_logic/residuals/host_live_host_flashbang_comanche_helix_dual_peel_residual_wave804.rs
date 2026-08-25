@@ -55,8 +55,8 @@ fn residual_action_store(a: ResidualHostFlashbangComancheHelixDualPeelAction) {
 pub fn residual_host_flashbang_comanche_helix_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_flashbang_comanche_helix_dual_peel_last_action(
-) -> ResidualHostFlashbangComancheHelixDualPeelAction {
+pub fn residual_host_flashbang_comanche_helix_dual_peel_last_action()
+-> ResidualHostFlashbangComancheHelixDualPeelAction {
     ResidualHostFlashbangComancheHelixDualPeelAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

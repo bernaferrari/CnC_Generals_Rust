@@ -10,8 +10,8 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore replaces the live registry and never re-runs `spawn_zone`.
 
-use crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_inferno_cannon::HostInfernoFireZoneRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -37,10 +37,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     game_logic.inferno_fire_zones.clear();
     let Some(suffix) = find_infr_suffix(bytes) else {
         return Ok(());
@@ -121,19 +118,18 @@ mod tests {
         assert_eq!(restored.inferno_fire_zones.active_count(), 1);
         let zone = &restored.inferno_fire_zones.active_zones()[0];
         assert!(zone.upgraded);
-        assert_eq!(zone.expires_frame, 10 + crate::game_logic::INFERNO_FIRE_DURATION_FRAMES);
+        assert_eq!(
+            zone.expires_frame,
+            10 + crate::game_logic::INFERNO_FIRE_DURATION_FRAMES
+        );
     }
 
     #[test]
     fn absent_suffix_clears_stale_inferno_zones() {
         let mut logic = GameLogic::new();
-        logic.inferno_fire_zones.spawn_zone(
-            ObjectId(1),
-            Team::China,
-            Vec3::ZERO,
-            0,
-            false,
-        );
+        logic
+            .inferno_fire_zones
+            .spawn_zone(ObjectId(1), Team::China, Vec3::ZERO, 0, false);
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         assert_eq!(logic.inferno_fire_zones.active_count(), 0);
     }

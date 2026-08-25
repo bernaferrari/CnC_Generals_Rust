@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use glam::Vec3;
 
-use game_engine::common::ini::{register_block_parser, INIError, INILoadType, INIResult, INI};
+use game_engine::common::ini::{INI, INIError, INILoadType, INIResult, register_block_parser};
 use game_engine::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 
 use gamelogic::common::types::FXListManagerInterface;
@@ -16,11 +16,11 @@ use gamelogic::object::Object;
 
 use crate::display::cinematic_camera::CameraShakeSystem;
 use crate::display::view::{
-    with_tactical_view, CameraShakeType as ViewShakeKind, Point3 as ViewPoint3,
+    CameraShakeType as ViewShakeKind, Point3 as ViewPoint3, with_tactical_view,
 };
 use crate::effects::decals::DecalManager;
 use crate::effects::fxlist_integration::ParticleSystemFXNugget;
-use crate::effects::particle_manager::{get_particle_system_manager_mut, GameClientRandomVariable};
+use crate::effects::particle_manager::{GameClientRandomVariable, get_particle_system_manager_mut};
 use crate::effects::ray_effect_system::create_ray_effect_by_template;
 use crate::effects::ray_effects::{RayEffectConfig, RayEffectManager};
 use crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp;
@@ -138,7 +138,8 @@ fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32
         return false;
     };
     let leftover_primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
-    let leftover_secondary = secondary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
+    let leftover_secondary =
+        secondary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
     if let Some(object) = leftover_primary {
         if let Ok(guard) = object.read() {
             let source_guard = leftover_secondary
@@ -177,9 +178,7 @@ fn leftover_object_fx_pose(object: &Object) -> gamelogic::helpers::HostFxObjectP
         position: *object.get_position(),
         transform: object.get_transform_matrix(),
         player_index: controlling_player_index(object),
-        bounding_circle_radius: object
-            .get_geometry_info()
-            .get_bounding_circle_radius(),
+        bounding_circle_radius: object.get_geometry_info().get_bounding_circle_radius(),
         is_shrouded,
     }
 }
@@ -227,7 +226,6 @@ pub trait FXNugget: Send + Sync {
         let secondary_pos = secondary.map(|obj| obj.get_position());
         self.do_fx_pos(primary_pos, primary_mtx.as_ref(), 0.0, secondary_pos, 0.0);
     }
-
 
     /// C++ `FXNugget::doFXObj` from a live host pose when leftover Object is absent.
     fn do_fx_obj_host(
@@ -588,7 +586,6 @@ fn with_ray_manager<F: FnOnce(&mut RayEffectManager)>(f: F) {
     }
 }
 
-
 fn with_shake_system<F: FnOnce(&mut CameraShakeSystem)>(f: F) {
     let Some(system) = FX_SHAKE_SYSTEM.get() else {
         return;
@@ -655,9 +652,7 @@ fn controlling_player_index(primary: &Object) -> i32 {
 
 /// C++ `SoundFXNugget::doFXObj` / `doFXPos` → `TheAudio->addAudioEvent`.
 fn play_sound_fx_event(sound_name: &str, position: Option<&Coord3D>, player_index: Option<i32>) {
-    use game_engine::common::audio::audio_event_rts::{
-        AudioEventRts, Coord3D as AudioCoord3D,
-    };
+    use game_engine::common::audio::audio_event_rts::{AudioEventRts, Coord3D as AudioCoord3D};
     use game_engine::common::audio::game_audio::{
         get_global_audio_manager, initialize_global_audio_manager,
     };
@@ -748,7 +743,6 @@ impl FXList {
             nugget.do_fx_obj_host(primary, secondary);
         }
     }
-
 }
 
 impl Default for FXList {
@@ -1225,7 +1219,6 @@ impl FXNugget for SoundFXNugget {
         );
     }
 
-
     fn sound_name(&self) -> Option<&str> {
         if self.sound_name.is_empty() {
             None
@@ -1627,8 +1620,8 @@ impl FXNugget for ParticleSystemWrapper {
         } else {
             let cols = primary.get_transform_matrix().to_cols_array_2d();
             Some(nalgebra::Matrix3::new(
-                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
-                cols[2][0], cols[2][1], cols[2][2],
+                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2], cols[2][0],
+                cols[2][1], cols[2][2],
             ))
         };
 
@@ -1673,8 +1666,8 @@ impl FXNugget for ParticleSystemWrapper {
         } else {
             let cols = primary.transform.to_cols_array_2d();
             Some(nalgebra::Matrix3::new(
-                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
-                cols[2][0], cols[2][1], cols[2][2],
+                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2], cols[2][0],
+                cols[2][1], cols[2][2],
             ))
         };
         let systems = self
@@ -1682,7 +1675,6 @@ impl FXNugget for ParticleSystemWrapper {
             .do_fx_obj(primary_point, mtx.as_ref(), Some(primary.id), manager);
         drop(systems);
     }
-
 }
 
 /// C++ `obj->getDrawable()->getCurrentClientBonePositions`.
@@ -1803,7 +1795,6 @@ impl FXListAtBonePosFXNugget {
             fx.do_fx_pos(Some(&world_pos), Some(&world), 0.0, None, 0.0);
         }
     }
-
 }
 
 impl FXNugget for FXListAtBonePosFXNugget {
@@ -1842,7 +1833,6 @@ impl FXNugget for FXListAtBonePosFXNugget {
         self.do_fx_at_bones_host(primary, 0, &fx);
         self.do_fx_at_bones_host(primary, 1, &fx);
     }
-
 }
 
 #[cfg(test)]
@@ -1881,7 +1871,6 @@ mod tests {
             .expect("known retail runtime FXList stored");
         assert!(tank.nuggets.len() >= 4);
     }
-
 
     #[test]
     fn fx_list_at_bone_pos_queries_cpp_current_client_bone_sequence() {
@@ -1937,9 +1926,8 @@ mod tests {
 
     #[test]
     fn sound_fx_nugget_do_fx_obj_sets_player_index_on_audio_event() {
-        let mut event = game_engine::common::audio::audio_event_rts::AudioEventRts::with_event_name(
-            "UnitDie",
-        );
+        let mut event =
+            game_engine::common::audio::audio_event_rts::AudioEventRts::with_event_name("UnitDie");
         event.set_player_index(3);
         assert_eq!(event.get_player_index(), 3);
         let nugget = SoundFXNugget {
@@ -2337,5 +2325,4 @@ mod tests {
         assert!((pulses[0].outer_radius - 50.0).abs() < 0.01);
         assert_eq!(pulses[0].pos, [1.0, 2.0, 3.0]);
     }
-
 }

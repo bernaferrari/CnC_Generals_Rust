@@ -1,9 +1,9 @@
+use crate::RenderObjClassId;
 /// Render object trait system
 ///
 /// This module defines the core render object trait that all renderable objects must implement.
 /// It provides the foundation for the WW3D rendering system.
 use crate::errors::W3DResult;
-use crate::RenderObjClassId;
 use glam::{Mat4, Vec3};
 use std::any::Any;
 use std::fmt::Debug;

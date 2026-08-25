@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostEvacuateExitNoDamageAuthHpStompAction) {
 pub fn residual_host_evacuate_exit_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_evacuate_exit_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostEvacuateExitNoDamageAuthHpStompAction {
+pub fn residual_host_evacuate_exit_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostEvacuateExitNoDamageAuthHpStompAction {
     ResidualHostEvacuateExitNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

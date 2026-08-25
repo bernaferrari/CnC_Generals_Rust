@@ -79,62 +79,62 @@ pub use height_map::{
     ExtraAlphaUvData, ExtraBlendDrawMesh, ExtraBlendDrawVertex, HeightMap, HeightMapUvData,
     ShoreLineTile, TCliffInfo,
 };
-pub use terrain_visual::{
-    ensure_radar_terrain_paint_source_registered, leftover_radar_bridge_at,
-    leftover_radar_terrain_color_at, notify_terrain_unit_moved, rebuild_shoreline,
-    rebuild_tank_tracks, TerrainSmudge, TerrainWaterArea,
-};
 pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
 pub use scorch_mesh::{
-    add_terrain_scorch, bake_terrain_scorch_gpu_mesh, clear_terrain_scorches, resolve_scorch_type,
-    terrain_scorch_count, terrain_scorch_marks, terrain_scorches_in_buffer, ScorchGpuMesh,
-    ScorchHeightSource, ScorchMark, ScorchVertex, TerrainScorchBuffer, MAX_SCORCH_INDEX,
-    MAX_SCORCH_MARKS, MAX_SCORCH_VERTEX, SCORCH_FLOAT_AMOUNT, SCORCH_MARKS_IN_TEXTURE,
-    SCORCH_PER_ROW,
+    MAX_SCORCH_INDEX, MAX_SCORCH_MARKS, MAX_SCORCH_VERTEX, SCORCH_FLOAT_AMOUNT,
+    SCORCH_MARKS_IN_TEXTURE, SCORCH_PER_ROW, ScorchGpuMesh, ScorchHeightSource, ScorchMark,
+    ScorchVertex, TerrainScorchBuffer, add_terrain_scorch, bake_terrain_scorch_gpu_mesh,
+    clear_terrain_scorches, resolve_scorch_type, terrain_scorch_count, terrain_scorch_marks,
+    terrain_scorches_in_buffer,
+};
+pub use terrain_background::{
+    IRegion2D, TEX_1X, TEX_2X, TEX_4X, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap,
+    W3DTerrainBackground,
+};
+pub use terrain_tracks::{
+    BRIDGE_OFFSET_FACTOR, TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
+    TerrainTracksRenderObjClassSystem, compute_track_spacing,
+};
+pub use terrain_visual::{
+    TerrainSmudge, TerrainWaterArea, ensure_radar_terrain_paint_source_registered,
+    leftover_radar_bridge_at, leftover_radar_terrain_color_at, notify_terrain_unit_moved,
+    rebuild_shoreline, rebuild_tank_tracks,
 };
 pub use terrain_visual_xfer::{
     capture_live_terrain_visual_xfer_bytes, restore_live_terrain_visual_from_xfer_bytes,
 };
-pub use terrain_background::{
-    IRegion2D, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap, W3DTerrainBackground,
-    TEX_1X, TEX_2X, TEX_4X,
-};
-pub use terrain_tracks::{
-    compute_track_spacing, TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
-    TerrainTracksRenderObjClassSystem, BRIDGE_OFFSET_FACTOR,
-};
 pub use textures::{BlendMode, TerrainTextures, TextureLayer};
 pub use tree_buffer::{
-    blit_tree_tile_into_atlas, count_tree_tiles, do_lighting, do_tree_atlas_mip,
-    fill_tree_gpu_upload_vertices, generate_box_mip_chain, square_width_from_tile_count,
-    tree_atlas_pixel_size, BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeFxEvent,
-    TreeFxKind, TreeGeometryType, TreeGpuVertex, TreeModuleData, TreeObjectLight, TreeRandom,
-    TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere, TreeTgaHeader, TreeTileImageSpec,
-    TreeTypeMesh, TreeVertexXyznduv1, W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT,
-    CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TEX_WIDTH,
-    MAX_TILES, MAX_TREES, MAX_TREE_INDEX, MAX_TREE_VERTEX, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
-    TILE_BYTES_PER_PIXEL, TILE_PIXEL_EXTENT, TREE_MAX_GLOBAL_LIGHTS, TREE_RADIUS_APPROX,
-    TREE_TILE_DATA_LEN, W3D_TOPPLE_OPTIONS_NONE, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
-    W3D_TOPPLE_OPTIONS_NO_FX,
+    ANGULAR_LIMIT, BreezeInfo, CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE,
+    END_OF_PARTITION, MAX_TEX_WIDTH, MAX_TILES, MAX_TREE_INDEX, MAX_TREE_VERTEX, MAX_TREES,
+    MAX_TYPES, PARTITION_WIDTH_HEIGHT, TILE_BYTES_PER_PIXEL, TILE_PIXEL_EXTENT,
+    TREE_MAX_GLOBAL_LIGHTS, TREE_RADIUS_APPROX, TREE_TILE_DATA_LEN, TreeCollisionUnit,
+    TreeConstructionGeometry, TreeFxEvent, TreeFxKind, TreeGeometryType, TreeGpuVertex,
+    TreeModuleData, TreeObjectLight, TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus,
+    TreeSphere, TreeTgaHeader, TreeTileImageSpec, TreeTypeMesh, TreeVertexXyznduv1,
+    W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX, W3D_TOPPLE_OPTIONS_NONE,
+    W3DToppleState, W3DTreeBuffer, blit_tree_tile_into_atlas, count_tree_tiles, do_lighting,
+    do_tree_atlas_mip, fill_tree_gpu_upload_vertices, generate_box_mip_chain,
+    square_width_from_tile_count, tree_atlas_pixel_size,
 };
 pub use vertex::TerrainVertex;
 pub use w3d_overlay_mesh::{
+    BRIDGE_FLOAT_AMT, BridgeMeshQuad, BridgeOverlayBuffers, BridgeOverlayVertex,
+    DEFAULT_ROAD_SCALE, MAX_BRIDGE_INDEX, MAX_BRIDGE_VERTEX, MAX_BRIDGES, MAX_SEG_INDEX,
+    MAX_SEG_VERTEX, MIN_ROAD_SEGMENT, NUM_BUMP_FRAMES, OverlayGpuVertex, PATCH_SIZE,
+    PATCH_UV_SCALE, PATCH_WIDTH, ROAD_FLOAT_AMOUNT, RoadSegVertex, SeaPatchVertex, WaterGpuVertex,
     bake_bridge_span, bake_straight_road_segment, bake_water_patch_world, bake_water_tiles_world,
     default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
     fill_water_gpu_upload_vertices, generate_water_index_buffer, generate_water_vertex_buffer,
     load_float_4pt_section, triangle_list_from_strip, unpack_bgra_rgb, unpack_bgra_rgba,
-    water_strip_index_count, BridgeMeshQuad, BridgeOverlayBuffers, BridgeOverlayVertex,
-    OverlayGpuVertex, RoadSegVertex, SeaPatchVertex, WaterGpuVertex, BRIDGE_FLOAT_AMT,
-    DEFAULT_ROAD_SCALE, MAX_BRIDGES, MAX_BRIDGE_INDEX, MAX_BRIDGE_VERTEX, MAX_SEG_INDEX,
-    MAX_SEG_VERTEX, MIN_ROAD_SEGMENT, NUM_BUMP_FRAMES, PATCH_SIZE, PATCH_UV_SCALE, PATCH_WIDTH,
-    ROAD_FLOAT_AMOUNT,
+    water_strip_index_count,
 };
 pub use water::{WaterBody, WaterSettings, WaterSystem};
 pub use water_tracks::{
-    WaterTrackHeightProvider, WaterTrackSaveRecord, WaterTrackType, WaterTrackVertex,
-    WaterTracksFlush, WaterTracksObj, WaterTracksRenderSystem, DEFAULT_WATER_TRACK_MODULES,
-    WATER_TRACK_WAVE_INFO,
+    DEFAULT_WATER_TRACK_MODULES, WATER_TRACK_WAVE_INFO, WaterTrackHeightProvider,
+    WaterTrackSaveRecord, WaterTrackType, WaterTrackVertex, WaterTracksFlush, WaterTracksObj,
+    WaterTracksRenderSystem,
 };
 
 /// Result type for terrain operations

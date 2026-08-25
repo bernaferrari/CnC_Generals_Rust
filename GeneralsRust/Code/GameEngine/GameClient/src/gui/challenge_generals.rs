@@ -827,20 +827,28 @@ mod tests {
         init_challenge_generals();
         let generals = get_challenge_generals_mut().expect("ChallengeGenerals UI projection");
 
-        assert!(generals
-            .general_by_template_name("FactionAmericaAirForceGeneral")
-            .is_some_and(|persona| persona.is_starting_enabled()));
-        assert!(generals
-            .general_by_template_name("FactionBossGeneral")
-            .is_some_and(|persona| !persona.is_starting_enabled()));
+        assert!(
+            generals
+                .general_by_template_name("FactionAmericaAirForceGeneral")
+                .is_some_and(|persona| persona.is_starting_enabled())
+        );
+        assert!(
+            generals
+                .general_by_template_name("FactionBossGeneral")
+                .is_some_and(|persona| !persona.is_starting_enabled())
+        );
 
         let common = game_engine::common::ini::get_challenge_generals();
-        assert!(common
-            .get_general_by_template_name("FactionAmericaAirForceGeneral")
-            .is_some_and(|persona| persona.is_starting_enabled()));
-        assert!(common
-            .get_general_by_template_name("FactionBossGeneral")
-            .is_some_and(|persona| !persona.is_starting_enabled()));
+        assert!(
+            common
+                .get_general_by_template_name("FactionAmericaAirForceGeneral")
+                .is_some_and(|persona| persona.is_starting_enabled())
+        );
+        assert!(
+            common
+                .get_general_by_template_name("FactionBossGeneral")
+                .is_some_and(|persona| !persona.is_starting_enabled())
+        );
     }
 
     #[test]
@@ -848,11 +856,15 @@ mod tests {
         let mut generals = ChallengeGenerals::new();
         generals.persona_data_failed = true;
 
-        assert!(generals
-            .general_by_template_name("FactionBossGeneral")
-            .is_some_and(|persona| !persona.is_starting_enabled()));
-        assert!(generals
-            .general_by_template_name("FactionAmericaAirForceGeneral")
-            .is_some_and(|persona| !persona.is_starting_enabled()));
+        assert!(
+            generals
+                .general_by_template_name("FactionBossGeneral")
+                .is_some_and(|persona| !persona.is_starting_enabled())
+        );
+        assert!(
+            generals
+                .general_by_template_name("FactionAmericaAirForceGeneral")
+                .is_some_and(|persona| !persona.is_starting_enabled())
+        );
     }
 }

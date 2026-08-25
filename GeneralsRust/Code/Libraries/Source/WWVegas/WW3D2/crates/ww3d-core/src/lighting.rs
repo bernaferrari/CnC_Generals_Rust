@@ -1,10 +1,10 @@
+use crate::RenderObjClassId;
 /// Lighting system for WW3D
 ///
 /// This module implements dynamic lights and light environments.
 use crate::material::Color;
 use crate::render_object::{RenderInfo, RenderObject};
 use crate::w3d_format::*;
-use crate::RenderObjClassId;
 use glam::{Mat4, Vec3};
 use std::any::Any;
 use std::fmt::Debug;

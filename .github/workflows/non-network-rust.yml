@@ -1,0 +1,241 @@
+name: Non-Network Rust CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: non-network-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+defaults:
+  run:
+    working-directory: GeneralsRust
+
+jobs:
+  quality:
+    name: Non-network format, check, test, and clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libdbus-1-dev \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libvulkan-dev
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            GeneralsRust/target
+          key: ${{ runner.os }}-non-network-${{ hashFiles('GeneralsRust/Cargo.lock', 'GeneralsRust/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-non-network-
+
+      # The legacy production tree has pre-existing rustfmt debt, including in
+      # deferred GameNetwork. Keep this required check scoped to the package
+      # introduced here instead of making unrelated formatting block parity CI.
+      - name: Check attached test formatting
+        run: cargo fmt --manifest-path tests/Cargo.toml -- --check
+
+      - name: Enforce shrinking Rust LOC ratchet
+        run: python3 Code/Main/scripts/check_rust_loc.py
+
+      - name: Enforce unsafe-code safety contract ratchet
+        run: python3 Code/Main/scripts/check_unsafe_contracts.py
+
+      - name: Test migration and parity tooling contracts
+        run: python3 -m unittest discover -s Code/Main/scripts -p 'test_*.py'
+
+      - name: Reject stale generated parity inventory
+        working-directory: .
+        run: >-
+          python3 GeneralsRust/Code/Main/scripts/generate_port_provenance.py
+          --repo-root . --verify-generated
+
+      - name: Reject stale provenance review packets
+        working-directory: .
+        run: >-
+          python3 GeneralsRust/Code/Main/scripts/generate_port_review_queue.py
+          --repo-root . --verify-generated
+
+      - name: Assert the default host graph excludes GameNetwork
+        run: |
+          dependencies="$(cargo tree --locked -p generals_main -e normal --prefix none)"
+          if grep -q '^game_network ' <<<"${dependencies}"; then
+            echo "GameNetwork entered the supported default dependency graph" >&2
+            exit 1
+          fi
+
+      - name: Check supported non-network libraries
+        run: >-
+          cargo check --locked --lib
+          -p game_engine
+          -p gamelogic
+
+      - name: Check the default host library
+        run: cargo check --locked --lib -p generals_main
+
+      - name: Check the native client without optional network features
+        run: >-
+          cargo check --locked --lib -p game-client-rust
+          --no-default-features --features platform-native
+
+      - name: Run attached repository-level tests
+        run: cargo test --locked -p generals-root-tests
+
+      - name: Run Clippy on supported non-network libraries
+        run: >-
+          cargo clippy --locked --lib
+          -p game_engine
+          -p gamelogic
+
+      - name: Run Clippy on the default host library
+        run: cargo clippy --locked --lib -p generals_main
+
+      - name: Run Clippy on the native client without network
+        run: >-
+          cargo clippy --locked --lib -p game-client-rust
+          --no-default-features --features platform-native
+
+      - name: Run Clippy on the attached tests
+        run: cargo clippy --locked --tests -p generals-root-tests
+
+  behavior:
+    name: Non-network headless behavior gates
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libdbus-1-dev \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libvulkan-dev
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            GeneralsRust/target
+          key: ${{ runner.os }}-non-network-${{ hashFiles('GeneralsRust/Cargo.lock', 'GeneralsRust/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-non-network-
+
+      - name: Run authoritative full playability gate
+        run: Code/Main/playability_gate.sh full
+
+      - name: Upload parity dashboard and command evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: non-network-port-dashboard
+          path: |
+            GeneralsRust/target/port-dashboard.json
+            GeneralsRust/target/port-verification-evidence.json
+          if-no-files-found: error
+
+  runtime-platforms:
+    name: Runtime boundary (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libdbus-1-dev \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libvulkan-dev
+
+      - name: Check native non-network client
+        run: >-
+          cargo check --locked --lib -p game-client-rust
+          --no-default-features --features platform-native
+
+      - name: Check native default host
+        run: cargo check --locked --lib -p generals_main
+
+  required:
+    name: Required non-network CI
+    runs-on: ubuntu-latest
+    needs: [quality, behavior, runtime-platforms]
+    if: always()
+    steps:
+      - name: Require all supported non-network jobs
+        working-directory: .
+        run: |
+          test "${{ needs.quality.result }}" = "success"
+          test "${{ needs.behavior.result }}" = "success"
+          test "${{ needs.runtime-platforms.result }}" = "success"

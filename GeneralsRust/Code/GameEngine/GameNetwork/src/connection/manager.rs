@@ -11,8 +11,8 @@ use crate::connection::state::{ConnectionStateMachine, DetailedConnectionState, 
 use crate::connection::{Connection, ConnectionConfig};
 use crate::error::{NetworkError, NetworkResult};
 use crate::file_transfer::TransferDirection;
-use crate::transport_unified::UnifiedTransport as Transport;
 use crate::transport::TransportProtocol;
+use crate::transport_unified::UnifiedTransport as Transport;
 
 use crate::time::NetworkInstant;
 #[cfg(feature = "performance")]
@@ -20,10 +20,10 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc, RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, timeout};
 use tracing::{debug, error, info, trace, warn};

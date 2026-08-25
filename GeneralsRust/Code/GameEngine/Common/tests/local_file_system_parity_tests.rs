@@ -5,8 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
-fn local_directory_listing_matches_masks_case_insensitively(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn local_directory_listing_matches_masks_case_insensitively()
+-> Result<(), Box<dyn std::error::Error>> {
     let test_root = tempfile::tempdir()?;
     let actual_dir = test_root.path().join("Data").join("INI").join("Object");
     fs::create_dir_all(&actual_dir)?;

@@ -6,7 +6,7 @@
 //! dock close, and `aiFollowWaypointPath` along the start-waypoint link chain.
 
 use super::ObjectId;
-use crate::game_logic::host_railroad::{snapshot_terrain_waypoints, HostWaypointSnap};
+use crate::game_logic::host_railroad::{HostWaypointSnap, snapshot_terrain_waypoints};
 use crate::game_logic::{AIState, DockKind, GameLogic};
 use glam::Vec3;
 use std::cell::RefCell;
@@ -23,7 +23,6 @@ thread_local! {
     static RAILED_WAYPOINT_OVERLAY: RefCell<Vec<HostWaypointSnap>> =
         RefCell::new(Vec::new());
 }
-
 
 pub fn railed_waypoint_overlay_reset() {
     RAILED_WAYPOINT_OVERLAY.with(|overlay| overlay.borrow_mut().clear());
@@ -90,8 +89,12 @@ fn load_prefix_paths(prefix: &str) -> Vec<(u32, u32)> {
     for i in 0..RAILED_MAX_WAYPOINT_PATHS {
         let start_name = format!("{prefix}Start{:02}", i + 1);
         let end_name = format!("{prefix}End{:02}", i + 1);
-        let start = snaps.iter().find(|wp| waypoint_name_eq(&wp.name, &start_name));
-        let end = snaps.iter().find(|wp| waypoint_name_eq(&wp.name, &end_name));
+        let start = snaps
+            .iter()
+            .find(|wp| waypoint_name_eq(&wp.name, &start_name));
+        let end = snaps
+            .iter()
+            .find(|wp| waypoint_name_eq(&wp.name, &end_name));
         if let (Some(start), Some(end)) = (start, end) {
             paths[i] = (start.id, end.id);
             num_paths += 1;
@@ -106,7 +109,12 @@ pub fn default_railed_current_path() -> i32 {
 }
 
 impl GameLogic {
-    fn ensure_railed_waypoint_data(&self, prefix: &str, loaded: bool, paths: &[(u32, u32)]) -> (bool, Vec<(u32, u32)>) {
+    fn ensure_railed_waypoint_data(
+        &self,
+        prefix: &str,
+        loaded: bool,
+        paths: &[(u32, u32)],
+    ) -> (bool, Vec<(u32, u32)>) {
         if loaded {
             (true, paths.to_vec())
         } else {
@@ -286,7 +294,6 @@ impl GameLogic {
                 self.set_railed_in_transit(id, false);
             }
         }
-
     }
 }
 
@@ -350,7 +357,6 @@ mod tests {
         );
         assert!(ferry.ultra_accurate);
         railed_waypoint_overlay_reset();
-
     }
 
     #[test]
@@ -397,4 +403,3 @@ mod tests {
         railed_waypoint_overlay_reset();
     }
 }
-

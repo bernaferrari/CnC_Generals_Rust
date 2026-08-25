@@ -593,10 +593,12 @@ mod tests {
         // Start > end
         let result = manager.request_frames(1, 105, 100);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Invalid frame range"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid frame range")
+        );
     }
 
     #[test]
@@ -606,10 +608,12 @@ mod tests {
         // Range exceeds MAX_FRAME_RANGE
         let result = manager.request_frames(1, 0, MAX_FRAME_RANGE + 1);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Frame range too large"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Frame range too large")
+        );
     }
 
     #[test]
@@ -624,10 +628,12 @@ mod tests {
         // Third request should fail
         let result = manager.request_frames(1, 120, 125);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Too many pending resend requests"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Too many pending resend requests")
+        );
     }
 
     #[test]

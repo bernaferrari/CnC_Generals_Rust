@@ -95,10 +95,10 @@ impl AiStateMachine {
             (AiState::Guarding, AiEvent::Died) => self.transition_to(AiState::Dead),
 
             // Dead is final state
-            (AiState::Dead, _) => {},
+            (AiState::Dead, _) => {}
 
             // Ignore invalid transitions
-            _ => {},
+            _ => {}
         }
     }
 
@@ -346,10 +346,15 @@ mod stress_tests {
         let elapsed = start.elapsed();
         let transitions_per_sec = NUM_TRANSITIONS as f64 / elapsed.as_secs_f64();
 
-        println!("Processed {} transitions in {:?} ({:.0} trans/sec)",
-            NUM_TRANSITIONS, elapsed, transitions_per_sec);
+        println!(
+            "Processed {} transitions in {:?} ({:.0} trans/sec)",
+            NUM_TRANSITIONS, elapsed, transitions_per_sec
+        );
 
-        assert!(transitions_per_sec > 100000.0, "Should handle >100k transitions/sec");
+        assert!(
+            transitions_per_sec > 100000.0,
+            "Should handle >100k transitions/sec"
+        );
 
         log::info!("Rapid state transitions stress test passed");
     }
@@ -360,9 +365,8 @@ mod stress_tests {
         println!("Stress test: Many concurrent state machines...");
 
         const NUM_UNITS: usize = 10000;
-        let mut units: Vec<AiStateMachine> = (0..NUM_UNITS)
-            .map(|_| AiStateMachine::new())
-            .collect();
+        let mut units: Vec<AiStateMachine> =
+            (0..NUM_UNITS).map(|_| AiStateMachine::new()).collect();
 
         let events = vec![
             AiEvent::MoveCommand,
@@ -382,8 +386,10 @@ mod stress_tests {
         let elapsed = start.elapsed();
         let updates_per_sec = NUM_UNITS as f64 / elapsed.as_secs_f64();
 
-        println!("Updated {} units in {:?} ({:.0} updates/sec)",
-            NUM_UNITS, elapsed, updates_per_sec);
+        println!(
+            "Updated {} units in {:?} ({:.0} updates/sec)",
+            NUM_UNITS, elapsed, updates_per_sec
+        );
 
         assert!(updates_per_sec > 10000.0, "Should update >10k units/sec");
 

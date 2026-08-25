@@ -20,7 +20,6 @@ use crate::common::crc_debug;
 use crate::common::global_data;
 use crate::common::version;
 
-
 /// Global debug flags and settings
 #[derive(Debug, Clone, Copy)]
 pub struct DebugSettings {
@@ -550,9 +549,7 @@ impl CommandLineParser {
         if args.len() > 1 {
             let mut mod_path = args[1].clone();
 
-            if !mod_path.contains(':')
-                && !mod_path.starts_with('/')
-                && !mod_path.starts_with('\\')
+            if !mod_path.contains(':') && !mod_path.starts_with('/') && !mod_path.starts_with('\\')
             {
                 let user_data = global_data::read().get_user_data_dir().to_string();
                 if !user_data.is_empty() {

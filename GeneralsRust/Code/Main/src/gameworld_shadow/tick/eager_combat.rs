@@ -122,8 +122,8 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-pub fn take_early_heal_batch(
-) -> Option<(Vec<crate::game_logic::host_heal_log::HostHealEvent>, bool)> {
+pub fn take_early_heal_batch()
+-> Option<(Vec<crate::game_logic::host_heal_log::HostHealEvent>, bool)> {
     EARLY_HEAL_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -344,13 +344,13 @@ pub fn take_early_attack_batch() -> Option<(
     EARLY_ATTACK_BATCH.with(|c| c.borrow_mut().take())
 }
 
-pub fn take_early_move_batch(
-) -> Option<(Vec<crate::game_logic::host_move_log::HostMoveEvent>, bool)> {
+pub fn take_early_move_batch()
+-> Option<(Vec<crate::game_logic::host_move_log::HostMoveEvent>, bool)> {
     EARLY_MOVE_BATCH.with(|c| c.borrow_mut().take())
 }
 
-pub fn take_early_fire_spawn_batch(
-) -> Option<(Vec<crate::game_logic::combat::PendingProjectile>, bool)> {
+pub fn take_early_fire_spawn_batch()
+-> Option<(Vec<crate::game_logic::combat::PendingProjectile>, bool)> {
     EARLY_FIRE_SPAWN_BATCH.with(|c| c.borrow_mut().take())
 }
 

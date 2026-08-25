@@ -25,7 +25,7 @@
 //! - `1` sit-through incomplete
 
 use generals_main::executable_smoke::{
-    format_executable_smoke_report, run_windowed_acceptance_smoke, ExecutableSmokeResult,
+    ExecutableSmokeResult, format_executable_smoke_report, run_windowed_acceptance_smoke,
 };
 use generals_main::windowed_acceptance::{
     display_or_wgpu_adapter_available, display_unavailable_status, evaluate_windowed_acceptance,

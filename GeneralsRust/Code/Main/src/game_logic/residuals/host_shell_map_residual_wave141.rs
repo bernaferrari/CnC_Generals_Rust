@@ -106,8 +106,8 @@ mod tests {
     #[test]
     fn simulate_shell_map_prepare_cycle_residual_live() {
         use game_client::gui::{
-            residual_shell_map_is_on, residual_shell_map_last_action,
-            simulate_shell_map_prepare_cycle, simulate_shell_map_show, ResidualShellMapAction,
+            ResidualShellMapAction, residual_shell_map_is_on, residual_shell_map_last_action,
+            simulate_shell_map_prepare_cycle, simulate_shell_map_show,
         };
         assert!(simulate_shell_map_show());
         assert!(residual_shell_map_is_on());

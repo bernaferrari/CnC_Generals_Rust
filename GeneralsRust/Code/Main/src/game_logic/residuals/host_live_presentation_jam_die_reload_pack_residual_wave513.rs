@@ -79,8 +79,8 @@ pub fn residual_presentation_jam_die_reload_pack_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_jam_die_reload_pack_last_action(
-) -> ResidualPresentationJamDieReloadPackAction {
+pub fn residual_presentation_jam_die_reload_pack_last_action()
+-> ResidualPresentationJamDieReloadPackAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationJamDieReloadPackAction::MethodNames,
         2 => ResidualPresentationJamDieReloadPackAction::SourceMarkers,

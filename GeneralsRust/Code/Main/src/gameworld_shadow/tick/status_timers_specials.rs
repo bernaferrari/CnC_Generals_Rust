@@ -319,8 +319,7 @@ impl GameWorldShadow {
         if crate::game_logic::host_battlemaster::is_china_vehicle_horde_unit(e.template_name()) {
             let alive = e.health > 0.0 && !e.destroyed;
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                let scanned =
-                    alive && snaps.vehicle_horde_now.get(&hid).copied().unwrap_or(false);
+                let scanned = alive && snaps.vehicle_horde_now.get(&hid).copied().unwrap_or(false);
                 let (due, init, last, next) =
                     crate::game_logic::host_battlemaster::leftover_horde_take_wake(
                         e.horde_wake_initialized,
@@ -355,8 +354,7 @@ impl GameWorldShadow {
         if crate::game_logic::host_red_guard::is_china_infantry_horde_unit(e.template_name()) {
             let alive = e.health > 0.0 && !e.destroyed;
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                let scanned =
-                    alive && snaps.infantry_horde_now.get(&hid).copied().unwrap_or(false);
+                let scanned = alive && snaps.infantry_horde_now.get(&hid).copied().unwrap_or(false);
                 let (due, init, last, next) =
                     crate::game_logic::host_battlemaster::leftover_horde_take_wake(
                         e.horde_wake_initialized,
@@ -375,9 +373,11 @@ impl GameWorldShadow {
                     if e.weapon_bonus_horde != now_horde || now_horde {
                         e.weapon_bonus_horde = now_horde;
                         let name = e.template_name();
-                        let kind = if crate::game_logic::host_red_guard::is_red_guard_template(name) {
+                        let kind = if crate::game_logic::host_red_guard::is_red_guard_template(name)
+                        {
                             crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::RedGuard
-                        } else if crate::game_logic::host_tank_hunter::is_tank_hunter_template(name) {
+                        } else if crate::game_logic::host_tank_hunter::is_tank_hunter_template(name)
+                        {
                             crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::TankHunter
                         } else {
                             crate::game_logic::host_china_infantry_horde_log::ChinaInfantryHordeKind::Minigunner
@@ -396,13 +396,11 @@ impl GameWorldShadow {
             }
         }
 
-
-
         // Wave 814: Stinger hive slave respawn residual.
         if crate::game_logic::host_base_defense::is_stinger_site_structure(e.template_name()) {
             use crate::game_logic::host_base_defense::{
-                next_stinger_slave_respawn_frame, should_respawn_stinger_slave,
-                STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
+                STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER, next_stinger_slave_respawn_frame,
+                should_respawn_stinger_slave,
             };
             let alive = e.health > 0.0 && !e.destroyed;
             if alive {

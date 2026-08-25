@@ -103,7 +103,7 @@ fn set_combat_status_mutation_channel_updates_shadow_entity() {
 
 #[test]
 fn host_selection_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SelStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -161,7 +161,7 @@ fn host_selection_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_attacking_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -181,12 +181,16 @@ fn host_attacking_status_log_drives_set_combat_status_channel() {
         o.set_status_firing_weapon(true);
     }
     let events = host_status_log::drain();
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.attacking == Some(true)));
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.is_firing_weapon == Some(true)));
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.attacking == Some(true))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.is_firing_weapon == Some(true))
+    );
     // Re-record for mutation apply.
     {
         let o = logic.host_object_mut(id).expect("o");
@@ -224,7 +228,7 @@ fn host_attacking_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_stealth_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StealthStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -244,12 +248,16 @@ fn host_stealth_status_log_drives_set_combat_status_channel() {
         o.set_status_detected(false);
     }
     let events = host_status_log::drain();
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.stealthed == Some(true)));
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.detected == Some(false)));
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.stealthed == Some(true))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.detected == Some(false))
+    );
     {
         let o = logic.host_object_mut(id).expect("o");
         o.set_status_stealthed(true);
@@ -286,7 +294,7 @@ fn host_stealth_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_emp_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EmpStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -555,9 +563,11 @@ fn host_radar_log_drives_set_player_radar_channel() {
         p.set_radar_state(2, false);
     }
     let events = host_radar_log::drain();
-    assert!(events
-        .iter()
-        .any(|e| e.player_id == pid && e.radar_count == 2 && !e.radar_disabled));
+    assert!(
+        events
+            .iter()
+            .any(|e| e.player_id == pid && e.radar_count == 2 && !e.radar_disabled)
+    );
     {
         let p = logic.get_player_mut(pid).expect("p");
         p.set_radar_state(2, false);
@@ -590,7 +600,7 @@ fn host_radar_log_drives_set_player_radar_channel() {
 #[test]
 fn host_contain_log_drives_set_contain_channel() {
     use crate::game_logic::{
-        host_contain_log, BuildingData, BuildingType, KindOf, Team, ThingTemplate,
+        BuildingData, BuildingType, KindOf, Team, ThingTemplate, host_contain_log,
     };
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ContainCh");
@@ -701,7 +711,7 @@ fn host_contain_log_drives_set_contain_channel() {
 #[test]
 // Wave 947: channel-drive tests mutate host via host_object_mut authority.
 fn host_ai_state_log_drives_set_ai_state_channel() {
-    use crate::game_logic::{host_ai_state_log, AIState, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate, host_ai_state_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiStateCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -754,7 +764,7 @@ fn host_ai_state_log_drives_set_ai_state_channel() {
 
 #[test]
 fn host_special_power_cooldown_remaining_channel() {
-    use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpCdCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -825,7 +835,7 @@ fn host_special_power_cooldown_remaining_channel() {
 
 #[test]
 fn host_special_power_log_drives_set_special_power_channel() {
-    use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpReadyCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -874,7 +884,7 @@ fn host_special_power_log_drives_set_special_power_channel() {
 
 #[test]
 fn host_stored_supplies_log_drives_set_stored_supplies_channel() {
-    use crate::game_logic::{host_stored_supplies_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_stored_supplies_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("StoreSupCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -929,7 +939,7 @@ fn host_stored_supplies_log_drives_set_stored_supplies_channel() {
 
 #[test]
 fn host_construction_progress_log_drives_set_construction_channel() {
-    use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstrProgCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -981,7 +991,7 @@ fn host_construction_progress_log_drives_set_construction_channel() {
 
 #[test]
 fn host_owner_log_drives_transfer_owner_channel() {
-    use crate::game_logic::{host_owner_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_owner_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("OwnerXferCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1252,14 +1262,16 @@ fn production_authority_writeback_is_queue_last_writer() {
         o.building_data.as_mut().unwrap().production_queue.clear();
     }
     assert_eq!(shadow.writeback_production_to_host(&mut logic), 0);
-    assert!(logic
-        .host_object(oid)
-        .unwrap()
-        .building_data
-        .as_ref()
-        .unwrap()
-        .production_queue
-        .is_empty());
+    assert!(
+        logic
+            .host_object(oid)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .unwrap()
+            .production_queue
+            .is_empty()
+    );
 
     host_production_progress_log::clear();
     match prev {
@@ -1270,7 +1282,7 @@ fn production_authority_writeback_is_queue_last_writer() {
 
 #[test]
 fn host_veterancy_log_drives_set_veterancy_channel() {
-    use crate::game_logic::{host_veterancy_log, KindOf, Team, ThingTemplate, VeterancyLevel};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, VeterancyLevel, host_veterancy_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("VetStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1336,7 +1348,7 @@ fn host_veterancy_log_drives_set_veterancy_channel() {
 
 #[test]
 fn host_force_attack_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ForceAtkStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1357,12 +1369,16 @@ fn host_force_attack_status_log_drives_set_combat_status_channel() {
         o.set_status_deployed(true);
     }
     let events = host_status_log::drain();
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.force_attack == Some(true)));
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.using_ability == Some(true)));
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.force_attack == Some(true))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.using_ability == Some(true))
+    );
     {
         let o = logic.host_object_mut(id).expect("o");
         o.set_force_attack(true);
@@ -1402,7 +1418,7 @@ fn host_force_attack_status_log_drives_set_combat_status_channel() {
 
 #[test]
 fn host_residual_status_log_drives_set_combat_status_channel() {
-    use crate::game_logic::{host_status_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_status_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ResidualStatusCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1424,12 +1440,16 @@ fn host_residual_status_log_drives_set_combat_status_channel() {
         o.set_status_parachuting(true);
     }
     let events = host_status_log::drain();
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.no_collisions == Some(true)));
-    assert!(events
-        .iter()
-        .any(|e| e.object == id && e.private_captured == Some(true)));
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.no_collisions == Some(true))
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.object == id && e.private_captured == Some(true))
+    );
     // Re-record for mutation apply.
     {
         let o = logic.host_object_mut(id).expect("o");

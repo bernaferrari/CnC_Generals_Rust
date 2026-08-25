@@ -78,8 +78,8 @@ pub fn residual_presentation_mouse_and_defeat_gate_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_mouse_and_defeat_gate_last_action(
-) -> ResidualPresentationMouseAndDefeatGateAction {
+pub fn residual_presentation_mouse_and_defeat_gate_last_action()
+-> ResidualPresentationMouseAndDefeatGateAction {
     ResidualPresentationMouseAndDefeatGateAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

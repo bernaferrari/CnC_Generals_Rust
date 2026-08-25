@@ -64,8 +64,8 @@ fn residual_action_store(a: ResidualHostWritebackSkipPendingRemainingLogsAction)
 pub fn residual_host_writeback_skip_pending_remaining_logs_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_writeback_skip_pending_remaining_logs_last_action(
-) -> ResidualHostWritebackSkipPendingRemainingLogsAction {
+pub fn residual_host_writeback_skip_pending_remaining_logs_last_action()
+-> ResidualHostWritebackSkipPendingRemainingLogsAction {
     ResidualHostWritebackSkipPendingRemainingLogsAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

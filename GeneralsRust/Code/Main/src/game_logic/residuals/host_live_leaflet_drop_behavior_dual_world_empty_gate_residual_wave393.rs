@@ -43,8 +43,8 @@ pub const RUNTIME_HOST_LIVE_LEAFLET_DROP_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_CMD_NAME
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_leaflet_drop_behavior_dual_world_empty_gate_method_names_residual_wave393(
-) -> bool {
+pub fn honesty_live_leaflet_drop_behavior_dual_world_empty_gate_method_names_residual_wave393()
+-> bool {
     LIVE_LEAFLET_DROP_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE393.len() == 5
         && residual_name_index(
             LIVE_LEAFLET_DROP_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE393,
@@ -61,8 +61,8 @@ pub fn honesty_live_leaflet_drop_behavior_dual_world_empty_gate_method_names_res
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_leaflet_drop_behavior_dual_world_empty_gate_nav_commands_residual_wave393(
-) -> bool {
+pub fn honesty_live_leaflet_drop_behavior_dual_world_empty_gate_nav_commands_residual_wave393()
+-> bool {
     LIVE_LEAFLET_DROP_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE393.len() == 4
         && residual_name_index(
             LIVE_LEAFLET_DROP_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE393,

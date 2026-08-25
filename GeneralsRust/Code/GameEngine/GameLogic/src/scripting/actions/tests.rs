@@ -20,7 +20,7 @@ use crate::common::PlayerIndex;
 use crate::common::{AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Relationship};
 use crate::helpers::TheGameLogic;
 use crate::object::special_power_template::find_or_create_special_power_template;
-use crate::object_manager::{get_object_manager, ObjectCreationFlags};
+use crate::object_manager::{ObjectCreationFlags, get_object_manager};
 use crate::player::player_list;
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
 use crate::scripting::{ScriptContext, ScriptResult, ScriptValue};
@@ -1381,8 +1381,9 @@ async fn enable_disable_execute_script_actions_call_live_script_engine() {
             Box::new(or_condition)
         });
         member.action = Some({
-            let mut action =
-                crate::scripting::core::ScriptAction::new(crate::scripting::core::ScriptActionType::SetFlag);
+            let mut action = crate::scripting::core::ScriptAction::new(
+                crate::scripting::core::ScriptActionType::SetFlag,
+            );
             action
                 .add_parameter(crate::scripting::core::Parameter::with_string(
                     crate::scripting::core::ParameterType::Flag,
@@ -1462,4 +1463,3 @@ async fn enable_disable_execute_script_actions_call_live_script_engine() {
         assert!(!is_active, "disable_script must mutate live ScriptEngine");
     }
 }
-

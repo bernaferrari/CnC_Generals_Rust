@@ -1,11 +1,11 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
-use crate::display::view::{with_tactical_view_ref, Point3};
+use crate::display::view::{Point3, with_tactical_view_ref};
 use crate::draw_group_info::get_draw_group_info;
 use crate::drawable::ClientShroudVisibility;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
-use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::font::{FontDesc, get_font_library};
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
@@ -15,17 +15,17 @@ use game_engine::common::audio::audio_event_rts::AudioEventRts;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::get_global_audio_manager;
 use game_engine::common::bit_flags::{
-    create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
+    ModelConditionBitFlags, ModelConditionFlags, create_model_condition_flags,
 };
-use game_engine::common::ini::{get_anim2d_collection, get_global_data, TimeOfDay as IniTimeOfDay};
+use game_engine::common::ini::{TimeOfDay as IniTimeOfDay, get_anim2d_collection, get_global_data};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::common::types::{
-    FormationID, ObjectID, ObjectShroudStatus, WeaponSlotType, INVALID_ID,
+    FormationID, INVALID_ID, ObjectID, ObjectShroudStatus, WeaponSlotType,
 };
 use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
+use gamelogic::player::{NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS, Player};
 use parking_lot::Mutex;
 use std::error::Error;
 use std::sync::Arc;
@@ -134,10 +134,7 @@ impl BasicDrawable {
     fn current_body_damage_type(&self) -> gamelogic::common::types::BodyDamageType {
         use gamelogic::common::types::BodyDamageType;
         if dual_world_registry_unavailable() {
-            if self
-                .model_condition_flags
-                .test(ModelConditionFlags::RUBBLE)
-            {
+            if self.model_condition_flags.test(ModelConditionFlags::RUBBLE) {
                 return BodyDamageType::Rubble;
             }
             if self
@@ -146,7 +143,10 @@ impl BasicDrawable {
             {
                 return BodyDamageType::ReallyDamaged;
             }
-            if self.model_condition_flags.test(ModelConditionFlags::DAMAGED) {
+            if self
+                .model_condition_flags
+                .test(ModelConditionFlags::DAMAGED)
+            {
                 return BodyDamageType::Damaged;
             }
             return BodyDamageType::Pristine;
@@ -239,9 +239,8 @@ impl BasicDrawable {
             } else if let Some(info) = self.custom_sound_ambient_dynamic_info.as_ref() {
                 let mut custom = AudioEventRts::new();
                 custom.set_event_name(info.get_audio_event_info().audio_name.clone());
-                custom.set_audio_event_info(std::sync::Arc::new(
-                    info.get_audio_event_info().clone(),
-                ));
+                custom
+                    .set_audio_event_info(std::sync::Arc::new(info.get_audio_event_info().clone()));
                 event = Some(custom);
             }
         }
@@ -272,15 +271,11 @@ impl BasicDrawable {
 
         event.set_drawable_id_override(self.id.0);
         event.set_time_of_day(match tod {
-            TimeOfDay::Morning => {
-                game_engine::common::audio::audio_event_rts::TimeOfDay::Morning
-            }
+            TimeOfDay::Morning => game_engine::common::audio::audio_event_rts::TimeOfDay::Morning,
             TimeOfDay::Afternoon => {
                 game_engine::common::audio::audio_event_rts::TimeOfDay::Afternoon
             }
-            TimeOfDay::Evening => {
-                game_engine::common::audio::audio_event_rts::TimeOfDay::Evening
-            }
+            TimeOfDay::Evening => game_engine::common::audio::audio_event_rts::TimeOfDay::Evening,
             TimeOfDay::Night => game_engine::common::audio::audio_event_rts::TimeOfDay::Night,
         });
         if let Some(audio) = get_global_audio_manager() {
@@ -331,7 +326,6 @@ impl BasicDrawable {
             self.start_ambient_sound_for_state(dt, tod, false);
         }
     }
-
 
     /// Whether an ambient event is currently attached (started).
     #[must_use]
@@ -461,7 +455,6 @@ impl BasicDrawable {
 
         self.clear_and_set_model_condition_flags(&clear, &set);
     }
-
 
     /// C++ parity: `Drawable::getShadowsEnabled()`.
     pub fn get_shadows_enabled(&self) -> bool {
@@ -623,7 +616,6 @@ impl BasicDrawable {
             self.start_ambient_sound(false);
         }
     }
-
 
     /// Get owning object ID if bound.
     pub fn object_id(&self) -> Option<u32> {
@@ -799,8 +791,6 @@ impl BasicDrawable {
         }
         let texture = Self::client_terrain_decal_texture(self.terrain_decal_type);
 
-
-
         if texture.is_empty() {
             return;
         }
@@ -893,12 +883,7 @@ impl BasicDrawable {
                     info.keep_till_frame
                         .iter()
                         .map(|(kind, keep)| {
-                            (
-                                kind.name().to_string(),
-                                *keep,
-                                kind.name().to_string(),
-                                0,
-                            )
+                            (kind.name().to_string(), *keep, kind.name().to_string(), 0)
                         })
                         .collect()
                 })
@@ -947,7 +932,6 @@ impl BasicDrawable {
             self.update_hidden_status();
         }
     }
-
 
     pub fn fading_mode(&self) -> FadingMode {
         self.fade_mode
@@ -1075,7 +1059,6 @@ impl BasicDrawable {
         // Wave 270/965: host empty dual-world → presentation kind residual.
         // Fail-closed when presentation kinds were never stamped.
         if dual_world_registry_unavailable() || self.object_id.is_none() {
-
             if self.presentation_kind_names.is_empty() {
                 return false;
             }

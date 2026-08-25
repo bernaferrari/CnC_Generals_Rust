@@ -545,99 +545,31 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let Some(locomotor) = guard.current_locomotor.as_ref() else {
+        if guard.current_locomotor.is_none() {
+            return false;
+        }
+        // C++ Pathfinder::adjustDestination performs the 400-cell spiral and
+        // checkForAdjust path-existence gate. The former host route consulted
+        // the legacy terrain-sampled grid and then fell back to
+        // findClosestPath, which could report a nearby path as destination
+        // adjustment success even when the requested adjustment itself failed.
+        // Use the canonical Pathfinder wrapper so bridge/layer, footprint,
+        // occupancy, and off-map validation remain in one implementation.
+        let base_arc = guard.base_arc();
+        let Some(base) = base_arc.read().ok() else {
             return false;
         };
-        let Ok(loc_guard) = locomotor.lock() else {
+        let Some(pathfinder_arc) = THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
-
-        let caps = loc_guard.to_movement_capabilities();
-        let surfaces = loc_guard.get_legal_surfaces();
-        let mut is_crusher = false;
-        drop(loc_guard);
-        if let Ok(obj_guard) = guard.base_arc().read() {
-            is_crusher = obj_guard.get_crusher_level() > 0;
-        }
-        let ignore_obstacle_id = if self.ignore_obstacle_id != INVALID_ID {
-            Some(self.ignore_obstacle_id)
-        } else {
-            None
-        };
-        let owner_id = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.get_id())
-            .unwrap_or(INVALID_ID);
-        let from_pos = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| *obj.get_position())
-            .unwrap_or(*goal);
-        let unit_radius = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
-            .unwrap_or(PATHFIND_CELL_SIZE_F * 0.5);
-        drop(guard);
-
-        let mut adjusted = THE_AI
-            .read()
-            .ok()
-            .and_then(|ai| ai.pathfinding_system())
-            .and_then(|pathfinding| {
-                pathfinding
-                    .read()
-                    .ok()
-                    .and_then(|pf| pf.adjust_destination(goal, &caps))
-            });
-
-        if adjusted.is_none() {
-            let fallback_request = crate::ai::pathfind_complete::PathRequest {
-                object_id: owner_id,
-                from: from_pos,
-                to: *goal,
-                surfaces,
-                is_crusher,
-                unit_radius,
-                allow_partial: false,
-                move_allies: self.get_can_path_through_units(),
-                ignore_obstacle_id,
-                is_human: false,
-            };
-            adjusted = THE_AI
-                .read()
-                .ok()
-                .and_then(|ai| ai.pathfinder())
-                .and_then(|pathfinder| {
-                    pathfinder
-                        .read()
-                        .ok()
-                        .map(|pf| pf.find_closest_path_result(fallback_request))
-                })
-                .and_then(|result| {
-                    if result.success {
-                        result.waypoints.last().copied()
-                    } else {
-                        None
-                    }
-                });
-        }
-
-        let Some(mut new_goal) = adjusted else {
+        let Some(pathfinder) = pathfinder_arc.read().ok() else {
             return false;
         };
-
-        if caps.layer == PfLayer::Ground {
-            if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
-                new_goal.z = terrain.get_ground_height(new_goal.x, new_goal.y, None);
-            }
+        let mut candidate = *goal;
+        if !pathfinder.adjust_destination(&base, &guard.locomotor_set, &mut candidate) {
+            return false;
         }
-
-        *goal = new_goal;
+        *goal = candidate;
         true
     }
     pub(super) fn set_adjusts_destination(&mut self, adjust: bool) {
@@ -801,10 +733,8 @@ impl UnitAIUpdate {
         let pos = guard.get_position();
         if let Some(path) = guard.current_path.as_ref() {
             if !path.is_empty() {
-                let waypoints: Vec<Coord3D> = path
-                    .iter()
-                    .map(|p| Coord3D::new(p.x, p.y, pos.z))
-                    .collect();
+                let waypoints: Vec<Coord3D> =
+                    path.iter().map(|p| Coord3D::new(p.x, p.y, pos.z)).collect();
                 return Some(
                     crate::ai::pathfind_complete::peek_point_on_path_from_waypoints(
                         &pos, &waypoints,

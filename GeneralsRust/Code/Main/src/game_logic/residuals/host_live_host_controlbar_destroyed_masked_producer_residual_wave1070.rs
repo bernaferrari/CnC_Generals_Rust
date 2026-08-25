@@ -54,8 +54,8 @@ fn cb_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
-pub fn honesty_host_controlbar_destroyed_masked_producer_residual_method_names_residual_wave1070(
-) -> bool {
+pub fn honesty_host_controlbar_destroyed_masked_producer_residual_method_names_residual_wave1070()
+-> bool {
     let names = LIVE_HOST_CONTROLBAR_DESTROYED_MASKED_PRODUCER_RESIDUAL_METHOD_NAMES_WAVE1070;
     let ok = residual_name_index(names, "catalog_masked").is_some()
         && residual_name_index(names, "Wave 1070").is_some();
@@ -64,8 +64,8 @@ pub fn honesty_host_controlbar_destroyed_masked_producer_residual_method_names_r
     ok
 }
 
-pub fn honesty_host_controlbar_destroyed_masked_producer_residual_nav_commands_residual_wave1070(
-) -> bool {
+pub fn honesty_host_controlbar_destroyed_masked_producer_residual_nav_commands_residual_wave1070()
+-> bool {
     let steps = LIVE_HOST_CONTROLBAR_DESTROYED_MASKED_PRODUCER_RESIDUAL_NAV_STEPS_WAVE1070;
     let ok = residual_name_index(
         steps,

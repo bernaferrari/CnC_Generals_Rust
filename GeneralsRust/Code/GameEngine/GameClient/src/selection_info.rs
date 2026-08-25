@@ -4,7 +4,7 @@ use crate::helpers::TheInGameUI;
 use crate::message_stream::player_state::get_local_player_id;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::commands::selection::{
-    get_selection_manager, SelectionContextOptions, SelectionInfo,
+    SelectionContextOptions, SelectionInfo, get_selection_manager,
 };
 use gamelogic::common::{Coord3D, ObjectID};
 

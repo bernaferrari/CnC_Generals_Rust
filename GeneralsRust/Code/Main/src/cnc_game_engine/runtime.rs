@@ -121,7 +121,6 @@ pub(super) struct RuntimeHostBridge {
     last_capture_health_log_at: Option<Instant>,
 }
 
-
 /// Named WND gadgets an OS clicker may aim at (menu → match). Diagnostic only.
 pub(super) const STATUS_GADGET_HIT_NAMES: &[&str] = &[
     "MainMenu.wnd:ButtonSinglePlayer",
@@ -836,4 +835,3 @@ mod clicker_aim_status_tests {
         );
     }
 }
-

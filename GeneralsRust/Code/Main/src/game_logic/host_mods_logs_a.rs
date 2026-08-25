@@ -6,11 +6,11 @@
 
 #![allow(unused_imports)]
 
-use super::combat;
 use super::ObjectId;
 use super::Team;
 use super::VeterancyLevel;
 use super::Weapon;
+use super::combat;
 
 use super::host_structure_topple;
 
@@ -52,7 +52,7 @@ pub mod host_daisy_cutter_drop_log;
 
 #[path = "host_damage_log.rs"]
 pub mod host_damage_log;
-pub use host_damage_log::{drain as drain_host_damage_events, HostDamageEvent};
+pub use host_damage_log::{HostDamageEvent, drain as drain_host_damage_events};
 
 #[path = "host_attacked_by_log.rs"]
 pub mod host_attacked_by_log;
@@ -179,7 +179,7 @@ pub mod host_disguise_ready_log;
 
 #[path = "host_economy_log.rs"]
 pub mod host_economy_log;
-pub use host_economy_log::{drain as drain_host_economy_events, HostEconomyEvent};
+pub use host_economy_log::{HostEconomyEvent, drain as drain_host_economy_events};
 
 #[path = "host_actively_constructing_log.rs"]
 pub mod host_actively_constructing_log;

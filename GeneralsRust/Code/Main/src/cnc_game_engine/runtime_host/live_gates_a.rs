@@ -401,7 +401,9 @@ impl CnCGameEngine {
                 "click_live_spawn_point_production_exit_behavior_dual_world_empty_gate_ok_{action}"
             )
         } else {
-            format!("click_live_spawn_point_production_exit_behavior_dual_world_empty_gate_miss_{action}")
+            format!(
+                "click_live_spawn_point_production_exit_behavior_dual_world_empty_gate_miss_{action}"
+            )
         };
     }
 

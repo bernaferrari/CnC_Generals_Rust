@@ -1,4 +1,17 @@
 use super::{
+    PushButtonDrawBank, push_button_color_entry_index, push_button_one_image_source,
+    w3d_gadget_push_button_draw,
+};
+use super::{
+    TextEntryImageTileKind, text_entry_clip_region, text_entry_cursor_window_x,
+    text_entry_draws_visible_composition, text_entry_focus_matches, text_entry_image_tile_rects,
+    text_entry_password_composition_is_masked, text_entry_start_y, text_entry_text_color_defined,
+    text_entry_text_draw_x, text_entry_w3d_display_text, truncate_to_i32,
+};
+use super::{
+    WIN_COLOR_UNDEFINED, static_text_draw_data, static_text_text_colors, static_text_text_position,
+};
+use super::{
     check_box_image_source, combo_box_title_adjustment, compute_tab_layout,
     horizontal_slider_box_counts, horizontal_slider_box_image_sources,
     horizontal_slider_image_draw_a_sources, horizontal_slider_image_draw_b_sources,
@@ -10,19 +23,6 @@ use super::{
 use super::{
     list_box_image_content_width, list_box_selected_image_rect, list_box_selected_image_slots,
     list_box_solid_content_width, list_box_solid_frame_and_content_widths,
-};
-use super::{
-    push_button_color_entry_index, push_button_one_image_source, w3d_gadget_push_button_draw,
-    PushButtonDrawBank,
-};
-use super::{
-    static_text_draw_data, static_text_text_colors, static_text_text_position, WIN_COLOR_UNDEFINED,
-};
-use super::{
-    text_entry_clip_region, text_entry_cursor_window_x, text_entry_draws_visible_composition,
-    text_entry_focus_matches, text_entry_image_tile_rects,
-    text_entry_password_composition_is_masked, text_entry_start_y, text_entry_text_color_defined,
-    text_entry_text_draw_x, text_entry_w3d_display_text, truncate_to_i32, TextEntryImageTileKind,
 };
 use crate::gui::gadgets::{
     Color, ListBox, ListBoxItemData, ProgressBar, PushButton, TabControl, TabControlData,

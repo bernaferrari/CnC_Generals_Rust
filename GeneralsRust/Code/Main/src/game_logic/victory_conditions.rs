@@ -13,10 +13,10 @@ use std::sync::OnceLock;
 use crate::config::{ConfigValue, IniParser, LoadMode};
 
 use super::{
+    KindOf, ObjectId, Team,
     game_logic::{GameMode, Player, PlayerTemplateIdentity},
     object::Object,
     victory::VictoryCondition,
-    KindOf, ObjectId, Team,
 };
 
 bitflags! {
@@ -102,7 +102,10 @@ fn default_team_instance_names(player: &Player) -> Vec<String> {
         if name.is_empty() {
             return;
         }
-        if !names.iter().any(|existing| existing.eq_ignore_ascii_case(name)) {
+        if !names
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(name))
+        {
             names.push(name.to_string());
         }
     };
@@ -234,11 +237,7 @@ fn unique_faction_owner(
     found
 }
 
-fn object_belongs_to_player(
-    obj: &Object,
-    player: &Player,
-    unique_team_owner: Option<u32>,
-) -> bool {
+fn object_belongs_to_player(obj: &Object, player: &Player, unique_team_owner: Option<u32>) -> bool {
     match obj.owner_player_id {
         Some(owner) => owner == player.id,
         None => unique_team_owner == Some(player.id) && obj.team == player.team,
@@ -354,7 +353,6 @@ fn leftover_local_is_observer(players: &HashMap<u32, Player>) -> bool {
     };
     local.is_observer || leftover_player_is_observer(local.id)
 }
-
 
 /// C++ `Team::hasAnyBuildings(KINDOF_MP_COUNT_FOR_VICTORY)` — STRUCTURE is
 /// forced on the mask; walls without the victory bit do not stall a match.
@@ -527,8 +525,7 @@ impl VictoryConditions {
                 continue;
             }
 
-            let unique_owner =
-                unique_faction_owner(players, player.team, &self.player_templates);
+            let unique_owner = unique_faction_owner(players, player.team, &self.player_templates);
             let state = PlayerArmyState::from_objects(objects, player, unique_owner);
             if self.is_defeated(state) {
                 if self.defeated_players.insert(player_id) {
@@ -633,10 +630,7 @@ impl VictoryConditions {
             .any(|player| player.is_local && self.defeated_players.contains(&player.id));
         gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(local_defeated);
         gamelogic::helpers::TheVictoryConditions::set_victory_flags_from_live(true);
-
-
     }
-
 
     fn is_defeated(&self, state: PlayerArmyState) -> bool {
         match (
@@ -902,12 +896,7 @@ mod tests {
         p
     }
 
-    fn obj(
-        id: u32,
-        owner: u32,
-        team: Team,
-        kinds: &[KindOf],
-    ) -> (ObjectId, Object) {
+    fn obj(id: u32, owner: u32, team: Team, kinds: &[KindOf]) -> (ObjectId, Object) {
         let mut tpl = ThingTemplate::new(&format!("T{id}"));
         tpl.set_health(100.0);
         for k in kinds {
@@ -926,18 +915,8 @@ mod tests {
         players.insert(0, player(0, Team::USA, 1));
         players.insert(1, player(1, Team::USA, 2));
         let mut objects = HashMap::new();
-        let (a, oa) = obj(
-            1,
-            0,
-            Team::USA,
-            &[KindOf::Infantry],
-        );
-        let (b, ob) = obj(
-            2,
-            1,
-            Team::USA,
-            &[KindOf::Infantry],
-        );
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        let (b, ob) = obj(2, 1, Team::USA, &[KindOf::Infantry]);
         objects.insert(a, oa);
         objects.insert(b, ob);
         assert!(
@@ -1050,7 +1029,8 @@ mod tests {
         objs.insert(c, oc);
         objs.insert(d, od);
         assert!(
-            vc.evaluate(&one_way, &objs, 15, GameMode::Skirmish).is_none(),
+            vc.evaluate(&one_way, &objs, 15, GameMode::Skirmish)
+                .is_none(),
             "one-way PLAYER_SET_OVERRIDE_RELATION_TO_TEAM must not share victory"
         );
         vc.reset();
@@ -1075,7 +1055,6 @@ mod tests {
         vc.reset();
     }
 
-
     #[test]
     fn campaign_and_shell_do_not_evaluate() {
         let mut vc = VictoryConditions::new();
@@ -1085,12 +1064,14 @@ mod tests {
         let mut objects = HashMap::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
         objects.insert(a, oa);
-        assert!(vc
-            .evaluate(&players, &objects, 3, GameMode::SinglePlayer)
-            .is_none());
-        assert!(vc
-            .evaluate(&players, &objects, 3, GameMode::Shell)
-            .is_none());
+        assert!(
+            vc.evaluate(&players, &objects, 3, GameMode::SinglePlayer)
+                .is_none()
+        );
+        assert!(
+            vc.evaluate(&players, &objects, 3, GameMode::Shell)
+                .is_none()
+        );
         assert!(vc.peek_defeat_events().is_empty());
     }
 
@@ -1140,8 +1121,6 @@ mod tests {
         vc.reset();
     }
 
-
-
     fn leftover_named(id: u32) -> std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>> {
         let mut leftover = gamelogic::player::Player::new(id as gamelogic::player::PlayerIndex);
         leftover.set_display_name(format!("player{id}"));
@@ -1150,7 +1129,8 @@ mod tests {
 
     #[test]
     fn evaluate_marks_leftover_player_list_defeated() {
-        let _lock = gamelogic::test_sync::lock();
+        static PLAYER_LIST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _lock = PLAYER_LIST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         {
             let mut list = gamelogic::player::ThePlayerList()
                 .write()
@@ -1338,7 +1318,4 @@ mod tests {
         );
         sticky.reset();
     }
-
-
 }
-

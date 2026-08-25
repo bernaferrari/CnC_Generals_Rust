@@ -130,9 +130,7 @@ impl MapCache {
             let original_count = self.maps.len();
             self.maps.retain(|_, meta| {
                 is_shipping_map_allowed(&self.allowed_maps, &meta.file_path)
-                    || self
-                        .allowed_maps
-                        .contains(&meta.file_name.to_lowercase())
+                    || self.allowed_maps.contains(&meta.file_name.to_lowercase())
             });
             info!(
                 "Filtered to {} allowed maps (from {} total)",
@@ -314,11 +312,7 @@ impl MapCache {
             writeln!(
                 writer,
                 "  isMultiplayer = {}",
-                if metadata.is_multiplayer {
-                    "yes"
-                } else {
-                    "no"
-                }
+                if metadata.is_multiplayer { "yes" } else { "no" }
             )?;
             writeln!(writer, "  numPlayers = {}", metadata.num_players)?;
             writeln!(
@@ -613,7 +607,10 @@ fn generals_crc_new() -> u32 {
 fn generals_crc_add(crc: &mut u32, buf: &[u8]) {
     for &byte in buf {
         let hibit = if *crc & 0x8000_0000 != 0 { 1 } else { 0 };
-        *crc = crc.wrapping_shl(1).wrapping_add(byte as u32).wrapping_add(hibit);
+        *crc = crc
+            .wrapping_shl(1)
+            .wrapping_add(byte as u32)
+            .wrapping_add(hibit);
     }
 }
 
@@ -814,8 +811,9 @@ mod tests {
 
     #[test]
     fn parse_retail_lone_eagle_when_present() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+        );
         if !path.exists() {
             return;
         }
@@ -931,7 +929,10 @@ mod tests {
             "MapCache INI key is still full lowercase path, got {key}"
         );
         assert_eq!(shipping_map_fname(&meta.file_path), "alpine war");
-        assert!(is_shipping_map_allowed(&cache.allowed_maps, &meta.file_path));
+        assert!(is_shipping_map_allowed(
+            &cache.allowed_maps,
+            &meta.file_path
+        ));
 
         let out = tempfile::NamedTempFile::new().unwrap();
         cache.write_cache_file(out.path()).unwrap();

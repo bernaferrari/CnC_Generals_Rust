@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicI32, AtomicU32, Ordering},
     Arc, OnceLock, RwLock,
+    atomic::{AtomicI32, AtomicU32, Ordering},
 };
 use tokio::sync::mpsc;
 
@@ -64,7 +64,6 @@ pub struct AudioEventInfo {
     /// C++ `AudioEventInfo::m_isLevelSpecific` — map-authored overrides purged on reset.
     #[serde(default)]
     pub is_level_specific: bool,
-
 }
 
 impl AudioEventInfo {
@@ -80,7 +79,6 @@ impl AudioEventInfo {
         (self.control & AC_LOOP) != 0 && self.loop_count == 0
     }
 }
-
 
 fn default_low_pass_freq() -> Real {
     1.0
@@ -1736,12 +1734,7 @@ mod tests {
 
         let mut music = AudioEventRts::new();
         music.set_event_name("Test".to_string());
-        music.set_audio_event_info(std::sync::Arc::new(info(
-            AudioType::Music,
-            0,
-            25.0,
-            1000.0,
-        )));
+        music.set_audio_event_info(std::sync::Arc::new(info(AudioType::Music, 0, 25.0, 1000.0)));
         music.set_volume(0.8);
         music.set_volume_shift(1.0);
         assert!((miles_get_effective_volume(&music, &listener, &sliders) - 0.44).abs() < 1e-5);

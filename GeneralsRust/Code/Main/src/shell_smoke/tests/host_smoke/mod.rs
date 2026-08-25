@@ -21,6 +21,7 @@ mod waves_731_788;
 
 use self::core::assert_core;
 use self::presentation::assert_presentation;
+use self::waves_72_112::assert_waves_72_112;
 use self::waves_113_182::assert_waves_113_182;
 use self::waves_183_243::assert_waves_183_243;
 use self::waves_244_304::assert_waves_244_304;
@@ -31,7 +32,6 @@ use self::waves_488_547::assert_waves_488_547;
 use self::waves_548_608::assert_waves_548_608;
 use self::waves_609_669::assert_waves_609_669;
 use self::waves_670_730::assert_waves_670_730;
-use self::waves_72_112::assert_waves_72_112;
 use self::waves_731_788::assert_waves_731_788;
 
 #[test]

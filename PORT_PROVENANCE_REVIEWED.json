@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "policy": "Path review only. A mapping does not claim symbol, source-range, or behavioral parity. Split module roots expand recursively to reachable Rust fragments.",
+  "mappings": [
+    {
+      "source": "GeneralsMD/Code/GameEngine/Include/Common/GameAudio.h",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/Drawable.h",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/mod.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Include/GameClient/TerrainVisual.h",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/mod.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/Audio/GameAudio.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/mod.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameClient/Terrain/TerrainVisual.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/mod.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AI.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameLogic/src/ai/mod.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIGroup.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_group/mod.rs"
+      ]
+    }
+  ]
+}

@@ -56,8 +56,8 @@ fn gc_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
-pub fn honesty_host_drawable_visibility_catalog_shroud_residual_method_names_residual_wave1020(
-) -> bool {
+pub fn honesty_host_drawable_visibility_catalog_shroud_residual_method_names_residual_wave1020()
+-> bool {
     let names = LIVE_HOST_DRAWABLE_VISIBILITY_CATALOG_SHROUD_RESIDUAL_METHOD_NAMES_WAVE1020;
     let ok = residual_name_index(names, "update_drawable_visibility").is_some()
         && residual_name_index(names, "Wave 1020").is_some();
@@ -66,8 +66,8 @@ pub fn honesty_host_drawable_visibility_catalog_shroud_residual_method_names_res
     ok
 }
 
-pub fn honesty_host_drawable_visibility_catalog_shroud_residual_nav_commands_residual_wave1020(
-) -> bool {
+pub fn honesty_host_drawable_visibility_catalog_shroud_residual_nav_commands_residual_wave1020()
+-> bool {
     let steps = LIVE_HOST_DRAWABLE_VISIBILITY_CATALOG_SHROUD_RESIDUAL_NAV_STEPS_WAVE1020;
     let ok = residual_name_index(
         steps,
@@ -85,8 +85,8 @@ pub fn honesty_host_drawable_visibility_catalog_shroud_residual_residual_pack_wa
     let gl = gl_source();
     let gc = gc_source();
     let ok = (gc.contains("Wave 1020: host empty dual-world peels presentation catalog shroud")
-            || gc.contains("Wave 1020/1044: host empty dual-world peels presentation catalog shroud")
-            || gc.contains("Wave 1020/1021 peels catalog shroud"))
+        || gc.contains("Wave 1020/1044: host empty dual-world peels presentation catalog shroud")
+        || gc.contains("Wave 1020/1021 peels catalog shroud"))
         && gc.contains("entry.shroud_status >= 2")
         && (gc.contains("drawable.set_fully_obscured_by_shroud(fully_obscured)")
             || gc.contains("set_fully_obscured_by_shroud"))

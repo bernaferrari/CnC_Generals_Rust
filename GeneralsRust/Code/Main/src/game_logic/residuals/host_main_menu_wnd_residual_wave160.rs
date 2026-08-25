@@ -140,9 +140,9 @@ mod tests {
     #[test]
     fn simulate_main_menu_wnd_prepare_honesty_residual_live() {
         use crate::gameplay_layout::{
-            main_menu_wnd_honesty, simulate_main_menu_wnd_prepare_honesty,
             MAIN_MENU_WND_KEY_NAMES_RESIDUAL, MAIN_MENU_WND_NAMED_COUNT_RESIDUAL,
-            MAIN_MENU_WND_WINDOW_TOKEN_COUNT_RESIDUAL,
+            MAIN_MENU_WND_WINDOW_TOKEN_COUNT_RESIDUAL, main_menu_wnd_honesty,
+            simulate_main_menu_wnd_prepare_honesty,
         };
         assert_eq!(
             MAIN_MENU_WND_WINDOW_TOKEN_COUNT_RESIDUAL,

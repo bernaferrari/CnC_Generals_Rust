@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use wp_audio::{device::EndOfStreamCallback, wwaudio::WWAudioClass, SoundObjectId};
+use wp_audio::{SoundObjectId, device::EndOfStreamCallback, wwaudio::WWAudioClass};
 
 #[test]
 fn text_callbacks_fire_without_audio_system() {

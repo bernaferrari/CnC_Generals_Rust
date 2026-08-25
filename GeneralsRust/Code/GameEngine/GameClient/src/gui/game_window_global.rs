@@ -6,13 +6,13 @@ use glam::Vec2;
 
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 
+use super::DisplayStringManager;
 use super::display_string::DisplayStringHandle;
-use super::font::{get_font_library, FontDesc};
+use super::font::{FontDesc, get_font_library};
 use super::game_window::{Color, GameFont, Image, WIN_COLOR_UNDEFINED};
 use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::UIRect;
 use super::window_manager::WindowManager;
-use super::DisplayStringManager;
 
 /// Visible `win_draw_image` submits (textured or untextured fill).
 /// Tests can read this when UIRenderer/GPU is not bound.

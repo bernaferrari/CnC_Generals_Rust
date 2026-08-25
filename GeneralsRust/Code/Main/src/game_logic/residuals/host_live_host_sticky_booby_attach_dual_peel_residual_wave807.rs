@@ -53,8 +53,8 @@ fn residual_action_store(a: ResidualHostStickyBoobyAttachDualPeelAction) {
 pub fn residual_host_sticky_booby_attach_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_sticky_booby_attach_dual_peel_last_action(
-) -> ResidualHostStickyBoobyAttachDualPeelAction {
+pub fn residual_host_sticky_booby_attach_dual_peel_last_action()
+-> ResidualHostStickyBoobyAttachDualPeelAction {
     ResidualHostStickyBoobyAttachDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {

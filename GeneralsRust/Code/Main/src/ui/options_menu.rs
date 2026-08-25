@@ -5,7 +5,7 @@
 //! Provides tabs for Video, Audio, Controls, and Game settings.
 
 use super::{
-    utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext, utils,
 };
 use crate::localization;
 use log::info;
@@ -472,7 +472,6 @@ impl OptionsMenu {
             start_y + spacing * 2,
         ));
 
-
         // Gamma (C++ OptionsMenu.cpp:1239 SliderGamma, 0-100, 50 = 1.0)
         video_options.push(OptionControl::new(
             "video.gamma",
@@ -747,13 +746,14 @@ impl OptionsMenu {
                 }
                 "video.quality" => {
                     if let Some(raw) = flat.get("StaticGameLOD") {
-                        control.value = OptionValue::Quality(match raw.to_ascii_lowercase().as_str() {
-                            "low" => GraphicsQuality::Low,
-                            "medium" => GraphicsQuality::Medium,
-                            "high" => GraphicsQuality::High,
-                            "custom" => GraphicsQuality::Custom,
-                            _ => GraphicsQuality::High,
-                        });
+                        control.value =
+                            OptionValue::Quality(match raw.to_ascii_lowercase().as_str() {
+                                "low" => GraphicsQuality::Low,
+                                "medium" => GraphicsQuality::Medium,
+                                "high" => GraphicsQuality::High,
+                                "custom" => GraphicsQuality::Custom,
+                                _ => GraphicsQuality::High,
+                            });
                     }
                 }
                 "video.gamma" => {
@@ -807,9 +807,10 @@ impl OptionsMenu {
                     }
                 }
                 "controls.draw_anchor" => {
-                    let fallback = game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
-                        .map(|s| s.draw_rmb_scroll_anchor)
-                        .unwrap_or(false);
+                    let fallback =
+                        game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+                            .map(|s| s.draw_rmb_scroll_anchor)
+                            .unwrap_or(false);
                     control.value = OptionValue::Boolean(
                         game_engine::common::user_preferences::scroll_anchor_pref_enabled(
                             flat.get("DrawScrollAnchor").map(String::as_str),
@@ -818,9 +819,10 @@ impl OptionsMenu {
                     );
                 }
                 "controls.move_anchor" => {
-                    let fallback = game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
-                        .map(|s| s.move_rmb_scroll_anchor)
-                        .unwrap_or(false);
+                    let fallback =
+                        game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+                            .map(|s| s.move_rmb_scroll_anchor)
+                            .unwrap_or(false);
                     control.value = OptionValue::Boolean(
                         game_engine::common::user_preferences::scroll_anchor_pref_enabled(
                             flat.get("MoveScrollAnchor").map(String::as_str),
@@ -1518,9 +1520,10 @@ mod tests {
         assert!(!OptionsMenu::parse_yes_no(
             flat.get("SaveCameraInReplays").unwrap()
         ));
-        assert!(flat
-            .get("UseDoubleClickAttackMove")
-            .unwrap()
-            .eq_ignore_ascii_case("yes"));
+        assert!(
+            flat.get("UseDoubleClickAttackMove")
+                .unwrap()
+                .eq_ignore_ascii_case("yes")
+        );
     }
 }

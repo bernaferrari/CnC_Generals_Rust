@@ -116,8 +116,8 @@ mod tests {
     #[test]
     fn simulate_popup_communicator_prepare_ok_residual_live() {
         use game_client::gui::callbacks::{
-            residual_popup_communicator_is_visible, residual_popup_communicator_last_action,
-            simulate_popup_communicator_prepare_ok, ResidualPopupCommunicatorAction,
+            ResidualPopupCommunicatorAction, residual_popup_communicator_is_visible,
+            residual_popup_communicator_last_action, simulate_popup_communicator_prepare_ok,
         };
         assert!(
             simulate_popup_communicator_prepare_ok(),

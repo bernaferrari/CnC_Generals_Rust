@@ -10,13 +10,13 @@ use super::{
 };
 use crate::{DeviceCapabilities, DeviceStatus, DeviceType, PerformanceMetrics};
 
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use dashmap::DashMap;
 use parking_lot::RwLock as ParkingRwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use uuid::Uuid;
 
 // CPAL and Rodio replaced with modern Kira audio system

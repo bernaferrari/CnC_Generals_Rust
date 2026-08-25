@@ -1,6 +1,6 @@
 //! Snow manager and weather settings (ported from GameClient/Snow.cpp).
 
-use game_engine::common::ini::ini::{register_block_parser, INIError, INIResult, INI};
+use game_engine::common::ini::ini::{INI, INIError, INIResult, register_block_parser};
 use game_engine::common::ini::ini_weather;
 use once_cell::sync::OnceCell;
 use rand::Rng;
@@ -505,14 +505,15 @@ mod tests {
         );
         assert_eq!(snow.starting_heights().len(), SNOW_NOISE_X * SNOW_NOISE_Y);
         let flakes = snow.flake_positions_y_up([0.0, 10.0, 0.0]);
-        assert!(
-            flakes.is_empty(),
-            "hidden snow must not emit flake centers"
-        );
+        assert!(flakes.is_empty(), "hidden snow must not emit flake centers");
         snow.set_visible(true);
         let flakes = snow.flake_positions_y_up([0.0, 10.0, 0.0]);
         assert_eq!(flakes.len(), 50 * 50);
-        assert!(flakes.iter().any(|p| p[0].abs() > 0.01 || p[2].abs() > 0.01));
+        assert!(
+            flakes
+                .iter()
+                .any(|p| p[0].abs() > 0.01 || p[2].abs() > 0.01)
+        );
     }
 
     #[test]
@@ -578,12 +579,8 @@ mod tests {
 
     #[test]
     fn camera_facing_quads_are_not_world_axis_cards() {
-        let corners = camera_facing_quad_corners(
-            [0.0, 10.0, 0.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 0.8, 0.6],
-            1.0,
-        );
+        let corners =
+            camera_facing_quad_corners([0.0, 10.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.8, 0.6], 1.0);
         // C++ half-size is 0.5 * quadSize, not ±quadSize.
         let top_left = corners[0].0;
         assert!((top_left[0] + 0.5).abs() < 1e-5);

@@ -60,12 +60,18 @@ fn money_crate_identity_freezes_for_click_routing() {
     logic.templates.insert("HealCrate".into(), heal);
 
     let salvage_id = logic
-        .create_object("SalvageCrate", Team::Neutral, glam::Vec3::new(5.0, 0.0, 0.0))
+        .create_object(
+            "SalvageCrate",
+            Team::Neutral,
+            glam::Vec3::new(5.0, 0.0, 0.0),
+        )
         .expect("salvage");
     let heal_id = logic
         .create_object("HealCrate", Team::Neutral, glam::Vec3::new(15.0, 0.0, 0.0))
         .expect("heal");
-    logic.host_money_crates.register_salvage_crate(salvage_id, 40);
+    logic
+        .host_money_crates
+        .register_salvage_crate(salvage_id, 40);
     logic.host_money_crates.register_heal_crate(heal_id);
 
     let frame = PresentationFrame::build_from_logic(&logic, 0);
@@ -204,67 +210,67 @@ fn hotkey_selection_helpers_from_presentation() {
     assert_eq!(filtered2, vec![a]);
 }
 
-    #[test]
-    fn control_group_recall_keeps_contained_and_non_local_like_cpp() {
-        // C++ Squad::getLiveObjects uses Object::isSelectable (no contained/masked
-        // peel). SELECT_TEAM then keeps local owner; ADD_TEAM / lookAt do not.
-        use crate::game_logic::{KindOf, Team, ThingTemplate};
-        use crate::unit_control::UnitControlSystem;
-        let mut logic = crate::game_logic::GameLogic::new();
-        let mut t = ThingTemplate::new("Ranger");
-        t.set_health(100.0);
-        t.add_kind_of(KindOf::Infantry);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("Ranger".into(), t);
-        let local = logic
-            .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
-            .unwrap();
-        let garrisoned = logic
-            .create_object("Ranger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
-            .unwrap();
-        let captured = logic
-            .create_object("Ranger", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
-            .unwrap();
-        if let Some(o) = logic.host_object_mut(local) {
-            o.owner_player_id = Some(0);
-        }
-        if let Some(o) = logic.host_object_mut(garrisoned) {
-            o.set_contained_by(Some(ObjectId(50)));
-            o.status.masked = true;
-            o.owner_player_id = Some(0);
-        }
-        if let Some(o) = logic.host_object_mut(captured) {
-            o.owner_player_id = Some(7);
-            o.team = Team::China;
-        }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
-        let stored = [local, garrisoned, captured];
-        let click = frame.filter_alive_selectable_ids(&stored, Team::USA);
-        assert_eq!(click, vec![local], "click path still peels contained");
-        assert!(
-            !UnitControlSystem::presentation_is_selectable(
-                frame.objects.iter().find(|o| o.id == garrisoned).unwrap()
-            ),
-            "CanSelectDrawable still rejects contained"
-        );
-        let select_team = frame.filter_live_squad_ids(&stored, true);
-        assert_eq!(
-            select_team,
-            vec![local, garrisoned],
-            "SELECT_TEAM keeps garrisoned local, drops captured"
-        );
-        let add_team = frame.filter_live_squad_ids(&stored, false);
-        assert_eq!(
-            add_team,
-            vec![local, garrisoned, captured],
-            "ADD_TEAM / double-tap keep captured last live member"
-        );
-        assert_eq!(
-            *add_team.last().unwrap(),
-            captured,
-            "lookAt centers on last getLiveObjects member"
-        );
+#[test]
+fn control_group_recall_keeps_contained_and_non_local_like_cpp() {
+    // C++ Squad::getLiveObjects uses Object::isSelectable (no contained/masked
+    // peel). SELECT_TEAM then keeps local owner; ADD_TEAM / lookAt do not.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::unit_control::UnitControlSystem;
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut t = ThingTemplate::new("Ranger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("Ranger".into(), t);
+    let local = logic
+        .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let garrisoned = logic
+        .create_object("Ranger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+        .unwrap();
+    let captured = logic
+        .create_object("Ranger", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(o) = logic.host_object_mut(local) {
+        o.owner_player_id = Some(0);
     }
+    if let Some(o) = logic.host_object_mut(garrisoned) {
+        o.set_contained_by(Some(ObjectId(50)));
+        o.status.masked = true;
+        o.owner_player_id = Some(0);
+    }
+    if let Some(o) = logic.host_object_mut(captured) {
+        o.owner_player_id = Some(7);
+        o.team = Team::China;
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let stored = [local, garrisoned, captured];
+    let click = frame.filter_alive_selectable_ids(&stored, Team::USA);
+    assert_eq!(click, vec![local], "click path still peels contained");
+    assert!(
+        !UnitControlSystem::presentation_is_selectable(
+            frame.objects.iter().find(|o| o.id == garrisoned).unwrap()
+        ),
+        "CanSelectDrawable still rejects contained"
+    );
+    let select_team = frame.filter_live_squad_ids(&stored, true);
+    assert_eq!(
+        select_team,
+        vec![local, garrisoned],
+        "SELECT_TEAM keeps garrisoned local, drops captured"
+    );
+    let add_team = frame.filter_live_squad_ids(&stored, false);
+    assert_eq!(
+        add_team,
+        vec![local, garrisoned, captured],
+        "ADD_TEAM / double-tap keep captured last live member"
+    );
+    assert_eq!(
+        *add_team.last().unwrap(),
+        captured,
+        "lookAt centers on last getLiveObjects member"
+    );
+}
 
 #[test]
 fn box_select_unit_ids_from_presentation() {
@@ -564,12 +570,10 @@ fn type_select_uses_leftover_is_equivalent_to_not_stem() {
         "type-select must use leftover ThingTemplate::isEquivalentTo"
     );
     assert!(
-        !src.contains("type_select_template_stem")
-            && !src.contains("TYPE_SELECT_GENERAL_PREFIXES"),
+        !src.contains("type_select_template_stem") && !src.contains("TYPE_SELECT_GENERAL_PREFIXES"),
         "type-select must not use a general-prefix stem compare"
     );
 }
-
 
 #[test]
 fn similar_unit_ids_skip_off_map() {
@@ -587,13 +591,13 @@ fn similar_unit_ids_skip_off_map() {
         .unwrap();
     let (wmin, wmax) = logic.world_bounds();
     let off_pos = glam::Vec3::new(wmax.x + 80.0, 40.0, wmax.z + 80.0);
-    let off_map = logic
-        .create_object("Ranger", Team::USA, off_pos)
-        .unwrap();
+    let off_map = logic.create_object("Ranger", Team::USA, off_pos).unwrap();
     let frame = PresentationFrame::build_from_logic(&logic, 0);
-    assert!(crate::game_logic::host_deliver_payload::is_off_map_residual(
-        off_pos, wmin.x, wmin.z, wmax.x, wmax.z
-    ));
+    assert!(
+        crate::game_logic::host_deliver_payload::is_off_map_residual(
+            off_pos, wmin.x, wmin.z, wmax.x, wmax.z
+        )
+    );
     let ids = frame.similar_unit_ids(on_map, Team::USA);
     assert!(ids.contains(&on_map));
     assert!(
@@ -617,11 +621,7 @@ fn box_select_firebase_propagates_occupant_to_container() {
     ranger.add_kind_of(KindOf::Selectable);
     logic.templates.insert("Ranger".into(), ranger);
     let container = logic
-        .create_object(
-            "AmericaFireBase",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
+        .create_object("AmericaFireBase", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
     let occupant = logic
         .create_object("Ranger", Team::USA, glam::Vec3::new(0.5, 0.0, 0.5))
@@ -635,7 +635,6 @@ fn box_select_firebase_propagates_occupant_to_container() {
     assert_eq!(ids, vec![container]);
     assert!(!ids.contains(&occupant));
 }
-
 
 #[test]
 fn select_similar_is_structure_aware_and_alt_selects_across_map() {
@@ -685,7 +684,11 @@ fn select_similar_is_structure_aware_and_alt_selects_across_map() {
         viewport,
     );
     screen.sort_by_key(|id| id.0);
-    assert_eq!(screen, vec![on_screen], "plain double-click is on-screen only");
+    assert_eq!(
+        screen,
+        vec![on_screen],
+        "plain double-click is on-screen only"
+    );
 
     let mut across_map = frame.similar_unit_ids_for_double_click(
         on_screen,
@@ -775,8 +778,8 @@ fn kind_of_freeze_from_host() {
 #[test]
 fn upgrades_object_type_freeze_from_host() {
     use crate::game_logic::{
-        host_mines::{HostMineData, HostMineKind},
         KindOf, Team, ThingTemplate, Weapon,
+        host_mines::{HostMineData, HostMineKind},
     };
     let mut logic = crate::game_logic::GameLogic::new();
     let mut t = ThingTemplate::new("Overlord");
@@ -799,7 +802,7 @@ fn upgrades_object_type_freeze_from_host() {
             can_target_air: true,
             can_target_ground: true,
             ..Default::default()
-});
+        });
         obj.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
     }
     let frame = PresentationFrame::build_from_logic(&logic, 0);
@@ -895,12 +898,16 @@ fn local_player_freeze_from_host() {
     assert!(frame.local_radar_active());
     assert!((frame.local_cash_bounty_percent - 0.1).abs() < 0.001);
     assert!(frame.local_has_science("SCIENCE_CashBounty1"));
-    assert!(frame
-        .local_unlocked_sciences
-        .contains(&"SCIENCE_RedGuards".into()));
-    assert!(frame
-        .local_queued_upgrades
-        .contains(&"Upgrade_AmericaAdvancedTraining".into()));
+    assert!(
+        frame
+            .local_unlocked_sciences
+            .contains(&"SCIENCE_RedGuards".into())
+    );
+    assert!(
+        frame
+            .local_queued_upgrades
+            .contains(&"Upgrade_AmericaAdvancedTraining".into())
+    );
     assert_eq!(frame.local_color_rgb, (10, 20, 30));
     let ratio = frame.local_energy_ratio();
     assert!((ratio - (100.0 / 55.0)).abs() < 0.01);
@@ -935,7 +942,7 @@ fn weapon_and_stealth_freeze_from_host() {
             can_target_air: false,
             can_target_ground: true,
             ..Default::default()
-});
+        });
         obj.status.stealthed = true;
         obj.status.detected = false;
         obj.status.attacking = true;
@@ -1103,9 +1110,11 @@ fn production_upgrade_queue_freezes_is_upgrade_and_ratio_residual() {
         .expect("barracks ro");
     assert_eq!(ro.production_queue.len(), 1);
     assert!(ro.production_queue[0].is_upgrade, "upgrade residual");
-    assert!(ro.production_queue[0]
-        .template_name
-        .eq_ignore_ascii_case(UPGRADE_AMERICA_FLASHBANG));
+    assert!(
+        ro.production_queue[0]
+            .template_name
+            .eq_ignore_ascii_case(UPGRADE_AMERICA_FLASHBANG)
+    );
     assert!((ro.production_queue[0].progress_ratio - 0.5).abs() < 0.01);
     let mut ui = crate::ui::GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
@@ -1269,7 +1278,6 @@ fn combat_damage_does_not_spawn_floating_text() {
             .collect::<Vec<_>>()
     );
 }
-
 
 #[test]
 fn damage_applied_freezes_from_last_drain() {
@@ -1458,24 +1466,29 @@ fn presentation_feeds_camera_controls() {
         Some(("AmericaSpyDrone", "Bone01"))
     );
     assert!(frame.camera_slave_disable);
-    assert!(frame
-        .named_timers
-        .iter()
-        .any(|(n, t, c)| n == "TimerA" && t == "00:30" && *c));
-    assert!(frame
-        .cameo_flash
-        .iter()
-        .any(|(b, c)| b == "Command_AmericaRanger" && *c == 3));
+    assert!(
+        frame
+            .named_timers
+            .iter()
+            .any(|(n, t, c)| n == "TimerA" && t == "00:30" && *c)
+    );
+    assert!(
+        frame
+            .cameo_flash
+            .iter()
+            .any(|(b, c)| b == "Command_AmericaRanger" && *c == 3)
+    );
 
     let mut ui = crate::ui::GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
     assert_eq!(ui.camera_zoom, Some((0.55, 1.5)));
     assert!(ui.camera_zoom_reset);
     assert!(ui.named_timers.iter().any(|(n, _, _)| n == "TimerA"));
-    assert!(ui
-        .cameo_flash
-        .iter()
-        .any(|(b, c)| b.contains("Ranger") && *c == 3));
+    assert!(
+        ui.cameo_flash
+            .iter()
+            .any(|(b, c)| b.contains("Ranger") && *c == 3)
+    );
 }
 
 #[test]
@@ -1495,15 +1508,17 @@ fn presentation_feeds_script_camera() {
     assert_eq!(frame.view_guardband, Some((0.25, -0.10)));
     assert_eq!(frame.camera_focus, Some([100.0, 0.0, 200.0]));
     assert_eq!(frame.camera_bw_mode, Some((true, 30)));
-    assert!(frame
-        .camera_shakers
-        .iter()
-        .any(|(pos, a, d, r)| (pos[0] - 40.0).abs() < 1e-5
-            && (pos[1] - 3.0).abs() < 1e-5
-            && (pos[2] + 80.0).abs() < 1e-5
-            && (*a - 2.5).abs() < 1e-5
-            && (*d - 0.4).abs() < 1e-5
-            && (*r - 120.0).abs() < 1e-5));
+    assert!(
+        frame
+            .camera_shakers
+            .iter()
+            .any(|(pos, a, d, r)| (pos[0] - 40.0).abs() < 1e-5
+                && (pos[1] - 3.0).abs() < 1e-5
+                && (pos[2] + 80.0).abs() < 1e-5
+                && (*a - 2.5).abs() < 1e-5
+                && (*d - 0.4).abs() < 1e-5
+                && (*r - 120.0).abs() < 1e-5)
+    );
 
     let mut ui = crate::ui::GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
@@ -1528,20 +1543,23 @@ fn presentation_feeds_media_queue() {
     assert_eq!(frame.pending_movie.as_deref(), Some("EALogo.bik"));
     assert_eq!(frame.pending_radar_movie.as_deref(), Some("RadarIntro.bik"));
     assert!(frame.pending_music_stop);
-    assert!(frame
-        .pending_popup_messages
-        .iter()
-        .any(|m| m.message.contains("hold the line")));
+    assert!(
+        frame
+            .pending_popup_messages
+            .iter()
+            .any(|m| m.message.contains("hold the line"))
+    );
 
     let mut ui = crate::ui::GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
     assert_eq!(ui.pending_movie.as_deref(), Some("EALogo.bik"));
     assert_eq!(ui.pending_radar_movie.as_deref(), Some("RadarIntro.bik"));
     assert!(ui.pending_music_stop);
-    assert!(ui
-        .pending_popup_messages
-        .iter()
-        .any(|m| m.contains("hold the line")));
+    assert!(
+        ui.pending_popup_messages
+            .iter()
+            .any(|m| m.contains("hold the line"))
+    );
 }
 
 #[test]
@@ -1576,18 +1594,21 @@ fn presentation_feeds_mission_objectives() {
         "objectives: {:?}",
         frame.objectives
     );
-    assert!(frame
-        .objectives
-        .iter()
-        .any(|o| o.id.as_deref() == Some("OBJ_SCOUT")));
+    assert!(
+        frame
+            .objectives
+            .iter()
+            .any(|o| o.id.as_deref() == Some("OBJ_SCOUT"))
+    );
 
     let mut ui = crate::ui::GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
     assert_eq!(ui.objectives.len(), frame.objectives.len());
-    assert!(ui
-        .objectives
-        .iter()
-        .any(|o| o.title.contains("Hold the ridge")));
+    assert!(
+        ui.objectives
+            .iter()
+            .any(|o| o.title.contains("Hold the ridge"))
+    );
     assert!(ui.objectives.iter().any(|o| {
         o.id.as_deref() == Some("OBJ_SCOUT") && o.status == ObjectiveStatus::Completed
     }));
@@ -1610,10 +1631,12 @@ fn presentation_feeds_script_and_cinematic_ui() {
     logic.set_radar_forced(true);
 
     let frame = PresentationFrame::build_from_logic(&logic, 0);
-    assert!(frame
-        .script_messages
-        .iter()
-        .any(|m| m.contains("Hold the ridge")));
+    assert!(
+        frame
+            .script_messages
+            .iter()
+            .any(|m| m.contains("Hold the ridge"))
+    );
     assert!(frame.cinematic_letterbox);
     assert_eq!(
         frame.cinematic_text.as_deref(),
@@ -1628,10 +1651,11 @@ fn presentation_feeds_script_and_cinematic_ui() {
 
     let mut ui = crate::ui::GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
-    assert!(ui
-        .script_messages
-        .iter()
-        .any(|m| m.contains("Hold the ridge")));
+    assert!(
+        ui.script_messages
+            .iter()
+            .any(|m| m.contains("Hold the ridge"))
+    );
     assert!(ui.cinematic_letterbox);
     assert_eq!(
         ui.cinematic_text.as_deref(),
@@ -1859,7 +1883,11 @@ fn select_all_uses_locally_controlled_not_faction_team() {
         .expect("ally");
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     let ids = frame.alive_select_all_unit_ids(Team::USA, false);
-    assert_eq!(ids, vec![mine], "SELECT_ALL must skip same-faction ally {ally:?}");
+    assert_eq!(
+        ids,
+        vec![mine],
+        "SELECT_ALL must skip same-faction ally {ally:?}"
+    );
     assert!(
         frame
             .objects

@@ -110,9 +110,9 @@ mod tests {
     #[test]
     fn simulate_smudge_prepare_set_residual_live() {
         use game_client::system::{
-            residual_smudge_count, residual_smudge_last_action, residual_smudge_set_count,
-            simulate_smudge_prepare_set_with_smudge, simulate_smudge_remove_first,
-            simulate_smudge_reset, ResidualSmudgeAction,
+            ResidualSmudgeAction, residual_smudge_count, residual_smudge_last_action,
+            residual_smudge_set_count, simulate_smudge_prepare_set_with_smudge,
+            simulate_smudge_remove_first, simulate_smudge_reset,
         };
         assert!(
             simulate_smudge_prepare_set_with_smudge(12.0),

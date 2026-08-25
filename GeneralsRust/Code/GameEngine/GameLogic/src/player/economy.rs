@@ -291,7 +291,6 @@ impl Player {
             .unwrap_or(VeterancyLevel::Regular)
     }
 
-
     /// Get production cost change based on KindOf mask (matches C++ Player::getProductionCostChangeBasedOnKindOf)
     pub fn get_production_cost_change_based_on_kind_of(&self, kind_of: KindOfMaskType) -> Real {
         let mut result: Real = 1.0;
@@ -645,10 +644,7 @@ impl Player {
             .collect()
     }
 
-    pub fn replace_kind_of_production_changes(
-        &mut self,
-        entries: &[(KindOfMaskType, Real, u32)],
-    ) {
+    pub fn replace_kind_of_production_changes(&mut self, entries: &[(KindOfMaskType, Real, u32)]) {
         self.kind_of_percent_production_change_list = entries
             .iter()
             .map(|&(kind_of, percent, refs)| KindOfPercentProductionChange {
@@ -658,7 +654,6 @@ impl Player {
             })
             .collect();
     }
-
 
     /// Enable/disable all owned objects of a specific template type.
     /// Matches C++ Player::setObjectsEnabled.

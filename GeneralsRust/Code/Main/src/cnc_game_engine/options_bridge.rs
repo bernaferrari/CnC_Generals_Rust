@@ -9,7 +9,7 @@
 
 use super::*;
 #[cfg(feature = "game_client")]
-use game_client::gui::options_host_bridge::{take_host_options_requests, HostOptionsRequest};
+use game_client::gui::options_host_bridge::{HostOptionsRequest, take_host_options_requests};
 
 /// Build the visual C++ `DrawRMBScrollAnchor` residual only for a live Main
 /// RMB drag. This keeps the preference separate from camera simulation and

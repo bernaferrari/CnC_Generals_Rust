@@ -31,23 +31,23 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers, AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction,
-    PartitionFilter, THE_AI,
+    search_qualifiers,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
-use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePartitionManager};
+use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, PhysicsBehaviorExt, FAST_AS_POSSIBLE,
+    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -62,7 +62,7 @@ use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
-    Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT,
+    NO_MAX_SHOTS_LIMIT, Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus,
 };
 use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 
@@ -600,7 +600,6 @@ pub(crate) fn clear_team_target_object_if_victim(team: &mut Team, victim_id: Obj
     }
 }
 
-
 fn clear_team_target_if_victim(owner: &Object, victim_id: ObjectID) {
     if let Some(team_arc) = owner.get_team() {
         if let Ok(mut team_guard) = team_arc.write() {
@@ -608,7 +607,6 @@ fn clear_team_target_if_victim(owner: &Object, victim_id: ObjectID) {
         }
     }
 }
-
 
 /// C++ `AIAttackState::update` (`AIStates.cpp:5629-5633`):
 /// parent-machine retargets are forwarded into the nested AttackStateMachine.
@@ -620,7 +618,6 @@ pub(crate) fn forward_parent_goal_to_nested_machine(
         machine.set_goal_object(Some(parent_goal));
     }
 }
-
 
 impl StateImplementation for AIAttackObjectState {
     fn on_enter(&mut self) -> StateReturnType {
@@ -896,7 +893,6 @@ impl ClassicState for AIAttackObjectState {
         if let Some(attack_machine) = self.attack_machine.as_mut() {
             forward_parent_goal_to_nested_machine(attack_machine, self.target_id);
         }
-
 
         // C++ lines 5640-5642: Re-evaluate weapon choice every frame
         {

@@ -139,7 +139,8 @@ impl LiveCascadeShadowMap {
         let mut near = 1.0_f32;
         for (i, &far) in splits.iter().enumerate() {
             let radius = (far - near) * 0.5 + 8.0;
-            let center = camera_position + camera_forward.normalize_or_zero() * ((near + far) * 0.5);
+            let center =
+                camera_position + camera_forward.normalize_or_zero() * ((near + far) * 0.5);
             let eye = center - light_dir * (radius * 2.0);
             let view = Mat4::look_at_rh(eye, center, Vec3::Y);
             let proj = Mat4::orthographic_rh(-radius, radius, -radius, radius, 0.5, radius * 4.0);
@@ -154,11 +155,7 @@ impl LiveCascadeShadowMap {
             0.002,
             if enabled { 1.0 } else { 0.0 },
         ];
-        queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::bytes_of(&self.uniform),
-        );
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&self.uniform));
     }
 
     pub fn bind_group_entries(&self) -> [wgpu::BindGroupEntry<'_>; 3] {

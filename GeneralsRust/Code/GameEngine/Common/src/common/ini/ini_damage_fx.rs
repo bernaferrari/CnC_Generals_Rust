@@ -10,14 +10,14 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
 use crate::common::audio::AudioEventRts;
-use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
-use crate::common::ini::ini_fx_list::{
-    fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store, record_dispatched_fx_nugget,
-    FXNugget,
-};
+use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
 use crate::common::game_common::ObjectShroudStatus;
+use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
+use crate::common::ini::ini_fx_list::{
+    FXNugget, fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store,
+    record_dispatched_fx_nugget,
+};
 
 /// Damage types enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -853,8 +853,8 @@ mod tests {
         // C++ DamageFX.cpp:73 → FXList::doFXObj (FXList.cpp:794-804).
         use crate::common::ascii_string::AsciiString;
         use crate::common::ini::ini_fx_list::{
-            clear_fx_list_obj_runtime, get_fx_list_store_mut, take_dispatched_fx_nuggets,
-            CameraShakeType, DispatchedFxNugget, FXList, ScorchType,
+            CameraShakeType, DispatchedFxNugget, FXList, ScorchType, clear_fx_list_obj_runtime,
+            get_fx_list_store_mut, take_dispatched_fx_nuggets,
         };
 
         clear_fx_list_obj_runtime();
@@ -906,7 +906,9 @@ mod tests {
 
         let dispatched = take_dispatched_fx_nuggets();
         assert!(
-            dispatched.iter().any(|n| matches!(n, DispatchedFxNugget::Sound(_))),
+            dispatched
+                .iter()
+                .any(|n| matches!(n, DispatchedFxNugget::Sound(_))),
             "Sound nugget must run"
         );
         assert!(

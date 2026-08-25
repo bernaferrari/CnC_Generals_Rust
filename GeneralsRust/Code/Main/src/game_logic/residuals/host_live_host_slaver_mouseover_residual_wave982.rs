@@ -103,21 +103,22 @@ pub fn honesty_host_slaver_mouseover_residual_residual_pack_wave982() -> bool {
         None => "",
     };
 
-    let ok = (m.contains("IgnoredInGui") || gl.contains("IgnoredInGui") || ui.contains("IgnoredInGui"))
-        && pf.contains("pub producer_id: Option<ObjectId>")
-        && pf.contains("KindOf::IgnoredInGui")
-        && pf.contains("producer_id: obj.producer_id")
-        && ui.contains("pub slaver_object_id: Option<u32>")
-        && ui.contains("Wave 982")
-        && mouse.contains("IgnoredInGui")
-        && mouse.contains("slaver_object_id")
-        && cnc.contains("slaver_object_id: o.producer_id.map(|id| id.0)")
-        && gl.contains("KindOf::IgnoredInGui")
-        && gl.contains("ignored_in_gui")
-        && xfer.contains("KindOf::IgnoredInGui => 39")
-        && xfer.contains("39 => Ok(KindOf::IgnoredInGui)")
-        && !cnc.contains("playable_claim = true")
-        && !gl.contains("playable_claim = true");
+    let ok =
+        (m.contains("IgnoredInGui") || gl.contains("IgnoredInGui") || ui.contains("IgnoredInGui"))
+            && pf.contains("pub producer_id: Option<ObjectId>")
+            && pf.contains("KindOf::IgnoredInGui")
+            && pf.contains("producer_id: obj.producer_id")
+            && ui.contains("pub slaver_object_id: Option<u32>")
+            && ui.contains("Wave 982")
+            && mouse.contains("IgnoredInGui")
+            && mouse.contains("slaver_object_id")
+            && cnc.contains("slaver_object_id: o.producer_id.map(|id| id.0)")
+            && gl.contains("KindOf::IgnoredInGui")
+            && gl.contains("ignored_in_gui")
+            && xfer.contains("KindOf::IgnoredInGui => 39")
+            && xfer.contains("39 => Ok(KindOf::IgnoredInGui)")
+            && !cnc.contains("playable_claim = true")
+            && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostSlaverMouseoverResidualAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

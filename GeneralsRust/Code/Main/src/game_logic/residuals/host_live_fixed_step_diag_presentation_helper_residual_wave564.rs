@@ -80,8 +80,8 @@ pub fn residual_fixed_step_diag_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_fixed_step_diag_presentation_helper_last_action(
-) -> ResidualFixedStepDiagPresentationHelperAction {
+pub fn residual_fixed_step_diag_presentation_helper_last_action()
+-> ResidualFixedStepDiagPresentationHelperAction {
     ResidualFixedStepDiagPresentationHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

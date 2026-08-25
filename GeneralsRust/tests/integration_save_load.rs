@@ -11,9 +11,6 @@
 
 #![cfg(test)]
 
-use std::io::{Read, Write};
-use std::fs::File;
-
 /// Game state for save/load
 #[derive(Debug, Clone, PartialEq)]
 struct GameState {
@@ -312,8 +309,10 @@ mod stress_tests {
         let elapsed = start.elapsed();
         let cycles_per_sec = NUM_CYCLES as f64 / elapsed.as_secs_f64();
 
-        println!("Completed {} cycles in {:?} ({:.0} cycles/sec)",
-            NUM_CYCLES, elapsed, cycles_per_sec);
+        println!(
+            "Completed {} cycles in {:?} ({:.0} cycles/sec)",
+            NUM_CYCLES, elapsed, cycles_per_sec
+        );
 
         assert!(cycles_per_sec > 1000.0);
 

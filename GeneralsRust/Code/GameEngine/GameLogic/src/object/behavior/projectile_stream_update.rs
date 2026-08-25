@@ -3,14 +3,14 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, CoordOrigin, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
-    INVALID_ID,
+    AsciiString, Bool, CoordOrigin, INVALID_ID, ModuleData, ObjectID, Real, UnsignedInt,
+    XferVersion,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
-use game_engine::common::ini::{INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{

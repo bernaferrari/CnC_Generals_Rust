@@ -4,16 +4,16 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::Coord3D;
-use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
+use crate::common::Relationship;
+use crate::common::{INVALID_ID, ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion};
 use crate::common::{KindOf, PathfindLayerEnum};
 use crate::common::{Matrix3D, TurretType};
-use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
 use crate::damage::{DamageType, DeathType};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
-    TheThingFactory,
+    TheGameLogic, TheTerrainLogic, TheThingFactory, get_game_logic_random_value,
+    get_game_logic_random_value_real,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::collide::GameObject;
@@ -21,17 +21,17 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::update::MissileAIUpdateModuleData;
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::projectile_launch_cast::{
-    module_projectile_launch_kind, ProjectileLaunchKindMut,
+    ProjectileLaunchKindMut, module_projectile_launch_kind,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
-use super::helpers::{ObjectId, INVALID_OBJECT_ID};
-use game_engine::common::name_key_generator::NameKeyGenerator;
+use super::helpers::{INVALID_OBJECT_ID, ObjectId};
 use super::masks_enums::*;
 use super::template::WeaponTemplate;
 use super::weapon_instance::Weapon;
+use game_engine::common::name_key_generator::NameKeyGenerator;
 
 /// Weapon store managing all weapon templates
 #[derive(Debug)]
@@ -172,7 +172,6 @@ impl WeaponStore {
             .map(|(_, template)| template)
     }
 
-
     /// Find weapon template by name key
     pub fn find_weapon_template_by_name_key(&self, key: u32) -> Option<&Arc<WeaponTemplate>> {
         self.weapon_templates_by_key.get(&key)
@@ -261,7 +260,6 @@ impl WeaponStore {
         let name = template.name.clone();
         let name_key = template.name_key;
         let arc_template = Arc::new(template);
-
 
         self.weapon_templates
             .insert(name, Arc::clone(&arc_template));

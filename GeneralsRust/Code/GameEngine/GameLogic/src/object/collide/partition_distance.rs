@@ -1,7 +1,7 @@
 //! C++ `DistanceCalculationType` / `theDistCalcProcs` (`PartitionManager.cpp:738-925`).
 
-use super::collision_geometry::GeometryInfo;
 use super::Coord3D;
+use super::collision_geometry::GeometryInfo;
 
 /// C++ `HUGE_DIST` (`PartitionManager.h:45`).
 pub const HUGE_DIST: f32 = 1_000_000.0;

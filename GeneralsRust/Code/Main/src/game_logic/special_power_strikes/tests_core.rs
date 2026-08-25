@@ -74,11 +74,12 @@ fn daisy_cutter_maps_from_command_powers() {
         HostSuperweaponKind::from_command_power(&SpecialPowerType::NapalmStrike),
         Some(HostSuperweaponKind::DaisyCutter)
     );
-    assert!((HostSuperweaponKind::NapalmStrike.max_damage() - NAPALM_STRIKE_PRIMARY_DAMAGE).abs() < 0.1);
+    assert!(
+        (HostSuperweaponKind::NapalmStrike.max_damage() - NAPALM_STRIKE_PRIMARY_DAMAGE).abs() < 0.1
+    );
     assert!(
         (HostSuperweaponKind::NapalmStrike.max_damage() - DAISY_CUTTER_PRIMARY_DAMAGE).abs() > 1.0
     );
-
 }
 
 #[test]
@@ -255,7 +256,10 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
         0,
     );
     assert!(reg.honesty_queue_ok(HostSuperweaponKind::ParticleCannon));
-    assert_eq!(reg.get(id).unwrap().impact_frame, PARTICLE_BEAM_TRAVEL_FRAMES);
+    assert_eq!(
+        reg.get(id).unwrap().impact_frame,
+        PARTICLE_BEAM_TRAVEL_FRAMES
+    );
     assert!(reg.beam_fields().is_empty());
 
     // First pulse swath epicenter = target + (-100, 0, 0) = (0, 0, 0).
@@ -298,18 +302,24 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
     assert!((beam_plans[0].damage_radius - spawn_radius).abs() < 0.05);
     assert_eq!(beam_plans[0].hits.len(), 1); // epicenter only under tiny radius
     assert_eq!(beam_plans[0].hits[0].target_id, ObjectId(2));
-    assert!(!beam_plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(3)));
-    assert!(!beam_plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(4)));
-    assert!(!beam_plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(5)));
+    assert!(
+        !beam_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3))
+    );
+    assert!(
+        !beam_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(4))
+    );
+    assert!(
+        !beam_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(5))
+    );
 
     reg.record_beam_tick_complete(
         beam_plans[0].field_id,
@@ -335,9 +345,10 @@ fn particle_cannon_impact_spawns_beam_and_ticks_damage() {
     assert_eq!(reg.beam_fields()[0].pulses_made, 1);
 
     // Not due again until scheduled frame.
-    assert!(reg
-        .plan_due_beam_ticks(expected_next.saturating_sub(1), &objects)
-        .is_empty());
+    assert!(
+        reg.plan_due_beam_ticks(expected_next.saturating_sub(1), &objects)
+            .is_empty()
+    );
     let later = reg.plan_due_beam_ticks(expected_next, &objects);
     assert_eq!(later.len(), 1);
 }
@@ -423,7 +434,12 @@ fn particle_cannon_owner_disable_starts_decay_and_stops_pulses() {
     let field_id = reg.spawn_beam_field(ObjectId(1), Team::USA, target, spawn, 1);
     let objects = vec![
         (ObjectId(1), Vec3::new(-400.0, 0.0, 0.0), Team::USA, true),
-        (ObjectId(2), particle_swath_epicenter(target, 0), Team::GLA, true),
+        (
+            ObjectId(2),
+            particle_swath_epicenter(target, 0),
+            Team::GLA,
+            true,
+        ),
     ];
     let first = reg.plan_due_beam_ticks(spawn, &objects);
     assert_eq!(first.len(), 1);
@@ -439,9 +455,10 @@ fn particle_cannon_owner_disable_starts_decay_and_stops_pulses() {
         abort_frame.saturating_add(PARTICLE_WIDTH_GROW_FRAMES)
     );
     assert!(reg.plan_due_beam_ticks(abort_frame, &objects).is_empty());
-    assert!(reg
-        .plan_due_beam_ticks(abort_frame + 1, &objects)
-        .is_empty());
+    assert!(
+        reg.plan_due_beam_ticks(abort_frame + 1, &objects)
+            .is_empty()
+    );
     assert_eq!(reg.beam_fields()[0].pulses_made, 1);
 }
 
@@ -538,28 +555,35 @@ fn carpet_bomb_delayed_line_multi_strike_damage() {
     ];
 
     // Before first bomb: no damage plan.
-    assert!(reg
-        .plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES - 1, &objects)
-        .is_empty());
+    assert!(
+        reg.plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES - 1, &objects)
+            .is_empty()
+    );
 
     // First DropDelay wave: only bomb 0 due — not complete.
     let first_wave = reg.plan_due_impacts(CARPET_BOMB_IMPACT_DELAY_FRAMES, &objects);
     assert_eq!(first_wave.len(), 1);
     assert_eq!(first_wave[0].wave_shell_count, 1);
     assert!(!first_wave[0].is_final_wave);
-    assert!(first_wave[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(6) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+    assert!(
+        first_wave[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(6) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1)
+    );
     // Center (index 7) and outer (index 14) not yet due.
-    assert!(!first_wave[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2)));
-    assert!(!first_wave[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(3)));
+    assert!(
+        !first_wave[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2))
+    );
+    assert!(
+        !first_wave[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3))
+    );
     reg.record_impact_wave(
         id,
         CARPET_BOMB_DAMAGE,
@@ -584,19 +608,25 @@ fn carpet_bomb_delayed_line_multi_strike_damage() {
     // Remaining after first-wave apply: china_count - 1.
     assert_eq!(plans[0].wave_shell_count, china_count.saturating_sub(1));
     // Center + outer-bomb enemies + friendly (ALLIES residual); far excluded.
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(3) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1)
+    );
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1)
+    );
     assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(5) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1));
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(5) && (h.damage - CARPET_BOMB_DAMAGE).abs() < 0.1)
+    );
 
     reg.record_impact_wave(
         id,
@@ -741,17 +771,19 @@ fn artillery_barrage_delayed_multi_shell_scatter_damage() {
     ];
 
     // Before impact: no damage plan.
-    assert!(reg
-        .plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES - 1, &objects)
-        .is_empty());
+    assert!(
+        reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES - 1, &objects)
+            .is_empty()
+    );
 
     // First wave: lead shell (DelayDelivery 0) — center hit; not necessarily final.
     let first = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
     assert_eq!(first.len(), 1);
-    assert!(first[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2) && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1));
+    assert!(
+        first[0].hits.iter().any(
+            |h| h.target_id == ObjectId(2) && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1
+        )
+    );
     reg.record_impact_wave(
         id,
         ARTILLERY_BARRAGE_DAMAGE,
@@ -896,9 +928,10 @@ fn cruise_missile_delayed_area_damage_after_loft() {
     ];
 
     // Before impact: no damage plan.
-    assert!(reg
-        .plan_due_impacts(CRUISE_MISSILE_IMPACT_DELAY_FRAMES - 1, &objects)
-        .is_empty());
+    assert!(
+        reg.plan_due_impacts(CRUISE_MISSILE_IMPACT_DELAY_FRAMES - 1, &objects)
+            .is_empty()
+    );
 
     let plans = reg.plan_due_impacts(CRUISE_MISSILE_IMPACT_DELAY_FRAMES, &objects);
     assert_eq!(plans.len(), 1);
@@ -906,18 +939,24 @@ fn cruise_missile_delayed_area_damage_after_loft() {
     // Epicenter damage = MOAB primary + MOABFlame secondary residual.
     let expected_epicenter = CRUISE_MISSILE_DAMAGE + MOAB_FLAME_DAMAGE;
     assert_eq!(plans[0].hits.len(), 3);
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2) && (h.damage - expected_epicenter).abs() < 0.1));
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(3) && h.damage > MOAB_FLAME_DAMAGE));
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(5) && (h.damage - expected_epicenter).abs() < 0.1));
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2) && (h.damage - expected_epicenter).abs() < 0.1)
+    );
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3) && h.damage > MOAB_FLAME_DAMAGE)
+    );
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(5) && (h.damage - expected_epicenter).abs() < 0.1)
+    );
     assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(4)));
 
     reg.record_impact_complete(id, expected_epicenter * 2.0, 3, 0);
@@ -1146,14 +1185,18 @@ fn anthrax_bomb_impact_spawns_toxin_and_ticks_damage() {
     assert_eq!(plans.len(), 1);
     // Blast residual hits ALLIES ENEMIES NEUTRALS (retail RadiusDamageAffects).
     assert_eq!(plans[0].hits.len(), 2);
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2) && (h.damage - 200.0).abs() < 0.1));
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(3) && (h.damage - 200.0).abs() < 0.1));
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2) && (h.damage - 200.0).abs() < 0.1)
+    );
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(3) && (h.damage - 200.0).abs() < 0.1)
+    );
 
     reg.record_impact_complete(id, 400.0, 2, 0);
     assert!(reg.honesty_complete_ok(HostSuperweaponKind::AnthraxBomb));
@@ -1181,13 +1224,17 @@ fn anthrax_bomb_impact_spawns_toxin_and_ticks_damage() {
     // source (1) excluded; epicenter USA (2) + GLA friendly (3) hit; far (4) not.
     // Airborne (99) skipped — C++ NOT_AIRBORNE / WEAPON_DOESNT_AFFECT_AIRBORNE.
     assert_eq!(tox_plans[0].hits.len(), 2);
-    assert!(tox_plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2)
-            && (h.damage - ANTHRAX_TOXIN_DAMAGE_PER_TICK).abs() < 0.01));
+    assert!(
+        tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - ANTHRAX_TOXIN_DAMAGE_PER_TICK).abs() < 0.01)
+    );
     assert!(tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
-    assert!(!tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(99)));
+    assert!(
+        !tox_plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(99))
+    );
     assert_eq!(
         tox_plans[0].death_type,
         crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta
@@ -1244,11 +1291,10 @@ fn nuclear_missile_impact_spawns_radiation_and_ticks_damage() {
     assert_eq!(rad_plans.len(), 1);
     // source (1) excluded; epicenter USA (2) + China friendly (3) hit; far (4) not.
     assert_eq!(rad_plans[0].hits.len(), 2);
-    assert!(rad_plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2)
-            && (h.damage - NUKE_RADIATION_DAMAGE_PER_TICK).abs() < 0.01));
+    assert!(
+        rad_plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)
+            && (h.damage - NUKE_RADIATION_DAMAGE_PER_TICK).abs() < 0.01)
+    );
     assert!(rad_plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
 
     reg.record_radiation_tick_complete(rad_plans[0].field_id, 50.0, 2, 0, 180);
@@ -1464,19 +1510,23 @@ fn scud_storm_multi_missile_scatter_and_poison_residual() {
     ];
 
     // Before first missile: nothing.
-    assert!(reg
-        .plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES - 1, &objects)
-        .is_empty());
+    assert!(
+        reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES - 1, &objects)
+            .is_empty()
+    );
 
     // First missile wave.
     let plans = reg.plan_due_impacts(SCUD_STORM_PRE_ATTACK_FRAMES, &objects);
     assert_eq!(plans.len(), 1);
     assert!(!plans[0].is_final_wave);
     assert!(plans[0].wave_shell_count >= 1);
-    assert!(plans[0]
-        .hits
-        .iter()
-        .any(|h| h.target_id == ObjectId(2) && (h.damage - SCUD_STORM_PRIMARY_DAMAGE).abs() < 0.1));
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2)
+                && (h.damage - SCUD_STORM_PRIMARY_DAMAGE).abs() < 0.1)
+    );
     assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
     reg.record_impact_wave(
         id,
@@ -1769,7 +1819,7 @@ fn spectre_continuous_fire_rof_residual_honesty() {
     assert_eq!(spectre_gattling_interval_frames(1), 3);
     assert_eq!(spectre_gattling_interval_frames(2), 1); // > ContinuousFireOne=1
     assert_eq!(spectre_gattling_interval_frames(3), 1); // > ContinuousFireTwo=2
-                                                        // Howitzer: base 9; MEAN floor(9/1.5)=6; FAST floor(9/2)=4.
+    // Howitzer: base 9; MEAN floor(9/1.5)=6; FAST floor(9/2)=4.
     assert_eq!(spectre_howitzer_interval_frames(0), 9);
     assert_eq!(spectre_howitzer_interval_frames(1), 9);
     assert_eq!(spectre_howitzer_interval_frames(2), 6);

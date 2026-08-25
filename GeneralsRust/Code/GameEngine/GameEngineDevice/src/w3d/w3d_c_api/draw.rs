@@ -2,22 +2,6 @@
 //!
 //! Split from `w3d_c_api.rs`. Public names stay identical for C ABI / parity.
 
-use crate::w3d::renderer::{batch_material_params, batch_priority};
-use crate::w3d::w3d_device::RenderObject;
-use crate::w3d::{
-    Camera, Light, Material, Mesh, Result, Texture, W3DConfig, W3DDevice, W3DError, W3DLightData,
-    W3DMaterialData, W3DVertex,
-};
-use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Vec3, Vec4};
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::ffi::{c_char, c_void, CStr, CString};
-use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::ptr::null_mut;
-use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::sync::RwLock;
 use super::constants::*;
 use super::decl::*;
 use super::leftover::*;
@@ -27,6 +11,22 @@ use super::streams::*;
 use super::textures::*;
 use super::transforms::*;
 use super::types::*;
+use crate::w3d::renderer::{batch_material_params, batch_priority};
+use crate::w3d::w3d_device::RenderObject;
+use crate::w3d::{
+    Camera, Light, Material, Mesh, Result, Texture, W3DConfig, W3DDevice, W3DError, W3DLightData,
+    W3DMaterialData, W3DVertex,
+};
+use bytemuck::{Pod, Zeroable};
+use glam::{Mat4, Vec3, Vec4};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::ffi::{CStr, CString, c_char, c_void};
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::ptr::null_mut;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tokio::sync::RwLock;
 
 /// Draw indexed primitive - matches original W3DDevice::DrawIndexedPrimitive(type, vertices, indices)
 #[unsafe(no_mangle)]
@@ -472,7 +472,10 @@ pub(super) fn submit_transient_draw_internal(
     });
     Ok(())
 }
-pub(super) fn primitive_vertex_count(primitive_type: W3D_PRIMITIVE_TYPE, primitive_count: u32) -> Option<u32> {
+pub(super) fn primitive_vertex_count(
+    primitive_type: W3D_PRIMITIVE_TYPE,
+    primitive_count: u32,
+) -> Option<u32> {
     match primitive_type {
         W3D_PRIMITIVE_TYPE::W3D_TRIANGLES => primitive_count.checked_mul(3),
         W3D_PRIMITIVE_TYPE::W3D_TRIANGLE_STRIP | W3D_PRIMITIVE_TYPE::W3D_TRIANGLE_FAN => {
@@ -484,6 +487,9 @@ pub(super) fn primitive_vertex_count(primitive_type: W3D_PRIMITIVE_TYPE, primiti
     }
 }
 
-pub(super) fn primitive_index_count(primitive_type: W3D_PRIMITIVE_TYPE, primitive_count: u32) -> Option<u32> {
+pub(super) fn primitive_index_count(
+    primitive_type: W3D_PRIMITIVE_TYPE,
+    primitive_count: u32,
+) -> Option<u32> {
     primitive_vertex_count(primitive_type, primitive_count)
 }

@@ -84,8 +84,8 @@ pub fn residual_host_construction_ready_log_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_construction_ready_log_helper_last_action(
-) -> ResidualHostConstructionReadyLogHelperAction {
+pub fn residual_host_construction_ready_log_helper_last_action()
+-> ResidualHostConstructionReadyLogHelperAction {
     ResidualHostConstructionReadyLogHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 
@@ -165,11 +165,13 @@ pub fn honesty_host_construction_ready_log_helper_source_markers_residual_wave61
         residual_action_store(ResidualHostConstructionReadyLogHelperAction::SourceMarkers);
         return false;
     };
-    let post = fn_body(&gl,
+    let post = fn_body(
+        &gl,
         "pub(crate) fn host_apply_construction_completions_after_ready_writeback(",
     )
     .or_else(|| {
-        fn_body(&gl,
+        fn_body(
+            &gl,
             "fn host_apply_construction_completions_after_ready_writeback(",
         )
     });

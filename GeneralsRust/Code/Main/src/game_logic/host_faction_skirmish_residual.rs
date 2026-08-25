@@ -20,9 +20,9 @@
 //! - Shell `playable_claim` stays false; network deferred
 
 use crate::ai::{AIDifficulty, AIPersonality};
+use crate::game_logic::Team;
 use crate::game_logic::game_logic::Player;
 use crate::game_logic::victory_conditions::VictoryType;
-use crate::game_logic::Team;
 
 // ---------------------------------------------------------------------------
 // 1. Faction side residual table (base + ZH generals)
@@ -604,7 +604,6 @@ pub fn solo_weapon_bonus_condition(is_human: bool, difficulty: AIDifficulty) -> 
     (base as u8) + diff_idx
 }
 
-
 /// Selected NewGame / `prepareNewGame` difficulty for the live host.
 ///
 /// C++ `GameLogic::prepareNewGame` writes `TheScriptEngine->setGlobalDifficulty`
@@ -672,7 +671,6 @@ pub fn honesty_starting_cash_residual_pack_wave85() -> bool {
         && solo_weapon_bonus_condition(false, AIDifficulty::Medium) == 20
         && solo_weapon_bonus_condition(false, AIDifficulty::Hard) == 21
         && solo_weapon_bonus_condition(false, AIDifficulty::Brutal) == 21
-
 }
 
 // ---------------------------------------------------------------------------

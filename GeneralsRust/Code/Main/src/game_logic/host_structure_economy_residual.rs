@@ -337,7 +337,6 @@ pub fn dozer_construction_progress_delta(
     base_rate * exclusive * power_factor.max(0.01) * BUILD_SPEED * dt_sec
 }
 
-
 /// Whether a map-edge residual build placement is legal.
 pub fn is_legal_build_distance_from_map_edge(dist_from_edge: f32) -> bool {
     dist_from_edge >= MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD

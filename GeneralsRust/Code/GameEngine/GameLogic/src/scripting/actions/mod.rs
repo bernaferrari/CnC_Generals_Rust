@@ -3,7 +3,6 @@
 //! C++ `executeAction` lives in `scripting/executor/dispatch.rs`.
 //! This directory is leftover-only and must not run as a second action brain.
 
-
 mod building;
 mod camera_ui;
 mod helpers;

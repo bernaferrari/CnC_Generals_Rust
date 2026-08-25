@@ -57,10 +57,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_gfpt_suffix(bytes) else {
         return Ok(());
     };
@@ -163,7 +160,10 @@ fn has_firepoint_state(bd: &BuildingData) -> bool {
         || !bd.garrison_fire_points_damaged.is_empty()
         || !bd.garrison_fire_points_really_damaged.is_empty()
         || !bd.garrison_station_points.is_empty()
-        || bd.garrison_guns.iter().any(|gun| gun.last_effect_frame != 0)
+        || bd
+            .garrison_guns
+            .iter()
+            .any(|gun| gun.last_effect_frame != 0)
 }
 
 fn vec3s_to_arr(points: &[Vec3]) -> Vec<[f32; 3]> {
@@ -171,10 +171,7 @@ fn vec3s_to_arr(points: &[Vec3]) -> Vec<[f32; 3]> {
 }
 
 fn arr_to_vec3s(points: &[[f32; 3]]) -> Vec<Vec3> {
-    points
-        .iter()
-        .map(|p| Vec3::new(p[0], p[1], p[2]))
-        .collect()
+    points.iter().map(|p| Vec3::new(p[0], p[1], p[2])).collect()
 }
 
 fn find_gfpt_suffix(bytes: &[u8]) -> Option<&[u8]> {
@@ -261,7 +258,10 @@ mod tests {
             .expect("restore");
 
         let loaded = restored.host_object(bunker_id).expect("restored bunker");
-        let bd = loaded.building_data.as_ref().expect("restored building data");
+        let bd = loaded
+            .building_data
+            .as_ref()
+            .expect("restored building data");
         assert!(bd.garrison_points_initialized);
         assert_eq!(bd.garrison_points_condition, 0);
         assert_eq!(bd.garrison_point_occupant, vec![None, Some(ranger_id)]);

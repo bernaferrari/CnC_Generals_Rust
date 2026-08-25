@@ -8,7 +8,7 @@ use windows::Win32::{
 };
 
 #[cfg(windows)]
-use crate::{error::Result, formats::AudioFormat, Priority};
+use crate::{Priority, error::Result, formats::AudioFormat};
 #[cfg(windows)]
 use std::ptr;
 

@@ -56,8 +56,8 @@ fn gc_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
-pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_method_names_residual_wave1023(
-) -> bool {
+pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_method_names_residual_wave1023()
+-> bool {
     let names = LIVE_HOST_SYNC_WITH_GAME_LOGIC_CATALOG_POSE_RESIDUAL_METHOD_NAMES_WAVE1023;
     let ok = residual_name_index(names, "sync_with_game_logic").is_some()
         && residual_name_index(names, "Wave 1023").is_some();
@@ -66,8 +66,8 @@ pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_method_names_resi
     ok
 }
 
-pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_nav_commands_residual_wave1023(
-) -> bool {
+pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_nav_commands_residual_wave1023()
+-> bool {
     let steps = LIVE_HOST_SYNC_WITH_GAME_LOGIC_CATALOG_POSE_RESIDUAL_NAV_STEPS_WAVE1023;
     let ok = residual_name_index(
         steps,
@@ -85,7 +85,7 @@ pub fn honesty_host_sync_with_game_logic_catalog_pose_residual_residual_pack_wav
     let gl = gl_source();
     let gc = gc_source();
     let ok = (gc.contains("Wave 1023: host empty dual-world peels translator catalog pose")
-            || gc.contains("Wave 1023/1050: host empty dual-world peels translator catalog pose"))
+        || gc.contains("Wave 1023/1050: host empty dual-world peels translator catalog pose"))
         && gc.contains("drawable.set_position")
         && gc.contains("translator_catalog_entry(object_id)")
         && gc.contains("if dual_world_registry_unavailable()")

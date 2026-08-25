@@ -9,8 +9,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::save::{
-    parse_layout, save_layout, ComboBoxDataEdit, GadgetData, ListBoxDataEdit, SaveError,
-    SliderDataEdit, TextEntryDataEdit, WndLayout, WndWindow,
+    ComboBoxDataEdit, GadgetData, ListBoxDataEdit, SaveError, SliderDataEdit, TextEntryDataEdit,
+    WndLayout, WndWindow, parse_layout, save_layout,
 };
 
 /// C++ `GADGET_SIZE` (`GameClient/Gadget.h`).
@@ -602,10 +602,12 @@ mod tests {
         assert_eq!(ok.y, 80);
         assert_eq!(ok.width, 120);
         assert_eq!(ok.height, 24);
-        assert!(reloaded
-            .widgets
-            .iter()
-            .any(|w| w.gadget == GadgetType::PushButton));
+        assert!(
+            reloaded
+                .widgets
+                .iter()
+                .any(|w| w.gadget == GadgetType::PushButton)
+        );
     }
 
     #[test]

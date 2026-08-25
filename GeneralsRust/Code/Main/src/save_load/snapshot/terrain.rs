@@ -28,7 +28,6 @@ pub struct TerrainSnapshot {
     pub logic_heights: Vec<u8>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerrainModification {
     pub position: glam::Vec3,
@@ -100,7 +99,6 @@ impl XferData for TerrainSnapshot {
         Ok(())
     }
 }
-
 
 impl XferData for WeatherSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {

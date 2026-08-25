@@ -4,8 +4,8 @@
 //! their faction (USA, China, GLA) and general type for skirmish and multiplayer games.
 
 use super::{
-    colors, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen,
-    UIEvent, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
+    colors, sound_files, utils,
 };
 use crate::{game_logic::GameMode, localization};
 

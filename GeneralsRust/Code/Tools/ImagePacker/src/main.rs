@@ -10,8 +10,8 @@
 use anyhow::{Context as AnyhowContext, Result};
 use chrono::Utc;
 use gpui::{
-    div, prelude::*, px, rgb, size, App, Application, Bounds, Context, Render, SharedString,
-    Window, WindowBounds, WindowOptions,
+    App, Application, Bounds, Context, Render, SharedString, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size,
 };
 use image::{DynamicImage, RgbaImage};
 use image_compat::{ImageBuffer as CompatImageBuffer, Rgba as CompatRgba};
@@ -482,7 +482,9 @@ impl ImagePackerGpuiApp {
         let mut pages = Vec::new();
         for page in self.chrome.packed_pages() {
             let atlas = RgbaImage::from_raw(page.width, page.height, page.rgba.clone())
-                .ok_or_else(|| anyhow::anyhow!("failed building atlas RGBA for page {}", page.id))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("failed building atlas RGBA for page {}", page.id)
+                })?;
             let mut frames: Vec<PackedSpriteFrame> = page
                 .sprites
                 .iter()
@@ -760,48 +762,46 @@ impl Render for ImagePackerGpuiApp {
                             this.pick_input_directory(cx);
                         },
                     )))
-                    .child(action_chip("Pack", false).on_click(cx.listener(
-                        |this, _, _, cx| this.run_process_click(cx),
-                    )))
-                    .child(action_chip("Save INI", false).on_click(cx.listener(
-                        |this, _, _, cx| this.run_save_ini_click(cx),
-                    )))
-                    .child(action_chip(
-                        "Size 128",
-                        self.target_mode == TargetSizeMode::Size128,
+                    .child(
+                        action_chip("Pack", false)
+                            .on_click(cx.listener(|this, _, _, cx| this.run_process_click(cx))),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.target_mode = TargetSizeMode::Size128;
-                        let _ = this.chrome.set_target_size(128);
-                        cx.notify();
-                    })))
-                    .child(action_chip(
-                        "Size 256",
-                        self.target_mode == TargetSizeMode::Size256,
+                    .child(
+                        action_chip("Save INI", false)
+                            .on_click(cx.listener(|this, _, _, cx| this.run_save_ini_click(cx))),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.target_mode = TargetSizeMode::Size256;
-                        let _ = this.chrome.set_target_size(256);
-                        cx.notify();
-                    })))
-                    .child(action_chip(
-                        "Size 512",
-                        self.target_mode == TargetSizeMode::Size512,
+                    .child(
+                        action_chip("Size 128", self.target_mode == TargetSizeMode::Size128)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.target_mode = TargetSizeMode::Size128;
+                                let _ = this.chrome.set_target_size(128);
+                                cx.notify();
+                            })),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.target_mode = TargetSizeMode::Size512;
-                        let _ = this.chrome.set_target_size(512);
-                        cx.notify();
-                    })))
-                    .child(action_chip(
-                        "Size Custom",
-                        self.target_mode == TargetSizeMode::Custom,
+                    .child(
+                        action_chip("Size 256", self.target_mode == TargetSizeMode::Size256)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.target_mode = TargetSizeMode::Size256;
+                                let _ = this.chrome.set_target_size(256);
+                                cx.notify();
+                            })),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.target_mode = TargetSizeMode::Custom;
-                        this.chrome.target_size = this.custom_target_size.max(1);
-                        cx.notify();
-                    })))
+                    .child(
+                        action_chip("Size 512", self.target_mode == TargetSizeMode::Size512)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.target_mode = TargetSizeMode::Size512;
+                                let _ = this.chrome.set_target_size(512);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        action_chip("Size Custom", self.target_mode == TargetSizeMode::Custom)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.target_mode = TargetSizeMode::Custom;
+                                this.chrome.target_size = this.custom_target_size.max(1);
+                                cx.notify();
+                            })),
+                    )
                     .child(action_chip("- Gutter", false).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.gutter_size = this.gutter_size.saturating_sub(1);

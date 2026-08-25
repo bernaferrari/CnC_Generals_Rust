@@ -491,8 +491,6 @@ pub fn spectre_wind_gattling_aim(
     }
 }
 
-
-
 /// C++ `SpectreGunshipUpdate::isFairDistanceFromShip` (cpp:713-731).
 ///
 /// 2D ship-to-target (host XZ / C++ XY with Z=0) must exceed
@@ -556,7 +554,6 @@ pub fn spectre_orbit_target_passes_partition_filters(
     alive && relationship_enemies && !stealthed_undetected && !is_air && fog_clear
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -596,7 +593,9 @@ mod tests {
         // GLA Bomb Truck disguised as USA/ally: leftover is_disguised_as_enemy
         // is false, so STEALTHED && !DETECTED still blocks acquire.
         assert!(!spectre_orbit_is_disguised_as_enemy(true, true, false));
-        assert!(spectre_orbit_stealthed_undetected_blocks(true, false, false));
+        assert!(spectre_orbit_stealthed_undetected_blocks(
+            true, false, false
+        ));
         assert!(!spectre_orbit_target_passes_partition_filters(
             true, true, true, false, true
         ));
@@ -608,7 +607,9 @@ mod tests {
         // ENEMIES, so the stealth filter does not hide the truck. Real-team
         // ENEMIES then allows acquire.
         assert!(spectre_orbit_is_disguised_as_enemy(true, true, true));
-        assert!(!spectre_orbit_stealthed_undetected_blocks(true, false, true));
+        assert!(!spectre_orbit_stealthed_undetected_blocks(
+            true, false, true
+        ));
         assert!(spectre_orbit_target_passes_partition_filters(
             true, true, false, false, true
         ));
@@ -624,7 +625,11 @@ mod tests {
         assert!(!effectively_stealthed);
         assert!(
             spectre_orbit_target_passes_partition_filters(
-                true, true, effectively_stealthed, false, true
+                true,
+                true,
+                effectively_stealthed,
+                false,
+                true
             ),
             "is_effectively_stealthed lets disguised-as-friend pass — leftover rejects"
         );

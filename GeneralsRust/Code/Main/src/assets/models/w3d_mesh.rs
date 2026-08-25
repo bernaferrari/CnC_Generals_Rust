@@ -1,13 +1,13 @@
 //! Mechanical split from `assets/models.rs`. No behavior change.
 #![allow(dead_code, unused_imports)]
 use super::prelude::*;
-use super::*;
 use super::w3d_anim::*;
 use super::w3d_format::*;
 use super::w3d_loader::*;
 use super::w3d_loader_parse::*;
 use super::w3d_mesh_build::*;
 use super::w3d_model::*;
+use super::*;
 
 pub(super) const W3D_MESH_FLAG_NONE: u32 = 0;
 pub(super) const W3D_MESH_FLAG_HIDDEN: u32 = 0x00000001;
@@ -58,7 +58,11 @@ impl W3DVertex {
 /// C++ W3D dest blend constants:
 ///   0 = ZERO (default), 1 = ONE, 2 = SRC_COLOR, 3 = ONE_MINUS_SRC_COLOR,
 ///   4 = SRC_ALPHA, 5 = ONE_MINUS_SRC_ALPHA, 6 = SRC_COLOR_PREFOG
-pub(super) fn shader_blend_to_mode(src_blend: u8, dest_blend: u8, alpha_test: u8) -> (BlendMode, bool) {
+pub(super) fn shader_blend_to_mode(
+    src_blend: u8,
+    dest_blend: u8,
+    alpha_test: u8,
+) -> (BlendMode, bool) {
     let alpha_test_enabled = alpha_test != 0;
 
     match (src_blend, dest_blend) {

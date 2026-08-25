@@ -5,7 +5,7 @@
 //! usage patterns.
 
 use std::time::Instant;
-use wwlib_rust::lzo::{lzo_buffer_size, LzoCompressor, LzoError};
+use wwlib_rust::lzo::{LzoCompressor, LzoError, lzo_buffer_size};
 
 fn main() -> Result<(), LzoError> {
     println!("=== LZO Compression Demo ===\n");

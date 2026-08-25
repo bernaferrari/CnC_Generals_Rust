@@ -6,7 +6,7 @@
 //! Purpose: INI parsing for ChallengeGenerals and GeneralPersona definitions
 //! Used for the Generals' Challenge mode personas and related GUI data.
 
-use crate::common::ini::ini::{FieldParse, INIError, INILoadType, INIResult, INI};
+use crate::common::ini::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
 use once_cell::sync::OnceCell;
 use std::cell::Cell;
 use std::collections::HashSet;
@@ -660,9 +660,7 @@ impl ChallengeGenerals {
         // Fail-closed only for Challenge-named templates (Faction*General,
         // FactionBossGeneral) so a locked Boss cannot leak into Random.
         if challenge_generals_load_failed() {
-            let looks_like_challenge_persona = name
-                .to_ascii_lowercase()
-                .contains("general");
+            let looks_like_challenge_persona = name.to_ascii_lowercase().contains("general");
             if looks_like_challenge_persona {
                 return Some(fail_closed_general_persona());
             }
@@ -1296,12 +1294,16 @@ mod tests {
         // `ChallengeMode.ini` deliberately includes the playable Boss
         // PlayerTemplate but marks it locked.  This is the exact record that
         // GameLogic/GUIUtil exclude from Random and direct selection.
-        assert!(generals
-            .get_general_by_template_name("FactionAmericaAirForceGeneral")
-            .is_some_and(|persona| persona.is_starting_enabled()));
-        assert!(generals
-            .get_general_by_template_name("FactionBossGeneral")
-            .is_some_and(|persona| !persona.is_starting_enabled()));
+        assert!(
+            generals
+                .get_general_by_template_name("FactionAmericaAirForceGeneral")
+                .is_some_and(|persona| persona.is_starting_enabled())
+        );
+        assert!(
+            generals
+                .get_general_by_template_name("FactionBossGeneral")
+                .is_some_and(|persona| !persona.is_starting_enabled())
+        );
     }
 
     #[test]

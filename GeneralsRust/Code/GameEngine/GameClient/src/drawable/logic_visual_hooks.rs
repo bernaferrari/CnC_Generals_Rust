@@ -4,26 +4,23 @@
 //! `TheTerrainTracksRenderObjClassSystem` directly. Those live in this crate,
 //! so the logic-side draw modules call through these registered adapters.
 
-use crate::radius_decal::{
-    get_projected_shadow_manager, ShadowHandle, ShadowTypeInfo,
-};
+use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, get_projected_shadow_manager};
+use crate::render_bridge::THE_RENDER_BRIDGE;
+use crate::terrain::TerrainVisual;
 use crate::terrain::terrain_tracks::TerrainTrackHeightProvider;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
-use crate::terrain::TerrainVisual;
-use crate::render_bridge::THE_RENDER_BRIDGE;
 use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
-    register_preload_asset_hook, register_pristine_bone_lookup_hook,
-    register_terrain_decal_client, register_terrain_track_client, register_texture_aspect_hook,
-    TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient,
+    TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient, register_preload_asset_hook,
+    register_pristine_bone_lookup_hook, register_terrain_decal_client,
+    register_terrain_track_client, register_texture_aspect_hook,
 };
 use glam::{Mat4, Vec3};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::{Arc, Once};
 use ww3d_assets::prototypes::HlodPrototype;
-
 
 struct TerrainHeight;
 impl TerrainTrackHeightProvider for TerrainHeight {
@@ -70,7 +67,6 @@ impl TerrainDecalClient for ProjectedDecalClient {
             return;
         };
         drop(manager);
-
 
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);

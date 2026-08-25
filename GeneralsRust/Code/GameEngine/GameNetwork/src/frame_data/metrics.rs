@@ -134,8 +134,7 @@ impl FrameMetrics {
 
             trace!(
                 "FPS update: current={:.1}, average={:.1}",
-                fps,
-                self.average_fps
+                fps, self.average_fps
             );
         }
 

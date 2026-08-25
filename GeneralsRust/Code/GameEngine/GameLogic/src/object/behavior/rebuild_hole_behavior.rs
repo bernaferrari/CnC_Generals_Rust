@@ -11,22 +11,22 @@ use std::sync::{Arc, RwLock};
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
-    AsciiString, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt, INVALID_ID,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID, ObjectStatusMaskType,
+    ObjectStatusTypes, Real, UnsignedInt,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
     BehaviorModuleInterface, BodyModuleInterfaceExt, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::Object;
 use crate::object::behavior::behavior_module::{
-    xfer_update_module_base_state, BehaviorModuleData, RebuildHoleBehaviorInterface,
+    BehaviorModuleData, RebuildHoleBehaviorInterface, xfer_update_module_base_state,
 };
 use crate::object::behavior::sticky_bomb_update::StickyBombUpdate;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing as ModuleThing};

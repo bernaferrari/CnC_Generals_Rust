@@ -17,7 +17,7 @@
 //! facts are frozen and before WGPU collects render items.  Neither this
 //! module nor a consumer of its commands may read live simulation state.
 
-use crate::game_logic::{ObjectId, INVALID_OBJECT_ID};
+use crate::game_logic::{INVALID_OBJECT_ID, ObjectId};
 use std::collections::HashSet;
 
 /// Uniquely identifies one C++-equivalent view update.
@@ -570,13 +570,15 @@ mod tests {
         );
         // Validation happens before ledger mutation, so the valid epoch-10
         // pass remains available after the malformed preparation is rejected.
-        assert!(dispatcher
-            .dispatch(&prepared(
-                pass(10, 0),
-                bound_owner(),
-                PreparedVisualVisibility::Visible,
-                vec![module(0, "W3DModelDraw")],
-            ))
-            .is_ok());
+        assert!(
+            dispatcher
+                .dispatch(&prepared(
+                    pass(10, 0),
+                    bound_owner(),
+                    PreparedVisualVisibility::Visible,
+                    vec![module(0, "W3DModelDraw")],
+                ))
+                .is_ok()
+        );
     }
 }

@@ -343,11 +343,7 @@ impl W3DProfiler {
         }
 
         let avg_time: f32 = self.frame_times.iter().sum::<f32>() / self.frame_times.len() as f32;
-        if avg_time > 0.0 {
-            1.0 / avg_time
-        } else {
-            0.0
-        }
+        if avg_time > 0.0 { 1.0 / avg_time } else { 0.0 }
     }
 
     /// Reset statistics

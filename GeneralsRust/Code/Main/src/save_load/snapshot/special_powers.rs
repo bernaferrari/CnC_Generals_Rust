@@ -506,7 +506,6 @@ impl XferData for crate::game_logic::special_power_strikes::HostSpectreOrbitFiel
         xfer.xfer_u32(&mut self.ok_to_fire_howitzer_counter)?;
 
         Ok(())
-
     }
 }
 
@@ -992,7 +991,6 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 gattling_target_position: Vec3::ZERO,
                 position_to_shoot_at: Vec3::ZERO,
                 ok_to_fire_howitzer_counter: 0,
-
 
                 spawn_frame: 0,
                 expires_frame: 0,

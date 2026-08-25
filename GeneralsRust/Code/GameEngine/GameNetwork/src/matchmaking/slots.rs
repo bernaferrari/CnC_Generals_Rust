@@ -8,8 +8,8 @@
 //! - Starting position management
 
 use crate::error::{NetworkError, NetworkResult};
-use crate::lan_api::game_info::{GameDifficulty, GameSlot};
 use crate::lan_api::LanPlayer;
+use crate::lan_api::game_info::{GameDifficulty, GameSlot};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -737,9 +737,11 @@ mod tests {
         manager.add_player(player2_id, player2.ip, player2).unwrap();
 
         // Should fail to set same color
-        assert!(manager
-            .set_player_color(player2_id, PlayerColor::Blue)
-            .is_err());
+        assert!(
+            manager
+                .set_player_color(player2_id, PlayerColor::Blue)
+                .is_err()
+        );
     }
 
     #[test]

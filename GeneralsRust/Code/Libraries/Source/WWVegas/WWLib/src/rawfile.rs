@@ -591,7 +591,7 @@ impl RawFile {
                             return Err(io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 "File is not open",
-                            ))
+                            ));
                         }
                     };
                     let biased_pos = raw_pos.saturating_sub(self.bias_start);
@@ -612,7 +612,7 @@ impl RawFile {
                                 return Err(io::Error::new(
                                     io::ErrorKind::InvalidInput,
                                     "File is not open",
-                                ))
+                                ));
                             }
                         };
                         return Ok(bias_length);
@@ -630,7 +630,7 @@ impl RawFile {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "File is not open",
-                    ))
+                    ));
                 }
             };
             Ok(final_pos.saturating_sub(self.bias_start))

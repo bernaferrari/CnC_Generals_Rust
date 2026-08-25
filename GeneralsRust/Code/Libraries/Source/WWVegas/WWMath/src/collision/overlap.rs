@@ -372,7 +372,9 @@ impl CollisionMath {
 
     /// C++ CollisionMath::Overlap_Test(OBBox, point)
     pub fn overlap_test_obbox_point(box_ref: &OBBox, point: &Vector3) -> OverlapType {
-        let local = box_ref.basis.transpose_rotate_vector(*point - box_ref.center);
+        let local = box_ref
+            .basis
+            .transpose_rotate_vector(*point - box_ref.center);
         let dx = local.x.abs() - box_ref.extent.x;
         let dy = local.y.abs() - box_ref.extent.y;
         let dz = local.z.abs() - box_ref.extent.z;
@@ -515,5 +517,4 @@ impl CollisionMath {
         }
         result
     }
-
 }

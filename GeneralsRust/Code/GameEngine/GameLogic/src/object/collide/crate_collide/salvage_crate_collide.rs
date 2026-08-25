@@ -15,7 +15,7 @@ use crate::object::{ArmorSetFlag, Object};
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
 use crate::{GameLogicRandomValue, GameLogicRandomValueReal};
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Wave 390: host-only path has no dual-world factory objects.
@@ -758,9 +758,9 @@ enum SalvageType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::ObjectStatusMaskType;
-    use crate::player::{player_list, Player};
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::player::{Player, player_list};
     use crate::team::Team;
     use std::collections::HashMap;
 
@@ -819,10 +819,7 @@ mod tests {
             data.base.required_kind_of & (KindOf::Salvager.cpp_mask()),
             0
         );
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
         assert!((data.base.execute_animation_display_time_seconds - 2.5).abs() < f32::EPSILON);
     }
 
@@ -918,9 +915,11 @@ mod tests {
         };
         let mut module = SalvageCrateCollide::new(1001, data);
 
-        assert!(module
-            .execute_crate_behavior(&collector)
-            .expect("salvage executes"));
+        assert!(
+            module
+                .execute_crate_behavior(&collector)
+                .expect("salvage executes")
+        );
 
         assert_eq!(
             player

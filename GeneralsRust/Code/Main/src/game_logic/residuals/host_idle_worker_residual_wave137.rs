@@ -112,9 +112,8 @@ mod tests {
     #[test]
     fn simulate_idle_prepare_select_residual_live() {
         use game_client::gui::callbacks::{
-            residual_idle_worker_count, residual_idle_worker_last_action,
+            ResidualIdleWorkerAction, residual_idle_worker_count, residual_idle_worker_last_action,
             residual_idle_worker_next_index, simulate_idle_worker_prepare_select,
-            ResidualIdleWorkerAction,
         };
         assert!(
             simulate_idle_worker_prepare_select(3),

@@ -55,8 +55,8 @@ fn cb_source() -> &'static str {
     game_client::gui::control_bar::control_bar::CONTROL_BAR_SRC
 }
 
-pub fn honesty_host_multi_select_catalog_command_set_residual_method_names_residual_wave1017(
-) -> bool {
+pub fn honesty_host_multi_select_catalog_command_set_residual_method_names_residual_wave1017()
+-> bool {
     let names = LIVE_HOST_MULTI_SELECT_CATALOG_COMMAND_SET_RESIDUAL_METHOD_NAMES_WAVE1017;
     let ok = residual_name_index(names, "add_multi_select_commands").is_some()
         && residual_name_index(names, "Wave 1017").is_some();
@@ -65,8 +65,8 @@ pub fn honesty_host_multi_select_catalog_command_set_residual_method_names_resid
     ok
 }
 
-pub fn honesty_host_multi_select_catalog_command_set_residual_nav_commands_residual_wave1017(
-) -> bool {
+pub fn honesty_host_multi_select_catalog_command_set_residual_nav_commands_residual_wave1017()
+-> bool {
     let steps = LIVE_HOST_MULTI_SELECT_CATALOG_COMMAND_SET_RESIDUAL_NAV_STEPS_WAVE1017;
     let ok = residual_name_index(steps, "LIVE_HOST_MULTI_SELECT_CATALOG_COMMAND_SET_RESIDUAL")
         .is_some()

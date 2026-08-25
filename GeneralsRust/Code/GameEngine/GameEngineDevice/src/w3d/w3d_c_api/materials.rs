@@ -2,6 +2,11 @@
 //!
 //! Split from `w3d_c_api.rs`. Public names stay identical for C ABI / parity.
 
+use super::constants::*;
+use super::leftover::*;
+use super::lighting::*;
+use super::textures::*;
+use super::types::*;
 use crate::w3d::renderer::{batch_material_params, batch_priority};
 use crate::w3d::w3d_device::RenderObject;
 use crate::w3d::{
@@ -10,19 +15,14 @@ use crate::w3d::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
-use super::constants::*;
-use super::leftover::*;
-use super::lighting::*;
-use super::textures::*;
-use super::types::*;
 
 /// Set material - legacy compatibility entry point.
 #[no_mangle]
@@ -109,7 +109,10 @@ pub(super) async fn get_material_internal(
     device_lock.get_material(material_id).await
 }
 
-pub(super) async fn set_material_internal(device: &Arc<RwLock<W3DDevice>>, material: Material) -> Result<()> {
+pub(super) async fn set_material_internal(
+    device: &Arc<RwLock<W3DDevice>>,
+    material: Material,
+) -> Result<()> {
     let device_lock = device.read().await;
     device_lock.add_material(material).await?;
     Ok(())
@@ -291,7 +294,6 @@ pub(super) fn render_state_value(device: &W3DDeviceC, state: W3D_RENDER_STATE) -
 
     default_render_state_value(state)
 }
-
 
 pub(super) fn apply_fixed_function_lighting_to_material(
     material: &mut Material,
@@ -922,7 +924,10 @@ pub(super) fn combiner_op_is_force_multiply_like(op: u32) -> bool {
     )
 }
 
-pub(super) fn first_enabled_texture_stage_with<F>(stage_state_lookup: &mut F, max_stages: u32) -> Option<u32>
+pub(super) fn first_enabled_texture_stage_with<F>(
+    stage_state_lookup: &mut F,
+    max_stages: u32,
+) -> Option<u32>
 where
     F: FnMut(u32, u32) -> u32,
 {

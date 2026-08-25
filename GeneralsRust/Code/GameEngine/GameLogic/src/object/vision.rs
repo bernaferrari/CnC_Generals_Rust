@@ -120,7 +120,6 @@ impl Object {
         ObjectShroudStatus::Clear
     }
 
-
     /// C++ `TheAI->pathfinder()->addObjectToPathfindMap(this)`.
     pub(super) fn add_self_to_pathfind_map(&self) {
         let pos = *self.get_position();

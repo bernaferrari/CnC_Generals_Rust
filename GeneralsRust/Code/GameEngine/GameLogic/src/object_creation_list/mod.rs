@@ -21,9 +21,9 @@ pub mod store;
 pub use advanced_nuggets::*;
 pub use nuggets::*;
 pub use store::{
+    ObjectCreationList, ObjectCreationListId, ObjectCreationListStore,
     get_object_creation_list_store, get_object_creation_list_store_mut,
-    init_object_creation_list_store, ObjectCreationList, ObjectCreationListId,
-    ObjectCreationListStore,
+    init_object_creation_list_store,
 };
 
 pub use crate::common::PathfindLayerEnum;

@@ -556,11 +556,7 @@ pub fn sound_promoted_event(level: VeterancyLevel) -> Option<&'static str> {
 pub fn veterancy_health_scale(old_level: VeterancyLevel, new_level: VeterancyLevel) -> f32 {
     let (old_h, _, _) = veterancy_bonus_multipliers(old_level);
     let (new_h, _, _) = veterancy_bonus_multipliers(new_level);
-    if old_h > 0.0 {
-        new_h / old_h
-    } else {
-        1.0
-    }
+    if old_h > 0.0 { new_h / old_h } else { 1.0 }
 }
 
 /// Queued UnitPromoted / SoundPromoted* residual.
@@ -585,7 +581,6 @@ thread_local! {
     static PROMOTE_ANIMS: RefCell<Vec<HostVeterancyPromoteAnim>> =
         const { RefCell::new(Vec::new()) };
 }
-
 
 /// C++ `Object::onVeterancyLevelChanged` stealth hide
 /// (`!isLocallyControlled && STEALTHED && !DETECTED && !DISGUISED`).
@@ -615,7 +610,12 @@ pub fn should_queue_promote_fx(
 }
 
 /// C++ Object::onVeterancyLevelChanged provideFeedback + getDrawIconUI path.
-pub fn record_promote_fx(object: ObjectId, position: Vec3, spawn_frame: u32, new_level: VeterancyLevel) {
+pub fn record_promote_fx(
+    object: ObjectId,
+    position: Vec3,
+    spawn_frame: u32,
+    new_level: VeterancyLevel,
+) {
     PROMOTE_AUDIO.with(|log| {
         let mut log = log.borrow_mut();
         log.push(HostVeterancyPromoteAudio {
@@ -652,7 +652,6 @@ pub fn clear_promote_fx() {
     PROMOTE_AUDIO.with(|log| log.borrow_mut().clear());
     PROMOTE_ANIMS.with(|log| log.borrow_mut().clear());
 }
-
 
 /// Apply AdvancedTraining ExperienceScalar residual to a base XP gain.
 ///
@@ -975,5 +974,4 @@ mod tests {
             true,
         ));
     }
-
 }

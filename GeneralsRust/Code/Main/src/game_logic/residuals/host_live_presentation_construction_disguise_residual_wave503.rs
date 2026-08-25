@@ -78,8 +78,8 @@ pub fn residual_presentation_construction_disguise_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_construction_disguise_last_action(
-) -> ResidualPresentationConstructionDisguiseAction {
+pub fn residual_presentation_construction_disguise_last_action()
+-> ResidualPresentationConstructionDisguiseAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationConstructionDisguiseAction::MethodNames,
         2 => ResidualPresentationConstructionDisguiseAction::SourceMarkers,

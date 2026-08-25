@@ -91,8 +91,8 @@ impl Object {
             return (None, false);
         }
         use crate::game_logic::host_missile_launcher_building_update::{
-            missile_launcher_ini_for_template, missile_launcher_special_power,
-            HostMissileLauncherBuildingUpdateData,
+            HostMissileLauncherBuildingUpdateData, missile_launcher_ini_for_template,
+            missile_launcher_special_power,
         };
         if self.missile_launcher_building.is_none() {
             let Some(ini) = missile_launcher_ini_for_template(&self.template_name) else {
@@ -142,7 +142,11 @@ impl Object {
             door_1_waiting_to_close_model_bit,
         };
         use crate::game_logic::host_missile_launcher_building_update::HostMissileLauncherDoorState;
-        let Some(state) = self.missile_launcher_building.as_ref().map(|d| d.door_state) else {
+        let Some(state) = self
+            .missile_launcher_building
+            .as_ref()
+            .map(|d| d.door_state)
+        else {
             return;
         };
         let open_b = door_1_opening_model_bit();
@@ -174,7 +178,6 @@ impl Object {
         }
     }
 
-
     pub fn update_construction(&mut self, dt: f32) {
         if self.status.under_construction {
             let build_rate = 1.0 / self.thing.template.build_time;
@@ -186,8 +189,8 @@ impl Object {
             let frames = (self.thing.template.build_time * 30.0).max(1.0);
             let per_frame = self.health.maximum / frames;
             let logic_frames = (dt * 30.0).max(0.0);
-            self.health.current = (self.health.current.max(1.0) + per_frame * logic_frames)
-                .min(self.health.maximum);
+            self.health.current =
+                (self.health.current.max(1.0) + per_frame * logic_frames).min(self.health.maximum);
 
             if self.construction_percent >= 1.0 {
                 self.construction_percent = 1.0;
@@ -195,7 +198,6 @@ impl Object {
             }
         }
     }
-
 
     /// Leftover unused `UnitAIUpdate::get_locomotor_distance_to_goal` 3D gate:
     /// leftover `FLAG_CLOSE_ENOUGH_3D` or `KINDOF_PROJECTILE`.
@@ -212,9 +214,8 @@ impl Object {
         if self.host_uses_close_enough_dist_3d() {
             return current.distance(goal);
         }
-        let treat_as_aircraft =
-            !crate::game_logic::PathfindingGrid::is_doing_ground_movement(self)
-                || matches!(self.loco_appearance, LocomotorAppearance::Hover);
+        let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement(self)
+            || matches!(self.loco_appearance, LocomotorAppearance::Hover);
         let dx = goal.x - current.x;
         let dz = goal.z - current.z;
         let dist_2d = (dx * dx + dz * dz).sqrt();
@@ -525,8 +526,7 @@ impl Object {
             &self.template_name,
             self.weapon_crate_upgrade,
         ) {
-            if let Some(weapon) =
-                crate::game_logic::thing::ThingTemplate::weapon_from_store(&wname)
+            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&wname)
             {
                 let _ = self.replace_weapon_set_slot(0, Some(weapon));
             }
@@ -652,16 +652,16 @@ impl Object {
         }) else {
             return;
         };
-        self.thing.template.weapon_lock_shared_across_sets = set.attributes.iter().any(|(key, value)| {
-            (key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
-                || key.eq_ignore_ascii_case("ShareWeaponLock"))
-                && matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "yes" | "true" | "1"
-                )
-        });
+        self.thing.template.weapon_lock_shared_across_sets =
+            set.attributes.iter().any(|(key, value)| {
+                (key.eq_ignore_ascii_case("WeaponLockSharedAcrossSets")
+                    || key.eq_ignore_ascii_case("ShareWeaponLock"))
+                    && matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "yes" | "true" | "1"
+                    )
+            });
     }
-
 
     /// Bind authored WeaponTemplateSet for this rank when INI declares one.
     /// Returns true when a slot was replaced (skip in-place damage/ROF scale).
@@ -876,7 +876,7 @@ impl Object {
     /// Wave 79: true when AdvancedTraining ExperienceScalar residual tag is present.
     pub fn has_advanced_training_xp_scalar(&self) -> bool {
         use crate::game_logic::host_unit_training::{
-            is_advanced_training_upgrade, UPGRADE_AMERICA_ADVANCED_TRAINING,
+            UPGRADE_AMERICA_ADVANCED_TRAINING, is_advanced_training_upgrade,
         };
         self.has_upgrade_tag(UPGRADE_AMERICA_ADVANCED_TRAINING)
             || self.has_upgrade_tag("UpgradeAdvancedTraining")
@@ -973,8 +973,7 @@ impl Object {
         let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
 
         // C++ updateUpgradeModules + giveUpgrade(findVeterancyUpgrade(newLevel)).
-        if let Some(name) =
-            crate::game_logic::host_unit_training::veterancy_upgrade_name(new_level)
+        if let Some(name) = crate::game_logic::host_unit_training::veterancy_upgrade_name(new_level)
         {
             self.apply_upgrade_tag(name);
             let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
@@ -1051,7 +1050,6 @@ impl Object {
             Some(id) => id == 0,
         }
     }
-
 
     /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).
     ///

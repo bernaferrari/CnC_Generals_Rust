@@ -79,8 +79,8 @@ pub fn residual_presentation_eva_client_dispatch_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_eva_client_dispatch_last_action(
-) -> ResidualPresentationEvaClientDispatchAction {
+pub fn residual_presentation_eva_client_dispatch_last_action()
+-> ResidualPresentationEvaClientDispatchAction {
     ResidualPresentationEvaClientDispatchAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

@@ -1,8 +1,8 @@
 //! User interface for World Builder
 
 pub use world_builder::chrome::{
-    command_for_menu_item, world_to_cell, ChromeCommand, ChromeMenuItem, EditorChrome, StatusBarState,
-    ViewToggle, WbToolId,
+    ChromeCommand, ChromeMenuItem, EditorChrome, StatusBarState, ViewToggle, WbToolId,
+    command_for_menu_item, world_to_cell,
 };
 
 use crate::map::MapSettings;
@@ -12,8 +12,8 @@ use crate::tools::{ToolCategory, ToolManager};
 use anyhow::Result;
 use eframe::egui;
 use ui_framework::{
-    widgets::{CollapsibleSection, ToolButton, ToolbarWidget},
     Viewport3D,
+    widgets::{CollapsibleSection, ToolButton, ToolbarWidget},
 };
 use world_builder::chrome;
 
@@ -621,7 +621,11 @@ pub fn apply_chrome_view_command(chrome: &mut EditorChrome, command: &ChromeComm
 }
 
 /// Shared helper so tests and the editor use the same palette → tool-id path.
-pub fn activate_palette_tool(chrome: &mut EditorChrome, tool_manager: &mut ToolManager, id: &str) -> bool {
+pub fn activate_palette_tool(
+    chrome: &mut EditorChrome,
+    tool_manager: &mut ToolManager,
+    id: &str,
+) -> bool {
     if !chrome.select_tool_id(id) {
         return false;
     }

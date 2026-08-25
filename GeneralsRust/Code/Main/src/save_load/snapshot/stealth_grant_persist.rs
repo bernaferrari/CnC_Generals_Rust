@@ -45,10 +45,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     reset_stealth_grant(game_logic);
     let Some(suffix) = find_stlg_suffix(bytes) else {
         return Ok(());
@@ -144,11 +141,7 @@ mod tests {
         );
         source.add_player(Player::new(0, Team::GLA, "GLA", true));
         let id = source
-            .create_object(
-                "GLAInfantryWorker",
-                Team::GLA,
-                Vec3::new(6.0, 0.0, 4.0),
-            )
+            .create_object("GLAInfantryWorker", Team::GLA, Vec3::new(6.0, 0.0, 4.0))
             .expect("worker");
         {
             let object = source.host_object_mut(id).expect("worker obj");

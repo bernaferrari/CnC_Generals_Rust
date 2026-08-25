@@ -1,7 +1,7 @@
 //! C++ PhysicsBehavior::checkForOverlapCollision (PhysicsUpdate.cpp:1424-1748).
 //! Sibling of `physics_update.rs`.
 
-use super::{is_very_small3d, PhysicsBehaviorHandle};
+use super::{PhysicsBehaviorHandle, is_very_small3d};
 use crate::common::{Coord3D, Real};
 use crate::damage::{DamageInfo, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::object::{CrushSquishTestType, Object as GameObject};
@@ -51,12 +51,8 @@ pub(super) fn check_for_overlap_collision(
 
     handle.add_overlap(crushee.get_id());
     if !handle.was_previously_overlapped(crushee.get_id()) {
-        let mut fx = DamageInfo::with_simple(
-            0.0,
-            crusher.get_id(),
-            DamageType::Crush,
-            DeathType::Crushed,
-        );
+        let mut fx =
+            DamageInfo::with_simple(0.0, crusher.get_id(), DamageType::Crush, DeathType::Crushed);
         let _ = crushee.attempt_damage(&mut fx);
     }
 
@@ -92,17 +88,10 @@ pub(super) fn check_for_overlap_collision(
             CrushTarget::FrontEndCrush
         }
     } else {
-        pick_crush_target(
-            &crusher_pos,
-            &crushee_pos,
-            dir_x,
-            dir_y,
-            &crush_off,
-        )
+        pick_crush_target(&crusher_pos, &crushee_pos, dir_x, dir_y, &crush_off)
     };
 
-    let distance_too_far_squared =
-        2.25 * crush_point_offset_distance * crush_point_offset_distance;
+    let distance_too_far_squared = 2.25 * crush_point_offset_distance * crush_point_offset_distance;
     let crush_it = match crush_target {
         CrushTarget::TotalCrush => past_crush_point(
             crushee_pos.x - crusher_pos.x,
@@ -138,7 +127,6 @@ pub(super) fn check_for_overlap_collision(
         let _ = crushee.attempt_damage(&mut lethal);
     }
 
-
     true
 }
 
@@ -159,11 +147,7 @@ fn perp_length(
     let dir_vy = ray_length * dir_y;
     let perp_x = dir_vx - from_crusher_x;
     let perp_y = dir_vy - from_crusher_y;
-    (
-        vec2_len(perp_x, perp_y),
-        from_crusher_x,
-        from_crusher_y,
-    )
+    (vec2_len(perp_x, perp_y), from_crusher_x, from_crusher_y)
 }
 
 fn pick_crush_target(

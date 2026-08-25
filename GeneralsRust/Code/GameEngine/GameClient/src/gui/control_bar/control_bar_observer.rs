@@ -2,18 +2,18 @@
 //!
 //! Ported from `ControlBarObserver.cpp`.
 
-use super::control_bar::ControlBar;
 use super::ControlBarContext;
+use super::control_bar::ControlBar;
 use crate::game_text::GameText;
 use crate::gui::game_window::{Image, WindowStatus};
 use crate::gui::{
-    with_window_manager, with_window_manager_ref, GameWindow, WindowMessage, WindowMsgHandled,
+    GameWindow, WindowMessage, WindowMsgHandled, with_window_manager, with_window_manager_ref,
 };
 use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheGameLogic;
-use gamelogic::player::{player_list as logic_player_list, PlayerType};
+use gamelogic::player::{PlayerType, player_list as logic_player_list};
 use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 
 const MAX_OBSERVER_BUTTONS: usize = 8;

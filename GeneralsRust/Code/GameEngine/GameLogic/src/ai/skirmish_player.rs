@@ -1,10 +1,10 @@
 use super::ai_player::{AIPlayer, WorkOrder};
 use crate::ai::THE_AI;
 use crate::build_list_info::BuildListInfo;
+use crate::common::Snapshot;
 use crate::common::coord::*;
 use crate::common::coord_ext::Coord2DExt;
 use crate::common::xfer::{Xfer, XferExt};
-use crate::common::Snapshot;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory};
 use crate::modules::AIUpdateInterfaceExt;
@@ -15,9 +15,9 @@ use crate::object::special_power_types::SpecialPowerType as ObjectSpecialPowerTy
 use crate::object::*;
 use crate::object_manager::get_object_manager;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use crate::player::{player_list, GameDifficulty, Player};
+use crate::player::{GameDifficulty, Player, player_list};
 use crate::player::{PlayerType, ThePlayerList};
-use crate::team::{get_team_factory, TeamPrototype};
+use crate::team::{TeamPrototype, get_team_factory};
 use crate::terrain::get_terrain_logic;
 use game_engine::common::system::build_assistant::LocalLegalToBuildOptions;
 
@@ -1934,7 +1934,6 @@ impl AISkirmishPlayer {
         self.base.guard_supply_center(team_name, min_supplies)
     }
 
-
     pub fn build_specific_building_near_location(
         &mut self,
         building_name: &str,
@@ -2088,9 +2087,11 @@ mod tests {
             save.close().unwrap();
         }
 
-        assert!(!bytes
-            .windows(4)
-            .any(|window| window == &0x1234_5678u32.to_le_bytes()));
+        assert!(
+            !bytes
+                .windows(4)
+                .any(|window| window == &0x1234_5678u32.to_le_bytes())
+        );
     }
 
     #[test]

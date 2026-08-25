@@ -376,11 +376,7 @@ impl RenderPipeline {
                 );
                 let fade = game_client::display::status_circle::take_queued_live_camera_fade()
                     .map(|overlay| (overlay.fade as u8, overlay.intensity, overlay.diffuse))
-                    .unwrap_or((
-                        camera_fade.fade,
-                        camera_fade.intensity,
-                        camera_fade.diffuse,
-                    ));
+                    .unwrap_or((camera_fade.fade, camera_fade.intensity, camera_fade.diffuse));
                 game_client::display::status_circle::record_camera_fade(
                     device.as_ref(),
                     queue.as_ref(),

@@ -1012,7 +1012,7 @@ impl ParameterFactory {
                                 return Err(ParameterError::Generic(format!(
                                     "Unsupported parameter type: {:?}",
                                     param_type
-                                )))
+                                )));
                             }
                         }
                     }

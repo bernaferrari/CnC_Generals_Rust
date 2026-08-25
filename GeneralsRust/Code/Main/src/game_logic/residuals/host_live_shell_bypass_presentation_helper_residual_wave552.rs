@@ -80,8 +80,8 @@ pub fn residual_shell_bypass_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_shell_bypass_presentation_helper_last_action(
-) -> ResidualShellBypassPresentationHelperAction {
+pub fn residual_shell_bypass_presentation_helper_last_action()
+-> ResidualShellBypassPresentationHelperAction {
     ResidualShellBypassPresentationHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 
@@ -132,8 +132,7 @@ pub fn honesty_shell_bypass_presentation_helper_source_markers_residual_wave552(
     };
     let helper_ok = body.contains("Wave 552")
         && body.contains("pres.fow_shell_bypass")
-        && (body.contains("host_match_in_shell")
-            || body.contains("self.host_is_in_shell_game()"));
+        && (body.contains("host_match_in_shell") || body.contains("self.host_is_in_shell_game()"));
     let affirms = eng.contains("fn presentation_affirms_shell_or_boot")
         && eng.contains("presentation_affirms_shell_or_boot()");
     let from_pres = eng.contains("fn shell_bypass_from_presentation")

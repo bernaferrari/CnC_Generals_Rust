@@ -69,7 +69,6 @@ pub const BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO: &str = "DisguiseRevealedSu
 /// C++ reveal halfpoint when there is no current victim.
 pub const BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO: &str = "DisguiseRevealedFailure";
 
-
 // --- Body residual (GLAVehicleBombTruck) ---
 
 /// Retail ActiveBody MaxHealth residual.

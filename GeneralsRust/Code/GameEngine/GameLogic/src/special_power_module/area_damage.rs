@@ -9,8 +9,8 @@ use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::TheTerrainLogic;
 use once_cell::sync::Lazy;
 use std::sync::{
-    atomic::{AtomicU32, Ordering},
     Mutex,
+    atomic::{AtomicU32, Ordering},
 };
 
 /// Damage falloff type

@@ -1,3 +1,4 @@
+use crate::Renderer;
 use crate::animation_synchronization::AnimationFrameInput;
 use crate::core::error::{Error as RendererError, RendererResult};
 use crate::render_object_system::StaticSortRenderObject;
@@ -5,7 +6,6 @@ use crate::rendering::camera_system::CameraClass;
 use crate::rendering::mesh_system::{self, MeshClass};
 use crate::rendering::shadow_system::shadow_map::ShadowCasterSubmission;
 use crate::rendering::wgpu_renderer::wgpu_wrapper::{self, WgpuWrapper};
-use crate::Renderer;
 use glam::Vec4;
 use std::any::Any;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -452,7 +452,7 @@ impl WgpuMainRenderer {
                 (Err(work_err), Err(end_err)) => {
                     return Err(RendererError::RenderError(format!(
                         "frame work failed: {work_err:?}; additionally failed to end engine frame: {end_err:?}"
-                    )))
+                    )));
                 }
             }
         } else if let Some(backend) = self.backend.clone() {
@@ -608,7 +608,6 @@ impl WgpuMainRenderer {
             }
         }
         Ok(())
-
     }
 
     /// Resize the underlying surface/headless target.

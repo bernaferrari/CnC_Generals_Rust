@@ -102,7 +102,7 @@
 //! - Not network base-defense replication (network deferred)
 
 use super::{ObjectId, Weapon};
-use crate::game_logic::host_gattling_tank::{GattlingFireLevel, GATTLING_CHAIN_GUN_DAMAGE_MULT};
+use crate::game_logic::host_gattling_tank::{GATTLING_CHAIN_GUN_DAMAGE_MULT, GattlingFireLevel};
 use glam::Vec3;
 use std::collections::HashSet;
 
@@ -445,7 +445,6 @@ pub fn honesty_stinger_site_body_residual_ok() -> bool {
         && STINGER_SOLDIER_DETECTION_RATE_FRAMES == 15
         && (STINGER_SITE_DETECTION_RANGE - STINGER_SOLDIER_DETECTION_RANGE).abs() < 0.01
         && STINGER_SITE_DETECTION_RATE_FRAMES == STINGER_SOLDIER_DETECTION_RATE_FRAMES
-
 }
 
 /// Apply PatriotMissileWeapon ScatterRadiusVsInfantry residual to aim.
@@ -942,7 +941,6 @@ pub const SUPW_PATRIOT_EMP_AUDIO: &str = "EMPPulseWhoosh";
 /// Retail ProjectileDetonationOCL CreateObject residual.
 pub const EMP_PATRIOT_EFFECT_SPHEROID: &str = "EMPPatriotEffectSpheroid";
 
-
 /// Retail Stinger soldier primary (structure residual abstraction).
 pub const STINGER_PRIMARY_WEAPON: &str = "StingerMissileWeapon";
 /// Retail Stinger soldier secondary AA (structure residual abstraction).
@@ -1015,7 +1013,6 @@ pub const STINGER_SOLDIER_DETECTION_RATE_FRAMES: u32 = 15;
 pub const STINGER_SITE_DETECTION_RANGE: f32 = STINGER_SOLDIER_DETECTION_RANGE;
 /// Site residual DetectionRate frames (soldier leftover).
 pub const STINGER_SITE_DETECTION_RATE_FRAMES: u32 = STINGER_SOLDIER_DETECTION_RATE_FRAMES;
-
 
 // --- HiveStructureBody residual (Stinger Site ModuleTag_04) ---
 
@@ -1804,7 +1801,6 @@ fn leftover_stealth_detector_range(template_name: &str) -> Option<f32> {
     None
 }
 
-
 /// Whether template is a residual China Gattling Cannon structure (ramp + AA).
 ///
 /// Fail-closed: name residual. Excludes tank / Overlord / Helix payloads.
@@ -1973,7 +1969,11 @@ pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static s
     } else if is_stinger_site_structure(template_name) {
         Some(STINGER_PRIMARY_WEAPON)
     } else if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
-        Some(crate::game_logic::host_tunnel_network::tunnel_network_primary_weapon_name(template_name))
+        Some(
+            crate::game_logic::host_tunnel_network::tunnel_network_primary_weapon_name(
+                template_name,
+            ),
+        )
     } else {
         None
     }
@@ -2046,9 +2046,9 @@ pub fn stinger_ground_weapon(has_ap_rockets: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual Stinger AA Weapon (soldier SECONDARY residual).
@@ -2068,9 +2068,9 @@ pub fn stinger_air_weapon(has_ap_rockets: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual Patriot ground Weapon (standard shell residual).
@@ -2297,11 +2297,7 @@ pub fn is_legal_base_defense_target(
 
 /// Slot residual for structure gattling: 1 = AA secondary, 0 = ground primary.
 pub fn preferred_gattling_building_slot(target_is_air: bool) -> u8 {
-    if target_is_air {
-        1
-    } else {
-        0
-    }
+    if target_is_air { 1 } else { 0 }
 }
 
 /// Delay frames residual for continuous-fire level (base / ROF).
@@ -2375,9 +2371,9 @@ pub fn gattling_building_ground_weapon(level: GattlingFireLevel, has_chain_guns:
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual air Weapon for level + chain guns.
@@ -2398,9 +2394,9 @@ pub fn gattling_building_air_weapon(level: GattlingFireLevel, has_chain_guns: bo
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Advance continuous-fire residual state after a structure gattling shot.
@@ -2976,7 +2972,7 @@ mod tests {
         assert!(live[0].endpoint_tracked || live[1].endpoint_tracked);
         // Arc mid residual refreshes with endpoints.
         assert!((live[1].arc_mid_x - 80.0).abs() < 0.01); // mid of 100→60
-                                                          // ScrollRate residual advances each track step.
+        // ScrollRate residual advances each track step.
         assert!((live[0].scroll_offset - PATRIOT_LASER_SCROLL_RATE).abs() < 0.001);
         // Dead target: PunchThroughScalar residual pierces then clears to_id.
         positions.insert(ObjectId(3), (99.0, 0.0, 0.0, false));
@@ -3003,7 +2999,7 @@ mod tests {
     #[test]
     fn leftover_request_assist_range_reads_store_not_hardcode() {
         use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-        use gamelogic::weapon::{with_weapon_store_mut, WeaponTemplate};
+        use gamelogic::weapon::{WeaponTemplate, with_weapon_store_mut};
 
         ensure_host_weapon_store();
         const NAME: &str = "__RustRequestAssistRangePeel";
@@ -3021,7 +3017,10 @@ mod tests {
             51.0,
             leftover_request_assist_range(NAME)
         ));
-        assert_eq!(leftover_request_assist_range("__MissingRequestAssistWeapon"), 0.0);
+        assert_eq!(
+            leftover_request_assist_range("__MissingRequestAssistWeapon"),
+            0.0
+        );
     }
 
     #[test]
@@ -3324,9 +3323,10 @@ mod tests {
         let mut live = roster;
         let n = order_hive_slaves_to_attack_target(&mut live, 42);
         assert_eq!(n, 3);
-        assert!(live
-            .iter()
-            .all(|s| s.ai_attacking && s.attack_target_id == 42));
+        assert!(
+            live.iter()
+                .all(|s| s.ai_attacking && s.attack_target_id == 42)
+        );
         // Dead slot does not receive order.
         live[1].alive = false;
         live[1].ai_attacking = false;
@@ -3340,18 +3340,17 @@ mod tests {
         let n_idle = order_hive_slaves_to_go_idle(&mut live);
         assert_eq!(n_idle, 2);
         assert!(live.iter().filter(|s| s.alive).all(|s| !s.ai_attacking));
-        assert!(live
-            .iter()
-            .filter(|s| s.alive)
-            .all(|s| s.attack_target_id == 0 && s.attack_ground.is_none()));
+        assert!(
+            live.iter()
+                .filter(|s| s.alive)
+                .all(|s| s.attack_target_id == 0 && s.attack_ground.is_none())
+        );
 
         // orderSlavesToAttackPosition residual (hq-ykxeg).
         let n_pos = order_hive_slaves_to_attack_position(&mut live, Vec3::new(8.0, 0.0, 4.0));
         assert_eq!(n_pos, 2);
         assert!(live.iter().filter(|s| s.alive).all(|s| {
-            s.ai_attacking
-                && s.attack_target_id == 0
-                && s.attack_ground == Some([8.0, 0.0, 4.0])
+            s.ai_attacking && s.attack_target_id == 0 && s.attack_ground == Some([8.0, 0.0, 4.0])
         }));
         let _ = order_hive_slaves_to_go_idle(&mut live);
 

@@ -3,13 +3,13 @@
 //! This module parses the legacy Generals GUI window scripts into in-memory
 //! window definitions for creation by the WindowManager.
 
-use super::game_window::{
-    GameFont, Image, WindowDrawData, WindowStatus, WindowTextColors, GWS_ANIMATED, GWS_CHECK_BOX,
-    GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER, GWS_MOUSE_TRACK, GWS_PROGRESS_BAR,
-    GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX, GWS_STATIC_TEXT, GWS_TAB_CONTROL,
-    GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER,
-};
 use super::MAX_DRAW_DATA;
+use super::game_window::{
+    GWS_ANIMATED, GWS_CHECK_BOX, GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER, GWS_MOUSE_TRACK,
+    GWS_PROGRESS_BAR, GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX, GWS_STATIC_TEXT,
+    GWS_TAB_CONTROL, GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER, GameFont, Image,
+    WindowDrawData, WindowStatus, WindowTextColors,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1125,10 +1125,12 @@ mod tests {
             !window.slider_thumb_enabled_draw_data.is_empty(),
             "per-window SLIDERTHUMB* must land on WindowDefinition"
         );
-        assert!(window.slider_thumb_enabled_draw_data[0]
-            .image
-            .as_ref()
-            .is_some_and(|image| image.name == "Thumb"));
+        assert!(
+            window.slider_thumb_enabled_draw_data[0]
+                .image
+                .as_ref()
+                .is_some_and(|image| image.name == "Thumb")
+        );
     }
 
     #[test]
@@ -1143,10 +1145,12 @@ mod tests {
             !window.listbox_enabled_up_button_draw_data.is_empty(),
             "per-window LISTBOX*DRAWDATA must land on WindowDefinition"
         );
-        assert!(window.listbox_enabled_up_button_draw_data[0]
-            .image
-            .as_ref()
-            .is_some_and(|image| image.name == "UpArrow"));
+        assert!(
+            window.listbox_enabled_up_button_draw_data[0]
+                .image
+                .as_ref()
+                .is_some_and(|image| image.name == "UpArrow")
+        );
     }
 
     #[test]

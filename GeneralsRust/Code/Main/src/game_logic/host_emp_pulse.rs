@@ -312,7 +312,6 @@ pub fn leftover_emp_spark_dome_clamp(offset: glam::Vec3, victim_height: f32) -> 
     }
 }
 
-
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn emp_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
@@ -439,7 +438,6 @@ pub struct HostEmpPulseSpheroid {
     pub disable_applied: bool,
     pub flashed: bool,
 }
-
 
 /// Host residual registry for EmpPulse special power activations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -646,23 +644,43 @@ mod tests {
     fn emp_intended_victim_near_miss_fallback_matrix() {
         // Outside EffectRadius 10 but within 40: near-miss disables aircraft.
         assert!(emp_intended_victim_near_miss_disables(
-            false, true, false, 35.0 * 35.0, 10.0
+            false,
+            true,
+            false,
+            35.0 * 35.0,
+            10.0
         ));
         // Already processed in the radius scan → no fallback.
         assert!(!emp_intended_victim_near_miss_disables(
-            true, true, false, 35.0 * 35.0, 10.0
+            true,
+            true,
+            false,
+            35.0 * 35.0,
+            10.0
         ));
         // Ground vehicle / infantry → no fallback.
         assert!(!emp_intended_victim_near_miss_disables(
-            false, false, false, 35.0 * 35.0, 10.0
+            false,
+            false,
+            false,
+            35.0 * 35.0,
+            10.0
         ));
         // EMP_HARDENED aircraft → no fallback.
         assert!(!emp_intended_victim_near_miss_disables(
-            false, true, true, 35.0 * 35.0, 10.0
+            false,
+            true,
+            true,
+            35.0 * 35.0,
+            10.0
         ));
         // Farther than 40 and radius*2 → miss.
         assert!(!emp_intended_victim_near_miss_disables(
-            false, true, false, 50.0 * 50.0, 10.0
+            false,
+            true,
+            false,
+            50.0 * 50.0,
+            10.0
         ));
         // Leftover/C++: dist_sqr <= radius * 2.0 (not squared).
         assert!(emp_intended_victim_near_miss_disables(
@@ -853,10 +871,7 @@ mod tests {
         reg.tick_spheroids(1);
         let after = reg.spheroid(id).expect("ticked");
         assert!(after.current_scale > EMP_SPHEROID_START_SCALE);
-        assert_eq!(
-            after.tint,
-            saturate_emp_rgb(EMP_SPHEROID_START_COLOR, 2.0)
-        );
+        assert_eq!(after.tint, saturate_emp_rgb(EMP_SPHEROID_START_COLOR, 2.0));
         reg.tick_spheroids(9);
         let faded = reg.spheroid(id).expect("faded");
         assert!(faded.flashed);

@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::special_power_interface_cast::module_special_power_interface;
 use crate::object::special_power_template::find_or_create_special_power_template;
-use crate::object::{SpecialPowerTemplate, OBJECT_REGISTRY};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use crate::object::{OBJECT_REGISTRY, SpecialPowerTemplate};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, ModuleInterfaceType, NameKeyType};
 
@@ -234,9 +236,8 @@ fn parse_special_power_template_field(
 
 crate::impl_upgrade_mux_field_parsers!(UnpauseSpecialPowerUpgradeModuleData);
 
-const UNPAUSE_SPECIAL_POWER_UPGRADE_FIELDS: &[FieldParse<UnpauseSpecialPowerUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
+const UNPAUSE_SPECIAL_POWER_UPGRADE_FIELDS: &[FieldParse<UnpauseSpecialPowerUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!(FieldParse {
         token: "SpecialPowerTemplate",
         parse: parse_special_power_template_field,
-    },
-);
+    },);

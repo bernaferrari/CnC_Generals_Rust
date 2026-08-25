@@ -83,7 +83,9 @@ pub fn honesty_host_structure_inventory_catalog_residual_residual_pack_wave1027(
         .contains("Wave 1027: host empty dual-world peels presentation garrison residual count")
         && cb.contains("presentation_garrisoned_count as u32")
         && (cb.contains("Wave 1027: catalog residual when presentation freezes not yet stamped")
-            || cb.contains("Wave 1027/1032: catalog residual when presentation freezes not yet stamped"))
+            || cb.contains(
+                "Wave 1027/1032: catalog residual when presentation freezes not yet stamped",
+            ))
         && cb.contains("translator_catalog_entry(obj_id)")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

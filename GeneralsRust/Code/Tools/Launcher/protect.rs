@@ -6,7 +6,7 @@
 
 use std::{
     collections::HashMap,
-    ffi::{c_void, CStr, CString},
+    ffi::{CStr, CString, c_void},
     ptr,
 };
 

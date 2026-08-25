@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use wgpu::util::DeviceExt;
 
-use crate::render_bridge::{self, get_render_bridge, DrainedDrawSubmission, DrawableId};
+use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId, get_render_bridge};
 
 // ---------------------------------------------------------------------------
 // Vertex / Uniform layouts

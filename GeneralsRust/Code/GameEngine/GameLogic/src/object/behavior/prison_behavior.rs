@@ -5,21 +5,21 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
 use crate::common::audio::TimeOfDay;
-use crate::common::{Bool, Coord3D, DisabledType, LegacyModuleData, ObjectID, Real, INVALID_ID};
+use crate::common::{Bool, Coord3D, DisabledType, INVALID_ID, LegacyModuleData, ObjectID, Real};
 use crate::helpers::{TheGameClient, TheGlobalData};
 use crate::modules::{
     BehaviorModuleInterface, ContainModuleInterface, ContainWant, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::contain::{OpenContain, OpenContainModuleData};
 use crate::object::Object;
+use crate::object::contain::{OpenContain, OpenContainModuleData};
 
 /// Wave 385: host-only path has no dual-world factory objects.
 #[inline]
@@ -820,6 +820,4 @@ mod tests {
             "must apply HELD + yard visual: {body}"
         );
     }
-
-
 }

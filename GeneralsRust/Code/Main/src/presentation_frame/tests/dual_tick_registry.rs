@@ -630,7 +630,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         let mut shroud = get_shroud_manager().lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0); // 10x10
-                                               // Host residual API — keeps FOW filters active without dual registry.
+        // Host residual API — keeps FOW filters active without dual registry.
         shroud.mark_host_object_seen(0, 1);
         let _ = shroud.update(1);
         // No reveal_map_for_player_permanently yet — terrain stays mostly shrouded.
@@ -732,11 +732,13 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         let shell_snap = PresentationFrame::build_from_logic(&shell_logic, 0);
         assert!(shell_snap.fow_shell_bypass);
         if shell_snap.fow_grid.active {
-            assert!(shell_snap
-                .fow_grid
-                .cells
-                .iter()
-                .all(|&c| c == PresentationFowGrid::CELL_VISIBLE));
+            assert!(
+                shell_snap
+                    .fow_grid
+                    .cells
+                    .iter()
+                    .all(|&c| c == PresentationFowGrid::CELL_VISIBLE)
+            );
         }
         assert!(!shell_snap.terrain_fow_overlay_active());
         assert!(shell_snap.terrain_projected_shroud().is_none());
@@ -1643,7 +1645,7 @@ fn remaining_dual_world_registry_empty() {
         grant.contains("OBJECT_REGISTRY.is_empty()"),
         "grant_stealth must gate dual-world bulk scans"
     );
-    let terrain = include_str!("../../../../GameEngine/GameLogic/src/terrain.rs");
+    let terrain = include_str!("../../../../GameEngine/GameLogic/src/terrain/mod.rs");
     assert!(
         terrain.contains("OBJECT_REGISTRY.is_empty()"),
         "terrain dual-world walk must gate on empty registry"
@@ -1706,9 +1708,9 @@ fn production_tick_builds_presentation_after_side_systems() {
         _ => host_update.is_some() && host_update.unwrap() < pres,
     };
     assert!(
-            order_ok,
-            "PresentationFrame must be built after GameLogic update; update_call={host_update_call:?} finalize_call={host_finalize_call:?} update={host_update:?} pres={pres}"
-        );
+        order_ok,
+        "PresentationFrame must be built after GameLogic update; update_call={host_update_call:?} finalize_call={host_finalize_call:?} update={host_update:?} pres={pres}"
+    );
     assert!(
         proj > 0 && path > 0,
         "GameLogic owns projectile+path phases"

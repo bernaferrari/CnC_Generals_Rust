@@ -108,9 +108,7 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
 
     fn xfer_snapshot(&mut self, snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
         // C++ XferSave::xferSnapshot just runs snapshot->xfer(this).
-        snapshot
-            .xfer(self)
-            .map_err(|_| XferStatus::WriteError)
+        snapshot.xfer(self).map_err(|_| XferStatus::WriteError)
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> io::Result<()> {

@@ -44,9 +44,9 @@
 pub mod drawable;
 pub mod drawable_draw_pipeline;
 pub mod drawable_manager;
+pub mod logic_visual_hooks;
 pub mod shroud_state;
 pub mod update;
-pub mod logic_visual_hooks;
 
 pub use crate::drawable_info::{DrawableInfo, ExtraRenderFlags};
 
@@ -54,19 +54,18 @@ pub use crate::drawable_info::{DrawableInfo, ExtraRenderFlags};
 pub use drawable::{
     BasicDrawable, BoneData, Color, DrawModule, Drawable, DrawableDowncast, DrawableExt,
     DrawableId, DrawableOverlayData, DrawableStatus, DrawableType, DrawableXferVisualSnapshot,
-    EnvelopeState, FXListRef, ICoord2D, IRegion2D, Icon, IconInfo, IconType, LocoInfo,
-    LogicDrawModuleSnapshotAdapter, Matrix4, StealthLook, TerrainDecalType, TintEnvelope,
-    TintStatus, Vector3, WheelInfo, INVALID_DRAWABLE_ID,
+    EnvelopeState, FXListRef, ICoord2D, INVALID_DRAWABLE_ID, IRegion2D, Icon, IconInfo, IconType,
+    LocoInfo, LogicDrawModuleSnapshotAdapter, Matrix4, StealthLook, TerrainDecalType, TintEnvelope,
+    TintStatus, Vector3, WheelInfo,
 };
 
 pub use drawable_manager::{DrawLayer, DrawableManager, Frustum, RenderPass, RenderStats, Vector4};
+pub use logic_visual_hooks::{ensure_logic_draw_hooks, lookup_w3d_client_bone};
 pub use shroud_state::{
-    evaluate_ghost_scene, evaluate_non_drawable_scene, evaluate_objectless_drawable_scene,
-    pushes_projected_shroud_pass, ClientShroudVisibility, DrawableShroudClearState,
-    SceneShroudDecision,
+    ClientShroudVisibility, DrawableShroudClearState, SceneShroudDecision, evaluate_ghost_scene,
+    evaluate_non_drawable_scene, evaluate_objectless_drawable_scene, pushes_projected_shroud_pass,
 };
 pub use update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, SwayClientUpdateModule,
 };
-pub use logic_visual_hooks::{ensure_logic_draw_hooks, lookup_w3d_client_bone};

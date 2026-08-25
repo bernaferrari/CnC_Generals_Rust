@@ -32,7 +32,12 @@ static FONT_CHARS: LazyLock<Mutex<HashMap<String, Arc<FontCharsClass>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn font_key(name: &str, point_size: i32, bold: bool) -> String {
-    format!("{}_{}_{}", name, point_size, if bold { "bold" } else { "normal" })
+    format!(
+        "{}_{}_{}",
+        name,
+        point_size,
+        if bold { "bold" } else { "normal" }
+    )
 }
 
 /// C++ `WW3DAssetManager::Get_FontChars(name, pointSize, bold)`.

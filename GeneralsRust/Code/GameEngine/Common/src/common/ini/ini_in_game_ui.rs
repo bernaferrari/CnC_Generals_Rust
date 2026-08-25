@@ -3,7 +3,7 @@
 //! Corresponds to C++ INI::parseInGameUIDefinition in InGameUI.cpp
 //! Parses UI configuration for in-game elements like messages, captions, and superweapon countdowns.
 
-use crate::common::ini::{ini, FieldParse, INIError, INIResult, INI};
+use crate::common::ini::{FieldParse, INI, INIError, INIResult, ini};
 use std::sync::{OnceLock, RwLock};
 
 /// In-game UI settings singleton
@@ -851,8 +851,8 @@ pub fn get_in_game_ui_settings() -> Option<std::sync::RwLockReadGuard<'static, I
 }
 
 /// Get a write reference to the InGameUI settings
-pub fn get_in_game_ui_settings_mut(
-) -> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
+pub fn get_in_game_ui_settings_mut()
+-> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
     INGAME_UI_SETTINGS.get()?.write().ok()
 }
 

@@ -17,10 +17,10 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
-    scud_missile_loft_phase, scud_missile_spawn_height, scud_missile_speed_per_frame,
-    scud_missile_thrust_wobble, scud_storm_points, ScudMissileLoftPhase, SCUD_STORM_MISSILE_COUNT,
-    SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET, SCUD_STORM_MISSILE_IGNITION_FX,
-    SCUD_STORM_MISSILE_OBJECT,
+    SCUD_STORM_MISSILE_COUNT, SCUD_STORM_MISSILE_HEIGHT_DIE_TARGET, SCUD_STORM_MISSILE_IGNITION_FX,
+    SCUD_STORM_MISSILE_OBJECT, ScudMissileLoftPhase, scud_missile_loft_phase,
+    scud_missile_spawn_height, scud_missile_speed_per_frame, scud_missile_thrust_wobble,
+    scud_storm_points,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ impl HostScudStormMissileFlightData {
         terrain_y: f32,
         structure_height: f32,
     ) -> ScudMissileTick {
-        use crate::game_logic::host_height_die::{height_die_target_world_y, HeightDieIni};
+        use crate::game_logic::host_height_die::{HeightDieIni, height_die_target_world_y};
         use crate::game_logic::special_power_strikes::{
             SCUD_STORM_MISSILE_HEIGHT_DIE_INCLUDES_STRUCTURES,
             SCUD_STORM_MISSILE_HEIGHT_DIE_ONLY_MOVING_DOWN,
@@ -89,9 +89,7 @@ impl HostScudStormMissileFlightData {
             ignition_fx = true;
         }
 
-        if phase == ScudMissileLoftPhase::HeightDie
-            || (pos.y <= die_y && self.traveled > 10.0)
-        {
+        if phase == ScudMissileLoftPhase::HeightDie || (pos.y <= die_y && self.traveled > 10.0) {
             return ScudMissileTick {
                 pos: Vec3::new(self.target.x, snap_y, self.target.z),
                 vel: Vec3::ZERO,
@@ -223,7 +221,7 @@ impl HostScudStormMissileFlightRegistry {
         targets: &[Vec3],
     ) {
         use crate::game_logic::special_power_strikes::{
-            scud_delay_between_frames, SCUD_STORM_PRE_ATTACK_FRAMES,
+            SCUD_STORM_PRE_ATTACK_FRAMES, scud_delay_between_frames,
         };
         let mut frame = activate_frame.saturating_add(SCUD_STORM_PRE_ATTACK_FRAMES);
         for (i, target) in targets.iter().enumerate() {

@@ -7,12 +7,12 @@
 //! Original C++ Author: Graham Smallwood, Feb 2002
 //! Rust conversion: 2025
 
+use crate::GameLogicRandomValueReal;
 use crate::common::*;
 use crate::modules::{BehaviorModule, BehaviorModuleInterface, DockUpdateInterface};
 use crate::object::Object;
-use crate::GameLogicRandomValueReal;
 use game_engine::common::global_data;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, SupplyWarehouseDockInterface};
 use std::sync::{Arc, RwLock};
@@ -89,7 +89,6 @@ fn parse_allows_passthrough_via_base(
     data.base.is_allow_passthrough = INI::parse_bool(token)?;
     Ok(())
 }
-
 
 fn parse_starting_boxes(
     _ini: &mut INI,
@@ -468,7 +467,6 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // C++ SupplyWarehouseDockUpdate::setDockCrippled — kill inside ground
         // dockers / idle+force-wanting approachers, even on the host path.
-
 
         if crippled {
             let active_id = self.base.active_docker_id();

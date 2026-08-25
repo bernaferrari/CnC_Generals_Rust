@@ -401,8 +401,8 @@ mod tests {
 
     #[test]
     #[ignore] // Note: This test vector from the original C++ code doesn't match standard SHA-1
-              // Our implementation produces the correct standard SHA-1 result for this input
-              // The discrepancy may be due to a difference in the original WWLib test data
+    // Our implementation produces the correct standard SHA-1 result for this input
+    // The discrepancy may be due to a difference in the original WWLib test data
     fn test_sha1_vector_3() {
         let result = ShaEngine::hash_data(TEST_VECTOR_3_INPUT);
         // Standard SHA-1 result for 64 'a' characters:

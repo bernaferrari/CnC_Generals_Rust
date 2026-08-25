@@ -27,14 +27,14 @@ mod benches {
     use game_network::commands::{
         CommandParameter, CommandPayload, GameCommandData, NetCommand, NetCommandType,
     };
-    use game_network::frame_data::{FrameCRC, FrameData, GameStateCRC, CRC};
+    use game_network::frame_data::{CRC, FrameCRC, FrameData, GameStateCRC};
     use game_network::net_packet::{
         CommandPacketPayload, DisconnectPayload, DisconnectReason, FrameSyncPayload,
         HandshakePayload, NetPacket, NetPacketHeader, PacketPayload, PingPayload,
     };
     use game_network::security::encryption::{
-        decode_envelope, encode_encrypted_envelope, encode_plain_envelope, EncryptedPacket,
-        EncryptionProvider,
+        EncryptedPacket, EncryptionProvider, decode_envelope, encode_encrypted_envelope,
+        encode_plain_envelope,
     };
     use std::collections::HashMap;
     use test::Bencher;

@@ -1,6 +1,6 @@
 use game_engine::common::ini::ini::INI;
 use game_engine::common::ini::ini_water::{
-    get_water_setting, get_water_transparency, parse_color_rgba, TimeOfDay,
+    TimeOfDay, get_water_setting, get_water_transparency, parse_color_rgba,
 };
 
 #[test]

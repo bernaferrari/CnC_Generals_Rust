@@ -1,6 +1,4 @@
-
 use super::*;
-
 
 #[allow(dead_code)]
 fn set_var(key: &str, value: &str) {
@@ -1904,10 +1902,14 @@ fn ai_player_xfer_writes_team_seconds_as_cpp_int() {
         save.close().unwrap();
     }
 
-    assert!(bytes
-        .windows(4)
-        .any(|window| window == &66_051i32.to_le_bytes()));
-    assert!(!bytes
-        .windows(4)
-        .any(|window| window == &66_051.0f32.to_le_bytes()));
+    assert!(
+        bytes
+            .windows(4)
+            .any(|window| window == &66_051i32.to_le_bytes())
+    );
+    assert!(
+        !bytes
+            .windows(4)
+            .any(|window| window == &66_051.0f32.to_le_bytes())
+    );
 }

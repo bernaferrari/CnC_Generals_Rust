@@ -20,11 +20,11 @@ use std::sync::Arc;
 use super::SampleFormat;
 #[cfg(feature = "audio")]
 use kira::{
-    manager::{backend::cpal::CpalBackend, AudioManager, AudioManagerSettings},
-    sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
-    sound::PlaybackRate,
-    tween::Tween,
     Volume,
+    manager::{AudioManager, AudioManagerSettings, backend::cpal::CpalBackend},
+    sound::PlaybackRate,
+    sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
+    tween::Tween,
 };
 
 /// Modern Kira-based audio driver

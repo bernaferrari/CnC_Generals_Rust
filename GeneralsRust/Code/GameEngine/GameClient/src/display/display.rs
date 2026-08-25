@@ -4,38 +4,38 @@
 
 //! Display adaptor that renders through the shared `PlatformContext`.
 
-use crate::display::view::{
-    set_display_letter_boxed, vertical_fov_from_horizontal, with_tactical_view,
-    with_tactical_view_ref, ViewTrait, LETTER_BOX_FADE_TIME_MS,
-};
 use crate::display::DisplayInterface;
 use crate::display::display_fx;
 use crate::display::shadow_pass;
+use crate::display::view::{
+    LETTER_BOX_FADE_TIME_MS, ViewTrait, set_display_letter_boxed, vertical_fov_from_horizontal,
+    with_tactical_view, with_tactical_view_ref,
+};
 use crate::drawable::drawable_manager::DrawableManager;
 use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
-    register_particle_renderer, ParticleRenderer as GpuParticleRenderer, ParticleUniforms,
+    ParticleRenderer as GpuParticleRenderer, ParticleUniforms, register_particle_renderer,
 };
 use crate::effects::weather_complete::get_weather_system;
 use crate::fx_list::get_decal_manager;
-use crate::radius_decal::get_projected_shadow_manager;
 use crate::game_text::GameText;
-use crate::gui::display_string::{get_display_string_manager, DisplayStringHandle};
-use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
+use crate::gui::font::{FontDesc, get_font_library};
 use crate::gui::{ui_renderer::UIRect, with_ui_renderer, with_window_manager};
 use crate::input::with_mouse;
 use crate::platform::GraphicsContext;
-use crate::system::debug_display::DebugDisplay;
+use crate::radius_decal::get_projected_shadow_manager;
 use crate::system::SubsystemInterface;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::system::debug_display::DebugDisplay;
 use crate::terrain::TerrainVisual;
+use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer, VideoBufferType};
-use crate::video_player::{get_video_player, VideoPlayerInterface};
+use crate::video_player::{VideoPlayerInterface, get_video_player};
 use crate::video_stream::VideoStreamInterface;
 #[cfg(feature = "w3d_support")]
 use crate::w3d::W3DParticleSystemBridge;
 use game_engine::common::ini::ini_game_data::{
-    get_global_data, GlobalData, TimeOfDay, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT,
+    GlobalData, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT, TimeOfDay, get_global_data,
 };
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use log::{error, warn};
@@ -663,7 +663,6 @@ impl Display {
         );
     }
 
-
     pub fn enable_letter_box(&mut self, enabled: bool) {
         if self.letterbox_enabled == enabled {
             return;
@@ -697,11 +696,7 @@ impl Display {
             return if self.letterbox_enabled { 1.0 } else { 0.0 };
         };
         let t = (start.elapsed().as_millis() as f32 / LETTER_BOX_FADE_TIME_MS).clamp(0.0, 1.0);
-        if self.letterbox_enabled {
-            t
-        } else {
-            1.0 - t
-        }
+        if self.letterbox_enabled { t } else { 1.0 - t }
     }
 
     /// C++ `W3DDisplay::renderLetterBox` — constant 16:9 height, alpha fade.
@@ -853,7 +848,6 @@ impl Display {
         }
     }
 
-
     fn build_particle_uniforms(&self) -> ParticleUniforms {
         with_tactical_view_ref(|view| {
             let camera_pos = view.get_3d_camera_position();
@@ -918,7 +912,6 @@ impl SubsystemInterface for Display {
         }
         Ok(())
     }
-
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.update_views();
@@ -1104,17 +1097,13 @@ impl DisplayInterface for Display {
             );
         });
 
-
-
         // C++ W3DParticleSys::doParticles — terrain visible-box cull.
-        if let Ok(mut guard) = crate::effects::particle_manager::get_particle_system_manager_mut()
-        {
+        if let Ok(mut guard) = crate::effects::particle_manager::get_particle_system_manager_mut() {
             if let Some(mgr) = guard.as_mut() {
                 with_tactical_view_ref(|view| {
                     let cam = view.get_3d_camera_position();
                     let target = view.position();
-                    let aspect =
-                        (view.width() as f32 / view.height().max(1) as f32).max(0.01);
+                    let aspect = (view.width() as f32 / view.height().max(1) as f32).max(0.01);
                     let visible = shadow_pass::maximum_visible_box(
                         [cam.x, cam.y, cam.z],
                         [target.x, target.y, target.z],
@@ -1128,7 +1117,6 @@ impl DisplayInterface for Display {
                 });
             }
         }
-
 
         // Particle rendering via W3DParticleSystemBridge
         #[cfg(feature = "w3d_support")]

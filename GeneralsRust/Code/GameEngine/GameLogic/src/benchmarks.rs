@@ -12,8 +12,8 @@ mod benchmarks {
     use crate::damage::DamageType;
     use crate::physics::{PhysicsState, PhysicsType};
     use crate::weapon::{
-        ArmorDamageMatrix, ArmorType, BallisticsCalculator, BallisticsTrajectory, Projectile,
-        ProjectileType, WeaponBonus, WeaponTemplate, INVALID_OBJECT_ID,
+        ArmorDamageMatrix, ArmorType, BallisticsCalculator, BallisticsTrajectory,
+        INVALID_OBJECT_ID, Projectile, ProjectileType, WeaponBonus, WeaponTemplate,
     };
     use std::sync::Arc;
     use std::time::Instant;

@@ -246,7 +246,9 @@ fn special_power_from_object_template(template_name: &str) -> Option<SpecialPowe
 }
 
 /// Leftover ThingFactory `MissileLauncherBuildingUpdate` module, if already loaded.
-pub fn leftover_missile_launcher_module_data(template_name: &str) -> Option<HostMissileLauncherIni> {
+pub fn leftover_missile_launcher_module_data(
+    template_name: &str,
+) -> Option<HostMissileLauncherIni> {
     let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
     let factory = guard.as_ref()?;
     let tmpl = factory.find_template(template_name, false)?;
@@ -261,8 +263,7 @@ pub fn leftover_missile_launcher_module_data(template_name: &str) -> Option<Host
         if let Some(data) = entry
             .data
             .downcast_ref::<gamelogic::object::behavior::MissileLauncherBuildingUpdateModuleData>(
-            )
-        {
+        ) {
             return Some(HostMissileLauncherIni {
                 special_power_template_name: data.special_power_template_name.clone(),
                 door_open_time: data.door_open_time,
@@ -327,7 +328,8 @@ pub fn residual_missile_launcher_ini(template_name: &str) -> Option<HostMissileL
         }
         SpecialPowerType::CruiseMissile => {
             ini.special_power_template_name = "SupW_CruiseMissile".into();
-            ini.door_open_time = crate::game_logic::special_power_strikes::CRUISE_MISSILE_DOOR_OPEN_TIME_FRAMES;
+            ini.door_open_time =
+                crate::game_logic::special_power_strikes::CRUISE_MISSILE_DOOR_OPEN_TIME_FRAMES;
             ini.door_wait_open_time =
                 crate::game_logic::special_power_strikes::CRUISE_MISSILE_DOOR_WAIT_OPEN_TIME_FRAMES;
         }

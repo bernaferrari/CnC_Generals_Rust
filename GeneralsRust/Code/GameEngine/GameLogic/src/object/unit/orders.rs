@@ -277,11 +277,7 @@ impl Unit {
         if let Ok(obj_guard) = self.base_arc().read() {
             let current = obj_guard.get_health();
             let max = obj_guard.get_max_health();
-            if max > 0.0 {
-                current / max
-            } else {
-                0.0
-            }
+            if max > 0.0 { current / max } else { 0.0 }
         } else {
             0.0
         }

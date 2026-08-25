@@ -17,7 +17,7 @@ use game_engine::common::thing::module_factory::{
 use log::warn;
 
 use crate::common::{
-    AsciiString, Coord3D, ModuleData as LegacyModuleData, ObjectID, TheGameLogic, INVALID_ID,
+    AsciiString, Coord3D, INVALID_ID, ModuleData as LegacyModuleData, ObjectID, TheGameLogic,
 };
 use crate::modules::{BehaviorModuleInterface, ContainModuleInterface};
 use crate::object::behavior::animation_steering_update::{
@@ -74,6 +74,9 @@ use crate::object::behavior::demo_trap_update::{
 use crate::object::behavior::dumb_projectile_behavior::{
     DumbProjectileBehavior, DumbProjectileBehaviorModule, DumbProjectileBehaviorModuleData,
 };
+use crate::object::behavior::dynamic_geometry_info_update::{
+    DynamicGeometryInfoUpdate, DynamicGeometryInfoUpdateModuleData,
+};
 use crate::object::behavior::dynamic_shroud_clearing_range_update::{
     DynamicShroudClearingRangeUpdate, DynamicShroudClearingRangeUpdateModuleData,
 };
@@ -88,9 +91,6 @@ use crate::object::behavior::fire_weapon_when_damaged_behavior_new::{
 };
 use crate::object::behavior::fire_weapon_when_dead_behavior_new::{
     FireWeaponWhenDeadBehavior, FireWeaponWhenDeadBehaviorModuleData,
-};
-use crate::object::behavior::dynamic_geometry_info_update::{
-    DynamicGeometryInfoUpdate, DynamicGeometryInfoUpdateModuleData,
 };
 
 use crate::object::behavior::firestorm_dynamic_geometry_info_update::{
@@ -296,8 +296,8 @@ use crate::object::collide::crate_collide::veterancy_crate_collide::{
 use crate::object::collide::fire_weapon_collide::{FireWeaponCollide, FireWeaponCollideModuleData};
 use crate::object::collide::squish_collide::{SquishCollide, SquishCollideModuleData};
 use crate::object::collide::{
-    CollideModule as CollideModuleTrait, CollisionError, Coord3D as CollisionCoord3D, GameObject,
-    COLLISION_MANAGER,
+    COLLISION_MANAGER, CollideModule as CollideModuleTrait, CollisionError,
+    Coord3D as CollisionCoord3D, GameObject,
 };
 use crate::object::contain::{
     CaveContain, CaveContainModuleData, GarrisonContain, GarrisonContainModuleData, HealContain,
@@ -313,11 +313,11 @@ use crate::object::create::{
     LockWeaponCreateModuleData, PreorderCreate, SpecialPowerCreate, SupplyCenterCreate,
     SupplyWarehouseCreate, VeterancyGainCreate, VeterancyGainCreateModuleData,
 };
+use crate::object::damage::DamageModuleData;
 use crate::object::damage::bone_fx_damage::{BoneFXDamage, BoneFXDamageModule};
 use crate::object::damage::transition_damage_fx::{
     TransitionDamageFX, TransitionDamageFXModule, TransitionDamageFXModuleData,
 };
-use crate::object::damage::DamageModuleData;
 use crate::object::die::{
     CreateCrateDie, CreateCrateDieModuleData, CreateObjectDie, CreateObjectDieModuleData, CrushDie,
     CrushDieModuleData, DamDie, DamDieModuleData, DestroyDie, DieModuleData, DieModuleInterface,
@@ -432,4 +432,3 @@ pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
     include_str!("template_locomotor.rs"),
     include_str!("update_modules.rs"),
 );
-

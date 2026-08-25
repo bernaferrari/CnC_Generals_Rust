@@ -136,10 +136,10 @@ mod tests {
 
     #[test]
     fn building_data_pause_holds_production_timer() {
+        use crate::game_logic::Resources;
         use crate::game_logic::buildings::{
             BuildingData, BuildingType, ProductionItem, ProductionKind,
         };
-        use crate::game_logic::Resources;
         let mut bd = BuildingData::new(BuildingType::Barracks);
         bd.production_queue.push(ProductionItem {
             template_name: "USA_Ranger".into(),

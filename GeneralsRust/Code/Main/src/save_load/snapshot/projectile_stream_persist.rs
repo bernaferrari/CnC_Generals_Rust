@@ -15,8 +15,8 @@
 //! Restore replaces the live registry and never calls `add_projectile`, so
 //! a load cannot insert a retarget hole or re-create the trail.
 
-use crate::game_logic::host_projectile_stream::ProjectileStreamRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_projectile_stream::ProjectileStreamRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -42,10 +42,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep the previous trail.
     game_logic.projectile_streams.clear();
     let Some(suffix) = find_pjst_suffix(bytes) else {
@@ -99,8 +96,8 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_projectile_stream::STREAM_HOLE;
     use crate::game_logic::ObjectId;
+    use crate::game_logic::host_projectile_stream::STREAM_HOLE;
     use glam::Vec3;
 
     #[test]

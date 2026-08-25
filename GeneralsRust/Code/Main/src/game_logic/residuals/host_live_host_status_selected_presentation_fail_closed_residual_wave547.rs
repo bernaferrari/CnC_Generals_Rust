@@ -81,8 +81,8 @@ pub fn residual_host_status_selected_presentation_fail_closed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_status_selected_presentation_fail_closed_last_action(
-) -> ResidualHostStatusSelectedPresentationFailClosedAction {
+pub fn residual_host_status_selected_presentation_fail_closed_last_action()
+-> ResidualHostStatusSelectedPresentationFailClosedAction {
     ResidualHostStatusSelectedPresentationFailClosedAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -125,8 +125,8 @@ pub fn honesty_host_status_selected_presentation_fail_closed_method_names_residu
     ok
 }
 
-pub fn honesty_host_status_selected_presentation_fail_closed_source_markers_residual_wave547(
-) -> bool {
+pub fn honesty_host_status_selected_presentation_fail_closed_source_markers_residual_wave547()
+-> bool {
     let eng = eng_source();
     let Some(body) = fn_body(eng, "fn runtime_host_status_snapshot(") else {
         residual_action_store(

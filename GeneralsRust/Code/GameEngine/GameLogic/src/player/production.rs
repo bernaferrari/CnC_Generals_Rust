@@ -175,7 +175,6 @@ impl Player {
         self.units_should_hunt = should_hunt;
     }
 
-
     pub fn set_units_should_hunt(&mut self, should_hunt: Bool, source: CommandSourceType) {
         self.units_should_hunt = should_hunt;
 
@@ -259,9 +258,8 @@ impl Player {
         if member_ids.is_empty() {
             member_ids.extend_from_slice(&self.owned_objects);
             if let Ok(manager) = get_object_manager().read() {
-                member_ids.extend(
-                    manager.get_objects_owned_by_player(self.player_index as UnsignedInt),
-                );
+                member_ids
+                    .extend(manager.get_objects_owned_by_player(self.player_index as UnsignedInt));
             }
             member_ids.sort_unstable();
             member_ids.dedup();
@@ -578,7 +576,6 @@ impl Player {
             selection.add_object_id(object_id);
         }
     }
-
 
     /// Return the current selection as an AIGroup (matches C++ Player::getCurrentSelectionAsAIGroup).
     pub fn get_current_selection_as_ai_group(&mut self, group: &mut AIGroup) {

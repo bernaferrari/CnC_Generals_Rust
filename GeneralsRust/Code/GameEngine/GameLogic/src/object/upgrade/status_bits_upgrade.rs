@@ -7,11 +7,13 @@ use crate::common::{
     AsciiString, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType,
 };
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
 use crate::object::INVALID_ID;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -645,12 +647,14 @@ mod tests {
         data.set_status_to_clear_from_tokens(&["+MASKED", "-MASKED"])
             .expect("parse clear mask");
 
-        assert!(data
-            .status_to_set()
-            .contains(ObjectStatusMaskType::STEALTHED));
-        assert!(data
-            .status_to_set()
-            .contains(ObjectStatusMaskType::DETECTED));
+        assert!(
+            data.status_to_set()
+                .contains(ObjectStatusMaskType::STEALTHED)
+        );
+        assert!(
+            data.status_to_set()
+                .contains(ObjectStatusMaskType::DETECTED)
+        );
         assert!(data.status_to_clear().is_empty());
     }
 
@@ -759,9 +763,11 @@ mod tests {
             let mut object = object_handle.write().expect("lock object");
             object.set_status(ObjectStatusMaskType::MASKED, true);
             object.give_upgrade(&upgrade);
-            assert!(object
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::STEALTHED));
+            assert!(
+                object
+                    .get_status_bits()
+                    .contains(ObjectStatusMaskType::STEALTHED)
+            );
 
             object.remove_upgrade(&upgrade);
             let status = object.get_status_bits();

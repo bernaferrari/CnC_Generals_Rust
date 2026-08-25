@@ -107,7 +107,6 @@ pub const HELIX_FIRESTORM_DURATION_FRAMES: u32 = 180;
 /// (`FirestormDynamicGeometryInfoUpdate.cpp:36`). Host Y-up maps C++ Z.
 pub const HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE: f32 = 20.0;
 
-
 /// Retail upgrade that unpauses Helix NapalmBomb special power.
 pub const UPGRADE_HELIX_NAPALM_BOMB: &str = "Upgrade_HelixNapalmBomb";
 /// Retail Nuke_Upgrade_HelixNukeBomb residual unlock name.
@@ -179,11 +178,7 @@ pub fn helix_napalm_unlocked(template_name: &str, has_upgrade: bool) -> bool {
 
 /// C++ `isWithinStartAbilityRange` for Helix NapalmBomb (StartAbilityRange 3).
 /// Location target has no object radius; uses leftover bounding-sphere 2D.
-pub fn helix_napalm_in_start_range(
-    helix_pos: Vec3,
-    helix_radius: f32,
-    target_pos: Vec3,
-) -> bool {
+pub fn helix_napalm_in_start_range(helix_pos: Vec3, helix_radius: f32, target_pos: Vec3) -> bool {
     let edge = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
         helix_pos,
         helix_radius,
@@ -260,8 +255,7 @@ pub struct HostHelixFirestormZone {
     pub scorch_placed: bool,
     /// Leftover `m_myParticleSystemID[MAX_FIRESTORM_SYSTEMS]`.
     #[serde(default)]
-    pub leftover_particle_system_ids:
-        [u32; gamelogic::object::behavior::MAX_FIRESTORM_SYSTEMS],
+    pub leftover_particle_system_ids: [u32; gamelogic::object::behavior::MAX_FIRESTORM_SYSTEMS],
     /// Leftover `m_effectsFired`.
     #[serde(default)]
     pub leftover_effects_fired: bool,
@@ -459,8 +453,7 @@ impl HostHelixNapalmRegistry {
                     });
                 }
             }
-            let place_scorch =
-                firestorm_switched_directions(elapsed) && !zone.scorch_placed;
+            let place_scorch = firestorm_switched_directions(elapsed) && !zone.scorch_placed;
             plans.push(HostHelixFirestormTickPlan {
                 zone_id: zone.id,
                 source_object: zone.source_object,
@@ -706,8 +699,7 @@ pub fn honesty_helix_napalm_firestorm_residual_ok() -> bool {
         && HELIX_FIRESTORM_REVERSE_AT_TRANSITION
         && (HELIX_FIRESTORM_SCORCH_SIZE - 90.0).abs() < 0.01
         && (firestorm_major_radius_at(0) - HELIX_FIRESTORM_INITIAL_RADIUS).abs() < 0.01
-        && (firestorm_major_radius_at(HELIX_FIRESTORM_TRANSITION_FRAMES)
-            - HELIX_FIRESTORM_RADIUS)
+        && (firestorm_major_radius_at(HELIX_FIRESTORM_TRANSITION_FRAMES) - HELIX_FIRESTORM_RADIUS)
             .abs()
             < 0.01
         && firestorm_switched_directions(HELIX_FIRESTORM_TRANSITION_FRAMES)
@@ -871,15 +863,8 @@ mod tests {
     fn firestorm_skips_objects_above_max_height_for_damage() {
         let mut reg = HostHelixNapalmRegistry::new();
         let impact = Vec3::new(50.0, 0.0, 0.0);
-        let _id = reg.record_drop_and_spawn_firestorm(
-            ObjectId(1),
-            Team::China,
-            impact,
-            0,
-            false,
-            0,
-            0.0,
-        );
+        let _id =
+            reg.record_drop_and_spawn_firestorm(ObjectId(1), Team::China, impact, 0, false, 0, 0.0);
         let objects = vec![
             (ObjectId(1), Vec3::ZERO, Team::China, true),
             (ObjectId(2), impact, Team::GLA, true),
@@ -917,15 +902,8 @@ mod tests {
     fn firestorm_expand_reverse_radius_and_scorch() {
         let mut reg = HostHelixNapalmRegistry::new();
         let impact = Vec3::ZERO;
-        let id = reg.record_drop_and_spawn_firestorm(
-            ObjectId(1),
-            Team::China,
-            impact,
-            0,
-            false,
-            0,
-            0.0,
-        );
+        let id =
+            reg.record_drop_and_spawn_firestorm(ObjectId(1), Team::China, impact, 0, false, 0, 0.0);
         assert!(
             (reg.active_zones()[0].radius - HELIX_FIRESTORM_INITIAL_RADIUS).abs() < 0.01,
             "spawn must start at InitialMajorRadius, not FinalMajorRadius"
@@ -1004,7 +982,10 @@ mod tests {
         let src = include_str!("host_helix_napalm.rs");
         assert!(src.contains("leftover_tick_helix_firestorm_fx"));
         assert!(src.contains("FirestormDynamicGeometryInfoUpdate::leftover_tick_particle_fx"));
-        assert!(src.contains("leftover_follow_emission_radius") || src.contains("leftover_tick_particle_fx"));
+        assert!(
+            src.contains("leftover_follow_emission_radius")
+                || src.contains("leftover_tick_particle_fx")
+        );
         assert!(
             !src.contains("not full particle\n//!   emission-volume follow"),
             "live must leftover-call leftover ParticleSystem/FXList/emission"

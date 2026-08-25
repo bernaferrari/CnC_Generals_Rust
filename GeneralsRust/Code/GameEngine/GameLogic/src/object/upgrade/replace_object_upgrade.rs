@@ -3,10 +3,12 @@ use std::sync::Arc;
 use crate::ai::THE_AI;
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::OBJECT_REGISTRY;
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
 use crate::{helpers::TheThingFactory, object_manager::get_object_manager};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -319,9 +321,8 @@ fn parse_replace_object_field(
 
 crate::impl_upgrade_mux_field_parsers!(ReplaceObjectUpgradeModuleData);
 
-const REPLACE_OBJECT_UPGRADE_FIELDS: &[FieldParse<ReplaceObjectUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
+const REPLACE_OBJECT_UPGRADE_FIELDS: &[FieldParse<ReplaceObjectUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!(FieldParse {
         token: "ReplaceObject",
         parse: parse_replace_object_field,
-    },
-);
+    },);

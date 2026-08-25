@@ -5,7 +5,7 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use thiserror::Error;
 use ultraviolet::{Vec2, Vec3};
-use wgpu::{util::DeviceExt, Buffer, BufferUsages, Device};
+use wgpu::{Buffer, BufferUsages, Device, util::DeviceExt};
 
 #[derive(Error, Debug)]
 pub enum W3DMeshError {

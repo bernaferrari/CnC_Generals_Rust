@@ -4,10 +4,10 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::LOGICFRAMES_PER_SECOND;
+use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::game_logic::ai_internal_move_to_state::AIInternalMoveToState;
 use crate::game_logic::game_logic::TheGameLogic;
 use crate::game_logic::interfaces::{

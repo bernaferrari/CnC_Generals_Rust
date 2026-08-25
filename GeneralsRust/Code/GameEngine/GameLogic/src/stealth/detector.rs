@@ -4,9 +4,9 @@
 
 use super::{DetectionLevel, StealthDifficulty};
 use crate::common::*;
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::registry::OBJECT_REGISTRY;
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::{debug, trace};
@@ -201,9 +201,7 @@ impl StealthDetectorController {
 
                     trace!(
                         "Detector {} detected stealthed unit {} at range {}",
-                        self.object_id,
-                        target_id,
-                        distance
+                        self.object_id, target_id, distance
                     );
                 }
             }

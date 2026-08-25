@@ -136,13 +136,11 @@ impl ScriptConditionEvaluator {
             // Name still tracked, object gone — C++ didUnitExist (pointer == NULL).
             return Ok(ScriptConditionResult::True);
         }
-        Ok(
-            if tracker.did_object_exist(&object_name).unwrap_or(false) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(if tracker.did_object_exist(&object_name).unwrap_or(false) {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_named_not_destroyed(
@@ -223,7 +221,6 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
             return Ok(ScriptConditionResult::False);
@@ -255,7 +252,6 @@ impl ScriptConditionEvaluator {
             }
             return Ok(ScriptConditionResult::False);
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
@@ -364,13 +360,14 @@ impl ScriptConditionEvaluator {
                 if obj.held || obj.stealthed_hidden {
                     return Ok(ScriptConditionResult::False);
                 }
-                return Ok(Self::bool_result(obj.discovered_by.iter().any(|name| {
-                    name.eq_ignore_ascii_case(&player_name)
-                })));
+                return Ok(Self::bool_result(
+                    obj.discovered_by
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(&player_name)),
+                ));
             }
             return Ok(ScriptConditionResult::False);
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
@@ -411,7 +408,6 @@ impl ScriptConditionEvaluator {
             object_name,
             player_name
         );
-
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
@@ -460,7 +456,6 @@ impl ScriptConditionEvaluator {
             object_name,
             waypoint_path
         );
-
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
@@ -531,8 +526,8 @@ impl ScriptConditionEvaluator {
         // selected drawables and compares Object::getName(). Live host never
         // mirrors objects into OBJECT_REGISTRY, so consult the host snapshot.
         if dual_world_registry_unavailable() {
-            let is_selected = crate::scripting::host_script_named_unit_selected(&object_name)
-                .unwrap_or(false);
+            let is_selected =
+                crate::scripting::host_script_named_unit_selected(&object_name).unwrap_or(false);
             condition.custom_data = if is_selected { 1 } else { -1 };
             return Ok(if is_selected {
                 ScriptConditionResult::True
@@ -540,8 +535,6 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-
-
 
         let Ok(list) = crate::player::player_list().read() else {
             return Ok(ScriptConditionResult::False);
@@ -702,7 +695,6 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         }
 
-
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
@@ -724,7 +716,6 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' is totally dead", object_name);
-
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             // C++ getUnitNamed: host snapshot lists this name (alive or dying) → not totally dead.
@@ -749,7 +740,8 @@ impl ScriptConditionEvaluator {
             }
         }
         let existed = tracker.did_object_exist(&object_name).unwrap_or(false)
-            || with_script_engine_ref(|engine| engine.did_unit_exist(&object_name)).unwrap_or(false);
+            || with_script_engine_ref(|engine| engine.did_unit_exist(&object_name))
+                .unwrap_or(false);
         Ok(Self::bool_result(existed))
     }
 
@@ -770,7 +762,6 @@ impl ScriptConditionEvaluator {
             }
             return Ok(ScriptConditionResult::False);
         }
-
 
         // Look up the building object
         let tracker = get_named_object_tracker();
@@ -803,7 +794,6 @@ impl ScriptConditionEvaluator {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' has free container slots", object_name);
-
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             if let Some(obj) = crate::scripting::host_script_query_object(&object_name) {
@@ -864,8 +854,8 @@ impl ScriptConditionEvaluator {
                 if obj.initial_health <= 0.0 {
                     return Ok(ScriptConditionResult::False);
                 }
-                let health_percent = ((obj.health * 100.0 + obj.initial_health / 2.0)
-                    / obj.initial_health) as i32;
+                let health_percent =
+                    ((obj.health * 100.0 + obj.initial_health / 2.0) / obj.initial_health) as i32;
                 return Ok(Self::bool_result(Self::compare_i32(
                     comparison,
                     health_percent,
@@ -874,7 +864,6 @@ impl ScriptConditionEvaluator {
             }
             return Ok(ScriptConditionResult::False);
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
@@ -943,7 +932,6 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptConditionResult::False);
@@ -1000,7 +988,6 @@ impl ScriptConditionEvaluator {
                 },
             );
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
@@ -1078,12 +1065,11 @@ impl ScriptConditionEvaluator {
         // proof the ThingTemplate exists. ObjectTypes list names stay false.
         if crate::helpers::TheThingFactory::find_template(&type_or_list_name).is_none() {
             let key = type_or_list_name.to_ascii_lowercase();
-            let host_has = crate::scripting::host_query_player_census(&player_name).is_some_and(
-                |c| {
+            let host_has =
+                crate::scripting::host_query_player_census(&player_name).is_some_and(|c| {
                     c.template_counts.contains_key(&key)
                         || c.template_counts_ignore_dead.contains_key(&key)
-                },
-            );
+                });
             if !host_has {
                 return Ok(ScriptConditionResult::False);
             }
@@ -1142,7 +1128,6 @@ impl ScriptConditionEvaluator {
                     .unwrap_or(false),
             ));
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&building_name) else {
@@ -1596,7 +1581,6 @@ impl ScriptConditionEvaluator {
         })
     }
 
-
     /// C++ ScriptConditions::evaluateMultiplayerPlayerDefeat — no params.
     pub(crate) fn eval_multiplayer_player_defeat(
         &self,
@@ -1632,8 +1616,8 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        let finished = with_script_engine_ref(|engine| engine.is_video_complete(&name, true))
-            .unwrap_or(false);
+        let finished =
+            with_script_engine_ref(|engine| engine.is_video_complete(&name, true)).unwrap_or(false);
         Ok(if finished {
             ScriptConditionResult::True
         } else {
@@ -1680,8 +1664,8 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        let finished = with_script_engine_ref(|engine| engine.is_audio_complete(&name, true))
-            .unwrap_or(false);
+        let finished =
+            with_script_engine_ref(|engine| engine.is_audio_complete(&name, true)).unwrap_or(false);
         Ok(if finished {
             ScriptConditionResult::True
         } else {

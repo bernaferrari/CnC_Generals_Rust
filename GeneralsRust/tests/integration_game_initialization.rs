@@ -35,7 +35,10 @@ fn test_headless_initialization() {
 
         // Check we can get current directory
         let current_dir = std::env::current_dir();
-        assert!(current_dir.is_ok(), "Should be able to get current directory");
+        assert!(
+            current_dir.is_ok(),
+            "Should be able to get current directory"
+        );
 
         // Check we can allocate memory
         let test_vec: Vec<u8> = vec![0; 1024 * 1024]; // 1MB
@@ -161,7 +164,10 @@ fn test_file_system_initialization() {
     // 2. Can create and remove test directory
     let test_dir = temp_dir.join("generals_rust_test");
     let create_result = std::fs::create_dir_all(&test_dir);
-    assert!(create_result.is_ok(), "Should be able to create test directory");
+    assert!(
+        create_result.is_ok(),
+        "Should be able to create test directory"
+    );
 
     // 3. Can write and read test file
     let test_file = test_dir.join("test.txt");
@@ -258,7 +264,10 @@ fn test_initialization_error_handling() {
     // 1. Test invalid path handling
     let invalid_path = std::path::Path::new("/nonexistent/path/that/does/not/exist");
     let result = std::fs::read(invalid_path);
-    assert!(result.is_err(), "Reading invalid path should fail gracefully");
+    assert!(
+        result.is_err(),
+        "Reading invalid path should fail gracefully"
+    );
 
     // 2. Test parse error handling
     let invalid_number = "not_a_number".parse::<u32>();

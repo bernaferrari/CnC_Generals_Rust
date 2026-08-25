@@ -959,10 +959,10 @@ impl AudioSourceLoader {
                 Err(symphonia::core::errors::Error::IoError(ref e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
-                    break
+                    break;
                 }
                 Err(e) => {
-                    return Err(SourceError::CompressionError(format!("Read error: {}", e)).into())
+                    return Err(SourceError::CompressionError(format!("Read error: {}", e)).into());
                 }
             };
 
@@ -991,7 +991,7 @@ impl AudioSourceLoader {
                 Err(e) => {
                     return Err(
                         SourceError::CompressionError(format!("Decode error: {}", e)).into(),
-                    )
+                    );
                 }
             }
         }

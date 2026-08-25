@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-
 use crate::game_logic::host_usa_pilot::HostDeathType;
 
 fn default_death_types() -> u32 {
@@ -33,7 +32,6 @@ pub fn leftover_veterancy_from_host(
         crate::game_logic::VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
     }
 }
-
 
 fn parse_leftover_flag_tokens(raw: &str) -> Vec<&str> {
     raw.split(|c: char| c == ',' || c.is_whitespace())
@@ -111,11 +109,10 @@ impl HostFxListDieData {
 
     pub fn conflicts_with_owned(&self, owned: &[String]) -> bool {
         !self.conflicts_with.is_empty()
-            && self.conflicts_with.iter().any(|c| {
-                owned
-                    .iter()
-                    .any(|o| o.eq_ignore_ascii_case(c))
-            })
+            && self
+                .conflicts_with
+                .iter()
+                .any(|c| owned.iter().any(|o| o.eq_ignore_ascii_case(c)))
     }
 
     /// C++ `UpgradeMux::wouldUpgrade` TriggeredBy check (StartsActive via `upgrade_active`).
@@ -138,13 +135,11 @@ impl HostFxListDieData {
         }
     }
 
-
     /// C++ `getDeathTypeFlag` — `1UL << (dt - 1)` (NORMAL wraps to bit 31).
     pub fn death_type_allowed(&self, death_type: HostDeathType) -> bool {
         let shift = (death_type.ordinal() as u32).wrapping_sub(1) & 31;
         (self.death_types & (1u32 << shift)) != 0
     }
-
 
     /// C++ `DieMuxData::isDieApplicable` using leftover death/vet/status masks.
     pub fn leftover_die_mux_allows(
@@ -202,7 +197,6 @@ impl HostFxListDieData {
         })
     }
 
-
     /// Fire every applicable authored `FXListDie` (C++ walks all Die modules).
     pub fn collect_applicable(
         &mut self,
@@ -254,14 +248,14 @@ impl HostFxListDieData {
             out.push(hit);
         }
         for extra in &mut self.more {
-            if let Some(hit) = extra.try_fire_self(owned_upgrades, death_type, veterancy, status_bits)
+            if let Some(hit) =
+                extra.try_fire_self(owned_upgrades, death_type, veterancy, status_bits)
             {
                 out.push(hit);
             }
         }
         out
     }
-
 
     /// Fire once on die. Returns the first applicable (fx, audio) pair.
     pub fn on_die(
@@ -294,7 +288,6 @@ pub struct HostFxListDieHit {
     pub death_audio: Option<String>,
     pub orient_to_object: bool,
 }
-
 
 fn parse_bool(raw: &str) -> Option<bool> {
     let t = raw.trim();
@@ -458,9 +451,10 @@ mod tests {
             conflicts_with: vec!["Upgrade_GLAAnthraxBeta".into()],
             ..Default::default()
         };
-        assert!(d
-            .on_die(&["Upgrade_GLAAnthraxBeta".into()], HostDeathType::Normal)
-            .is_none());
+        assert!(
+            d.on_die(&["Upgrade_GLAAnthraxBeta".into()], HostDeathType::Normal)
+                .is_none()
+        );
         let mut d2 = HostFxListDieData {
             death_fx: Some("FX_Base".into()),
             conflicts_with: vec!["Upgrade_GLAAnthraxBeta".into()],
@@ -504,7 +498,10 @@ mod tests {
         ]);
         assert!(!d.starts_active);
         assert!(!d.upgrade_active);
-        assert_eq!(d.triggered_by, vec!["Upgrade_A".to_string(), "Upgrade_B".to_string()]);
+        assert_eq!(
+            d.triggered_by,
+            vec!["Upgrade_A".to_string(), "Upgrade_B".to_string()]
+        );
         assert!(!d.requires_all_triggers);
         assert!(d.on_die(&[], HostDeathType::Normal).is_none());
         assert!(!d.upgrade_active);
@@ -524,9 +521,10 @@ mod tests {
             ("RequiresAllTriggers", "Yes"),
         ]);
         assert!(d.requires_all_triggers);
-        assert!(d
-            .on_die(&["Upgrade_A".into()], HostDeathType::Normal)
-            .is_none());
+        assert!(
+            d.on_die(&["Upgrade_A".into()], HostDeathType::Normal)
+                .is_none()
+        );
         let (fx, _) = d
             .on_die(
                 &["Upgrade_A".into(), "Upgrade_B".into()],
@@ -538,10 +536,8 @@ mod tests {
 
     #[test]
     fn leftover_orient_to_object_no_is_parsed() {
-        let d = fx_list_die_from_behavior_attrs(&[
-            ("DeathFX", "FX_PosDie"),
-            ("OrientToObject", "No"),
-        ]);
+        let d =
+            fx_list_die_from_behavior_attrs(&[("DeathFX", "FX_PosDie"), ("OrientToObject", "No")]);
         assert!(!d.orient_to_object);
         let mut d = d;
         let hit = d
@@ -552,7 +548,6 @@ mod tests {
         assert_eq!(hit.death_fx.as_deref(), Some("FX_PosDie"));
         assert!(!hit.orient_to_object);
     }
-
 
     #[test]
     fn crush_only_death_types_skip_normal() {
@@ -574,14 +569,15 @@ mod tests {
         ]);
         assert_ne!(d.exempt_status, 0);
         let burned = leftover_status_mask(d.exempt_status).bits();
-        assert!(d
-            .on_die_mux(
+        assert!(
+            d.on_die_mux(
                 &[],
                 HostDeathType::Normal,
                 gamelogic::common::VeterancyLevel::Regular,
                 burned,
             )
-            .is_none());
+            .is_none()
+        );
         let (fx, _) = d
             .on_die_mux(
                 &[],
@@ -599,14 +595,15 @@ mod tests {
             ("DeathFX", "FX_VetDie"),
             ("VeterancyLevels", "NONE +VETERAN"),
         ]);
-        assert!(d
-            .on_die_mux(
+        assert!(
+            d.on_die_mux(
                 &[],
                 HostDeathType::Normal,
                 gamelogic::common::VeterancyLevel::Regular,
                 0,
             )
-            .is_none());
+            .is_none()
+        );
         let (fx, _) = d
             .on_die_mux(
                 &[],
@@ -624,14 +621,15 @@ mod tests {
             ("DeathFX", "FX_RequiredDie"),
             ("RequiredStatus", "BURNED"),
         ]);
-        assert!(d
-            .on_die_mux(
+        assert!(
+            d.on_die_mux(
                 &[],
                 HostDeathType::Normal,
                 gamelogic::common::VeterancyLevel::Regular,
                 0,
             )
-            .is_none());
+            .is_none()
+        );
         let required = leftover_status_mask(d.required_status).bits();
         let (fx, _) = d
             .on_die_mux(

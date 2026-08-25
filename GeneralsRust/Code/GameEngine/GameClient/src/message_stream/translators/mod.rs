@@ -24,7 +24,7 @@ pub(in crate::message_stream::translators) use super::selection_xlat::SelectionT
 pub(in crate::message_stream::translators) use super::window_xlat::WindowTranslator;
 pub(in crate::message_stream::translators) use crate::core::game_client::CommandEvaluateType as ClientCommandEvaluateType;
 pub(in crate::message_stream::translators) use crate::display::view::{
-    with_tactical_view, with_tactical_view_ref, IPoint2, Point3,
+    IPoint2, Point3, with_tactical_view, with_tactical_view_ref,
 };
 pub(in crate::message_stream::translators) use crate::drawable::Drawable;
 pub(in crate::message_stream::translators) use crate::gui::game_window::WindowStatus;
@@ -39,8 +39,8 @@ pub(in crate::message_stream::translators) use crate::presentation_translator_re
     translator_entry_has_kind, translator_entry_is_local, translator_local_team_name,
     with_translator_catalog,
 };
-pub(in crate::message_stream::translators) use crate::system::beacon_display;
 pub(in crate::message_stream::translators) use crate::system::GameMessageResult;
+pub(in crate::message_stream::translators) use crate::system::beacon_display;
 pub(in crate::message_stream::translators) use game_engine::common::game_engine::get_game_engine;
 pub(in crate::message_stream::translators) use game_engine::common::ini::ini_game_data::get_global_data;
 pub(in crate::message_stream::translators) use game_engine::common::system::radar::get_radar_system;
@@ -63,12 +63,12 @@ pub(in crate::message_stream::translators) use gamelogic::helpers::{
 };
 pub(in crate::message_stream::translators) use gamelogic::object::registry::OBJECT_REGISTRY;
 pub(in crate::message_stream::translators) use gamelogic::object::special_power_template::{
-    get_special_power_store, SpecialPowerTemplate,
+    SpecialPowerTemplate, get_special_power_store,
 };
 pub(in crate::message_stream::translators) use gamelogic::path::SURFACE_CLIFF;
 pub(in crate::message_stream::translators) use gamelogic::player::player_list;
 pub(in crate::message_stream::translators) use gamelogic::system::shroud_manager::{
-    get_shroud_manager, ShroudState,
+    ShroudState, get_shroud_manager,
 };
 pub(in crate::message_stream::translators) use gamelogic::weapon::WeaponSlotType;
 pub(in crate::message_stream::translators) use log::{debug, info, warn};
@@ -92,7 +92,7 @@ pub use command_translator::*;
 mod voice;
 pub(crate) use voice::play_voice_for_command;
 pub(in crate::message_stream::translators) use voice::{
-    pick_and_play_unit_voice_response, VoicePlayInfo,
+    VoicePlayInfo, pick_and_play_unit_voice_response,
 };
 mod command_translate;
 pub use command_translate::*;

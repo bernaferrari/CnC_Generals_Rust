@@ -7,8 +7,8 @@
 
 use super::actions::ScriptAction;
 use super::{ScriptContext, ScriptResult, ScriptValue};
-use crate::common::{AsciiString, Coord3D, Real, INVALID_ID, INVALID_OBJECT_ID};
-use crate::helpers::{get_camera_view_bridge, TheGameLogic};
+use crate::common::{AsciiString, Coord3D, INVALID_ID, INVALID_OBJECT_ID, Real};
+use crate::helpers::{TheGameLogic, get_camera_view_bridge};
 use crate::scripting::engine::get_named_object_tracker;
 use crate::terrain::get_terrain_logic;
 use crate::{GameLogicError, GameLogicResult};

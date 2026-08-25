@@ -81,7 +81,8 @@ impl Object {
         self.record_host_ai_request();
         // C++ loadPostProcess sets m_xferRestoreDisguise when the disguise
         // template is present so changeVisualDisguise rebuilds the drawable.
-        if self.has_disguise_template() && (self.status.disguised || self.status.disguise_halfpoint_reached)
+        if self.has_disguise_template()
+            && (self.status.disguised || self.status.disguise_halfpoint_reached)
         {
             self.record_model_mesh_from_template();
             self.record_kind_of_bits_from_template();
@@ -455,7 +456,6 @@ impl Object {
         }
     }
 
-
     /// C++ StealthUpdate.cpp:717-752 — cloak after `m_stealthAllowedFrame` when allowed.
     /// Forbidden frames roll `m_stealthAllowedFrame = now + StealthDelay` every tick.
     pub fn try_recloak_after_stealth_delay(&mut self, now: u32, forbidden: bool) -> bool {
@@ -529,7 +529,9 @@ impl Object {
 
     /// C++ `StealthDetectorUpdate.cpp:284-290` — every detector scan (not only first-spot).
     pub fn apply_detected_heat_vision_second_pass(&mut self) {
-        if self.is_kind_of(KindOf::Mine) || self.is_kind_of(KindOf::DemoTrap) || self.mine_data.is_some()
+        if self.is_kind_of(KindOf::Mine)
+            || self.is_kind_of(KindOf::DemoTrap)
+            || self.mine_data.is_some()
         {
             self.camo_heat_vision_opacity = 0.0;
             return;
@@ -562,7 +564,6 @@ impl Object {
             self.record_host_stealth_delay();
         }
     }
-
 
     /// C++ StealthUpdate.cpp:739 — `m_stealthAllowedFrame = now + stealthDelay`.
     pub fn rearm_stealth_delay(&mut self, now: u32) {
@@ -623,7 +624,6 @@ impl Object {
             }
         }
     }
-
 
     /// C++ StealthUpdate.cpp:365-373 — non-garrison container destalths occupants.
     pub fn transport_contain_should_destalth(container_is_garrisonable: bool) -> bool {
@@ -868,10 +868,7 @@ impl Object {
                     .any(|name| icon.name.eq_ignore_ascii_case(name))
         })
     }
-
-
 }
-
 
 /// C++ `ThingTemplate::getSoundStealthOn` residual default.
 pub const SOUND_STEALTH_ON: &str = "StealthOn";
@@ -881,19 +878,19 @@ pub const SOUND_STEALTH_OFF: &str = "StealthOff";
 /// C++ `StealthUpdate` `m_orderIdleEnemiesToAttackMeUponReveal` for retail units.
 pub fn order_idle_enemies_on_reveal(template_name: &str) -> bool {
     use crate::game_logic::host_colonel_burton::{
-        is_colonel_burton_template, BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL,
+        BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL, is_colonel_burton_template,
     };
     use crate::game_logic::host_hero_abilities::{
-        is_black_lotus_template, LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL,
+        LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL, is_black_lotus_template,
     };
     use crate::game_logic::host_jarmen_kell::{
-        is_jarmen_kell_template, JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL,
+        JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL, is_jarmen_kell_template,
     };
     use crate::game_logic::host_listening_outpost::{
-        is_listening_outpost_template, LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL,
+        LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL, is_listening_outpost_template,
     };
     use crate::game_logic::host_pathfinder::{
-        is_pathfinder_template, PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL,
+        PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL, is_pathfinder_template,
     };
     use crate::game_logic::host_upgrades::is_camo_netting_structure_template;
 
@@ -925,12 +922,7 @@ pub fn is_live_stealth_black_market(
     sold: bool,
     destroyed: bool,
 ) -> bool {
-    is_fs_black_market
-        && !is_fake
-        && is_alive
-        && !under_construction
-        && !sold
-        && !destroyed
+    is_fs_black_market && !is_fake && is_alive && !under_construction && !sold && !destroyed
 }
 
 /// C++ `Drawable` fade mode residual: none.
@@ -951,11 +943,7 @@ pub fn drawable_explicit_fade_opacity(mode: u8, start_frame: u32, frames: u32, n
         return if mode == DRAWABLE_FADE_IN { 1.0 } else { 0.0 };
     }
     let t = (elapsed as f32 / frames as f32).clamp(0.0, 1.0);
-    if mode == DRAWABLE_FADE_IN {
-        t
-    } else {
-        1.0 - t
-    }
+    if mode == DRAWABLE_FADE_IN { t } else { 1.0 - t }
 }
 
 /// C++ `StealthUpdate` pulse rate (`m_pulsePhaseRate = 0.2`).
@@ -1012,7 +1000,6 @@ pub fn stealth_second_material_pass_opacity(
     }
     0.0
 }
-
 
 /// C++ `Drawable::updateDrawable` tint-status colors (signed additive).
 pub fn drawable_status_tint_rgb(
@@ -1259,16 +1246,18 @@ pub struct DrawableTintEnvelopePersist {
 
 pub fn capture_drawable_tint_envelope(object_id: u32) -> Option<DrawableTintEnvelopePersist> {
     TINT_ENVELOPES.with(|map| {
-        map.borrow().get(&object_id).map(|env| DrawableTintEnvelopePersist {
-            current: env.current,
-            peak: env.peak,
-            attack_rate: env.attack_rate,
-            decay_rate: env.decay_rate,
-            state: env.state,
-            last_kind: env.last_kind,
-            last_frame: env.last_frame,
-            seen: env.seen,
-        })
+        map.borrow()
+            .get(&object_id)
+            .map(|env| DrawableTintEnvelopePersist {
+                current: env.current,
+                peak: env.peak,
+                attack_rate: env.attack_rate,
+                decay_rate: env.decay_rate,
+                state: env.state,
+                last_kind: env.last_kind,
+                last_frame: env.last_frame,
+                seen: env.seen,
+            })
     })
 }
 
@@ -1290,26 +1279,26 @@ pub fn restore_drawable_tint_envelope(object_id: u32, persist: DrawableTintEnvel
     });
 }
 
-
 #[cfg(test)]
 pub fn reset_drawable_tint_envelopes() {
     TINT_ENVELOPES.with(|map| map.borrow_mut().clear());
 }
 
-
 #[cfg(test)]
 mod stealth_grant_tests {
     use super::{
-        is_live_stealth_black_market, order_idle_enemies_on_reveal, stealth_update_pulse_opacity,
-        Object, Team, ThingTemplate, STEALTH_UPDATE_PULSE_PHASE_RATE,
+        Object, STEALTH_UPDATE_PULSE_PHASE_RATE, Team, ThingTemplate, is_live_stealth_black_market,
+        order_idle_enemies_on_reveal, stealth_update_pulse_opacity,
     };
-
-
 
     #[test]
     fn gps_grant_keeps_can_stealth_and_recloaks_after_fire() {
         // C++ StealthUpdate.cpp:198 receiveGrant stays CAN_STEALTH.
-        let mut unit = Object::new(ThingTemplate::new("TestTank"), super::ObjectId(1), super::Team::GLA);
+        let mut unit = Object::new(
+            ThingTemplate::new("TestTank"),
+            super::ObjectId(1),
+            super::Team::GLA,
+        );
         unit.apply_grant_stealth();
         assert!(unit.status.stealthed);
         assert!(unit.innate_stealth, "receiveGrant must set CAN_STEALTH");
@@ -1366,7 +1355,11 @@ mod stealth_grant_tests {
 
     #[test]
     fn stealth_delay_rolls_forward_while_forbidden() {
-        let mut unit = Object::new(ThingTemplate::new("TestTank"), super::ObjectId(4), super::Team::USA);
+        let mut unit = Object::new(
+            ThingTemplate::new("TestTank"),
+            super::ObjectId(4),
+            super::Team::USA,
+        );
         unit.innate_stealth = true;
         unit.stealth_delay_frames = 30;
         unit.set_status_stealthed(true);
@@ -1374,7 +1367,10 @@ mod stealth_grant_tests {
         assert!(!unit.status.stealthed);
         assert_eq!(unit.stealth_allowed_frame, 40);
         unit.apply_stealth_allowed_update(20, false);
-        assert_eq!(unit.stealth_allowed_frame, 50, "delay must count from last forbidden frame");
+        assert_eq!(
+            unit.stealth_allowed_frame, 50,
+            "delay must count from last forbidden frame"
+        );
         assert!(!unit.try_recloak_after_stealth_delay(40, false));
         assert!(unit.try_recloak_after_stealth_delay(50, false));
         assert!(unit.status.stealthed);
@@ -1442,12 +1438,14 @@ mod stealth_grant_tests {
         hero.set_script_unstealthed(true);
         assert!(hero.stealth_level_forbids_cloak(1, false, false, false, true));
         hero.apply_stealth_allowed_update(1, true);
-        assert!(!hero.status.stealthed, "SCRIPT_UNSTEALTHED destalths even if otherwise allowed");
+        assert!(
+            !hero.status.stealthed,
+            "SCRIPT_UNSTEALTHED destalths even if otherwise allowed"
+        );
         hero.set_script_unstealthed(false);
         assert!(hero.try_recloak_after_stealth_delay(hero.stealth_allowed_frame, false));
         assert!(hero.status.stealthed);
     }
-
 
     #[test]
     fn heat_vision_second_pass_skips_mines_and_hints_owner_fire() {
@@ -1469,10 +1467,13 @@ mod stealth_grant_tests {
         );
     }
 
-
     #[test]
     fn stealth_attacking_is_fire_state_not_approach() {
-        let mut unit = Object::new(ThingTemplate::new("TestTank"), super::ObjectId(5), super::Team::USA);
+        let mut unit = Object::new(
+            ThingTemplate::new("TestTank"),
+            super::ObjectId(5),
+            super::Team::USA,
+        );
         unit.status.attacking = true;
         unit.set_ai_state(super::AIState::AttackMoving);
         assert!(!unit.stealth_is_firing_weapon());
@@ -1490,13 +1491,20 @@ mod stealth_grant_tests {
         let a = glam::Vec3::new(0.0, 0.0, 0.0);
         let b = glam::Vec3::new(30.0, 400.0, 40.0);
         let d = Object::stealth_detector_distance_2d(a, b);
-        assert!((d - 50.0).abs() < 0.01, "altitude must not shrink 2D range, got {d}");
+        assert!(
+            (d - 50.0).abs() < 0.01,
+            "altitude must not shrink 2D range, got {d}"
+        );
         assert!(a.distance(b) > 400.0);
     }
 
     #[test]
     fn stealth_taking_damage_ignores_healing() {
-        let mut unit = Object::new(ThingTemplate::new("TestTank"), super::ObjectId(6), super::Team::USA);
+        let mut unit = Object::new(
+            ThingTemplate::new("TestTank"),
+            super::ObjectId(6),
+            super::Team::USA,
+        );
         unit.last_damage_timestamp = Some(10);
         assert!(unit.stealth_taking_non_healing_damage(10));
         assert!(unit.stealth_taking_non_healing_damage(11));
@@ -1547,8 +1555,12 @@ mod stealth_grant_tests {
     #[test]
     fn temp_grant_strips_on_player_order() {
         assert!(Object::temporary_stealth_grant_should_expire(100, 50, true));
-        assert!(!Object::temporary_stealth_grant_should_expire(100, 50, false));
-        assert!(Object::temporary_stealth_grant_should_expire(100, 100, false));
+        assert!(!Object::temporary_stealth_grant_should_expire(
+            100, 50, false
+        ));
+        assert!(Object::temporary_stealth_grant_should_expire(
+            100, 100, false
+        ));
         assert!(!Object::temporary_stealth_grant_should_expire(0, 50, true));
     }
 
@@ -1574,13 +1586,19 @@ mod stealth_grant_tests {
         ));
 
         worker.revoke_grant_stealth();
-        assert!(!worker.innate_stealth, "receiveGrant(false) clears CAN_STEALTH");
+        assert!(
+            !worker.innate_stealth,
+            "receiveGrant(false) clears CAN_STEALTH"
+        );
         assert!(!worker.status.stealthed);
         assert_eq!(worker.temporary_stealth_expires_frame, 0);
         assert_eq!(worker.stealth_allowed_frame, u32::MAX);
         assert!((worker.camo_friendly_opacity - 1.0).abs() < 1e-5);
         assert!(!worker.try_recloak_after_stealth_delay(700, false));
-        assert!(!worker.status.stealthed, "stash worker cannot re-cloak after grant expiry");
+        assert!(
+            !worker.status.stealthed,
+            "stash worker cannot re-cloak after grant expiry"
+        );
     }
 
     #[test]
@@ -1598,7 +1616,9 @@ mod stealth_grant_tests {
         assert!(order_idle_enemies_on_reveal("GLAInfantryJarmenKell"));
         assert!(order_idle_enemies_on_reveal("ChinaInfantryBlackLotus"));
         assert!(order_idle_enemies_on_reveal("AmericaInfantryPathfinder"));
-        assert!(order_idle_enemies_on_reveal("AmericaVehicleListeningOutpost"));
+        assert!(order_idle_enemies_on_reveal(
+            "AmericaVehicleListeningOutpost"
+        ));
         assert!(order_idle_enemies_on_reveal("GLATunnelNetwork"));
         assert!(!order_idle_enemies_on_reveal("AmericaInfantryRanger"));
     }
@@ -1624,7 +1644,6 @@ mod stealth_grant_tests {
             false, false, true, false, false, false
         ));
     }
-
 
     #[test]
     fn unmanned_does_not_dark_tint_underpowered_does() {
@@ -1686,5 +1705,4 @@ mod stealth_grant_tests {
         }
         assert!((color[2] - 0.8).abs() < 0.03);
     }
-
 }

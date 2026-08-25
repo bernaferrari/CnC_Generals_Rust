@@ -14,15 +14,15 @@
 
 #![cfg(test)]
 
-use std::sync::{Arc, Weak};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Mock object ID type
 type ObjectId = u32;
 
 /// Mock object type
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ObjectType {
     Unit,
     Building,
@@ -91,7 +91,8 @@ impl ObjectManager {
         self.next_id += 1;
 
         let object = GameObject::new(id, object_type);
-        self.objects.insert(id, Arc::new(parking_lot::Mutex::new(object)));
+        self.objects
+            .insert(id, Arc::new(parking_lot::Mutex::new(object)));
 
         id
     }
@@ -376,9 +377,9 @@ fn test_object_update_cycle() {
 /// Test concurrent object access
 #[test]
 fn test_concurrent_object_access() {
-    use std::thread;
-    use std::sync::Arc as StdArc;
     use parking_lot::Mutex as ParkingMutex;
+    use std::sync::Arc as StdArc;
+    use std::thread;
 
     println!("Testing concurrent object access...");
 
@@ -482,10 +483,16 @@ mod stress_tests {
         let elapsed = start.elapsed();
         let ops_per_sec = CYCLES as f64 / elapsed.as_secs_f64();
 
-        println!("Completed {} cycles in {:?} ({:.2} ops/sec)", CYCLES, elapsed, ops_per_sec);
+        println!(
+            "Completed {} cycles in {:?} ({:.2} ops/sec)",
+            CYCLES, elapsed, ops_per_sec
+        );
 
         assert_eq!(manager.object_count(), 0);
-        assert!(ops_per_sec > 10000.0, "Should handle >10k create/destroy per second");
+        assert!(
+            ops_per_sec > 10000.0,
+            "Should handle >10k create/destroy per second"
+        );
 
         log::info!("Rapid creation/destruction stress test passed");
     }

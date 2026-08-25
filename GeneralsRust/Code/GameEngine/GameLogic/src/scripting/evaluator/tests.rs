@@ -1,4 +1,3 @@
-
 use super::super::engine::initialize_script_engine;
 use super::*;
 
@@ -424,9 +423,9 @@ fn player_science_points_resolves_local_player_token_like_cpp() {
         .unwrap();
 
     assert!(
-            evaluator.evaluate_condition(&mut condition).unwrap(),
-            "C++ ScriptConditions::playerFromParam resolves <Local Player> before evaluating science points"
-        );
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        "C++ ScriptConditions::playerFromParam resolves <Local Player> before evaluating science points"
+    );
 }
 
 #[test]
@@ -466,9 +465,9 @@ fn player_all_destroyed_resolves_local_player_token_like_cpp() {
         .unwrap();
 
     assert!(
-            !evaluator.evaluate_condition(&mut condition).unwrap(),
-            "C++ evaluateAllDestroyed must inspect the local player's live unit, not treat <Local Player> as missing"
-        );
+        !evaluator.evaluate_condition(&mut condition).unwrap(),
+        "C++ evaluateAllDestroyed must inspect the local player's live unit, not treat <Local Player> as missing"
+    );
 }
 
 #[test]
@@ -536,11 +535,11 @@ fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp(
         ))
         .unwrap();
     assert!(
-            !evaluator
-                .evaluate_condition(&mut missing_player_condition)
-                .unwrap(),
-            "C++ returns false for an unresolved Side instead of comparing against invented zero credits"
-        );
+        !evaluator
+            .evaluate_condition(&mut missing_player_condition)
+            .unwrap(),
+        "C++ returns false for an unresolved Side instead of comparing against invented zero credits"
+    );
 }
 
 #[tokio::test]
@@ -1340,4 +1339,3 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         "team standing outside the triangle is not entirely inside"
     );
 }
-

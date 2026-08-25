@@ -54,8 +54,8 @@ fn gc_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
-pub fn honesty_host_presentation_shell_catalog_shroud_residual_method_names_residual_wave1022(
-) -> bool {
+pub fn honesty_host_presentation_shell_catalog_shroud_residual_method_names_residual_wave1022()
+-> bool {
     let names = LIVE_HOST_PRESENTATION_SHELL_CATALOG_SHROUD_RESIDUAL_METHOD_NAMES_WAVE1022;
     let ok = residual_name_index(names, "update_presentation_shell").is_some()
         && residual_name_index(names, "Wave 1022").is_some();
@@ -64,8 +64,8 @@ pub fn honesty_host_presentation_shell_catalog_shroud_residual_method_names_resi
     ok
 }
 
-pub fn honesty_host_presentation_shell_catalog_shroud_residual_nav_commands_residual_wave1022(
-) -> bool {
+pub fn honesty_host_presentation_shell_catalog_shroud_residual_nav_commands_residual_wave1022()
+-> bool {
     let steps = LIVE_HOST_PRESENTATION_SHELL_CATALOG_SHROUD_RESIDUAL_NAV_STEPS_WAVE1022;
     let ok = residual_name_index(
         steps,

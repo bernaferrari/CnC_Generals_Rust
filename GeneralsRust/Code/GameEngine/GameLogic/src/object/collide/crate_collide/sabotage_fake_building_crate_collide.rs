@@ -19,14 +19,14 @@ fn resolve_crate_object(
 
 use crate::common::*;
 use crate::damage::{DamageInfo, DamageType, DeathType};
+use crate::object::collide::Coord3D as CollideCoord3D;
+use crate::object::collide::LegacyCollideAdapter;
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as LegacyCrateCollide, CrateCollideModuleData as LegacyCrateCollideModuleData,
 };
 use crate::object::collide::crate_collide::*;
-use crate::object::collide::Coord3D as CollideCoord3D;
-use crate::object::collide::LegacyCollideAdapter;
 use crate::object::*;
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 
 /// Module data for sabotage fake building crate collide behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -439,10 +439,7 @@ mod tests {
         )
         .expect("fake building sabotage ini parses");
 
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::FSFake.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::FSFake.cpp_mask()), 0);
         assert!(data.base.is_building_pickup);
         assert!((data.base.execute_animation_z_rise_per_second - 3.25).abs() < f32::EPSILON);
     }

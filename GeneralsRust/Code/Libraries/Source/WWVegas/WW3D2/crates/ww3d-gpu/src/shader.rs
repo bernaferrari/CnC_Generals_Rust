@@ -1627,8 +1627,10 @@ mod tests {
         assert!(fragment_shader.contains("@group(2) @binding(3) var sampler1: sampler"));
 
         // Verify detail texture sampling
-        assert!(fragment_shader
-            .contains("let detail_color = textureSample(texture1, sampler1, input.uv)"));
+        assert!(
+            fragment_shader
+                .contains("let detail_color = textureSample(texture1, sampler1, input.uv)")
+        );
 
         // Verify ModAlphaAddColor formula is present
         assert!(fragment_shader.contains("color.rgb = color.rgb + (color.a * detail_color.rgb)"));

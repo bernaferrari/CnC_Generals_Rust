@@ -4,8 +4,8 @@
 //! snapshots inside Object::xfer v9 (Object.cpp:4264-4356). Pending FX drain
 //! queues stay transient and are not in this payload.
 
-use super::entity_lifecycle_flight::LaterProjectileFlight;
 use super::Object;
+use super::entity_lifecycle_flight::LaterProjectileFlight;
 use crate::game_logic::ObjectId;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};

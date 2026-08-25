@@ -1,6 +1,6 @@
 //! C++ `W3DStatusCircle::Render` camera-fade overlay.
 
-use gamelogic::scripting::{get_script_engine, TFade};
+use gamelogic::scripting::{TFade, get_script_engine};
 use std::sync::Mutex;
 
 /// Fullscreen camera-fade overlay produced by `W3DStatusCircle::Render`.
@@ -54,7 +54,10 @@ pub fn queue_live_camera_fade(fade: u8, intensity: f32, diffuse: u32) {
 
 /// Consume the overlay queued by the live letterbox/cinematic pass.
 pub fn take_queued_live_camera_fade() -> Option<CameraFadeOverlay> {
-    QUEUED_LIVE_FADE.lock().ok().and_then(|mut slot| slot.take())
+    QUEUED_LIVE_FADE
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
 }
 
 fn overlay_from_packed(fade: u8, intensity: f32, diffuse: u32) -> Option<CameraFadeOverlay> {
@@ -84,7 +87,11 @@ struct FadeGpu {
 
 static FADE_GPU: Mutex<Option<FadeGpu>> = Mutex::new(None);
 
-fn fade_blend(src: wgpu::BlendFactor, dst: wgpu::BlendFactor, op: wgpu::BlendOperation) -> wgpu::BlendState {
+fn fade_blend(
+    src: wgpu::BlendFactor,
+    dst: wgpu::BlendFactor,
+    op: wgpu::BlendOperation,
+) -> wgpu::BlendState {
     wgpu::BlendState {
         color: wgpu::BlendComponent {
             src_factor: src,
@@ -284,7 +291,11 @@ pub fn record_camera_fade_overlay(
         TFade::Saturate => &gpu.saturate,
         TFade::None => return,
     };
-    let passes = if overlay.fade == TFade::Saturate { 2 } else { 1 };
+    let passes = if overlay.fade == TFade::Saturate {
+        2
+    } else {
+        1
+    };
     for _ in 0..passes {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("W3DStatusCircle fade"),

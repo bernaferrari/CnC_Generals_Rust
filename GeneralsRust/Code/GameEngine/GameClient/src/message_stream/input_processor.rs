@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use super::game_message::*;
-use super::message_stream::{take_emitted_messages, GameMessageDisposition, GameMessageTranslator};
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator, take_emitted_messages};
 use super::player_state::get_local_player_id;
 use super::selection_xlat::SelectionTranslator;
 use super::translators::CommandTranslator;
@@ -743,9 +743,11 @@ mod tests {
         });
 
         assert!(!messages.is_empty());
-        assert!(messages
-            .iter()
-            .all(|message| message.get_player_index() == 3));
+        assert!(
+            messages
+                .iter()
+                .all(|message| message.get_player_index() == 3)
+        );
 
         set_local_player_id(0);
     }

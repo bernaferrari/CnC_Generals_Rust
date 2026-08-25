@@ -1,8 +1,7 @@
 //! Host tick `impl GameLogic` — `airfield`.
 #![allow(unused_imports, non_snake_case)]
-use super::super::*;
 use super::super::HostHeliTakeoffOrLanding;
-
+use super::super::*;
 
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
@@ -171,7 +170,6 @@ impl GameLogic {
             }
             self.maybe_play_jet_wheel_screech(id);
 
-
             match action {
                 JetAiTickAction::ReturnToBase => {
                     if let Some(jet) = self.objects.get_mut(&id) {
@@ -281,9 +279,9 @@ impl GameLogic {
             let draw_id = if let Some(id) = existing {
                 id
             } else {
-                let Some(template) =
-                    gamelogic::helpers::TheThingFactory::find_template(STEALTH_FIGHTER_LOCKON_CURSOR)
-                else {
+                let Some(template) = gamelogic::helpers::TheThingFactory::find_template(
+                    STEALTH_FIGHTER_LOCKON_CURSOR,
+                ) else {
                     return;
                 };
                 let id = gamelogic::helpers::TheGameClient.create_drawable(template.as_ref());
@@ -305,8 +303,7 @@ impl GameLogic {
             let dx = owner.x - pos[0];
             let dz = owner.z - pos[2];
             if dx != 0.0 || dz != 0.0 {
-                gamelogic::helpers::TheGameClient
-                    .set_drawable_orientation(draw_id, dz.atan2(dx));
+                gamelogic::helpers::TheGameClient.set_drawable_orientation(draw_id, dz.atan2(dx));
             }
             gamelogic::helpers::TheGameClient.set_drawable_hidden(draw_id, lockon_hidden);
             gamelogic::helpers::TheGameClient
@@ -344,9 +341,7 @@ impl GameLogic {
                 template_name,
                 crate::game_logic::object::JET_AFTERBURNER_SOUND,
             )
-            .unwrap_or_else(|| {
-                crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP.to_string()
-            });
+            .unwrap_or_else(|| crate::game_logic::object::JET_AFTERBURNER_SOUND_STOP.to_string());
             self.queue_audio_event(
                 crate::game_logic::AudioEventRequest::new(&stop_name)
                     .with_object(object_id)
@@ -407,7 +402,6 @@ impl GameLogic {
                 .with_position(pos),
         );
     }
-
 
     /// C++ PauseBeforeTakeoff after TAXI_TO_TAKEOFF reaches runwayStart.
     fn begin_pause_after_taxi_to_runway(&mut self, jet_id: ObjectId) {
@@ -490,7 +484,6 @@ impl GameLogic {
             }
         }
     }
-
 
     /// C++ `JetAIUpdate::getProducerLocation` — snapshot while the airfield lives.
     fn snapshot_jet_producer_location(&mut self, jet_id: ObjectId) {
@@ -681,7 +674,9 @@ impl GameLogic {
             (
                 jet.is_alive(),
                 jet.get_position(),
-                jet.effective_max_speed().max(jet.movement.max_speed).max(1.0),
+                jet.effective_max_speed()
+                    .max(jet.movement.max_speed)
+                    .max(1.0),
             )
         }) else {
             self.heli_takeoff_or_landing.remove(&jet_id);
@@ -740,7 +735,6 @@ impl GameLogic {
             }
         }
     }
-
 
     fn finish_helipad_landing(&mut self, jet_id: ObjectId, airfield_id: ObjectId, pad: glam::Vec3) {
         self.heli_takeoff_or_landing.remove(&jet_id);
@@ -856,7 +850,6 @@ impl GameLogic {
         }
     }
 
-
     /// C++ `ParkingPlaceInfo` bone layout residual (host has no W3D logical bones).
     fn airfield_space_row_col(
         index: usize,
@@ -902,7 +895,9 @@ impl GameLogic {
         let airfield = self.objects.get(&airfield_id)?;
         let metadata = airfield.thing.template.parking_place.as_ref()?;
         let spaces = self.airfield_parking_spaces.get(&airfield_id)?;
-        let index = spaces.iter().position(|space| space.object_id == Some(jet_id))?;
+        let index = spaces
+            .iter()
+            .position(|space| space.object_id == Some(jet_id))?;
         let (row, col) = Self::airfield_space_row_col(index, metadata)?;
         let num_cols = usize::try_from(metadata.num_cols).ok().filter(|&c| c > 0)?;
         let num_rows = usize::try_from(metadata.num_rows).ok().filter(|&r| r > 0)?;
@@ -917,22 +912,46 @@ impl GameLogic {
         let right = glam::Vec3::new(forward.z, 0.0, -forward.x);
         let deck = metadata.landing_deck_height_offset;
         let (hangar, hangar_orient) = Self::airfield_logical_bone_pose(
-            origin, forward, right, col, row, num_cols, num_rows, deck,
-            -PARKING_PLACE_RUNWAY_PREP_SPACING, 0.25,
+            origin,
+            forward,
+            right,
+            col,
+            row,
+            num_cols,
+            num_rows,
+            deck,
+            -PARKING_PLACE_RUNWAY_PREP_SPACING,
+            0.25,
         );
         let (parking, parking_orient) = Self::airfield_logical_bone_pose(
             origin, forward, right, col, row, num_cols, num_rows, deck, 0.0, 0.25,
         );
         let (prep, _) = Self::airfield_logical_bone_pose(
-            origin, forward, right, col, row, num_cols, num_rows, deck,
-            PARKING_PLACE_RUNWAY_PREP_SPACING * 0.5, 0.0,
+            origin,
+            forward,
+            right,
+            col,
+            row,
+            num_cols,
+            num_rows,
+            deck,
+            PARKING_PLACE_RUNWAY_PREP_SPACING * 0.5,
+            0.0,
         );
         let (runway_start, _) = Self::airfield_logical_bone_pose(
             origin, forward, right, col, 0, num_cols, 1, deck, 0.0, 0.0,
         );
         let (runway_end, _) = Self::airfield_logical_bone_pose(
-            origin, forward, right, col, 0, num_cols, 1, deck,
-            PARKING_PLACE_RUNWAY_PREP_SPACING * 2.0, 0.0,
+            origin,
+            forward,
+            right,
+            col,
+            0,
+            num_cols,
+            1,
+            deck,
+            PARKING_PLACE_RUNWAY_PREP_SPACING * 2.0,
+            0.0,
         );
         let park_in_hangars = metadata.park_in_hangars;
         let mut info = HostAirfieldPPInfo {
@@ -1078,10 +1097,8 @@ impl GameLogic {
     }
 
     fn apply_pending_helipad_exits(&mut self) {
-        let pending: Vec<(ObjectId, ObjectId)> = self
-            .airfield_pending_helipad_exits
-            .drain()
-            .collect();
+        let pending: Vec<(ObjectId, ObjectId)> =
+            self.airfield_pending_helipad_exits.drain().collect();
         for (jet_id, airfield_id) in pending {
             let Some(heli) = self.heli_park01_pose(airfield_id) else {
                 continue;
@@ -1097,7 +1114,10 @@ impl GameLogic {
                 }
                 jet.set_position(heli);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(jet_id, Some([heli.x, heli.y, heli.z]));
+                    crate::game_logic::host_move_log::record(
+                        jet_id,
+                        Some([heli.x, heli.y, heli.z]),
+                    );
                     jet.record_host_movement();
                 }
             }
@@ -1141,9 +1161,11 @@ impl GameLogic {
         let Some(spaces) = self.airfield_parking_spaces.get(&airfield_id).cloned() else {
             return;
         };
-        let Some((new_team, new_owner)) = self.objects.get(&airfield_id).map(|airfield| {
-            (airfield.team, airfield.owner_player_id)
-        }) else {
+        let Some((new_team, new_owner)) = self
+            .objects
+            .get(&airfield_id)
+            .map(|airfield| (airfield.team, airfield.owner_player_id))
+        else {
             return;
         };
         let now = self.frame;
@@ -1500,11 +1522,7 @@ impl GameLogic {
     }
 
     /// C++ `ParkingPlaceBehavior::unreserveDoorForExit`.
-    pub(crate) fn unreserve_airfield_door_for_exit(
-        &mut self,
-        airfield_id: ObjectId,
-        door: usize,
-    ) {
+    pub(crate) fn unreserve_airfield_door_for_exit(&mut self, airfield_id: ObjectId, door: usize) {
         if let Some(spaces) = self.airfield_parking_spaces.get_mut(&airfield_id) {
             if let Some(space) = spaces.get_mut(door) {
                 if space.object_id.is_none() {
@@ -1516,14 +1534,17 @@ impl GameLogic {
     }
 
     fn unreserve_nth_airfield_exit_door(&mut self, airfield_id: ObjectId, n: usize) {
-        let door = self.airfield_parking_spaces.get(&airfield_id).and_then(|spaces| {
-            spaces
-                .iter()
-                .enumerate()
-                .filter(|(_, space)| space.reserved_for_exit && space.object_id.is_none())
-                .nth(n)
-                .map(|(index, _)| index)
-        });
+        let door = self
+            .airfield_parking_spaces
+            .get(&airfield_id)
+            .and_then(|spaces| {
+                spaces
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, space)| space.reserved_for_exit && space.object_id.is_none())
+                    .nth(n)
+                    .map(|(index, _)| index)
+            });
         if let Some(door) = door {
             self.unreserve_airfield_door_for_exit(airfield_id, door);
         }
@@ -1768,7 +1789,6 @@ impl GameLogic {
         }
     }
 
-
     /// C++ `ParkingPlaceBehavior::exitObjectViaDoor` hangar/parking bone pose.
     pub(in super::super) fn place_produced_jet_at_parking_pose(
         &mut self,
@@ -1804,7 +1824,6 @@ impl GameLogic {
         self.sync_airfield_hangar_doors(producer_id);
         true
     }
-
 
     /// C++ `ParkingPlaceBehavior::exitObjectViaDoor` for a completed factory
     /// aircraft: its producer link is only a landing authority when the
@@ -2090,9 +2109,7 @@ impl GameLogic {
                             metadata.approach_height,
                             metadata.landing_deck_height_offset,
                         );
-                        self.begin_heli_takeoff_or_landing(
-                            jet_id, af_id, parking, approach, false,
-                        );
+                        self.begin_heli_takeoff_or_landing(jet_id, af_id, parking, approach, false);
                     }
                 } else if let Some(jet) = self.objects.get_mut(&jet_id) {
                     let mut position = jet.get_position();
@@ -2176,8 +2193,6 @@ impl GameLogic {
             }
         }
         true
-
-
     }
 
     /// Release runway reservations once jets are clear of the airfield.
@@ -2216,7 +2231,6 @@ impl GameLogic {
                         // C++ transfers during pause + every takeoff-roll frame.
                         (far || jet.jet_should_transfer_runway(self.frame), false)
                     }
-
                 };
                 if clear {
                     to_clear.push((af_id, idx, dead));
@@ -2250,7 +2264,11 @@ impl GameLogic {
     }
 
     /// C++ `JetAIUpdate::doLandingCommand` — reserve, re-home producer, RTB.
-    pub(crate) fn do_jet_landing_command(&mut self, jet_id: ObjectId, airfield_id: ObjectId) -> bool {
+    pub(crate) fn do_jet_landing_command(
+        &mut self,
+        jet_id: ObjectId,
+        airfield_id: ObjectId,
+    ) -> bool {
         let Some(jet) = self.objects.get(&jet_id) else {
             return false;
         };
@@ -2263,14 +2281,11 @@ impl GameLogic {
         if Self::object_is_produced_at_helipad(jet) {
             return false;
         }
-        let airfield_ok = self
-            .objects
-            .get(&airfield_id)
-            .is_some_and(|af| {
-                af.is_alive()
-                    && Self::has_usable_airfield_parking_behavior(af)
-                    && af.is_kind_of(KindOf::FSAirfield)
-            });
+        let airfield_ok = self.objects.get(&airfield_id).is_some_and(|af| {
+            af.is_alive()
+                && Self::has_usable_airfield_parking_behavior(af)
+                && af.is_kind_of(KindOf::FSAirfield)
+        });
         if !airfield_ok {
             return false;
         }
@@ -2281,7 +2296,10 @@ impl GameLogic {
         if old_producer.is_some() && old_producer != Some(airfield_id) {
             let _ = self.release_airfield_parking_space_for_jet(jet_id);
         }
-        if self.reserve_airfield_parking_space(airfield_id, jet_id).is_none() {
+        if self
+            .reserve_airfield_parking_space(airfield_id, jet_id)
+            .is_none()
+        {
             return false;
         }
         if let Some(jet) = self.objects.get_mut(&jet_id) {
@@ -2303,7 +2321,6 @@ impl GameLogic {
         self.do_jet_landing_command(jet_id, airfield_id)
     }
 
-
     /// C++ JetOrHeliTaxiState::onEnter — uncontain, SET_TAXIING, stay on deck.
     fn uncontain_jet_for_ground_taxi(&mut self, jet_id: ObjectId) -> bool {
         self.set_airfield_healee_for_jet(jet_id, false);
@@ -2313,9 +2330,10 @@ impl GameLogic {
             };
             jet.contained_by.or(jet.producer_id)
         };
-        let was_parked = self.objects.get(&jet_id).is_some_and(|jet| {
-            jet.is_parked_at_airfield() || jet.contained_by.is_some()
-        });
+        let was_parked = self
+            .objects
+            .get(&jet_id)
+            .is_some_and(|jet| jet.is_parked_at_airfield() || jet.contained_by.is_some());
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.set_contained_by(None);
             jet.status.airborne_target = false;
@@ -2542,7 +2560,6 @@ impl GameLogic {
             let _ = self.release_airfield_parking_space_for_jet(jet_id);
             return false;
         }
-
 
         let already_docked = self
             .objects
@@ -2804,10 +2821,8 @@ impl GameLogic {
             if now < next {
                 continue;
             }
-            self.airfield_next_heal_frame.insert(
-                airfield_id,
-                now.saturating_add(AIRFIELD_HEAL_RATE_FRAMES),
-            );
+            self.airfield_next_heal_frame
+                .insert(airfield_id, now.saturating_add(AIRFIELD_HEAL_RATE_FRAMES));
             let heal_per_sec = self
                 .objects
                 .get(&airfield_id)
@@ -2818,11 +2833,7 @@ impl GameLogic {
             let healees: Vec<ObjectId> = self
                 .airfield_healing
                 .get(&airfield_id)
-                .map(|list| {
-                    list.iter()
-                        .map(|info| info.getting_healed_id)
-                        .collect()
-                })
+                .map(|list| list.iter().map(|info| info.getting_healed_id).collect())
                 .unwrap_or_default();
             let mut dead = Vec::new();
             for jet_id in healees {
@@ -2904,9 +2915,7 @@ impl GameLogic {
         self.runway_reservations = rows.into_iter().collect();
     }
 
-    pub fn snapshot_airfield_runway_next_in_line(
-        &self,
-    ) -> Vec<(ObjectId, Vec<Option<ObjectId>>)> {
+    pub fn snapshot_airfield_runway_next_in_line(&self) -> Vec<(ObjectId, Vec<Option<ObjectId>>)> {
         let mut rows: Vec<_> = self
             .airfield_runway_next_in_line
             .iter()
@@ -2936,7 +2945,4 @@ impl GameLogic {
     pub fn restore_airfield_runway_was_in_line(&mut self, rows: Vec<(ObjectId, Vec<bool>)>) {
         self.airfield_runway_was_in_line = rows.into_iter().collect();
     }
-
-
-
 }

@@ -9,7 +9,7 @@
 use super::draw_module::*;
 use super::w3d_tank_draw::*;
 use crate::common::*;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
@@ -103,7 +103,6 @@ impl W3DOverlordTankDraw {
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.owner_id.or_else(|| self.base.owner_id())
     }
-
 }
 
 impl Module for W3DOverlordTankDraw {
@@ -139,7 +138,6 @@ impl Module for W3DOverlordTankDraw {
 }
 
 impl DrawModule for W3DOverlordTankDraw {
-
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
         if let Some(owner_id) = self.owner_id() {
@@ -165,7 +163,6 @@ impl DrawModule for W3DOverlordTankDraw {
             super::overlord_rider::set_overlord_rider_hidden(owner_id, hidden);
         }
     }
-
 
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         self.base.set_fully_obscured_by_shroud(fully_obscured);
@@ -245,5 +242,4 @@ mod tests {
         draw.do_draw_module(&Matrix3D::IDENTITY);
         draw.set_hidden(true);
     }
-
 }

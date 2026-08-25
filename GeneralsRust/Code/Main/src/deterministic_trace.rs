@@ -98,6 +98,17 @@ pub struct TraceCommand {
     pub selected_units: Vec<ObjectId>,
 }
 
+/// Ordered observable event emitted during a frame. C++ and Rust producers use
+/// the same compact representation so ordering differences are not hidden by
+/// a frame CRC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceEvent {
+    pub kind: String,
+    pub source: Option<ObjectId>,
+    pub target: Option<ObjectId>,
+    pub payload: String,
+}
+
 impl TraceCommand {
     pub fn from_command(command: GameCommand) -> Self {
         let mut selected_units = command.selected_units;
@@ -121,6 +132,12 @@ pub struct FrameTrace {
     pub objects: Vec<TraceObject>,
     #[serde(default)]
     pub players: Vec<TracePlayer>,
+    #[serde(default)]
+    pub events: Vec<TraceEvent>,
+    /// Canonical snapshot/Xfer bytes captured at this frame when the scenario
+    /// requests serialization evidence.
+    #[serde(default)]
+    pub xfer_bytes: Vec<u8>,
     pub victory_state: Option<String>,
     pub crc: u32,
 }
@@ -139,6 +156,18 @@ pub enum TraceDifference {
         left_len: usize,
         right_len: usize,
     },
+}
+
+/// First semantic difference inside a mismatching frame.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceFieldDifference {
+    pub index: usize,
+    pub left_frame: u32,
+    pub right_frame: u32,
+    pub category: String,
+    pub path: String,
+    pub left: serde_json::Value,
+    pub right: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +232,29 @@ impl FrameTrace {
         players: Vec<TracePlayer>,
         victory_state: Option<String>,
     ) -> Self {
+        Self::new_with_diagnostics(
+            frame,
+            rng_seed,
+            commands,
+            objects,
+            players,
+            Vec::new(),
+            Vec::new(),
+            victory_state,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_diagnostics(
+        frame: u32,
+        rng_seed: [u32; 6],
+        commands: Vec<GameCommand>,
+        objects: Vec<TraceObject>,
+        players: Vec<TracePlayer>,
+        events: Vec<TraceEvent>,
+        xfer_bytes: Vec<u8>,
+        victory_state: Option<String>,
+    ) -> Self {
         let mut commands: Vec<TraceCommand> = commands
             .into_iter()
             .map(TraceCommand::from_command)
@@ -215,12 +267,14 @@ impl FrameTrace {
         let mut players = players;
         players.sort_by_key(|player| player.id);
 
-        let crc = calculate_frame_crc(
+        let crc = calculate_frame_crc_with_diagnostics(
             frame,
             &rng_seed,
             &commands,
             &objects,
             &players,
+            &events,
+            &xfer_bytes,
             victory_state.as_deref(),
         );
 
@@ -230,6 +284,8 @@ impl FrameTrace {
             commands,
             objects,
             players,
+            events,
+            xfer_bytes,
             victory_state,
             crc,
         }
@@ -335,12 +391,162 @@ pub fn compare_frame_traces(
     Ok(())
 }
 
+/// Report the first divergent frame and the first semantic field within it.
+/// Category order is stable: frame, RNG, commands, object/player state,
+/// events, Xfer bytes, victory, then CRC integrity.
+pub fn first_trace_field_difference(
+    left: &[FrameTrace],
+    right: &[FrameTrace],
+) -> Option<TraceFieldDifference> {
+    for (index, (left_frame, right_frame)) in left.iter().zip(right).enumerate() {
+        let candidates = [
+            (
+                "frame",
+                serde_json::json!(left_frame.frame),
+                serde_json::json!(right_frame.frame),
+            ),
+            (
+                "rng",
+                serde_json::json!(left_frame.rng_seed),
+                serde_json::json!(right_frame.rng_seed),
+            ),
+            (
+                "commands",
+                serde_json::json!(left_frame.commands),
+                serde_json::json!(right_frame.commands),
+            ),
+            (
+                "objects",
+                serde_json::json!(left_frame.objects),
+                serde_json::json!(right_frame.objects),
+            ),
+            (
+                "players",
+                serde_json::json!(left_frame.players),
+                serde_json::json!(right_frame.players),
+            ),
+            (
+                "events",
+                serde_json::json!(left_frame.events),
+                serde_json::json!(right_frame.events),
+            ),
+            (
+                "xfer",
+                serde_json::json!(left_frame.xfer_bytes),
+                serde_json::json!(right_frame.xfer_bytes),
+            ),
+            (
+                "victory",
+                serde_json::json!(left_frame.victory_state),
+                serde_json::json!(right_frame.victory_state),
+            ),
+        ];
+        for (category, left_value, right_value) in candidates {
+            if let Some((path, left, right)) =
+                first_json_difference(&left_value, &right_value, category.to_string())
+            {
+                return Some(TraceFieldDifference {
+                    index,
+                    left_frame: left_frame.frame,
+                    right_frame: right_frame.frame,
+                    category: category.to_string(),
+                    path,
+                    left,
+                    right,
+                });
+            }
+        }
+        if left_frame.crc != right_frame.crc {
+            return Some(TraceFieldDifference {
+                index,
+                left_frame: left_frame.frame,
+                right_frame: right_frame.frame,
+                category: "crc".to_string(),
+                path: "crc".to_string(),
+                left: serde_json::json!(left_frame.crc),
+                right: serde_json::json!(right_frame.crc),
+            });
+        }
+    }
+    (left.len() != right.len()).then(|| TraceFieldDifference {
+        index: left.len().min(right.len()),
+        left_frame: left.last().map_or(0, |frame| frame.frame),
+        right_frame: right.last().map_or(0, |frame| frame.frame),
+        category: "trace".to_string(),
+        path: "frames.length".to_string(),
+        left: serde_json::json!(left.len()),
+        right: serde_json::json!(right.len()),
+    })
+}
+
+fn first_json_difference(
+    left: &serde_json::Value,
+    right: &serde_json::Value,
+    path: String,
+) -> Option<(String, serde_json::Value, serde_json::Value)> {
+    if left == right {
+        return None;
+    }
+    match (left, right) {
+        (serde_json::Value::Array(left), serde_json::Value::Array(right)) => {
+            for index in 0..left.len().max(right.len()) {
+                let left_value = left.get(index).cloned().unwrap_or(serde_json::Value::Null);
+                let right_value = right.get(index).cloned().unwrap_or(serde_json::Value::Null);
+                if let Some(difference) =
+                    first_json_difference(&left_value, &right_value, format!("{path}[{index}]"))
+                {
+                    return Some(difference);
+                }
+            }
+        }
+        (serde_json::Value::Object(left), serde_json::Value::Object(right)) => {
+            let mut keys: Vec<&String> = left.keys().chain(right.keys()).collect();
+            keys.sort();
+            keys.dedup();
+            for key in keys {
+                let left_value = left.get(key).cloned().unwrap_or(serde_json::Value::Null);
+                let right_value = right.get(key).cloned().unwrap_or(serde_json::Value::Null);
+                if let Some(difference) =
+                    first_json_difference(&left_value, &right_value, format!("{path}.{key}"))
+                {
+                    return Some(difference);
+                }
+            }
+        }
+        _ => {}
+    }
+    Some((path, left.clone(), right.clone()))
+}
+
 pub fn calculate_frame_crc(
     frame: u32,
     rng_seed: &[u32; 6],
     commands: &[TraceCommand],
     objects: &[TraceObject],
     players: &[TracePlayer],
+    victory_state: Option<&str>,
+) -> u32 {
+    calculate_frame_crc_with_diagnostics(
+        frame,
+        rng_seed,
+        commands,
+        objects,
+        players,
+        &[],
+        &[],
+        victory_state,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn calculate_frame_crc_with_diagnostics(
+    frame: u32,
+    rng_seed: &[u32; 6],
+    commands: &[TraceCommand],
+    objects: &[TraceObject],
+    players: &[TracePlayer],
+    events: &[TraceEvent],
+    xfer_bytes: &[u8],
     victory_state: Option<&str>,
 ) -> u32 {
     let mut hasher = Hasher::new();
@@ -400,6 +606,19 @@ pub fn calculate_frame_crc(
         hasher.update(&player.science_purchase_points.to_le_bytes());
         hasher.update(&player.total_score.to_le_bytes());
     }
+
+    hasher.update(b"EVENTS");
+    hasher.update(&(events.len() as u32).to_le_bytes());
+    for event in events {
+        hash_str(&mut hasher, &event.kind);
+        hash_object_id(&mut hasher, event.source);
+        hash_object_id(&mut hasher, event.target);
+        hash_str(&mut hasher, &event.payload);
+    }
+
+    hasher.update(b"XFER");
+    hasher.update(&(xfer_bytes.len() as u32).to_le_bytes());
+    hasher.update(xfer_bytes);
 
     hasher.update(b"VICTORY");
     if let Some(victory_state) = victory_state {

@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -193,14 +193,21 @@ impl<'a> CommandExecutor<'a> {
         let hi_z = max.z - margin;
         let inside = pos.x >= lo_x && pos.x <= hi_x && pos.z >= lo_z && pos.z <= hi_z;
         if !inside {
-            let (cx_lo, cx_hi) = if lo_x <= hi_x { (lo_x, hi_x) } else { (hi_x, lo_x) };
-            let (cz_lo, cz_hi) = if lo_z <= hi_z { (lo_z, hi_z) } else { (hi_z, lo_z) };
+            let (cx_lo, cx_hi) = if lo_x <= hi_x {
+                (lo_x, hi_x)
+            } else {
+                (hi_x, lo_x)
+            };
+            let (cz_lo, cz_hi) = if lo_z <= hi_z {
+                (lo_z, hi_z)
+            } else {
+                (hi_z, lo_z)
+            };
             pos.x = pos.x.clamp(cx_lo, cx_hi);
             pos.z = pos.z.clamp(cz_lo, cz_hi);
         }
         pos
     }
-
 
     pub(crate) fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
         // Wave 232: move last-writes via GameLogic unit_command_move_free.
@@ -230,7 +237,10 @@ impl<'a> CommandExecutor<'a> {
         let free_ids: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
         self.dissolve_free_move_formation_stamps(&free_ids);
         if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
-            if self.game_logic.assign_shared_group_paths(&goals, destination) {
+            if self
+                .game_logic
+                .assign_shared_group_paths(&goals, destination)
+            {
                 let moved: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
                 self.apply_player_stealth_mood_delay(&moved);
                 self.play_context_move_voice(units);
@@ -310,7 +320,6 @@ impl<'a> CommandExecutor<'a> {
             if !self
                 .game_logic
                 .unit_command_move_to_waypoints(unit_id, goal, waypoints)
-
             {
                 return CommandResult::InvalidCommand;
             }
@@ -329,19 +338,18 @@ impl<'a> CommandExecutor<'a> {
         self.game_logic.queue_picked_move_voice(units);
     }
 
-
     /// C++ `CommandXlat.cpp:423-443`: VoiceSalvage then VoiceMoveUpgraded overwrite.
     fn play_salvage_or_move_voice(&mut self, units: &[ObjectId]) {
-        use crate::game_logic::audio_dispatch_impl::{
-            resolve_unit_voice_event, UnitVoiceSlot,
-        };
+        use crate::game_logic::audio_dispatch_impl::{UnitVoiceSlot, resolve_unit_voice_event};
         if self.game_logic.try_queue_picked_voice_move_upgraded(units) {
             return;
         }
         let has_salvage = units.iter().any(|&id| {
             self.game_logic
                 .host_object(id)
-                .and_then(|obj| resolve_unit_voice_event(&obj.template_name, UnitVoiceSlot::Salvage))
+                .and_then(|obj| {
+                    resolve_unit_voice_event(&obj.template_name, UnitVoiceSlot::Salvage)
+                })
                 .is_some()
         });
         if has_salvage {
@@ -351,7 +359,6 @@ impl<'a> CommandExecutor<'a> {
             self.play_context_move_voice(units);
         }
     }
-
 
     /// C++ AIGroup::groupMoveToPosition / computeIndividualDestination residual.
     ///
@@ -716,7 +723,11 @@ impl<'a> CommandExecutor<'a> {
             let p = unit.get_position();
             let dx = p.x - destination.x;
             let dz = p.z - destination.z;
-            movers.push((unit_id, dx * dx + dz * dz, Self::is_produced_at_helipad(unit)));
+            movers.push((
+                unit_id,
+                dx * dx + dz * dz,
+                Self::is_produced_at_helipad(unit),
+            ));
         }
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let mut any = false;
@@ -815,7 +826,6 @@ impl<'a> CommandExecutor<'a> {
         });
         self.apply_group_desired_speed(units, as_team || use_formation);
 
-
         let mut any = false;
         for (unit_id, pos, form_off) in movers {
             let offset = if as_team {
@@ -874,11 +884,7 @@ impl<'a> CommandExecutor<'a> {
         // friend_moveVehicleToPos on the same member list (AIGroup.cpp:1550-1553).
         // Each pass packs only its kind (infantry 3-col, vehicles 2-col).
         let infantry: Vec<_> = movers.iter().filter(|m| m.5).cloned().collect();
-        let vehicles: Vec<_> = movers
-            .iter()
-            .filter(|m| m.6 && !m.5)
-            .cloned()
-            .collect();
+        let vehicles: Vec<_> = movers.iter().filter(|m| m.6 && !m.5).cloned().collect();
 
         let mut out = Vec::new();
         if let Some(col) = Self::pack_column_kind(
@@ -899,11 +905,7 @@ impl<'a> CommandExecutor<'a> {
         ) {
             out.extend(col);
         }
-        if out.is_empty() {
-            None
-        } else {
-            Some(out)
-        }
+        if out.is_empty() { None } else { Some(out) }
     }
 
     fn pack_column_kind(
@@ -1011,10 +1013,7 @@ impl<'a> CommandExecutor<'a> {
             // C++ groupAttackMoveToPosition: any AI member. No can_move gate —
             // deployed artillery / turret structures still get attack-move.
             let (alive, can_attack) = match self.game_logic.host_object(unit_id) {
-                Some(unit) => (
-                    unit.is_alive(),
-                    unit.can_attack() || unit.weapon.is_some(),
-                ),
+                Some(unit) => (unit.is_alive(), unit.can_attack() || unit.weapon.is_some()),
                 None => continue,
             };
             if !alive {

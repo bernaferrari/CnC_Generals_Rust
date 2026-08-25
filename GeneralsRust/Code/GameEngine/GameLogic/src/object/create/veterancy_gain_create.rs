@@ -8,8 +8,8 @@ use crate::common::VeterancyLevel;
 use crate::experience::ExperienceTracker;
 use crate::helpers::TheGameLogic;
 use crate::object::create::{CreateModule, CreateModuleData};
-use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
+use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, ModuleData, Thing as ThingTrait};
 
@@ -84,7 +84,6 @@ impl VeterancyGainCreate {
     }
 }
 impl CreateInterface for VeterancyGainCreate {
-
     fn on_create(&self) {
         let object_id = self
             .base

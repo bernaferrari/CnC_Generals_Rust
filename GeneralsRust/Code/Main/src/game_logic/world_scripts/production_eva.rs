@@ -4,7 +4,6 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-
 /// C++ `ThingTemplate::getVoiceTaskComplete` / `getPerUnitSound("VoiceTaskComplete")`.
 fn resolve_dozer_voice_task_complete(template_name: &str) -> Option<String> {
     let factory = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
@@ -74,7 +73,7 @@ impl GameLogic {
         source_pos: Vec3,
     ) -> bool {
         use crate::game_logic::host_demo_suicide_bomb::{
-            plan_demo_destroyed_hits, DEMO_SUICIDE_BOMB_AUDIO,
+            DEMO_SUICIDE_BOMB_AUDIO, plan_demo_destroyed_hits,
         };
 
         let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
@@ -135,7 +134,7 @@ impl GameLogic {
         source_pos: Vec3,
     ) -> bool {
         use crate::game_logic::host_demo_suicide_bomb::{
-            plan_demo_plus_fire_hits, DEMO_SUICIDE_BOMB_AUDIO, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE,
+            DEMO_SUICIDE_BOMB_AUDIO, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE, plan_demo_plus_fire_hits,
         };
 
         let _ = DEMO_SUICIDE_DYNAMITE_PLUS_FIRE; // honesty weapon name residual
@@ -328,11 +327,7 @@ impl GameLogic {
             })
         });
         if let Some(pos) = cancel_pos {
-            self.unreserve_airfield_door_for_cancelled_queue_item(
-                producer_id,
-                pos,
-                &template_name,
-            );
+            self.unreserve_airfield_door_for_cancelled_queue_item(producer_id, pos, &template_name);
         }
         let mut cancelled: Option<ProductionItem> = None;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
@@ -342,7 +337,6 @@ impl GameLogic {
                 }
             }
         }
-
 
         if let Some(item) = cancelled {
             self.refund_cancelled_production_item(owner_player_id, team, &item);
@@ -395,11 +389,7 @@ impl GameLogic {
                 .and_then(|building| building.production_queue.get(queue_index))
                 .map(|item| item.template_name.clone())
         }) {
-            self.unreserve_airfield_door_for_cancelled_queue_item(
-                producer_id,
-                queue_index,
-                &name,
-            );
+            self.unreserve_airfield_door_for_cancelled_queue_item(producer_id, queue_index, &name);
         }
         let mut cancelled = None;
         if let Some(producer) = self.objects.get_mut(&producer_id) {
@@ -407,7 +397,6 @@ impl GameLogic {
                 cancelled = building.cancel_production(queue_index);
             }
         }
-
 
         let Some(item) = cancelled else {
             return false;
@@ -477,7 +466,6 @@ impl GameLogic {
             }
         }
         self.unreserve_all_airfield_exit_doors(producer_id);
-
 
         if cancelled_any {
             for item in &cancelled_items {
@@ -591,7 +579,6 @@ impl GameLogic {
             .and_then(|id| self.players.get(&id))
             .is_some_and(|player| player.is_local && player.is_alive)
     }
-
 
     /// C++ TheEva->setShouldPlay(EVA_BuildingSabotaged) when victim is local.
 
@@ -764,7 +751,6 @@ impl GameLogic {
         Some((obj.owner_player_id, obj.team, kind))
     }
 
-
     /// C++ InGameUI SuperweaponReady EVA residual (own/ally/enemy × type).
 
     /// C++ Player::onStructureConstructionComplete SuperweaponDetected EVA residual.
@@ -823,7 +809,6 @@ impl GameLogic {
         })
     }
 
-
     /// C++ SpecialPowerModule SuperweaponLaunched EVA residual (own/ally/enemy × type).
 
     /// C++ GameLogicDispatch beacon place residual:
@@ -860,7 +845,6 @@ impl GameLogic {
         self.eva_special_launched_misc = self.eva_special_launched_misc.saturating_add(1);
     }
 
-
     pub fn honesty_eva_special_launched_misc_ok(&self) -> bool {
         self.eva_special_launched_misc > 0
     }
@@ -882,7 +866,6 @@ impl GameLogic {
         crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::BeaconDetected);
         self.eva_beacon_detected = self.eva_beacon_detected.saturating_add(1);
     }
-
 
     pub fn honesty_eva_beacon_detected_ok(&self) -> bool {
         self.eva_beacon_detected > 0
@@ -966,7 +949,6 @@ impl GameLogic {
         self.eva_hero_detected = self.eva_hero_detected.saturating_add(1);
     }
 
-
     pub fn honesty_eva_hero_detected_ok(&self) -> bool {
         self.eva_hero_detected > 0
     }
@@ -1009,7 +991,6 @@ impl GameLogic {
         self.eva_superweapon_launched = self.eva_superweapon_launched.saturating_add(1);
     }
 
-
     pub fn honesty_eva_superweapon_launched_ok(&self) -> bool {
         self.eva_superweapon_launched > 0
     }
@@ -1021,11 +1002,11 @@ impl GameLogic {
         self.try_eva_superweapon_detected_kind(None, owner_team, kind);
     }
 
-
     /// Live construction path: exact parsed module authority, never a
     /// superweapon-shaped object name.
     pub fn try_eva_superweapon_detected_for_source(&mut self, source_id: ObjectId) {
-        let Some((owner_player_id, owner_team, kind)) = self.parsed_superweapon_eva_source(source_id)
+        let Some((owner_player_id, owner_team, kind)) =
+            self.parsed_superweapon_eva_source(source_id)
         else {
             return;
         };
@@ -1059,7 +1040,6 @@ impl GameLogic {
         self.eva_superweapon_detected = self.eva_superweapon_detected.saturating_add(1);
     }
 
-
     pub fn honesty_eva_superweapon_detected_ok(&self) -> bool {
         self.eva_superweapon_detected > 0
     }
@@ -1084,7 +1064,8 @@ impl GameLogic {
             return false;
         }
         let hidden = self.compute_eva_hidden_by_science_now(source_id);
-        self.eva_superweapon_science_hidden.insert(source_id, hidden);
+        self.eva_superweapon_science_hidden
+            .insert(source_id, hidden);
         hidden
     }
 
@@ -1165,7 +1146,6 @@ impl GameLogic {
             .all(|id| self.eva_superweapon_ready_timer_hidden(id))
     }
 
-
     pub fn try_eva_superweapon_ready(
         &mut self,
         source_id: ObjectId,
@@ -1178,7 +1158,10 @@ impl GameLogic {
         if self.eva_superweapon_ready_timer_hidden(source_id) {
             return;
         }
-        let owner_player_id = self.objects.get(&source_id).and_then(|obj| obj.owner_player_id);
+        let owner_player_id = self
+            .objects
+            .get(&source_id)
+            .and_then(|obj| obj.owner_player_id);
         self.try_eva_superweapon_ready_kind(owner_player_id, owner_team, kind);
     }
 
@@ -1204,7 +1187,8 @@ impl GameLogic {
     /// Live cooldown-ready path: resolve family from the source's parsed
     /// module list rather than its template basename.
     pub fn try_eva_superweapon_ready_for_source(&mut self, source_id: ObjectId) {
-        let Some((owner_player_id, owner_team, kind)) = self.parsed_superweapon_eva_source(source_id)
+        let Some((owner_player_id, owner_team, kind)) =
+            self.parsed_superweapon_eva_source(source_id)
         else {
             return;
         };
@@ -1213,7 +1197,6 @@ impl GameLogic {
         }
         self.try_eva_superweapon_ready_kind(owner_player_id, owner_team, kind);
     }
-
 
     fn try_eva_superweapon_ready_kind(
         &mut self,
@@ -1242,7 +1225,6 @@ impl GameLogic {
         crate::game_logic::host_eva_log::record_event(event);
         self.eva_superweapon_ready = self.eva_superweapon_ready.saturating_add(1);
     }
-
 
     pub fn honesty_eva_superweapon_ready_ok(&self) -> bool {
         self.eva_superweapon_ready > 0
@@ -1356,7 +1338,10 @@ impl GameLogic {
                 // Research complete lands in unlocked_sciences; completed_upgrades
                 // is only filled by add_completed_upgrade / GrantUpgradeCreate.
                 for name in &player.unlocked_sciences {
-                    if !names.iter().any(|existing| existing.eq_ignore_ascii_case(name)) {
+                    if !names
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(name))
+                    {
                         names.push(name.clone());
                     }
                 }
@@ -1534,7 +1519,6 @@ impl GameLogic {
                 let dx = p.x - goal.x;
                 let dz = p.z - goal.z;
                 (id, (dx * dx + dz * dz).sqrt() <= range)
-
             })
             .collect();
         // Only workers / producers / objects already carrying the bit — skip the
@@ -1766,15 +1750,9 @@ impl GameLogic {
                 // onDelete and is not an exhaustion message at the 0% default.
                 self.overcharge_exhaustions = self.overcharge_exhaustions.saturating_add(1);
                 if local {
-                    let msg = localization::localize(
-                        "GUI:OverchargeExhausted",
-                        "Overcharge exhausted",
-                    );
-                    self.queue_radar_message_at(
-                        msg,
-                        pos,
-                        radar_notifications::RadarKind::Generic,
-                    );
+                    let msg =
+                        localization::localize("GUI:OverchargeExhausted", "Overcharge exhausted");
+                    self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                     crate::game_logic::host_radar::host_create_radar_event(
                         pos,
                         game_engine::common::system::radar::RadarEventType::Information,
@@ -1908,11 +1886,7 @@ mod tests {
             .templates
             .insert("ChinaInfantryBlackLotus".into(), lotus);
         let id = logic
-            .create_object_for_player(
-                "ChinaInfantryBlackLotus",
-                1,
-                glam::Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object_for_player("ChinaInfantryBlackLotus", 1, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("ally lotus");
         logic.try_eva_hero_detected(id);
         assert!(!logic.honesty_eva_hero_detected_ok());
@@ -1922,9 +1896,15 @@ mod tests {
     fn fire_stealth_discover_skips_hero_eva_when_detector_not_local() {
         let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
-        logic.players.insert(0, Player::new(0, Team::USA, "Local", true));
-        logic.players.insert(1, Player::new(1, Team::China, "China", false));
-        logic.players.insert(2, Player::new(2, Team::GLA, "GLA", false));
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "China", false));
+        logic
+            .players
+            .insert(2, Player::new(2, Team::GLA, "GLA", false));
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
         lotus
             .add_kind_of(KindOf::Infantry)
@@ -1937,11 +1917,7 @@ mod tests {
         det_t.add_kind_of(KindOf::Vehicle).set_health(200.0);
         logic.templates.insert("GLAVehicleRadarVan".into(), det_t);
         let hero = logic
-            .create_object_for_player(
-                "ChinaInfantryBlackLotus",
-                1,
-                glam::Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object_for_player("ChinaInfantryBlackLotus", 1, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("lotus");
         let det = logic
             .create_object_for_player("GLAVehicleRadarVan", 2, glam::Vec3::new(5.0, 0.0, 0.0))
@@ -1957,8 +1933,12 @@ mod tests {
     fn fire_stealth_discover_enemy_hero_eva_throttled_by_try_event() {
         let _ = TheEva::drain_events();
         let mut logic = GameLogic::new();
-        logic.players.insert(0, Player::new(0, Team::USA, "Local", true));
-        logic.players.insert(1, Player::new(1, Team::China, "China", false));
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "China", false));
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
         lotus
             .add_kind_of(KindOf::Infantry)
@@ -1971,11 +1951,7 @@ mod tests {
         det_t.add_kind_of(KindOf::Vehicle).set_health(200.0);
         logic.templates.insert("AmericaVehicleHumvee".into(), det_t);
         let hero_a = logic
-            .create_object_for_player(
-                "ChinaInfantryBlackLotus",
-                1,
-                glam::Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object_for_player("ChinaInfantryBlackLotus", 1, glam::Vec3::new(0.0, 0.0, 0.0))
             .expect("lotus a");
         let hero_b = logic
             .create_object_for_player(
@@ -2044,11 +2020,7 @@ mod tests {
             .templates
             .insert("AmericaParticleUplinkCannon".into(), template);
         let id = logic
-            .create_object_for_player(
-                "AmericaParticleUplinkCannon",
-                0,
-                glam::Vec3::ZERO,
-            )
+            .create_object_for_player("AmericaParticleUplinkCannon", 0, glam::Vec3::ZERO)
             .expect("puc");
         if let Some(obj) = logic.host_object_mut(id) {
             obj.thing.template.special_power_modules.clear();
@@ -2069,11 +2041,7 @@ mod tests {
             .players
             .insert(0, Player::new(0, Team::USA, "Local", true));
         logic.hide_script_superweapon_object_for_test(ObjectId(1));
-        logic.try_eva_superweapon_ready(
-            ObjectId(1),
-            Team::USA,
-            "AmericaParticleUplinkCannon",
-        );
+        logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
         assert!(
             !logic.honesty_eva_superweapon_ready_ok(),
             "hideObjectSuperweaponDisplayByScript must skip SuperweaponReady EVA"
@@ -2088,11 +2056,7 @@ mod tests {
             .players
             .insert(0, Player::new(0, Team::USA, "Local", true));
         logic.set_script_superweapon_display_enabled_for_test(false);
-        logic.try_eva_superweapon_ready(
-            ObjectId(1),
-            Team::USA,
-            "AmericaParticleUplinkCannon",
-        );
+        logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
         assert!(
             logic.honesty_eva_superweapon_ready_ok(),
             "global m_superweaponHiddenByScript is draw-only"
@@ -2116,11 +2080,13 @@ mod tests {
             logic.eva_science_hidden_latched(id),
             "creation without RequiredScience must latch hiddenByScience"
         );
-        assert!(logic
-            .players
-            .get_mut(&0)
-            .unwrap()
-            .unlock_science("SCIENCE_ParticleCannonTest"));
+        assert!(
+            logic
+                .players
+                .get_mut(&0)
+                .unwrap()
+                .unlock_science("SCIENCE_ParticleCannonTest")
+        );
         let _ = TheEva::drain_events();
         logic.try_eva_superweapon_ready_for_source(id);
         assert!(
@@ -2136,11 +2102,13 @@ mod tests {
         logic
             .players
             .insert(0, Player::new(0, Team::USA, "Local", true));
-        assert!(logic
-            .players
-            .get_mut(&0)
-            .unwrap()
-            .unlock_science("SCIENCE_ParticleCannonTest"));
+        assert!(
+            logic
+                .players
+                .get_mut(&0)
+                .unwrap()
+                .unlock_science("SCIENCE_ParticleCannonTest")
+        );
         let id = spawn_local_particle_cannon(&mut logic, Some("SCIENCE_ParticleCannonTest"));
         logic.on_structure_superweapon_creation(id);
         let _ = TheEva::drain_events();
@@ -2163,18 +2131,10 @@ mod tests {
             .players
             .insert(0, Player::new(0, Team::USA, "Local", true));
         logic.hide_script_superweapon_object_for_test(ObjectId(1));
-        logic.try_eva_superweapon_ready(
-            ObjectId(1),
-            Team::USA,
-            "AmericaParticleUplinkCannon",
-        );
+        logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
         assert!(!logic.honesty_eva_superweapon_ready_ok());
         logic.restore_script_superweapon_hidden_objects([]);
-        logic.try_eva_superweapon_ready(
-            ObjectId(1),
-            Team::USA,
-            "AmericaParticleUplinkCannon",
-        );
+        logic.try_eva_superweapon_ready(ObjectId(1), Team::USA, "AmericaParticleUplinkCannon");
         assert!(logic.honesty_eva_superweapon_ready_ok());
     }
 
@@ -2191,4 +2151,3 @@ mod tests {
         );
     }
 }
-

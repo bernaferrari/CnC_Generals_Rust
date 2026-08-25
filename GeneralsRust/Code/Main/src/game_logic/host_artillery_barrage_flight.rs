@@ -18,10 +18,10 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
-    artillery_barrage_points_for_tier, artillery_shell_impact_frame, ArtilleryBarrageScienceTier,
     ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
     ARTILLERY_BARRAGE_FORMATION_SPACING, ARTILLERY_BARRAGE_PREFERRED_HEIGHT,
     ARTILLERY_BARRAGE_RADIUS, ARTILLERY_BARRAGE_SHELL_OBJECT, ARTILLERY_BARRAGE_TRANSPORT,
+    ArtilleryBarrageScienceTier, artillery_barrage_points_for_tier, artillery_shell_impact_frame,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,7 +132,6 @@ pub fn artillery_formation_pose(
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostArtilleryBarrageFlightData {
     pub target: Vec3,
@@ -191,8 +190,8 @@ impl HostArtilleryBarrageFlightData {
     /// Returns (new_pos, vel, off_map / CLEAN_UP).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
         use crate::game_logic::host_deliver_payload::{
-            head_off_map_exit_point_residual, is_off_map_residual, RESIDUAL_MAP_EXTENT_MAX_X,
-            RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+            RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
+            RESIDUAL_MAP_EXTENT_MIN_Z, head_off_map_exit_point_residual, is_off_map_residual,
         };
         let hx = self.target.x - self.launch.x;
         let hz = self.target.z - self.launch.z;
@@ -200,7 +199,12 @@ impl HostArtilleryBarrageFlightData {
             self.passed_target = true;
         }
         let (min_x, min_z, max_x, max_z) = if self.map_extent_ok() {
-            (self.map_min.x, self.map_min.z, self.map_max.x, self.map_max.z)
+            (
+                self.map_min.x,
+                self.map_min.z,
+                self.map_max.x,
+                self.map_max.z,
+            )
         } else {
             (
                 RESIDUAL_MAP_EXTENT_MIN_X,
@@ -228,8 +232,8 @@ impl HostArtilleryBarrageFlightData {
         } else {
             Vec3::ZERO
         };
-        let at_exit = self.delivery_complete
-            && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
+        let at_exit =
+            self.delivery_complete && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
         (new_pos, vel, at_exit)
     }
 }
@@ -369,17 +373,8 @@ mod tests {
             (wing.start.z - edge.z).abs() > 0.0 || (wing.start.x - edge.x).abs() > 0.0,
             "wing must take CW/CCW FormationSpacing offset"
         );
-        assert_eq!(
-            ArtilleryBarrageScienceTier::Level1.formation_size(),
-            12
-        );
-        assert_eq!(
-            ArtilleryBarrageScienceTier::Level2.formation_size(),
-            24
-        );
-        assert_eq!(
-            ArtilleryBarrageScienceTier::Level3.formation_size(),
-            36
-        );
+        assert_eq!(ArtilleryBarrageScienceTier::Level1.formation_size(), 12);
+        assert_eq!(ArtilleryBarrageScienceTier::Level2.formation_size(), 24);
+        assert_eq!(ArtilleryBarrageScienceTier::Level3.formation_size(), 36);
     }
 }

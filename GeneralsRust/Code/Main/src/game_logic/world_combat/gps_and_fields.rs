@@ -21,9 +21,10 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_gps_scrambler::{
+            GPS_SCRAMBLER_ACTIVATE_AUDIO, GPS_SCRAMBLER_INVISIBLE_MARKER,
+            GPS_SCRAMBLER_START_RADIUS, HOST_GPS_SCRAMBLER_RADIUS, HostGpsScrambler,
             in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
-            is_legal_gps_scrambler_target, HostGpsScrambler, GPS_SCRAMBLER_ACTIVATE_AUDIO,
-            GPS_SCRAMBLER_INVISIBLE_MARKER, GPS_SCRAMBLER_START_RADIUS, HOST_GPS_SCRAMBLER_RADIUS,
+            is_legal_gps_scrambler_target,
         };
 
         let frame = self.frame;
@@ -129,7 +130,6 @@ impl GameLogic {
         // C++ SuperweaponLaunched GPS Scrambler EVA residual.
         self.try_eva_special_launched_misc_owned(Some(player_id), caster_team, "gps");
 
-
         self.queue_audio_event(
             AudioEventRequest::new(GPS_SCRAMBLER_ACTIVATE_AUDIO)
                 .with_position(location)
@@ -178,10 +178,9 @@ impl GameLogic {
     /// so disable lingers after leaving.
     pub fn update_ecm_jam_field(&mut self) {
         use crate::game_logic::host_ecm_jam::{
-            in_ecm_jam_radius_2d, is_ecm_hostile_team, is_ecm_jammer,
-            is_legal_ecm_vehicle_disabler_target, seed_host_subdual_if_unauthored,
             ECM_VEHICLE_DISABLER_ATTACK_RANGE, ECM_VEHICLE_DISABLER_DELAY_FRAMES,
-            ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE,
+            ECM_VEHICLE_DISABLER_PRIMARY_DAMAGE, in_ecm_jam_radius_2d, is_ecm_hostile_team,
+            is_ecm_jammer, is_legal_ecm_vehicle_disabler_target, seed_host_subdual_if_unauthored,
         };
         use std::collections::HashSet;
 
@@ -247,8 +246,8 @@ impl GameLogic {
                     return None;
                 }
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
-                let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
-                    || obj.object_type == ObjectType::Aircraft;
+                let is_aircraft =
+                    obj.is_kind_of(KindOf::Aircraft) || obj.object_type == ObjectType::Aircraft;
                 if !is_vehicle || is_aircraft {
                     return None;
                 }
@@ -431,9 +430,9 @@ impl GameLogic {
     /// clear tracking. `DumbProjectileBehavior::projectileNowJammed` is empty.
     pub fn update_ecm_missile_jam(&mut self) {
         use crate::game_logic::host_ecm_jam::{
-            ecm_exclusive_weapon_delay_blocks, ecm_missile_scatter_offset, in_ecm_jam_radius_2d,
-            is_dumb_projectile_shell_name, is_ecm_jam_projectile_flags, is_ecm_jammer,
-            ECM_MISSILE_JAM_MAX_PER_PULSE, HOST_ECM_JAM_RADIUS,
+            ECM_MISSILE_JAM_MAX_PER_PULSE, HOST_ECM_JAM_RADIUS, ecm_exclusive_weapon_delay_blocks,
+            ecm_missile_scatter_offset, in_ecm_jam_radius_2d, is_dumb_projectile_shell_name,
+            is_ecm_jam_projectile_flags, is_ecm_jammer,
         };
 
         let frame = self.frame;
@@ -618,10 +617,10 @@ impl GameLogic {
 
     pub fn update_microwave_disable(&mut self) {
         use crate::game_logic::host_microwave::{
-            in_microwave_range_2d, is_legal_microwave_disable_target, is_microwave_hostile_team,
-            is_microwave_tank, seed_microwave_subdual_if_unauthored, should_microwave_disable,
-            HOST_MICROWAVE_DELAY_FRAMES, HOST_MICROWAVE_DISABLE_RANGE, HOST_MICROWAVE_SUBDUAL_PULSE,
-            MICROWAVE_DISABLE_AUDIO,
+            HOST_MICROWAVE_DELAY_FRAMES, HOST_MICROWAVE_DISABLE_RANGE,
+            HOST_MICROWAVE_SUBDUAL_PULSE, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
+            is_legal_microwave_disable_target, is_microwave_hostile_team, is_microwave_tank,
+            seed_microwave_subdual_if_unauthored, should_microwave_disable,
         };
         use std::collections::HashSet;
 
@@ -827,9 +826,9 @@ impl GameLogic {
     ///
     pub fn update_microwave_emitter_field(&mut self) {
         use crate::game_logic::host_microwave::{
-            in_microwave_range_2d, is_legal_microwave_emitter_target, is_microwave_tank,
-            microwave_emitter_damage_at, HOST_MICROWAVE_EMITTER_DELAY_FRAMES,
-            HOST_MICROWAVE_EMITTER_FX, HOST_MICROWAVE_EMITTER_RADIUS, MICROWAVE_DISABLE_AUDIO,
+            HOST_MICROWAVE_EMITTER_DELAY_FRAMES, HOST_MICROWAVE_EMITTER_FX,
+            HOST_MICROWAVE_EMITTER_RADIUS, MICROWAVE_DISABLE_AUDIO, in_microwave_range_2d,
+            is_legal_microwave_emitter_target, is_microwave_tank, microwave_emitter_damage_at,
         };
 
         let frame = self.frame;
@@ -968,12 +967,12 @@ impl GameLogic {
             is_overlord_propaganda_source, overlord_propaganda_heal_amount,
         };
         use crate::game_logic::host_propaganda::{
+            HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES, HOST_PROPAGANDA_TOWER_RADIUS,
+            PROPAGANDA_PULSE_FX, PROPAGANDA_UPGRADED_PULSE_FX, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
             host_has_any_damage_weapon, in_propaganda_radius_2d, is_legal_propaganda_target,
             is_portable_propaganda_structure, is_propaganda_score_kind, is_propaganda_tower,
             is_subliminal_upgrade_active, propaganda_applies_weapon_bonus, propaganda_heal_amount,
             propaganda_source_suppressed, should_play_propaganda_pulse_fx,
-            HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES, HOST_PROPAGANDA_TOWER_RADIUS,
-            PROPAGANDA_PULSE_FX, PROPAGANDA_UPGRADED_PULSE_FX, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
         };
         use gamelogic::common::Relationship;
         use std::collections::{HashMap, HashSet};
@@ -1047,9 +1046,8 @@ impl GameLogic {
             // getControllingPlayer()->hasUpgradeComplete(m_upgradeRequired)
             // with UpgradeRequired=Upgrade_ChinaSubliminalMessaging. Addon
             // install tags (Overlord/Helix propaganda) are not this upgrade.
-            let upgraded = is_subliminal_upgrade_active(player_has(&[
-                UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
-            ]));
+            let upgraded =
+                is_subliminal_upgrade_active(player_has(&[UPGRADE_CHINA_SUBLIMINAL_MESSAGING]));
             let pos = obj.get_position();
             towers.push(TowerSnap {
                 id: *id,
@@ -1122,9 +1120,7 @@ impl GameLogic {
                     continue;
                 }
                 let is_ally = match (tower.owner, *target_owner) {
-                    (Some(a), Some(b)) => {
-                        self.player_relationship(a, b) == Relationship::Allies
-                    }
+                    (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Allies,
                     _ => tower.team == *target_team && tower.team != Team::Neutral,
                 };
                 if !is_legal_propaganda_target(
@@ -1136,8 +1132,11 @@ impl GameLogic {
                 ) {
                     continue;
                 }
-                if !in_propaganda_radius_2d((tower.x, tower.z), (*cx, *cz), HOST_PROPAGANDA_TOWER_RADIUS)
-                {
+                if !in_propaganda_radius_2d(
+                    (tower.x, tower.z),
+                    (*cx, *cz),
+                    HOST_PROPAGANDA_TOWER_RADIUS,
+                ) {
                     continue;
                 }
                 new_inside.push(*target_id);
@@ -1145,9 +1144,7 @@ impl GameLogic {
             self.propaganda_scan.set_inside(tower.id, new_inside);
             self.propaganda_scan.mark_scanned(tower.id, frame);
 
-            let container = tower
-                .contained_by
-                .and_then(|cid| self.objects.get(&cid));
+            let container = tower.contained_by.and_then(|cid| self.objects.get(&cid));
             let do_fx = should_play_propaganda_pulse_fx(
                 local_pid.is_some() && local_pid == tower.owner,
                 tower.stealthed,
@@ -1268,7 +1265,6 @@ impl GameLogic {
         }
     }
 
-
     /// Host USA Ambulance AutoHeal residual: heal damaged ally infantry + vehicles in radius.
     ///
     /// C++ AutoHealBehavior on AmericaVehicleMedic:
@@ -1279,10 +1275,10 @@ impl GameLogic {
     /// leftover same-team fallback). Sole-benefactor lasts HealingDelay frames.
     pub fn update_ambulance_auto_heal(&mut self, dt: f32) {
         use crate::game_logic::host_heal::{
-            ambulance_heal_is_ally, ambulance_pulse_ready, in_heal_radius_2d, is_ambulance_healer,
-            is_legal_ambulance_infantry_heal_target, is_legal_ambulance_vehicle_heal_target,
             AMBULANCE_HEAL_DELAY_FRAMES, AMBULANCE_INFANTRY_HEAL_AMOUNT,
-            AMBULANCE_VEHICLE_HEAL_AMOUNT, HOST_AMBULANCE_HEAL_RADIUS,
+            AMBULANCE_VEHICLE_HEAL_AMOUNT, HOST_AMBULANCE_HEAL_RADIUS, ambulance_heal_is_ally,
+            ambulance_pulse_ready, in_heal_radius_2d, is_ambulance_healer,
+            is_legal_ambulance_infantry_heal_target, is_legal_ambulance_vehicle_heal_target,
         };
         use gamelogic::common::Relationship;
 
@@ -1444,7 +1440,6 @@ impl GameLogic {
         }
     }
 
-
     // -----------------------------------------------------------------------
     // Hero special-ability residual (snipe / timed C4 / cash hack)
     // Fail-closed: not full SpecialAbilityUpdate preparation / flee / upgrade matrix.
@@ -1463,7 +1458,6 @@ impl GameLogic {
     ) -> &mut crate::game_logic::host_hero_abilities::HostHeroAbilityRegistry {
         &mut self.hero_abilities
     }
-
 
     /// Residual honesty: Jarmen Kell snipe unmanned a vehicle at least once.
     pub fn honesty_snipe_vehicle_ok(&self) -> bool {
@@ -1570,7 +1564,6 @@ mod tests {
             .set_cost(0, 0);
         logic.templates.insert("TestInfantry".to_string(), inf);
     }
-
 
     /// C++ PropagandaTowerBehavior.cpp:177-188 — EMP/underpowered (not HELD)
     /// stops the pulse and removeAllInfluence clears ENTHUSIASTIC.
@@ -1728,7 +1721,12 @@ mod tests {
             .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
             .expect("unit");
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
-        assert!(!logic.host_object(unit_id).unwrap().weapon_bonus_enthusiastic);
+        assert!(
+            !logic
+                .host_object(unit_id)
+                .unwrap()
+                .weapon_bonus_enthusiastic
+        );
 
         logic
             .host_object_mut(unit_id)
@@ -1736,13 +1734,22 @@ mod tests {
             .set_position(Vec3::new(20.0, 0.0, 0.0));
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
-            !logic.host_object(unit_id).unwrap().weapon_bonus_enthusiastic,
+            !logic
+                .host_object(unit_id)
+                .unwrap()
+                .weapon_bonus_enthusiastic,
             "enter waits for next 2s scan"
         );
 
-        logic.frame += crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
+        logic.frame +=
+            crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
-        assert!(logic.host_object(unit_id).unwrap().weapon_bonus_enthusiastic);
+        assert!(
+            logic
+                .host_object(unit_id)
+                .unwrap()
+                .weapon_bonus_enthusiastic
+        );
 
         logic
             .host_object_mut(unit_id)
@@ -1750,12 +1757,21 @@ mod tests {
             .set_position(Vec3::new(300.0, 0.0, 0.0));
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
-            logic.host_object(unit_id).unwrap().weapon_bonus_enthusiastic,
+            logic
+                .host_object(unit_id)
+                .unwrap()
+                .weapon_bonus_enthusiastic,
             "leave keeps buff until next scan"
         );
-        logic.frame += crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
+        logic.frame +=
+            crate::game_logic::host_propaganda::HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
-        assert!(!logic.host_object(unit_id).unwrap().weapon_bonus_enthusiastic);
+        assert!(
+            !logic
+                .host_object(unit_id)
+                .unwrap()
+                .weapon_bonus_enthusiastic
+        );
     }
 
     #[test]
@@ -1815,7 +1831,10 @@ mod tests {
             .expect("ally");
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
-            logic.host_object(unit_id).unwrap().weapon_bonus_enthusiastic,
+            logic
+                .host_object(unit_id)
+                .unwrap()
+                .weapon_bonus_enthusiastic,
             "ALLOW_ALLIES must buff a co-op teammate"
         );
     }
@@ -1856,7 +1875,10 @@ mod tests {
         let dozer_before = logic.host_object(dozer_id).unwrap().health.current;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
-            !logic.host_object(drone_id).unwrap().weapon_bonus_enthusiastic,
+            !logic
+                .host_object(drone_id)
+                .unwrap()
+                .weapon_bonus_enthusiastic,
             "drone without SCORE is not in the apply set"
         );
         let dozer = logic.host_object(dozer_id).unwrap();
@@ -1881,15 +1903,11 @@ mod tests {
         ));
     }
 
-
-
     /// C++ PropagandaTowerBehavior.cpp:450-456 doFXObj on the tower object.
     #[test]
     fn propaganda_pulse_fx_dispatches_at_host_object() {
         let src = include_str!("gps_and_fields.rs");
-        let start = src
-            .find("if do_fx {")
-            .expect("pulse do_fx");
+        let start = src.find("if do_fx {").expect("pulse do_fx");
         let body = &src[start..start + 450];
         assert!(
             body.contains("dispatch_fx_list_at_host_object(fx, tower.id, None)"),
@@ -1988,11 +2006,7 @@ mod tests {
             .create_object("AmericaTankPaladin", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
             .expect("paladin");
         let rng = logic
-            .create_object(
-                "AmericaInfantryRanger",
-                Team::GLA,
-                Vec3::new(8.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryRanger", Team::GLA, Vec3::new(8.0, 0.0, 0.0))
             .expect("ranger");
         let pf = logic
             .create_object(
@@ -2138,11 +2152,7 @@ mod tests {
             .insert("GLAInfantryHijacker".into(), hijacker);
 
         let hid = logic
-            .create_object(
-                "GLAInfantryHijacker",
-                Team::GLA,
-                Vec3::new(5.0, 0.0, 0.0),
-            )
+            .create_object("GLAInfantryHijacker", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
             .expect("hijacker");
         {
             let h = logic.host_object_mut(hid).expect("hijacker mut");
@@ -2207,11 +2217,7 @@ mod tests {
             .create_object("GLATankScorpion", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
             .expect("caster");
         let ally = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(8.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(8.0, 0.0, 0.0))
             .expect("ally");
         let enemy = logic
             .create_object(
@@ -2306,7 +2312,7 @@ mod tests {
                 range: 100.0,
                 last_fire_time: -5.0,
                 ..Weapon::default()
-});
+            });
             o.health.current = 20.0;
             o.health.maximum = 20.0;
             o.max_health = 20.0;
@@ -2356,11 +2362,7 @@ mod tests {
             .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let tank = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(40.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .unwrap();
         {
             let o = logic.host_object_mut(tank).unwrap();
@@ -2369,7 +2371,7 @@ mod tests {
                 range: 150.0,
                 last_fire_time: -5.0,
                 ..Weapon::default()
-});
+            });
         }
         logic.frame = 0;
         logic.update_ecm_jam_field();
@@ -2437,18 +2439,10 @@ mod tests {
             .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let near = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(175.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(175.0, 0.0, 0.0))
             .unwrap();
         let far = logic
-            .create_object(
-                "AmericaTankPaladin",
-                Team::USA,
-                Vec3::new(220.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankPaladin", Team::USA, Vec3::new(220.0, 0.0, 0.0))
             .unwrap();
         logic.frame = 0;
         logic.update_ecm_jam_field();
@@ -2491,11 +2485,7 @@ mod tests {
         logic.templates.insert("ChinaWarFactory".to_string(), b_tpl);
 
         let mw = logic
-            .create_object(
-                "AmericaTankMicrowave",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankMicrowave", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let bldg = logic
             .create_object("ChinaWarFactory", Team::China, Vec3::new(50.0, 0.0, 0.0))
@@ -2563,11 +2553,7 @@ mod tests {
             .insert("ChinaInfantryRedguard".to_string(), inf_tpl);
 
         let _mw = logic
-            .create_object(
-                "AmericaTankMicrowave",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankMicrowave", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let tank = logic
             .create_object(
@@ -2632,18 +2618,10 @@ mod tests {
             .insert("ChinaInfantryRedguard".to_string(), enemy_tpl);
 
         let _mw = logic
-            .create_object(
-                "AmericaTankMicrowave",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankMicrowave", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let civ = logic
-            .create_object(
-                "CivilianInfantry",
-                Team::Neutral,
-                Vec3::new(20.0, 0.0, 0.0),
-            )
+            .create_object("CivilianInfantry", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
         let enemy = logic
             .create_object(
@@ -2667,20 +2645,15 @@ mod tests {
         );
     }
 
-
     /// C++ DumbProjectileBehavior::projectileNowJammed is empty.
     #[test]
     fn ecm_does_not_jam_dumb_tank_shells() {
         let mut logic = GameLogic::new();
         let mut ecm_tpl = ThingTemplate::new("ChinaTankECM");
-        ecm_tpl
-            .add_kind_of(KindOf::Vehicle)
-            .set_health(300.0);
+        ecm_tpl.add_kind_of(KindOf::Vehicle).set_health(300.0);
         logic.templates.insert("ChinaTankECM".to_string(), ecm_tpl);
         let mut tech_tpl = ThingTemplate::new("GLAVehicleTechnical");
-        tech_tpl
-            .add_kind_of(KindOf::Vehicle)
-            .set_health(180.0);
+        tech_tpl.add_kind_of(KindOf::Vehicle).set_health(180.0);
         logic
             .templates
             .insert("GLAVehicleTechnical".to_string(), tech_tpl);
@@ -2689,16 +2662,15 @@ mod tests {
             .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let tech = logic
-            .create_object(
-                "GLAVehicleTechnical",
-                Team::GLA,
-                Vec3::new(50.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
             .unwrap();
         {
             let t = logic.host_object_mut(tech).unwrap();
             t.apply_upgrade_tag("WEAPONSET_CRATEUPGRADE_ONE");
-            logic.apply_technical_weapon_tier(tech, crate::game_logic::host_technical::TechnicalWeaponTier::One);
+            logic.apply_technical_weapon_tier(
+                tech,
+                crate::game_logic::host_technical::TechnicalWeaponTier::One,
+            );
         }
         let shell = logic
             .spawn_technical_cannon_shell_projectile(
@@ -2729,8 +2701,8 @@ mod tests {
     #[test]
     fn ecm_jammer_honors_exclusive_weapon_delay_while_disabler_fires() {
         use crate::game_logic::host_ecm_jam::{
-            ecm_exclusive_weapon_delay_blocks, ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES,
-            ECM_VEHICLE_DISABLER_DELAY_FRAMES,
+            ECM_EXCLUSIVE_WEAPON_DELAY_FRAMES, ECM_VEHICLE_DISABLER_DELAY_FRAMES,
+            ecm_exclusive_weapon_delay_blocks,
         };
 
         let mut logic = GameLogic::new();
@@ -2752,11 +2724,7 @@ mod tests {
             .create_object("ChinaTankECM", Team::China, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let _enemy = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(50.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(50.0, 0.0, 0.0))
             .unwrap();
         let tom = logic
             .create_object(

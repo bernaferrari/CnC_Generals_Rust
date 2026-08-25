@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::display::image::{get_mapped_image_collection, Image};
+use crate::display::image::{Image, get_mapped_image_collection};
 use crate::game_text::GameText;
 use crate::gui::gadgets::{ListBox, ListBoxItemData};
 use crate::gui::shell::Color as WindowColor;
@@ -13,18 +13,18 @@ use crate::message_stream::game_message::ICoord2D;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::crc::Crc;
 use game_engine::common::global_data::GLOBAL_DATA;
-use game_engine::common::ini::ini::{INILoadType, INI};
+use game_engine::common::ini::ini::{INI, INILoadType};
 use game_engine::common::ini::ini_map_cache::{
-    get_map_cache, get_map_cache_mut, init_global_map_cache, set_game_text_provider, Coord3D,
-    MapMetaData, Region3D, UnicodeString, WinTimeStamp,
+    Coord3D, MapMetaData, Region3D, UnicodeString, WinTimeStamp, get_map_cache, get_map_cache_mut,
+    init_global_map_cache, set_game_text_provider,
 };
 use game_engine::common::skirmish_battle_honors::SkirmishBattleHonors;
 use game_engine::common::system::file::FileAccess;
-use game_engine::common::system::file_system::{get_file_system, FileInfo, FilenameList};
+use game_engine::common::system::file_system::{FileInfo, FilenameList, get_file_system};
 use game_engine::common::system::quoted_printable::ascii_string_to_quoted_printable;
 
 use game_network::gamespy::ladder_defs::{
-    set_ladder_map_provider, LadderMapMeta, LadderMapProvider,
+    LadderMapMeta, LadderMapProvider, set_ladder_map_provider,
 };
 use gamelogic::system::map_loader::MapLoader;
 

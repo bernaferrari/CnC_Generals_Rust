@@ -113,8 +113,8 @@ mod tests {
     #[test]
     fn simulate_generals_exp_prepare_exit_residual_live() {
         use game_client::gui::callbacks::{
-            residual_generals_exp_is_visible, residual_generals_exp_last_action,
-            simulate_generals_exp_prepare_exit, ResidualGeneralsExpAction,
+            ResidualGeneralsExpAction, residual_generals_exp_is_visible,
+            residual_generals_exp_last_action, simulate_generals_exp_prepare_exit,
         };
         assert!(
             simulate_generals_exp_prepare_exit(),

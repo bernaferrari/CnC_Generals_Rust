@@ -1,13 +1,13 @@
 //! Audio source management and format handling.
 
 use crate::{
+    Priority,
     aud_source::{
         AudioCompressionType, AudioFormatFlags, AudioSample, AudioSourceLoader, CompressionData,
         EnhancedAudioFormat,
     },
     error::Result,
     formats::{AudioFormat, ChannelLayout, SampleRate, SampleWidth},
-    Priority,
 };
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};

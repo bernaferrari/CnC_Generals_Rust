@@ -8,10 +8,10 @@ mod ambush_leaflet;
 mod angry_mob_aurora;
 mod eva_camera;
 mod helix_radar;
+mod move_ambient_audio;
 mod production_eva;
 mod rebuild_dozer;
 mod saboteur_car_bomb;
-mod move_ambient_audio;
 
 mod scripts_camera;
 mod special_power_strikes;

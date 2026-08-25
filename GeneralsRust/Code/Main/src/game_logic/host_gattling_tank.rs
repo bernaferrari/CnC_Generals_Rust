@@ -155,11 +155,7 @@ pub fn target_is_airborne_for_gattling(is_aircraft: bool, airborne_target: bool)
 
 /// Slot residual for Gattling Tank: 1 = AA secondary, 0 = ground primary.
 pub fn preferred_gattling_slot(target_is_air: bool) -> u8 {
-    if target_is_air {
-        1
-    } else {
-        0
-    }
+    if target_is_air { 1 } else { 0 }
 }
 
 /// Delay frames residual for continuous-fire level (base / ROF).
@@ -234,9 +230,9 @@ pub fn gattling_ground_weapon(level: GattlingFireLevel, has_chain_guns: bool) ->
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual air Weapon for level + chain guns.
@@ -257,9 +253,9 @@ pub fn gattling_air_weapon(level: GattlingFireLevel, has_chain_guns: bool) -> We
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Advance continuous-fire residual state after a shot.

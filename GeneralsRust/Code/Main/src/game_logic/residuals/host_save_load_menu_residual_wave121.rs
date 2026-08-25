@@ -174,9 +174,9 @@ mod tests {
     #[test]
     fn simulate_save_load_prepare_load_residual_live() {
         use game_client::gui::callbacks::{
-            residual_save_load_last_action, residual_save_load_selected_slot,
-            simulate_save_load_menu_back_button_gadget_selected,
-            simulate_save_load_menu_prepare_load, ResidualSaveLoadAction,
+            ResidualSaveLoadAction, residual_save_load_last_action,
+            residual_save_load_selected_slot, simulate_save_load_menu_back_button_gadget_selected,
+            simulate_save_load_menu_prepare_load,
         };
         assert!(
             simulate_save_load_menu_prepare_load(0),

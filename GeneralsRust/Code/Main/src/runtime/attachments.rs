@@ -21,8 +21,7 @@ impl AttachmentDispatcher {
         for record in records {
             trace!(
                 "Attachment generated: {} (parent {})",
-                record.name,
-                record.parent_label
+                record.name, record.parent_label
             );
             ATTACHMENT_HOOKS.dispatch(&record);
             if queued.len() >= MAX_PENDING_ATTACHMENTS {

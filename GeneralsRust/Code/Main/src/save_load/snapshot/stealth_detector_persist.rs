@@ -50,10 +50,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_sden_suffix(bytes) else {
         return Ok(());
     };
@@ -184,7 +181,10 @@ mod tests {
             .expect("restore");
 
         let loaded = restored.host_object(id).expect("restored center");
-        assert!(loaded.is_detector, "S&D detector must stay armed after load");
+        assert!(
+            loaded.is_detector,
+            "S&D detector must stay armed after load"
+        );
         assert!((loaded.detection_range - STRATEGY_CENTER_STEALTH_DETECTION_RANGE).abs() < 1e-4);
         assert_eq!(
             loaded.detection_rate_frames,

@@ -28,7 +28,6 @@ fn template_uses_overlord_draw(template: &str) -> bool {
     false
 }
 
-
 impl PresentationFrame {
     /// C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)` expressed only
     /// through the immutable frame used by physical RMB input.
@@ -113,7 +112,6 @@ impl PresentationFrame {
                 return Some(usize::MAX);
             }
         }
-
 
         if !target.normal_enter_uses_transport_slots() {
             return capacity.checked_sub(target.normal_enter_occupant_count());
@@ -519,7 +517,8 @@ impl PresentationFrame {
                 let mut marker = base.clone();
                 marker.id = crate::game_logic::ObjectId(0xC000_0000 | draw_id);
                 marker.template_name = "RallyPointMarker".to_string();
-                marker.position = glam::Vec3::new(state.position.x, state.position.y, state.position.z);
+                marker.position =
+                    glam::Vec3::new(state.position.x, state.position.y, state.position.z);
                 marker.orientation = state.orientation;
                 marker.team_color = [
                     state.indicator_color.r as f32 / 255.0,
@@ -537,12 +536,11 @@ impl PresentationFrame {
                     self.world_env.is_night,
                     self.frame.0,
                 );
-                input.draw_models =
-                    crate::assets::resolve_presentation_draw_models_for_conditions(
-                        "RallyPointMarker",
-                        &[],
-                        input.model_condition_bits_with_combat_flags(),
-                    );
+                input.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+                    "RallyPointMarker",
+                    &[],
+                    input.model_condition_bits_with_combat_flags(),
+                );
                 input.model_key = input
                     .draw_models
                     .first()
@@ -598,8 +596,8 @@ impl PresentationFrame {
         #[cfg(feature = "game_client")]
         {
             use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_CURSOR;
-            for (draw_id, state) in
-                gamelogic::helpers::TheGameClient.leftover_drawables_named(STEALTH_FIGHTER_LOCKON_CURSOR)
+            for (draw_id, state) in gamelogic::helpers::TheGameClient
+                .leftover_drawables_named(STEALTH_FIGHTER_LOCKON_CURSOR)
             {
                 let hidden = state
                     .drawable
@@ -643,12 +641,11 @@ impl PresentationFrame {
                     self.world_env.is_night,
                     self.frame.0,
                 );
-                input.draw_models =
-                    crate::assets::resolve_presentation_draw_models_for_conditions(
-                        STEALTH_FIGHTER_LOCKON_CURSOR,
-                        &[],
-                        input.model_condition_bits_with_combat_flags(),
-                    );
+                input.draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
+                    STEALTH_FIGHTER_LOCKON_CURSOR,
+                    &[],
+                    input.model_condition_bits_with_combat_flags(),
+                );
                 input.model_key = input
                     .draw_models
                     .first()
@@ -715,7 +712,6 @@ impl PresentationFrame {
             crate::game_logic::host_fire_base::is_fire_base_template(&c.template_name)
         })
     }
-
 
     /// Projectile mesh pass inputs from frozen in-flight projectiles (model_key residual).
     pub fn projectile_render_inputs(&self) -> Vec<ProjectileRenderInput> {
@@ -1117,8 +1113,10 @@ impl PresentationFrame {
                     && self.similar_unit_is_local(o, player_team)
                     && Self::presentation_is_mass_selectable(o)
                     && !self.presentation_is_off_map(o)
-                    && (Self::templates_equivalent_for_type_select(template, o.template_name.as_str())
-                        || (clicked_is_carbomb && o.is_carbomb))
+                    && (Self::templates_equivalent_for_type_select(
+                        template,
+                        o.template_name.as_str(),
+                    ) || (clicked_is_carbomb && o.is_carbomb))
             })
             .map(|o| o.id)
             .collect()

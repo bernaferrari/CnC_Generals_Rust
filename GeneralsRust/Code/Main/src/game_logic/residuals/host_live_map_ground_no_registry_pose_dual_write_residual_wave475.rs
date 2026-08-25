@@ -78,8 +78,8 @@ pub fn residual_map_ground_no_registry_pose_dual_write_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_map_ground_no_registry_pose_dual_write_last_action(
-) -> ResidualMapGroundNoRegistryPoseDualWriteAction {
+pub fn residual_map_ground_no_registry_pose_dual_write_last_action()
+-> ResidualMapGroundNoRegistryPoseDualWriteAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualMapGroundNoRegistryPoseDualWriteAction::MethodNames,
         2 => ResidualMapGroundNoRegistryPoseDualWriteAction::SourceMarkers,

@@ -3,9 +3,7 @@
 //! Toolbar actions bind to the shipped lib pack / `generateINIFile` path:
 //! [`crate::pack_named_images_to_pages`] and [`crate::generate_mapped_image_ini`].
 
-use crate::{
-    generate_mapped_image_ini_from_pages, pack_named_images_to_pages, PackedAtlasPage,
-};
+use crate::{PackedAtlasPage, generate_mapped_image_ini_from_pages, pack_named_images_to_pages};
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::fs;
@@ -380,10 +378,7 @@ impl ImagePackerChrome {
         collected
     }
 
-    fn load_tga_images(
-        &mut self,
-        paths: &[PathBuf],
-    ) -> Result<Vec<(String, u32, u32, Vec<u8>)>> {
+    fn load_tga_images(&mut self, paths: &[PathBuf]) -> Result<Vec<(String, u32, u32, Vec<u8>)>> {
         let mut images = Vec::new();
         let mut name_counts: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
@@ -461,7 +456,7 @@ fn sanitize_sprite_name(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{generate_mapped_image_ini, PageStatus};
+    use crate::{PageStatus, generate_mapped_image_ini};
 
     fn solid_rgba(w: u32, h: u32, r: u8, g: u8, b: u8, a: u8) -> Vec<u8> {
         let mut px = Vec::with_capacity((w * h * 4) as usize);
@@ -577,10 +572,7 @@ mod tests {
             chrome.current_preview_page().unwrap().sprite_names,
             vec!["TinyIcon".to_string()]
         );
-        assert!(chrome
-            .ini_text()
-            .unwrap()
-            .contains("MappedImage TinyIcon"));
+        assert!(chrome.ini_text().unwrap().contains("MappedImage TinyIcon"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -597,9 +589,7 @@ mod tests {
     #[test]
     fn chrome_save_ini_before_pack_sets_last_error() {
         let mut chrome = ImagePackerChrome::new();
-        let err = chrome
-            .save_ini(Path::new("unused.INI"))
-            .unwrap_err();
+        let err = chrome.save_ini(Path::new("unused.INI")).unwrap_err();
         assert!(err.to_string().contains("Pack first"));
         assert!(chrome.last_error.unwrap().contains("Pack first"));
     }

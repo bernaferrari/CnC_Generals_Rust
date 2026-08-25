@@ -421,9 +421,11 @@ mod stealth_upgrade_tests {
         );
 
         manager.register_upgrade(upgrade).unwrap();
-        assert!(manager
-            .apply_upgrade_to_unit(1, "Unit_Stealth", 0x0001)
-            .is_ok());
+        assert!(
+            manager
+                .apply_upgrade_to_unit(1, "Unit_Stealth", 0x0001)
+                .is_ok()
+        );
 
         let upgrades = manager.get_unit_upgrades(1).unwrap();
         assert_eq!(upgrades.len(), 1);
@@ -510,20 +512,28 @@ mod stealth_upgrade_tests {
         manager.register_upgrade(upgrade).unwrap();
 
         // Should be applicable
-        assert!(manager
-            .is_upgrade_applicable(0x0001, "Kindof_Test")
-            .unwrap());
-        assert!(manager
-            .is_upgrade_applicable(0x0080, "Kindof_Test")
-            .unwrap());
+        assert!(
+            manager
+                .is_upgrade_applicable(0x0001, "Kindof_Test")
+                .unwrap()
+        );
+        assert!(
+            manager
+                .is_upgrade_applicable(0x0080, "Kindof_Test")
+                .unwrap()
+        );
 
         // Should not be applicable
-        assert!(!manager
-            .is_upgrade_applicable(0x0100, "Kindof_Test")
-            .unwrap());
-        assert!(!manager
-            .is_upgrade_applicable(0x1000, "Kindof_Test")
-            .unwrap());
+        assert!(
+            !manager
+                .is_upgrade_applicable(0x0100, "Kindof_Test")
+                .unwrap()
+        );
+        assert!(
+            !manager
+                .is_upgrade_applicable(0x1000, "Kindof_Test")
+                .unwrap()
+        );
     }
 
     #[test]
@@ -563,14 +573,18 @@ mod stealth_upgrade_tests {
         manager.register_upgrade(upgrade).unwrap();
 
         // Should work with matching KindOf
-        assert!(manager
-            .apply_upgrade_to_unit(10, "Tank_Stealth", 0x0010)
-            .is_ok());
+        assert!(
+            manager
+                .apply_upgrade_to_unit(10, "Tank_Stealth", 0x0010)
+                .is_ok()
+        );
 
         // Should fail with non-matching KindOf
-        assert!(manager
-            .apply_upgrade_to_unit(11, "Tank_Stealth", 0x0020)
-            .is_err());
+        assert!(
+            manager
+                .apply_upgrade_to_unit(11, "Tank_Stealth", 0x0020)
+                .is_err()
+        );
     }
 
     #[test]
@@ -737,9 +751,11 @@ mod stealth_upgrade_tests {
 
         manager.register_upgrade(upgrade).unwrap();
 
-        assert!(manager
-            .apply_upgrade_to_spawned(30, "No_Spawn", vec![31])
-            .is_err());
+        assert!(
+            manager
+                .apply_upgrade_to_spawned(30, "No_Spawn", vec![31])
+                .is_err()
+        );
     }
 
     #[test]
@@ -759,8 +775,10 @@ mod stealth_upgrade_tests {
             .apply_upgrade_to_unit(35, "Dup_Test", 0x0001)
             .unwrap();
 
-        assert!(manager
-            .apply_upgrade_to_unit(35, "Dup_Test", 0x0001)
-            .is_err());
+        assert!(
+            manager
+                .apply_upgrade_to_unit(35, "Dup_Test", 0x0001)
+                .is_err()
+        );
     }
 }

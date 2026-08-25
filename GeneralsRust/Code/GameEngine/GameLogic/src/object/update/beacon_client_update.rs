@@ -1,12 +1,12 @@
 // BeaconClientUpdate - client-side beacon pulses and smoke.
 // Ported from C++ BeaconClientUpdate.cpp/.h.
 
-use crate::common::{Color, Coord3D, ObjectID, Real, UnsignedInt, LOGICFRAMES_PER_SECOND};
+use crate::common::{Color, Coord3D, LOGICFRAMES_PER_SECOND, ObjectID, Real, UnsignedInt};
 use crate::helpers::{TheGameLogic, TheParticleSystemManager};
 use crate::object::drawable::DrawableArcExt;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::radar::{
-    get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
+    Coord3D as RadarCoord3D, RadarEventType, get_radar_system,
 };
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{

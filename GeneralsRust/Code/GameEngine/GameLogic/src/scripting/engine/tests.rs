@@ -147,7 +147,7 @@ fn test_end_game_timer() {
 #[test]
 fn end_game_timer_expiry_appends_clear_game_data_message() {
     // C++ ScriptEngine.cpp:5514-5518 TheMessageStream->appendMessage(MSG_CLEAR_GAME_DATA)
-    use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+    use game_engine::common::message_stream::{GameMessageType, get_message_stream};
 
     let _lock = crate::test_sync::lock();
     let mut engine = ScriptEngine::new().unwrap();
@@ -157,7 +157,9 @@ fn end_game_timer_expiry_appends_clear_game_data_message() {
         stream.clear_messages();
     }
     engine.start_quick_end_game_timer();
-    engine.update().expect("update should expire the 1-frame timer");
+    engine
+        .update()
+        .expect("update should expire the 1-frame timer");
     let stream = get_message_stream();
     let stream = stream.read().expect("message stream");
     assert!(
@@ -187,7 +189,6 @@ fn close_window_timer_expiry_destroys_message_window() {
         "close-window timer expiry must destroy the win/lose message window"
     );
 }
-
 
 #[test]
 fn test_time_freeze() {
@@ -249,7 +250,7 @@ fn countdown_timer_rests_at_minus_one_after_expire() {
 #[test]
 fn qualify_my_inner_perimeter_rewrites_to_player_start_index() {
     // C++ ScriptEngine.cpp:5890-5897 MyInnerPerimeter -> InnerPerimeter{mpStart+1}
-    use crate::player::{player_list, Player};
+    use crate::player::{Player, player_list};
     use std::sync::{Arc, RwLock};
 
     let _lock = crate::test_sync::lock();
@@ -278,7 +279,6 @@ fn qualify_my_inner_perimeter_rewrites_to_player_start_index() {
 
     player_list().write().expect("player list").clear();
 }
-
 
 #[test]
 fn pending_resume_frame_is_next_frame_for_single_frame_wait() {
@@ -435,9 +435,11 @@ fn call_subroutine_executes_in_place_and_persists_one_shot_state() {
         .set_script_list_for_player(0, Some(Box::new(script_list)))
         .unwrap();
 
-    assert!(engine
-        .execute_subroutine_by_name("SubroutinePersist")
-        .unwrap());
+    assert!(
+        engine
+            .execute_subroutine_by_name("SubroutinePersist")
+            .unwrap()
+    );
 
     let is_active = engine
         .with_inner(|i| {
@@ -476,9 +478,11 @@ fn call_subroutine_resolves_subroutine_group_name_first() {
         .set_script_list_for_player(0, Some(Box::new(script_list)))
         .unwrap();
 
-    assert!(engine
-        .execute_subroutine_by_name("NamedSubroutineGroup")
-        .unwrap());
+    assert!(
+        engine
+            .execute_subroutine_by_name("NamedSubroutineGroup")
+            .unwrap()
+    );
 
     let grouped_active = engine
         .with_inner(|i| {
@@ -751,10 +755,12 @@ fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
                 .expect("undo reveal action"),
             ScriptActionResult::Success
         );
-        assert!(engine.with_inner(|inner| inner
-            .named_reveals
-            .iter()
-            .all(|entry| entry.reveal_name != reveal_name)));
+        assert!(engine.with_inner(|inner| {
+            inner
+                .named_reveals
+                .iter()
+                .all(|entry| entry.reveal_name != reveal_name)
+        }));
     });
 
     assert_eq!(completed, Some(()));
@@ -1203,7 +1209,11 @@ fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
     assert!(tail.choose_victim_always_uses_normal);
     assert!(!tail.objects_should_receive_difficulty_bonus);
     assert_eq!(tail.object_attack_priority_sets[0], (42, "Heroes".into()));
-    assert!(tail.named_objects.iter().any(|(name, id)| name == "NamedHero" && *id == 42));
+    assert!(
+        tail.named_objects
+            .iter()
+            .any(|(name, id)| name == "NamedHero" && *id == 42)
+    );
 
     let restored = ScriptEngine::new().unwrap();
     restored.restore_xfer_tail(&tail);
@@ -1217,11 +1227,12 @@ fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
         Some("Heroes")
     );
     assert_eq!(
-        get_named_object_tracker().get_object_id("NamedHero").unwrap(),
+        get_named_object_tracker()
+            .get_object_id("NamedHero")
+            .unwrap(),
         Some(42)
     );
 }
-
 
 #[test]
 fn empty_object_registry_still_runs_true_side_scripts() {
@@ -1492,10 +1503,9 @@ fn eval_flag_true_when_ui_interaction_name_matches_like_cxx() {
         .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
         .unwrap();
 
-    let mut evaluator =
-        ScriptConditionEvaluator::new(std::sync::Arc::new(std::sync::RwLock::new(
-            ScriptContext::new(),
-        )));
+    let mut evaluator = ScriptConditionEvaluator::new(std::sync::Arc::new(std::sync::RwLock::new(
+        ScriptContext::new(),
+    )));
     assert_eq!(
         evaluator.evaluate_condition(&mut pulse).unwrap(),
         ScriptConditionResult::True,
@@ -1617,6 +1627,3 @@ fn live_host_take_engine_update_flag_ui_pulse_like_cxx() {
         *guard = Some(engine);
     }
 }
-
-
-

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
-use game_engine::common::language::{get_current_language, Language, LanguageId};
+use game_engine::common::language::{Language, LanguageId, get_current_language};
 
 const CSF_ID: u32 = u32::from_le_bytes(*b" FSC");
 const CSF_LABEL: u32 = u32::from_le_bytes(*b" LBL");

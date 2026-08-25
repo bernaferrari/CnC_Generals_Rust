@@ -8,9 +8,9 @@ use super::crate_collide::{CrateCollide, CrateCollideBehavior, CrateCollideModul
 use crate::common::*;
 use crate::helpers::{TheAudio, TheGameLogic};
 use crate::object::collide::crate_collide::*;
-use crate::player::{player_list, PlayerIndex};
+use crate::player::{PlayerIndex, player_list};
 use crate::upgrade::center::get_upgrade_center;
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 use std::sync::{Arc, Mutex};
 
 /// Upgrade pair structure for bonus calculations
@@ -691,8 +691,8 @@ impl MoneyCrateCollideFactory {
 mod tests {
     use super::*;
     use crate::object::Object;
-    use crate::player::{player_list, Player, PlayerArcExt};
-    use crate::upgrade::{center::with_upgrade_center_mut, UpgradeStatus};
+    use crate::player::{Player, PlayerArcExt, player_list};
+    use crate::upgrade::{UpgradeStatus, center::with_upgrade_center_mut};
     use std::sync::RwLock;
 
     #[test]
@@ -780,10 +780,7 @@ mod tests {
         assert_eq!(data.upgrade_boosts[0].upgrade_type, "UpgradeSupplyLines");
         assert_eq!(data.upgrade_boosts[0].amount, 125);
         assert!((data.base.execute_animation_display_time_seconds - 2.25).abs() < f32::EPSILON);
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
         assert_ne!(
             data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0
@@ -809,12 +806,16 @@ mod tests {
     #[test]
     fn money_crate_build_field_parse_exposes_cpp_tokens() {
         let fields = MoneyCrateCollideModuleData::build_field_parse();
-        assert!(fields
-            .iter()
-            .any(|field| field.token == "MoneyProvided" && field.target == "money_provided"));
-        assert!(fields
-            .iter()
-            .any(|field| field.token == "UpgradedBoost" && field.target == "upgrade_boosts"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.token == "MoneyProvided" && field.target == "money_provided")
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.token == "UpgradedBoost" && field.target == "upgrade_boosts")
+        );
     }
 }
 

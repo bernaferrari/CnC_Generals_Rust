@@ -69,7 +69,6 @@ pub const TUNNEL_NETWORK_GUN_DUMMY_DELAY_MS: u32 = 1000;
 /// Retail DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
 pub const TUNNEL_NETWORK_GUN_DUMMY_DELAY_FRAMES: u32 = 30;
 
-
 /// Retail StructureBody MaxHealth residual.
 pub const TUNNEL_NETWORK_MAX_HEALTH: f32 = 1000.0;
 /// Retail BuildCost residual.
@@ -157,7 +156,6 @@ pub struct HostTunnelNetworkRegistry {
     /// Units that sallied out via AITNGuard idle (C++ return-to-tunnel loop).
     #[serde(default)]
     sally_units: HashSet<u32>,
-
 }
 
 /// Shared contain state for one player's tunnel network.
@@ -204,9 +202,6 @@ pub struct TunnelDestroyedOutcome {
     /// Remaining valid tunnel for remapping `ContainedBy` (non-last).
     pub remapped_to: Option<ObjectId>,
 }
-
-
-
 
 impl HostTunnelNetworkRegistry {
     pub fn new() -> Self {
@@ -312,7 +307,6 @@ impl HostTunnelNetworkRegistry {
     pub fn clear_sally(&mut self, unit_id: ObjectId) {
         self.sally_units.remove(&unit_id.0);
     }
-
 
     pub fn entry_tunnel_of(&self, unit_id: ObjectId) -> Option<ObjectId> {
         for net in self.networks.values() {
@@ -455,7 +449,6 @@ impl HostTunnelNetworkRegistry {
         self.cave_ins > 0 && self.cave_in_kills > 0
     }
 
-
     /// C++ `Object::setContainedBy` stamps `m_containedByFrame`.
     pub fn stamp_contained_by_frame(&mut self, unit_id: ObjectId, frame: u32) {
         self.contained_by_frame.insert(unit_id.0, frame);
@@ -591,7 +584,6 @@ pub fn find_best_tunnel_xz(
     best.map(|(id, _)| id)
 }
 
-
 /// Build residual TunnelNetworkGun weapon.
 pub fn tunnel_network_gun_weapon() -> Weapon {
     Weapon {
@@ -609,9 +601,9 @@ pub fn tunnel_network_gun_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual TunnelNetworkGunDUMMY (sneak-attack PRIMARY).
@@ -631,9 +623,9 @@ pub fn tunnel_network_gun_dummy_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// True when template is a sneak-attack Tunnel Network (not Start/Hole).
@@ -772,9 +764,7 @@ pub fn tunnel_network_detection_range(template_name: &str) -> Option<f32> {
 pub fn general_prefixed_spawn_template(building: &str, stock: &str) -> String {
     const PREFIXES: &[&str] = &["GC_Slth_", "GC_Chem_", "Demo_", "Chem_", "Slth_"];
     for prefix in PREFIXES {
-        if building.len() >= prefix.len()
-            && building[..prefix.len()].eq_ignore_ascii_case(prefix)
-        {
+        if building.len() >= prefix.len() && building[..prefix.len()].eq_ignore_ascii_case(prefix) {
             return format!("{prefix}{stock}");
         }
     }
@@ -827,7 +817,6 @@ fn oldest_surviving_tunnel(registered: &[ObjectId], remaining: &[ObjectId]) -> O
         .or_else(|| remaining.iter().copied().min_by_key(|id| id.0))
 }
 
-
 #[cfg(test)]
 mod tests {
     fn gla_key() -> u32 {
@@ -877,12 +866,13 @@ mod tests {
         assert!(reg.sally_unit_ids().is_empty());
     }
 
-
     #[test]
     fn oneshot_spawn_excludes_sneak_and_prefixes_generals() {
         assert!(tunnel_network_has_oneshot_spawn("GLATunnelNetwork"));
         assert!(tunnel_network_has_oneshot_spawn("Demo_GLATunnelNetwork"));
-        assert!(!tunnel_network_has_oneshot_spawn("GLASneakAttackTunnelNetwork"));
+        assert!(!tunnel_network_has_oneshot_spawn(
+            "GLASneakAttackTunnelNetwork"
+        ));
         assert_eq!(
             tunnel_network_spawn_template_for("GLATunnelNetwork"),
             "GLAInfantryTunnelDefender"
@@ -1081,7 +1071,6 @@ mod tests {
         assert!((real.reload_time - (8.0 / 30.0)).abs() < 0.001);
     }
 
-
     #[test]
     fn update_nemesis_sets_once_and_refreshes_same_target() {
         let mut reg = HostTunnelNetworkRegistry::new();
@@ -1121,7 +1110,4 @@ mod tests {
         assert_eq!(reg.player_holding_unit(ObjectId(1)), Some(chem));
         assert_eq!(reg.player_holding_tunnel(t_demo), Some(demo));
     }
-
-
-
 }

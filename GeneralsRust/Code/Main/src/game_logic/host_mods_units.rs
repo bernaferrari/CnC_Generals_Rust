@@ -6,11 +6,11 @@
 
 #![allow(unused_imports)]
 
-use super::combat;
 use super::ObjectId;
 use super::Team;
 use super::VeterancyLevel;
 use super::Weapon;
+use super::combat;
 
 #[path = "host_angry_mob.rs"]
 pub mod host_angry_mob;
@@ -81,10 +81,10 @@ pub mod host_quad_cannon;
 #[path = "host_ranger.rs"]
 pub mod host_ranger;
 
-#[path = "host_railroad.rs"]
-pub mod host_railroad;
 #[path = "host_railed_transport.rs"]
 pub mod host_railed_transport;
+#[path = "host_railroad.rs"]
+pub mod host_railroad;
 
 #[path = "host_raptor.rs"]
 pub mod host_raptor;

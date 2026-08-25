@@ -378,7 +378,6 @@ impl ScriptActionDispatcher {
             },
         );
 
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -419,7 +418,6 @@ impl ScriptActionDispatcher {
             },
         );
 
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -437,7 +435,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let object_ids = player_list()
             .read()
@@ -487,7 +484,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let object_ids = player_list()
             .read()
@@ -669,12 +665,7 @@ impl ScriptActionDispatcher {
                 log::warn!("Player '{}' not found for purchase science", player_name);
             }
         }
-        crate::scripting::executor::request_host_science_action(
-            &player_name,
-            &science_name,
-            false,
-        );
-
+        crate::scripting::executor::request_host_science_action(&player_name, &science_name, false);
 
         Ok(ScriptActionResult::Success)
     }

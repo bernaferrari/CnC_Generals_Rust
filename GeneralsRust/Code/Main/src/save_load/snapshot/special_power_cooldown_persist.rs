@@ -31,10 +31,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     }
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_spcd_suffix(bytes) else {
         return Ok(());
     };
@@ -176,7 +173,6 @@ fn apply_object_pauses(game_logic: &mut GameLogic, table: &[(u32, Vec<(String, f
     }
 }
 
-
 fn special_power_from_persist_name(name: &str) -> Option<SpecialPowerType> {
     if let Ok(power) = serde_json::from_str(&format!("\"{name}\"")) {
         return Some(power);
@@ -259,10 +255,7 @@ mod tests {
         let mut bytes = b"HIST".to_vec();
         bytes.extend_from_slice(SPCD_MAGIC);
         append_u32(&mut bytes, SPCD_VERSION);
-        encode_table(
-            &mut bytes,
-            &[(1, vec![("ParticleCannon".into(), 77.5)])],
-        );
+        encode_table(&mut bytes, &[(1, vec![("ParticleCannon".into(), 77.5)])]);
         encode_table(&mut bytes, &[(9, vec![("SpySatellite".into(), 9.0)])]);
 
         let suffix = find_spcd_suffix(&bytes).expect("magic");
@@ -315,9 +308,7 @@ mod tests {
         }
 
         let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
             find_spcd_suffix(&snapshot.lifecycle_tail).is_some(),
             "SPCD suffix must be appended to lifecycle tail"
@@ -329,8 +320,7 @@ mod tests {
             .expect("restore");
         let loaded = restored.get_player(1).expect("player");
         assert!(
-            (loaded.shared_special_power_remaining(&SpecialPowerType::ParticleCannon) - 77.5)
-                .abs()
+            (loaded.shared_special_power_remaining(&SpecialPowerType::ParticleCannon) - 77.5).abs()
                 < 1e-4,
             "shared {:?}",
             loaded.shared_special_power_cooldowns

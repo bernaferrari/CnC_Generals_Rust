@@ -6,21 +6,21 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
-use crate::common::{GameError, LegacyModuleData, ObjectID, INVALID_ID};
+use crate::common::{GameError, INVALID_ID, LegacyModuleData, ObjectID};
 use crate::helpers::TheGameLogic;
 use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, ContainModuleInterface, ContainWant,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::collide::{Coord3D as CollideCoord3D, LegacyCollideAdapter, COLLISION_MANAGER};
-use crate::object::contain::{OpenContain, OpenContainModuleData};
 use crate::object::Object;
+use crate::object::collide::{COLLISION_MANAGER, Coord3D as CollideCoord3D, LegacyCollideAdapter};
+use crate::object::contain::{OpenContain, OpenContainModuleData};
 use log::warn;
 
 /// Wave 366: host-only path has no dual-world factory objects.

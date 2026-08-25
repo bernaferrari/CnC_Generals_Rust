@@ -79,8 +79,8 @@ fn test_preferences_all_types() {
 
 #[test]
 fn test_threading_scoped_mutex() {
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::thread;
     use threading::ScopedMutex;
 
@@ -136,8 +136,8 @@ fn test_threading_rwlock() {
 
 #[test]
 fn test_threading_thread_pool() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use threading::ThreadPool;
 
     let pool = ThreadPool::new(4);
@@ -218,9 +218,11 @@ fn test_os_display_configuration() {
     let mut manager = os_display::DisplayManager::new();
 
     // Test window mode changes
-    assert!(manager
-        .set_window_mode(os_display::WindowMode::Fullscreen)
-        .is_ok());
+    assert!(
+        manager
+            .set_window_mode(os_display::WindowMode::Fullscreen)
+            .is_ok()
+    );
     assert_eq!(
         manager.get_config().window_mode,
         os_display::WindowMode::Fullscreen
@@ -367,11 +369,13 @@ fn test_all_components_integration() {
     // 4. Global Data
     let mut global = global_data::GlobalData::default();
     global.set_override("integration_test", global_data::GlobalValue::Bool(true));
-    assert!(global
-        .get_override("integration_test")
-        .unwrap()
-        .as_bool()
-        .unwrap());
+    assert!(
+        global
+            .get_override("integration_test")
+            .unwrap()
+            .as_bool()
+            .unwrap()
+    );
 
     // 5. Preferences
     let prefs = preferences::SkirmishPreferences::new();

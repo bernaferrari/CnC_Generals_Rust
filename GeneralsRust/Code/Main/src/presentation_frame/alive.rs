@@ -183,11 +183,7 @@ impl PresentationFrame {
                 n += 1;
             }
         }
-        if n == 0 {
-            None
-        } else {
-            Some(sum / n as f32)
-        }
+        if n == 0 { None } else { Some(sum / n as f32) }
     }
 
     pub fn first_alive_position_for_template(&self, template_name: &str) -> Option<glam::Vec3> {
@@ -565,7 +561,6 @@ impl PresentationFrame {
             .collect()
     }
 
-
     /// Combat units residual (mobile non-structure, not pure dozer/supply).
     pub fn alive_selectable_friendly_combat_ids(
         &self,
@@ -877,7 +872,7 @@ impl PresentationFrame {
         pairs.sort_by(|a, b| {
             a.1.partial_cmp(&b.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.0 .0.cmp(&b.0 .0))
+                .then(a.0.0.cmp(&b.0.0))
         });
         pairs.into_iter().map(|(id, _)| id).collect()
     }
@@ -904,7 +899,7 @@ impl PresentationFrame {
         pairs.sort_by(|a, b| {
             a.1.partial_cmp(&b.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.0 .0.cmp(&b.0 .0))
+                .then(a.0.0.cmp(&b.0.0))
         });
         pairs.into_iter().map(|(id, _)| id).collect()
     }
@@ -1121,7 +1116,6 @@ impl PresentationFrame {
         object.occupant_count == 0 && object.garrisoned_units.is_empty()
     }
 
-
     /// C++ `addDrawableToList` + FireBase non-enclosing container prop
     /// (`SelectionInfo.cpp:336-346`). Occupants that are not independently
     /// selectable promote their visible container.
@@ -1137,7 +1131,10 @@ impl PresentationFrame {
             return Some(object);
         }
         let container_id = object.contained_by?;
-        let container = self.objects.iter().find(|candidate| candidate.id == container_id)?;
+        let container = self
+            .objects
+            .iter()
+            .find(|candidate| candidate.id == container_id)?;
         if !crate::game_logic::host_fire_base::is_fire_base_template(&container.template_name) {
             return None;
         }

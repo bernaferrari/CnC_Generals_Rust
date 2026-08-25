@@ -149,7 +149,8 @@ impl HostSpecialPowerStrikeRegistry {
             let mut hits = Vec::new();
             if !(strike.kind.is_scud_multi_strike() && strike.live_scud_delivery)
                 && !(strike.kind.is_line_multi_strike() && strike.live_carpet_delivery)
-                && !(strike.kind == HostSuperweaponKind::AnthraxBomb && strike.live_anthrax_delivery)
+                && !(strike.kind == HostSuperweaponKind::AnthraxBomb
+                    && strike.live_anthrax_delivery)
             {
                 for &(id, pos, team, alive) in object_positions {
                     if !alive || id == strike.source_object {

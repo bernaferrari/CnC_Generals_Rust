@@ -5,8 +5,8 @@ use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord2D, Coord3D, GameLogicRandomValue, Matrix3D, ModelConditionFlags, ModuleData,
-    ObjectID, Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
+    AsciiString, Coord2D, Coord3D, GameLogicRandomValue, LOGICFRAMES_PER_SECOND, Matrix3D,
+    ModelConditionFlags, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::helpers::{
@@ -16,11 +16,11 @@ use crate::helpers::{
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::path::PATHFIND_CELL_SIZE_F;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use glam::Vec4;
 use std::sync::{Arc, RwLock, Weak};
@@ -358,10 +358,7 @@ fn leftover_audio_event_playable(name: &str) -> bool {
 }
 
 /// C++ `WaveGuideUpdate::startMoving` / splash `TheAudio->addAudioEvent`.
-pub fn leftover_play_wave_guide_audio_event(
-    mut event: AudioEventRts,
-    object_id: ObjectID,
-) -> bool {
+pub fn leftover_play_wave_guide_audio_event(mut event: AudioEventRts, object_id: ObjectID) -> bool {
     event.set_object_id(object_id);
     let Some(audio) = TheAudio::get() else {
         return false;
@@ -383,9 +380,7 @@ pub fn leftover_wave_guide_splash_due(
     now: UnsignedInt,
     splash_sound_frame: &mut UnsignedInt,
 ) -> bool {
-    if (now.saturating_sub(*splash_sound_frame) as f32)
-        <= (LOGICFRAMES_PER_SECOND as f32 / 2.0)
-    {
+    if (now.saturating_sub(*splash_sound_frame) as f32) <= (LOGICFRAMES_PER_SECOND as f32 / 2.0) {
         return false;
     }
     *splash_sound_frame = now;
@@ -440,7 +435,6 @@ pub fn leftover_wave_guide_audio_from_template(template_name: &str) -> LeftoverW
         },
     }
 }
-
 
 pub struct WaveGuideUpdate {
     object_id: ObjectID,
@@ -983,10 +977,8 @@ impl UpdateModuleInterface for WaveGuideUpdate {
             self.initialized = true;
         }
 
-        if leftover_wave_guide_splash_due(
-            TheGameLogic::get_frame(),
-            &mut self.splash_sound_frame,
-        ) && leftover_wave_guide_splash_roll(self.module_data.random_splash_sound_frequency)
+        if leftover_wave_guide_splash_due(TheGameLogic::get_frame(), &mut self.splash_sound_frame)
+            && leftover_wave_guide_splash_roll(self.module_data.random_splash_sound_frequency)
         {
             let _ = leftover_play_wave_guide_audio_event(
                 self.module_data.random_splash_sound.clone(),
@@ -1111,7 +1103,10 @@ mod tests {
     fn splash_due_matches_half_second_logic_frames() {
         let half = crate::common::LOGICFRAMES_PER_SECOND as f32 / 2.0;
         let mut splash_frame = 0;
-        assert!(!leftover_wave_guide_splash_due(half as u32, &mut splash_frame));
+        assert!(!leftover_wave_guide_splash_due(
+            half as u32,
+            &mut splash_frame
+        ));
         assert_eq!(splash_frame, 0);
         let later = (half as u32) + 1;
         assert!(leftover_wave_guide_splash_due(later, &mut splash_frame));
@@ -1129,5 +1124,4 @@ mod tests {
             WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY
         );
     }
-
 }

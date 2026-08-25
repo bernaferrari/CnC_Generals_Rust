@@ -6,9 +6,9 @@ use crate::{
     logical_listener::LogicalListener,
     logical_sound::LogicalSound,
     math::{Matrix3D, Vector3},
-    sound3d::Sound3D,
     sound_pseudo3d::SoundPseudo3D,
     sound_scene_obj::SoundObjectId,
+    sound3d::Sound3D,
 };
 use std::collections::{HashMap, HashSet};
 

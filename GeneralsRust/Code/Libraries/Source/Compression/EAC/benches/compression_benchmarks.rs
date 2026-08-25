@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use eac_compression::{compress, decompress, CompressionType};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use eac_compression::{CompressionType, compress, decompress};
 
 fn refpack_round_trip(c: &mut Criterion) {
     let data = vec![0_u8; 128 * 1024];

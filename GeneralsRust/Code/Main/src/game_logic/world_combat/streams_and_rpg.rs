@@ -6,7 +6,7 @@ use super::super::*;
 impl GameLogic {
     pub fn update_technical_rpg_missile_projectiles(&mut self) {
         use crate::game_logic::host_technical::{
-            technical_rpg_missile_step_speed, TECH_RPG_MISSILE_SEEK, TECH_RPG_MISSILE_TURN_DISTANCE,
+            TECH_RPG_MISSILE_SEEK, TECH_RPG_MISSILE_TURN_DISTANCE, technical_rpg_missile_step_speed,
         };
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -122,8 +122,8 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_technical::{
-            technical_cannon_shell_flight_frames, TECH_CANNON_SHELL_MAX_HEALTH,
-            TECH_CANNON_SHELL_PROJECTILE,
+            TECH_CANNON_SHELL_MAX_HEALTH, TECH_CANNON_SHELL_PROJECTILE,
+            technical_cannon_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -313,9 +313,9 @@ impl GameLogic {
         air: bool,
     ) -> (u32, bool) {
         use crate::game_logic::host_humvee::{
-            humvee_air_tow_damage_at, humvee_ground_tow_damage_at, HUMVEE_AIR_TOW_RADIUS,
-            HUMVEE_GROUND_TOW_RADIUS, HUMVEE_TOW_DAMAGE_TYPE, HUMVEE_TOW_DEATH_TYPE,
-            HUMVEE_TOW_FIRE_AUDIO,
+            HUMVEE_AIR_TOW_RADIUS, HUMVEE_GROUND_TOW_RADIUS, HUMVEE_TOW_DAMAGE_TYPE,
+            HUMVEE_TOW_DEATH_TYPE, HUMVEE_TOW_FIRE_AUDIO, humvee_air_tow_damage_at,
+            humvee_ground_tow_damage_at,
         };
 
         let source_team = source
@@ -396,10 +396,10 @@ impl GameLogic {
         flashbang_slot: bool,
     ) -> (u32, bool) {
         use crate::game_logic::host_ranger::{
-            flashbang_damage_at, is_legal_ranger_target, ranger_flashbang_scatter_aim,
-            ranger_flashbang_scatter_misses, FLASHBANG_DAMAGE_TYPE, FLASHBANG_DEATH_TYPE,
-            FLASHBANG_SECONDARY_RADIUS, RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE,
-            RANGER_RIFLE_DAMAGE_TYPE, RANGER_RIFLE_DEATH_TYPE, RANGER_RIFLE_FIRE_AUDIO,
+            FLASHBANG_DAMAGE_TYPE, FLASHBANG_DEATH_TYPE, FLASHBANG_SECONDARY_RADIUS,
+            RANGER_FLASHBANG_FIRE_AUDIO, RANGER_RIFLE_DAMAGE, RANGER_RIFLE_DAMAGE_TYPE,
+            RANGER_RIFLE_DEATH_TYPE, RANGER_RIFLE_FIRE_AUDIO, flashbang_damage_at,
+            is_legal_ranger_target, ranger_flashbang_scatter_aim, ranger_flashbang_scatter_misses,
         };
 
         let source_team = source
@@ -593,8 +593,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_gla_rebel::{
-            is_legal_rebel_target, REBEL_DAMAGE, REBEL_DAMAGE_TYPE, REBEL_DEATH_TYPE,
-            REBEL_FIRE_AUDIO,
+            REBEL_DAMAGE, REBEL_DAMAGE_TYPE, REBEL_DEATH_TYPE, REBEL_FIRE_AUDIO,
+            is_legal_rebel_target,
         };
 
         let damage = source
@@ -674,10 +674,10 @@ impl GameLogic {
         slot: u8,
     ) -> (u32, bool) {
         use crate::game_logic::host_minigunner::{
-            has_chain_guns_upgrade, is_legal_minigunner_target, minigunner_damage_with_chain_guns,
             MINIGUNNER_AA_FIRE_AUDIO, MINIGUNNER_AIR_DAMAGE, MINIGUNNER_AIR_DAMAGE_TYPE,
             MINIGUNNER_AIR_DEATH_TYPE, MINIGUNNER_FIRE_AUDIO, MINIGUNNER_GROUND_DAMAGE,
-            MINIGUNNER_GROUND_DAMAGE_TYPE, MINIGUNNER_GROUND_DEATH_TYPE,
+            MINIGUNNER_GROUND_DAMAGE_TYPE, MINIGUNNER_GROUND_DEATH_TYPE, has_chain_guns_upgrade,
+            is_legal_minigunner_target, minigunner_damage_with_chain_guns,
         };
 
         let dmg = source
@@ -777,8 +777,8 @@ impl GameLogic {
         use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
         use crate::game_logic::host_minigunner::{
-            has_chain_guns_upgrade, minigunner_air_weapon, minigunner_coast_until_after_shot,
-            minigunner_ground_weapon, minigunner_on_shot_fired, MINIGUNNER_RAPID_FIRE_AUDIO,
+            MINIGUNNER_RAPID_FIRE_AUDIO, has_chain_guns_upgrade, minigunner_air_weapon,
+            minigunner_coast_until_after_shot, minigunner_ground_weapon, minigunner_on_shot_fired,
         };
 
         let frame = self.frame;
@@ -871,10 +871,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_colonel_burton::{
-            distance_2d, is_legal_burton_target, should_apply_burton_knife_residual,
             BURTON_KNIFE_DAMAGE, BURTON_KNIFE_DAMAGE_TYPE, BURTON_KNIFE_DEATH_TYPE,
             BURTON_KNIFE_FIRE_AUDIO, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_DAMAGE_TYPE,
-            BURTON_SNIPER_DEATH_TYPE, BURTON_SNIPER_FIRE_AUDIO,
+            BURTON_SNIPER_DEATH_TYPE, BURTON_SNIPER_FIRE_AUDIO, distance_2d,
+            is_legal_burton_target, should_apply_burton_knife_residual,
         };
 
         let source_team = source
@@ -988,7 +988,7 @@ impl GameLogic {
     /// Apply AP Rockets residual tag to an RPG Trooper (damage × 1.25).
     pub fn apply_rpg_trooper_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_rpg_trooper::{
-            is_rpg_trooper_template, UPGRADE_GLA_AP_ROCKETS,
+            UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_template,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1214,10 +1214,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_rpg_trooper::{
-            is_legal_rpg_trooper_splash_target, rpg_trooper_scatter_aim,
-            rpg_trooper_scatter_misses_infantry, rpg_trooper_splash_damage_at, RPG_TROOPER_DAMAGE,
-            RPG_TROOPER_DAMAGE_TYPE, RPG_TROOPER_DEATH_TYPE, RPG_TROOPER_FIRE_AUDIO,
-            RPG_TROOPER_SPLASH_RADIUS,
+            RPG_TROOPER_DAMAGE, RPG_TROOPER_DAMAGE_TYPE, RPG_TROOPER_DEATH_TYPE,
+            RPG_TROOPER_FIRE_AUDIO, RPG_TROOPER_SPLASH_RADIUS, is_legal_rpg_trooper_splash_target,
+            rpg_trooper_scatter_aim, rpg_trooper_scatter_misses_infantry,
+            rpg_trooper_splash_damage_at,
         };
 
         let damage = source
@@ -1375,9 +1375,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_terrorist::{
+            SUICIDE_DYNAMITE_DAMAGE_TYPE, SUICIDE_DYNAMITE_DEATH_TYPE, TERRORIST_DETONATE_AUDIO,
             is_legal_terrorist_aoe_target, suicide_dynamite_damage_at_profile,
-            terrorist_death_profile, SUICIDE_DYNAMITE_DAMAGE_TYPE, SUICIDE_DYNAMITE_DEATH_TYPE,
-            TERRORIST_DETONATE_AUDIO,
+            terrorist_death_profile,
         };
 
         let Some(source_id) = source else {
@@ -1733,11 +1733,11 @@ impl GameLogic {
         laser_slot: bool,
     ) -> (u32, bool) {
         use crate::game_logic::host_missile_defender::{
-            is_legal_missile_defender_splash_target, missile_defender_scatter_aim,
-            missile_defender_scatter_misses_infantry, missile_defender_splash_damage_at,
             MISSILE_DEFENDER_DAMAGE, MISSILE_DEFENDER_DEATH_TYPE, MISSILE_DEFENDER_FIRE_AUDIO,
             MISSILE_DEFENDER_LASER_DAMAGE_TYPE, MISSILE_DEFENDER_PRIMARY_DAMAGE_TYPE,
-            MISSILE_DEFENDER_SPLASH_RADIUS,
+            MISSILE_DEFENDER_SPLASH_RADIUS, is_legal_missile_defender_splash_target,
+            missile_defender_scatter_aim, missile_defender_scatter_misses_infantry,
+            missile_defender_splash_damage_at,
         };
 
         let damage = source

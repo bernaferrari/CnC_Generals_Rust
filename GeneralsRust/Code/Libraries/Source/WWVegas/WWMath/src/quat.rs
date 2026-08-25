@@ -6,7 +6,7 @@
 //! Quaternions provide an efficient and numerically stable way to represent
 //! 3D rotations, avoiding the gimbal lock issues that can occur with Euler angles.
 
-use crate::{Matrix3, Matrix3D, Matrix4, Vector3, WWMath, EPSILON, SQRT2};
+use crate::{EPSILON, Matrix3, Matrix3D, Matrix4, SQRT2, Vector3, WWMath};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign,
 };

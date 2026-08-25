@@ -67,7 +67,8 @@ pub fn honesty_presentation_mouse_ingame_failclosed_nav_commands_residual_wave84
 pub fn honesty_presentation_mouse_ingame_failclosed_residual_pack_wave841() -> bool {
     let cnc = cnc_source();
     let ok = cnc.contains("Wave 609")
-        && (cnc.contains("Wave 841: InGame/Paused/Loading never dual-read live GameLogic for mouse")
+        && (cnc
+            .contains("Wave 841: InGame/Paused/Loading never dual-read live GameLogic for mouse")
             || cnc.contains("Wave 609/841/906"))
         && cnc.contains("fn host_presentation_mouse_game_logic");
     residual_action_store(ResidualPresentationMouseIngameFailclosedAction::SourceMarkers);

@@ -11,17 +11,17 @@
 //! KillerScience / OwnedByMaker from parsed Crate.ini when present.
 
 use super::host_gamedata_lobby_residual::{
-    dollar_crate_money_residual, ELITE_TANK_CRATE_CREATION_CHANCE_RESIDUAL,
-    HEROIC_TANK_CRATE_CREATION_CHANCE_RESIDUAL, SALVAGE_CREATION_CHANCE_RESIDUAL,
-    SALVAGE_MAX_MONEY_RESIDUAL, SALVAGE_MIN_MONEY_RESIDUAL,
+    ELITE_TANK_CRATE_CREATION_CHANCE_RESIDUAL, HEROIC_TANK_CRATE_CREATION_CHANCE_RESIDUAL,
+    SALVAGE_CREATION_CHANCE_RESIDUAL, SALVAGE_MAX_MONEY_RESIDUAL, SALVAGE_MIN_MONEY_RESIDUAL,
+    dollar_crate_money_residual,
 };
 
+use super::ObjectId;
 use super::host_money_crate::{
     DOLLAR_CRATE_1000_MONEY, DOLLAR_CRATE_1000_OBJECT, DOLLAR_CRATE_2500_MONEY,
     DOLLAR_CRATE_2500_OBJECT, SUPPLY_DROP_CRATE_MONEY_PROVIDED, SUPPLY_DROP_ZONE_CRATE_OBJECT,
 };
 use super::host_rng_residual::pure_logic_random_real;
-use super::ObjectId;
 
 /// One weighted entry in CrateTemplate::m_possibleCrates residual.
 #[derive(Debug, Clone)]
@@ -214,7 +214,6 @@ static HEROIC_TANK_POSSIBLE: &[HostCrateCreationEntry] = &[HostCrateCreationEntr
     is_shroud_crate: false,
 }];
 
-
 /// Built-in host crate templates (Crate.ini name residual keys).
 pub static HOST_CRATE_TEMPLATES: &[HostCrateTemplate] = &[
     HostCrateTemplate {
@@ -277,7 +276,6 @@ pub static HOST_CRATE_TEMPLATES: &[HostCrateTemplate] = &[
         creation_chance: HEROIC_TANK_CRATE_CREATION_CHANCE_RESIDUAL,
         possible: HEROIC_TANK_POSSIBLE,
     },
-
 ];
 
 pub fn find_host_crate_template(name: &str) -> Option<&'static HostCrateTemplate> {
@@ -401,18 +399,14 @@ pub fn try_roll_crate_spawn_gated(
     Some(req)
 }
 
-fn lookup_crate_template(
-    name: &str,
-) -> Option<gamelogic::object::crate_system::CrateTemplate> {
+fn lookup_crate_template(name: &str) -> Option<gamelogic::object::crate_system::CrateTemplate> {
     if let Ok(guard) = gamelogic::object::crate_system::get_crate_system().read() {
         if let Some(tmpl) = guard.find_crate_template_ci(name) {
             return Some(tmpl.clone());
         }
     }
     if let Some(parsed) = find_parsed_crate_template(name) {
-        return Some(gamelogic::object::crate_system::CrateSystem::template_from_parsed(
-            &parsed,
-        ));
+        return Some(gamelogic::object::crate_system::CrateSystem::template_from_parsed(&parsed));
     }
     find_host_crate_template(name).map(residual_as_crate_template)
 }
@@ -431,15 +425,13 @@ fn residual_as_crate_template(
         tmpl.killed_by_type_kindof = salvage_killed_by_mask();
     }
     if host.name.eq_ignore_ascii_case("EliteTankCrateData") {
-        tmpl.veterancy_level = Some(
-            gamelogic::object::crate_system::veterancy_level_from_ini_name("Elite"),
-        );
+        tmpl.veterancy_level =
+            Some(gamelogic::object::crate_system::veterancy_level_from_ini_name("Elite"));
         tmpl.creation_chance = ELITE_TANK_CRATE_CREATION_CHANCE_RESIDUAL;
     }
     if host.name.eq_ignore_ascii_case("HeroicTankCrateData") {
-        tmpl.veterancy_level = Some(
-            gamelogic::object::crate_system::veterancy_level_from_ini_name("Heroic"),
-        );
+        tmpl.veterancy_level =
+            Some(gamelogic::object::crate_system::veterancy_level_from_ini_name("Heroic"));
         tmpl.creation_chance = HEROIC_TANK_CRATE_CREATION_CHANCE_RESIDUAL;
     }
     tmpl
@@ -452,16 +444,12 @@ fn host_kind_names_to_common_mask(names: &[&str]) -> u64 {
         if index >= 64 {
             break;
         }
-        if names
-            .iter()
-            .any(|have| have.eq_ignore_ascii_case(bit_name))
-        {
+        if names.iter().any(|have| have.eq_ignore_ascii_case(bit_name)) {
             mask |= 1u64 << index;
         }
     }
     mask
 }
-
 
 fn salvage_killed_by_mask() -> u64 {
     let names = game_engine::common::system::kind_of::KIND_OF_BIT_NAMES;
@@ -473,9 +461,7 @@ fn salvage_killed_by_mask() -> u64 {
         .unwrap_or(0)
 }
 
-fn find_parsed_crate_template(
-    name: &str,
-) -> Option<game_engine::common::ini::ParsedCrateTemplate> {
+fn find_parsed_crate_template(name: &str) -> Option<game_engine::common::ini::ParsedCrateTemplate> {
     let store = game_engine::common::ini::get_crate_system()?;
     let guard = store.read();
     if let Some(t) = guard.get(name) {
@@ -533,9 +519,17 @@ fn spawn_request_from_object_name(
             object_name,
         ),
         is_veterancy: lower.contains("levelup") || lower.contains("veteran"),
-        veterancy_effect_range: if lower.contains("medium") { 250.0 } else if lower.contains("levelup") { 100.0 } else { 0.0 },
+        veterancy_effect_range: if lower.contains("medium") {
+            250.0
+        } else if lower.contains("levelup") {
+            100.0
+        } else {
+            0.0
+        },
         veterancy_levels: 1,
-        is_unit_crate: lower.contains("crusader") || lower.contains("unitcrate") || lower.contains("free"),
+        is_unit_crate: lower.contains("crusader")
+            || lower.contains("unitcrate")
+            || lower.contains("free"),
         unit_crate_type: if lower.contains("crusader") {
             "AmericaTankCrusader".to_string()
         } else {
@@ -547,7 +541,6 @@ fn spawn_request_from_object_name(
         owned_by_maker: false,
     }
 }
-
 
 /// Seed helper from victim/killer ids + frame.
 pub fn crate_die_seed(victim: ObjectId, killer: Option<ObjectId>, frame: u32) -> u32 {
@@ -612,9 +605,7 @@ mod tests {
             killer_kindof_names: &["Vehicle"],
             killer_sciences: &[],
         };
-        assert!(
-            try_roll_crate_spawn_gated("EliteTankCrateData", 1, 0, Some(&regular)).is_none()
-        );
+        assert!(try_roll_crate_spawn_gated("EliteTankCrateData", 1, 0, Some(&regular)).is_none());
         let elite = CrateDieGates {
             victim_veterancy: Some("Elite"),
             killer_kindof_names: &["Vehicle"],
@@ -640,10 +631,12 @@ mod tests {
         let mut parsed = game_engine::common::ini::ParsedCrateTemplate::new("OwnedCrate".into());
         parsed.creation_chance = 1.0;
         parsed.is_owned_by_maker = true;
-        parsed.possible_crates.push(game_engine::common::ini::ParsedCrateCreationEntry {
-            crate_name: "1000DollarCrate".into(),
-            crate_chance: 1.0,
-        });
+        parsed
+            .possible_crates
+            .push(game_engine::common::ini::ParsedCrateCreationEntry {
+                crate_name: "1000DollarCrate".into(),
+                crate_chance: 1.0,
+            });
         let tmpl = gamelogic::object::crate_system::CrateSystem::template_from_parsed(&parsed);
         let eval = gamelogic::object::crate_system::CrateDieEval {
             chance_roll: 0.0,
@@ -659,5 +652,4 @@ mod tests {
         assert!(pick.is_owned_by_maker);
         assert_eq!(pick.crate_object_name, "1000DollarCrate");
     }
-
 }

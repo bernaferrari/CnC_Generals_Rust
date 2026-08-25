@@ -5,14 +5,14 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::engine::{AudioEngine, AudioEngineConfig};
 use super::AudioHandle;
+use super::engine::{AudioEngine, AudioEngineConfig};
 pub type HResult = i32;
 pub type Bool = bool;
 
@@ -449,8 +449,8 @@ pub fn play_audio_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
     fn test_simple_player_creation() {

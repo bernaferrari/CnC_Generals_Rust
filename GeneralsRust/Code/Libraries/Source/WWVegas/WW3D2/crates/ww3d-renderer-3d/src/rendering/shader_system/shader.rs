@@ -521,7 +521,6 @@ impl ShaderApplyResources {
             bind_group_index += 1;
         }
     }
-
 }
 
 impl ShaderClass {
@@ -850,13 +849,13 @@ impl ShaderClass {
                 crate::rendering::wgpu_renderer::bone_palette::bone_palette_mats(
                     bone_matrices.unwrap_or(&[]),
                 );
-            let buffer = Arc::new(device.create_buffer_init(
-                &wgpu::util::BufferInitDescriptor {
+            let buffer = Arc::new(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Bone Storage Buffer"),
                     contents: bytemuck::cast_slice(&identity_matrices),
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-            ));
+                }),
+            );
             let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Bone+UV Bind Group"),
                 layout: &pipeline.get_bind_group_layout(2),
@@ -895,7 +894,6 @@ impl ShaderClass {
             }));
             texture_bind_groups.push(bind_group);
         }
-
 
         ShaderApplyResources {
             pipeline,
@@ -1026,7 +1024,6 @@ impl ShaderClass {
         } else {
             None
         };
-
 
         if let Some(ref bone_layout) = bone_bind_group_layout {
             bind_group_layouts.push(bone_layout);

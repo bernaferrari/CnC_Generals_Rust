@@ -14,7 +14,7 @@ use glam::{Mat4, Quat, Vec3};
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 use ww3d_animation::{
-    load_w3d_animation, w3d_animation_to_hanim, HAnimClass, HCompressedAnimClass,
+    HAnimClass, HCompressedAnimClass, load_w3d_animation, w3d_animation_to_hanim,
 };
 
 /// Result type for animation loader operations

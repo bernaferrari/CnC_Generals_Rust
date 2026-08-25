@@ -3,9 +3,10 @@
 //! This example demonstrates how to use the converted AI system.
 
 use gamelogic::{
+    THE_AI,
     ai::{AiCommandInterface, AiSideInfo, AttitudeType, CommandSourceType},
     common::Coord3D,
-    initialize, reset, update, THE_AI,
+    initialize, reset, update,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

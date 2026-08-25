@@ -2,8 +2,8 @@
 //!
 //! Order: freeze → sync-time → updateViews (Drawable::draw) → particles → drawViews (GPU).
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;

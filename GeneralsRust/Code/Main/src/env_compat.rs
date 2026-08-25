@@ -8,10 +8,7 @@
 //! All mutation funnels through these wrappers so the safety argument lives in
 //! exactly one place.
 
-pub(crate) fn set_var<K: AsRef<std::ffi::OsStr>, V: AsRef<std::ffi::OsStr>>(
-    key: K,
-    value: V,
-) {
+pub(crate) fn set_var<K: AsRef<std::ffi::OsStr>, V: AsRef<std::ffi::OsStr>>(key: K, value: V) {
     // SAFETY: env mutation is serialized per the module docs above.
     unsafe { std::env::set_var(key, value) }
 }

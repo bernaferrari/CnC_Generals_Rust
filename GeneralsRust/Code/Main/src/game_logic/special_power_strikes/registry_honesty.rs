@@ -1415,11 +1415,7 @@ impl HostSpecialPowerStrikeRegistry {
         for id in particle_ids {
             if let Some(strike) = self.strikes.get_mut(&id) {
                 if let Some(cue) = apply_particle_charge_status(strike, current_frame) {
-                    pending_puc_audio.push((
-                        strike.source_object,
-                        strike.target_position,
-                        cue,
-                    ));
+                    pending_puc_audio.push((strike.source_object, strike.target_position, cue));
                 }
             }
         }

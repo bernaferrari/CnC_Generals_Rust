@@ -169,7 +169,9 @@ impl Map {
         }
         for obj in doc.objects {
             let mut placed = MapObject::new(
-                obj.waypoint_name.clone().unwrap_or_else(|| obj.name.clone()),
+                obj.waypoint_name
+                    .clone()
+                    .unwrap_or_else(|| obj.name.clone()),
                 obj.name,
                 glam::Vec3::new(obj.x, obj.z, obj.y),
             );
@@ -598,8 +600,16 @@ mod tests {
             .unwrap();
         let bytes = std::fs::read(&path).unwrap();
         assert!(bytes.starts_with(b"CkMp"));
-        assert!(bytes.windows(b"HeightMapData".len()).any(|w| w == b"HeightMapData"));
-        assert!(bytes.windows(b"ObjectsList".len()).any(|w| w == b"ObjectsList"));
+        assert!(
+            bytes
+                .windows(b"HeightMapData".len())
+                .any(|w| w == b"HeightMapData")
+        );
+        assert!(
+            bytes
+                .windows(b"ObjectsList".len())
+                .any(|w| w == b"ObjectsList")
+        );
         let loaded = world_builder::MapDocument::load_from_path(&path).unwrap();
         assert_eq!(loaded.heightmap.get_height(1, 2), Some(55));
         assert_eq!(

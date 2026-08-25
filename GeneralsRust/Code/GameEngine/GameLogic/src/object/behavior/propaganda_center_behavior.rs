@@ -19,7 +19,7 @@ fn dual_world_registry_unavailable() -> bool {
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 #[cfg(feature = "allow_surrender")]
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 #[cfg(feature = "allow_surrender")]
 use game_engine::common::name_key_generator::NameKeyGenerator;
 #[cfg(feature = "allow_surrender")]
@@ -32,7 +32,7 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 #[cfg(feature = "allow_surrender")]
 use crate::common::xfer::XferExt;
 #[cfg(feature = "allow_surrender")]
-use crate::common::{ObjectID, UnsignedInt, INVALID_ID};
+use crate::common::{INVALID_ID, ObjectID, UnsignedInt};
 #[cfg(feature = "allow_surrender")]
 use crate::helpers::TheGameLogic;
 #[cfg(feature = "allow_surrender")]
@@ -41,9 +41,9 @@ use crate::modules::{
     UpdateModuleInterface, UpdateSleepTime,
 };
 #[cfg(feature = "allow_surrender")]
-use crate::object::behavior::prison_behavior::{PrisonBehavior, PrisonBehaviorModuleData};
-#[cfg(feature = "allow_surrender")]
 use crate::object::Object;
+#[cfg(feature = "allow_surrender")]
+use crate::object::behavior::prison_behavior::{PrisonBehavior, PrisonBehaviorModuleData};
 
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug, Clone)]

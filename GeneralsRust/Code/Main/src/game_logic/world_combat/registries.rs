@@ -511,17 +511,14 @@ impl GameLogic {
     /// C++ GarrisonContain::onRemoving Patch 1.01 — Fire Base (non-enclosing)
     /// occupants snap host Y (C++ Z) to ground so they do not leave at STATION
     /// bone altitude. Terrain sample wins; else the container's ground Y.
-    fn snap_garrison_exit_occupant_to_ground(
-        &mut self,
-        unit_id: ObjectId,
-        container_id: ObjectId,
-    ) {
+    fn snap_garrison_exit_occupant_to_ground(&mut self, unit_id: ObjectId, container_id: ObjectId) {
         let Some(pos) = self.objects.get(&unit_id).map(|p| p.get_position()) else {
             return;
         };
-        let Some(ground_y) = self.terrain_height_at(pos).or_else(|| {
-            self.objects.get(&container_id).map(|c| c.get_position().y)
-        }) else {
+        let Some(ground_y) = self
+            .terrain_height_at(pos)
+            .or_else(|| self.objects.get(&container_id).map(|c| c.get_position().y))
+        else {
             return;
         };
         if let Some(p) = self.objects.get_mut(&unit_id) {
@@ -584,12 +581,8 @@ impl GameLogic {
             p.set_ai_state(AIState::Moving);
             p.status.moving = true;
         } else {
-            let mut start = garrison_evac_cliff_start(
-                building_pos,
-                yaw,
-                major,
-                &self.pathfinding_system.grid,
-            );
+            let mut start =
+                garrison_evac_cliff_start(building_pos, yaw, major, &self.pathfinding_system.grid);
             if enclosing {
                 if let Some(gh) = self.terrain_height_at(start) {
                     start.y = gh;
@@ -634,7 +627,6 @@ impl GameLogic {
         self.recalc_garrison_apparent_controller(container_id);
         true
     }
-
 
     /// C++ GarrisonContain::onBodyDamageStateChange → orderAllPassengersToExit.
     pub fn flush_pending_garrison_really_damaged_ejects(&mut self) {
@@ -819,12 +811,8 @@ impl GameLogic {
         // C++ burst start is cliff-adjusted building origin; dest is then
         // adjustToPossibleDestination so occupants walk out (not Idle at center).
         let (burst_start, burst_end) = if is_garrison && evac != 1 && evac != 2 {
-            let mut start = garrison_evac_cliff_start(
-                building_pos,
-                yaw,
-                major,
-                &self.pathfinding_system.grid,
-            );
+            let mut start =
+                garrison_evac_cliff_start(building_pos, yaw, major, &self.pathfinding_system.grid);
             if enclosing {
                 if let Some(gh) = self.terrain_height_at(start) {
                     start.y = gh;
@@ -835,7 +823,6 @@ impl GameLogic {
         } else {
             (None, None)
         };
-
 
         let mut any = false;
         let mut packing_hackers: Vec<ObjectId> = Vec::new();
@@ -924,7 +911,6 @@ impl GameLogic {
             c.pending_stream_exit = more_remain;
             c.pending_exit_after_evacuate = and_exit && !more_remain;
 
-
             let contained_count = if more_remain {
                 c.contained_units().len() as u32
             } else {
@@ -939,7 +925,6 @@ impl GameLogic {
                     return any;
                 }
             }
-
         }
 
         if and_exit && !more_remain {
@@ -1107,9 +1092,9 @@ impl GameLogic {
         if target_is_bldg {
             let gone = target_id
                 .map(|id| {
-                    self.objects.get(&id).map_or(true, |b| {
-                        !b.is_alive() || !b.is_kind_of(KindOf::Structure)
-                    })
+                    self.objects
+                        .get(&id)
+                        .map_or(true, |b| !b.is_alive() || !b.is_kind_of(KindOf::Structure))
                 })
                 .unwrap_or(true);
             if gone {
@@ -1158,15 +1143,11 @@ impl GameLogic {
         // C++ AIStates.cpp:561-564: getPerUnitFX(CombatDropKillFX) on the
         // rappeller, FXList::doFXObj on the building, even if the rappeller dies.
         if num_killed > 0 {
-            if let Some(fx) = self
-                .objects
-                .get(&pid)
-                .and_then(|p| {
-                    crate::game_logic::host_combat_chinook::leftover_combat_drop_kill_fx_name(
-                        &p.template_name,
-                    )
-                })
-            {
+            if let Some(fx) = self.objects.get(&pid).and_then(|p| {
+                crate::game_logic::host_combat_chinook::leftover_combat_drop_kill_fx_name(
+                    &p.template_name,
+                )
+            }) {
                 let _ = self.dispatch_fx_list_at_host_object(&fx, bldg_id, None);
             }
         }
@@ -1276,11 +1257,7 @@ impl GameLogic {
         };
         let bldg_pos = bldg.get_position();
         let exit_angle = bldg.get_orientation();
-        let bldg_r = bldg
-            .thing
-            .template
-            .geometry_info
-            .bounding_circle_radius();
+        let bldg_r = bldg.thing.template.geometry_info.bounding_circle_radius();
         let pax_r = self
             .objects
             .get(&pid)
@@ -1446,7 +1423,7 @@ impl GameLogic {
     /// C++ NeutronMissileUpdate::update residual.
     pub fn update_neutron_missile_flights(&mut self) {
         use crate::game_logic::host_neutron_missile_update::{
-            NeutronMissileFlightPhase, NeutronMissileWorld, NEUTRON_DEFAULT_BOUNDING_SPHERE,
+            NEUTRON_DEFAULT_BOUNDING_SPHERE, NeutronMissileFlightPhase, NeutronMissileWorld,
         };
 
         let ids: Vec<ObjectId> = self
@@ -1816,8 +1793,14 @@ impl GameLogic {
             o.set_orientation(dz.atan2(dx));
         }
         self.carpet_bomb_flight_reg.record_transport();
-        self.carpet_bomb_flight_reg
-            .schedule_drops(self.frame, source_id.0, target, edge, tier, tid.0);
+        self.carpet_bomb_flight_reg.schedule_drops(
+            self.frame,
+            source_id.0,
+            target,
+            edge,
+            tier,
+            tid.0,
+        );
         // C++ DeliverPayloadAIUpdate::deliverPayload createRadiusDecal (formation 0).
         let _ = self.create_delivery_radius_decal_with_radius(
             tid,
@@ -1937,7 +1920,6 @@ impl GameLogic {
                 }
             }
         }
-
 
         // Fall payloads and detonate near ground.
         let bombs: Vec<ObjectId> = self
@@ -2264,8 +2246,7 @@ impl GameLogic {
             let tid = self.create_object(A10_TRANSPORT, team, launch)?;
             if let Some(o) = self.objects.get_mut(&tid) {
                 o.note_producer(source_id);
-                let mut data =
-                    HostA10StrikeFlightData::start_with_exit(launch, target, exit, tier);
+                let mut data = HostA10StrikeFlightData::start_with_exit(launch, target, exit, tier);
                 data.map_min = self.world_min;
                 data.map_max = self.world_max;
                 o.a10_strike_transport = Some(data);
@@ -2283,11 +2264,9 @@ impl GameLogic {
             }
             for i in 0..crate::game_logic::host_a10_strike_flight::A10_NUM_BONES {
                 let pair = i / crate::game_logic::host_a10_strike_flight::A10_ITEMS_PER_DROP;
-                let drop_frame = self.frame.saturating_add(
-                    pair.saturating_mul(
-                        crate::game_logic::host_a10_strike_flight::A10_DROP_DELAY_FRAMES,
-                    ),
-                );
+                let drop_frame = self.frame.saturating_add(pair.saturating_mul(
+                    crate::game_logic::host_a10_strike_flight::A10_DROP_DELAY_FRAMES,
+                ));
                 self.a10_strike_flight_reg.pending_drops.push(
                     crate::game_logic::host_a10_strike_flight::PendingA10MissileDrop {
                         drop_frame,
@@ -2296,8 +2275,10 @@ impl GameLogic {
                         missile_index: i,
                     },
                 );
-                self.a10_strike_flight_reg.missiles_scheduled =
-                    self.a10_strike_flight_reg.missiles_scheduled.saturating_add(1);
+                self.a10_strike_flight_reg.missiles_scheduled = self
+                    .a10_strike_flight_reg
+                    .missiles_scheduled
+                    .saturating_add(1);
             }
         }
         first
@@ -2323,11 +2304,10 @@ impl GameLogic {
         }
     }
 
-
     pub fn update_a10_strike_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_a10_strike_flight::{
-            tick_a10_dive, A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES,
+            A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES, tick_a10_dive,
         };
         use crate::game_logic::special_power_strikes::{
             A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE,
@@ -2345,13 +2325,8 @@ impl GameLogic {
         let mut vulcan: Vec<(ObjectId, Option<ObjectId>, crate::game_logic::Team, Vec3)> =
             Vec::new();
         let mut dive_starts: Vec<(ObjectId, Vec3)> = Vec::new();
-        let mut payload_drops: Vec<(
-            ObjectId,
-            crate::game_logic::Team,
-            Vec3,
-            Vec3,
-            Vec3,
-        )> = Vec::new();
+        let mut payload_drops: Vec<(ObjectId, crate::game_logic::Team, Vec3, Vec3, Vec3)> =
+            Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -2912,9 +2887,8 @@ impl GameLogic {
                 .unwrap_or_default();
             let from_ocl = peel_for_special_power("SuperweaponDaisyCutter")
                 .map(|peel| {
-                    let ocl = find_ocl_name(peel, |s| {
-                        unlocked.iter().any(|u| u.eq_ignore_ascii_case(s))
-                    });
+                    let ocl =
+                        find_ocl_name(peel, |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)));
                     DaisyFlightPayloadTier::from_ocl_name(ocl)
                 })
                 .unwrap_or(tier);
@@ -3091,8 +3065,8 @@ impl GameLogic {
         target: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_anthrax_bomb_flight::{
-            AnthraxBombPayloadTier, HostAnthraxBombFlightData, ANTHRAX_BOMB_GAMMA_OBJECT,
-            ANTHRAX_TRANSPORT,
+            ANTHRAX_BOMB_GAMMA_OBJECT, ANTHRAX_TRANSPORT, AnthraxBombPayloadTier,
+            HostAnthraxBombFlightData,
         };
         use crate::game_logic::host_ocl_special_power::{
             deliver_payload_for_ocl, resolve_anthrax_bomb_ocl,
@@ -3123,14 +3097,14 @@ impl GameLogic {
         names.push(source_template.clone());
         // C++ Chem_GLACommandCenter default OCL=SUPERWEAPON_AnthraxBombGamma.
         // Leftover findOCL + Chem identity; never hardcode Base.
-        let ocl = resolve_anthrax_bomb_ocl(
-            &source_template,
-            names.iter().map(|s| s.as_str()),
-        );
+        let ocl = resolve_anthrax_bomb_ocl(&source_template, names.iter().map(|s| s.as_str()));
         let mut tier = AnthraxBombPayloadTier::from_ocl(ocl);
         if let Some(deliver) = deliver_payload_for_ocl(ocl) {
             tier = AnthraxBombPayloadTier::from_ocl(&deliver.ocl_name);
-            if deliver.payload.eq_ignore_ascii_case(ANTHRAX_BOMB_GAMMA_OBJECT) {
+            if deliver
+                .payload
+                .eq_ignore_ascii_case(ANTHRAX_BOMB_GAMMA_OBJECT)
+            {
                 tier = AnthraxBombPayloadTier::Gamma;
             }
         }
@@ -3188,9 +3162,7 @@ mod garrison_evac_door_tests {
     fn garrison_exit_occupant_via_door_bursts_from_center() {
         let mut logic = GameLogic::new();
         let mut bunker_t = ThingTemplate::new("GARR_DOOR");
-        bunker_t
-            .add_kind_of(KindOf::Structure)
-            .set_health(1000.0);
+        bunker_t.add_kind_of(KindOf::Structure).set_health(1000.0);
         bunker_t.contain_module = crate::game_logic::ContainModuleMetadata {
             kind: crate::game_logic::ContainModuleKind::Garrison,
             slots: Some(5),
@@ -3231,7 +3203,6 @@ mod garrison_evac_door_tests {
                     as u32,
             "GarrisonContain::onRemoving must stamp OcclusionDelay"
         );
-
     }
 
     /// hq-ppag1: Fire Base exit snaps station height to Patch 1.01 ground Z.

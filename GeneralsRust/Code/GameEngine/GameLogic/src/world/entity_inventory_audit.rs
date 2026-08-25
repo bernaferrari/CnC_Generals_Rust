@@ -38,8 +38,8 @@ pub const ENTITY_ONLY_GROUPS: &[&str] = &[
 mod tests {
     use super::*;
     use crate::world::entities::{
-        EntityLifecycleEnvelope, EntityModuleState, EntityStore, TemplateRef, Transform,
-        ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+        ENTITY_LIFECYCLE_ENVELOPE_VERSION, EntityLifecycleEnvelope, EntityModuleState, EntityStore,
+        TemplateRef, Transform,
     };
 
     fn unique(items: &[&str]) -> bool {

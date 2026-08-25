@@ -74,7 +74,7 @@ pub fn honesty_live_map_load_residual_pack_wave170() -> bool {
 /// Run one live map load peel via GameLogic + parent-walking path resolve.
 /// Returns (frames_advanced, presentation_object_count).
 fn live_load_one(map_name: &str) -> Option<(u32, usize)> {
-    use crate::game_logic::{resolve_retail_map_path, GameLogic, GameMode};
+    use crate::game_logic::{GameLogic, GameMode, resolve_retail_map_path};
 
     let path = resolve_retail_map_path(map_name)?;
     let mut logic = GameLogic::new();
@@ -99,7 +99,7 @@ fn live_load_one(map_name: &str) -> Option<(u32, usize)> {
 /// When absent, soft-ok (CI without maps).
 pub fn simulate_live_map_load_honesty() -> bool {
     use crate::game_logic::{
-        resolve_retail_map_path, DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169,
+        DEFAULT_SKIRMISH_MAP_WAVE169, LONE_EAGLE_MAP_WAVE169, resolve_retail_map_path,
     };
 
     if !honesty_live_map_load_residual_pack_wave170() {

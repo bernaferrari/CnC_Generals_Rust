@@ -3,7 +3,7 @@
 //! This example demonstrates the LCW compression and decompression functionality
 //! from the WWLib Rust implementation.
 
-use wwlib_rust::lcw::{compress, decompress, LcwError};
+use wwlib_rust::lcw::{LcwError, compress, decompress};
 
 fn main() -> Result<(), LcwError> {
     println!("LCW Compression/Decompression Demo");

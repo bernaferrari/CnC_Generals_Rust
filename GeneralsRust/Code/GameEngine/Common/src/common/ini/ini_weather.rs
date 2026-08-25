@@ -27,7 +27,7 @@
 use once_cell::sync::OnceCell;
 use std::sync::RwLock;
 
-use super::ini::{FieldParse, INIError, INILoadType, INIResult, INI};
+use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
 
 /// Weather settings structure matching C++ WeatherSetting
 ///
@@ -373,8 +373,8 @@ fn get_weather_setting_mut() -> &'static RwLock<Option<WeatherSetting>> {
 }
 
 /// Get read access to the weather setting store
-pub fn get_weather_setting_lock(
-) -> Option<std::sync::RwLockReadGuard<'static, Option<WeatherSetting>>> {
+pub fn get_weather_setting_lock()
+-> Option<std::sync::RwLockReadGuard<'static, Option<WeatherSetting>>> {
     WEATHER_SETTING.get().and_then(|lock| lock.read().ok())
 }
 
@@ -431,7 +431,8 @@ pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
     let mut override_setting = base.clone_without_chain();
     override_setting.mark_as_override();
     ini.init_from_ini_with_fields(&mut override_setting, &field_parse_table)?;
-    base.get_final_override().set_next_override(override_setting);
+    base.get_final_override()
+        .set_next_override(override_setting);
     Ok(())
 }
 

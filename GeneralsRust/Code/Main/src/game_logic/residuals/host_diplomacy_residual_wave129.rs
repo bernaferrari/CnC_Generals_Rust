@@ -139,9 +139,9 @@ mod tests {
     #[test]
     fn simulate_diplomacy_prepare_ingame_residual_live() {
         use game_client::gui::callbacks::{
-            residual_diplomacy_is_active, residual_diplomacy_last_action,
+            ResidualDiplomacyAction, residual_diplomacy_is_active, residual_diplomacy_last_action,
             residual_diplomacy_mute_slot, simulate_diplomacy_hide, simulate_diplomacy_mute_slot,
-            simulate_diplomacy_prepare_ingame, ResidualDiplomacyAction,
+            simulate_diplomacy_prepare_ingame,
         };
         assert!(
             simulate_diplomacy_prepare_ingame(),

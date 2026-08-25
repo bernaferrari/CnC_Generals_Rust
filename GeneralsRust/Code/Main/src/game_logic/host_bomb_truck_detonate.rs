@@ -613,7 +613,13 @@ mod tests {
         let id = reg.spawn_poison_field(ObjectId(1), Team::GLA, Vec3::ZERO, 0, false);
         assert!(reg.honesty_bio_ok());
         let objects = vec![
-            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::GLA, true, false),
+            (
+                ObjectId(1),
+                Vec3::new(500.0, 0.0, 0.0),
+                Team::GLA,
+                true,
+                false,
+            ),
             (ObjectId(2), Vec3::ZERO, Team::China, true, false),
             (ObjectId(3), Vec3::ZERO, Team::USA, true, true),
         ];

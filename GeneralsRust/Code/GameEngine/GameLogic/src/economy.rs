@@ -5,7 +5,7 @@
 //!
 //! Integrates with the supply_system module for complete supply collection gameplay.
 
-use crate::common::{Coord3D, KindOf, ObjectID, PlayerId, Relationship, INVALID_ID};
+use crate::common::{Coord3D, INVALID_ID, KindOf, ObjectID, PlayerId, Relationship};
 use crate::helpers::ThePartitionManager;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::supply_system::{

@@ -34,13 +34,13 @@ use crate::game_logic::host_combat_sim_residual::{
     body_max_health_residual, honesty_body_max_health_residual_table_wave92,
 };
 use crate::game_logic::host_enum_table_residual::{
-    honesty_object_status_enum_table_wave82, object_status_bit_name_index,
     OBJECT_STATUS_BIT_NAME_LIST, OBJECT_STATUS_COUNT, OBJECT_STATUS_STEALTHED,
+    honesty_object_status_enum_table_wave82, object_status_bit_name_index,
 };
 use crate::game_logic::host_thing_factory_module_xfer_residual::{
-    residual_name_index, DRAWABLE_STATUS_NONE, DRAWABLE_STATUS_SHADOWS, MODULE_INTERFACE_BODY,
-    MODULE_INTERFACE_CREATE, MODULE_TYPE_BEHAVIOR, THING_FACTORY_OBJECT_STATUS_MASK_NONE,
-    THING_FACTORY_POST_CREATE_STEPS_WAVE101,
+    DRAWABLE_STATUS_NONE, DRAWABLE_STATUS_SHADOWS, MODULE_INTERFACE_BODY, MODULE_INTERFACE_CREATE,
+    MODULE_TYPE_BEHAVIOR, THING_FACTORY_OBJECT_STATUS_MASK_NONE,
+    THING_FACTORY_POST_CREATE_STEPS_WAVE101, residual_name_index,
 };
 
 // ---------------------------------------------------------------------------

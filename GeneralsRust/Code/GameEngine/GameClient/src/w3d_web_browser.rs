@@ -69,14 +69,8 @@ impl W3DWebBrowser {
         let window_name = win.instance_data().decorated_name.clone();
         let (width, height) = win.get_size();
         let (x, y) = win.get_screen_position();
-        let presented = native_browser::present_page(
-            &window_name,
-            url.url.as_str(),
-            x,
-            y,
-            width,
-            height,
-        );
+        let presented =
+            native_browser::present_page(&window_name, url.url.as_str(), x, y, width, height);
 
         self.active_windows.insert(
             window_name.clone(),

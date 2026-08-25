@@ -6,10 +6,10 @@
 //!
 //! Matches C++ TunnelTracker.cpp from GeneralsMD/Code/GameEngine/Source/Common/RTS/
 
-use crate::common::{GameResult, KindOf, ObjectID, ObjectStatusTypes, INVALID_ID};
+use crate::common::{GameResult, INVALID_ID, KindOf, ObjectID, ObjectStatusTypes};
 use crate::damage::DamageInfo;
-use crate::object::drawable::DrawableArcExt;
 use crate::object::Object;
+use crate::object::drawable::DrawableArcExt;
 use crate::system::game_logic::get_game_logic;
 use game_engine::common::system::snapshot::Snapshotable;
 use game_engine::common::system::xfer::{Xfer, XferMode, XferVersion};

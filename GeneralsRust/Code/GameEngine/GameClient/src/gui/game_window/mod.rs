@@ -47,7 +47,8 @@ mod prelude {
     };
     pub(super) use crate::game_text::GameText;
     pub(super) use crate::gui::window_manager::{
-        queue_window_manager_op, queue_window_manager_op_deferred, with_window_manager, TabDirection,
+        TabDirection, queue_window_manager_op, queue_window_manager_op_deferred,
+        with_window_manager,
     };
     pub(super) use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 
@@ -59,10 +60,10 @@ mod prelude {
         ValidationMode, VerticalSlider,
     };
     pub(super) use super::super::{
+        MAX_DRAW_DATA, TOOLTIP_DELAY, TOOLTIP_MAX_LEN, UIRect, WindowLayout,
         display_string::DisplayStringHandle,
-        font::{get_font_library, FontDesc},
-        get_display_string_manager, with_ui_renderer_mut, with_window_manager_ref, UIRect,
-        WindowLayout, MAX_DRAW_DATA, TOOLTIP_DELAY, TOOLTIP_MAX_LEN,
+        font::{FontDesc, get_font_library},
+        get_display_string_manager, with_ui_renderer_mut, with_window_manager_ref,
     };
 }
 

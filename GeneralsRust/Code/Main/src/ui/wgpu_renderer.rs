@@ -1,4 +1,4 @@
-use font8x8::{UnicodeFonts, BASIC_FONTS};
+use font8x8::{BASIC_FONTS, UnicodeFonts};
 use glam::Mat4;
 use std::collections::HashMap;
 use std::sync::Arc;

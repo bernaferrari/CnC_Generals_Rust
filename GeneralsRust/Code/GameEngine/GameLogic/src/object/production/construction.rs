@@ -5,7 +5,7 @@
 use crate::ai::THE_AI;
 use crate::common::*;
 use crate::helpers::{TheTerrainLogic, TheThingFactory};
-use crate::system::shroud_manager::{get_shroud_manager, ShroudState};
+use crate::system::shroud_manager::{ShroudState, get_shroud_manager};
 use game_engine::common::global_data;
 use game_engine::common::system::GeometryType;
 use std::collections::HashSet;
@@ -821,21 +821,27 @@ mod tests {
         let mut manager = ConstructionManager::new();
 
         // Start construction
-        assert!(manager
-            .start_construction(1, 10, 1000.0, 100, false)
-            .is_ok());
+        assert!(
+            manager
+                .start_construction(1, 10, 1000.0, 100, false)
+                .is_ok()
+        );
 
         assert!(manager.is_under_construction(1));
         assert!(manager.is_dozer_busy(10));
         assert_eq!(manager.get_progress(1), Some(0.0));
 
         // Can't double-build
-        assert!(manager
-            .start_construction(1, 11, 1000.0, 100, false)
-            .is_err());
-        assert!(manager
-            .start_construction(2, 10, 1000.0, 100, false)
-            .is_err());
+        assert!(
+            manager
+                .start_construction(1, 11, 1000.0, 100, false)
+                .is_err()
+        );
+        assert!(
+            manager
+                .start_construction(2, 10, 1000.0, 100, false)
+                .is_err()
+        );
 
         // Update frames
         for _ in 0..99 {

@@ -10,7 +10,7 @@ use super::{ContainerIniParse, ContainerInterface, ObjectTemplate, OpenContain};
 use crate::ai::THE_AI;
 use crate::common::{
     CommandSourceType, DisabledType, GameResult, KindOf, ModelConditionState, ObjectID,
-    PathfindLayerEnum, PlayerMaskType, WeaponSlotType, SECONDS_PER_LOGICFRAME_REAL,
+    PathfindLayerEnum, PlayerMaskType, SECONDS_PER_LOGICFRAME_REAL, WeaponSlotType,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
@@ -23,7 +23,7 @@ use crate::modules::{
 use crate::object::{Object, ObjectArcExt};
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 #[allow(dead_code)]
@@ -738,11 +738,8 @@ impl TransportContain {
                 if self.module_data.keep_container_velocity_on_exit {
                     if let (Some(vel), Some(child)) = (velocity, rider.get_physics()) {
                         let mass = child.get_mass();
-                        let starting_force = crate::common::Coord3D::new(
-                            vel.x * mass,
-                            vel.y * mass,
-                            vel.z * mass,
-                        );
+                        let starting_force =
+                            crate::common::Coord3D::new(vel.x * mass, vel.y * mass, vel.z * mass);
                         child.apply_motive_force(&starting_force);
                         let pitch_rate =
                             child.get_center_of_mass_offset() * self.module_data.exit_pitch_rate;
@@ -971,24 +968,26 @@ impl TransportContain {
             return dock_open;
         }
 
-        let Some((airborne, layer, pos)) = self.with_owner_object(|owner| {
-            if let Some(ai) = owner.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if !matches!(
-                        ai_guard.get_ai_free_to_exit(obj),
-                        crate::object::production::AIFreeToExitType::FreeToExit
-                    ) {
-                        return None;
+        let Some((airborne, layer, pos)) = self
+            .with_owner_object(|owner| {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        if !matches!(
+                            ai_guard.get_ai_free_to_exit(obj),
+                            crate::object::production::AIFreeToExitType::FreeToExit
+                        ) {
+                            return None;
+                        }
                     }
                 }
-            }
-            Some((
-                owner.is_using_airborne_locomotor(),
-                owner.get_layer(),
-                *owner.get_position(),
-            ))
-        })
-        .flatten() else {
+                Some((
+                    owner.is_using_airborne_locomotor(),
+                    owner.get_layer(),
+                    *owner.get_position(),
+                ))
+            })
+            .flatten()
+        else {
             return false;
         };
 
@@ -1474,11 +1473,7 @@ impl ContainModuleInterface for TransportContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
@@ -1591,7 +1586,6 @@ impl ContainModuleInterface for TransportContain {
     fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.on_selling().map_err(|e| e.into())
     }
-
 
     fn on_containing(
         &mut self,

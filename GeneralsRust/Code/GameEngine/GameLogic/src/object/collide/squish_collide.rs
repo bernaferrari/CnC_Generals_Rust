@@ -13,13 +13,13 @@ use crate::damage::{
     DamageInfo, DamageInfoInput, DamageInfoOutput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT,
 };
 use crate::modules::PhysicsBehavior;
+use crate::object::Object;
 use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions;
 use crate::object::collide::collision_geometry::{
     GeometryInfo as CollisionGeometryInfo, GeometryType as CollisionGeometryType,
 };
 use crate::object::collide::partition_manager::PARTITION_MANAGER;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ModuleData, NameKeyType};
 use game_engine::system::geometry::GeometryType as EngineGeometryType;
@@ -281,8 +281,7 @@ impl CollideModuleTrait for SquishCollide {
         if !self.should_allow_squish(&owner_snapshot, &target_snapshot) {
             trace!(
                 "SquishCollide: skipping crush because special-case guard vetoed it (owner {}, target {})",
-                self.owner_id,
-                target_snapshot.id
+                self.owner_id, target_snapshot.id
             );
             return Ok(());
         }

@@ -162,8 +162,8 @@ impl GameLogic {
                 // `sourceObj->getControllingPlayer()->getDefaultTeam()`.
                 // `create_object` uses `unique_player_id_for_team`, which is
                 // None in 2v2 same-faction, dropping the controlling player.
-                let source_owner_player_id = source_id
-                    .and_then(|id| self.objects.get(&id).and_then(|o| o.owner_player_id));
+                let source_owner_player_id =
+                    source_id.and_then(|id| self.objects.get(&id).and_then(|o| o.owner_player_id));
                 let Some(created_id) = self.create_object_for_owner_or_team(
                     template_name,
                     source_team,
@@ -295,20 +295,22 @@ impl GameLogic {
                     .objects
                     .get(&fire.shooter_id)
                     .map(|o| o.get_transform_matrix());
-                let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
-                    fire.origin,
-                    None,
-                    self.frame,
-                    fire.shooter_id,
-                    None,
-                    &fire.fire_fx_name,
-                    "",
-                    &fire.fire_ocl_name,
-                    "",
-                    0.0,
-                    radius,
-                    matrix,
-                );
+                let _ = self
+                    .combat_particles
+                    .spawn_weapon_fire_fx_named_ocl_oriented(
+                        fire.origin,
+                        None,
+                        self.frame,
+                        fire.shooter_id,
+                        None,
+                        &fire.fire_fx_name,
+                        "",
+                        &fire.fire_ocl_name,
+                        "",
+                        0.0,
+                        radius,
+                        matrix,
+                    );
             }
             if !fire.fire_ocl_name.trim().is_empty()
                 && !fire.fire_ocl_name.trim().eq_ignore_ascii_case("None")
@@ -355,7 +357,10 @@ impl GameLogic {
             // fire-time MuzzleFlash at the crater and never unhides the
             // shooter's muzzle at detonation.
             if !impact.detonation_fx_name.trim().is_empty()
-                && !impact.detonation_fx_name.trim().eq_ignore_ascii_case("None")
+                && !impact
+                    .detonation_fx_name
+                    .trim()
+                    .eq_ignore_ascii_case("None")
             {
                 let radius = host_fire_fx_override_radius(self.objects.get(&impact.shooter_id));
                 let matrix = self
@@ -381,9 +386,9 @@ impl GameLogic {
         source_team: Team,
     ) -> (u32, bool) {
         use crate::game_logic::host_nuke_cannon::{
-            is_legal_nuke_cannon_splash_target, nuke_cannon_primary_damage_at,
-            nuke_cannon_splash_radius, MEDIUM_RADIATION_AUDIO, NUKE_CANNON_DAMAGE_TYPE,
-            NUKE_CANNON_DEATH_TYPE, NUKE_CANNON_FIRE_AUDIO,
+            MEDIUM_RADIATION_AUDIO, NUKE_CANNON_DAMAGE_TYPE, NUKE_CANNON_DEATH_TYPE,
+            NUKE_CANNON_FIRE_AUDIO, is_legal_nuke_cannon_splash_target,
+            nuke_cannon_primary_damage_at, nuke_cannon_splash_radius,
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -500,10 +505,10 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
         use crate::game_logic::host_overlord_addons::{
-            is_legal_overlord_gattling_target, overlord_gattling_ground_damage,
             OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_AIR_DAMAGE_TYPE,
             OVERLORD_GATTLING_DEATH_TYPE, OVERLORD_GATTLING_FIRE_AUDIO,
-            OVERLORD_GATTLING_GROUND_DAMAGE_TYPE,
+            OVERLORD_GATTLING_GROUND_DAMAGE_TYPE, is_legal_overlord_gattling_target,
+            overlord_gattling_ground_damage,
         };
 
         let chain = source
@@ -651,8 +656,8 @@ impl GameLogic {
         host_id: ObjectId,
     ) {
         use crate::game_logic::host_overlord_addons::{
-            is_legal_overlord_gattling_target, overlord_gattling_slot_for_air,
             OVERLORD_GATTLING_AIR_RANGE, OVERLORD_GATTLING_GROUND_RANGE,
+            is_legal_overlord_gattling_target, overlord_gattling_slot_for_air,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -827,8 +832,8 @@ impl GameLogic {
         tier: crate::game_logic::host_technical::TechnicalWeaponTier,
     ) -> bool {
         use crate::game_logic::host_technical::{
-            delay_frames_to_reload_secs, is_technical_template, technical_weapon_for_tier,
-            technical_weapon_name_for_tier, technical_weapon_stats, TECHNICAL_TRANSPORT_SLOTS,
+            TECHNICAL_TRANSPORT_SLOTS, delay_frames_to_reload_secs, is_technical_template,
+            technical_weapon_for_tier, technical_weapon_name_for_tier, technical_weapon_stats,
         };
         use crate::game_logic::thing::ThingTemplate;
 
@@ -887,11 +892,11 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_technical::{
+            TECH_CANNON_DAMAGE_TYPE, TECH_CANNON_DEATH_TYPE, TECH_FIRE_AUDIO, TECH_MG_DAMAGE_TYPE,
+            TECH_MG_DEATH_TYPE, TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE, TechnicalWeaponTier,
             is_legal_technical_splash_target, is_technical_template, technical_cannon_scatter_aim,
             technical_cannon_scatter_misses_infantry, technical_splash_damage_at,
-            technical_weapon_stats, TechnicalWeaponTier, TECH_CANNON_DAMAGE_TYPE,
-            TECH_CANNON_DEATH_TYPE, TECH_FIRE_AUDIO, TECH_MG_DAMAGE_TYPE, TECH_MG_DEATH_TYPE,
-            TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE,
+            technical_weapon_stats,
         };
 
         let tier = source
@@ -1117,7 +1122,7 @@ impl GameLogic {
     /// Apply BlackNapalm residual to a Dragon Tank (PLAYER_UPGRADE flame residual).
     pub fn apply_dragon_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_dragon_tank::{
-            dragon_flame_weapon, is_dragon_tank_template, UPGRADE_CHINA_BLACK_NAPALM,
+            UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon, is_dragon_tank_template,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1142,8 +1147,8 @@ impl GameLogic {
             is_gattling_cannon_structure,
         };
         use crate::game_logic::host_gattling_tank::{
-            gattling_air_weapon, gattling_ground_weapon, is_gattling_tank_template,
-            GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS,
+            GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS, gattling_air_weapon,
+            gattling_ground_weapon, is_gattling_tank_template,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1182,9 +1187,9 @@ impl GameLogic {
         slot: u8,
     ) {
         use crate::game_logic::host_base_defense::{
-            gattling_building_air_weapon, gattling_building_coast_until_after_shot,
-            gattling_building_ground_weapon, gattling_building_has_chain_guns,
-            gattling_building_on_shot_fired, GATTLING_BUILDING_RAPID_FIRE_AUDIO,
+            GATTLING_BUILDING_RAPID_FIRE_AUDIO, gattling_building_air_weapon,
+            gattling_building_coast_until_after_shot, gattling_building_ground_weapon,
+            gattling_building_has_chain_guns, gattling_building_on_shot_fired,
         };
         use crate::game_logic::host_gattling_tank::GattlingFireLevel;
 
@@ -1276,9 +1281,9 @@ impl GameLogic {
         slot: u8,
     ) {
         use crate::game_logic::host_gattling_tank::{
-            gattling_air_weapon, gattling_coast_until_after_shot, gattling_ground_weapon,
-            gattling_on_shot_fired, has_chain_guns_upgrade, GattlingFireLevel,
-            GATTLING_RAPID_FIRE_AUDIO,
+            GATTLING_RAPID_FIRE_AUDIO, GattlingFireLevel, gattling_air_weapon,
+            gattling_coast_until_after_shot, gattling_ground_weapon, gattling_on_shot_fired,
+            has_chain_guns_upgrade,
         };
 
         let frame = self.frame;
@@ -1369,8 +1374,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_dragon_tank::{
-            dragon_flame_damage_at, has_black_napalm_upgrade, is_legal_dragon_flame_target,
             DRAGON_DAMAGE_TYPE, DRAGON_DEATH_TYPE, DRAGON_FIRE_AUDIO, DRAGON_SECONDARY_RADIUS,
+            dragon_flame_damage_at, has_black_napalm_upgrade, is_legal_dragon_flame_target,
         };
 
         let upgraded = source
@@ -1479,9 +1484,9 @@ impl GameLogic {
         slot: u8,
     ) -> (u32, bool) {
         use crate::game_logic::host_gattling_tank::{
+            GATTLING_AIR_DAMAGE, GATTLING_AIR_DAMAGE_TYPE, GATTLING_DEATH_TYPE,
+            GATTLING_FIRE_AUDIO, GATTLING_GROUND_DAMAGE, GATTLING_GROUND_DAMAGE_TYPE,
             gattling_damage_with_chain_guns, has_chain_guns_upgrade, is_legal_gattling_target,
-            GATTLING_AIR_DAMAGE, GATTLING_AIR_DAMAGE_TYPE, GATTLING_DEATH_TYPE, GATTLING_FIRE_AUDIO,
-            GATTLING_GROUND_DAMAGE, GATTLING_GROUND_DAMAGE_TYPE,
         };
 
         let (base_dmg, chain) = source
@@ -1665,7 +1670,7 @@ impl GameLogic {
         weapon_speed: f32,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_marauder::{
-            marauder_shell_flight_frames, MARAUDER_SHELL_MAX_HEALTH, MARAUDER_TANK_SHELL,
+            MARAUDER_SHELL_MAX_HEALTH, MARAUDER_TANK_SHELL, marauder_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1831,9 +1836,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_marauder::{
+            MARAUDER_DAMAGE_TYPE, MARAUDER_DEATH_TYPE, MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
             is_legal_marauder_splash_target, is_marauder_template, marauder_scatter_aim,
-            marauder_scatter_misses_infantry, marauder_splash_damage_at, MARAUDER_DAMAGE_TYPE,
-            MARAUDER_DEATH_TYPE, MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
+            marauder_scatter_misses_infantry, marauder_splash_damage_at,
         };
 
         // Fire-rate tier residual is encoded on the weapon; damage is constant across tiers.
@@ -1993,8 +1998,8 @@ impl GameLogic {
         tier: crate::game_logic::host_scorpion::ScorpionSalvageTier,
     ) -> bool {
         use crate::game_logic::host_scorpion::{
-            has_ap_rockets_upgrade, has_scorpion_rocket_upgrade, is_scorpion_template,
-            scorpion_gun_weapon, scorpion_missile_weapon, ScorpionSalvageTier,
+            ScorpionSalvageTier, has_ap_rockets_upgrade, has_scorpion_rocket_upgrade,
+            is_scorpion_template, scorpion_gun_weapon, scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -2047,8 +2052,8 @@ impl GameLogic {
     /// Equip Scorpion Rocket secondary residual (Upgrade_GLAScorpionRocket).
     pub fn apply_scorpion_rocket_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            has_ap_rockets_upgrade, is_scorpion_template, salvage_tier_from_upgrades,
-            scorpion_missile_weapon, UPGRADE_GLA_SCORPION_ROCKET,
+            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, is_scorpion_template,
+            salvage_tier_from_upgrades, scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -2073,8 +2078,8 @@ impl GameLogic {
     /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
     pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            has_scorpion_rocket_upgrade, is_scorpion_template, salvage_tier_from_upgrades,
-            scorpion_missile_weapon, UPGRADE_GLA_AP_ROCKETS,
+            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, is_scorpion_template,
+            salvage_tier_from_upgrades, scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -2112,7 +2117,7 @@ impl GameLogic {
         slot: u8,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_scorpion::{
-            scorpion_shell_flight_frames, SCORPION_SHELL_MAX_HEALTH, SCORPION_TANK_SHELL,
+            SCORPION_SHELL_MAX_HEALTH, SCORPION_TANK_SHELL, scorpion_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -2610,7 +2615,6 @@ End
         );
     }
 
-
     /// C++ HelixContain.cpp:340 — portable gattling fires without host shot.
     #[test]
     fn overlord_gattling_independent_acquire_not_stacked_primary() {
@@ -2655,7 +2659,8 @@ End
         let hp_after = logic.host_object(victim).unwrap().health.current;
         let dealt = hp_before - hp_after;
         assert!(
-            (dealt - crate::game_logic::host_overlord_addons::OVERLORD_GATTLING_GROUND_DAMAGE).abs()
+            (dealt - crate::game_logic::host_overlord_addons::OVERLORD_GATTLING_GROUND_DAMAGE)
+                .abs()
                 < 0.2,
             "independent gattling deals 10 not stacked primary+10, dealt={dealt}"
         );
@@ -2701,7 +2706,10 @@ End
         );
         assert_eq!(created.len(), 1);
         let debris = logic.objects.get(&created[0]).expect("faded debris");
-        assert_eq!(debris.drawable_fade_mode, crate::game_logic::DRAWABLE_FADE_IN);
+        assert_eq!(
+            debris.drawable_fade_mode,
+            crate::game_logic::DRAWABLE_FADE_IN
+        );
         assert_eq!(debris.drawable_fade_start_frame, 40);
         assert!(debris.drawable_fade_frames > 0);
         assert!((debris.drawable_fade_opacity(40) - 0.0).abs() < 1e-5);

@@ -5,8 +5,8 @@
 //! resolve INI event names to concrete sound file paths and plays them
 //! through the rodio audio backend.
 
-use game_engine::common::audio::GameplayAudioDispatch;
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::audio::GameplayAudioDispatch;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -205,7 +205,11 @@ fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Opt
 }
 
 /// Test hook: bind a ThingTemplate INI event without loading Object.ini.
-pub fn set_test_template_voice(template_name: &str, slot: UnitVoiceSlot, event_name: impl Into<String>) {
+pub fn set_test_template_voice(
+    template_name: &str,
+    slot: UnitVoiceSlot,
+    event_name: impl Into<String>,
+) {
     TEMPLATE_VOICE_OVERRIDE.with(|m| {
         m.borrow_mut()
             .insert((template_name.to_string(), slot), event_name.into());
@@ -219,14 +223,12 @@ pub fn clear_test_template_voices() {
 }
 
 /// Test hook: ThingTemplate `UnitSpecificSounds` key without loading Object.ini.
-pub fn set_test_per_unit_sound(
-    template_name: &str,
-    key: &str,
-    event_name: impl Into<String>,
-) {
+pub fn set_test_per_unit_sound(template_name: &str, key: &str, event_name: impl Into<String>) {
     PER_UNIT_SOUND_OVERRIDE.with(|m| {
-        m.borrow_mut()
-            .insert((template_name.to_string(), key.to_string()), event_name.into());
+        m.borrow_mut().insert(
+            (template_name.to_string(), key.to_string()),
+            event_name.into(),
+        );
     });
 }
 
@@ -329,11 +331,9 @@ fn named_template_voice(
 /// C++ `ThingTemplate::getVoice*` / `getPerUnitSound` — never `{template}Voice*`
 /// and never invented `UnitVoiceSelect|Move|Attack`.
 pub fn resolve_unit_voice_event(template_name: &str, slot: UnitVoiceSlot) -> Option<String> {
-    if let Some(over) = TEMPLATE_VOICE_OVERRIDE.with(|m| {
-        m.borrow()
-            .get(&(template_name.to_string(), slot))
-            .cloned()
-    }) {
+    if let Some(over) = TEMPLATE_VOICE_OVERRIDE
+        .with(|m| m.borrow().get(&(template_name.to_string(), slot)).cloned())
+    {
         if over.is_empty() {
             return None;
         }
@@ -344,10 +344,7 @@ pub fn resolve_unit_voice_event(template_name: &str, slot: UnitVoiceSlot) -> Opt
         if let Some(factory) = guard.as_ref() {
             if let Some(tmpl) = factory.find_template(template_name, false) {
                 let key = slot.ini_key().to_string();
-                if let Some(name) = tmpl
-                    .get_per_unit_sound(&key)
-                    .and_then(nonempty_event_name)
-                {
+                if let Some(name) = tmpl.get_per_unit_sound(&key).and_then(nonempty_event_name) {
                     return Some(name);
                 }
                 if let Some(name) = named_template_voice(tmpl.as_ref(), slot) {
@@ -485,8 +482,8 @@ pub fn is_invented_unit_voice_name(name: &str) -> bool {
 }
 
 use game_engine::common::audio::{
-    should_play_locally_for_players, shrouded_positional_event_is_blocked, AudioEventInfo,
-    AudioLocalityRelationship, AudioPriority, AudioType, ST_SHROUDED, ST_WORLD,
+    AudioEventInfo, AudioLocalityRelationship, AudioPriority, AudioType, ST_SHROUDED, ST_WORLD,
+    should_play_locally_for_players, shrouded_positional_event_is_blocked,
 };
 
 /// Live-host snapshot for C++ shouldPlayLocally / canPlayNow (player path).
@@ -525,7 +522,9 @@ pub fn live_audio_locality() -> Option<LiveAudioLocality> {
 fn lookup_audio_event_info(event_name: &str) -> Option<AudioEventInfo> {
     let manager = game_engine::common::audio::game_audio::get_global_audio_manager()?;
     let guard = manager.lock().ok()?;
-    guard.find_audio_event_info(event_name).map(|info| (*info).clone())
+    guard
+        .find_audio_event_info(event_name)
+        .map(|info| (*info).clone())
 }
 
 fn live_position_is_cellshroud_clear(local_player: i32, host_pos: glam::Vec3) -> bool {
@@ -576,38 +575,41 @@ pub fn should_dispatch_live_audio(
     let snap = live_audio_locality();
     let owning = owning_player_index.or_else(|| None);
     let owning_exists = owning
-        .and_then(|idx| snap.as_ref().and_then(|s| s.players.get(&idx).map(|p| p.exists)))
+        .and_then(|idx| {
+            snap.as_ref()
+                .and_then(|s| s.players.get(&idx).map(|p| p.exists))
+        })
         .unwrap_or(owning.is_some());
 
-    let (local_idx, local_active, observer, local_has_team, relationship) = if let Some(s) = snap.as_ref()
-    {
-        let mut local = s.local_player_index;
-        let active = s
-            .players
-            .get(&local)
-            .map(|p| p.active)
-            .unwrap_or(s.local_player_active);
-        if !active {
-            if let Some(obs) = s.observer_look_at {
-                local = obs;
+    let (local_idx, local_active, observer, local_has_team, relationship) =
+        if let Some(s) = snap.as_ref() {
+            let mut local = s.local_player_index;
+            let active = s
+                .players
+                .get(&local)
+                .map(|p| p.active)
+                .unwrap_or(s.local_player_active);
+            if !active {
+                if let Some(obs) = s.observer_look_at {
+                    local = obs;
+                }
             }
-        }
-        let local_rec = s.players.get(&local);
-        let rel = owning
-            .and_then(|idx| s.players.get(&idx).map(|p| p.relationship_to_local))
-            .unwrap_or(AudioLocalityRelationship::Neutral);
-        (
-            Some(local),
-            active,
-            s.observer_look_at,
-            local_rec
-                .map(|p| p.exists && p.has_default_team)
-                .unwrap_or(true),
-            rel,
-        )
-    } else {
-        (None, false, None, false, AudioLocalityRelationship::Neutral)
-    };
+            let local_rec = s.players.get(&local);
+            let rel = owning
+                .and_then(|idx| s.players.get(&idx).map(|p| p.relationship_to_local))
+                .unwrap_or(AudioLocalityRelationship::Neutral);
+            (
+                Some(local),
+                active,
+                s.observer_look_at,
+                local_rec
+                    .map(|p| p.exists && p.has_default_team)
+                    .unwrap_or(true),
+                rel,
+            )
+        } else {
+            (None, false, None, false, AudioLocalityRelationship::Neutral)
+        };
 
     if !should_play_locally_for_players(
         type_field,
@@ -672,12 +674,13 @@ pub fn terrorist_in_car_voice_token(slot: UnitVoiceSlot) -> Option<&'static str>
 }
 
 pub fn resolve_terrorist_in_car_voice(slot: UnitVoiceSlot) -> Option<String> {
-    terrorist_in_car_voice_event(slot).or_else(|| {
-        terrorist_in_car_voice_token(slot).map(str::to_string)
-    })
+    terrorist_in_car_voice_event(slot)
+        .or_else(|| terrorist_in_car_voice_token(slot).map(str::to_string))
 }
 
-pub fn owning_player_for_audio_object(object_id: Option<crate::game_logic::ObjectId>) -> Option<i32> {
+pub fn owning_player_for_audio_object(
+    object_id: Option<crate::game_logic::ObjectId>,
+) -> Option<i32> {
     let id = object_id?.0;
     live_audio_locality()?.object_owners.get(&id).copied()
 }
@@ -690,7 +693,6 @@ pub fn should_dispatch_audio_request(event: &crate::game_logic::AudioEventReques
     should_dispatch_live_audio(event.event_type.as_str(), owner, event.position)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -698,9 +700,21 @@ mod tests {
     #[test]
     fn resolve_uses_thing_template_ini_not_concatenated_or_unit_voice() {
         clear_test_template_voices();
-        set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Select, "AmericaRangerVoiceSelect");
-        set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Move, "AmericaRangerVoiceMove");
-        set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Attack, "AmericaRangerVoiceAttack");
+        set_test_template_voice(
+            "AmericaInfantryRanger",
+            UnitVoiceSlot::Select,
+            "AmericaRangerVoiceSelect",
+        );
+        set_test_template_voice(
+            "AmericaInfantryRanger",
+            UnitVoiceSlot::Move,
+            "AmericaRangerVoiceMove",
+        );
+        set_test_template_voice(
+            "AmericaInfantryRanger",
+            UnitVoiceSlot::Attack,
+            "AmericaRangerVoiceAttack",
+        );
         assert_eq!(
             resolve_unit_voice_event("AmericaInfantryRanger", UnitVoiceSlot::Select).as_deref(),
             Some("AmericaRangerVoiceSelect")
@@ -713,7 +727,8 @@ mod tests {
             resolve_unit_voice_event("AmericaInfantryRanger", UnitVoiceSlot::Attack).as_deref(),
             Some("AmericaRangerVoiceAttack")
         );
-        let select = resolve_unit_voice_event("AmericaInfantryRanger", UnitVoiceSlot::Select).unwrap();
+        let select =
+            resolve_unit_voice_event("AmericaInfantryRanger", UnitVoiceSlot::Select).unwrap();
         assert!(!is_invented_unit_voice_name(&select));
         assert_ne!(select, "AmericaInfantryRangerVoiceSelect");
         assert_ne!(select, "UnitVoiceSelect");
@@ -723,19 +738,48 @@ mod tests {
     #[test]
     fn specialty_slots_resolve_crush_unload_enter_garrison_air_guard() {
         clear_test_template_voices();
-        set_test_template_voice("AmericaVehicleHumvee", UnitVoiceSlot::Crush, "HumveeVoiceCrush");
-        set_test_template_voice("AmericaVehicleTroopCrawler", UnitVoiceSlot::Unload, "TroopCrawlerVoiceUnload");
-        set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Garrison, "RangerVoiceGarrison");
-        set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Enter, "RangerVoiceEnter");
-        set_test_template_voice("AmericaInfantryMissileDefender", UnitVoiceSlot::AttackAir, "MissileDefenderVoiceAttackAir");
-        set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Guard, "RangerVoiceGuard");
-        set_test_template_voice("GLAInfantryJarmenKell", UnitVoiceSlot::SnipePilot, "JarmenKellVoiceSnipe");
+        set_test_template_voice(
+            "AmericaVehicleHumvee",
+            UnitVoiceSlot::Crush,
+            "HumveeVoiceCrush",
+        );
+        set_test_template_voice(
+            "AmericaVehicleTroopCrawler",
+            UnitVoiceSlot::Unload,
+            "TroopCrawlerVoiceUnload",
+        );
+        set_test_template_voice(
+            "AmericaInfantryRanger",
+            UnitVoiceSlot::Garrison,
+            "RangerVoiceGarrison",
+        );
+        set_test_template_voice(
+            "AmericaInfantryRanger",
+            UnitVoiceSlot::Enter,
+            "RangerVoiceEnter",
+        );
+        set_test_template_voice(
+            "AmericaInfantryMissileDefender",
+            UnitVoiceSlot::AttackAir,
+            "MissileDefenderVoiceAttackAir",
+        );
+        set_test_template_voice(
+            "AmericaInfantryRanger",
+            UnitVoiceSlot::Guard,
+            "RangerVoiceGuard",
+        );
+        set_test_template_voice(
+            "GLAInfantryJarmenKell",
+            UnitVoiceSlot::SnipePilot,
+            "JarmenKellVoiceSnipe",
+        );
         assert_eq!(
             resolve_unit_voice_event("AmericaVehicleHumvee", UnitVoiceSlot::Crush).as_deref(),
             Some("HumveeVoiceCrush")
         );
         assert_eq!(
-            resolve_unit_voice_event("AmericaVehicleTroopCrawler", UnitVoiceSlot::Unload).as_deref(),
+            resolve_unit_voice_event("AmericaVehicleTroopCrawler", UnitVoiceSlot::Unload)
+                .as_deref(),
             Some("TroopCrawlerVoiceUnload")
         );
         assert_eq!(
@@ -774,23 +818,11 @@ mod tests {
     #[test]
     fn specialty_attack_voice_upgrades_from_weapon() {
         assert_eq!(
-            specialty_attack_voice_upgrade(
-                "RangerFlashBangGrenadeWeapon",
-                1,
-                true,
-                false,
-                false,
-            ),
+            specialty_attack_voice_upgrade("RangerFlashBangGrenadeWeapon", 1, true, false, false,),
             Some((UnitVoiceSlot::ClearBuilding, true))
         );
         assert_eq!(
-            specialty_attack_voice_upgrade(
-                "RangerFlashBangGrenadeWeapon",
-                1,
-                false,
-                false,
-                false,
-            ),
+            specialty_attack_voice_upgrade("RangerFlashBangGrenadeWeapon", 1, false, false, false,),
             Some((UnitVoiceSlot::Subdue, true))
         );
         assert_eq!(
@@ -847,7 +879,6 @@ mod tests {
             "VoiceFireRocketPods"
         );
     }
-
 
     #[test]
     fn per_unit_under_construction_and_initiate_sound_resolve() {
@@ -975,10 +1006,7 @@ mod tests {
             true,
         ));
         assert!(!shrouded_positional_event_is_blocked(
-            ST_WORLD,
-            true,
-            false,
-            false,
+            ST_WORLD, true, false, false,
         ));
     }
 
@@ -1000,5 +1028,4 @@ mod tests {
         let name = resolve_terrorist_in_car_voice(UnitVoiceSlot::Select).unwrap();
         assert!(!is_invented_unit_voice_name(&name));
     }
-
 }

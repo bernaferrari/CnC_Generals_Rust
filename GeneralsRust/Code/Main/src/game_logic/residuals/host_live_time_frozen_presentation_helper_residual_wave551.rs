@@ -78,8 +78,8 @@ pub fn residual_time_frozen_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_time_frozen_presentation_helper_last_action(
-) -> ResidualTimeFrozenPresentationHelperAction {
+pub fn residual_time_frozen_presentation_helper_last_action()
+-> ResidualTimeFrozenPresentationHelperAction {
     ResidualTimeFrozenPresentationHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

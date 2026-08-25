@@ -137,8 +137,7 @@ impl CommandRouter {
         let mut queues = self.queues.write().await;
         trace!(
             "Queuing command {:?} with priority {:?}",
-            command.command_type,
-            command.priority
+            command.command_type, command.priority
         );
         queues.push(command);
         Ok(())

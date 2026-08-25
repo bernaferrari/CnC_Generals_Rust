@@ -4,10 +4,7 @@ use crate::gui::callbacks::wol_lobby_menu::{
 };
 use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
 
-pub fn wol_lobby_menu_init_callback(
-    layout: &WindowLayout,
-    user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_lobby_menu_init_callback(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_lobby_menu_init(layout, user_data);
 }
 

@@ -1,13 +1,13 @@
 //! Mechanical split from `assets/models.rs`. No behavior change.
 #![allow(dead_code, unused_imports)]
 use super::prelude::*;
-use super::*;
 use super::w3d_anim::*;
 use super::w3d_format::*;
 use super::w3d_loader::*;
 use super::w3d_mesh::*;
 use super::w3d_mesh_build::*;
 use super::w3d_model::*;
+use super::*;
 
 impl W3DLoader {
     /// Resolve texture indices to actual texture names - matches C++ behavior
@@ -66,7 +66,9 @@ impl W3DLoader {
         }
 
         if model.texture_names.is_empty() {
-            debug!("No texture names loaded from W3D_CHUNK_TEXTURES, skipping texture index resolution");
+            debug!(
+                "No texture names loaded from W3D_CHUNK_TEXTURES, skipping texture index resolution"
+            );
             return;
         }
 
@@ -382,7 +384,10 @@ impl W3DLoader {
         }
     }
 
-    pub(super) fn parse_vertex_material_info_chunk(&self, data: &[u8]) -> Result<W3dVertexMaterialStruct> {
+    pub(super) fn parse_vertex_material_info_chunk(
+        &self,
+        data: &[u8],
+    ) -> Result<W3dVertexMaterialStruct> {
         // C++ W3dVertexMaterialStruct uses 3-byte RGB triplets with 4-byte alignment.
         // Accept both canonical 28-byte layout and 32-byte RGBA-expanded variant.
         if data.len() < 28 {
@@ -953,8 +958,10 @@ impl W3DLoader {
             container_name.push(data[i] as char);
         }
 
-        debug!("Mesh header - version: 0x{:08X}, attributes: 0x{:08X}, triangles: {}, vertices: {}, mesh_name: '{}', container: '{}'", 
-               version, attributes, num_triangles, num_vertices, mesh_name, container_name);
+        debug!(
+            "Mesh header - version: 0x{:08X}, attributes: 0x{:08X}, triangles: {}, vertices: {}, mesh_name: '{}', container: '{}'",
+            version, attributes, num_triangles, num_vertices, mesh_name, container_name
+        );
 
         Ok(MeshHeader {
             version,

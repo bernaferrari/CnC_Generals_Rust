@@ -139,9 +139,9 @@ mod tests {
     #[test]
     fn simulate_window_video_prepare_control_cycle_residual_live() {
         use game_client::gui::{
+            ResidualWindowVideoAction, WINDOW_VIDEO_PLAY_TYPE_NAMES, WINDOW_VIDEO_STATE_NAMES,
             residual_window_video_last_action, residual_window_video_playing_count,
             residual_window_video_stop_all, simulate_window_video_prepare_control_cycle,
-            ResidualWindowVideoAction, WINDOW_VIDEO_PLAY_TYPE_NAMES, WINDOW_VIDEO_STATE_NAMES,
         };
         assert_eq!(
             WINDOW_VIDEO_PLAY_TYPE_NAMES,

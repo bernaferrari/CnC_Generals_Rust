@@ -6,18 +6,18 @@
 
 use crate::common::*;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
+use crate::object::Object;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
 use crate::player::player_list;
 use crate::upgrade::{UpgradeMask, UpgradeMux, UpgradeMuxData};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::KindOfMaskType;
 use game_engine::common::thing::module::{
     Module, ModuleData, ModuleData as EngineModuleData, NameKeyType, SpyVisionControlInterface,
 };
-use game_engine::common::thing::KindOfMaskType;
 use log::{debug, warn};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -203,7 +203,6 @@ impl SpyVisionController {
         // currently_active is assigned only after the player-list work succeeds.
         self.do_activation_work_for_owner(&spying_player_guard, setting);
     }
-
 
     pub fn on_capture(
         &mut self,

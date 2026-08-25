@@ -7,15 +7,15 @@
 //! - Voice queuing and priority management
 
 use crate::{
-    mixer::{AudioMixer, VoiceDescriptor, VoiceHandle, VoiceParams, VoiceStopReason},
     AudioSource, Priority,
+    mixer::{AudioMixer, VoiceDescriptor, VoiceHandle, VoiceParams, VoiceStopReason},
 };
 use log::{debug, trace, warn};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };

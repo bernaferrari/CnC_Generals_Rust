@@ -33,8 +33,8 @@ use tokio::runtime::Handle;
 use tokio::sync::{Mutex, RwLock};
 
 use game_network as real_net;
-use game_network::lan_api::{GameOptions, LanApi, LanConfig, LanEvent, LanGameInfo};
 use game_network::NetworkInterface as RealNetworkInterface;
+use game_network::lan_api::{GameOptions, LanApi, LanConfig, LanEvent, LanGameInfo};
 use gamelogic::commands::command::CommandType;
 use real_net::commands::{CommandParameter, GameCommandData};
 use real_net::{NetCommand, NetCommandType, TransportProtocol};

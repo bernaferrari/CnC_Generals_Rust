@@ -238,14 +238,7 @@ impl GameLogic {
             );
             let landing_end = end;
             let landing_start = flight_deck_runway_pose(
-                origin,
-                forward,
-                right,
-                col,
-                num_cols,
-                deck,
-                spacing,
-                -spacing,
+                origin, forward, right, col, num_cols, deck, spacing, -spacing,
             );
             let creation = flight_deck_runway_pose(
                 origin,
@@ -600,12 +593,9 @@ impl GameLogic {
                 .unwrap_or(state.spaces[empty_index].orientation);
             (carrier.team, carrier.owner_player_id, creation, orient)
         };
-        let Some(jet_id) = self.create_object_for_owner_or_team(
-            &metadata.payload_template,
-            team,
-            owner,
-            creation,
-        ) else {
+        let Some(jet_id) =
+            self.create_object_for_owner_or_team(&metadata.payload_template, team, owner, creation)
+        else {
             if let Some(state) = self.flight_decks.get_mut(&carrier_id) {
                 state.pending_replacement = false;
             }
@@ -934,7 +924,11 @@ impl GameLogic {
         }
     }
 
-    fn flight_deck_space_can_give_up(&self, carrier_id: ObjectId, jet_id: Option<ObjectId>) -> bool {
+    fn flight_deck_space_can_give_up(
+        &self,
+        carrier_id: ObjectId,
+        jet_id: Option<ObjectId>,
+    ) -> bool {
         match jet_id {
             None => true,
             Some(id) => self.flight_deck_jet_can_give_up(carrier_id, id),
@@ -948,7 +942,8 @@ impl GameLogic {
         if jet.status.airborne_target {
             return true;
         }
-        let taxiing = jet.ai_state == AIState::Moving && jet.has_object_status_bit("REASSIGN_PARKING");
+        let taxiing =
+            jet.ai_state == AIState::Moving && jet.has_object_status_bit("REASSIGN_PARKING");
         if jet.ai_state != AIState::Idle && !taxiing {
             let designated_idle = self
                 .flight_decks
@@ -1079,8 +1074,8 @@ impl GameLogic {
                 .collect();
             state.runways = runways
                 .into_iter()
-                .map(|(in_use_by_for_takeoff, in_use_by_for_landing)| {
-                    HostFlightDeckRunway {
+                .map(
+                    |(in_use_by_for_takeoff, in_use_by_for_landing)| HostFlightDeckRunway {
                         start: Vec3::ZERO,
                         end: Vec3::ZERO,
                         landing_start: Vec3::ZERO,
@@ -1090,8 +1085,8 @@ impl GameLogic {
                         start_orient: 0.0,
                         in_use_by_for_takeoff,
                         in_use_by_for_landing,
-                    }
-                })
+                    },
+                )
                 .collect();
             state.designated_target = designated_target;
             state.designated_command = match designated_command {
@@ -1107,7 +1102,6 @@ impl GameLogic {
             self.flight_decks.insert(carrier_id, state);
         }
     }
-
 }
 
 fn flight_deck_stall_pose(
@@ -1206,9 +1200,7 @@ mod tests {
             .add_kind_of(KindOf::Attackable)
             .add_kind_of(KindOf::Selectable)
             .set_health(160.0);
-        logic
-            .templates
-            .insert("AircraftCarrierRaptor".into(), jet);
+        logic.templates.insert("AircraftCarrierRaptor".into(), jet);
 
         logic
             .create_object(
@@ -1232,7 +1224,10 @@ mod tests {
             .iter()
             .filter(|space| space.object_id.is_some())
             .count();
-        assert_eq!(parked, 4, "finished carrier must spawn PayloadTemplate jets");
+        assert_eq!(
+            parked, 4,
+            "finished carrier must spawn PayloadTemplate jets"
+        );
     }
 
     #[test]
@@ -1294,7 +1289,9 @@ mod tests {
             logic
                 .flight_decks
                 .get(&carrier)
-                .is_some_and(|s| s.catapult_fx_count > 0 || s.ramp_up[0] || s.catapult_system_frame[0] == u32::MAX),
+                .is_some_and(|s| s.catapult_fx_count > 0
+                    || s.ramp_up[0]
+                    || s.catapult_system_frame[0] == u32::MAX),
             "launch must arm ramp/catapult timers"
         );
     }
@@ -1362,4 +1359,3 @@ mod tests {
         );
     }
 }
-

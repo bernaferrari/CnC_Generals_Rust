@@ -6,8 +6,8 @@
 //! Author: Converted from C++ by Claude, original by Michael S. Booth, January 2002
 
 use crate::ai::squad::Squad;
-use crate::common::types::AsAny;
 use crate::common::CoordOrigin;
+use crate::common::types::AsAny;
 use crate::common::*;
 use crate::object::Object;
 use crate::polygon_trigger::PolygonTrigger;

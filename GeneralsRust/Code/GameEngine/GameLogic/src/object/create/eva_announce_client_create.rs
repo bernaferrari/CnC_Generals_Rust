@@ -4,14 +4,14 @@
 //! but retained for parity with the existing Rust integration.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
-use crate::common::{audio::AudioEventRts, AsciiString, UnsignedInt};
+use crate::common::{AsciiString, UnsignedInt, audio::AudioEventRts};
 use crate::helpers::{TheAudio, TheGameLogic};
 use crate::object::create::{CreateModule, CreateModuleData};
-use crate::player::{player_list, PLAYER_INDEX_INVALID};
+use crate::player::{PLAYER_INDEX_INVALID, player_list};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, ModuleData, Thing as ThingTrait};
 

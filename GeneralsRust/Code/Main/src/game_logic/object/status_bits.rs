@@ -149,8 +149,8 @@ impl Object {
             apply_status_bits_upgrade, object_status_mask_from_names, status_bits_has,
         };
         let before = self.object_status_bits;
-        let uc_before = self.status.under_construction
-            || status_bits_has(before, "UNDER_CONSTRUCTION");
+        let uc_before =
+            self.status.under_construction || status_bits_has(before, "UNDER_CONSTRUCTION");
         self.object_status_bits =
             apply_status_bits_upgrade(self.object_status_bits, set_names, clear_names);
         // Mirror a few high-traffic bits onto ObjectStatus bools.
@@ -273,8 +273,6 @@ impl Object {
         self.script_targetable = v;
     }
 
-
-
     /// C++ `ActiveBody::isIndestructible`.
     pub fn is_indestructible(&self) -> bool {
         self.indestructible
@@ -284,7 +282,6 @@ impl Object {
     pub fn set_indestructible(&mut self, v: bool) {
         self.indestructible = v;
     }
-
 
     /// C++ DISABLED_SCRIPT_DISABLED residual.
     pub fn set_status_disabled_script_disabled(&mut self, v: bool) {
@@ -981,10 +978,7 @@ impl Object {
             }
         }
         self.ai_state = state;
-        if matches!(
-            self.ai_state,
-            AIState::Constructing | AIState::Repairing
-        ) {
+        if matches!(self.ai_state, AIState::Constructing | AIState::Repairing) {
             // Assignment: ULTRA_ACCURATE on dozer/worker precision approach.
             self.set_ultra_accurate(true);
         }
@@ -1055,5 +1049,3 @@ pub fn request_mask_deselect(id: ObjectId) {
 pub fn drain_mask_deselects() -> Vec<ObjectId> {
     MASK_DESELECTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
-
-

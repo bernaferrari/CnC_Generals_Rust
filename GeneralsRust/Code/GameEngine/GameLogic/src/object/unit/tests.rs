@@ -112,6 +112,25 @@ fn test_turret_machine() -> TurretStateMachine {
 }
 
 #[test]
+fn adjust_destination_uses_canonical_pathfinder_gate_cpp_surface() {
+    let src = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/object/unit/ai_loco.rs"
+    ));
+    let start = src
+        .find("pub(super) fn adjust_destination(")
+        .expect("UnitAIUpdate::adjust_destination");
+    let end = start
+        + src[start..]
+            .find("pub(super) fn set_adjusts_destination")
+            .expect("set_adjusts_destination follows adjustment");
+    let production = &src[start..end];
+    assert!(production.contains("pathfinder.adjust_destination"));
+    assert!(!production.contains("pathfinding_system()"));
+    assert!(!production.contains("find_closest_path_result"));
+}
+
+#[test]
 fn mark_as_dead_sets_owner_effectively_dead_like_cpp() {
     let base_object = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
     let template = DefaultThingTemplate::new("TestUnit".to_string());
@@ -415,7 +434,7 @@ fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
 }
 
 #[test]
-fn invalid_destination_falls_back_to_closest_path_and_marks_retry_like_cpp() {
+fn invalid_destination_without_ready_pathfinder_returns_failure_like_cpp() {
     let base_object = Arc::new(RwLock::new(Object::new_test(48, 100.0)));
     {
         let mut object = base_object.write().unwrap();
@@ -454,19 +473,16 @@ fn invalid_destination_falls_back_to_closest_path_and_marks_retry_like_cpp() {
         None,
     );
 
-    assert!(ai
-        .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
-        .unwrap());
+    assert!(
+        !ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+            .unwrap()
+    );
 
     assert!(ai.retry_path);
     assert_eq!(ai.queue_for_path_frame, 0);
     let unit_guard = unit.read().unwrap();
-    let path = unit_guard.current_path.as_ref().unwrap();
-    assert_eq!(path.first(), Some(&Coord2D::new(10.0, 0.0)));
-    assert_ne!(
-        unit_guard.target_position,
-        Some(Coord3D::new(-5.0, 0.0, 3.0))
-    );
+    assert!(unit_guard.current_path.is_none());
+    assert!(unit_guard.target_position.is_none());
 }
 
 #[test]
@@ -521,9 +537,10 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
     ai.locomotor_goal_type = 1;
     ai.locomotor_goal_data = Coord3D::new(20.0, 0.0, 0.0);
 
-    assert!(ai
-        .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
-        .unwrap());
+    assert!(
+        ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+            .unwrap()
+    );
 
     assert_eq!(
         ai.queue_for_path_frame,
@@ -686,10 +703,12 @@ fn unit_choose_locomotor_set_preserves_current_when_set_missing_like_cpp() {
 
     assert_eq!(ai.current_locomotor_set, LocomotorSetType::Normal);
     let unit_guard = unit.read().unwrap();
-    assert!(unit_guard
-        .current_locomotor
-        .as_ref()
-        .is_some_and(|current| Arc::ptr_eq(current, &locomotor)));
+    assert!(
+        unit_guard
+            .current_locomotor
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &locomotor))
+    );
 }
 
 #[test]

@@ -30,7 +30,6 @@ pub struct GeometryRegion2D {
     pub hi: Point2D,
 }
 
-
 /// 3D Point structure
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point3D {
@@ -400,7 +399,10 @@ impl GeometryInfo {
 
     pub fn set_major_radius(&mut self, r: f32) {
         self.width = r;
-        if matches!(self.geometry_type, GeometryType::Sphere | GeometryType::Cylinder) {
+        if matches!(
+            self.geometry_type,
+            GeometryType::Sphere | GeometryType::Cylinder
+        ) {
             self.depth = r;
         }
         if self.geometry_type == GeometryType::Sphere {
@@ -435,12 +437,11 @@ impl GeometryInfo {
                 };
             }
             GeometryType::Box => {
-                self.bounding_circle_radius = (self.width * self.width + self.depth * self.depth).sqrt();
+                self.bounding_circle_radius =
+                    (self.width * self.width + self.depth * self.depth).sqrt();
                 let half_h = self.height * 0.5;
-                self.bounding_sphere_radius = (self.width * self.width
-                    + self.depth * self.depth
-                    + half_h * half_h)
-                    .sqrt();
+                self.bounding_sphere_radius =
+                    (self.width * self.width + self.depth * self.depth + half_h * half_h).sqrt();
             }
         }
     }
@@ -591,12 +592,10 @@ impl GeometryInfo {
                 }
             }
             GeometryType::Box => {
-                pt.x = pt
-                    .x
-                    .clamp(geom_center.x - self.width, geom_center.x + self.width);
-                pt.y = pt
-                    .y
-                    .clamp(geom_center.y - self.depth, geom_center.y + self.depth);
+                pt.x =
+                    pt.x.clamp(geom_center.x - self.width, geom_center.x + self.width);
+                pt.y =
+                    pt.y.clamp(geom_center.y - self.depth, geom_center.y + self.depth);
             }
         }
     }
@@ -668,25 +667,27 @@ impl GeometryInfo {
                         -self.width,
                         self.width,
                     );
-                    pt.y = if crate::common::random_value::get_game_logic_random_value_real(0.0, 1.0)
-                        < 0.5
-                    {
-                        -self.depth
-                    } else {
-                        self.depth
-                    };
+                    pt.y =
+                        if crate::common::random_value::get_game_logic_random_value_real(0.0, 1.0)
+                            < 0.5
+                        {
+                            -self.depth
+                        } else {
+                            self.depth
+                        };
                 } else {
                     pt.y = crate::common::random_value::get_game_logic_random_value_real(
                         -self.depth,
                         self.depth,
                     );
-                    pt.x = if crate::common::random_value::get_game_logic_random_value_real(0.0, 1.0)
-                        < 0.5
-                    {
-                        -self.width
-                    } else {
-                        self.width
-                    };
+                    pt.x =
+                        if crate::common::random_value::get_game_logic_random_value_real(0.0, 1.0)
+                            < 0.5
+                        {
+                            -self.width
+                        } else {
+                            self.width
+                        };
                 }
                 pt
             }

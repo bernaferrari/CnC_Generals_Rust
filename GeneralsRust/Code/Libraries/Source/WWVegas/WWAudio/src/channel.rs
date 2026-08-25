@@ -3,12 +3,12 @@
 //! Based on the original C&C Generals audio channel system.
 
 use crate::{
+    Priority,
     error::{Error, Result},
     level::VolumeUtils,
     mixer::{
         AudioMixer, VoiceDescriptor, VoiceHandle, VoiceParams, VoiceSpatialParams, VoiceStopReason,
     },
-    Priority,
 };
 use log::{debug, info};
 use parking_lot::RwLock;

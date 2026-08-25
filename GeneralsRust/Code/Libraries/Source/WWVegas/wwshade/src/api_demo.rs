@@ -5,8 +5,8 @@
 
 use crate::interface::RenderInfo;
 use crate::{
-    bump_mapping::BumpDiffShaderDef, class_ids::ShdDefClassId, simple::SimpleShaderDef,
-    ShdDefClass, ShdError, ShdInterface, ShdResult,
+    ShdDefClass, ShdError, ShdInterface, ShdResult, bump_mapping::BumpDiffShaderDef,
+    class_ids::ShdDefClassId, simple::SimpleShaderDef,
 };
 use std::sync::Arc;
 

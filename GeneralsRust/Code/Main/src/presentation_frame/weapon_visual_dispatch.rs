@@ -618,10 +618,7 @@ mod tests {
         assert!((angle - std::f32::consts::PI).abs() < 1e-5);
         assert!((impulse.loco_pitch_delta() - 2.0 * angle.cos()).abs() < 1e-5);
         assert!((impulse.loco_roll_delta() - 2.0 * angle.sin()).abs() < 1e-5);
-        assert_eq!(
-            FrozenWeaponVisualImpulse::default().loco_pitch_delta(),
-            0.0
-        );
+        assert_eq!(FrozenWeaponVisualImpulse::default().loco_pitch_delta(), 0.0);
     }
 
     #[test]
@@ -688,15 +685,17 @@ mod tests {
             source_has_drawable: false,
             ..source_gate()
         };
-        assert!(freeze_weapon_visual_dispatch_plan(
-            discharge(),
-            absent_drawable,
-            [FrozenWeaponVisualModuleProbe::OpaqueObjectDrawInterface {
-                draw_module_index: 0,
-            }],
-        )
-        .expect("no source Drawable is a faithful visual no-op")
-        .is_none());
+        assert!(
+            freeze_weapon_visual_dispatch_plan(
+                discharge(),
+                absent_drawable,
+                [FrozenWeaponVisualModuleProbe::OpaqueObjectDrawInterface {
+                    draw_module_index: 0,
+                }],
+            )
+            .expect("no source Drawable is a faithful visual no-op")
+            .is_none()
+        );
 
         let mismatched = FrozenWeaponVisualSourceGate {
             logic_frame: 124,
@@ -743,14 +742,16 @@ mod tests {
         .expect("null FX must not stop at a FireFX bone");
 
         assert_eq!(plan.targets.len(), 2);
-        assert!(plan
-            .targets
-            .iter()
-            .all(|target| target.starts_recoil_or_muzzle));
-        assert!(plan
-            .targets
-            .iter()
-            .all(|target| !target.stops_after_fire_fx));
+        assert!(
+            plan.targets
+                .iter()
+                .all(|target| target.starts_recoil_or_muzzle)
+        );
+        assert!(
+            plan.targets
+                .iter()
+                .all(|target| !target.stops_after_fire_fx)
+        );
         assert!(!plan.fire_fx_falls_back_to_drawable_position);
         assert!(plan.is_valid());
     }
@@ -790,10 +791,11 @@ mod tests {
         .expect("all modules were proven to return false");
 
         assert_eq!(plan.targets.len(), 2);
-        assert!(plan
-            .targets
-            .iter()
-            .all(|target| !target.stops_after_fire_fx));
+        assert!(
+            plan.targets
+                .iter()
+                .all(|target| !target.stops_after_fire_fx)
+        );
         assert!(plan.fire_fx_falls_back_to_drawable_position);
         assert!(plan.is_valid());
     }

@@ -1467,7 +1467,12 @@ mod tests {
             .with_range(0, 10)
             .with_value(5);
         slider.set_focus(true);
-        for key in [KeyCode::Home, KeyCode::End, KeyCode::PageUp, KeyCode::PageDown] {
+        for key in [
+            KeyCode::Home,
+            KeyCode::End,
+            KeyCode::PageUp,
+            KeyCode::PageDown,
+        ] {
             let messages = slider.handle_input(&InputEvent::KeyDown {
                 key,
                 modifiers: KeyModifiers::none(),
@@ -1476,5 +1481,4 @@ mod tests {
             assert_eq!(slider.value(), 5);
         }
     }
-
 }

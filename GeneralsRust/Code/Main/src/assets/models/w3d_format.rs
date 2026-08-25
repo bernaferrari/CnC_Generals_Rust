@@ -1,13 +1,13 @@
 //! Mechanical split from `assets/models.rs`. No behavior change.
 #![allow(dead_code, unused_imports)]
 use super::prelude::*;
-use super::*;
 use super::w3d_anim::*;
 use super::w3d_loader::*;
 use super::w3d_loader_parse::*;
 use super::w3d_mesh::*;
 use super::w3d_mesh_build::*;
 use super::w3d_model::*;
+use super::*;
 
 pub(super) const W3D_CHUNK_MESH: u32 = 0x00000000;
 pub(super) const W3D_CHUNK_MESH_HEADER: u32 = 0x0000001F; // W3dMeshHeader3Struct
@@ -699,18 +699,18 @@ impl W3dAnimationBinding {
 
 #[derive(Debug, Default)]
 pub(super) struct ParsedTextureStage {
-    pub(in super) texture_ids: Vec<u32>,
-    pub(in super) texcoords: Vec<[f32; 2]>,
-    pub(in super) per_face_texcoord_ids: Vec<[u32; 3]>,
+    pub(super) texture_ids: Vec<u32>,
+    pub(super) texcoords: Vec<[f32; 2]>,
+    pub(super) per_face_texcoord_ids: Vec<[u32; 3]>,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct ParsedMaterialPass {
-    pub(in super) stage_texture_ids: Vec<Vec<u32>>,
-    pub(in super) stage_texcoords: Vec<Vec<[f32; 2]>>,
-    pub(in super) stage_per_face_texcoord_ids: Vec<Vec<[u32; 3]>>,
-    pub(in super) vertex_material_ids: Vec<u32>,
-    pub(in super) shader_ids: Vec<u32>,
-    pub(in super) dcg_colors: Vec<W3dRGBAStruct>,
-    pub(in super) dig_colors: Vec<W3dRGBAStruct>,
+    pub(super) stage_texture_ids: Vec<Vec<u32>>,
+    pub(super) stage_texcoords: Vec<Vec<[f32; 2]>>,
+    pub(super) stage_per_face_texcoord_ids: Vec<Vec<[u32; 3]>>,
+    pub(super) vertex_material_ids: Vec<u32>,
+    pub(super) shader_ids: Vec<u32>,
+    pub(super) dcg_colors: Vec<W3dRGBAStruct>,
+    pub(super) dig_colors: Vec<W3dRGBAStruct>,
 }

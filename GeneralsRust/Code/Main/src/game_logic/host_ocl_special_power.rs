@@ -22,13 +22,12 @@
 //! OCLAdjustPositionToPassable snaps via findPositionAround(CLEAR_CELLS_ONLY, r=500);
 //! a failed search keeps the original click (C++ fail-closed).
 
-
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::host_deliver_payload::{
-    find_closest_edge_point_residual, RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
-    RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+    RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
+    RESIDUAL_MAP_EXTENT_MIN_Z, find_closest_edge_point_residual,
 };
 use crate::game_logic::host_spectre_gunship_deployment::find_farthest_edge_point_residual;
 
@@ -259,7 +258,6 @@ pub fn china_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
     )]
 }
 
-
 /// Resolve OCL name: first owned upgrade science, else default.
 ///
 /// C++ `OCLSpecialPower::findOCL` uses `getControllingPlayer()->hasScience`.
@@ -346,7 +344,6 @@ pub struct OclSpecialPowerSpawnPlan {
     pub create_owner: bool,
     pub special_power_template: String,
 }
-
 
 /// Compute creation coordinate (host Y-up; C++ Z-up height → Y).
 pub fn compute_creation_coord(
@@ -466,7 +463,6 @@ pub fn adjust_ocl_target_to_passable(
     find_ocl_passable_around(target, OCL_MAX_ADJUST_RADIUS, is_clear).unwrap_or(target)
 }
 
-
 pub fn plan_ocl_special_power_at_location(
     power_template: &str,
     source_pos: Vec3,
@@ -480,11 +476,8 @@ pub fn plan_ocl_special_power_at_location(
 ) -> Option<OclSpecialPowerSpawnPlan> {
     let peel = peel_for_special_power(power_template)?;
     let ocl = find_ocl_name(peel, player_has_science).to_string();
-    let target_coord = adjust_ocl_target_to_passable(
-        target_pos,
-        peel.adjust_position_to_passable,
-        is_clear_cell,
-    );
+    let target_coord =
+        adjust_ocl_target_to_passable(target_pos, peel.adjust_position_to_passable, is_clear_cell);
     let creation = compute_creation_coord(
         peel.create_loc,
         source_pos,
@@ -504,7 +497,6 @@ pub fn plan_ocl_special_power_at_location(
         special_power_template: peel.special_power_template.clone(),
     })
 }
-
 
 pub fn default_map_extents() -> (f32, f32, f32, f32) {
     (
@@ -884,20 +876,19 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
         && ocl_execute_mode_for_template("SuperweaponLeafletDrop") == OclExecuteMode::TransportOnly
         && ocl_execute_mode_for_template("SuperweaponDaisyCutter") == OclExecuteMode::FullDeliver
         && resolve_anthrax_bomb_ocl("GLACommandCenter", [] as [&str; 0]) == ANTHRAX_BOMB_OCL
-        && resolve_anthrax_bomb_ocl("Chem_GLACommandCenter", [] as [&str; 0]) == ANTHRAX_BOMB_GAMMA_OCL
+        && resolve_anthrax_bomb_ocl("Chem_GLACommandCenter", [] as [&str; 0])
+            == ANTHRAX_BOMB_GAMMA_OCL
         && resolve_anthrax_bomb_ocl("GLACommandCenter", ["FactionGLAToxinGeneral"])
             == ANTHRAX_BOMB_GAMMA_OCL
         && resolve_anthrax_bomb_ocl("GLACommandCenter", ["Chem_Upgrade_GLAAnthraxGamma"])
             == ANTHRAX_BOMB_GAMMA_OCL
         && deliver_payload_for_ocl(ANTHRAX_BOMB_GAMMA_OCL)
             .is_some_and(|d| d.payload == "AnthraxBombGamma" && d.transport == "GLAJetCargoPlane")
-        && deliver_payload_for_ocl(ANTHRAX_BOMB_OCL)
-            .is_some_and(|d| d.payload == "AnthraxBomb")
-        && peel_for_special_power("SuperweaponNapalmStrike")
-            .is_some_and(|p| {
-                find_ocl_name(p, |_| false)
-                    == crate::game_logic::special_power_strikes::NAPALM_STRIKE_OCL
-            })
+        && deliver_payload_for_ocl(ANTHRAX_BOMB_OCL).is_some_and(|d| d.payload == "AnthraxBomb")
+        && peel_for_special_power("SuperweaponNapalmStrike").is_some_and(|p| {
+            find_ocl_name(p, |_| false)
+                == crate::game_logic::special_power_strikes::NAPALM_STRIKE_OCL
+        })
         && deliver_payload_for_ocl("SUPERWEAPON_NapalmStrike").is_some_and(|d| {
             d.transport == "ChinaJetCargoPlane"
                 && d.payload == "NapalmBomb"
@@ -957,10 +948,7 @@ mod tests {
             .iter()
             .find(|p| p.special_power_template.contains("AnthraxBomb"))
             .unwrap();
-        assert_eq!(
-            find_ocl_name(anthrax, |_| false),
-            ANTHRAX_BOMB_OCL
-        );
+        assert_eq!(find_ocl_name(anthrax, |_| false), ANTHRAX_BOMB_OCL);
         assert_eq!(
             find_ocl_name(anthrax, |s| s == "Chem_Upgrade_GLAAnthraxGamma"),
             ANTHRAX_BOMB_GAMMA_OCL
@@ -974,8 +962,7 @@ mod tests {
             ANTHRAX_BOMB_GAMMA_OCL
         );
         assert_eq!(
-            deliver_payload_for_ocl(ANTHRAX_BOMB_GAMMA_OCL)
-                .map(|d| d.payload),
+            deliver_payload_for_ocl(ANTHRAX_BOMB_GAMMA_OCL).map(|d| d.payload),
             Some("AnthraxBombGamma".into())
         );
     }
@@ -991,7 +978,9 @@ mod tests {
         let controller: &[&str] = &[];
         let ally = ["SCIENCE_A10ThunderboltMissileStrike3"];
         assert_eq!(
-            find_ocl_name(a10, |s| controller.iter().any(|c| c.eq_ignore_ascii_case(s))),
+            find_ocl_name(a10, |s| controller
+                .iter()
+                .any(|c| c.eq_ignore_ascii_case(s))),
             "SUPERWEAPON_A10ThunderboltMissileStrike1"
         );
         assert_eq!(
@@ -1040,7 +1029,8 @@ mod tests {
             OclCreateLocType::UseOwnerObject
         ));
         assert!(!ocl_create_owner_for_no_target());
-        assert!(ocl_create_owner_for_create_loc(OclCreateLocType::EdgeNearSource));
+        assert!(ocl_create_owner_for_create_loc(
+            OclCreateLocType::EdgeNearSource
+        ));
     }
-
 }

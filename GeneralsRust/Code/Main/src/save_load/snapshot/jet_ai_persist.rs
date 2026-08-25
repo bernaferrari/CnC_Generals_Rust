@@ -44,10 +44,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_jtai_suffix(bytes) else {
         return Ok(());
     };
@@ -185,7 +182,10 @@ mod tests {
         assert!(loaded.jet_ai.allow_air_loco);
         assert!(loaded.jet_ai.allow_interrupt_for_reload);
         assert!(loaded.jet_ai.has_pending_command);
-        assert_eq!(loaded.jet_ai.pending_resume, HostJetPendingResume::GuardArea);
+        assert_eq!(
+            loaded.jet_ai.pending_resume,
+            HostJetPendingResume::GuardArea
+        );
         assert_eq!(loaded.jet_ai.rtb_landing_phase, 1);
         assert!(loaded.jet_ai.afterburners_on);
 

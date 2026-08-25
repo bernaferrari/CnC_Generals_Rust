@@ -58,7 +58,6 @@ struct DamageFXData {
     damage_fx_throttle_time: u32,
 }
 
-
 impl Default for DamageFXData {
     fn default() -> Self {
         Self {
@@ -416,5 +415,4 @@ mod tests {
         );
         assert!(cloned.get_damage_fx_list(0, 0.0, None).is_none());
     }
-
 }

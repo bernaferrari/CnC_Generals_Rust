@@ -1,4 +1,4 @@
-use super::{Vector3, EPSILON};
+use super::{EPSILON, Vector3};
 use crate::sphere::Sphere;
 
 /// Side of a plane that a point or object lies on

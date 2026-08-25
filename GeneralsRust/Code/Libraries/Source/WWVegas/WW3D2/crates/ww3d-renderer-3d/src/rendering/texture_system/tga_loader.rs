@@ -88,7 +88,7 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
             return Err(Error::InvalidData(format!(
                 "Unsupported TGA bit depth: {}",
                 header.bits_per_pixel
-            )))
+            )));
         }
     };
 
@@ -163,7 +163,7 @@ pub fn load_tga_from_memory(data: &[u8]) -> RendererResult<TgaData> {
             return Err(Error::InvalidData(format!(
                 "Unsupported TGA image type: {}",
                 header.image_type
-            )))
+            )));
         }
     };
 
@@ -347,7 +347,7 @@ fn convert_color_mapped_to_rgba(
             _ => {
                 return Err(Error::InvalidData(
                     "Unsupported color map index size".to_string(),
-                ))
+                ));
             }
         };
 
@@ -380,7 +380,7 @@ fn convert_color_mapped_to_rgba(
             _ => {
                 return Err(Error::InvalidData(
                     "Unsupported color map entry size".to_string(),
-                ))
+                ));
             }
         }
     }

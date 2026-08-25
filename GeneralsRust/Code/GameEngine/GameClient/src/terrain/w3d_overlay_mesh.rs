@@ -11,7 +11,7 @@
 //! These bakes feed the shipped wgpu TerrainVisual overlay pipelines (TriangleList).
 
 use crate::fx_list::{
-    do_the_dynamic_light, far_atten_factor, scene_dynamic_lights, DisplayDynamicLight,
+    DisplayDynamicLight, do_the_dynamic_light, far_atten_factor, scene_dynamic_lights,
 };
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
@@ -1200,7 +1200,7 @@ mod tests {
     #[test]
     fn compute_standing_water_diffuse_matches_cpp_w3d_water() {
         let water_diffuse = 0x80FF_CC99; // A=0x80, R=0xFF, G=0xCC, B=0x99 in ARGB naming... packed as u32 hex
-                                         // C++ unpacks waterShadeR = low byte, G = <<8, B = <<16 then packs shadeB|G<<8|R<<16
+        // C++ unpacks waterShadeR = low byte, G = <<8, B = <<16 then packs shadeB|G<<8|R<<16
         let lights = [WaterTerrainLight {
             light_pos: [0.0, 0.0, -1.0],
             diffuse: [0.5, 0.25, 0.0],
@@ -1232,8 +1232,8 @@ mod tests {
     #[test]
     fn bake_water_patch_world_applies_point_lights_like_heightmap() {
         use crate::fx_list::{
-            clear_scene_dynamic_lights, create_display_light_pulse, do_the_dynamic_light,
-            drain_display_light_pulses, scene_dynamic_lights, DisplayLightPulse,
+            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            do_the_dynamic_light, drain_display_light_pulses, scene_dynamic_lights,
         };
 
         let _ = drain_display_light_pulses();
@@ -1298,16 +1298,18 @@ mod tests {
 
     #[test]
     fn min_road_segment_rejects_degenerate_span() {
-        assert!(bake_straight_road_segment(
-            [0.0, 0.0],
-            [0.1, 0.0],
-            8.0,
-            0.0,
-            85.0 / 512.0,
-            DEFAULT_ROAD_SCALE,
-            |_, _| 0.0,
-        )
-        .is_none());
+        assert!(
+            bake_straight_road_segment(
+                [0.0, 0.0],
+                [0.1, 0.0],
+                8.0,
+                0.0,
+                85.0 / 512.0,
+                DEFAULT_ROAD_SCALE,
+                |_, _| 0.0,
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -1346,11 +1348,7 @@ mod tests {
             |x, _| {
                 // Non-linear bump: interpolated neighbors cannot reproduce the peak
                 // within C++ MAX_ERROR, so the column is retained.
-                if (x - 20.0).abs() < 6.0 {
-                    8.0
-                } else {
-                    0.0
-                }
+                if (x - 20.0).abs() < 6.0 { 8.0 } else { 0.0 }
             },
         )
         .expect("road");
@@ -1367,12 +1365,16 @@ mod tests {
         .expect("flat");
         assert!(verts.len() > flat.0.len());
         assert!(indices.len() > flat.1.len());
-        assert!(verts
-            .iter()
-            .any(|v| (v.z - (8.0 + ROAD_FLOAT_AMOUNT)).abs() < 1.0e-4));
-        assert!(verts
-            .iter()
-            .any(|v| (v.z - ROAD_FLOAT_AMOUNT).abs() < 1.0e-4));
+        assert!(
+            verts
+                .iter()
+                .any(|v| (v.z - (8.0 + ROAD_FLOAT_AMOUNT)).abs() < 1.0e-4)
+        );
+        assert!(
+            verts
+                .iter()
+                .any(|v| (v.z - ROAD_FLOAT_AMOUNT).abs() < 1.0e-4)
+        );
     }
 
     #[test]
@@ -1399,8 +1401,8 @@ mod tests {
     #[test]
     fn load_float_4pt_section_bakes_cpp_road_point_lights() {
         use crate::fx_list::{
-            clear_scene_dynamic_lights, create_display_light_pulse, drain_display_light_pulses,
-            scene_dynamic_lights, DisplayLightPulse,
+            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            drain_display_light_pulses, scene_dynamic_lights,
         };
 
         let _ = drain_display_light_pulses();
@@ -1452,7 +1454,7 @@ mod tests {
 
     #[test]
     fn do_road_dynamic_light_uses_half_shade_and_xy_aabb_like_cpp() {
-        use crate::fx_list::{far_atten_factor, DisplayDynamicLight};
+        use crate::fx_list::{DisplayDynamicLight, far_atten_factor};
 
         let light = DisplayDynamicLight {
             pos: [0.0, 0.0, 0.0],
@@ -1489,8 +1491,8 @@ mod tests {
     #[test]
     fn road_gpu_upload_keeps_do_road_dynamic_light_diffuse() {
         use crate::fx_list::{
-            clear_scene_dynamic_lights, create_display_light_pulse, drain_display_light_pulses,
-            scene_dynamic_lights, DisplayLightPulse,
+            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            drain_display_light_pulses, scene_dynamic_lights,
         };
 
         let _ = drain_display_light_pulses();

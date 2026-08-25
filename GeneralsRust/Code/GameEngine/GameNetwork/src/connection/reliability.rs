@@ -12,7 +12,7 @@ use crate::network_metrics::packet_loss_metrics::{
 use crate::time::NetworkInstant;
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 use tracing::{debug, trace, warn};
 use uuid::Uuid;
 

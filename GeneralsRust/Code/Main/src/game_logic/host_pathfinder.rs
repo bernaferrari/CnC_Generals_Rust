@@ -433,22 +433,50 @@ mod tests {
             Some(PATHFINDER_DETECTION_RANGE)
         );
         assert_eq!(
-            pathfinder_stealth_desired(true, true, true, true, 4.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
+            pathfinder_stealth_desired(
+                true,
+                true,
+                true,
+                true,
+                4.0,
+                PATHFINDER_MOVE_THRESHOLD_SPEED
+            ),
             Some(false),
             "leftover velocity above MoveThresholdSpeed uncloaks"
         );
         assert_eq!(
-            pathfinder_stealth_desired(true, true, true, true, 2.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
+            pathfinder_stealth_desired(
+                true,
+                true,
+                true,
+                true,
+                2.0,
+                PATHFINDER_MOVE_THRESHOLD_SPEED
+            ),
             Some(true),
             "leftover velocity below MoveThresholdSpeed stays cloaked"
         );
         assert_eq!(
-            pathfinder_stealth_desired(true, true, true, true, 0.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
+            pathfinder_stealth_desired(
+                true,
+                true,
+                true,
+                true,
+                0.0,
+                PATHFINDER_MOVE_THRESHOLD_SPEED
+            ),
             Some(true),
             "idle pathfinder re-cloaks"
         );
         assert_eq!(
-            pathfinder_stealth_desired(false, true, true, true, 0.0, PATHFINDER_MOVE_THRESHOLD_SPEED),
+            pathfinder_stealth_desired(
+                false,
+                true,
+                true,
+                true,
+                0.0,
+                PATHFINDER_MOVE_THRESHOLD_SPEED
+            ),
             None
         );
     }

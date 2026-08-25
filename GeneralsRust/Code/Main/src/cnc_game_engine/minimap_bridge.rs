@@ -9,7 +9,7 @@
 
 use super::*;
 use game_client::gui::control_bar::{
-    take_host_minimap_interactions, HostMinimapInteraction, HostMinimapMouseButton,
+    HostMinimapInteraction, HostMinimapMouseButton, take_host_minimap_interactions,
 };
 
 /// Mirror C++ `LeftHUDInput`'s action choice before Main does any world work.

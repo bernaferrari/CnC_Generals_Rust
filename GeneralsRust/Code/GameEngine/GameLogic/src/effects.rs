@@ -48,8 +48,8 @@ impl FXList {
         }
     }
 
-    fn fx_manager(
-    ) -> Result<&'static dyn FXListManagerInterface, Box<dyn std::error::Error + Send + Sync>> {
+    fn fx_manager()
+    -> Result<&'static dyn FXListManagerInterface, Box<dyn std::error::Error + Send + Sync>> {
         crate::helpers::get_fx_list_manager()
             .map(|mgr| mgr.as_ref())
             .ok_or_else(|| {
@@ -205,7 +205,7 @@ impl ObjectCreationList {
 mod tests {
     use super::*;
     use crate::common::types::FXListManagerInterface;
-    use crate::helpers::{register_fx_list_manager, TheFXListStore};
+    use crate::helpers::{TheFXListStore, register_fx_list_manager};
     use glam::Mat4;
     use std::sync::Mutex;
 

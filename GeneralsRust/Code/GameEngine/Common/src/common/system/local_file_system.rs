@@ -633,8 +633,8 @@ mod tests {
     }
 
     #[test]
-    fn test_find_file_path_matches_case_insensitive_search_path_entries(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn test_find_file_path_matches_case_insensitive_search_path_entries()
+    -> Result<(), Box<dyn std::error::Error>> {
         let test_root = PathBuf::from("test_case_insensitive_local_fs");
         let actual_path = test_root
             .join("Art")
@@ -657,8 +657,8 @@ mod tests {
     }
 
     #[test]
-    fn test_directory_listing_matches_case_insensitive_directories(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn test_directory_listing_matches_case_insensitive_directories()
+    -> Result<(), Box<dyn std::error::Error>> {
         let test_root = PathBuf::from("test_case_insensitive_listing");
         let actual_dir = test_root.join("Art").join("Textures");
         fs::create_dir_all(&actual_dir)?;
@@ -683,8 +683,8 @@ mod tests {
     }
 
     #[test]
-    fn test_directory_listing_matches_case_insensitive_masks(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn test_directory_listing_matches_case_insensitive_masks()
+    -> Result<(), Box<dyn std::error::Error>> {
         let test_root = PathBuf::from("test_case_insensitive_mask_listing");
         let actual_dir = test_root.join("Data").join("INI").join("Object");
         fs::create_dir_all(&actual_dir)?;

@@ -8,7 +8,7 @@
 //! - Network streaming support
 //! - Compressed audio streaming
 
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
@@ -709,7 +709,7 @@ impl StreamDecoder for WavDecoder {
                                     Some(Err(_)) => {
                                         return Err(AudioLoadError::DecodeError(
                                             "Sample read error".to_string(),
-                                        ))
+                                        ));
                                     }
                                     None => {
                                         frame_complete = false;
@@ -736,7 +736,7 @@ impl StreamDecoder for WavDecoder {
                                 Some(Err(_)) => {
                                     return Err(AudioLoadError::DecodeError(
                                         "Sample read error".to_string(),
-                                    ))
+                                    ));
                                 }
                                 None => {
                                     frame_complete = false;

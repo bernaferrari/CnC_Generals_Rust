@@ -1,14 +1,12 @@
 //! v9 world-tail codec for the Entity lifecycle envelope + contain/producer links.
 
-use crate::game_logic::object::{
-    decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block,
-};
+use crate::game_logic::object::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
 use crate::game_logic::{GameLogic, ObjectId, railroad_registry_reset};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
+use gamelogic::world::entities::EntityId;
 use gamelogic::world::entities::EntityLifecycleEnvelope;
 use gamelogic::world::entity_fixup::{ContainFixup, ProducerFixup};
 use gamelogic::world::entity_generation::EntityHandle;
-use gamelogic::world::entities::EntityId;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LifecycleTail {
@@ -56,9 +54,8 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
     if bytes.is_empty() {
         return Ok(LifecycleTail::default());
     }
-    let envelopes = decode_lifecycle_snapshot_block(bytes).map_err(|err| {
-        SaveLoadError::Corrupted(format!("lifecycle envelope tail: {err}"))
-    })?;
+    let envelopes = decode_lifecycle_snapshot_block(bytes)
+        .map_err(|err| SaveLoadError::Corrupted(format!("lifecycle envelope tail: {err}")))?;
     let consumed = envelope_block_len(bytes)?;
     let mut rest = bytes.get(consumed..).unwrap_or(&[]);
     if rest.is_empty() {
@@ -134,7 +131,10 @@ pub fn apply_lifecycle_tail_to_host(
             object
                 .entity_apply_lifecycle_envelope(envelope)
                 .map_err(|err| {
-                    SaveLoadError::Corrupted(format!("apply envelope {}: {err}", envelope.entity_id))
+                    SaveLoadError::Corrupted(format!(
+                        "apply envelope {}: {err}",
+                        envelope.entity_id
+                    ))
                 })?;
         }
     }
@@ -311,8 +311,8 @@ mod tests {
     #[test]
     fn apply_tail_resets_stale_railroad_then_restores_envelope() {
         use crate::game_logic::{
-            railroad_car, railroad_registry_reset, restore_railroad_car, HostConductorState,
-            HostRailroadCar, ObjectId,
+            HostConductorState, HostRailroadCar, ObjectId, railroad_car, railroad_registry_reset,
+            restore_railroad_car,
         };
 
         railroad_registry_reset();

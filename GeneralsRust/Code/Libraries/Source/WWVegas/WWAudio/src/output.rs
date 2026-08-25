@@ -11,15 +11,15 @@ use crate::{
     mixer::{AudioMixer, MixBuffer, MixRenderStats, MixerTimelineSnapshot},
 };
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Device, SampleFormat, Stream, StreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{debug, error};
 use std::{
     sync::{
-        mpsc::{self, Sender as ShutdownSender},
         Arc,
+        mpsc::{self, Sender as ShutdownSender},
     },
     thread::{self, JoinHandle},
 };

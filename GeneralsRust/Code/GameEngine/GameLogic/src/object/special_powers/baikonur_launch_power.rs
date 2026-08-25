@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -14,7 +14,7 @@ use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::{
     SpecialPowerCommandOptions, SpecialPowerModule, SpecialPowerModuleData,
 };
-use crate::object::special_power_template::{find_or_create_special_power_template, AudioEventRts};
+use crate::object::special_power_template::{AudioEventRts, find_or_create_special_power_template};
 
 #[derive(Debug, Clone)]
 pub struct BaikonurLaunchPowerModuleData {
@@ -195,7 +195,6 @@ impl BaikonurLaunchPower {
     fn dispatch_on_special_power_creation(&mut self) {}
 }
 
-
 impl Module for BaikonurLaunchPower {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -239,7 +238,6 @@ impl BehaviorModuleInterface for BaikonurLaunchPower {
 }
 super::interface::impl_special_power_subclass!(BaikonurLaunchPower);
 
-
 impl Snapshotable for BaikonurLaunchPower {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.base_module.crc(xfer)
@@ -256,7 +254,6 @@ impl Snapshotable for BaikonurLaunchPower {
         self.base_module.load_post_process()
     }
 }
-
 
 fn parse_special_power_template_field(
     _ini: &mut INI,

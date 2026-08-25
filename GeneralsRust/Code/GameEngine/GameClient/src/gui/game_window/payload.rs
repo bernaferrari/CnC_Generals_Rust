@@ -43,7 +43,6 @@ pub enum WindowMsgPayload {
     ItemData(ListBoxItemData),
     ItemDataOpt(Option<ListBoxItemData>),
     RightClick(RightClickStruct),
-
 }
 
 pub(crate) const WINDOW_MSG_TOKEN_TAG: usize = 1usize << (usize::BITS - 1);
@@ -91,11 +90,7 @@ impl WindowMsgPayloadArena {
 
     fn bump_generation(current: u32) -> u32 {
         let next = current.wrapping_add(1);
-        if next == 0 {
-            1
-        } else {
-            next
-        }
+        if next == 0 { 1 } else { next }
     }
 
     fn push(&mut self, payload: WindowMsgPayload) -> WindowMsgData {

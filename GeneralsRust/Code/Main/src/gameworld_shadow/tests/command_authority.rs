@@ -37,7 +37,7 @@ fn attack_command_lands_set_attack_target_same_tick() {
             damage: 10.0,
             range: 200.0,
             ..Weapon::default()
-});
+        });
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -52,8 +52,14 @@ fn attack_command_lands_set_attack_target_same_tick() {
     assert!(shadow.ingest_command_queue_view(&logic) >= 1);
     let ea = shadow.entity_for_host(attacker).expect("ea");
     let et = shadow.entity_for_host(target).expect("et");
-    assert_eq!(shadow.world().entity(ea).expect("e").attack_target, Some(et));
+    assert_eq!(
+        shadow.world().entity(ea).expect("e").attack_target,
+        Some(et)
+    );
     logic.process_commands();
     let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
-    assert_eq!(shadow.world().entity(ea).expect("e").attack_target, Some(et));
+    assert_eq!(
+        shadow.world().entity(ea).expect("e").attack_target,
+        Some(et)
+    );
 }

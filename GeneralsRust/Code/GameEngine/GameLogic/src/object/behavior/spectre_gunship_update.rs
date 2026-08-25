@@ -1,19 +1,20 @@
 //! SpectreGunshipUpdate - Rust conversion of C++ SpectreGunshipUpdate
 //! Handles Spectre gunship orbit, targeting, and weapon firing for the special power.
 
+use crate::GameLogicRandomValueReal;
 use crate::ai::CommandSourceType;
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
+use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::audio::AudioEventRts;
 use crate::common::types::Relationship;
 use crate::common::types::SHADOW_NAMES;
 use crate::common::xfer::XferExt;
-use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::{
     AsciiString, Bool, Coord3D, CoordOrigin, DisabledMaskType, DisabledType, GameLogicRandomValue,
-    KindOf, LocomotorSetType, ModuleData, ObjectID, ObjectShroudStatus, ObjectStatusTypes,
-    RadiusDecal, RadiusDecalTemplate, Real, UnsignedInt, MODELCONDITION_DOOR_1_CLOSING,
-    MODELCONDITION_DOOR_1_OPENING, MODELCONDITION_JETAFTERBURNER,
+    KindOf, LocomotorSetType, MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
+    MODELCONDITION_JETAFTERBURNER, ModuleData, ObjectID, ObjectShroudStatus, ObjectStatusTypes,
+    RadiusDecal, RadiusDecalTemplate, Real, UnsignedInt,
 };
 use crate::helpers::TheAudio;
 use crate::helpers::{
@@ -24,19 +25,18 @@ use crate::modules::{
     SpecialPowerCommandOptions, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::special_power_module::Waypoint;
-use crate::object::special_power_template::find_or_create_special_power_template;
-use crate::object::update::does_special_power_update_pass_science_test_for_object;
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
 use crate::object::SpecialPowerTemplate;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::special_power_module::Waypoint;
+use crate::object::special_power_template::find_or_create_special_power_template;
+use crate::object::update::does_special_power_update_pass_science_test_for_object;
 use crate::player::PlayerType;
 use crate::player::ThePlayerList;
-use crate::weapon::with_weapon_store;
 use crate::weapon::WeaponTemplate;
-use crate::GameLogicRandomValueReal;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::weapon::with_weapon_store;
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -1084,11 +1084,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     .ok()
                     .and_then(|list| {
                         let idx = list.get_local_player_index();
-                        if idx >= 0 {
-                            Some(idx)
-                        } else {
-                            None
-                        }
+                        if idx >= 0 { Some(idx) } else { None }
                     })
                     .map(|player_idx| {
                         let shroud = gunship.get_shrouded_status(player_idx);

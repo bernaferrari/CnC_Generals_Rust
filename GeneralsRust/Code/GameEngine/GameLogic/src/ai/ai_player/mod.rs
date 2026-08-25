@@ -17,35 +17,35 @@
     ambiguous_glob_reexports
 )]
 
-use super::ai_update::AiPlayerTrait;
 use super::SkillSet;
+use super::ai_update::AiPlayerTrait;
 use crate::ai::modules::GameDifficulty as AiGameDifficulty;
 use crate::ai::modules::{
     BuildOrderOptimizer, DifficultyHandler, StrategicDecision, StrategicDecisionMaker,
     ThreatAssessmentSystem,
 };
-use crate::ai::{AiError, AiGroup, AttitudeType, ScienceType, AI, THE_AI};
+use crate::ai::{AI, AiError, AiGroup, AttitudeType, ScienceType, THE_AI};
 use crate::ai::{CommandSourceType, GuardMode};
-use crate::common::xfer::{Xfer, XferExt};
 use crate::common::Snapshot;
+use crate::common::xfer::{Xfer, XferExt};
 use crate::common::{
-    AsciiString, ControlBarInterface, Coord2D, Coord3D, CoordOrigin, KindOf, LocomotorSetType,
-    ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Real, Relationship, TeamId,
-    ThingTemplate, UnsignedInt, INVALID_ID,
+    AsciiString, ControlBarInterface, Coord2D, Coord3D, CoordOrigin, INVALID_ID, KindOf,
+    LocomotorSetType, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Real,
+    Relationship, TeamId, ThingTemplate, UnsignedInt,
 };
 use crate::control_bar::get_control_bar_bridge;
 use crate::helpers::{
-    game_logic_random_value, TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory,
+    TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory, game_logic_random_value,
 };
 use crate::modules::AIUpdateInterfaceExt;
 use crate::modules::ProductionUpdateInterface;
+use crate::object::Object;
 use crate::object::production::construction::FoundationValidator;
 use crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdate;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
-use crate::object::Object;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use crate::player::{player_list, GameDifficulty, Player, PlayerType};
+use crate::player::{GameDifficulty, Player, PlayerType, player_list};
 use crate::scripting::engine::get_script_engine;
 use crate::scripting::evaluator::ScriptEvaluator;
 use crate::supply_system::BASE_VALUE_PER_SUPPLY_BOX;

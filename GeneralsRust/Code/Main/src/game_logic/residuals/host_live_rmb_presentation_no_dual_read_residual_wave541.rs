@@ -77,8 +77,8 @@ pub fn residual_rmb_presentation_no_dual_read_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_rmb_presentation_no_dual_read_last_action(
-) -> ResidualRmbPresentationNoDualReadAction {
+pub fn residual_rmb_presentation_no_dual_read_last_action()
+-> ResidualRmbPresentationNoDualReadAction {
     ResidualRmbPresentationNoDualReadAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

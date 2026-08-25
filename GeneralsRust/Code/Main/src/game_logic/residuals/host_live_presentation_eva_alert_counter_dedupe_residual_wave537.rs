@@ -79,8 +79,8 @@ pub fn residual_presentation_eva_alert_counter_dedupe_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_eva_alert_counter_dedupe_last_action(
-) -> ResidualPresentationEvaAlertCounterDedupeAction {
+pub fn residual_presentation_eva_alert_counter_dedupe_last_action()
+-> ResidualPresentationEvaAlertCounterDedupeAction {
     ResidualPresentationEvaAlertCounterDedupeAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

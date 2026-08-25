@@ -451,7 +451,7 @@ fn host_upgrade_complete_applies_to_shadow_player() {
 
 #[test]
 fn host_command_set_log_drives_set_command_set_channel() {
-    use crate::game_logic::{host_command_set_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_command_set_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CsCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -510,7 +510,7 @@ fn host_command_set_log_drives_set_command_set_channel() {
 
 #[test]
 fn host_selection_radius_log_drives_set_selection_radius_channel() {
-    use crate::game_logic::{host_selection_radius_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_selection_radius_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SrCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -566,7 +566,7 @@ fn host_selection_radius_log_drives_set_selection_radius_channel() {
 
 #[test]
 fn host_ground_height_log_drives_set_ground_height_channel() {
-    use crate::game_logic::{host_ground_height_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_ground_height_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("GhCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -627,7 +627,7 @@ fn host_ground_height_log_drives_set_ground_height_channel() {
 
 #[test]
 fn host_model_mesh_log_drives_set_model_mesh_channel() {
-    use crate::game_logic::{host_model_mesh_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_model_mesh_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MmCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -674,7 +674,7 @@ fn host_model_mesh_log_drives_set_model_mesh_channel() {
 
 #[test]
 fn host_fow_log_drives_set_fow_channel() {
-    use crate::game_logic::{host_fow_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_fow_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -723,7 +723,7 @@ fn host_fow_log_drives_set_fow_channel() {
 
 #[test]
 fn host_kind_of_log_drives_set_kind_of_bits_channel() {
-    use crate::game_logic::{host_kind_of_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_kind_of_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("KoCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -774,7 +774,7 @@ fn host_kind_of_log_drives_set_kind_of_bits_channel() {
 
 #[test]
 fn host_identity_log_drives_set_identity_channel() {
-    use crate::game_logic::{host_identity_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_identity_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("IdCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -841,7 +841,7 @@ fn host_identity_log_drives_set_identity_channel() {
 #[test]
 fn host_building_type_log_drives_set_building_type_channel() {
     use crate::game_logic::{
-        host_building_type_log, BuildingData, BuildingType, KindOf, Team, ThingTemplate,
+        BuildingData, BuildingType, KindOf, Team, ThingTemplate, host_building_type_log,
     };
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("BtCh");
@@ -905,7 +905,7 @@ fn host_building_type_log_drives_set_building_type_channel() {
 
 #[test]
 fn host_crush_vision_log_drives_set_crush_vision_channel() {
-    use crate::game_logic::{host_crush_vision_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_crush_vision_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("CvCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -985,8 +985,8 @@ fn host_crush_vision_log_drives_set_crush_vision_channel() {
 #[test]
 fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
     use crate::game_logic::{
-        host_demo_mine_cheer_log, host_mines::HostMineData, host_mines::HostMineKind, KindOf, Team,
-        ThingTemplate,
+        KindOf, Team, ThingTemplate, host_demo_mine_cheer_log, host_mines::HostMineData,
+        host_mines::HostMineKind,
     };
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmcCh");
@@ -1057,7 +1057,7 @@ fn host_demo_mine_cheer_log_drives_set_demo_mine_cheer_channel() {
 
 #[test]
 fn host_model_condition_log_drives_set_model_condition_channel() {
-    use crate::game_logic::{host_model_condition_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_model_condition_log};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("McCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");

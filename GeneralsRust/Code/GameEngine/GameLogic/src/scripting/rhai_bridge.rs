@@ -30,8 +30,8 @@
 
 use super::{ScriptContext, ScriptValue};
 use crate::common::{Coord3D, LOGICFRAMES_PER_SECOND};
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use crate::scripting::engine::{
@@ -45,7 +45,7 @@ use crate::{GameLogicError, GameLogicResult};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
+use game_engine::common::rts::{SCIENCE_INVALID, get_science_store};
 use rhai::{Array as RhaiArray, Dynamic, Engine, EvalAltResult, Map as RhaiMap, Scope};
 
 /// Rhai script executor

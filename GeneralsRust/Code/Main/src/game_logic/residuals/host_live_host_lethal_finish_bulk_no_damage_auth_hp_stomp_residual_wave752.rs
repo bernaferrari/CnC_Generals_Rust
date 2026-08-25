@@ -61,8 +61,8 @@ fn residual_action_store(a: ResidualHostLethalFinishBulkNoDamageAuthHpStompActio
 pub fn residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostLethalFinishBulkNoDamageAuthHpStompAction {
+pub fn residual_host_lethal_finish_bulk_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostLethalFinishBulkNoDamageAuthHpStompAction {
     ResidualHostLethalFinishBulkNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -71,8 +71,8 @@ fn gl_source() -> &'static str {
     // 2026-08-15: scan host plus extra world_* splits.
     super::host_logic_scan_src()
 }
-pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_method_names_residual_wave752(
-) -> bool {
+pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_method_names_residual_wave752()
+-> bool {
     let names = LIVE_HOST_LETHAL_FINISH_BULK_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE752;
     let ok = residual_name_index(names, "host_lethal_finish_object").is_some()
         && residual_name_index(names, "gameworld_damage_authority_live").is_some()
@@ -82,8 +82,8 @@ pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_method_names_resi
     residual_action_store(ResidualHostLethalFinishBulkNoDamageAuthHpStompAction::MethodNames);
     ok
 }
-pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_source_markers_residual_wave752(
-) -> bool {
+pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_source_markers_residual_wave752()
+-> bool {
     let gl = gl_source();
     let wave_hits = gl.matches("Wave 752").count();
     let ok = gl.contains("fn host_lethal_finish_object")
@@ -95,8 +95,8 @@ pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_source_markers_re
     residual_action_store(ResidualHostLethalFinishBulkNoDamageAuthHpStompAction::SourceMarkers);
     ok
 }
-pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_nav_commands_residual_wave752(
-) -> bool {
+pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_nav_commands_residual_wave752()
+-> bool {
     let steps = LIVE_HOST_LETHAL_FINISH_BULK_NO_DAMAGE_AUTH_HP_STOMP_NAV_STEPS_WAVE752;
     let cmds = RUNTIME_HOST_LIVE_HOST_LETHAL_FINISH_BULK_NO_DAMAGE_AUTH_HP_STOMP_CMD_NAMES_WAVE752;
     let ok = residual_name_index(steps, "REQUIRE_HELPER").is_some()

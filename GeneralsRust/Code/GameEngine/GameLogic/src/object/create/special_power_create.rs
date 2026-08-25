@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-
 use crate::object::create::CreateModule;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, Thing as ThingTrait};

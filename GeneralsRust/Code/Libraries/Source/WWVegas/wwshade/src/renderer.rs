@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, RwLock};
 // Removed async_trait as we're making traits synchronous
 
 use crate::error::{ShdError, ShdResult};
-use crate::interface::{RenderInfo, ShdInterface, MAX_PASSES};
+use crate::interface::{MAX_PASSES, RenderInfo, ShdInterface};
 use crate::loader::MeshGeometry;
 use crate::manager::ShdDefManager;
 

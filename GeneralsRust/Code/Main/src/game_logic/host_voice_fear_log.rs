@@ -19,7 +19,12 @@ thread_local! {
     static LOG: RefCell<Vec<HostVoiceFearEvent>> = const { RefCell::new(Vec::new()) };
 }
 
-pub fn record(victim: ObjectId, position: Vec3, player_id: Option<u32>, event_name: impl Into<String>) {
+pub fn record(
+    victim: ObjectId,
+    position: Vec3,
+    player_id: Option<u32>,
+    event_name: impl Into<String>,
+) {
     let event_name = event_name.into();
     if event_name.is_empty() {
         return;

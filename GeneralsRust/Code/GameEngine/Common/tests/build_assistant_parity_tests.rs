@@ -1,7 +1,7 @@
 use game_engine::common::system::build_assistant::{
-    clear_build_assistant_backend, set_build_assistant_backend, BuildAssistant,
-    BuildAssistantBackend, CanMakeType, Coord3D, LegalBuildCode, LocalLegalToBuildOptions, Object,
-    ObjectID, Player, ThingTemplate,
+    BuildAssistant, BuildAssistantBackend, CanMakeType, Coord3D, LegalBuildCode,
+    LocalLegalToBuildOptions, Object, ObjectID, Player, ThingTemplate,
+    clear_build_assistant_backend, set_build_assistant_backend,
 };
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -44,9 +44,11 @@ fn build_assistant_fails_closed_without_gamelogic_backend() {
         ),
         LegalBuildCode::GenericFailure
     );
-    assert!(assistant
-        .build_object_now(Some(&builder), &template, &pos, 0.0, &player)
-        .is_none());
+    assert!(
+        assistant
+            .build_object_now(Some(&builder), &template, &pos, 0.0, &player)
+            .is_none()
+    );
     assert!(assistant.is_possible_to_make_unit(&builder, &template));
     assert_eq!(
         assistant.can_make_unit(&builder, &template),

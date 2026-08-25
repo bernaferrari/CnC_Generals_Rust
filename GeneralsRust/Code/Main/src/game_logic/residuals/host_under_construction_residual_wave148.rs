@@ -123,10 +123,10 @@ mod tests {
     #[test]
     fn simulate_under_construction_prepare_cycle_residual_live() {
         use game_client::gui::control_bar::{
+            ResidualUnderConstructionAction, UNDER_CONSTRUCTION_CANCEL_COMMAND_NAME,
             residual_under_construction_cancel_visible, residual_under_construction_is_completed,
             residual_under_construction_last_action, residual_under_construction_percent,
             simulate_under_construction_complete, simulate_under_construction_prepare_cycle,
-            ResidualUnderConstructionAction, UNDER_CONSTRUCTION_CANCEL_COMMAND_NAME,
         };
         assert_eq!(
             UNDER_CONSTRUCTION_CANCEL_COMMAND_NAME,

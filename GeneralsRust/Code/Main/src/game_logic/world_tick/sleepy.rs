@@ -168,6 +168,9 @@ mod tests {
             .iter()
             .position(|k| *k == HostSleepyKind::Movement)
             .unwrap();
-        assert!(c < m, "Initial phase before Normal (C++ priority phase bits)");
+        assert!(
+            c < m,
+            "Initial phase before Normal (C++ priority phase bits)"
+        );
     }
 }

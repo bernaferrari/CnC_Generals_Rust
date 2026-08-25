@@ -49,7 +49,6 @@ pub fn hunt_stealthed_undetected(stealthed: bool, detected: bool) -> bool {
 /// C++ TimedCharges / TankHunterTNT ViewObjectRange residual (Burton 100).
 pub const HUNT_PLACE_EXPLOSIVE_VIEW_RANGE: f32 = 100.0;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostCommandButtonHuntMode {
     HijackVehicle,
@@ -90,7 +89,6 @@ impl HostCommandButtonHuntData {
         self.weapon_slot = weapon_slot_from_button_name(button);
         self
     }
-
 
     pub fn clear(&mut self) {
         self.active = false;
@@ -253,7 +251,6 @@ pub fn weapon_slot_from_button_name(name: &str) -> u8 {
     }
 }
 
-
 /// C++ relationship filter residual for enter hunt modes.
 ///
 /// `same_team` / `target_neutral` are precomputed by the host so this module
@@ -272,7 +269,6 @@ pub fn hunt_allows_team(
             !same_team
         }
     }
-
 }
 
 /// Kind residual: vehicle for hijack/car-bomb, structure for sabotage.
@@ -289,7 +285,6 @@ pub fn hunt_allows_kind(
         HostCommandButtonHuntMode::SabotageBuilding => is_structure,
         HostCommandButtonHuntMode::SpecialPower | HostCommandButtonHuntMode::FireWeapon => true,
     }
-
 }
 
 /// C++ ActionManager enter-hunt gates (canHijack / canConvert / canSabotage).
@@ -307,18 +302,12 @@ pub fn hunt_enter_action_ok(
 ) -> bool {
     match mode {
         HostCommandButtonHuntMode::HijackVehicle => {
-            relationship_enemies
-                && is_vehicle
-                && !is_aircraft
-                && !is_drone
-                && !hijack_rejected
+            relationship_enemies && is_vehicle && !is_aircraft && !is_drone && !hijack_rejected
         }
         HostCommandButtonHuntMode::ConvertToCarBomb => {
             relationship_neutral && is_vehicle && !is_aircraft && !already_carbomb
         }
-        HostCommandButtonHuntMode::SabotageBuilding => {
-            relationship_enemies && is_structure
-        }
+        HostCommandButtonHuntMode::SabotageBuilding => relationship_enemies && is_structure,
         HostCommandButtonHuntMode::SpecialPower | HostCommandButtonHuntMode::FireWeapon => false,
     }
 }
@@ -356,7 +345,6 @@ pub fn hunt_effective_priority(raw_priority: i32, dist: f32, distance_modifier: 
     };
     (raw_priority - modifier).max(1)
 }
-
 
 pub fn honesty_command_button_hunt_residual_ok() -> bool {
     COMMAND_BUTTON_HUNT_SCAN_FRAMES == 30
@@ -451,11 +439,12 @@ mod tests {
             false
         ));
         assert!(hunt_special_capture_skips(false, true));
-        assert!(hunt_special_is_place_explosive("Command_ChinaTankHunterTNT"));
+        assert!(hunt_special_is_place_explosive(
+            "Command_ChinaTankHunterTNT"
+        ));
         assert_eq!(hunt_effective_priority(80, 100.0, 50.0), 78);
         assert!(hunt_last_command_is_from_ai(HUNT_CMD_FROM_AI));
         assert!(!hunt_last_command_is_from_ai(HUNT_CMD_FROM_PLAYER));
-
     }
 
     #[test]
@@ -501,8 +490,6 @@ mod tests {
         );
         assert!(d.due(39));
     }
-
-
 
     #[test]
     fn schedule_scan_interval() {

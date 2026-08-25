@@ -264,17 +264,15 @@ impl InputProcessor {
         let clicked_object = self.find_object_at_position(world_pos, &logic);
 
         if let Some(object_id) = clicked_object {
-            let friendly_selectable = self
-                .presentation_frame
-                .as_ref()
-                .and_then(|frame| {
-                    frame
-                        .objects
-                        .iter()
-                        .find(|o| o.id == object_id)
-                        .map(|o| frame.is_owned_by_local(o) && Self::presentation_is_selectable(o))
-                })
-                .unwrap_or(false);
+            let friendly_selectable =
+                self.presentation_frame
+                    .as_ref()
+                    .and_then(|frame| {
+                        frame.objects.iter().find(|o| o.id == object_id).map(|o| {
+                            frame.is_owned_by_local(o) && Self::presentation_is_selectable(o)
+                        })
+                    })
+                    .unwrap_or(false);
             if friendly_selectable && logic.host_object(object_id).is_some() {
                 if shift_pressed {
                     let mut current_selection = logic
@@ -334,17 +332,15 @@ impl InputProcessor {
         // Wave 954: attack target classify presentation-only.
         let target_object = self.find_object_at_position(world_pos, &logic);
         if let Some(target_id) = target_object {
-            let attackable_enemy = self
-                .presentation_frame
-                .as_ref()
-                .and_then(|frame| {
-                    frame
-                        .objects
-                        .iter()
-                        .find(|o| o.id == target_id)
-                        .map(|o| frame.is_enemy_of_local(o) && Self::presentation_is_attackable(o))
-                })
-                .unwrap_or(false);
+            let attackable_enemy =
+                self.presentation_frame
+                    .as_ref()
+                    .and_then(|frame| {
+                        frame.objects.iter().find(|o| o.id == target_id).map(|o| {
+                            frame.is_enemy_of_local(o) && Self::presentation_is_attackable(o)
+                        })
+                    })
+                    .unwrap_or(false);
             if attackable_enemy && logic.host_object(target_id).is_some() {
                 logic.command_attack(self.local_player_id, target_id);
                 println!(

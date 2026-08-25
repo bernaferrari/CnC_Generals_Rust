@@ -652,14 +652,10 @@ mod tests {
 
     #[test]
     fn classify_sabotage_target_matrix() {
-        fn cls(
-            name: &str,
-            flags: [bool; 14],
-        ) -> Option<SaboteurEffectKind> {
+        fn cls(name: &str, flags: [bool; 14]) -> Option<SaboteurEffectKind> {
             classify_sabotage_target(
-                name, flags[0], flags[1], flags[2], flags[3], flags[4], flags[5],
-                flags[6], flags[7], flags[8], flags[9], flags[10], flags[11],
-                flags[12], flags[13],
+                name, flags[0], flags[1], flags[2], flags[3], flags[4], flags[5], flags[6],
+                flags[7], flags[8], flags[9], flags[10], flags[11], flags[12], flags[13],
             )
         }
         let none = [false; 14];

@@ -16,8 +16,8 @@ thread_local! {
         std::cell::RefCell::new(None);
 }
 
-pub fn take_early_owner_batch(
-) -> Option<(Vec<crate::game_logic::host_owner_log::HostOwnerEvent>, bool)> {
+pub fn take_early_owner_batch()
+-> Option<(Vec<crate::game_logic::host_owner_log::HostOwnerEvent>, bool)> {
     EARLY_OWNER_BATCH.with(|c| c.borrow_mut().take())
 }
 
@@ -171,13 +171,13 @@ pub fn take_early_turret_batch() -> Option<(
     EARLY_TURRET_BATCH.with(|c| c.borrow_mut().take())
 }
 
-pub fn take_early_guard_batch(
-) -> Option<(Vec<crate::game_logic::host_guard_log::HostGuardEvent>, bool)> {
+pub fn take_early_guard_batch()
+-> Option<(Vec<crate::game_logic::host_guard_log::HostGuardEvent>, bool)> {
     EARLY_GUARD_BATCH.with(|c| c.borrow_mut().take())
 }
 
-pub fn take_early_rally_batch(
-) -> Option<(Vec<crate::game_logic::host_rally_log::HostRallyEvent>, bool)> {
+pub fn take_early_rally_batch()
+-> Option<(Vec<crate::game_logic::host_rally_log::HostRallyEvent>, bool)> {
     EARLY_RALLY_BATCH.with(|c| c.borrow_mut().take())
 }
 

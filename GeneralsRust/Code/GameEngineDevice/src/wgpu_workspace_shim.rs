@@ -5,20 +5,20 @@
 //! `GameEngine/GameEngineDevice` → GameClient wgpu shims. Not a D3D revival.
 
 pub use game_engine_device::w3_d_device::game_client::{
-    add_scorch, create_light_pulse, create_ray_effect_by_template, do_the_dynamic_light,
-    do_the_dynamic_light_from_scene, do_the_dynamic_light_wgpu, far_atten_factor, shake,
-    w3d_gadget_check_box_draw, w3d_gadget_check_box_image_draw, w3d_gadget_combo_box_draw,
-    w3d_gadget_combo_box_image_draw, w3d_gadget_horizontal_slider_draw,
-    w3d_gadget_horizontal_slider_image_draw, w3d_gadget_horizontal_slider_image_draw_a,
-    w3d_gadget_horizontal_slider_image_draw_b, w3d_gadget_list_box_draw,
-    w3d_gadget_list_box_image_draw, w3d_gadget_progress_bar_draw, w3d_gadget_progress_bar_image_draw,
-    w3d_gadget_progress_bar_image_draw_a, w3d_gadget_push_button_draw,
-    w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
+    CameraShakeType, DisplayDynamicLight, DisplayLightPulse, add_scorch, create_light_pulse,
+    create_ray_effect_by_template, do_the_dynamic_light, do_the_dynamic_light_from_scene,
+    do_the_dynamic_light_wgpu, far_atten_factor, shake, w3d_gadget_check_box_draw,
+    w3d_gadget_check_box_image_draw, w3d_gadget_combo_box_draw, w3d_gadget_combo_box_image_draw,
+    w3d_gadget_horizontal_slider_draw, w3d_gadget_horizontal_slider_image_draw,
+    w3d_gadget_horizontal_slider_image_draw_a, w3d_gadget_horizontal_slider_image_draw_b,
+    w3d_gadget_list_box_draw, w3d_gadget_list_box_image_draw, w3d_gadget_progress_bar_draw,
+    w3d_gadget_progress_bar_image_draw, w3d_gadget_progress_bar_image_draw_a,
+    w3d_gadget_push_button_draw, w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
     w3d_gadget_radio_button_image_draw, w3d_gadget_static_text_draw,
     w3d_gadget_static_text_image_draw, w3d_gadget_tab_control_draw,
-    w3d_gadget_tab_control_image_draw, w3d_gadget_text_entry_draw, w3d_gadget_text_entry_image_draw,
-    w3d_gadget_vertical_slider_draw, w3d_gadget_vertical_slider_image_draw, CameraShakeType,
-    DisplayDynamicLight, DisplayLightPulse,
+    w3d_gadget_tab_control_image_draw, w3d_gadget_text_entry_draw,
+    w3d_gadget_text_entry_image_draw, w3d_gadget_vertical_slider_draw,
+    w3d_gadget_vertical_slider_image_draw,
 };
 
 /// `legacy-full` leftover wrappers (still wgpu — not D3D).
@@ -100,11 +100,7 @@ mod tests {
             0xFFFF_0000
         );
         assert_eq!(
-            super::do_the_dynamic_light_from_scene(
-                [0.0, 0.0, 20.0],
-                [0.0, 0.0, 1.0],
-                0xFF00_0000
-            ),
+            super::do_the_dynamic_light_from_scene([0.0, 0.0, 20.0], [0.0, 0.0, 1.0], 0xFF00_0000),
             expected_ambient
         );
         assert_eq!(

@@ -8,12 +8,12 @@
 use crate::common::types::ModelConditionFlags;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    Bool, Coord3D, Int, KindOf, ObjectID, UnsignedInt, INVALID_ID, MODELCONDITION_DOCKING,
-    MODELCONDITION_DOCKING_ACTIVE, MODELCONDITION_DOCKING_BEGINNING, MODELCONDITION_DOCKING_ENDING,
+    Bool, Coord3D, INVALID_ID, Int, KindOf, MODELCONDITION_DOCKING, MODELCONDITION_DOCKING_ACTIVE,
+    MODELCONDITION_DOCKING_BEGINNING, MODELCONDITION_DOCKING_ENDING, ObjectID, UnsignedInt,
 };
 use crate::helpers::{FindPositionOptions, TheGameLogic, ThePartitionManager};
-use crate::object::drawable::DrawableArcExt;
 use crate::object::Object;
+use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
 
@@ -341,7 +341,8 @@ impl DockUpdate {
             return false;
         }
         let current_pos = *approach_pos as usize;
-        if current_pos == 0 || self.approach_position_owners.get(current_pos - 1) != Some(&INVALID_ID)
+        if current_pos == 0
+            || self.approach_position_owners.get(current_pos - 1) != Some(&INVALID_ID)
         {
             return false;
         }

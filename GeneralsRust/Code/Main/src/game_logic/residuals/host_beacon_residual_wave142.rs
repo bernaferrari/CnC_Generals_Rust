@@ -123,8 +123,8 @@ mod tests {
     #[test]
     fn simulate_beacon_prepare_place_residual_live() {
         use game_client::system::{
-            residual_beacon_last_action, residual_beacon_marker_count,
-            simulate_beacon_prepare_place_with_text, simulate_beacon_remove, ResidualBeaconAction,
+            ResidualBeaconAction, residual_beacon_last_action, residual_beacon_marker_count,
+            simulate_beacon_prepare_place_with_text, simulate_beacon_remove,
         };
         assert!(
             simulate_beacon_prepare_place_with_text(1, 10.0, 20.0, 0.0, "here"),

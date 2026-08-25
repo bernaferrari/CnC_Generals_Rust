@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::subsystem_manager::{
-    get_subsystem_manager, with_subsystem_mut, GameMessageType, MessageStreamSubsystem,
+    GameMessageType, MessageStreamSubsystem, get_subsystem_manager, with_subsystem_mut,
 };
 use anyhow::Result;
 use log::{debug, info, warn};

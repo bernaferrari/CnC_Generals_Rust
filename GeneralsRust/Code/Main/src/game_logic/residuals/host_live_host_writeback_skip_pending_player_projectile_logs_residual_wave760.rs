@@ -68,8 +68,8 @@ fn residual_action_store(a: ResidualHostWritebackSkipPendingPlayerProjectileLogs
 pub fn residual_host_writeback_skip_pending_player_projectile_logs_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_writeback_skip_pending_player_projectile_logs_last_action(
-) -> ResidualHostWritebackSkipPendingPlayerProjectileLogsAction {
+pub fn residual_host_writeback_skip_pending_player_projectile_logs_last_action()
+-> ResidualHostWritebackSkipPendingPlayerProjectileLogsAction {
     ResidualHostWritebackSkipPendingPlayerProjectileLogsAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -77,8 +77,8 @@ pub fn residual_host_writeback_skip_pending_player_projectile_logs_last_action(
 fn sh_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
-pub fn honesty_host_writeback_skip_pending_player_projectile_logs_method_names_residual_wave760(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_player_projectile_logs_method_names_residual_wave760()
+-> bool {
     let names = LIVE_HOST_WRITEBACK_SKIP_PENDING_PLAYER_PROJECTILE_LOGS_METHOD_NAMES_WAVE760;
     let ok = residual_name_index(names, "has_pending").is_some()
         && residual_name_index(names, "writeback_economy_to_host").is_some()
@@ -90,8 +90,8 @@ pub fn honesty_host_writeback_skip_pending_player_projectile_logs_method_names_r
     residual_action_store(ResidualHostWritebackSkipPendingPlayerProjectileLogsAction::MethodNames);
     ok
 }
-pub fn honesty_host_writeback_skip_pending_player_projectile_logs_source_markers_residual_wave760(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_player_projectile_logs_source_markers_residual_wave760()
+-> bool {
     let sh = sh_source();
     let logs_ok = sh.contains("host_economy_log::has_pending")
         && sh.contains("host_player_cooldown_log::has_pending")
@@ -115,8 +115,8 @@ pub fn honesty_host_writeback_skip_pending_player_projectile_logs_source_markers
     );
     ok
 }
-pub fn honesty_host_writeback_skip_pending_player_projectile_logs_nav_commands_residual_wave760(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_player_projectile_logs_nav_commands_residual_wave760()
+-> bool {
     let steps = LIVE_HOST_WRITEBACK_SKIP_PENDING_PLAYER_PROJECTILE_LOGS_NAV_STEPS_WAVE760;
     let ok = residual_name_index(steps, "REQUIRE_HAS_PENDING").is_some()
         && residual_name_index(steps, "REQUIRE_COUPLED_TICK").is_some()

@@ -9,7 +9,7 @@ use super::targeting::TargetingInfo;
 use super::types::*;
 use crate::common::*;
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheThingFactory,
+    TheThingFactory, get_game_logic_random_value, get_game_logic_random_value_real,
 };
 use crate::terrain::get_terrain_logic;
 use std::sync::{Arc, RwLock};

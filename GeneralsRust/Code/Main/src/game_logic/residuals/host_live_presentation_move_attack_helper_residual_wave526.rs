@@ -75,8 +75,8 @@ pub fn residual_presentation_move_attack_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_move_attack_helper_last_action(
-) -> ResidualPresentationMoveAttackHelperAction {
+pub fn residual_presentation_move_attack_helper_last_action()
+-> ResidualPresentationMoveAttackHelperAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationMoveAttackHelperAction::MethodNames,
         2 => ResidualPresentationMoveAttackHelperAction::SourceMarkers,

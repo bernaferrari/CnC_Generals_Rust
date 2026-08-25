@@ -280,7 +280,6 @@ pub fn multiplayer_night_rgb_for_day(day: (u8, u8, u8)) -> (u8, u8, u8) {
         .unwrap_or(day)
 }
 
-
 /// Host residual: beacon placement allowed when current count < MaxBeaconsPerPlayer.
 pub fn can_place_beacon_residual(current_beacons: i32) -> bool {
     current_beacons < MP_MAX_BEACONS_PER_PLAYER_RESIDUAL

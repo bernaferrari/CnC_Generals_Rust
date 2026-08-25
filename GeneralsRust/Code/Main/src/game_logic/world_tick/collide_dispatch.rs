@@ -86,7 +86,7 @@ pub fn host_object_footprint(obj: &Object) -> HostPartitionFootprint {
 /// C++ `PartitionData::collidesWith` using host pose (Y-up → collide Z-up).
 pub fn host_geom_collides(a: &Object, b: &Object) -> Option<(glam::Vec3, glam::Vec3)> {
     use gamelogic::object::collide::{
-        collide_test_dispatch, CollideInfo, CollideLocAndNormal, Coord3D,
+        CollideInfo, CollideLocAndNormal, Coord3D, collide_test_dispatch,
     };
     // C++ PartitionData::collidesWith (PartitionManager.cpp:1932-1933).
     if a.is_kind_of(KindOf::NoCollide) || b.is_kind_of(KindOf::NoCollide) {
@@ -132,7 +132,7 @@ pub fn dispatch_collide_modules(
     loc: glam::Vec3,
     normal: glam::Vec3,
 ) {
-    use gamelogic::object::collide::{Coord3D, GameObject, COLLISION_MANAGER};
+    use gamelogic::object::collide::{COLLISION_MANAGER, Coord3D, GameObject};
     use gamelogic::object::registry::OBJECT_REGISTRY;
 
     let collide_loc = Coord3D::new(loc.x, loc.z, loc.y);
@@ -243,16 +243,17 @@ pub fn host_fire_weapon_collide_spec(obj: &Object) -> Option<HostFireWeaponColli
     })
 }
 
-fn fire_weapon_collide_spec_from_definition(template_name: &str) -> Option<HostFireWeaponCollideSpec> {
+fn fire_weapon_collide_spec_from_definition(
+    template_name: &str,
+) -> Option<HostFireWeaponCollideSpec> {
     use crate::game_logic::host_status_bits_upgrade::object_status_bit;
     let manager = crate::assets::get_asset_manager()?;
     let guard = manager.lock().ok()?;
     let definition = guard.get_object_definition(template_name)?;
-    let module = definition.behavior_modules.iter().find(|module| {
-        module
-            .class_name
-            .eq_ignore_ascii_case("FireWeaponCollide")
-    })?;
+    let module = definition
+        .behavior_modules
+        .iter()
+        .find(|module| module.class_name.eq_ignore_ascii_case("FireWeaponCollide"))?;
     let weapon_name = module
         .attributes
         .iter()

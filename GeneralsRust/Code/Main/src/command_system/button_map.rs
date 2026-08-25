@@ -156,7 +156,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         }),
         "switchweapons" | "switchweapon" | "toggleweapon" => {
             Some(CommandType::SwitchWeapons { slot: 0 })
-        },
+        }
         "combatdrop" | "rappell" | "rappel" => Some(CommandType::CombatDrop {
             target: crate::command_system::DropTarget::Location(glam::Vec3::ZERO),
         }),

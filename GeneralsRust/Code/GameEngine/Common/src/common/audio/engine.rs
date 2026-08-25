@@ -15,18 +15,18 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "audio")]
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Device, Host, Stream, StreamConfig, SupportedStreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 #[cfg(feature = "audio")]
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 #[cfg(feature = "audio")]
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
 #[cfg(feature = "audio")]
 use symphonia::core::io::MediaSourceStream;
 // Always import basic channel types since they're used without features
 #[cfg(not(feature = "audio"))]
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::common::audio::{
     AsciiString, AudioAffect, AudioEventRts, AudioHandle, AudioPriority, AudioType, Bool, Coord3D,

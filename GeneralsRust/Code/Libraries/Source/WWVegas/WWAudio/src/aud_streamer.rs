@@ -7,12 +7,12 @@
 
 use crate::error::{ChannelError, Error, Result, SourceError, StreamError};
 use crate::{
+    AudioChannel, AudioDevice, AudioSample, MAX_VOLUME, MIN_VOLUME, TimeStamp, Volume,
     aud_source::{
         AudioCompressionType, AudioFormatFlags, EnhancedAudioFormat, TimeStamp as SourceTimeStamp,
     },
     aud_stream_buffering::StreamBuffering,
     formats::AudioFormat,
-    AudioChannel, AudioDevice, AudioSample, TimeStamp, Volume, MAX_VOLUME, MIN_VOLUME,
 };
 use log::warn;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex, Weak};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 
 /// Minimum frame size for streaming operations (4KB)
 const MIN_FRAME_SIZE: usize = 4 * 1024;

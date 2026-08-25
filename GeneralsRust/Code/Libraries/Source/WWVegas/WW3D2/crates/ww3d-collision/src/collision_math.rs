@@ -139,7 +139,6 @@ impl CollisionMath {
         ctx.finalize(result)
     }
 
-
     /// Test if point is inside triangle
     fn point_in_triangle(point: &Vec3, v0: &Vec3, v1: &Vec3, v2: &Vec3, normal: &Vec3) -> bool {
         // Use barycentric coordinates
@@ -647,4 +646,3 @@ mod tests {
         assert!(result.fraction > 0.0 && result.fraction < 1.0);
     }
 }
-

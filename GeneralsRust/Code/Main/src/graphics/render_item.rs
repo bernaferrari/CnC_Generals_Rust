@@ -18,7 +18,6 @@ use std::sync::Arc;
 
 use super::render_pipeline::RenderPass;
 
-
 /// C++ `W3DAssetManager::houseColorScale` / leftover `HOUSE_COLOR_SCALE`.
 /// Brightness ramp used when remapping HouseColor / ZHC livery.
 pub const HOUSE_COLOR_SCALE: [u16; 16] = [
@@ -52,7 +51,11 @@ pub fn house_color_rgb(team_color: [f32; 4]) -> Option<Vec3> {
     if r.abs() <= 1e-6 && g.abs() <= 1e-6 && b.abs() <= 1e-6 {
         return None;
     }
-    Some(Vec3::new(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)))
+    Some(Vec3::new(
+        r.clamp(0.0, 1.0),
+        g.clamp(0.0, 1.0),
+        b.clamp(0.0, 1.0),
+    ))
 }
 
 /// Unpack C++ `m_hexColor` / `Create_Render_Obj` ARGB into 0..1 RGBA.
@@ -610,7 +613,6 @@ pub struct RenderItem {
     pub status_tint: [f32; 3],
     /// C++ `m_hexColor` / player indicator color applied to HOUSECOLOR / ZHC.
     pub house_color: [f32; 4],
-
 }
 
 impl RenderItem {
@@ -792,7 +794,6 @@ impl RenderItem {
             (self.material.diffuse_color.z * (1.0 - 0.35 * i) + flash_color[2] * 0.35 * i).min(1.5);
     }
 
-
     fn generate_sorting_key(render_pass: RenderPass, material_key: &str, distance: f32) -> u64 {
         // Sorting key format (64-bit):
         // Bits 56-63: Render pass (8 bits)
@@ -864,7 +865,6 @@ impl RenderItem {
         d.z = d.z * (1.0 - 0.25 * o) + HEAT[2] * 0.25 * o;
     }
 
-
     /// C++ Recolor_Vertex_Material / Recolor_Texture on HOUSECOLOR meshes and ZHC.
     /// Capture/owner change recolors because the next collect uses the new house color.
     pub fn apply_house_color_livery(&mut self, mesh_name: &str) {
@@ -897,7 +897,6 @@ impl RenderItem {
         }
     }
 
-
     /// Apply the frozen Drawable-level visual state shared by all render
     /// objects produced for one presentation unit.  Call this once while
     /// constructing each fresh source mesh or its synthetic HLOD parent; the
@@ -920,7 +919,6 @@ impl RenderItem {
             self.apply_poison_tint();
         }
     }
-
 
     #[inline]
     pub fn set_presentation_opacity(&mut self, opacity: f32) {
@@ -953,7 +951,6 @@ impl RenderItem {
         self.legacy_weapon_bone_bindings = parent.legacy_weapon_bone_bindings.clone();
         self.house_color = parent.house_color;
     }
-
 
     pub fn set_world_matrix(&mut self, matrix: Mat4) {
         self.world_matrix = matrix;
@@ -1295,10 +1292,12 @@ mod tests {
 
         let mut unsorted = frozen_mesh_ghost_frame(RenderObjectClass::Mesh, vec![33, 12]);
         unsorted.snapshots[0].parent_object_id = Some(33);
-        assert!(materialize_frozen_w3d_ghost_scene(&unsorted, |_| {
-            Some(Arc::new(W3DModel::new("GhostTank".to_string())))
-        })
-        .is_none());
+        assert!(
+            materialize_frozen_w3d_ghost_scene(&unsorted, |_| {
+                Some(Arc::new(W3DModel::new("GhostTank".to_string())))
+            })
+            .is_none()
+        );
     }
 
     #[test]
@@ -1309,36 +1308,42 @@ mod tests {
             snapshot_index: 0,
             scene_revision: 1,
         };
-        assert!(GhostRenderState::new(
-            key,
-            None,
-            "".to_string(),
-            Mat4::IDENTITY,
-            1.0,
-            0xffff_ffff,
-            false,
-        )
-        .is_none());
-        assert!(GhostRenderState::new(
-            key,
-            None,
-            "Ghost".to_string(),
-            Mat4::IDENTITY,
-            f32::NAN,
-            0xffff_ffff,
-            false,
-        )
-        .is_none());
-        assert!(GhostRenderState::new(
-            key,
-            None,
-            "Ghost".to_string(),
-            Mat4::from_cols_array(&[f32::NAN; 16]),
-            1.0,
-            0xffff_ffff,
-            false,
-        )
-        .is_none());
+        assert!(
+            GhostRenderState::new(
+                key,
+                None,
+                "".to_string(),
+                Mat4::IDENTITY,
+                1.0,
+                0xffff_ffff,
+                false,
+            )
+            .is_none()
+        );
+        assert!(
+            GhostRenderState::new(
+                key,
+                None,
+                "Ghost".to_string(),
+                Mat4::IDENTITY,
+                f32::NAN,
+                0xffff_ffff,
+                false,
+            )
+            .is_none()
+        );
+        assert!(
+            GhostRenderState::new(
+                key,
+                None,
+                "Ghost".to_string(),
+                Mat4::from_cols_array(&[f32::NAN; 16]),
+                1.0,
+                0xffff_ffff,
+                false,
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -1514,5 +1519,4 @@ mod tests {
         assert!((packed[0] - 204.0 / 255.0).abs() < 1e-5);
         assert!((packed[2] - 17.0 / 255.0).abs() < 1e-5);
     }
-
 }

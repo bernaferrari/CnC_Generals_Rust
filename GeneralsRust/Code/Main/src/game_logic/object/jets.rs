@@ -464,7 +464,7 @@ impl Object {
     /// C++ `JetAIUpdate::chooseLocomotorSet`.
     fn choose_jet_locomotor_set(&mut self, set: &str) {
         use crate::game_logic::host_upgrade_module_residuals::{
-            apply_locomotor_set_kind, HostLocomotorSetKind,
+            HostLocomotorSetKind, apply_locomotor_set_kind,
         };
         let kind = if set.eq_ignore_ascii_case("SET_TAXIING") {
             HostLocomotorSetKind::Taxiing
@@ -511,7 +511,6 @@ impl Object {
         }
     }
 
-
     pub fn jet_lockon_time_frames(&self) -> u32 {
         if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(&self.template_name)
         {
@@ -546,17 +545,16 @@ impl Object {
         }
         self.jet_ai.allow_interrupt_for_reload = allow;
         if allow {
-            self.jet_ai.pending_resume = if self.hunting
-                || matches!(self.ai_state, AIState::Patrolling)
-            {
-                HostJetPendingResume::Hunt
-            } else if matches!(self.ai_state, AIState::GuardingObject) {
-                HostJetPendingResume::GuardObject
-            } else if matches!(self.ai_state, AIState::GuardRetaliating) {
-                HostJetPendingResume::GuardRetaliate
-            } else {
-                HostJetPendingResume::GuardArea
-            };
+            self.jet_ai.pending_resume =
+                if self.hunting || matches!(self.ai_state, AIState::Patrolling) {
+                    HostJetPendingResume::Hunt
+                } else if matches!(self.ai_state, AIState::GuardingObject) {
+                    HostJetPendingResume::GuardObject
+                } else if matches!(self.ai_state, AIState::GuardRetaliating) {
+                    HostJetPendingResume::GuardRetaliate
+                } else {
+                    HostJetPendingResume::GuardArea
+                };
         } else if !self.jet_ai.has_pending_command {
             self.jet_ai.pending_resume = HostJetPendingResume::None;
         }
@@ -597,7 +595,12 @@ impl Object {
                     self.jet_ai.untargetable_expire_frame = now.saturating_add(lockon_time);
                 }
             }
-        } else if let Some(pos) = self.jet_ai.targeted_by.iter().position(|entry| *entry == id) {
+        } else if let Some(pos) = self
+            .jet_ai
+            .targeted_by
+            .iter()
+            .position(|entry| *entry == id)
+        {
             self.jet_ai.targeted_by.remove(pos);
             if self.jet_ai.targeted_by.is_empty() {
                 self.jet_ai.untargetable_expire_frame = 0;
@@ -692,7 +695,8 @@ impl Object {
         self.jet_ai.takeoff_in_progress = true;
         self.jet_ai.takeoff_pause_armed = true;
         self.jet_ai.takeoff_pause_until = now.saturating_add(self.jet_takeoff_pause_frames());
-        self.jet_ai.takeoff_pause_transfer = now.saturating_add(if waited_for_taxi { 2 } else { 1 });
+        self.jet_ai.takeoff_pause_transfer =
+            now.saturating_add(if waited_for_taxi { 2 } else { 1 });
         if self.jet_ai.takeoff_max_lift <= 0.0 {
             self.jet_ai.takeoff_max_lift = self.max_lift.max(self.get_max_lift());
         }
@@ -724,7 +728,6 @@ impl Object {
         };
         let end = Vec3::new(end[0], end[1], end[2]);
         let pos = self.get_position();
-
 
         let dist = (end - pos).length();
         let mut ratio = 1.0 - (dist / self.jet_ai.takeoff_runway_dist.max(1.0));
@@ -816,7 +819,6 @@ impl Object {
             return JetAiTickAction::None;
         }
 
-
         let idle = matches!(self.ai_state, AIState::Idle)
             && self.target.is_none()
             && !self.hunting
@@ -851,17 +853,16 @@ impl Object {
         if self.jet_ai.allow_interrupt_for_reload && self.needs_return_to_base_rearm() {
             self.jet_ai.has_pending_command = true;
             if self.jet_ai.pending_resume == HostJetPendingResume::None {
-                self.jet_ai.pending_resume = if self.hunting
-                    || matches!(self.ai_state, AIState::Patrolling)
-                {
-                    HostJetPendingResume::Hunt
-                } else if matches!(self.ai_state, AIState::GuardingObject) {
-                    HostJetPendingResume::GuardObject
-                } else if matches!(self.ai_state, AIState::GuardRetaliating) {
-                    HostJetPendingResume::GuardRetaliate
-                } else {
-                    HostJetPendingResume::GuardArea
-                };
+                self.jet_ai.pending_resume =
+                    if self.hunting || matches!(self.ai_state, AIState::Patrolling) {
+                        HostJetPendingResume::Hunt
+                    } else if matches!(self.ai_state, AIState::GuardingObject) {
+                        HostJetPendingResume::GuardObject
+                    } else if matches!(self.ai_state, AIState::GuardRetaliating) {
+                        HostJetPendingResume::GuardRetaliate
+                    } else {
+                        HostJetPendingResume::GuardArea
+                    };
             }
             self.jet_ai.allow_interrupt_for_reload = false;
             return JetAiTickAction::ReturnToBase;

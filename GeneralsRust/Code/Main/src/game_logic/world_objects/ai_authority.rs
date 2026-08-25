@@ -49,8 +49,7 @@ impl GameLogic {
                     .and_then(|o| o.owner_player_id)
                     .and_then(|pid| self.players.get(&pid).map(|p| p.is_local))
                     .unwrap_or(false);
-                if let Some(enemy_id) =
-                    self.get_next_mood_target(object_id, true, false, is_player)
+                if let Some(enemy_id) = self.get_next_mood_target(object_id, true, false, is_player)
                 {
                     // C++ AIAttackMoveToState::update: friend_endingMove +
                     // setGoalObject + AI_ATTACK_OBJECT. No Hold / FindNewTarget
@@ -80,12 +79,8 @@ impl GameLogic {
             return None;
         }
 
-
         // C++ AIAttackState / AIIdleState never auto-retreat on low HP.
         // Mood targeting (getNextMoodTarget) only issues aiAttackObject.
-
-
-
 
         match ai_state {
             AIState::Idle => {
@@ -114,14 +109,7 @@ impl GameLogic {
                             return Some(AICommand::StopAttack { object_id });
                         }
                         AIDecisionSystem::find_best_target(
-                            self,
-                            object_id,
-                            position,
-                            team,
-                            200.0,
-                            true,
-                            true,
-                            false,
+                            self, object_id, position, team, 200.0, true, true, false,
                         )
                         .map(|target_id| AICommand::AttackTarget {
                             object_id,
@@ -134,9 +122,7 @@ impl GameLogic {
 
             AIState::AttackMoving => None,
 
-            AIState::Moving => {
-                None
-            }
+            AIState::Moving => None,
 
             AIState::Patrolling => {
                 // C++ AIHuntState::update — map-wide seek-and-destroy.
@@ -154,9 +140,7 @@ impl GameLogic {
                             o.is_attack_path = false;
                         }
                         o.hunting = false;
-                        o.release_weapon_lock(
-                            crate::game_logic::WeaponLockType::LockedTemporarily,
-                        );
+                        o.release_weapon_lock(crate::game_logic::WeaponLockType::LockedTemporarily);
                     }
                     self.hunt_next_enemy_scan.remove(&object_id);
                     return Some(AICommand::SetAIState {
@@ -172,7 +156,6 @@ impl GameLogic {
                     let has_priority = self.attack_priority_info_for(object_id).is_some();
                     let team_victim = self.host_team_common_target(object_id);
                     let victim = if team_victim.is_some() && !has_priority {
-
                         team_victim
                     } else {
                         let mut scanned = self.find_closest_enemy(
@@ -193,18 +176,16 @@ impl GameLogic {
                                     .objects
                                     .get(&team_id)
                                     .and_then(|t| {
-                                        self.attack_priority_info_for(object_id).map(|info| {
-                                            self.attack_priority_for_target(info, t)
-                                        })
+                                        self.attack_priority_info_for(object_id)
+                                            .map(|info| self.attack_priority_for_target(info, t))
                                     })
                                     .unwrap_or(0);
                                 let scan_pri = self
                                     .objects
                                     .get(&scanned_id)
                                     .and_then(|t| {
-                                        self.attack_priority_info_for(object_id).map(|info| {
-                                            self.attack_priority_for_target(info, t)
-                                        })
+                                        self.attack_priority_info_for(object_id)
+                                            .map(|info| self.attack_priority_for_target(info, t))
                                     })
                                     .unwrap_or(0);
                                 if team_pri >= scan_pri {
@@ -253,7 +234,6 @@ impl GameLogic {
                 }
                 None
             }
-
 
             AIState::GuardingArea | AIState::GuardingObject => {
                 // Guarding states are resolved in update_support_states() where guard anchors/radii
@@ -429,7 +409,6 @@ impl GameLogic {
         };
         !u.tick_face_towards(target_pos, dt, frame)
     }
-
 
     /// Apply AI command to the game state
     /// Engage a target, honoring AI decision authority (log-only when GameWorld applies).
@@ -703,7 +682,6 @@ impl GameLogic {
                     .and_then(|attacker| attacker.weapon_name_for_slot(slot))
                     .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
                     .unwrap_or(false),
-
             });
         }
 
@@ -1172,7 +1150,6 @@ mod hq_m6gcj_tests {
         );
     }
 
-
     #[test]
     fn attack_moving_jet_out_of_special_reload_ammo_returns_to_base() {
         let mut logic = GameLogic::new();
@@ -1354,8 +1331,12 @@ mod hq_m6gcj_tests {
     #[test]
     fn attack_move_mood_target_skips_should_attack_hold() {
         let mut logic = GameLogic::new();
-        logic.objects.insert(ObjectId(1), attack_move_unit(1, Vec3::new(400.0, 0.0, 0.0)));
-        logic.objects.insert(ObjectId(2), attack_move_enemy(2, Vec3::new(90.0, 0.0, 0.0)));
+        logic
+            .objects
+            .insert(ObjectId(1), attack_move_unit(1, Vec3::new(400.0, 0.0, 0.0)));
+        logic
+            .objects
+            .insert(ObjectId(2), attack_move_enemy(2, Vec3::new(90.0, 0.0, 0.0)));
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::AttackMoving,
@@ -1394,7 +1375,10 @@ mod hq_m6gcj_tests {
             21,
             1.0 / 30.0,
         );
-        assert!(command.is_none(), "sleep start is CONTINUE; got {command:?}");
+        assert!(
+            command.is_none(),
+            "sleep start is CONTINUE; got {command:?}"
+        );
         let unit = logic.objects.get(&ObjectId(1)).expect("unit");
         assert_eq!(unit.attack_move_retry_count, 4);
         assert_eq!(unit.attack_move_sleep_until, 111);
@@ -1469,7 +1453,9 @@ mod hq_m6gcj_tests {
         unit.attack_move_sleep_until = 200;
         unit.attack_move_retry_count = 3;
         logic.objects.insert(ObjectId(1), unit);
-        logic.objects.insert(ObjectId(2), attack_move_enemy(2, Vec3::new(40.0, 0.0, 0.0)));
+        logic
+            .objects
+            .insert(ObjectId(2), attack_move_enemy(2, Vec3::new(40.0, 0.0, 0.0)));
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::AttackMoving,
@@ -1619,10 +1605,9 @@ mod hq_m6gcj_tests {
         });
         logic.objects.insert(due.id, due);
         logic.objects.insert(waiting.id, waiting);
-        logic.objects.insert(
-            ObjectId(3),
-            attack_move_enemy(3, Vec3::new(80.0, 0.0, 0.0)),
-        );
+        logic
+            .objects
+            .insert(ObjectId(3), attack_move_enemy(3, Vec3::new(80.0, 0.0, 0.0)));
         // Frame 31 is not a multiple of 30. Old lockstep would skip both.
         logic.hunt_next_enemy_scan.insert(ObjectId(1), 31);
         logic.hunt_next_enemy_scan.insert(ObjectId(2), 50);
@@ -1666,8 +1651,4 @@ mod hq_m6gcj_tests {
             "after a scan, next time is now + ENEMY_SCAN_RATE"
         );
     }
-
-
-
-
 }

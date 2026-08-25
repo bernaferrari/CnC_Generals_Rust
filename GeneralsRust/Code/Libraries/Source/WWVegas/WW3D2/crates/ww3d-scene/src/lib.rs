@@ -54,12 +54,11 @@ pub use culling::{AABTree, AABTreeNode, AABox, Frustum, Plane, PlaneSide, Ray, S
 pub use fog::FogSettings;
 pub use htree::{Animation, AnimationCombo, HTree, HTreeManager, Pivot};
 pub use layer::{Layer, LayerManager};
-pub use light::{get_lighting_lod_cutoff, set_lighting_lod_cutoff};
 pub use light::{Light, LightEnvironment, LightFlags, LightType, MAX_LIGHTS};
+pub use light::{get_lighting_lod_cutoff, set_lighting_lod_cutoff};
 pub use lod::{
-    calculate_hlod_screen_area, optimize_prepared_hlods, DistLod, DistLodNode, HLod,
-    HLodScreenAreaInput, LodLevel, ModelNode, Proxy, SnapPoint, AT_MAX_LOD, AT_MIN_LOD,
-    NO_MAX_SCREEN_SIZE,
+    AT_MAX_LOD, AT_MIN_LOD, DistLod, DistLodNode, HLod, HLodScreenAreaInput, LodLevel, ModelNode,
+    NO_MAX_SCREEN_SIZE, Proxy, SnapPoint, calculate_hlod_screen_area, optimize_prepared_hlods,
 };
 pub use npatch::{
     NPatchConfig, NPatchTessellator, NPatchVertex, SubdividedMesh, TessellationLevel,

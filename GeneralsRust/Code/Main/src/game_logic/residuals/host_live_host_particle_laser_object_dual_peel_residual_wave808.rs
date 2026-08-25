@@ -55,8 +55,8 @@ fn residual_action_store(a: ResidualHostParticleLaserObjectDualPeelAction) {
 pub fn residual_host_particle_laser_object_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_particle_laser_object_dual_peel_last_action(
-) -> ResidualHostParticleLaserObjectDualPeelAction {
+pub fn residual_host_particle_laser_object_dual_peel_last_action()
+-> ResidualHostParticleLaserObjectDualPeelAction {
     ResidualHostParticleLaserObjectDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {

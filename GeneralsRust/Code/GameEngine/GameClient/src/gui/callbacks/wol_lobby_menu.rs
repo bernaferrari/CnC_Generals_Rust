@@ -7,19 +7,19 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::game_text::GameText;
+use crate::gamespy_overlay::{
+    GameSpyOverlayType, close_all_overlays, close_overlay, gs_message_box_ok, open_overlay,
+    raise_gs_message_box, toggle_overlay,
+};
 use crate::gui::callbacks::online_callback_support::{
     dispatch_esc_gadget_selected, mapped_image_size, packed_ui_color,
-};
-use crate::gamespy_overlay::{
-    close_all_overlays, close_overlay, gs_message_box_ok, open_overlay, raise_gs_message_box,
-    toggle_overlay, GameSpyOverlayType,
 };
 use crate::gui::callbacks::wol_buddy_overlay::handle_buddy_responses;
 use crate::gui::gadgets::{ComboBoxItem, ListBoxItemData, ListBoxRightClick};
 use crate::gui::menu_flags::set_dont_show_main_menu;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowWidget,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
+    get_shell, with_window_manager,
 };
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::ascii_string::AsciiString;
@@ -29,14 +29,14 @@ use game_engine::common::preferences::CustomMatchPreferences;
 use game_network::gamespy::config::GameSpyConfig;
 use game_network::gamespy::ladder_defs::get_ladder_list;
 use game_network::gamespy::peer_defs::{
-    default_gamespy_colors, get_gamespy_info, GameSpyColor, GameSpyStagingRoom, PlayerInfo,
+    GameSpyColor, GameSpyStagingRoom, PlayerInfo, default_gamespy_colors, get_gamespy_info,
 };
 use game_network::gamespy::peer_thread::{
-    get_peer_message_queue, PeerRequest, PeerRequestType, PeerResponse, PeerResponseType,
+    PeerRequest, PeerRequestType, PeerResponse, PeerResponseType, get_peer_message_queue,
 };
-use game_network::gamespy::persistent_storage_thread::{get_ps_message_queue, PSResponseType};
+use game_network::gamespy::persistent_storage_thread::{PSResponseType, get_ps_message_queue};
 use game_network::rank_point_value::{calculate_rank, get_favorite_side, get_rank_point_values};
-use game_network::{SlotState, MAX_SLOTS};
+use game_network::{MAX_SLOTS, SlotState};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -199,23 +199,24 @@ fn handle_lobby_slash_commands(message: &str, listbox_id: i32) -> bool {
                 .unwrap_or(0);
             let msg = format!("Hosting qr2:{} thread:{}", hosting, hosting);
             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                info.add_text(
-                    msg,
-                    default_gamespy_colors()[GameSpyColor::Default as usize],
-                    None,
-                );
+                if let Ok(mut info) = slot.lock() {
+                    info.add_text(
+                        msg,
+                        default_gamespy_colors()[GameSpyColor::Default as usize],
+                        None,
+                    );
+                }
             }
-}
             true
         }
         "me" => {
             if !remainder.is_empty() {
                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                    let _ = info.send_chat(remainder.to_string(), true, Some(listbox_id as u32));
+                    if let Ok(mut info) = slot.lock() {
+                        let _ =
+                            info.send_chat(remainder.to_string(), true, Some(listbox_id as u32));
+                    }
                 }
-}
                 return true;
             }
             false
@@ -328,7 +329,7 @@ fn insert_player_in_listbox(
 pub fn populate_lobby_player_listbox() {
     let (listbox_id, listbox_window) = {
         let state_slot = wol_state();
-    let state = state_slot.borrow_mut();
+        let state = state_slot.borrow_mut();
         (
             state.listbox_lobby_players_id,
             state.listbox_lobby_players.clone(),
@@ -357,7 +358,8 @@ pub fn populate_lobby_player_listbox() {
 
     let Some((players, buddy_ids, ignored_ids, ignored_names)) =
         crate::gui::callbacks::online_callback_support::with_gamespy_info(|gs_info| {
-            let players: Vec<PlayerInfo> = gs_info.get_player_info_map().values().cloned().collect();
+            let players: Vec<PlayerInfo> =
+                gs_info.get_player_info_map().values().cloned().collect();
             let buddy_ids: HashSet<i32> = gs_info.get_buddy_map().keys().copied().collect();
             let ignored_ids: HashSet<i32> = players
                 .iter()
@@ -466,25 +468,25 @@ fn populate_group_room_listbox(combo_window: &Rc<RefCell<GameWindow>>) {
     let mut index_to_select = None;
     let mut index = 0usize;
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-        for room in info.get_group_room_list().values() {
-            if room.group_id == qm_channel {
-                continue;
+        if let Ok(mut info) = slot.lock() {
+            for room in info.get_group_room_list().values() {
+                if room.group_id == qm_channel {
+                    continue;
+                }
+                let text = if !room.translated_name.is_empty() {
+                    room.translated_name.clone()
+                } else {
+                    room.name.as_str().to_string()
+                };
+                let item = ComboBoxItem::new(room.group_id as u32, text).with_data(room.group_id);
+                combo.add_item(item);
+                if room.group_id == current_room {
+                    index_to_select = Some(index);
+                }
+                index += 1;
             }
-            let text = if !room.translated_name.is_empty() {
-                room.translated_name.clone()
-            } else {
-                room.name.as_str().to_string()
-            };
-            let item = ComboBoxItem::new(room.group_id as u32, text).with_data(room.group_id);
-            combo.add_item(item);
-            if room.group_id == current_room {
-                index_to_select = Some(index);
-            }
-            index += 1;
         }
     }
-}
 
     if let Some(index) = index_to_select {
         let _ = combo.select_index(index);
@@ -510,7 +512,7 @@ fn refresh_game_list(force_refresh: bool) {
             drop(state);
             refresh_game_list_boxes();
             let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             state.game_list_refresh_time = now;
         }
     }
@@ -527,7 +529,7 @@ fn refresh_player_list(force_refresh: bool) {
         drop(state);
         populate_lobby_player_listbox();
         let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.player_list_refresh_time = now;
     }
 }
@@ -624,8 +626,14 @@ pub fn refresh_game_list_boxes() {
         })
         .map(|buddy| buddy.location_string.to_lowercase())
         .collect();
-    let sort_type = { let slot = wol_state(); slot.borrow().sort_type };
-    let sort_buddies = { let slot = wol_state(); slot.borrow().sort_buddies };
+    let sort_type = {
+        let slot = wol_state();
+        slot.borrow().sort_type
+    };
+    let sort_buddies = {
+        let slot = wol_state();
+        slot.borrow().sort_buddies
+    };
     let ladder_arc = get_ladder_list();
     let ladder_list = ladder_arc.as_ref().and_then(|list| list.read().ok());
     rooms.sort_by(|a, b| {
@@ -717,7 +725,7 @@ pub fn refresh_game_list_boxes() {
         } else if non_obs == room.max_players || room.num_players == MAX_SLOTS as i32 {
             color = default_gamespy_colors()[GameSpyColor::GameFull as usize];
         }
-    let index = listbox.add_item_with_color(&name, packed_ui_color(color));
+        let index = listbox.add_item_with_color(&name, packed_ui_color(color));
         let _ = listbox.set_item_data(index, Some(ListBoxItemData::Integer(room.id)));
 
         if show_map {
@@ -890,14 +898,14 @@ fn set_unignore_text(layout: &WindowLayout, nick: &AsciiString, profile_id: i32)
     };
 
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-        if info.is_saved_ignored(profile_id) || info.is_ignored(nick.clone()) {
-            let _ = window
-                .borrow_mut()
-                .set_text(&GameText::fetch("GUI:Unignore"));
+        if let Ok(mut info) = slot.lock() {
+            if info.is_saved_ignored(profile_id) || info.is_ignored(nick.clone()) {
+                let _ = window
+                    .borrow_mut()
+                    .set_text(&GameText::fetch("GUI:Unignore"));
+            }
         }
     }
-}
 }
 
 fn close_right_click_menu(window: &GameWindow) {
@@ -976,10 +984,10 @@ pub fn wol_lobby_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     }
 
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-        info.register_text_window(state.listbox_lobby_chat_id as u32);
+        if let Ok(mut info) = slot.lock() {
+            info.register_text_window(state.listbox_lobby_chat_id as u32);
+        }
     }
-}
 
     if let Some(entry) = state.text_entry_chat.as_ref() {
         if let Some(widget) = entry.borrow_mut().text_entry_mut() {
@@ -1000,23 +1008,23 @@ pub fn wol_lobby_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     layout.hide(false);
 
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-        if info.get_current_group_room() == 0 {
-            if state.group_room_to_join != 0 {
-                info.join_group_room(state.group_room_to_join);
-                state.group_room_to_join = 0;
-            } else {
-                info.join_best_group_room();
+        if let Ok(mut info) = slot.lock() {
+            if info.get_current_group_room() == 0 {
+                if state.group_room_to_join != 0 {
+                    info.join_group_room(state.group_room_to_join);
+                    state.group_room_to_join = 0;
+                } else {
+                    info.join_best_group_room();
+                }
             }
         }
     }
-}
 
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-        info.clear_staging_room_list();
+        if let Ok(mut info) = slot.lock() {
+            info.clear_staging_room_list();
+        }
     }
-}
     let mut req = PeerRequest::default();
     req.request_type = PeerRequestType::StartGameList;
     req.restrict_game_list = GameSpyConfig::new_sync().restrict_games_to_lobby();
@@ -1074,10 +1082,10 @@ pub fn wol_lobby_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     prefs.write();
 
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-        info.unregister_text_window(name_to_id("WOLCustomLobby.wnd:ListboxChat") as u32);
+        if let Ok(mut info) = slot.lock() {
+            info.unregister_text_window(name_to_id("WOLCustomLobby.wnd:ListboxChat") as u32);
+        }
     }
-}
 
     let mut req = PeerRequest::default();
     req.request_type = PeerRequestType::StopGameList;
@@ -1227,30 +1235,32 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                             saw_important = true;
                             if resp.join_group_ok {
                                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                    info.set_current_group_room(resp.group_room_id);
-                                    info.clear_player_info();
-                                    if let Some(room) =
-                                        info.get_group_room_list().get(&resp.group_room_id)
-                                    {
-                                        let msg = GameText::fetch("GUI:LobbyJoined")
-                                            .replace("%s", room.translated_name.as_str());
-                                        info.add_text(
-                                            msg,
-                                            default_gamespy_colors()
-                                                [GameSpyColor::Default as usize],
-                                            None,
-                                        );
+                                    if let Ok(mut info) = slot.lock() {
+                                        info.set_current_group_room(resp.group_room_id);
+                                        info.clear_player_info();
+                                        if let Some(room) =
+                                            info.get_group_room_list().get(&resp.group_room_id)
+                                        {
+                                            let msg = GameText::fetch("GUI:LobbyJoined")
+                                                .replace("%s", room.translated_name.as_str());
+                                            info.add_text(
+                                                msg,
+                                                default_gamespy_colors()
+                                                    [GameSpyColor::Default as usize],
+                                                None,
+                                            );
+                                        }
                                     }
                                 }
-}
                             } else if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                info.join_best_group_room();
+                                if let Ok(mut info) = slot.lock() {
+                                    info.join_best_group_room();
+                                }
                             }
-}
-                            if let Some(combo) = { let slot = wol_state(); slot.borrow().combo_lobby_group_rooms.clone() }
-                            {
+                            if let Some(combo) = {
+                                let slot = wol_state();
+                                slot.borrow().combo_lobby_group_rooms.clone()
+                            } {
                                 populate_group_room_listbox(&combo);
                             }
                             refresh_player_list(true);
@@ -1259,48 +1269,52 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                         | PeerResponseType::PlayerChangedNick
                         | PeerResponseType::PlayerInfo => {
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                let player = fill_player_info(&resp);
-                                let old =
-                                    if matches!(resp.response_type, PeerResponseType::PlayerChangedNick) {
+                                if let Ok(mut info) = slot.lock() {
+                                    let player = fill_player_info(&resp);
+                                    let old = if matches!(
+                                        resp.response_type,
+                                        PeerResponseType::PlayerChangedNick
+                                    ) {
                                         Some(AsciiString::from(resp.old_nick.as_str()))
                                     } else {
                                         None
                                     };
-                                info.update_player_info(player, old);
+                                    info.update_player_info(player, old);
+                                }
                             }
-}
                         }
                         PeerResponseType::PlayerJoin => {
                             if resp.player_room_type == ROOM_TYPE_GROUP {
                                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                    let player = fill_player_info(&resp);
-                                    info.update_player_info(player, None);
+                                    if let Ok(mut info) = slot.lock() {
+                                        let player = fill_player_info(&resp);
+                                        info.update_player_info(player, None);
+                                    }
                                 }
-}
                             }
                         }
                         PeerResponseType::PlayerLeft => {
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                info.player_left_group_room(AsciiString::from(resp.nick.as_str()));
+                                if let Ok(mut info) = slot.lock() {
+                                    info.player_left_group_room(AsciiString::from(
+                                        resp.nick.as_str(),
+                                    ));
+                                }
                             }
-}
                         }
                         PeerResponseType::Message => {
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                info.add_chat(
-                                    AsciiString::from(resp.nick.as_str()),
-                                    resp.message_profile_id,
-                                    resp.text.clone(),
-                                    !resp.message_is_private,
-                                    resp.message_is_action,
-                                    Some(name_to_id("WOLCustomLobby.wnd:ListboxChat") as u32),
-                                );
+                                if let Ok(mut info) = slot.lock() {
+                                    info.add_chat(
+                                        AsciiString::from(resp.nick.as_str()),
+                                        resp.message_profile_id,
+                                        resp.text.clone(),
+                                        !resp.message_is_private,
+                                        resp.message_is_action,
+                                        Some(name_to_id("WOLCustomLobby.wnd:ListboxChat") as u32),
+                                    );
+                                }
                             }
-}
                         }
                         PeerResponseType::Disconnect => {
                             saw_important = true;
@@ -1313,16 +1327,16 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                             );
                             close_all_overlays();
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                info.reset();
+                                if let Ok(mut info) = slot.lock() {
+                                    info.reset();
+                                }
                             }
-}
                             let _ = get_shell().pop();
                         }
                         PeerResponseType::CreateStagingRoom => {
                             saw_important = true;
                             let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                            let mut state = state_slot.borrow_mut();
                             state.trying_to_host_or_join = false;
                             if resp.create_staging_result == 0 {
                                 state.button_pushed = true;
@@ -1330,16 +1344,16 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                                     Some("Menus/GameSpyGameOptionsMenu.wnd".to_string());
                                 let _ = get_shell().pop();
                                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                    info.mark_as_staging_room_host();
+                                    if let Ok(mut info) = slot.lock() {
+                                        info.mark_as_staging_room_host();
+                                    }
                                 }
-}
                             }
                         }
                         PeerResponseType::JoinStagingRoom => {
                             saw_important = true;
                             let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                            let mut state = state_slot.borrow_mut();
                             state.trying_to_host_or_join = false;
                             if resp.join_staging_ok {
                                 state.button_pushed = true;
@@ -1357,59 +1371,59 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
                         }
                         PeerResponseType::StagingRoomListComplete => {
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                info.saw_full_game_list();
+                                if let Ok(mut info) = slot.lock() {
+                                    info.saw_full_game_list();
+                                }
                             }
-}
                         }
                         PeerResponseType::StagingRoom => {
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                let mut room = GameSpyStagingRoom::default();
-                                room.id = resp.staging_id;
-                                room.name = resp.staging_server_name.clone();
-                                room.map_name =
-                                    AsciiString::from(resp.staging_room_map_name.as_str());
-                                room.has_password = resp.staging_requires_password;
-                                room.allow_observers = resp.staging_allow_observers;
-                                room.use_stats = resp.staging_use_stats;
-                                room.exe_crc = resp.staging_exe_crc;
-                                room.ini_crc = resp.staging_ini_crc;
-                                room.version = resp.staging_version;
-                                room.ladder_ip =
-                                    AsciiString::from(resp.staging_server_ladder_ip.as_str());
-                                room.ladder_port = resp.staging_ladder_port;
-                                room.num_players = resp.staging_num_players;
-                                room.max_players = resp.staging_max_players;
-                                room.num_observers = resp.staging_num_observers;
-                                room.host_ping =
-                                    AsciiString::from(resp.staging_server_ping_string.as_str());
-                                room.ping_string =
-                                    AsciiString::from(resp.staging_server_ping_string.as_str());
-                                for i in 0..MAX_SLOTS {
-                                    room.player_names[i] = AsciiString::from(
-                                        resp.staging_room_player_names[i].as_str(),
-                                    );
-                                    room.slot_profiles[i] = resp.staging_profiles[i];
-                                    room.slot_wins[i] = resp.staging_wins[i];
-                                    room.slot_losses[i] = resp.staging_losses[i];
-                                    room.slot_faction[i] = resp.staging_faction[i];
-                                    room.slot_color[i] = resp.staging_color[i];
-                                }
+                                if let Ok(mut info) = slot.lock() {
+                                    let mut room = GameSpyStagingRoom::default();
+                                    room.id = resp.staging_id;
+                                    room.name = resp.staging_server_name.clone();
+                                    room.map_name =
+                                        AsciiString::from(resp.staging_room_map_name.as_str());
+                                    room.has_password = resp.staging_requires_password;
+                                    room.allow_observers = resp.staging_allow_observers;
+                                    room.use_stats = resp.staging_use_stats;
+                                    room.exe_crc = resp.staging_exe_crc;
+                                    room.ini_crc = resp.staging_ini_crc;
+                                    room.version = resp.staging_version;
+                                    room.ladder_ip =
+                                        AsciiString::from(resp.staging_server_ladder_ip.as_str());
+                                    room.ladder_port = resp.staging_ladder_port;
+                                    room.num_players = resp.staging_num_players;
+                                    room.max_players = resp.staging_max_players;
+                                    room.num_observers = resp.staging_num_observers;
+                                    room.host_ping =
+                                        AsciiString::from(resp.staging_server_ping_string.as_str());
+                                    room.ping_string =
+                                        AsciiString::from(resp.staging_server_ping_string.as_str());
+                                    for i in 0..MAX_SLOTS {
+                                        room.player_names[i] = AsciiString::from(
+                                            resp.staging_room_player_names[i].as_str(),
+                                        );
+                                        room.slot_profiles[i] = resp.staging_profiles[i];
+                                        room.slot_wins[i] = resp.staging_wins[i];
+                                        room.slot_losses[i] = resp.staging_losses[i];
+                                        room.slot_faction[i] = resp.staging_faction[i];
+                                        room.slot_color[i] = resp.staging_color[i];
+                                    }
 
-                                if resp.staging_action == 0 {
-                                    info.clear_staging_room_list();
-                                } else {
-                                    if resp.staging_action == 2 {
-                                        info.update_staging_room(room);
-                                    } else if resp.staging_action == 3 {
-                                        info.remove_staging_room(&room);
+                                    if resp.staging_action == 0 {
+                                        info.clear_staging_room_list();
                                     } else {
-                                        info.add_staging_room(room);
+                                        if resp.staging_action == 2 {
+                                            info.update_staging_room(room);
+                                        } else if resp.staging_action == 3 {
+                                            info.remove_staging_room(&room);
+                                        } else {
+                                            info.add_staging_room(room);
+                                        }
                                     }
                                 }
                             }
-}
                         }
                         _ => {}
                     }
@@ -1447,10 +1461,10 @@ fn flush_gamespy_chat_entries() {
     };
     let mut entries = None;
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-        entries = Some(info.drain_chat_entries());
+        if let Ok(mut info) = slot.lock() {
+            entries = Some(info.drain_chat_entries());
+        }
     }
-}
     let Some(mut entries) = entries else {
         return;
     };
@@ -1724,7 +1738,7 @@ pub fn wol_lobby_menu_system(
             let control_id = data1 as i32;
             if control_id == get_game_list_box_id() {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 let selected = get_game_list_box().and_then(|win| {
                     win.borrow().widget().and_then(|widget| match widget {
                         WindowWidget::ListBox(lb) => lb.selected_indices().first().copied(),
@@ -1745,33 +1759,35 @@ pub fn wol_lobby_menu_system(
                     refresh_game_info_list_box(&*game_list_ref, &info_list);
                 }
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ComboBoxGroupRooms") {
-                if let Some(combo) = { let slot = wol_state(); slot.borrow().combo_lobby_group_rooms.clone() }
-                {
+                if let Some(combo) = {
+                    let slot = wol_state();
+                    slot.borrow().combo_lobby_group_rooms.clone()
+                } {
                     let selected = combo.borrow().widget().and_then(|widget| match widget {
                         WindowWidget::ComboBox(cb) => cb.selected_item_data(),
                         _ => None,
                     });
                     if let Some(group_id) = selected {
                         if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                            if group_id != info.get_current_group_room() {
-                                info.leave_group_room();
-                                info.join_group_room(group_id);
-                                if GameSpyConfig::new_sync().restrict_games_to_lobby() {
-                                    info.clear_staging_room_list();
-                                    refresh_game_list_boxes();
-                                    let mut req = PeerRequest::default();
-                                    req.request_type = PeerRequestType::StartGameList;
-                                    req.restrict_game_list = true;
-                                    if let Some(queue) = get_peer_message_queue() {
-                                        if let Ok(mut queue) = queue.lock() {
-                                            queue.add_request(req);
+                            if let Ok(mut info) = slot.lock() {
+                                if group_id != info.get_current_group_room() {
+                                    info.leave_group_room();
+                                    info.join_group_room(group_id);
+                                    if GameSpyConfig::new_sync().restrict_games_to_lobby() {
+                                        info.clear_staging_room_list();
+                                        refresh_game_list_boxes();
+                                        let mut req = PeerRequest::default();
+                                        req.request_type = PeerRequestType::StartGameList;
+                                        req.restrict_game_list = true;
+                                        if let Some(queue) = get_peer_message_queue() {
+                                            if let Ok(mut queue) = queue.lock() {
+                                                queue.add_request(req);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-}
                     }
                 }
             }
@@ -1789,15 +1805,15 @@ pub fn wol_lobby_menu_system(
             };
             if control_id == name_to_id("WOLCustomLobby.wnd:ButtonBack") {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
                 }
                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                    info.leave_group_room();
+                    if let Ok(mut info) = slot.lock() {
+                        info.leave_group_room();
+                    }
                 }
-}
                 state.trying_to_host_or_join = true;
                 state.button_pushed = true;
                 state.next_screen = Some("Menus/WOLWelcomeMenu.wnd".to_string());
@@ -1807,7 +1823,7 @@ pub fn wol_lobby_menu_system(
                 refresh_player_list(true);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonHost") {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
                 }
@@ -1819,7 +1835,7 @@ pub fn wol_lobby_menu_system(
                 open_overlay(GameSpyOverlayType::GameOptions);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonJoin") {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
                 }
@@ -1872,47 +1888,50 @@ pub fn wol_lobby_menu_system(
                     return WindowMsgHandled::Handled;
                 }
                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                    let room = info.find_staging_room_by_id(id).cloned();
-                    if let Some(room) = room {
-                        if let Some((exe_crc, ini_crc)) = get_global_data().map(|data| { let guard = data.read(); (guard.exe_crc, guard.ini_crc) }) {
-                            if room.exe_crc != exe_crc || room.ini_crc != ini_crc {
-                                gs_message_box_ok(
-                                    &GameText::fetch("GUI:JoinFailedDefault"),
-                                    &GameText::fetch("GUI:JoinFailedCRCMismatch"),
-                                    None,
-                                );
-                                return WindowMsgHandled::Handled;
+                    if let Ok(mut info) = slot.lock() {
+                        let room = info.find_staging_room_by_id(id).cloned();
+                        if let Some(room) = room {
+                            if let Some((exe_crc, ini_crc)) = get_global_data().map(|data| {
+                                let guard = data.read();
+                                (guard.exe_crc, guard.ini_crc)
+                            }) {
+                                if room.exe_crc != exe_crc || room.ini_crc != ini_crc {
+                                    gs_message_box_ok(
+                                        &GameText::fetch("GUI:JoinFailedDefault"),
+                                        &GameText::fetch("GUI:JoinFailedCRCMismatch"),
+                                        None,
+                                    );
+                                    return WindowMsgHandled::Handled;
+                                }
                             }
-                        }
-                        info.mark_as_staging_room_joiner(id);
-                        state.trying_to_host_or_join = true;
-                        if room.has_password {
-                            open_overlay(GameSpyOverlayType::GamePassword);
-                        } else {
-                            let mut req = PeerRequest::default();
-                            req.request_type = PeerRequestType::JoinStagingRoom;
-                            req.text = room.name.clone();
-                            req.staging_room_id = id;
-                            req.password = String::new();
-                            if let Some(queue) = get_peer_message_queue() {
-                                if let Ok(mut queue) = queue.lock() {
-                                    queue.add_request(req);
+                            info.mark_as_staging_room_joiner(id);
+                            state.trying_to_host_or_join = true;
+                            if room.has_password {
+                                open_overlay(GameSpyOverlayType::GamePassword);
+                            } else {
+                                let mut req = PeerRequest::default();
+                                req.request_type = PeerRequestType::JoinStagingRoom;
+                                req.text = room.name.clone();
+                                req.staging_room_id = id;
+                                req.password = String::new();
+                                if let Some(queue) = get_peer_message_queue() {
+                                    if let Ok(mut queue) = queue.lock() {
+                                        queue.add_request(req);
+                                    }
                                 }
                             }
                         }
                     }
                 }
-}
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonBuddy") {
                 toggle_overlay(GameSpyOverlayType::Buddy);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonGameListToggle") {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 toggle_game_list_type(&mut state);
             } else if control_id == sort_alpha_id {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 if state.sort_type == GameSortType::AlphaAscending {
                     set_sort_mode(&mut state, GameSortType::AlphaDescending);
                 } else {
@@ -1920,7 +1939,7 @@ pub fn wol_lobby_menu_system(
                 }
             } else if control_id == sort_ping_id {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 if state.sort_type == GameSortType::PingAscending {
                     set_sort_mode(&mut state, GameSortType::PingDescending);
                 } else {
@@ -1928,21 +1947,26 @@ pub fn wol_lobby_menu_system(
                 }
             } else if control_id == sort_buddies_id {
                 let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+                let mut state = state_slot.borrow_mut();
                 toggle_sort_buddies(&mut state);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonEmote") {
-                if let Some(entry) = { let slot = wol_state(); slot.borrow().text_entry_chat.clone() }
-                {
-                    let listbox_id = { let slot = wol_state(); slot.borrow().listbox_lobby_players_id as u32 };
+                if let Some(entry) = {
+                    let slot = wol_state();
+                    slot.borrow().text_entry_chat.clone()
+                } {
+                    let listbox_id = {
+                        let slot = wol_state();
+                        slot.borrow().listbox_lobby_players_id as u32
+                    };
                     if let Some(widget) = entry.borrow_mut().text_entry_mut() {
                         let text = widget.text().trim().to_string();
                         widget.set_text("");
                         if !text.is_empty() {
                             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                let _ = info.send_chat(text, false, Some(listbox_id));
+                                if let Ok(mut info) = slot.lock() {
+                                    let _ = info.send_chat(text, false, Some(listbox_id));
+                                }
                             }
-}
                         }
                     }
                 }
@@ -1951,7 +1975,7 @@ pub fn wol_lobby_menu_system(
         WindowMessage::GadgetEditDone => {
             let control_id = data1 as i32;
             let state_slot = wol_state();
-    let state = state_slot.borrow_mut();
+            let state = state_slot.borrow_mut();
             if control_id == state.text_entry_chat_id {
                 if let Some(entry) = state.text_entry_chat.as_ref() {
                     if let Some(widget) = entry.borrow_mut().text_entry_mut() {
@@ -1961,10 +1985,10 @@ pub fn wol_lobby_menu_system(
                             let listbox_id = state.listbox_lobby_players_id as u32;
                             if !handle_lobby_slash_commands(&text, listbox_id as i32) {
                                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                                    let _ = info.send_chat(text, false, Some(listbox_id));
+                                    if let Ok(mut info) = slot.lock() {
+                                        let _ = info.send_chat(text, false, Some(listbox_id));
+                                    }
                                 }
-}
                             }
                         }
                     }
@@ -1974,7 +1998,7 @@ pub fn wol_lobby_menu_system(
         WindowMessage::GadgetRightClick => {
             let control_id = data1 as i32;
             let state_slot = wol_state();
-    let state = state_slot.borrow_mut();
+            let state = state_slot.borrow_mut();
             if control_id == state.listbox_lobby_players_id {
                 let Some(listbox_window) = state.listbox_lobby_players.as_ref() else {
                     return WindowMsgHandled::Handled;
@@ -1995,15 +2019,14 @@ pub fn wol_lobby_menu_system(
                     .map(|item| item.text.clone())
                     .unwrap_or_default();
                 let nick_ascii = AsciiString::from(nick.as_str());
-                let profile_id = crate::gui::callbacks::online_callback_support::with_gamespy_info(
-                    |info| {
+                let profile_id =
+                    crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
                         info.get_player_info_map()
                             .get(&nick.to_lowercase())
                             .map(|p| p.profile_id)
-                    },
-                )
-                .flatten()
-                .unwrap_or(0);
+                    })
+                    .flatten()
+                    .unwrap_or(0);
 
                 let is_buddy = get_gamespy_info()
                     .and_then(|info| info.lock().ok().map(|guard| guard.is_buddy(profile_id)))
@@ -2099,8 +2122,8 @@ pub fn wol_lobby_menu_system(
                     return WindowMsgHandled::Handled;
                 }
 
-                let ladder_ok = crate::gui::callbacks::online_callback_support::with_gamespy_info(
-                    |info| {
+                let ladder_ok =
+                    crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
                         info.find_staging_room_by_id(selected_id).and_then(|room| {
                             let ladder_arc = get_ladder_list()?;
                             let guard = ladder_arc.read().ok()?;
@@ -2108,10 +2131,9 @@ pub fn wol_lobby_menu_system(
                                 .find_ladder(&room.ladder_ip, room.ladder_port)
                                 .map(|_| ())
                         })
-                    },
-                )
-                .flatten()
-                .is_some();
+                    })
+                    .flatten()
+                    .is_some();
                 if !ladder_ok {
                     return WindowMsgHandled::Handled;
                 }

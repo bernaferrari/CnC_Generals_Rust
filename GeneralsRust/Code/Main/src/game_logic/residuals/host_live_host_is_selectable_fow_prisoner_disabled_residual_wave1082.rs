@@ -55,8 +55,8 @@ fn tr_source() -> &'static str {
     game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
-pub fn honesty_host_is_selectable_fow_prisoner_disabled_residual_method_names_residual_wave1082(
-) -> bool {
+pub fn honesty_host_is_selectable_fow_prisoner_disabled_residual_method_names_residual_wave1082()
+-> bool {
     let names = LIVE_HOST_IS_SELECTABLE_FOW_PRISONER_DISABLED_RESIDUAL_METHOD_NAMES_WAVE1082;
     let ok = residual_name_index(names, "is_selectable").is_some()
         && residual_name_index(names, "Wave 1082").is_some();
@@ -65,8 +65,8 @@ pub fn honesty_host_is_selectable_fow_prisoner_disabled_residual_method_names_re
     ok
 }
 
-pub fn honesty_host_is_selectable_fow_prisoner_disabled_residual_nav_commands_residual_wave1082(
-) -> bool {
+pub fn honesty_host_is_selectable_fow_prisoner_disabled_residual_nav_commands_residual_wave1082()
+-> bool {
     let steps = LIVE_HOST_IS_SELECTABLE_FOW_PRISONER_DISABLED_RESIDUAL_NAV_STEPS_WAVE1082;
     let ok = residual_name_index(
         steps,

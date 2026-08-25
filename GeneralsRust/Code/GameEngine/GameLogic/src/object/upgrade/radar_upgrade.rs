@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use crate::common::{Bool, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, RadarUpgradeConfig};
 
@@ -318,12 +320,11 @@ fn parse_disable_proof_field(
 
 crate::impl_upgrade_mux_field_parsers!(RadarUpgradeModuleData);
 
-const RADAR_UPGRADE_FIELDS: &[FieldParse<RadarUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
-    token: "DisableProof",
-    parse: parse_disable_proof_field,
-},
-);
+const RADAR_UPGRADE_FIELDS: &[FieldParse<RadarUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!(FieldParse {
+        token: "DisableProof",
+        parse: parse_disable_proof_field,
+    },);
 
 #[cfg(test)]
 mod tests {

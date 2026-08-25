@@ -4,7 +4,7 @@
 //! using known test vectors from the C++ implementation.
 
 use game_network::commands::cpp_compat_serialization::{
-    deserialize_command_cpp_compat, serialize_command_cpp_compat, NetCommandRef,
+    NetCommandRef, deserialize_command_cpp_compat, serialize_command_cpp_compat,
 };
 use game_network::commands::{
     ChatData, CommandPayload, DisconnectVoteData, DisconnectVoteType, FileAnnouncementData,

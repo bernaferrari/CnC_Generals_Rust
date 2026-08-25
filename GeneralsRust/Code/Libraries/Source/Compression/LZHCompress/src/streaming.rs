@@ -15,7 +15,7 @@
 //! - CompressFile() from NoxCompress.cpp
 //! - DecompressFile() from NoxCompress.cpp
 
-use crate::{compress::LzhCompressor, decompress_raw, CompressionLevel, LzhError, Result};
+use crate::{CompressionLevel, LzhError, Result, compress::LzhCompressor, decompress_raw};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -295,11 +295,7 @@ impl CompressionStats {
     pub fn throughput_mb_per_sec(&self) -> f64 {
         let mb = self.input_size as f64 / (1024.0 * 1024.0);
         let seconds = self.elapsed_time.as_secs_f64();
-        if seconds > 0.0 {
-            mb / seconds
-        } else {
-            0.0
-        }
+        if seconds > 0.0 { mb / seconds } else { 0.0 }
     }
 }
 
@@ -316,11 +312,7 @@ impl DecompressionStats {
     pub fn throughput_mb_per_sec(&self) -> f64 {
         let mb = self.output_size as f64 / (1024.0 * 1024.0);
         let seconds = self.elapsed_time.as_secs_f64();
-        if seconds > 0.0 {
-            mb / seconds
-        } else {
-            0.0
-        }
+        if seconds > 0.0 { mb / seconds } else { 0.0 }
     }
 }
 

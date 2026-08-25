@@ -8,9 +8,9 @@
 
 use crate::common::INVALID_ID;
 use crate::common::{
-    Bool, Byte, Coord3D, DisabledMaskType, DisabledType, ICoord3D, Int, KindOf, Matrix3D,
-    ModuleData, ObjectID, Real, UnsignedInt, Vector3, LOGICFRAMES_PER_SECOND, PI,
-    SECONDS_PER_LOGICFRAME_REAL,
+    Bool, Byte, Coord3D, DisabledMaskType, DisabledType, ICoord3D, Int, KindOf,
+    LOGICFRAMES_PER_SECOND, Matrix3D, ModuleData, ObjectID, PI, Real, SECONDS_PER_LOGICFRAME_REAL,
+    UnsignedInt, Vector3,
 };
 use std::any::Any;
 use std::collections::HashMap;
@@ -23,24 +23,25 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 // Forward declarations - assume these exist
+use crate::MAKE_MODELCONDITION_MASK;
 use crate::common::{
-    GameLogic, GameLogicRandomValue, GameLogicRandomValueReal, ModelConditionFlags,
+    GameLogic, GameLogicRandomValue, GameLogicRandomValueReal, MODELCONDITION_EXPLODED_BOUNCING,
+    MODELCONDITION_EXPLODED_FLAILING, MODELCONDITION_PARACHUTING, ModelConditionFlags,
     PartitionManager, TheFXListStore, TheGameLODManager, TheGameLogic, TheObjectCreationListStore,
-    MODELCONDITION_EXPLODED_BOUNCING, MODELCONDITION_EXPLODED_FLAILING, MODELCONDITION_PARACHUTING,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::drawable::Drawable;
 use crate::effects::{FXList, ObjectCreationList};
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModule, BehaviorModuleInterface,
-    BodyModuleInterface, DieModuleInterface, ModuleInterface, PhysicsBehavior, PhysicsBehaviorExt,
-    SlavedUpdateInterface, SlowDeathBehaviorInterface as ModuleSlowDeathBehaviorInterface,
-    UpdateModule, UpdateModuleInterface, UpdateModulePtr, UpdateSleepTime, MODULEINTERFACE_DIE,
-    MODULEINTERFACE_UPDATE, UPDATE_SLEEP, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+    BodyModuleInterface, DieModuleInterface, MODULEINTERFACE_DIE, MODULEINTERFACE_UPDATE,
+    ModuleInterface, PhysicsBehavior, PhysicsBehaviorExt, SlavedUpdateInterface,
+    SlowDeathBehaviorInterface as ModuleSlowDeathBehaviorInterface, UPDATE_SLEEP,
+    UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE, UpdateModule, UpdateModuleInterface, UpdateModulePtr,
+    UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::weapon::with_weapon_store;
-use crate::MAKE_MODELCONDITION_MASK;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 pub type DieMuxData = crate::object::die::DieMuxData;
 use crate::helpers::TheWeaponStore;
@@ -51,7 +52,7 @@ use crate::object::die::{
 use crate::object::drawable::DrawableArcExt;
 use crate::object::{Object, ObjectArcExt, ObjectStatusTypes};
 use crate::weapon::{WeaponStore, WeaponTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 
@@ -655,11 +656,8 @@ impl SlowDeathBehavior {
         let Some(proxy) = self.update_proxy.0.clone() else {
             return;
         };
-        let _ = crate::helpers::TheGameLogic::register_update_module(
-            self.object_id,
-            proxy,
-            wake_frame,
-        );
+        let _ =
+            crate::helpers::TheGameLogic::register_update_module(self.object_id, proxy, wake_frame);
     }
 
     fn destroy_owner(&self) {
@@ -899,11 +897,7 @@ impl UpdateModuleInterface for SlowDeathBehavior {
                                 }
                             }
                         }
-                        if bounced {
-                            Ok(1)
-                        } else {
-                            Ok(0)
-                        }
+                        if bounced { Ok(1) } else { Ok(0) }
                     },
                 )??;
 

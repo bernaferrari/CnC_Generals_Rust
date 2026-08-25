@@ -144,9 +144,9 @@ mod tests {
     #[test]
     fn simulate_control_bar_scheme_prepare_default_residual_live() {
         use game_client::gui::control_bar::{
+            CONTROL_BAR_SCHEME_NAMES_8X6, ResidualControlBarSchemeAction,
             residual_control_bar_scheme_has_current, residual_control_bar_scheme_last_action,
             residual_control_bar_scheme_loaded_count, simulate_control_bar_scheme_prepare_default,
-            ResidualControlBarSchemeAction, CONTROL_BAR_SCHEME_NAMES_8X6,
         };
         assert_eq!(
             CONTROL_BAR_SCHEME_NAMES_8X6,

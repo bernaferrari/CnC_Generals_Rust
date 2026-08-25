@@ -731,14 +731,14 @@ pub fn initialize_weather_system() -> Result<(), WeatherSystemError> {
     Ok(())
 }
 
-pub fn get_weather_system(
-) -> Result<RwLockReadGuard<'static, Option<WeatherSystem>>, WeatherSystemError> {
+pub fn get_weather_system()
+-> Result<RwLockReadGuard<'static, Option<WeatherSystem>>, WeatherSystemError> {
     let lock = WEATHER_SYSTEM.get_or_init(|| RwLock::new(None));
     lock.read().map_err(|_| WeatherSystemError::LockPoisoned)
 }
 
-pub fn get_weather_system_mut(
-) -> Result<RwLockWriteGuard<'static, Option<WeatherSystem>>, WeatherSystemError> {
+pub fn get_weather_system_mut()
+-> Result<RwLockWriteGuard<'static, Option<WeatherSystem>>, WeatherSystemError> {
     let lock = WEATHER_SYSTEM.get_or_init(|| RwLock::new(None));
     lock.write().map_err(|_| WeatherSystemError::LockPoisoned)
 }

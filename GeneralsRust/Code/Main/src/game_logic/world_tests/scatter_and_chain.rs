@@ -37,7 +37,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
             reload_time: 0.0,
             last_fire_time: -100.0,
             ..Weapon::default()
-});
+        });
         o.target = Some(mine1);
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
@@ -2070,7 +2070,7 @@ fn fire_base_scatter_misses_infantry_residual() {
 #[test]
 fn technical_cannon_scatter_misses_infantry_residual() {
     use crate::game_logic::host_technical::{
-        TechnicalWeaponTier, TECHNICAL_CANNON, TECH_CANNON_SCATTER_VS_INFANTRY,
+        TECH_CANNON_SCATTER_VS_INFANTRY, TECHNICAL_CANNON, TechnicalWeaponTier,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2902,11 +2902,7 @@ fn anthrax_scud_structure_uses_poison_armor() {
     let mut logic = GameLogic::new();
     ensure_test_structure_template(&mut logic);
     let bldg = logic
-        .create_object(
-            "TestBuilding",
-            Team::USA,
-            glam::Vec3::new(40.0, 0.0, 0.0),
-        )
+        .create_object("TestBuilding", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
         .expect("bldg");
     let hp_before = logic.host_object(bldg).unwrap().health.current;
     let impact = logic
@@ -2928,7 +2924,6 @@ fn anthrax_scud_structure_uses_poison_armor() {
         SCUD_TOX_PRIMARY_DAMAGE
     );
 }
-
 
 #[test]
 fn overlord_scatter_misses_infantry_residual() {

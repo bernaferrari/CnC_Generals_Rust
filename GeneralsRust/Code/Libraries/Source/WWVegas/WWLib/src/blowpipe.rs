@@ -1,4 +1,4 @@
-use crate::blowfish::{BlowfishEngine, BLOCK_SIZE};
+use crate::blowfish::{BLOCK_SIZE, BlowfishEngine};
 use crate::pipe::{Pipe, PipeBase};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

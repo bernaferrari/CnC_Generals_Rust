@@ -131,7 +131,6 @@ pub const TAG_PHYSICS_BEHAVIOR: &str = "PhysicsBehavior";
 /// C++ RailroadBehavior::xfer v3 conductor / track / hitch residual.
 pub const TAG_RAILROAD: &str = "RailroadBehavior";
 
-
 /// Declaration-order inventory. Producer emits tags in this sequence.
 pub const INVENTORY_TAGS: &[&str] = &[
     TAG_UPGRADE_DIE,
@@ -172,7 +171,6 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_DEFAULT_AUTO_HEAL,
     TAG_ENEMY_NEAR,
     TAG_ANIMATION_STEERING,
-
     TAG_FLOAT_UPDATE,
     TAG_PRONE_UPDATE,
     TAG_RADIUS_DECAL,

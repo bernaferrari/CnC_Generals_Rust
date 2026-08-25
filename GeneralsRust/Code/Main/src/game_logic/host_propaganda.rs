@@ -33,7 +33,6 @@
 use super::ObjectId;
 use std::collections::HashMap;
 
-
 /// Logic frames per second residual (C++ LOGICFRAMES_PER_SECOND).
 pub const PROPAGANDA_LOGIC_FPS: f32 = 30.0;
 
@@ -185,7 +184,6 @@ pub fn should_play_propaganda_pulse_fx(
     true
 }
 
-
 /// 2D distance check residual (C++ FROM_CENTER_2D).
 pub fn in_propaganda_radius_2d(tower_pos: (f32, f32), target_pos: (f32, f32), radius: f32) -> bool {
     let dx = tower_pos.0 - target_pos.0;
@@ -330,10 +328,7 @@ impl HostPropagandaScanState {
     }
 
     pub fn inside(&self, tower: ObjectId) -> &[ObjectId] {
-        self.inside
-            .get(&tower)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+        self.inside.get(&tower).map(Vec::as_slice).unwrap_or(&[])
     }
 
     pub fn take_tower(&mut self, tower: ObjectId) -> Vec<ObjectId> {
@@ -345,7 +340,6 @@ impl HostPropagandaScanState {
         self.inside.values().flatten().copied()
     }
 }
-
 
 /// Wave 52 residual honesty: radius / delay / heal% / flags / upgrade residual.
 pub fn honesty_propaganda_residual_ok() -> bool {
@@ -557,5 +551,4 @@ mod tests {
         assert_eq!(dropped, vec![unit]);
         assert!(scan.should_scan(tower, 60, 60));
     }
-
 }

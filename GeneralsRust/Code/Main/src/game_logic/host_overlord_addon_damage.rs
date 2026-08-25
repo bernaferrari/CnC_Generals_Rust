@@ -113,9 +113,20 @@ mod tests {
     #[test]
     fn set_damage_state_health_matches_active_body() {
         let max = 100.0;
-        assert!((overlord_addon_set_damage_state_health(max, HostBodyDamageType::Pristine) - 99.0).abs() < 0.01);
-        assert!((overlord_addon_set_damage_state_health(max, HostBodyDamageType::Damaged) - 69.0).abs() < 0.01);
-        assert!((overlord_addon_set_damage_state_health(max, HostBodyDamageType::ReallyDamaged) - 34.0).abs() < 0.01);
+        assert!(
+            (overlord_addon_set_damage_state_health(max, HostBodyDamageType::Pristine) - 99.0)
+                .abs()
+                < 0.01
+        );
+        assert!(
+            (overlord_addon_set_damage_state_health(max, HostBodyDamageType::Damaged) - 69.0).abs()
+                < 0.01
+        );
+        assert!(
+            (overlord_addon_set_damage_state_health(max, HostBodyDamageType::ReallyDamaged) - 34.0)
+                .abs()
+                < 0.01
+        );
     }
 
     #[test]

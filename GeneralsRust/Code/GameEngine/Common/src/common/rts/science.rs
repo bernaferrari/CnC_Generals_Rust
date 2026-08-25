@@ -194,7 +194,7 @@
 
 use once_cell::sync::OnceCell;
 use std::any::Any;
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -204,7 +204,7 @@ use std::time::Duration;
 use log::{debug, trace, warn};
 use thiserror::Error;
 
-use crate::common::ini::{INIError, INILoadType, INIResult, INI};
+use crate::common::ini::{INI, INIError, INILoadType, INIResult};
 use crate::common::name_key_generator::NameKeyGenerator;
 use crate::common::system::snapshot::Snapshotable;
 use crate::common::system::subsystem_interface::{
@@ -757,10 +757,9 @@ impl ScienceStore {
 
     /// Iterates over the science definitions currently resident in the store.
     pub fn iter(&self) -> impl Iterator<Item = (&ScienceType, &ScienceInfo)> {
-        self.science_order.iter().filter_map(|science| {
-            self.find_science_info(*science)
-                .map(|info| (science, info))
-        })
+        self.science_order
+            .iter()
+            .filter_map(|science| self.find_science_info(*science).map(|info| (science, info)))
     }
 
     /// Parse science definition from INI file
@@ -866,7 +865,7 @@ fn ingest_science_file(
             return Err(ScienceLoadError::Io {
                 path: path.to_path_buf(),
                 source: err,
-            })
+            });
         }
     };
 
@@ -1063,8 +1062,7 @@ fn merge_science_definition(
 
     trace!(
         "ScienceStore: merged science '{}' from {:?}",
-        science_name,
-        path
+        science_name, path
     );
 }
 
@@ -2335,7 +2333,9 @@ mod tests {
         let disabled = HashSet::new();
         let hidden = HashSet::new();
 
-        assert!(!exp.is_capable_of_purchasing_science(200, &owned, &disabled, &hidden, &sci_store,));
+        assert!(
+            !exp.is_capable_of_purchasing_science(200, &owned, &disabled, &hidden, &sci_store,)
+        );
     }
 
     #[test]
@@ -2358,6 +2358,8 @@ mod tests {
         let disabled = HashSet::new();
         let hidden = HashSet::new();
 
-        assert!(!exp.is_capable_of_purchasing_science(200, &owned, &disabled, &hidden, &sci_store,));
+        assert!(
+            !exp.is_capable_of_purchasing_science(200, &owned, &disabled, &hidden, &sci_store,)
+        );
     }
 }

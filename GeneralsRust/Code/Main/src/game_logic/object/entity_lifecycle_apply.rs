@@ -1,7 +1,8 @@
 //! Apply known envelope tags onto a Main `Object`. Unknown tags are skipped.
 
+use super::Object;
 use super::entity_lifecycle_inventory::{
-    decode_payload, FireWeaponWhenDamagedBundle, FiringTrackerResidual, SpawnBehaviorHiveResidual,
+    FireWeaponWhenDamagedBundle, FiringTrackerResidual, SpawnBehaviorHiveResidual, decode_payload,
 };
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
@@ -10,7 +11,6 @@ use super::entity_lifecycle_residuals::{
     SpecialPowerCooldownResidual, WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
-use super::Object;
 use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
 
 pub(crate) fn apply_module_states(
@@ -72,8 +72,12 @@ fn apply_one(
             object.artillery_barrage_transport = Some(decode_payload(payload)?);
         }
         TAG_A10_STRIKE_TRANSPORT => object.a10_strike_transport = Some(decode_payload(payload)?),
-        TAG_DAISY_CUTTER_TRANSPORT => object.daisy_cutter_transport = Some(decode_payload(payload)?),
-        TAG_ANTHRAX_BOMB_TRANSPORT => object.anthrax_bomb_transport = Some(decode_payload(payload)?),
+        TAG_DAISY_CUTTER_TRANSPORT => {
+            object.daisy_cutter_transport = Some(decode_payload(payload)?)
+        }
+        TAG_ANTHRAX_BOMB_TRANSPORT => {
+            object.anthrax_bomb_transport = Some(decode_payload(payload)?)
+        }
         TAG_CLUSTER_MINES_TRANSPORT => {
             object.cluster_mines_transport = Some(decode_payload(payload)?);
         }

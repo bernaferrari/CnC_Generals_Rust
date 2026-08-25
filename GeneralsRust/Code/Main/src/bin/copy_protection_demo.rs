@@ -1,7 +1,7 @@
 use anyhow::Result;
 use generals_main::copy_protection::{
-    check_for_message, configure_copy_protection, initialize_copy_protection, is_launcher_running,
-    notify_launcher, shutdown, LauncherMessage,
+    LauncherMessage, check_for_message, configure_copy_protection, initialize_copy_protection,
+    is_launcher_running, notify_launcher, shutdown,
 };
 use generals_main::single_instance::initialize_single_instance_protection_with_copy_protection;
 use generals_main::version::initialize_version_system_with_copy_protection;

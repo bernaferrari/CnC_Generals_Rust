@@ -50,10 +50,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_dzrp_suffix(bytes) else {
         return Ok(());
     };
@@ -107,9 +104,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: DozerRepairPersistPayload)
         } else {
             Some(ObjectId(entry.repair_target))
         };
-        let dock = entry
-            .dock_action
-            .map(|p| glam::Vec3::new(p[0], p[1], p[2]));
+        let dock = entry.dock_action.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
         {
             let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
                 continue;

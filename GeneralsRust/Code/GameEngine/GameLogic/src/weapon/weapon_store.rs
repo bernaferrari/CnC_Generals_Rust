@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::common::types::WeaponBonusConditionFlags;
 use crate::common::{Coord3D, ObjectID};
-use crate::weapon::{Weapon, WeaponBonus, WeaponSlotType, WeaponTemplate, INVALID_OBJECT_ID};
+use crate::weapon::{INVALID_OBJECT_ID, Weapon, WeaponBonus, WeaponSlotType, WeaponTemplate};
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 

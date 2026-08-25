@@ -141,9 +141,10 @@ mod tests {
     #[test]
     fn simulate_difficulty_prepare_ok_residual_live() {
         use game_client::gui::callbacks::{
-            residual_difficulty_select_last_action, residual_difficulty_select_level,
+            ResidualDifficultySelectAction, residual_difficulty_select_last_action,
+            residual_difficulty_select_level,
             simulate_difficulty_select_cancel_button_gadget_selected,
-            simulate_difficulty_select_prepare_ok, ResidualDifficultySelectAction,
+            simulate_difficulty_select_prepare_ok,
         };
         assert!(
             simulate_difficulty_select_prepare_ok(2),

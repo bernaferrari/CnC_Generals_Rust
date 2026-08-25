@@ -12,28 +12,28 @@ use crate::ai::{CommandSourceType, THE_AI};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::types::ThingTemplate;
 use crate::common::{
-    AsciiString, DefaultThingTemplate, KindOf, ObjectStatusTypes, PlayerMaskType, Relationship,
-    INVALID_ID, FROM_BOUNDING_SPHERE_2D,
+    AsciiString, DefaultThingTemplate, FROM_BOUNDING_SPHERE_2D, INVALID_ID, KindOf,
+    ObjectStatusTypes, PlayerMaskType, Relationship,
 };
-use crate::damage::{is_subdual_damage, DamageInfoOutput, DeathType};
+use crate::damage::{DamageInfoOutput, DeathType, is_subdual_damage};
 use crate::helpers::{
-    get_game_logic_random_value, game_client_random_value, TheAudio, TheParticleSystemManager,
-    ThePartitionManager, TheThingFactory,
+    TheAudio, TheParticleSystemManager, ThePartitionManager, TheThingFactory,
+    game_client_random_value, get_game_logic_random_value,
 };
 use crate::modules::AIUpdateInterfaceExt;
-use crate::object::armor::{ensure_default_templates_loaded, Armor, ArmorTemplate, TheArmorStore};
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
-use crate::player::{player_list, PlayerType};
+use crate::object::armor::{Armor, ArmorTemplate, TheArmorStore, ensure_default_templates_loaded};
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::player::{PlayerType, player_list};
 use crate::system::game_logic::current_frame;
-use game_engine::common::bit_flags::{create_armor_set_flags, ArmorSetBitFlags, ArmorSetFlags};
+use game_engine::common::bit_flags::{ArmorSetBitFlags, ArmorSetFlags, create_armor_set_flags};
 use game_engine::common::game_common::convert_duration_from_msecs_to_frames;
 use game_engine::common::global_data;
 use game_engine::common::ini::ini_damage_fx::{
-    get_damage_fx_store, get_damage_fx_store_mut, init_global_damage_fx_store, DamageFX,
-    DamageType as IniDamageType, Object as DamageFxObjectTrait,
+    DamageFX, DamageType as IniDamageType, Object as DamageFxObjectTrait, get_damage_fx_store,
+    get_damage_fx_store_mut, init_global_damage_fx_store,
 };
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock};
 
@@ -105,10 +105,14 @@ fn should_retaliate_against_aggressor(obj: &Object, damager: &Object) -> bool {
     let max_dist = THE_AI
         .read()
         .ok()
-        .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_retaliate_distance))
+        .and_then(|ai| {
+            ai.get_ai_data()
+                .read()
+                .ok()
+                .map(|d| d.max_retaliate_distance)
+        })
         .unwrap_or(210.0);
-    let dist_sqr =
-        ThePartitionManager::get_distance_squared(obj, damager, FROM_BOUNDING_SPHERE_2D);
+    let dist_sqr = ThePartitionManager::get_distance_squared(obj, damager, FROM_BOUNDING_SPHERE_2D);
     if dist_sqr > max_dist * max_dist {
         return false;
     }
@@ -138,7 +142,8 @@ fn should_retaliate(obj: &Object) -> bool {
     if !ai.is_idle() {
         return false;
     }
-    if obj.test_status(ObjectStatusTypes::Stealthed) && !obj.test_status(ObjectStatusTypes::Detected)
+    if obj.test_status(ObjectStatusTypes::Stealthed)
+        && !obj.test_status(ObjectStatusTypes::Detected)
     {
         return false;
     }
@@ -179,7 +184,8 @@ fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
         return;
     };
     let damager_id = damager.get_id();
-    let candidates = partition.get_objects_in_range_boundary_2d(victim.get_position(), friends_radius);
+    let candidates =
+        partition.get_objects_in_range_boundary_2d(victim.get_position(), friends_radius);
     for friend_id in candidates {
         if friend_id == victim.get_id() || friend_id == damager_id {
             continue;
@@ -1823,9 +1829,8 @@ impl BodyModuleInterface for ActiveBody {
                     if let Ok(owner_guard) = owner.read() {
                         if let Some(victim_player) = owner_guard.get_controlling_player() {
                             let src_index = OBJECT_REGISTRY.with_object(last_source_id, |src| {
-                                src.get_controlling_player().and_then(|p| {
-                                    p.read().ok().map(|g| g.get_player_index())
-                                })
+                                src.get_controlling_player()
+                                    .and_then(|p| p.read().ok().map(|g| g.get_player_index()))
                             });
                             if let Some(Some(src_index)) = src_index {
                                 if let Ok(mut player) = victim_player.write() {
@@ -2848,16 +2853,18 @@ mod tests {
         assert_eq!(body.get_health(), 50.0);
 
         // Increase max health preserving ratio
-        assert!(body
-            .set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
-            .is_ok());
+        assert!(
+            body.set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 200.0);
         assert_eq!(body.get_health(), 100.0); // Should be 50% of 200
 
         // Test full heal
-        assert!(body
-            .set_max_health(150.0, MaxHealthChangeType::FullyHeal)
-            .is_ok());
+        assert!(
+            body.set_max_health(150.0, MaxHealthChangeType::FullyHeal)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 150.0);
         assert_eq!(body.get_health(), 150.0);
     }
@@ -3118,10 +3125,12 @@ mod death_flooded_tests {
         let mut template = crate::common::DefaultThingTemplate::new(format!("Veh{id}"));
         template.add_kind_of(crate::common::KindOf::Vehicle);
         let mut obj = Object::new_test_from_template(id, 100.0, std::sync::Arc::new(template));
-        obj.set_contain(Some(std::sync::Arc::new(std::sync::Mutex::new(TestContain {
-            ids: occupants,
-            rider_change,
-        }))));
+        obj.set_contain(Some(std::sync::Arc::new(std::sync::Mutex::new(
+            TestContain {
+                ids: occupants,
+                rider_change,
+            },
+        ))));
         obj.set_ai_update_interface(Some(std::sync::Arc::new(std::sync::Mutex::new(TestAi {
             moving,
         }))));
@@ -3139,7 +3148,8 @@ mod death_flooded_tests {
         OBJECT_REGISTRY.register_object(502, &rider);
 
         let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 501);
-        let mut info = DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+        let mut info =
+            DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
         body.attempt_damage(&mut info).expect("killpilot");
 
         let tank_g = tank.read().unwrap();
@@ -3163,7 +3173,8 @@ mod death_flooded_tests {
         OBJECT_REGISTRY.register_object(602, &rider);
 
         let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 601);
-        let mut info = DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+        let mut info =
+            DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
         body.attempt_damage(&mut info).expect("killpilot");
 
         let bike_g = bike.read().unwrap();
@@ -3185,7 +3196,8 @@ mod death_flooded_tests {
         OBJECT_REGISTRY.register_object(702, &rider);
 
         let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 701);
-        let mut info = DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+        let mut info =
+            DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
         body.attempt_damage(&mut info).expect("killpilot");
 
         let bike_g = bike.read().unwrap();
@@ -3220,9 +3232,10 @@ mod death_flooded_tests {
         assert!(body.internal_change_health(-50.0).is_ok());
         assert_eq!(body.get_health(), 50.0);
 
-        assert!(body
-            .set_max_health(10.0, MaxHealthChangeType::AddCurrentHealthToo)
-            .is_ok());
+        assert!(
+            body.set_max_health(10.0, MaxHealthChangeType::AddCurrentHealthToo)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 10.0);
         assert_eq!(
             body.get_health(),
@@ -3236,12 +3249,12 @@ mod death_flooded_tests {
         let mut body = ActiveBody::new(module_data);
         assert!(body.internal_change_health(-90.0).is_ok());
         assert_eq!(body.get_damage_state(), BodyDamageType::ReallyDamaged);
-        assert!(body
-            .set_max_health(25.0, MaxHealthChangeType::FullyHeal)
-            .is_ok());
+        assert!(
+            body.set_max_health(25.0, MaxHealthChangeType::FullyHeal)
+                .is_ok()
+        );
         assert_eq!(body.get_health(), 25.0);
         assert_eq!(body.get_previous_health(), 10.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::Pristine);
     }
-
 }

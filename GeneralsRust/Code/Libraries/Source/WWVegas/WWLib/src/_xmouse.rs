@@ -1,6 +1,6 @@
 //! Compatibility layer for _xmouse.h.
 
-use crate::xmouse::{with_mouse_cursor, Mouse, Rect};
+use crate::xmouse::{Mouse, Rect, with_mouse_cursor};
 use std::sync::Arc;
 
 pub fn set_mouse_cursor(cursor: Option<Arc<dyn Mouse>>) {

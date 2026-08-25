@@ -834,7 +834,6 @@ pub struct RenderableObject {
     #[serde(default)]
     pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
 
-
     /// Secondary weapon present residual.
     pub has_secondary_weapon: bool,
     /// Secondary weapon range residual (0 when none).
@@ -1102,7 +1101,6 @@ const fn default_one_f32_presentation() -> f32 {
     1.0
 }
 
-
 impl RenderableObject {
     /// Frozen capacity for a normal player `MSG_ENTER` order.
     ///
@@ -1357,15 +1355,19 @@ mod drawable_shroud_tests {
                 false
             ))
         );
-        assert!(!PresentationDrawableShroudFacts::direct_host_object(
-            PresentationObjectShroudStatus::Clear,
-            false,
-        )
-        .requires_scene_shroud_material());
-        assert!(PresentationDrawableShroudFacts::direct_host_object(
-            PresentationObjectShroudStatus::InvalidButPreviousValid,
-            true,
-        )
-        .requires_scene_shroud_material());
+        assert!(
+            !PresentationDrawableShroudFacts::direct_host_object(
+                PresentationObjectShroudStatus::Clear,
+                false,
+            )
+            .requires_scene_shroud_material()
+        );
+        assert!(
+            PresentationDrawableShroudFacts::direct_host_object(
+                PresentationObjectShroudStatus::InvalidButPreviousValid,
+                true,
+            )
+            .requires_scene_shroud_material()
+        );
     }
 }

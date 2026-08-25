@@ -27,12 +27,13 @@ use super::minimap_renderer::{
     MinimapCoordinates, MinimapDimensions, MinimapTextureRenderer, UiTextureRegistrar,
 };
 use super::render_item::{
-    house_color_from_argb, FrozenDirectSceneShroudRenderState,
-    FrozenObjectlessDrawableShroudRenderState, GhostLightingRoute, RenderItem,
-    RenderItemBonePaletteSource, RenderItemOwner,
+    FrozenDirectSceneShroudRenderState, FrozenObjectlessDrawableShroudRenderState,
+    GhostLightingRoute, RenderItem, RenderItemBonePaletteSource, RenderItemOwner,
+    house_color_from_argb,
 };
 use crate::assets::textures::RawTexture;
 use crate::assets::{ModelPrewarmStats, W3DMaterial, W3DModel};
+use ww3d_renderer_3d::RendererResult;
 use ww3d_renderer_3d::material_system::{MaterialPassClass, VertexMaterialClass};
 use ww3d_renderer_3d::rendering::{
     camera_system::CameraClass,
@@ -46,7 +47,6 @@ use ww3d_renderer_3d::w3d_format::{
     W3dMaterialInfoStruct, W3dRGBAStruct, W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct,
     W3dVertexMaterialStruct,
 };
-use ww3d_renderer_3d::RendererResult;
 
 #[cfg(feature = "game_client")]
 use game_client::system::SubsystemInterface;
@@ -231,8 +231,8 @@ pub enum RenderPass {
     /// C++ `RTS3DScene::renderOneObject` fogged/ghost branch: always-fogged
     /// light environment, no projected shroud pass, frustum cull only.
     Ghost,
-    WaterPass,          // Water surface rendering
-    UIPass,             // 2D UI overlay rendering
+    WaterPass, // Water surface rendering
+    UIPass,    // 2D UI overlay rendering
 }
 
 /// One direct-host Drawable shroud result frozen at Main's render boundary.
@@ -633,10 +633,8 @@ pub struct RenderPipeline {
     /// installed in `presentation_frame`. Collection removes each record
     /// before it consults the normal model-load path, so an unavailable model
     /// or topology cannot trigger retries or retain a stale saved timeline.
-    pending_client_drawable_imports: HashMap<
-        (u32, u32),
-        crate::save_load::snapshot::ClientDrawableStateSnapshot,
-    >,
+    pending_client_drawable_imports:
+        HashMap<(u32, u32), crate::save_load::snapshot::ClientDrawableStateSnapshot>,
     /// Exact active W3D ghost scene frozen at the latest GameClient bridge
     /// boundary. It is not a normal Drawable/FOW-alpha stream.
     #[cfg(feature = "game_client")]
@@ -816,8 +814,8 @@ mod forward_materials;
 mod forward_render;
 mod hlod_aggregate_render;
 mod pipeline_collect;
-mod pipeline_drawable_state;
 mod pipeline_debug;
+mod pipeline_drawable_state;
 mod pipeline_execute;
 mod pipeline_lifecycle;
 mod pipeline_minimap;

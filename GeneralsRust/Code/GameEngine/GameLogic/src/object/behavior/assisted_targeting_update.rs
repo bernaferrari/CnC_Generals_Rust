@@ -11,10 +11,10 @@ use crate::modules::{
     AssistedTargetingUpdateInterface, BehaviorModuleInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::{Object as GameObject, OBJECT_REGISTRY};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::{OBJECT_REGISTRY, Object as GameObject};
 use crate::weapon::{WeaponLockType, WeaponSlotType, WeaponStatus};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -25,7 +25,6 @@ use std::sync::{Arc, RwLock, Weak};
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
-
 
 #[derive(Clone, Debug)]
 pub struct AssistedTargetingUpdateModuleData {
@@ -476,9 +475,11 @@ mod tests {
                     .map(|(weapon, _slot)| weapon.get_status()),
                 Some(WeaponStatus::ReadyToFire)
             );
-            assert!(object_guard
-                .get_weapon_in_slot(WeaponSlotType::Secondary)
-                .is_none());
+            assert!(
+                object_guard
+                    .get_weapon_in_slot(WeaponSlotType::Secondary)
+                    .is_none()
+            );
         }
 
         let module_data: Arc<dyn ModuleData> = Arc::new(AssistedTargetingUpdateModuleData {

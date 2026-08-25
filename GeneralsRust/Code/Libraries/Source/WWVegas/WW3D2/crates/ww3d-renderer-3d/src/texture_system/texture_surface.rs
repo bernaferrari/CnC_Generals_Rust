@@ -533,11 +533,7 @@ fn pixel_slice_alpha(pixel: &[u8], format: TextureFormat) -> u8 {
         TextureFormat::R5G6B5 => 255,
         TextureFormat::A1R5G5B5 => {
             let value = u16::from_le_bytes([pixel[0], pixel[1]]);
-            if (value & 0x8000) != 0 {
-                255
-            } else {
-                0
-            }
+            if (value & 0x8000) != 0 { 255 } else { 0 }
         }
         TextureFormat::A4R4G4B4 => {
             let value = u16::from_le_bytes([pixel[0], pixel[1]]);

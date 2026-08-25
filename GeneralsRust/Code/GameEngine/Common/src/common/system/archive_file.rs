@@ -150,7 +150,7 @@ pub trait ArchiveFileTrait {
 
     /// Open the specified file within the archive file
     fn open_file(&mut self, filename: &str, access: i32)
-        -> Result<Box<dyn Read + Send>, io::Error>;
+    -> Result<Box<dyn Read + Send>, io::Error>;
 
     /// Close all files opened in this archive file
     fn close_all_files(&mut self);

@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "video")]
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     Adapter, AddressMode, Backends, BindGroup, BindGroupDescriptor, BindGroupLayout,
     BindGroupLayoutDescriptor, BindingType, BlendState, Buffer, BufferBindingType,
     BufferDescriptor, BufferSlice, BufferUsages, ColorTargetState, ColorWrites, CommandBuffer,
@@ -26,6 +25,7 @@ use wgpu::{
     TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
     TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout,
     VertexFormat, VertexState, VertexStepMode,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 
 // GPU allocator currently disabled for compilation - can be re-enabled when needed

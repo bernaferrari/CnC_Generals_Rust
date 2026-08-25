@@ -3,6 +3,7 @@
 //! Compares present residual groups vs envelope tags vs Entity attach for a
 //! representative object set, and locks `KNOWN_GAPS` against object/mod.rs.
 
+use super::Object;
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
     ActiveBodyCrushResidual, CreateObjectDieTransferResidual, EmoticonSurrenderResidual,
@@ -10,7 +11,6 @@ use super::entity_lifecycle_residuals::{
     SpecialPowerCooldownResidual, WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
-use super::Object;
 use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
 use crate::game_logic::host_upgrade_die::HostUpgradeDieData;
 use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate, Weapon};
@@ -86,7 +86,7 @@ const INVENTORIED_IN_WINDOW: &[&str] = &[
 
 fn present_groups(object: &Object) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 59] = [
+    let pairs: [(&'static str, bool); 63] = [
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (
             TAG_SPECIAL_POWER_COMPLETION,
@@ -161,13 +161,15 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
             TAG_CLUSTER_MINES_TRANSPORT,
             object.cluster_mines_transport.is_some(),
         ),
-        (TAG_EMP_PULSE_TRANSPORT, object.emp_pulse_transport.is_some()),
+        (
+            TAG_EMP_PULSE_TRANSPORT,
+            object.emp_pulse_transport.is_some(),
+        ),
         (TAG_TENSILE_FORMATION, object.tensile_formation.is_some()),
         (TAG_FIRE_SPREAD, object.fire_spread.is_some()),
         (TAG_BASE_REGENERATE, object.base_regenerate.is_some()),
         (TAG_DEFAULT_AUTO_HEAL, object.default_auto_heal.is_some()),
         (TAG_ENEMY_NEAR, object.enemy_near.is_some()),
-
         (TAG_ANIMATION_STEERING, object.animation_steering.is_some()),
         (TAG_FLOAT_UPDATE, object.float_update.is_some()),
         (TAG_PRONE_UPDATE, object.prone_update.is_some()),
@@ -205,7 +207,10 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
         ),
         (TAG_ASSAULT_TRANSPORT, object.assault_transport.is_some()),
         (TAG_DEPLOY_STYLE, object.deploy_style.is_some()),
-        (TAG_COMMAND_BUTTON_HUNT, object.command_button_hunt.is_some()),
+        (
+            TAG_COMMAND_BUTTON_HUNT,
+            object.command_button_hunt.is_some(),
+        ),
         (
             TAG_FIRE_WEAPON_WHEN_DEAD,
             FireWeaponWhenDeadResidual::present(object),
@@ -312,18 +317,16 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
     bunker_t.add_kind_of(KindOf::Structure);
     bunker_t.garrison_contain_max = Some(8);
     let mut bunker = Object::new(bunker_t, ObjectId(3), Team::USA);
-    bunker.keep_object_die = Some(
-        crate::game_logic::host_keep_object_die::HostKeepObjectDieData::default(),
-    );
+    bunker.keep_object_die =
+        Some(crate::game_logic::host_keep_object_die::HostKeepObjectDieData::default());
     attach_round_trip(&bunker);
 
     let mut factory_t = ThingTemplate::new("AuditBarracks");
     factory_t.add_kind_of(KindOf::Structure);
     factory_t.add_kind_of(KindOf::FSBarracks);
     let mut factory = Object::new(factory_t, ObjectId(4), Team::USA);
-    factory.base_regenerate = Some(
-        crate::game_logic::host_base_regenerate::HostBaseRegenerateData::default(),
-    );
+    factory.base_regenerate =
+        Some(crate::game_logic::host_base_regenerate::HostBaseRegenerateData::default());
     attach_round_trip(&factory);
 }
 

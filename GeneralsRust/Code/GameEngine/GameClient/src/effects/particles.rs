@@ -8,7 +8,7 @@ use rand::prelude::*;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use super::{utils, EffectsConfig, EffectsError, EffectsLOD};
+use super::{EffectsConfig, EffectsError, EffectsLOD, utils};
 
 /// Unique identifier for particle systems
 pub type ParticleSystemId = u32;
@@ -740,7 +740,7 @@ mod tests {
         emitter.emission_rate = 100.0; // 100 particles per second
 
         let particles = emitter.update(0.1); // 0.1 second
-                                             // Should emit approximately 10 particles (100 * 0.1)
+        // Should emit approximately 10 particles (100 * 0.1)
         assert!(particles.len() >= 8 && particles.len() <= 12); // Some variance due to accumulator
     }
 

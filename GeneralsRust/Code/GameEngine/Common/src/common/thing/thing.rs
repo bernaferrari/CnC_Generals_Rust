@@ -12,7 +12,7 @@
 use crate::common::ini::get_global_data as get_engine_global_data;
 use crate::common::{
     rts::{AsciiString, Real},
-    system::{kind_of::KindOfMask, Coord3D, Matrix3D},
+    system::{Coord3D, Matrix3D, kind_of::KindOfMask},
     thing::thing_template::ThingTemplate,
 };
 use std::sync::{Arc, Mutex, OnceLock};
@@ -68,7 +68,6 @@ fn align_on_terrain(angle: Real, pos: &Coord3D, stick_to_ground: bool, mtx: &mut
     guard(angle, pos, stick_to_ground, mtx);
     true
 }
-
 
 /// Cache flags for optimizing recalculations
 #[derive(Debug, Clone, Copy)]

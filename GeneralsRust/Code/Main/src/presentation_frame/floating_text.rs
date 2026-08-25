@@ -121,11 +121,7 @@ impl PresentationFloatingText {
         // REAL_TO_INT truncates toward zero (C++ `(Int)(x)`).
         let amount = (past * PRESENTATION_FLOATING_TEXT_VANISH_RATE) as i32;
         let next = base_alpha as i32 - amount;
-        if next < 0 {
-            0
-        } else {
-            next as u8
-        }
+        if next < 0 { 0 } else { next as u8 }
     }
 
     /// Apply vanish-rate residual to a frozen color_rgba (RGB preserved, A decays).

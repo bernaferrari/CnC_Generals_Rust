@@ -1102,9 +1102,7 @@ pub fn map_store_damage_type(
 
 /// Map leftover Weapon.ini DamageType name (`EXPLOSION`, `POISON`, …) to host combat type.
 /// Unknown names fail closed to C++ ordinal 0 (`DAMAGE_EXPLOSION`), not UNRESISTABLE.
-pub fn host_damage_type_from_residual_name(
-    name: &str,
-) -> crate::game_logic::combat::DamageType {
+pub fn host_damage_type_from_residual_name(name: &str) -> crate::game_logic::combat::DamageType {
     use crate::game_logic::host_enum_table_residual::damage_type_bit_name_index;
     if let Some(idx) = damage_type_bit_name_index(name) {
         return crate::game_logic::combat::DamageType::from_store(
@@ -1282,7 +1280,10 @@ mod tests {
         use gamelogic::damage::DamageType as G;
         assert_eq!(map_store_damage_type(G::SubdualMissile), H::SubdualMissile);
         assert_eq!(map_store_damage_type(G::SubdualVehicle), H::SubdualVehicle);
-        assert_eq!(map_store_damage_type(G::SubdualBuilding), H::SubdualBuilding);
+        assert_eq!(
+            map_store_damage_type(G::SubdualBuilding),
+            H::SubdualBuilding
+        );
         assert_eq!(
             map_store_damage_type(G::SubdualUnresistable),
             H::SubdualUnresistable
@@ -1293,7 +1294,10 @@ mod tests {
         assert_eq!(map_store_damage_type(G::Sniper), H::Sniper);
         assert_eq!(map_store_damage_type(G::ArmorPiercing), H::ArmorPiercing);
         assert_eq!(map_store_damage_type(G::Melee), H::Melee);
-        assert_eq!(map_store_damage_type(G::InfantryMissile), H::InfantryMissile);
+        assert_eq!(
+            map_store_damage_type(G::InfantryMissile),
+            H::InfantryMissile
+        );
         assert_eq!(map_store_damage_type(G::JetMissiles), H::JetMissiles);
         assert_eq!(
             map_store_damage_type(G::StealthJetMissiles),

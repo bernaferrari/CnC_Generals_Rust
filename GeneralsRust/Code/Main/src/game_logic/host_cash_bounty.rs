@@ -227,11 +227,7 @@ pub fn compute_bounty_award(build_cost: u32, cash_bounty_percent: f32) -> u32 {
     let raw = (build_cost as f32) * cash_bounty_percent;
     // C++ REAL_TO_INT_CEIL — ceil then cast to int (non-negative here).
     let bounty = raw.ceil() as i32;
-    if bounty > 0 {
-        bounty as u32
-    } else {
-        0
-    }
+    if bounty > 0 { bounty as u32 } else { 0 }
 }
 
 /// Host residual floating cash text presentation for bounty awards.

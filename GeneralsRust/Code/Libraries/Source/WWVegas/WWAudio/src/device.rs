@@ -10,15 +10,16 @@
 
 use crate::handles::Sound2DHandle;
 use crate::{
+    AudioSource, Priority, SoundState,
     backend::{BackendKind, BackendManager},
     cache::{AudioCache as SourceCache, CacheConfig},
     error::{DeviceError, Result},
     formats::{AudioFormat, ChannelLayout},
     listener::Listener3D,
     logical::{
-        list::{LogicalSoundRegistration, LogicalSoundRegistry},
         LogicalDefinitionManager, LogicalSoundFactory, LogicalSoundFactoryEntry,
         LogicalTypeDefinition,
+        list::{LogicalSoundRegistration, LogicalSoundRegistry},
     },
     logical_listener::LogicalListener,
     mixer::{
@@ -29,14 +30,13 @@ use crate::{
     save_load::{
         DynamicAudioSaveLoad, SavedMixerVoiceRecord, SavedSoundRecord, StaticAudioSaveLoad,
     },
-    sound3d::Sound3D,
     sound_pseudo3d::SoundPseudo3D,
     sound_scene::{LogicalTrigger, SceneSound},
     sound_scene_obj::SoundObjectId,
+    sound3d::Sound3D,
     thread_pool::queue_delayed_release,
     wwaudio::DriverType3D,
-    wwaudio_handles::{make_2d_handle, make_3d_handle, make_stream_handle, WWHandle},
-    AudioSource, Priority, SoundState,
+    wwaudio_handles::{WWHandle, make_2d_handle, make_3d_handle, make_stream_handle},
 };
 use directories::ProjectDirs;
 use log::{debug, info, warn};

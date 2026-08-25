@@ -171,11 +171,7 @@ fn escape_as(value: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_message_box(
-    prompt: &str,
-    message: &str,
-    config: &DialogConfig,
-) -> OSDisplayButtonType {
+fn windows_message_box(prompt: &str, message: &str, config: &DialogConfig) -> OSDisplayButtonType {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
 
@@ -198,7 +194,14 @@ fn windows_message_box(
     };
     let text: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
     let caption: Vec<u16> = OsStr::new(prompt).encode_wide().chain(Some(0)).collect();
-    let result = unsafe { MessageBoxW(core::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), flags) };
+    let result = unsafe {
+        MessageBoxW(
+            core::ptr::null_mut(),
+            text.as_ptr(),
+            caption.as_ptr(),
+            flags,
+        )
+    };
     if result == 1 {
         OSDisplayButtonType::Ok
     } else {

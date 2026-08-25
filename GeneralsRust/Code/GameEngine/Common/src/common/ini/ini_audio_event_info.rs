@@ -2,7 +2,7 @@
 //! Author: Colin Day, July 2002
 //! Desc: Parsing AudioEvent, MusicTrack and DialogEvent INI entries
 
-use super::ini::{INIError, INIResult, INI};
+use super::ini::{INI, INIError, INIResult};
 use crate::common::audio::audio_event_rts::{
     AudioEventInfo as EngineAudioEventInfo, AudioPriority as EngineAudioPriority,
     AudioType as EngineAudioType,
@@ -224,7 +224,6 @@ fn parse_named_audio_definition(
     register_audio_event_info(&event);
     Ok(())
 }
-
 
 /// Audio Event Information structure
 #[derive(Debug, Clone)]

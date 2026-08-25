@@ -4,8 +4,8 @@
 //! applyCrushingDamage residual samples here so host can apply without
 //! dual-advancing last_crushed_location.
 
-use super::host_structure_topple::StructureToppleCrushSample;
 use super::ObjectId;
+use super::host_structure_topple::StructureToppleCrushSample;
 use std::cell::RefCell;
 
 thread_local! {

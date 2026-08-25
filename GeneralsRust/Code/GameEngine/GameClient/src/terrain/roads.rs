@@ -494,11 +494,7 @@ impl RoadSegment {
         let metadata = self.properties.texture_override.as_deref()?;
         metadata.split_whitespace().find_map(|token| {
             let (k, v) = token.split_once('=')?;
-            if k == key {
-                Some(v)
-            } else {
-                None
-            }
+            if k == key { Some(v) } else { None }
         })
     }
 
@@ -770,7 +766,7 @@ impl RoadSegment {
         match kind {
             RoadSyntheticIntersectionKind::Tee | RoadSyntheticIntersectionKind::FourWay => {}
             RoadSyntheticIntersectionKind::ThreeWayY => {
-                return self.generate_three_way_y_geometry()
+                return self.generate_three_way_y_geometry();
             }
             RoadSyntheticIntersectionKind::ThreeWayH => {
                 return self.generate_three_way_h_geometry(false);
@@ -2534,11 +2530,7 @@ mod tests {
 
         manager.apply_terrain_heights_and_normals(
             |pos| {
-                if pos.z >= 0.0 {
-                    2.0
-                } else {
-                    5.0
-                }
+                if pos.z >= 0.0 { 2.0 } else { 5.0 }
             },
             |_| Vec3::new(0.0, 1.0, 0.0),
         );

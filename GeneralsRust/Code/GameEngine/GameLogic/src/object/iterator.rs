@@ -5,7 +5,7 @@
 use std::cmp::Ordering;
 use std::sync::{Arc, RwLock};
 
-use crate::common::{Int, ObjectID, Real, INVALID_ID};
+use crate::common::{INVALID_ID, Int, ObjectID, Real};
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
 

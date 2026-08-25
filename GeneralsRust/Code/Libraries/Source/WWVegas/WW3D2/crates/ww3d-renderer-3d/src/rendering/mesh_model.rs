@@ -6,7 +6,7 @@
 // Original: meshmdl.h lines 154-348, meshmdl.cpp lines 40-760
 
 use super::mesh_geometry::{GeometryFlags, MeshGeometry, TriIndex};
-use super::mesh_mat_desc::{ColorSourceType, MeshMatDesc, MAX_PASSES, MAX_TEX_STAGES};
+use super::mesh_mat_desc::{ColorSourceType, MAX_PASSES, MAX_TEX_STAGES, MeshMatDesc};
 use super::shader_system::shader::ShaderClass;
 use crate::material_system::VertexMaterialClass;
 use crate::texture_system::TextureClass;

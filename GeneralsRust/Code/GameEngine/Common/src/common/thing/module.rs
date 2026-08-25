@@ -11,8 +11,8 @@
 pub use crate::common::rts::NameKeyType;
 use crate::common::{
     ascii_string::AsciiString,
-    ini::ini_upgrade::{get_upgrade_center, UpgradeTemplate},
-    system::{build_assistant::ObjectID, Snapshotable, Xfer},
+    ini::ini_upgrade::{UpgradeTemplate, get_upgrade_center},
+    system::{Snapshotable, Xfer, build_assistant::ObjectID},
 };
 use std::{
     any::Any,
@@ -368,7 +368,6 @@ pub trait LaserUpdateInterface {
         size_delta_frames: i32,
     );
     fn set_decay_frames(&mut self, decay_frames: u32);
-
 }
 
 pub trait RadarUpdateInterface {
@@ -1099,7 +1098,6 @@ impl UpgradeMuxData {
         }
     }
 
-
     pub fn activation_upgrade_names(&self) -> &[AsciiString] {
         &self.activation_upgrade_names
     }
@@ -1164,10 +1162,12 @@ mod tests {
         let mut module = DefaultAnyModule;
 
         assert!(module.as_any().downcast_ref::<DefaultAnyModule>().is_some());
-        assert!(module
-            .as_any_mut()
-            .downcast_mut::<DefaultAnyModule>()
-            .is_some());
+        assert!(
+            module
+                .as_any_mut()
+                .downcast_mut::<DefaultAnyModule>()
+                .is_some()
+        );
     }
 
     #[test]

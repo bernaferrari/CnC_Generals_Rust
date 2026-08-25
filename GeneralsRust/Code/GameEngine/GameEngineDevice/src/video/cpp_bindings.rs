@@ -4,7 +4,7 @@
 
 use super::render_device::Vertex;
 use super::{ColorFormat, Resolution, VideoDevice, VideoDeviceConfig, VideoStatistics};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr;
 use std::slice;
 // libc types - using Rust standard types for now

@@ -744,7 +744,7 @@ mod integration_tests {
             reload_time: 0.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-});
+        });
 
         let (mut loaded, loaded_info) = save_and_load("full_cycle", &game_logic);
         assert_eq!(loaded_info.map_name, "SaveFixtureMap");
@@ -820,7 +820,7 @@ mod integration_tests {
                 reload_time: 0.0,
                 projectile_speed: 0.0,
                 ..Weapon::default()
-});
+            });
             attacker.attack_target(target);
         }
 

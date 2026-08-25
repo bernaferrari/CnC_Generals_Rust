@@ -203,15 +203,31 @@ mod mix_tests {
         assert!(seen);
 
         let (s, _) = mix_object_shroud_from_cells(2, 0, 2, true, false, false, false);
-        assert_eq!(s, ObjectShroudStatus::Shrouded, "neutral mobile fog → shroud");
+        assert_eq!(
+            s,
+            ObjectShroudStatus::Shrouded,
+            "neutral mobile fog → shroud"
+        );
 
         let (s, _) = mix_object_shroud_from_cells(2, 0, 2, false, false, false, false);
-        assert_eq!(s, ObjectShroudStatus::Shrouded, "unseen mobile enemy fog → shroud");
+        assert_eq!(
+            s,
+            ObjectShroudStatus::Shrouded,
+            "unseen mobile enemy fog → shroud"
+        );
 
         let (s, _) = mix_object_shroud_from_cells(2, 0, 2, false, true, false, true);
-        assert_eq!(s, ObjectShroudStatus::Fogged, "seen immobile enemy stays fog ghost");
+        assert_eq!(
+            s,
+            ObjectShroudStatus::Fogged,
+            "seen immobile enemy stays fog ghost"
+        );
 
         let (s, _) = mix_object_shroud_from_cells(2, 0, 2, false, true, true, true);
-        assert_eq!(s, ObjectShroudStatus::Shrouded, "KINDOF_MINE never fog-ghosts");
+        assert_eq!(
+            s,
+            ObjectShroudStatus::Shrouded,
+            "KINDOF_MINE never fog-ghosts"
+        );
     }
 }

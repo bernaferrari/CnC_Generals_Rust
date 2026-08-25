@@ -76,8 +76,8 @@ pub fn residual_terrain_visual_presentation_only_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_terrain_visual_presentation_only_last_action(
-) -> ResidualTerrainVisualPresentationOnlyAction {
+pub fn residual_terrain_visual_presentation_only_last_action()
+-> ResidualTerrainVisualPresentationOnlyAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualTerrainVisualPresentationOnlyAction::MethodNames,
         2 => ResidualTerrainVisualPresentationOnlyAction::SourceMarkers,

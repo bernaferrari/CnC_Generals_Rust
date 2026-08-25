@@ -213,8 +213,7 @@ impl StealthConditionsManager {
         conditions.condition_flags = flags;
         trace!(
             "Set condition flags for object {}: 0x{:04X}",
-            object_id,
-            flags
+            object_id, flags
         );
         Ok(())
     }
@@ -1075,15 +1074,21 @@ mod stealth_conditions_tests {
         // All operations should fail on unregistered object
         assert!(manager.get_condition_flags(999).is_err());
         assert!(manager.set_condition_flags(999, 0x0001).is_err());
-        assert!(manager
-            .has_condition(999, StealthCondition::Attacking)
-            .is_err());
-        assert!(manager
-            .add_condition(999, StealthCondition::Moving)
-            .is_err());
-        assert!(manager
-            .remove_condition(999, StealthCondition::Moving)
-            .is_err());
+        assert!(
+            manager
+                .has_condition(999, StealthCondition::Attacking)
+                .is_err()
+        );
+        assert!(
+            manager
+                .add_condition(999, StealthCondition::Moving)
+                .is_err()
+        );
+        assert!(
+            manager
+                .remove_condition(999, StealthCondition::Moving)
+                .is_err()
+        );
         assert!(manager.clear_conditions(999).is_err());
         assert!(manager.can_stealth(999).is_err());
         assert!(manager.unregister_object(999).is_err());

@@ -119,7 +119,7 @@ impl SpecialPowerModuleInterface for SpyVisionSpecialPower {
             None => {
                 return ActivationResult::InvalidTarget {
                     reason: "Spy vision power requires targeting".to_string(),
-                }
+                };
             }
         };
 

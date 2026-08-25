@@ -42,12 +42,14 @@ pub fn host_historic_bonus_for_weapon_name(name: &str) -> HostHistoricBonusPeel 
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
     let from_store = with_weapon_store(|store| {
-        store.find_weapon_template(name).map(|wt| HostHistoricBonusPeel {
-            time_frames: wt.historic_bonus_time,
-            count: wt.historic_bonus_count,
-            radius: wt.historic_bonus_radius.max(0.0),
-            bonus_weapon: leftover_historic_bonus_weapon_name(wt),
-        })
+        store
+            .find_weapon_template(name)
+            .map(|wt| HostHistoricBonusPeel {
+                time_frames: wt.historic_bonus_time,
+                count: wt.historic_bonus_count,
+                radius: wt.historic_bonus_radius.max(0.0),
+                bonus_weapon: leftover_historic_bonus_weapon_name(wt),
+            })
     })
     .ok()
     .flatten();

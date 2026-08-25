@@ -25,7 +25,6 @@ pub(super) fn install_test_mid_ridge(game_logic: &mut GameLogic) {
     );
 }
 
-
 pub(super) fn ensure_test_tank_template(game_logic: &mut GameLogic) {
     if game_logic.templates.contains_key("TestTank") {
         return;

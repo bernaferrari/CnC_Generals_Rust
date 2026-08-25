@@ -113,8 +113,8 @@ mod tests {
     #[test]
     fn simulate_ocl_timer_prepare_display_residual_live() {
         use game_client::gui::control_bar::{
-            residual_ocl_timer_last_action, residual_ocl_timer_seconds,
-            simulate_ocl_timer_prepare_display, ResidualOclTimerAction,
+            ResidualOclTimerAction, residual_ocl_timer_last_action, residual_ocl_timer_seconds,
+            simulate_ocl_timer_prepare_display,
         };
         // 870 remaining / 30 fps = 29 seconds (matches existing unit test).
         let Some((text, _progress, secs)) = simulate_ocl_timer_prepare_display(870, 900) else {

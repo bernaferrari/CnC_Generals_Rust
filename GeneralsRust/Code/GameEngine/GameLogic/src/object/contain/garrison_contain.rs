@@ -9,16 +9,16 @@ use std::sync::{Arc, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
 use crate::ai::THE_AI;
 use crate::common::{
-    CommandSourceType, Coord3D, DisabledType, GameResult, KindOf, ModelConditionFlags,
+    CommandSourceType, Coord3D, DisabledType, GameResult, INVALID_ID, KindOf, ModelConditionFlags,
     ModelConditionState, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PathfindLayerEnum,
-    PlayerMaskType, Relationship, UnsignedInt, WeaponBonusConditionType, INVALID_ID,
+    PlayerMaskType, Relationship, UnsignedInt, WeaponBonusConditionType,
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
 use crate::helpers::{
-    get_game_logic_random_value_real, FindPositionOptions, TheGameClient, TheGameLogic,
+    FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS, FindPositionOptions, TheGameClient, TheGameLogic,
     TheGlobalData, TheInGameUI, ThePartitionManager, TheTerrainLogic, TheThingFactory,
-    FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS,
+    get_game_logic_random_value_real,
 };
 use crate::locomotor::LocomotorSet;
 use crate::modules::{
@@ -30,7 +30,7 @@ use crate::object::{Object, ObjectId};
 use crate::player::{Player, ThePlayerList};
 use crate::team::Team;
 use crate::weapon::{DamageType as WeaponDamageType, Weapon};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Maximum number of garrison points
@@ -844,8 +844,8 @@ impl GarrisonContain {
             .map(|g| self.is_enclosing_container_for(&*g))
             .unwrap_or(false);
 
-        let Some((mut start_pos, mut end_pos, exit_angle, left_or_right)) = self
-            .with_owner_object(|owner| {
+        let Some((mut start_pos, mut end_pos, exit_angle, left_or_right)) =
+            self.with_owner_object(|owner| {
                 let mut start_pos = *owner.get_position();
                 let exit_angle = owner.get_orientation();
 
@@ -870,10 +870,8 @@ impl GarrisonContain {
                     }
                 }
 
-                let left_or_right = matches!(
-                    evac,
-                    EvacDisposition::ToLeft | EvacDisposition::ToRight
-                );
+                let left_or_right =
+                    matches!(evac, EvacDisposition::ToLeft | EvacDisposition::ToRight);
                 let mut end_pos = start_pos;
                 if left_or_right {
                     let scalar = if matches!(evac, EvacDisposition::ToLeft) {
@@ -1203,11 +1201,7 @@ impl GarrisonContain {
                             .map(|guard| guard.get_relationship_with_team(&observer_team_guard))
                             .unwrap_or(Relationship::Neutral);
                         if garrison_hide_returns_original_controller(
-                            true,
-                            true,
-                            true,
-                            true,
-                            relation,
+                            true, true, true, true, relation,
                         ) {
                             if let Ok(original_guard) = original_team.upgrade()?.read() {
                                 if let Some(controller_id) =
@@ -2950,11 +2944,7 @@ impl ContainModuleInterface for GarrisonContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.base.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -3043,11 +3033,7 @@ impl ContainModuleInterface for GarrisonContain {
         GarrisonContain::is_garrisonable(self)
     }
 
-    fn calc_best_garrison_position(
-        &self,
-        source_pos: &mut Coord3D,
-        target_pos: &Coord3D,
-    ) -> bool {
+    fn calc_best_garrison_position(&self, source_pos: &mut Coord3D, target_pos: &Coord3D) -> bool {
         GarrisonContain::calc_best_garrison_position(self, source_pos, target_pos)
     }
 
@@ -3281,10 +3267,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(
-            &mut self,
-            _snapshot: &mut dyn Snapshotable,
-        ) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 
@@ -3572,19 +3555,25 @@ mod tests {
             passenger.read().expect("passenger read").get_contained_by(),
             Some(96001)
         );
-        assert!(passenger
-            .read()
-            .expect("passenger read")
-            .is_disabled_by_type(DisabledType::Held));
-        assert!(passenger
-            .read()
-            .expect("passenger read")
-            .get_weapon_bonus_condition()
-            .contains(WeaponBonusConditionFlags::GARRISONED));
-        assert!(owner
-            .read()
-            .expect("owner read")
-            .test_status(ObjectStatusTypes::CanAttack));
+        assert!(
+            passenger
+                .read()
+                .expect("passenger read")
+                .is_disabled_by_type(DisabledType::Held)
+        );
+        assert!(
+            passenger
+                .read()
+                .expect("passenger read")
+                .get_weapon_bonus_condition()
+                .contains(WeaponBonusConditionFlags::GARRISONED)
+        );
+        assert!(
+            owner
+                .read()
+                .expect("owner read")
+                .test_status(ObjectStatusTypes::CanAttack)
+        );
 
         cleanup_objects(&[96001, 96002]);
     }
@@ -3610,19 +3599,25 @@ mod tests {
             passenger.read().expect("passenger read").get_contained_by(),
             None
         );
-        assert!(!passenger
-            .read()
-            .expect("passenger read")
-            .is_disabled_by_type(DisabledType::Held));
-        assert!(!passenger
-            .read()
-            .expect("passenger read")
-            .get_weapon_bonus_condition()
-            .contains(WeaponBonusConditionFlags::GARRISONED));
-        assert!(!owner
-            .read()
-            .expect("owner read")
-            .test_status(ObjectStatusTypes::CanAttack));
+        assert!(
+            !passenger
+                .read()
+                .expect("passenger read")
+                .is_disabled_by_type(DisabledType::Held)
+        );
+        assert!(
+            !passenger
+                .read()
+                .expect("passenger read")
+                .get_weapon_bonus_condition()
+                .contains(WeaponBonusConditionFlags::GARRISONED)
+        );
+        assert!(
+            !owner
+                .read()
+                .expect("owner read")
+                .test_status(ObjectStatusTypes::CanAttack)
+        );
         assert!(!contain.hide_garrisoned_state_from_non_allies);
 
         cleanup_objects(&[96003, 96004]);

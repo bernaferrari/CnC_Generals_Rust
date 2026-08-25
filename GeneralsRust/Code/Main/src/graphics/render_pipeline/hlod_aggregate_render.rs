@@ -922,7 +922,6 @@ mod tests {
             [1.0, 1.0, 1.0, 1.0],
         );
 
-
         let mut aggregate_parent = parent_item();
         aggregate_parent.apply_frozen_presentation_visuals(
             frozen_fow,

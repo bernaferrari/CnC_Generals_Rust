@@ -10,16 +10,16 @@ use crate::common::xfer::XferExt;
 use crate::common::{AsciiString, Coord3D, ModuleData, PathfindLayerEnum, Real, UpgradeMaskType};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::modules::{
-    BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
-    UpgradeModuleInterface, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
-};
-use crate::object::behavior::behavior_module::{
-    xfer_behavior_module_base_versions, BehaviorModuleData,
+    BehaviorModuleInterface, DieModuleInterface, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+    UpdateModuleInterface, UpdateSleepTime, UpgradeModuleInterface,
 };
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{
+    BehaviorModuleData, xfer_behavior_module_base_versions,
+};
 use crate::upgrade::center::THE_UPGRADE_CENTER;
 use game_engine::common::ini::ini_game_data::get_global_data;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -1631,7 +1631,7 @@ impl GenerateMinefieldBehaviorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::common::ini::ini_game_data::{ensure_global_data, GlobalData};
+    use game_engine::common::ini::ini_game_data::{GlobalData, ensure_global_data};
     use parking_lot::RwLock;
     use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 

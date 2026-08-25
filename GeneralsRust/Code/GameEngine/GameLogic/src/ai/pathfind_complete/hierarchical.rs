@@ -123,7 +123,15 @@ impl PathfindingSystem {
         let cell = GridCoord::from_world(&adjust_dest);
         let layer = self.get_layer_for_coord(GridCoord::from_world(dest));
 
-        if self.check_for_landing(cell.x, cell.y, layer, radius, center_in_cell, dest, INVALID_ID) {
+        if self.check_for_landing(
+            cell.x,
+            cell.y,
+            layer,
+            radius,
+            center_in_cell,
+            dest,
+            INVALID_ID,
+        ) {
             return true;
         }
 
@@ -856,11 +864,7 @@ impl PathfindingSystem {
             is_human,
         };
         let result = self.find_path_internal(request);
-        if result.success {
-            Some(result)
-        } else {
-            None
-        }
+        if result.success { Some(result) } else { None }
     }
 
     // ========================================================================

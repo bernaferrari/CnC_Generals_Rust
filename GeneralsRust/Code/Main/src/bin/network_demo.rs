@@ -8,8 +8,8 @@
 //! - Handle synchronization
 
 use generals_main::network::{
-    init_network, ChatType, CommandTarget, LobbyCallbacks, NetworkConfig, NetworkInterface,
-    PlayerInfo, UnitCommand, UnitCommandType,
+    ChatType, CommandTarget, LobbyCallbacks, NetworkConfig, NetworkInterface, PlayerInfo,
+    UnitCommand, UnitCommandType, init_network,
 };
 
 use clap::{App, Arg};

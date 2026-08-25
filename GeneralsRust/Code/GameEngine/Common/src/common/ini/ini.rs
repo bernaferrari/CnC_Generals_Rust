@@ -136,7 +136,6 @@ fn particle_system_live_overlay() -> Option<ParticleSystemLiveOverlay> {
         .and_then(|guard| *guard)
 }
 
-
 /// Register an additional INI block parser at runtime (used by client-side modules).
 pub fn register_block_parser(token: &'static str, parse: INIBlockParse) -> bool {
     let registry = EXTRA_BLOCK_PARSERS.get_or_init(|| RwLock::new(Vec::new()));
@@ -1024,7 +1023,6 @@ async fn collect_ini_files_current_then_nested(
     nested_files.sort();
     Ok((current_dir_files, nested_files))
 }
-
 
 impl INI {
     /// Create a new INI reader
@@ -2137,7 +2135,7 @@ impl Default for INI {
 mod tests {
     use super::*;
     use crate::common::rts::special_power::{
-        get_special_power_store, reset_special_power_store, SpecialPowerType,
+        SpecialPowerType, get_special_power_store, reset_special_power_store,
     };
 
     #[test]
@@ -2235,10 +2233,12 @@ End
                 assert!(properties.contains_key("WeaponBonus#2"));
                 assert!(properties.contains_key("ScatterTarget"));
                 assert!(properties.contains_key("ScatterTarget#1"));
-                assert!(properties
-                    .get("WeaponBonus")
-                    .unwrap()
-                    .contains("RATE_OF_FIRE"));
+                assert!(
+                    properties
+                        .get("WeaponBonus")
+                        .unwrap()
+                        .contains("RATE_OF_FIRE")
+                );
                 assert!(properties.get("WeaponBonus#2").unwrap().contains("DAMAGE"));
                 Ok(())
             },
@@ -2318,11 +2318,8 @@ End
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let path = std::env::temp_dir().join(format!(
-            "ini_readline_{}_{}.ini",
-            std::process::id(),
-            nanos
-        ));
+        let path =
+            std::env::temp_dir().join(format!("ini_readline_{}_{}.ini", std::process::id(), nanos));
         let mut long = "A".repeat(INI_MAX_CHARS_PER_LINE + 40);
         long.push('\n');
         let contents = format!("Key = Value  \n{long}Tail\n");
@@ -2358,10 +2355,7 @@ End
             static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
         }
         fn hook(name: &str, properties: &HashMap<String, String>, _load_type: INILoadType) {
-            assert_eq!(
-                properties.get("Priority").map(String::as_str),
-                Some("NONE")
-            );
+            assert_eq!(properties.get("Priority").map(String::as_str), Some("NONE"));
             SEEN.with(|seen| seen.borrow_mut().push(name.to_string()));
         }
         register_particle_system_live_overlay(hook);

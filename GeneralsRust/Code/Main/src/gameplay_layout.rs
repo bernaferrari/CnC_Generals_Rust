@@ -278,7 +278,6 @@ pub fn resolve_control_bar_path() -> Option<PathBuf> {
     None
 }
 
-
 /// Validate ControlBar.wnd is a non-empty retail layout file.
 ///
 /// Residual honesty (fail-closed vs full WindowManager parse / loaded=true):
@@ -431,7 +430,6 @@ pub fn simulate_control_bar_materialise_honesty() -> bool {
         true
     }
 }
-
 
 /// Shipped ensure path: resolve ControlBar.wnd, validate, and attempt load.
 ///
@@ -586,7 +584,6 @@ fn try_load_control_bar_via_throwaway_window_manager(path: &str) -> Result<usize
     }
     Err(last_err)
 }
-
 
 /// Format status for logs/gates.
 pub fn format_gameplay_layout_status(s: &GameplayLayoutStatus) -> String {

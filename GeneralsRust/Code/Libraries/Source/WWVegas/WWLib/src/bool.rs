@@ -18,11 +18,7 @@ pub enum BoolInt {
 
 impl From<bool> for BoolInt {
     fn from(value: bool) -> Self {
-        if value {
-            BoolInt::True
-        } else {
-            BoolInt::False
-        }
+        if value { BoolInt::True } else { BoolInt::False }
     }
 }
 

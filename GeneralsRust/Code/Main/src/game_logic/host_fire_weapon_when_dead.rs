@@ -164,16 +164,20 @@ mod tests {
         assert!(death_weapon_for_template("GLAScudStorm").is_some());
         assert!(death_weapon_for_template("AmericaTankCrusader").is_none());
         assert!(death_weapon_for_template("GLAVehicleBombTruck").is_none());
-        assert!(death_weapon_for_dying_object(
-            "GLAInfantryTerrorist",
-            crate::game_logic::host_usa_pilot::HostDeathType::Suicided
-        )
-        .is_none());
-        assert!(death_weapon_for_dying_object(
-            "GLAInfantryTerrorist",
-            crate::game_logic::host_usa_pilot::HostDeathType::Normal
-        )
-        .is_some());
+        assert!(
+            death_weapon_for_dying_object(
+                "GLAInfantryTerrorist",
+                crate::game_logic::host_usa_pilot::HostDeathType::Suicided
+            )
+            .is_none()
+        );
+        assert!(
+            death_weapon_for_dying_object(
+                "GLAInfantryTerrorist",
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal
+            )
+            .is_some()
+        );
     }
 
     #[test]

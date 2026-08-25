@@ -244,7 +244,7 @@ fn particle_gpu_mesh_bake_matches_live_particle_positions() {
 
 #[test]
 fn terrain_scorch_add_dedups_and_drops_oldest_like_cpp() {
-    use game_client_rust::terrain::scorch_mesh::{TerrainScorchBuffer, MAX_SCORCH_MARKS};
+    use game_client_rust::terrain::scorch_mesh::{MAX_SCORCH_MARKS, TerrainScorchBuffer};
 
     let mut buf = TerrainScorchBuffer::new();
     assert!(buf.add_scorch([100.0, 200.0, 0.0], 20.0, 1));
@@ -273,8 +273,8 @@ fn terrain_scorch_add_dedups_and_drops_oldest_like_cpp() {
 fn terrain_scorch_gpu_bake_drapes_height_and_type_uv() {
     use game_client_rust::terrain::height_map::HeightMap;
     use game_client_rust::terrain::scorch_mesh::{
-        add_terrain_scorch, bake_terrain_scorch_gpu_mesh, clear_terrain_scorches,
-        SCORCH_FLOAT_AMOUNT, SCORCH_PER_ROW,
+        SCORCH_FLOAT_AMOUNT, SCORCH_PER_ROW, add_terrain_scorch, bake_terrain_scorch_gpu_mesh,
+        clear_terrain_scorches,
     };
     use gamelogic::common::types::MAP_XY_FACTOR;
 
@@ -390,7 +390,6 @@ fn fxlist_terrain_scorch_nugget_does_not_invent_decal_quad() {
     clear_terrain_scorches();
 }
 
-
 #[test]
 fn fxlist_tracer_nugget_sets_parms_transform_and_ceil_expiration() {
     use game_client_rust::effects::fxlist_integration::{FXContext, FXNugget, TracerFXNugget};
@@ -468,7 +467,7 @@ fn fxlist_tracer_nugget_sets_parms_transform_and_ceil_expiration() {
 #[test]
 fn fxlist_view_shake_nugget_uses_tactical_view_cpp_falloff() {
     use game_client_rust::display::view::{
-        with_tactical_view, with_tactical_view_ref, Point3 as ViewPoint3,
+        Point3 as ViewPoint3, with_tactical_view, with_tactical_view_ref,
     };
     use game_client_rust::effects::fxlist_integration::{
         FXContext, FXNugget, ShakeType, ViewShakeFXNugget,
@@ -527,8 +526,8 @@ fn fxlist_view_shake_nugget_uses_tactical_view_cpp_falloff() {
 fn fxlist_ray_effect_nugget_creates_midpoint_template_entry() {
     use game_client_rust::effects::fxlist_integration::{FXContext, FXNugget, RayEffectFXNugget};
     use game_client_rust::effects::ray_effect_system::{
-        bake_ray_effect_gpu_endpoints, create_ray_effect_by_template, live_ray_effects,
-        ray_effect_midpoint, reset_ray_effects, MAX_RAY_EFFECTS,
+        MAX_RAY_EFFECTS, bake_ray_effect_gpu_endpoints, create_ray_effect_by_template,
+        live_ray_effects, ray_effect_midpoint, reset_ray_effects,
     };
 
     reset_ray_effects();
@@ -608,4 +607,3 @@ fn fxlist_ray_effect_expires_after_max_intensity_plus_fade() {
     );
     reset_ray_effects();
 }
-

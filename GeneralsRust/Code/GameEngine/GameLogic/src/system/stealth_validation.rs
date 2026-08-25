@@ -3,7 +3,7 @@
 //! Comprehensive parameter validation before use in stealth and detection calculations.
 //! Ensures all inputs are within valid ranges and constraints before processing.
 
-use crate::common::{ObjectID, INVALID_ID};
+use crate::common::{INVALID_ID, ObjectID};
 use std::fmt;
 
 /// Maximum player ID.

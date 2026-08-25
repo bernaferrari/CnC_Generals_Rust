@@ -1,10 +1,10 @@
+use crate::RenderTargets;
 use crate::core::error::{Error, Result};
 use crate::material_system::VertexMaterialClass;
 use crate::math::Vector2;
 use crate::rendering::camera_system::ViewportClass as Viewport;
 use crate::rendering::shader_system::shader::{ShaderApplyResources, ShaderClass};
 use crate::rendering::texture_system::texture_base::TextureBaseClass;
-use crate::RenderTargets;
 use glam::{Mat4, Vec3, Vec4};
 use pollster::block_on;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -218,9 +218,9 @@ impl WgpuWrapper {
             z_bias: 0,
             z_near: 0.0,
             z_far: 1.0,
-            fill_mode: 3, // D3DFILL_SOLID
-            z_func: 4,    // D3DCMP_LESSEQUAL
-            src_blend: 2, // D3DBLEND_ONE
+            fill_mode: 3,  // D3DFILL_SOLID
+            z_func: 4,     // D3DCMP_LESSEQUAL
+            src_blend: 2,  // D3DBLEND_ONE
             dest_blend: 1, // D3DBLEND_ZERO
             stencil_enable: false,
             is_initted: false,
@@ -1110,8 +1110,7 @@ impl WgpuWrapper {
         if self.z_bias == 0 || self.z_near == self.z_far {
             return matrix;
         }
-        let tmp_zbias =
-            (self.z_bias as f32) * (1.0 / 16.0) * (1.0 / (self.z_far - self.z_near));
+        let tmp_zbias = (self.z_bias as f32) * (1.0 / 16.0) * (1.0 / (self.z_far - self.z_near));
         let mut tmp = matrix;
         let mut z_axis = tmp.z_axis;
         z_axis.z -= tmp_zbias * tmp.w_axis.z;
@@ -1263,7 +1262,7 @@ impl WgpuWrapper {
                 Err(e) => {
                     return Err(Error::RenderError(format!(
                         "Failed to acquire surface texture: {e}"
-                    )))
+                    )));
                 }
             },
             None => {

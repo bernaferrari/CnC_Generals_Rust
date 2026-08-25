@@ -82,41 +82,40 @@
 //! - **Determinism**: Same frame order every game for multiplayer sync
 //! - **Synchronization**: All systems must complete before next frame
 
-use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::THE_AI;
+use crate::ai::integration::with_ai_integration_mut;
 use crate::common::{
-    AsciiString, Bool, Color, Coord3D, DisabledMaskType, Int, KindOf, ObjectID,
+    AsciiString, Bool, Color, Coord3D, DisabledMaskType, INVALID_ID, Int, KindOf, ObjectID,
     ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType, Real, UnsignedInt, UnsignedShort,
-    INVALID_ID,
 };
-use crate::helpers::{get_camera_view_bridge, TheGameClient};
+use crate::helpers::{TheGameClient, get_camera_view_bridge};
 use crate::modules::{SleepyUpdatePhase, UpdateModulePtr, UpdateSleepTime};
 use crate::object::collide::collision_geometry::GeometryInfo as CollisionGeometryInfo;
 use crate::object::collide::collision_response::{CollisionResponseConfig, CollisionResponseType};
 use crate::object::collide::collision_system::with_collision_system_mut;
 use crate::object::drawable::DrawableExt;
-use crate::object::{registry::OBJECT_REGISTRY, Object, THE_GHOST_OBJECT_MANAGER};
-use crate::player::{player_list, GameDifficulty, Player, PlayerIndex, PlayerType};
-use crate::scripting::engine::{get_script_engine, initialize_script_engine, ScriptEngine};
+use crate::object::{Object, THE_GHOST_OBJECT_MANAGER, registry::OBJECT_REGISTRY};
+use crate::player::{GameDifficulty, Player, PlayerIndex, PlayerType, player_list};
+use crate::scripting::engine::{ScriptEngine, get_script_engine, initialize_script_engine};
 use crate::sides_list::get_sides_list;
-use crate::system::beacon_manager::{drain_beacon_updates, BeaconUpdate};
-use crate::system::game_logic_dispatch::{get_dispatch, GameLogicDispatch};
+use crate::system::beacon_manager::{BeaconUpdate, drain_beacon_updates};
+use crate::system::game_logic_dispatch::{GameLogicDispatch, get_dispatch};
 use crate::system::radar_notifier;
 use crate::system::shroud_manager::get_shroud_manager;
-use crate::team::{flush_pending_team_script_events, get_team_factory, Team};
-use crate::terrain::{get_terrain_logic, TerrainDynamicWaterSnapshotEntry};
+use crate::team::{Team, flush_pending_team_script_events, get_team_factory};
+use crate::terrain::{TerrainDynamicWaterSnapshotEntry, get_terrain_logic};
 use crate::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
-use game_engine::common::rts::energy::{
-    set_energy_object_lookup, set_energy_owner_callbacks, EnergyObjectLookup, EnergyOwnerCallbacks,
-};
-use game_engine::common::rts::handles::{ObjectHandle, PlayerHandle};
-use game_engine::common::system::build_assistant::init_build_assistant;
-use game_engine::System::XferVersion;
 use game_engine::System::SaveGame::register_partition_manager_update;
+use game_engine::System::XferVersion;
 use game_engine::System::{
     register_object_id_counter_hooks, register_save_load_lifecycle_hooks,
     register_save_load_mission_hooks, register_save_lock_ghost_objects_hook,
 };
+use game_engine::common::rts::energy::{
+    EnergyObjectLookup, EnergyOwnerCallbacks, set_energy_object_lookup, set_energy_owner_callbacks,
+};
+use game_engine::common::rts::handles::{ObjectHandle, PlayerHandle};
+use game_engine::common::system::build_assistant::init_build_assistant;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use log::{debug, info, trace, warn};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};

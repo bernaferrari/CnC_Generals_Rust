@@ -4,16 +4,16 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::Coord3D;
-use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
+use crate::common::Relationship;
+use crate::common::{INVALID_ID, ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion};
 use crate::common::{KindOf, PathfindLayerEnum};
 use crate::common::{Matrix3D, TurretType};
-use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
 use crate::damage::{DamageType, DeathType};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic,
-    TheObjectCreationListStore, TheTerrainLogic, TheThingFactory,
+    TheGameLogic, TheObjectCreationListStore, TheTerrainLogic, TheThingFactory,
+    get_game_logic_random_value, get_game_logic_random_value_real,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::collide::GameObject;
@@ -21,7 +21,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::update::MissileAIUpdateModuleData;
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::projectile_launch_cast::{
-    module_projectile_launch_kind, ProjectileLaunchKindMut,
+    ProjectileLaunchKindMut, module_projectile_launch_kind,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ascii_string::AsciiString;
@@ -30,12 +30,11 @@ use game_engine::common::system::Snapshotable;
 
 use super::audio_event::AudioEventRts;
 use super::helpers::{
-    dual_world_registry_unavailable, map_weapon_slot_to_common, ObjectId, INVALID_OBJECT_ID,
+    INVALID_OBJECT_ID, ObjectId, dual_world_registry_unavailable, map_weapon_slot_to_common,
 };
 use super::masks_enums::*;
 use super::store::with_weapon_store;
 use super::weapon_instance::Weapon;
-
 
 /// Weapon template defining weapon properties
 #[derive(Debug, Clone)]
@@ -1234,7 +1233,6 @@ impl WeaponTemplate {
         }
     }
 
-
     fn historic_bonus_weapon_name_resolved(&self) -> Option<String> {
         let named = self.historic_bonus_weapon_name.trim();
         if !named.is_empty() && !named.eq_ignore_ascii_case("None") {
@@ -1314,12 +1312,7 @@ impl WeaponTemplate {
             // minus 1: this hit is included implicitly (Weapon.cpp:1233)
             let dispatched = if let Some(bonus_weapon) = bonus_weapon {
                 let _ = with_weapon_store(|store| {
-                    store.create_and_fire_temp_weapon(
-                        &bonus_weapon,
-                        source_obj,
-                        None,
-                        Some(pos),
-                    )
+                    store.create_and_fire_temp_weapon(&bonus_weapon, source_obj, None, Some(pos))
                 });
                 true
             } else {
@@ -1334,7 +1327,6 @@ impl WeaponTemplate {
             false
         }
     }
-
 
     /// C++ Weapon.cpp estimateWeaponTemplateDamage: returns estimated damage to
     /// a victim, taking bonuses and armor into account. Does NOT consider range.
@@ -1524,11 +1516,7 @@ impl WeaponTemplate {
     }
 
     pub fn get_homing_force(&self) -> crate::common::Real {
-        if self.is_guided() {
-            1.0
-        } else {
-            0.0
-        }
+        if self.is_guided() { 1.0 } else { 0.0 }
     }
 
     pub fn is_guided(&self) -> bool {
@@ -1590,7 +1578,6 @@ fn estimate_weapon_targetability_specials(
     None
 }
 
-
 /// Weapon.ini `HistoricBonusWeapon` is stored on the Common parser template
 /// even when the GameLogic Weak has not been wired yet.
 fn common_historic_bonus_weapon_name(owner: &str) -> Option<String> {
@@ -1605,4 +1592,3 @@ fn common_historic_bonus_weapon_name(owner: &str) -> Option<String> {
         Some(name.to_string())
     }
 }
-

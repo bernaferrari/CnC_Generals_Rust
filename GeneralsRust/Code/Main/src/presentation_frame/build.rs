@@ -14,8 +14,7 @@ pub(super) fn freeze_direct_object_shroud_facts(
         // clear behavior even when the standalone manager has no membership.
         PresentationObjectShroudStatus::Clear
     } else if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
-        if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0)
-        {
+        if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0) {
             PresentationObjectShroudStatus::from(status)
         } else {
             let runtime_active = !shroud.get_visible_objects(local_player_id).is_empty()
@@ -65,9 +64,7 @@ pub(super) fn freeze_direct_object_shroud_facts(
 
 pub(super) fn object_is_mine_kind(obj: &crate::game_logic::Object) -> bool {
     use crate::game_logic::KindOf;
-    obj.mine_data.is_some()
-        || obj.is_kind_of(KindOf::Mine)
-        || obj.is_kind_of(KindOf::DemoTrap)
+    obj.mine_data.is_some() || obj.is_kind_of(KindOf::Mine) || obj.is_kind_of(KindOf::DemoTrap)
 }
 
 /// C++ mines force `setEffectiveOpacity(0,0)` every frame; other units keep
@@ -81,10 +78,7 @@ pub(super) fn freeze_friendly_stealth_opacity(obj: &crate::game_logic::Object) -
 }
 
 /// C++ drawBombed StickyBombUpdate: timed vs remote + countdown seconds.
-pub(super) fn freeze_sticky_bomb_overlay(
-    obj: &crate::game_logic::Object,
-    now: u32,
-) -> (u8, u32) {
+pub(super) fn freeze_sticky_bomb_overlay(obj: &crate::game_logic::Object, now: u32) -> (u8, u32) {
     let Some(md) = obj.mine_data.as_ref() else {
         return (0, 0);
     };
@@ -109,7 +103,6 @@ pub(super) fn freeze_sticky_bomb_overlay(
         _ => (0, 0),
     }
 }
-
 
 /// Freeze the source capability consumed by C++
 /// `StealthUpdate::canDisguise()`. The active host's Bomb Truck residual is
@@ -184,22 +177,23 @@ fn freeze_host_player_power(
     });
     let power_player_id = power_src.map(|player| player.id).unwrap_or(local_player_id);
     let power_team = power_src.map(|player| player.team);
-    let (obj_produced, obj_consumed) = logic.host_objects().values().fold(
-        (0_i32, 0_i32),
-        |(produced, consumed), object| {
-            let owned = match object.owner_player_id {
-                Some(id) => id == power_player_id,
-                None => power_team == Some(object.team),
-            };
-            if !owned || !object.is_constructed() || !object.is_alive() {
-                return (produced, consumed);
-            }
-            (
-                produced.saturating_add(object.power_provided),
-                consumed.saturating_add(object.power_consumed.abs()),
-            )
-        },
-    );
+    let (obj_produced, obj_consumed) =
+        logic
+            .host_objects()
+            .values()
+            .fold((0_i32, 0_i32), |(produced, consumed), object| {
+                let owned = match object.owner_player_id {
+                    Some(id) => id == power_player_id,
+                    None => power_team == Some(object.team),
+                };
+                if !owned || !object.is_constructed() || !object.is_alive() {
+                    return (produced, consumed);
+                }
+                (
+                    produced.saturating_add(object.power_provided),
+                    consumed.saturating_add(object.power_consumed.abs()),
+                )
+            });
     let overcharge = power_src
         .map(|player| player.captured_overcharge_power_delta)
         .unwrap_or(0);
@@ -309,12 +303,8 @@ fn object_public_timer_ready(
     power: &crate::command_system::SpecialPowerType,
     remaining: f32,
 ) -> bool {
-    remaining <= 0.0
-        && !obj.is_disabled()
-        && !obj.is_special_power_countdown_paused(power)
+    remaining <= 0.0 && !obj.is_disabled() && !obj.is_special_power_countdown_paused(power)
 }
-
-
 
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
@@ -436,7 +426,7 @@ impl PresentationFrame {
             let destroyed_for_mesh = obj.status.destroyed || auth_health <= 0.01;
             let body_ord = {
                 use crate::game_logic::host_enum_table_residual::{
-                    host_calc_body_damage_state, HostBodyDamageType,
+                    HostBodyDamageType, host_calc_body_damage_state,
                 };
                 let state = if destroyed_for_mesh {
                     HostBodyDamageType::Rubble
@@ -451,8 +441,8 @@ impl PresentationFrame {
                 // from these bits, rather than forming a basename suffix.
                 let mut bits = obj.model_condition_bits;
                 use crate::game_logic::host_enum_table_residual::{
-                    host_apply_body_damage_model_bits, host_calc_body_damage_state,
                     HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
+                    host_apply_body_damage_model_bits, host_calc_body_damage_state,
                 };
                 use crate::game_logic::host_neutron_missile_slow_death::{
                     MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
@@ -619,13 +609,12 @@ impl PresentationFrame {
                         } else {
                             obj.selection_radius.max(1.0)
                         };
-                        let cpp_percent = if auth_under_construction
-                            || auth_construction_percent + 1e-4 < 1.0
-                        {
-                            auth_construction_percent * 100.0
-                        } else {
-                            -1.0
-                        };
+                        let cpp_percent =
+                            if auth_under_construction || auth_construction_percent + 1e-4 < 1.0 {
+                                auth_construction_percent * 100.0
+                            } else {
+                                -1.0
+                            };
                         if let Some(dy) =
                             crate::assets::construction_percent_height_delta(cpp_percent, height)
                         {
@@ -703,8 +692,7 @@ impl PresentationFrame {
                 occupant_count: if garrison_hide_from_local {
                     0
                 } else {
-                    auth_occupants
-                        .unwrap_or(obj.occupants.len().min(u16::MAX as usize) as u16)
+                    auth_occupants.unwrap_or(obj.occupants.len().min(u16::MAX as usize) as u16)
                 },
                 production_queue: obj
                     .building_data
@@ -861,8 +849,7 @@ impl PresentationFrame {
                 is_force_attackable: obj.is_kind_of(KindOf::ForceAttackable),
                 always_selectable: obj.is_kind_of(KindOf::AlwaysSelectable),
 
-                is_crate: obj.is_kind_of(KindOf::Crate)
-                    || logic.host_money_crates.contains(obj.id),
+                is_crate: obj.is_kind_of(KindOf::Crate) || logic.host_money_crates.contains(obj.id),
                 is_salvage_crate: logic
                     .host_money_crates
                     .get(obj.id)
@@ -1218,7 +1205,6 @@ impl PresentationFrame {
                     logic,
                 );
             }
-
         }
         // Stable presentation order for determinism (by ObjectId).
         objects.sort_by_key(|o| o.id.0);
@@ -1268,8 +1254,8 @@ impl PresentationFrame {
         let local_science_purchase_points = local.map(|p| p.science_purchase_points).unwrap_or(0);
         let local_rank_progress_percent = {
             use crate::game_logic::host_rank_ui_residual::{
-                rank_level_down_threshold_residual, rank_level_up_threshold_residual,
-                rank_progress_percent_residual, RankSkillStateResidual,
+                RankSkillStateResidual, rank_level_down_threshold_residual,
+                rank_level_up_threshold_residual, rank_progress_percent_residual,
             };
             let state = RankSkillStateResidual {
                 rank_level: local_rank_level,
@@ -1412,7 +1398,9 @@ impl PresentationFrame {
                     if !unlocked {
                         continue;
                     }
-                    let shared_n_sync = matching_modules.iter().any(|(_, module)| module.shared_n_sync)
+                    let shared_n_sync = matching_modules
+                        .iter()
+                        .any(|(_, module)| module.shared_n_sync)
                         || special_power_uses_shared_synced_timer(power);
                     if shared_n_sync {
                         // C++ SpecialPowerModule.cpp:756-765 + InGameUI.cpp:3684 —
@@ -1562,11 +1550,7 @@ impl PresentationFrame {
                             Some(BuildingType::CommandCenter) => {
                                 &["AmericaVehicleDozer", "TestDozer"]
                             }
-                            _ => &[
-                                "TestInfantry",
-                                "TestRaptor",
-                                "AmericaInfantryColonelBurton",
-                            ],
+                            _ => &["TestInfantry", "TestRaptor", "AmericaInfantryColonelBurton"],
                         }
                     }
                 };
@@ -2400,10 +2384,10 @@ fn sync_live_terrain_decals(objects: &[RenderableObject], local_team: crate::gam
     #[cfg(feature = "game_client")]
     {
         use crate::game_logic::host_battlemaster::{
-            leftover_infantry_horde_decal_size_or_bbox, terrain_decal_texture_name,
             TERRAIN_DECAL_NONE, TERRAIN_DECAL_SHADOW_TEXTURE,
+            leftover_infantry_horde_decal_size_or_bbox, terrain_decal_texture_name,
         };
-        use game_client::radius_decal::{enqueue_delivery_decal, ShadowHandle};
+        use game_client::radius_decal::{ShadowHandle, enqueue_delivery_decal};
         use std::sync::Mutex;
         static HANDLES: Mutex<Vec<ShadowHandle>> = Mutex::new(Vec::new());
         let Ok(mut handles) = HANDLES.lock() else {
@@ -2440,7 +2424,6 @@ fn sync_live_terrain_decals(objects: &[RenderableObject], local_team: crate::gam
             if size <= 0.0 {
                 continue;
             }
-
 
             let color = match obj.terrain_decal_type {
                 5 => [255, 210, 64],
@@ -2510,8 +2493,11 @@ mod sw_hud_tests {
         tpl.add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::FSSuperweapon)
             .set_health(4000.0);
-        tpl.special_power_modules
-            .push(sw_module(&format!("Superweapon{name}"), power, shared));
+        tpl.special_power_modules.push(sw_module(
+            &format!("Superweapon{name}"),
+            power.clone(),
+            shared,
+        ));
         logic.templates.insert(name.into(), tpl);
         let id = logic
             .create_object_for_player(name, owner, glam::Vec3::ZERO)
@@ -2774,4 +2760,3 @@ mod sw_hud_tests {
         assert!(!row.ready, "brownout ready PUC is 0:00 not bold");
     }
 }
-

@@ -4,11 +4,11 @@ pub mod chrome;
 pub mod save;
 
 pub use chrome::{
-    ChromeEditor, GadgetType, WidgetInfo, DEFAULT_GRID_RESOLUTION, EDIT_MENU_LABELS,
-    FILE_MENU_LABELS, GADGET_SIZE, LAYOUT_MENU_LABELS, VIEW_MENU_LABELS,
+    ChromeEditor, DEFAULT_GRID_RESOLUTION, EDIT_MENU_LABELS, FILE_MENU_LABELS, GADGET_SIZE,
+    GadgetType, LAYOUT_MENU_LABELS, VIEW_MENU_LABELS, WidgetInfo,
 };
 pub use save::{
-    parse_layout, save_layout, ComboBoxDataEdit, DrawDataSlot, GadgetData, ListBoxDataEdit,
+    ComboBoxDataEdit, DrawDataSlot, GadgetData, ListBoxDataEdit, MAX_DRAW_DATA, NUM_TAB_PANES,
     SaveError, SliderDataEdit, TabControlDataEdit, TextEntryDataEdit, WndLayout, WndWindow,
-    MAX_DRAW_DATA, NUM_TAB_PANES,
+    parse_layout, save_layout,
 };

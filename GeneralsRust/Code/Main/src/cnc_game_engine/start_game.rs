@@ -1,11 +1,11 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
+use super::mouse::{
+    PATHFIND_CELL_SIZE_F, SHAKE_AXIS_PITCH, SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW, SHAKE_END_OMEGA,
+    SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA, airborne_look_at_ground, w3d_camera_constraint_offset,
+};
 use super::*;
 use crate::graphics::render_pipeline::CachedLighting;
 use crate::presentation_frame::PresentationWorldEnv;
-use super::mouse::{
-    airborne_look_at_ground, w3d_camera_constraint_offset, PATHFIND_CELL_SIZE_F, SHAKE_AXIS_PITCH,
-    SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW, SHAKE_END_OMEGA, SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA,
-};
 
 /// C++ `W3DView.cpp:3097-3212` — union a scripted look into `m_cameraConstraint`.
 /// Live stores `(lo_x, hi_x, lo_z, hi_z)` in Y-up (C++ Y → live Z).
@@ -87,7 +87,6 @@ fn script_camera_shaker_rotations(shaker: &ScriptCameraShaker, camera_position: 
     angles
 }
 
-
 /// Object-scene and terrain lighting resolved at the presentation/map
 /// activation boundary. They are intentionally independent: C++ selects
 /// `TerrainObjectsLighting[tod][0]` for W3D scene lights and
@@ -120,7 +119,6 @@ fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapAct
     let map_has_lighting = has_explicit_map_lighting(env);
     let fog_color = env.fog_color;
     let fog_range = env.fog_start.zip(env.fog_end);
-
 
     // NumberGlobalLights controls the W3D object-scene light list. If it is
     // zero, retain Main's existing forward/Graphics lighting instead of
@@ -216,7 +214,6 @@ fn structure_placement_model_key(template_name: &str) -> String {
     }
 }
 
-
 impl CnCGameEngine {
     pub(super) fn play_ui_sound_effect(&mut self, path: String) {
         let Some(bytes) = self.ui_sound_cache.get(&path).cloned() else {
@@ -310,9 +307,7 @@ impl CnCGameEngine {
         // Loading/headless/runtime-host drains that treat it as UI start load
         // Defcon6 and abandon the ShellMapMD worker.
         if matches!(mode, GameMode::Shell) {
-            info!(
-                "host_start_game_from_ui: ignore GAME_SHELL (shell map, not a match)"
-            );
+            info!("host_start_game_from_ui: ignore GAME_SHELL (shell map, not a match)");
             return;
         }
 
@@ -332,8 +327,7 @@ impl CnCGameEngine {
             if player_template.base_team() != Some(faction_team) {
                 warn!(
                     "Rejecting PlayerTemplate '{}' whose exact base side no longer matches requested team {:?}",
-                    player_template.template_name,
-                    faction_team
+                    player_template.template_name, faction_team
                 );
                 return;
             }
@@ -481,7 +475,9 @@ impl CnCGameEngine {
                 }
                 None => {
                     // Wave 577: host start residual via helper (non-skirmish).
-                    info!("host_start_game_from_ui: host_start_new_game_with_faction(non-skirmish)");
+                    info!(
+                        "host_start_game_from_ui: host_start_new_game_with_faction(non-skirmish)"
+                    );
                     self.host_start_new_game_with_faction(mode, faction_team, false);
                 }
             }
@@ -944,7 +940,6 @@ impl CnCGameEngine {
                         self.last_presentation_frame = Some(pres.clone());
                     }
                 }
-
             }
         }
         world_bounds
@@ -990,11 +985,7 @@ impl CnCGameEngine {
 
     /// C++ `W3DView::pitchCamera` writes `m_FXPitch`, not orbit pitch radians.
     pub(super) fn script_pitch_is_fx_pitch(pitch: f32) -> f32 {
-        if pitch.is_finite() {
-            pitch
-        } else {
-            1.0
-        }
+        if pitch.is_finite() { pitch } else { 1.0 }
     }
 
     /// C++ `TheTacticalView->getHeight() / TheDisplay->getHeight()`.
@@ -1026,7 +1017,6 @@ impl CnCGameEngine {
             DEFAULT_VIEW_FAR_CLIP,
         );
     }
-
 
     pub(super) fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {
         let param = param.clamp(0.0, 1.0);
@@ -1069,9 +1059,7 @@ impl CnCGameEngine {
         self.camera_position = source;
         let shake = self.camera_shake_rotation;
         if shake.length_squared() > 1.0e-8 {
-            let forward = (look - source)
-                .try_normalize()
-                .unwrap_or(Vec3::NEG_Z);
+            let forward = (look - source).try_normalize().unwrap_or(Vec3::NEG_Z);
             let rot = glam::Quat::from_rotation_y(shake.y)
                 * glam::Quat::from_rotation_x(shake.x)
                 * glam::Quat::from_rotation_z(shake.z);
@@ -1110,11 +1098,7 @@ impl CnCGameEngine {
 
     /// C++ `W3DView::buildCameraTransform` FXPitch (W3DView.cpp:362-381).
     /// Host Y-up: C++ height Z → Y, C++ ground XY → XZ.
-    pub(super) fn camera_fx_adjusted_eye_and_look(
-        &self,
-        source: Vec3,
-        look: Vec3,
-    ) -> (Vec3, Vec3) {
+    pub(super) fn camera_fx_adjusted_eye_and_look(&self, source: Vec3, look: Vec3) -> (Vec3, Vec3) {
         let fx = if self.camera_fx_pitch.is_finite() {
             self.camera_fx_pitch
         } else {
@@ -1138,7 +1122,6 @@ impl CnCGameEngine {
         }
     }
 
-
     /// Catch camera mutations that arrived outside `update_camera` (minimap,
     /// selection hotkeys, script request drain).  They must not wait for an
     /// unrelated pan or screen shake before changing the displayed view.
@@ -1153,7 +1136,6 @@ impl CnCGameEngine {
             || !self.camera_position.is_finite()
             || (self.camera_position - expected).length_squared() > 1.0e-6
     }
-
 
     pub(super) fn sync_orbit_from_camera_transform(&mut self) {
         let offset = self.camera_position - self.camera_target;
@@ -1207,7 +1189,6 @@ impl CnCGameEngine {
         self.camera_pitch_ease_in = request.ease_in_seconds.max(0.0);
         self.camera_pitch_ease_out = request.ease_out_seconds.max(0.0);
     }
-
 
     pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
         let target_yaw = self.camera_yaw_radians + request.rotations * TAU;
@@ -1538,7 +1519,6 @@ impl CnCGameEngine {
         self.host_center_camera_on_impl(world_pos, true);
     }
 
-
     /// Presentation-frozen ground height under `world_pos`.
     /// Same sampler `host_center_camera_on` uses — no live GameLogic dual-read.
     pub(super) fn sample_presentation_height_under(&self, world_pos: Vec3) -> f32 {
@@ -1613,7 +1593,6 @@ impl CnCGameEngine {
         // C++ InGameUI::placeBuildAvailable / handleBuildPlacements: translucent
         // building Drawable at placementOpacity 0.45 + faction bibs. Not a circle.
         self.submit_structure_placement_model_ghost();
-
 
         // Special-power / AttackMove / Guard radius cursor residual.
         if let Some(ov) = self.game_hud.construction_panel.radius_overlay() {
@@ -1702,13 +1681,7 @@ impl CnCGameEngine {
             }
         }
 
-        self.sync_structure_placement_faction_bibs(Some((
-            world_x,
-            world_z,
-            facing,
-            half,
-            illegal,
-        )));
+        self.sync_structure_placement_faction_bibs(Some((world_x, world_z, facing, half, illegal)));
     }
 
     /// C++ `TheTerrainVisual->addFactionBibDrawable` when LBC != OK,
@@ -1757,7 +1730,6 @@ impl CnCGameEngine {
             let _ = active;
         }
     }
-
 
     pub(super) fn issue_minimap_move(&mut self, world_pos: Vec3) {
         // Wave 219: selection via presentation-first ui_selected_ids.
@@ -1873,7 +1845,11 @@ impl CnCGameEngine {
         let lo_z = world_min.z + inset;
         let hi_z = world_max.z - inset;
         let (lo_x, hi_x, lo_z, hi_z) = apply_scripted_camera_constraint_widen(
-            lo_x, hi_x, lo_z, hi_z, self.scripted_camera_constraint_widen,
+            lo_x,
+            hi_x,
+            lo_z,
+            hi_z,
+            self.scripted_camera_constraint_widen,
         );
         if lo_x <= hi_x {
             position.x = position.x.clamp(lo_x, hi_x);
@@ -2022,7 +1998,6 @@ impl CnCGameEngine {
         self.rmb_deselect_down_screen = None;
         self.rmb_deselect_down_camera = None;
 
-
         for sink in &self.sound_effects {
             sink.stop();
         }
@@ -2085,8 +2060,8 @@ impl CnCGameEngine {
 mod tests {
     use super::*;
     use game_engine::common::global_data as runtime_global_data;
-    use game_engine::common::ini::ini_game_data::ensure_global_data;
     use game_engine::common::ini::INI;
+    use game_engine::common::ini::ini_game_data::ensure_global_data;
 
     fn primary(
         ambient: [f32; 3],
@@ -2266,7 +2241,10 @@ End
     fn snap_camera_is_bootstrap_not_live_scout() {
         // C++ has no 6000wu distance-to-own-units snap during play.
         let src = include_str!("start_game.rs");
-        let live = src.split("#[cfg(test)]").next().expect("start_game live path");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("start_game live path");
         assert!(
             !live.contains("camera_is_unreasonably_far_from_local_units")
                 && !live.contains("6_000.0 * 6_000.0"),
@@ -2287,10 +2265,7 @@ End
         // C++ InGameUI.cpp:77-78 placementOpacity / illegalBuildColor.
         assert!((STRUCTURE_PLACEMENT_GHOST_OPACITY - 0.45).abs() < f32::EPSILON);
         assert_eq!(structure_placement_ghost_tint(false), None);
-        assert_eq!(
-            structure_placement_ghost_tint(true),
-            Some([1.0, 0.0, 0.0])
-        );
+        assert_eq!(structure_placement_ghost_tint(true), Some([1.0, 0.0, 0.0]));
     }
 
     #[test]
@@ -2380,7 +2355,6 @@ End
         );
     }
 
-
     #[test]
     fn script_camera_pitch_writes_fx_pitch_not_orbit() {
         let src = include_str!("start_game.rs");
@@ -2444,8 +2418,7 @@ End
             .expect("host_center_camera_on");
         let body = &src[start..start + 900];
         assert!(
-            body.contains("airborne_look_at_ground")
-                && body.contains("PATHFIND_CELL_SIZE_F"),
+            body.contains("airborne_look_at_ground") && body.contains("PATHFIND_CELL_SIZE_F"),
             "C++ W3DView::lookAt airborne ray must be live"
         );
         assert!(
@@ -2475,7 +2448,8 @@ End
             .expect("host_center_camera_on_impl");
         let body = &src[start..start + 1200];
         assert!(
-            body.contains("widen_scripted_camera_constraint") && body.contains("if !clamp_to_world"),
+            body.contains("widen_scripted_camera_constraint")
+                && body.contains("if !clamp_to_world"),
             "scripted center must widen m_cameraConstraint"
         );
         assert!(
@@ -2486,7 +2460,7 @@ End
 
     #[test]
     fn scripted_zoom_pitch_yaw_pause_with_game() {
-        let src = include_str!("mouse.rs");
+        let src = super::ENGINE_SRC;
         assert!(
             src.contains("scripted_camera_motion_dt")
                 && src.contains("GameState::Paused")
@@ -2516,8 +2490,4 @@ End
             "CAMERA_ADD_SHAKER must keep the scripted waypoint"
         );
     }
-
-
-
-
 }

@@ -77,11 +77,8 @@ fn collect_world_spawn_point_bones(parent: &Object) -> Vec<(Vec3, f32)> {
         else {
             break;
         };
-        let world = spawn_point_rotate_yaw_host(
-            origin,
-            yaw,
-            spawn_point_cpp_bone_to_host_local(local),
-        );
+        let world =
+            spawn_point_rotate_yaw_host(origin, yaw, spawn_point_cpp_bone_to_host_local(local));
         bones.push((world, yaw + bone_z));
     }
     bones
@@ -94,8 +91,6 @@ fn spawn_point_slot_occupied(existing: &[Vec3], bone: Vec3) -> bool {
         dx * dx + dz * dz < SPAWN_POINT_OCCUPIED_DIST_SQ
     })
 }
-
-
 
 impl GameLogic {
     /// C++ `SupplyCenterProductionExitUpdate::exitObjectViaDoor` finishes the
@@ -135,8 +130,8 @@ impl GameLogic {
         if !is_harvester || !legal_center {
             return false;
         }
-        let is_computer = collector_owner
-            .is_some_and(|pid| self.ai_manager.ai_players.contains_key(&pid));
+        let is_computer =
+            collector_owner.is_some_and(|pid| self.ai_manager.ai_players.contains_key(&pid));
         let scan = scan_distance.map(|distance| {
             crate::game_logic::host_supply_gather::warehouse_scan_distance(distance, is_computer)
         });
@@ -145,8 +140,7 @@ impl GameLogic {
             collector_pos,
             scan,
             collector_id,
-        )
-        else {
+        ) else {
             return false;
         };
 
@@ -313,9 +307,7 @@ impl GameLogic {
         // authored route (raw natural rally, no 2-cell offset, custom rally,
         // forceWanting, GrantTemporaryStealth) immediately after creation.
         let spawned_id = match owner_player_id {
-            Some(player_id) => {
-                self.create_object_for_player(&spawn_template, player_id, spawn_pos)
-            }
+            Some(player_id) => self.create_object_for_player(&spawn_template, player_id, spawn_pos),
             None => self.create_object(&spawn_template, team, spawn_pos),
         }?;
         if let Some(spawned) = self.host_object_mut(spawned_id) {
@@ -329,9 +321,8 @@ impl GameLogic {
             [spawn_pos.x, spawn_pos.y, spawn_pos.z],
             custom_rally.map(|rally| [rally.x, rally.y, rally.z]),
         );
-        let _ = self.apply_production_authority_op(
-            ProductionAuthorityOp::ApplySpawnReadyCompletions,
-        );
+        let _ =
+            self.apply_production_authority_op(ProductionAuthorityOp::ApplySpawnReadyCompletions);
         self.grant_supply_center_exit_temporary_stealth(center_id, spawned_id);
         if let Some(center) = self.host_object_mut(center_id) {
             center.supply_center_spawn_behavior_fired = true;
@@ -377,10 +368,7 @@ impl GameLogic {
             if !module.class_name.eq_ignore_ascii_case("SpawnBehavior") {
                 return None;
             }
-            let spawn_template = module
-                .attribute("SpawnTemplateName")?
-                .trim()
-                .to_string();
+            let spawn_template = module.attribute("SpawnTemplateName")?.trim().to_string();
             if spawn_template.is_empty() {
                 return None;
             }
@@ -414,8 +402,8 @@ impl GameLogic {
 
     fn fallback_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
         use crate::game_logic::host_tunnel_network::{
-            general_prefixed_spawn_template, tunnel_network_has_oneshot_spawn,
-            tunnel_network_spawn_template_for, TUNNEL_NETWORK_SPAWN_NUMBER,
+            TUNNEL_NETWORK_SPAWN_NUMBER, general_prefixed_spawn_template,
+            tunnel_network_has_oneshot_spawn, tunnel_network_spawn_template_for,
         };
         if tunnel_network_has_oneshot_spawn(template_name) {
             return Some(HostSpawnBehaviorSpec {
@@ -507,9 +495,7 @@ impl GameLogic {
             (parent.team, parent.owner_player_id)
         };
         let spawned_id = match owner {
-            Some(player_id) => {
-                self.create_object_for_player(spawn_template, player_id, position)
-            }
+            Some(player_id) => self.create_object_for_player(spawn_template, player_id, position),
             None => self.create_object(spawn_template, team, position),
         }?;
         if let Some(spawned) = self.host_object_mut(spawned_id) {
@@ -554,7 +540,6 @@ impl GameLogic {
         }
         None
     }
-
 
     fn count_spawn_behavior_children(
         &self,
@@ -643,7 +628,9 @@ impl GameLogic {
             .values()
             .filter(|object| {
                 object.producer_id == Some(parent_id)
-                    && object.template_name.eq_ignore_ascii_case(&spec.spawn_template)
+                    && object
+                        .template_name
+                        .eq_ignore_ascii_case(&spec.spawn_template)
             })
             .map(|object| object.get_position())
             .collect();
@@ -750,12 +737,7 @@ impl GameLogic {
             }
             let spawn_pos = self.snap_spawn_point_to_terrain(bone_pos, parent_pos.y);
             if self
-                .create_spawn_behavior_child(
-                    parent_id,
-                    &spec.spawn_template,
-                    spawn_pos,
-                    bone_yaw,
-                )
+                .create_spawn_behavior_child(parent_id, &spec.spawn_template, spawn_pos, bone_yaw)
                 .is_some()
             {
                 occupied.push(spawn_pos);
@@ -766,8 +748,8 @@ impl GameLogic {
     /// Sync Stinger residual roster with world soldiers and fill due replacements.
     pub(crate) fn update_stinger_hive_world_soldiers(&mut self) {
         use crate::game_logic::host_base_defense::{
-            count_alive_hive_slaves, is_stinger_site_structure, next_stinger_slave_respawn_frame,
-            sync_hive_slave_mirrors, STINGER_SPAWN_NUMBER,
+            STINGER_SPAWN_NUMBER, count_alive_hive_slaves, is_stinger_site_structure,
+            next_stinger_slave_respawn_frame, sync_hive_slave_mirrors,
         };
         let frame = self.frame;
         let sites: Vec<ObjectId> = self
@@ -847,8 +829,7 @@ impl GameLogic {
                     site.hive_slave_count = count;
                     site.hive_slave_hp = hp;
                     if count < STINGER_SPAWN_NUMBER as u8 && site.hive_slave_respawn_frame == 0 {
-                        site.hive_slave_respawn_frame =
-                            next_stinger_slave_respawn_frame(frame, 0);
+                        site.hive_slave_respawn_frame = next_stinger_slave_respawn_frame(frame, 0);
                     }
                     site.record_host_hive();
                 }
@@ -864,7 +845,6 @@ impl GameLogic {
         }
     }
 
-
     /// C++ SpawnBehavior::computeAggregateStates — higher rank wins both ways.
     fn sync_spawn_behavior_veterancy(&mut self, parent_id: ObjectId, spawn_template: &str) {
         use crate::game_logic::host_slave_drones::synced_spawn_veterancy;
@@ -876,7 +856,10 @@ impl GameLogic {
         else {
             return;
         };
-        let children: Vec<(crate::game_logic::ObjectId, crate::game_logic::VeterancyLevel)> = self
+        let children: Vec<(
+            crate::game_logic::ObjectId,
+            crate::game_logic::VeterancyLevel,
+        )> = self
             .objects
             .iter()
             .filter_map(|(id, object)| {
@@ -930,7 +913,6 @@ impl GameLogic {
         }
     }
 
-
     /// C++ `SpawnBehavior::onDie` / `onDelete` SpawnedRequireSpawner kill.
     pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) {
         let Some(template_name) = self
@@ -950,7 +932,9 @@ impl GameLogic {
             .iter()
             .filter_map(|(id, object)| {
                 if object.producer_id == Some(parent_id)
-                    && (object.template_name.eq_ignore_ascii_case(&spec.spawn_template)
+                    && (object
+                        .template_name
+                        .eq_ignore_ascii_case(&spec.spawn_template)
                         || Self::is_stinger_soldier_template(&object.template_name))
                     && object.is_alive()
                     && !object.status.effectively_dead
@@ -970,7 +954,6 @@ impl GameLogic {
         }
     }
 
-
     /// Create a new object for an unambiguous faction owner.  Callers that
     /// know the controlling player (map records, commands, and producers)
     /// must use `create_object_for_player` instead.
@@ -984,7 +967,6 @@ impl GameLogic {
         let id = self.create_object_with_owner(template_name, team, owner_player_id, position)?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
-
     }
 
     /// Create an object for a specific controlling player while retaining the
@@ -1003,7 +985,6 @@ impl GameLogic {
             self.create_object_with_owner(template_name, team, Some(owner_player_id), position)?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
-
     }
 
     /// Create through a player-aware path when a caller has exact provenance,
@@ -1112,7 +1093,6 @@ impl GameLogic {
         }
     }
 
-
     fn create_object_with_owner(
         &mut self,
         template_name: &str,
@@ -1184,8 +1164,7 @@ impl GameLogic {
             // from ThingTemplate INI (AutoChooseSources, FireOCLAfterWeaponCooldown).
             // Name residuals below are missing-INI fallbacks only.
             let primary_auto_choose_none = template.primary_auto_choose_none;
-            let has_fire_ocl_after_weapon_cooldown =
-                template.has_fire_ocl_after_weapon_cooldown;
+            let has_fire_ocl_after_weapon_cooldown = template.has_fire_ocl_after_weapon_cooldown;
             let partition_cash = template.build_cost.supplies;
             let partition_threat = u32::from(template.get_threat_value());
             let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
@@ -1249,10 +1228,7 @@ impl GameLogic {
             // through weapon_from_store. Force masks only when the store
             // left C++ defaults (missing-INI / unparsed anti-mask).
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
-                let store_missed_masks = object
-                    .weapon
-                    .as_ref()
-                    .is_some_and(|w| w.can_target_air)
+                let store_missed_masks = object.weapon.as_ref().is_some_and(|w| w.can_target_air)
                     || object
                         .secondary_weapon
                         .as_ref()
@@ -1286,7 +1262,7 @@ impl GameLogic {
                     )
                 {
                     use crate::game_logic::host_toxin_tractor::{
-                        delay_frames_to_reload_secs, TOXIN_SPRAY_DELAY_FRAMES, TOXIN_SPRAY_RANGE,
+                        TOXIN_SPRAY_DELAY_FRAMES, TOXIN_SPRAY_RANGE, delay_frames_to_reload_secs,
                     };
                     object.secondary_weapon = Some(Weapon {
                         damage: 0.001,
@@ -1442,7 +1418,7 @@ impl GameLogic {
             // Fail-closed: not chassis reskin / PassengersAllowedToFire.
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 use crate::game_logic::host_technical::{
-                    technical_weapon_for_tier, TechnicalWeaponTier,
+                    TechnicalWeaponTier, technical_weapon_for_tier,
                 };
                 object.install_technical_transport();
                 // Force residual MG when template lacked primary_weapon_name (Weapon::default path).
@@ -1460,7 +1436,7 @@ impl GameLogic {
             // Fail-closed: not full SalvageCrate W3D turret subobject matrix.
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 use crate::game_logic::host_marauder::{
-                    marauder_weapon_for_tier, MarauderWeaponTier,
+                    MarauderWeaponTier, marauder_weapon_for_tier,
                 };
                 object.weapon = Some(marauder_weapon_for_tier(MarauderWeaponTier::Base));
             }
@@ -1529,7 +1505,6 @@ impl GameLogic {
             ) {
                 object.install_chinook_transport();
             }
-
 
             // Host residual: China Listening Outpost detect 300 + transport Slots=2 +
             // InnateStealth + ArmedRiders dummy. Fail-closed: not IR FX / multi-door.
@@ -1645,8 +1620,7 @@ impl GameLogic {
                 // WeaponSetUpgrade so later builds spawn with SentryDroneGun.
                 use crate::game_logic::host_sentry_drone::UPGRADE_AMERICA_SENTRY_DRONE_GUN;
                 let has_gun_upgrade = object.has_upgrade_tag(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
-                    || if let Some(player) =
-                        owner_player_id.and_then(|pid| self.players.get(&pid))
+                    || if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid))
                     {
                         player.has_unlocked_upgrade(UPGRADE_AMERICA_SENTRY_DRONE_GUN)
                     } else {
@@ -1702,8 +1676,7 @@ impl GameLogic {
                     object.innate_stealth = true;
                     object.stealth_breaks_on_attack = true;
                     object.stealth_breaks_on_move = false;
-                    object.stealth_delay_frames =
-                        hero_stealth_delay_frames_residual(template_name);
+                    object.stealth_delay_frames = hero_stealth_delay_frames_residual(template_name);
                     object.stealth_allowed_frame =
                         self.frame.saturating_add(object.stealth_delay_frames);
                     object.stealth_delay_pending = false;
@@ -1729,7 +1702,7 @@ impl GameLogic {
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
                 use crate::game_logic::weapon_bootstrap::{
-                    ensure_host_weapon_store, NUKE_CANNON_NEUTRON_WEAPON,
+                    NUKE_CANNON_NEUTRON_WEAPON, ensure_host_weapon_store,
                 };
                 let has_neutron = object.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS)
                     || object.has_upgrade_tag("Upgrade_ChinaNeutronShells")
@@ -1754,8 +1727,8 @@ impl GameLogic {
             // Fail-closed: not Overlord/Helix/building gattling payloads.
             if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
                 use crate::game_logic::host_gattling_tank::{
-                    gattling_air_weapon, gattling_ground_weapon, has_chain_guns_upgrade,
-                    GattlingFireLevel,
+                    GattlingFireLevel, gattling_air_weapon, gattling_ground_weapon,
+                    has_chain_guns_upgrade,
                 };
                 let chain = has_chain_guns_upgrade(&object.applied_upgrades);
                 object.weapon = Some(gattling_ground_weapon(GattlingFireLevel::Base, chain));
@@ -1811,9 +1784,7 @@ impl GameLogic {
                     let range = crate::game_logic::host_base_defense::stinger_detection_range(
                         template_name,
                     )
-                    .unwrap_or(
-                        crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RANGE,
-                    );
+                    .unwrap_or(crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RANGE);
                     object.set_detector_state(
                         true,
                         range,
@@ -1822,18 +1793,16 @@ impl GameLogic {
                 }
             }
 
-
             // C++ GLAInfantryStingerSoldier ModuleTag_16 leftover: DetectionRange 200 /
             // DetectionRate 500ms. Live soldiers must scan; residual hive slots do not.
             if crate::game_logic::host_base_defense::stinger_soldier_spawn_is_detector(
                 template_name,
             ) {
-                let range = crate::game_logic::host_base_defense::stinger_detection_range(
-                    template_name,
-                )
-                .unwrap_or(
-                    crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RANGE,
-                );
+                let range =
+                    crate::game_logic::host_base_defense::stinger_detection_range(template_name)
+                        .unwrap_or(
+                            crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RANGE,
+                        );
                 object.set_detector_state(
                     true,
                     range,
@@ -1930,8 +1899,8 @@ impl GameLogic {
             // owns the real upgrade.
             if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
                 use crate::game_logic::host_comanche_rocket_pods::{
-                    comanche_antitank_weapon, comanche_cannon_weapon, comanche_rocket_pod_weapon,
-                    UPGRADE_COMANCHE_ROCKET_PODS,
+                    UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_weapon, comanche_cannon_weapon,
+                    comanche_rocket_pod_weapon,
                 };
                 object.weapon = Some(comanche_cannon_weapon());
                 object.secondary_weapon = Some(comanche_antitank_weapon());
@@ -2010,8 +1979,8 @@ impl GameLogic {
             // Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
             if crate::game_logic::host_ranger::is_ranger_template(template_name) {
                 use crate::game_logic::host_ranger::{
-                    has_flashbang_equipped, ranger_flashbang_weapon, ranger_rifle_weapon,
-                    UPGRADE_AMERICA_FLASHBANG,
+                    UPGRADE_AMERICA_FLASHBANG, has_flashbang_equipped, ranger_flashbang_weapon,
+                    ranger_rifle_weapon,
                 };
                 object.weapon = Some(ranger_rifle_weapon());
                 let has_flashbang = has_flashbang_equipped(false, &object.applied_upgrades)
@@ -2087,13 +2056,12 @@ impl GameLogic {
             // Owner-player only — same-faction leak is not C++ getControllingPlayer.
             if crate::game_logic::host_gla_worker::is_gla_worker_template(template_name) {
                 use crate::game_logic::host_gla_worker::{
-                    worker_residual_speed, UPGRADE_GLA_WORKER_SHOES,
+                    UPGRADE_GLA_WORKER_SHOES, worker_residual_speed,
                 };
                 let player_has_shoes = owner_player_id
                     .and_then(|pid| self.players.get(&pid))
                     .is_some_and(|p| p.has_unlocked_upgrade(UPGRADE_GLA_WORKER_SHOES));
-                let shoes =
-                    object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || player_has_shoes;
+                let shoes = object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) || player_has_shoes;
                 if shoes && !object.has_upgrade_tag(UPGRADE_GLA_WORKER_SHOES) {
                     object.apply_upgrade_tag(UPGRADE_GLA_WORKER_SHOES);
                     let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
@@ -2171,7 +2139,7 @@ impl GameLogic {
                 crate::game_logic::host_slave_drones::slave_drone_kind_from_template(template_name)
             {
                 use crate::game_logic::host_slave_drones::{
-                    apply_drone_armor_health, UPGRADE_AMERICA_DRONE_ARMOR,
+                    UPGRADE_AMERICA_DRONE_ARMOR, apply_drone_armor_health,
                 };
                 let player_has_armor = owner_player_id
                     .and_then(|pid| self.players.get(&pid))
@@ -2274,9 +2242,9 @@ impl GameLogic {
                     for module in &obj.thing.template.veterancy_gain_creates {
                         let science_ok = match &module.science_required {
                             None => true,
-                            Some(sci) => sciences.iter().any(|s| {
-                                normalize_identity(s) == normalize_identity(sci)
-                            }),
+                            Some(sci) => sciences
+                                .iter()
+                                .any(|s| normalize_identity(s) == normalize_identity(sci)),
                         };
                         if science_ok && obj.is_trainable() {
                             let lvl = module.starting_level;
@@ -2304,7 +2272,7 @@ impl GameLogic {
             // Object::updateUpgradeModules on create fires AddXPScalar for later spawns.
             {
                 use crate::game_logic::host_unit_training::{
-                    sciences_include_advanced_training, UPGRADE_AMERICA_ADVANCED_TRAINING,
+                    UPGRADE_AMERICA_ADVANCED_TRAINING, sciences_include_advanced_training,
                 };
                 let has_at = owner_player_id
                     .and_then(|player_id| self.players.get(&player_id))
@@ -2327,8 +2295,8 @@ impl GameLogic {
             // Host residual: Demo SuicideBomb tag + CommandSetUpgrade if researched.
             {
                 use crate::game_logic::host_demo_suicide_bomb::{
-                    demo_command_set_upgrade_for_template, is_demo_suicide_bomb_eligible_template,
-                    is_demo_suicide_bomb_upgrade, UPGRADE_DEMO_SUICIDE_BOMB,
+                    UPGRADE_DEMO_SUICIDE_BOMB, demo_command_set_upgrade_for_template,
+                    is_demo_suicide_bomb_eligible_template, is_demo_suicide_bomb_upgrade,
                 };
                 if is_demo_suicide_bomb_eligible_template(template_name) {
                     let has_upgrade = self.players.values().any(|p| {
@@ -2361,8 +2329,8 @@ impl GameLogic {
             // those player upgrades here so late-built units get the bonus.
             {
                 use crate::game_logic::host_battlemaster::{
-                    has_fanaticism_upgrade, has_nationalism_upgrade, is_battlemaster_template,
-                    is_china_vehicle_horde_unit, UPGRADE_FANATICISM, UPGRADE_NATIONALISM,
+                    UPGRADE_FANATICISM, UPGRADE_NATIONALISM, has_fanaticism_upgrade,
+                    has_nationalism_upgrade, is_battlemaster_template, is_china_vehicle_horde_unit,
                 };
                 use crate::game_logic::host_minigunner::is_minigunner_template;
                 use crate::game_logic::host_red_guard::{
@@ -2374,9 +2342,7 @@ impl GameLogic {
                     || is_china_vehicle_horde_unit(template_name);
                 if horde_unit {
                     let mut upgrades = std::collections::HashSet::new();
-                    if let Some(player) =
-                        owner_player_id.and_then(|pid| self.players.get(&pid))
-                    {
+                    if let Some(player) = owner_player_id.and_then(|pid| self.players.get(&pid)) {
                         upgrades.extend(player.unlocked_sciences.iter().cloned());
                         upgrades.extend(player.completed_upgrades.iter().cloned());
                     } else {
@@ -2715,11 +2681,7 @@ impl GameLogic {
                 let dx = p.x - pos.x;
                 let dz = p.z - pos.z;
                 let dist = (dx * dx + dz * dz).sqrt();
-                if dist <= max_r {
-                    Some(*id)
-                } else {
-                    None
-                }
+                if dist <= max_r { Some(*id) } else { None }
             })
             .collect();
 
@@ -2868,8 +2830,8 @@ impl GameLogic {
     /// not suppress pilot spawn / honesty residual.
     pub(crate) fn maybe_apply_eject_pilot_die(&mut self, id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
-            air_eject_spawn_height, is_significantly_above_terrain, HostDeathType,
-            EJECT_PILOT_TEMPLATE, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
+            EJECT_PILOT_TEMPLATE, HostDeathType, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
+            air_eject_spawn_height, is_significantly_above_terrain,
         };
         use crate::game_logic::{
             EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotExemptStatus,
@@ -3078,7 +3040,6 @@ impl GameLogic {
         self.stop_move_loop_sound(id);
         self.stop_ambient_sound(id);
 
-
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.unstamp_partition_value_threat();
             // C++ BoneFXUpdate dtor / onDelete: killRunningParticleSystems.
@@ -3151,7 +3112,13 @@ impl GameLogic {
         let (sold, under_construction, is_rebuild_hole) = self
             .objects
             .get(&id)
-            .map(|o| (o.status.sold, o.status.under_construction, o.is_rebuild_hole))
+            .map(|o| {
+                (
+                    o.status.sold,
+                    o.status.under_construction,
+                    o.is_rebuild_hole,
+                )
+            })
             .unwrap_or((false, false, false));
         // Wave 715: MSG_DOZER_CANCEL_CONSTRUCT / unfinished builds remove immediately.
         // Do not defer into StructureTopple — cancel would leave the shell alive a frame+.
@@ -3349,9 +3316,9 @@ impl GameLogic {
             return false;
         };
         // Jet crash residual. Ground/deck explode must not fall through to heli/slow.
-        let is_jet = crate::game_logic::host_jet_slow_death::is_jet_slow_death_template(
-            &obj.template_name,
-        ) || obj.jet_slow_death.is_some();
+        let is_jet =
+            crate::game_logic::host_jet_slow_death::is_jet_slow_death_template(&obj.template_name)
+                || obj.jet_slow_death.is_some();
         if is_jet {
             if obj.jet_slow_death.as_ref().map(|j| j.done).unwrap_or(false) {
                 return false;
@@ -3509,7 +3476,8 @@ impl GameLogic {
             let Some(o) = self.objects.get_mut(&dying_id) else {
                 return;
             };
-            let (spawns, dmg, transfer, subdual, source) = o.take_pending_create_object_die_spawns();
+            let (spawns, dmg, transfer, subdual, source) =
+                o.take_pending_create_object_die_spawns();
             (
                 spawns,
                 dmg,
@@ -3541,13 +3509,7 @@ impl GameLogic {
                     .get(&dying_id)
                     .map(|o| o.movement.velocity)
                     .unwrap_or(Vec3::ZERO);
-                let ids = self.spawn_ocl_create_debris(
-                    &plan,
-                    team,
-                    pos,
-                    inherit,
-                    owner_player_id,
-                );
+                let ids = self.spawn_ocl_create_debris(&plan, team, pos, inherit, owner_player_id);
                 if transfer {
                     for id in &ids {
                         if let Some(n) = self.objects.get_mut(id) {
@@ -3944,8 +3906,7 @@ impl GameLogic {
             None => 1.0,
         };
         let solo = crate::game_logic::host_faction_skirmish_residual::solo_weapon_bonus_condition(
-            is_human,
-            difficulty,
+            is_human, difficulty,
         );
         if let Some(object) = self.objects.get_mut(&object_id) {
             // C++ setReceivingDifficultyBonus then setWeaponBonusCondition
@@ -3994,23 +3955,23 @@ enum GrantUpgradeKind {
 /// (C++ GrantUpgradeCreate.cpp:102-105 returns without granting).
 fn host_grant_upgrade_kind(name: &str) -> Option<GrantUpgradeKind> {
     use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
-        upgrade_store_row_wave109, UPGRADE_STORE_TABLE_WAVE109, UPGRADE_TYPE_OBJECT,
+        UPGRADE_STORE_TABLE_WAVE109, UPGRADE_TYPE_OBJECT, upgrade_store_row_wave109,
     };
     if let Some(kind) = gamelogic::upgrade::center::with_upgrade_center(|center| {
-        center.find_upgrade(name).map(|template| template.get_upgrade_type())
+        center
+            .find_upgrade(name)
+            .map(|template| template.get_upgrade_type())
     }) {
         return Some(match kind {
             gamelogic::upgrade::UpgradeType::Object => GrantUpgradeKind::Object,
             gamelogic::upgrade::UpgradeType::Player => GrantUpgradeKind::Player,
         });
     }
-    if let Some(row) = upgrade_store_row_wave109(name)
-        .or_else(|| {
-            UPGRADE_STORE_TABLE_WAVE109
-                .iter()
-                .find(|row| row.name.eq_ignore_ascii_case(name.trim()))
-        })
-    {
+    if let Some(row) = upgrade_store_row_wave109(name).or_else(|| {
+        UPGRADE_STORE_TABLE_WAVE109
+            .iter()
+            .find(|row| row.name.eq_ignore_ascii_case(name.trim()))
+    }) {
         return Some(if row.upgrade_type == UPGRADE_TYPE_OBJECT {
             GrantUpgradeKind::Object
         } else {

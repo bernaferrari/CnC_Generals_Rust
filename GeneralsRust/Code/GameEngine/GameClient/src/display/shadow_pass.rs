@@ -5,15 +5,15 @@
 //! stencil then a 0x7fa0a0a0 fill quad. Occluded units get a player-color pass.
 
 use crate::display::view::with_tactical_view_ref;
-use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::drawable::StealthLook;
+use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::effects::decals::DecalRenderItem;
 use crate::radius_decal::get_projected_shadow_manager;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use crate::terrain::TerrainVisual;
+use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use game_engine::common::ini::ini_game_data::get_global_data;
-use gamelogic::common::types::KindOf;
 use gamelogic::common::SHADOW_VOLUME;
+use gamelogic::common::types::KindOf;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use std::collections::BTreeMap;
@@ -65,9 +65,7 @@ pub fn clear_unit_shadows() {
 /// Only allocated projected decals (`addDecal` / `addShadow`). C++ has no
 /// per-drawable fallback blob — inventing one double-draws once real decals land.
 pub fn collect_unit_decal_items() -> Vec<DecalRenderItem> {
-    get_projected_shadow_manager()
-        .read()
-        .collect_render_items()
+    get_projected_shadow_manager().read().collect_render_items()
 }
 
 /// C++ `GlobalData::m_occludedLuminanceScale` default (`GlobalData.cpp:746`).
@@ -183,11 +181,7 @@ fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
             4.0 + (r - g) / delta
         };
         let hue = hue * 60.0;
-        if hue < 0.0 {
-            hue + 360.0
-        } else {
-            hue
-        }
+        if hue < 0.0 { hue + 360.0 } else { hue }
     };
     (h, s, v)
 }
@@ -312,59 +306,59 @@ pub fn collect_occlusion_overlays() -> Vec<OcclusionOverlay> {
             let cam = view.get_3d_camera_position();
             [cam.x, cam.y, cam.z]
         });
-            let current_frame = TheGameLogic::get_frame();
-            let mut candidates = Vec::new();
-            for id in OBJECT_REGISTRY.get_all_object_ids() {
-                if let Some(candidate) = OBJECT_REGISTRY.with_object(id, |obj| {
-                    let pos = obj.get_position();
-                    let geom = obj.get_geometry_info();
-                    let is_structure = obj.is_kind_of(KindOf::Structure);
-                    (
-                        [pos.x, pos.y, pos.z],
-                        geom.get_major_radius().max(4.0),
-                        is_structure,
-                        !is_structure
-                            && score_occludee_kind(obj)
-                            && obj.get_safe_occlusion_frame() <= current_frame,
-                        obj.get_controlling_player_id().unwrap_or(0) as usize,
-                        pack_player_color(obj),
-                    )
-                }) {
-                    candidates.push(candidate);
+        let current_frame = TheGameLogic::get_frame();
+        let mut candidates = Vec::new();
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            if let Some(candidate) = OBJECT_REGISTRY.with_object(id, |obj| {
+                let pos = obj.get_position();
+                let geom = obj.get_geometry_info();
+                let is_structure = obj.is_kind_of(KindOf::Structure);
+                (
+                    [pos.x, pos.y, pos.z],
+                    geom.get_major_radius().max(4.0),
+                    is_structure,
+                    !is_structure
+                        && score_occludee_kind(obj)
+                        && obj.get_safe_occlusion_frame() <= current_frame,
+                    obj.get_controlling_player_id().unwrap_or(0) as usize,
+                    pack_player_color(obj),
+                )
+            }) {
+                candidates.push(candidate);
+            }
+        }
+        let occluders: Vec<_> = candidates
+            .iter()
+            .filter(|c| c.2)
+            .map(|c| (c.0, c.1))
+            .collect();
+        if !occluders.is_empty() {
+            let mut buckets: BTreeMap<usize, Vec<([f32; 3], u32)>> = BTreeMap::new();
+            for (pos, _radius, is_structure, is_occludee, player_index, color) in &candidates {
+                if *is_structure || !*is_occludee {
+                    continue;
+                }
+                if !occluders
+                    .iter()
+                    .any(|(center, radius)| ray_sphere_occludes(camera, *pos, *center, *radius))
+                {
+                    continue;
+                }
+                let bucket = buckets.entry(*player_index).or_default();
+                if bucket.len() < MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS {
+                    bucket.push((*pos, *color));
                 }
             }
-            let occluders: Vec<_> = candidates
-                .iter()
-                .filter(|c| c.2)
-                .map(|c| (c.0, c.1))
-                .collect();
-            if !occluders.is_empty() {
-                let mut buckets: BTreeMap<usize, Vec<([f32; 3], u32)>> = BTreeMap::new();
-                for (pos, _radius, is_structure, is_occludee, player_index, color) in &candidates {
-                    if *is_structure || !*is_occludee {
-                        continue;
-                    }
-                    if !occluders
-                        .iter()
-                        .any(|(center, radius)| ray_sphere_occludes(camera, *pos, *center, *radius))
-                    {
-                        continue;
-                    }
-                    let bucket = buckets.entry(*player_index).or_default();
-                    if bucket.len() < MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS {
-                        bucket.push((*pos, *color));
-                    }
-                }
-                for units in buckets.into_values() {
-                    for (position, color) in units {
-                        out.push(OcclusionOverlay {
-                            position,
-                            color: scale_occluded_player_color(color),
-                            kind: OverlayKind::PlayerColor,
-                        });
-                    }
+            for units in buckets.into_values() {
+                for (position, color) in units {
+                    out.push(OcclusionOverlay {
+                        position,
+                        color: scale_occluded_player_color(color),
+                        kind: OverlayKind::PlayerColor,
+                    });
                 }
             }
+        }
     }
     let casters = UNIT_CASTERS.lock().map(|g| g.clone()).unwrap_or_default();
     for caster in casters {
@@ -473,11 +467,9 @@ struct ShadowPassGpu {
     equivalent_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
 }
-const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] =
-    wgpu::vertex_attr_array![0 => Float32x3];
+const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
 const OVERLAY_VERTEX_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
-
 
 static SHADOW_PASS_GPU: Mutex<Option<ShadowPassGpu>> = Mutex::new(None);
 
@@ -486,226 +478,226 @@ fn create_shadow_pass_gpu(
     color_format: wgpu::TextureFormat,
     depth_format: wgpu::TextureFormat,
 ) -> ShadowPassGpu {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shadow_pass_volume_overlay"),
-            source: wgpu::ShaderSource::Wgsl(VOLUME_OVERLAY_SHADER.into()),
-        });
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("shadow_pass_uniforms"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("shadow_pass_volume_overlay"),
+        source: wgpu::ShaderSource::Wgsl(VOLUME_OVERLAY_SHADER.into()),
+    });
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("shadow_pass_uniforms"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("shadow_pass_layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    });
+    let volume_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("shadow_volume_stencil"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_volume"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: 12,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &VOLUME_VERTEX_ATTRS,
             }],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("shadow_pass_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-        let volume_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shadow_volume_stencil"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_volume"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 12,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &VOLUME_VERTEX_ATTRS,
-                }],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_volume"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::empty(),
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState {
-                    front: wgpu::StencilFaceState {
-                        compare: wgpu::CompareFunction::Always,
-                        fail_op: wgpu::StencilOperation::Keep,
-                        depth_fail_op: wgpu::StencilOperation::Keep,
-                        pass_op: wgpu::StencilOperation::IncrementWrap,
-                    },
-                    back: wgpu::StencilFaceState {
-                        compare: wgpu::CompareFunction::Always,
-                        fail_op: wgpu::StencilOperation::Keep,
-                        depth_fail_op: wgpu::StencilOperation::Keep,
-                        pass_op: wgpu::StencilOperation::DecrementWrap,
-                    },
-                    read_mask: 0xff,
-                    write_mask: 0xff,
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_volume"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: color_format,
+                blend: None,
+                write_mask: wgpu::ColorWrites::empty(),
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: wgpu::StencilState {
+                front: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::Always,
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::IncrementWrap,
                 },
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-        let dest_color_blend = wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Dst,
-                dst_factor: wgpu::BlendFactor::Zero,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent::REPLACE,
-        };
-        let fill_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shadow_stencil_fill"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_fill"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_fill"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(dest_color_blend),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilState {
-                    front: wgpu::StencilFaceState {
-                        compare: wgpu::CompareFunction::NotEqual,
-                        fail_op: wgpu::StencilOperation::Keep,
-                        depth_fail_op: wgpu::StencilOperation::Keep,
-                        pass_op: wgpu::StencilOperation::Keep,
-                    },
-                    back: wgpu::StencilFaceState {
-                        compare: wgpu::CompareFunction::NotEqual,
-                        fail_op: wgpu::StencilOperation::Keep,
-                        depth_fail_op: wgpu::StencilOperation::Keep,
-                        pass_op: wgpu::StencilOperation::Keep,
-                    },
-                    read_mask: 0xff,
-                    write_mask: 0,
+                back: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::Always,
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::DecrementWrap,
                 },
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("occluded_player_color_overlay"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_overlay"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 28,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &OVERLAY_VERTEX_ATTRS,
-                }],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                read_mask: 0xff,
+                write_mask: 0xff,
             },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_overlay"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+    let dest_color_blend = wgpu::BlendState {
+        color: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Dst,
+            dst_factor: wgpu::BlendFactor::Zero,
+            operation: wgpu::BlendOperation::Add,
+        },
+        alpha: wgpu::BlendComponent::REPLACE,
+    };
+    let fill_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("shadow_stencil_fill"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_fill"),
+            buffers: &[],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_fill"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: color_format,
+                blend: Some(dest_color_blend),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: wgpu::StencilState {
+                front: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::NotEqual,
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::Keep,
+                },
+                back: wgpu::StencilFaceState {
+                    compare: wgpu::CompareFunction::NotEqual,
+                    fail_op: wgpu::StencilOperation::Keep,
+                    depth_fail_op: wgpu::StencilOperation::Keep,
+                    pass_op: wgpu::StencilOperation::Keep,
+                },
+                read_mask: 0xff,
+                write_mask: 0,
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Greater,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-        let equivalent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shadow_volume_equivalent"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_volume"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 12,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &VOLUME_VERTEX_ATTRS,
-                }],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_fill"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(dest_color_blend),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-        ShadowPassGpu {
-            color_format,
-            depth_format,
-            volume_pipeline,
-            fill_pipeline,
-            overlay_pipeline,
-            equivalent_pipeline,
-            bind_group_layout,
-        }
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+    let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("occluded_player_color_overlay"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_overlay"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: 28,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &OVERLAY_VERTEX_ATTRS,
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_overlay"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: color_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Greater,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+    let equivalent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("shadow_volume_equivalent"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_volume"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: 12,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &VOLUME_VERTEX_ATTRS,
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_fill"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: color_format,
+                blend: Some(dest_color_blend),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+    ShadowPassGpu {
+        color_format,
+        depth_format,
+        volume_pipeline,
+        fill_pipeline,
+        overlay_pipeline,
+        equivalent_pipeline,
+        bind_group_layout,
+    }
 }
 
 fn with_shadow_pass_gpu<R>(
@@ -714,9 +706,7 @@ fn with_shadow_pass_gpu<R>(
     depth_format: wgpu::TextureFormat,
     f: impl FnOnce(&ShadowPassGpu) -> R,
 ) -> R {
-    let mut slot = SHADOW_PASS_GPU
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut slot = SHADOW_PASS_GPU.lock().unwrap_or_else(|e| e.into_inner());
     let rebuild = match slot.as_ref() {
         None => true,
         Some(gpu) => gpu.color_format != color_format || gpu.depth_format != depth_format,
@@ -883,142 +873,136 @@ pub fn record_shadow_and_occlusion_passes(
     with_shadow_pass_gpu(device, color_format, depth_format, |gpu| {
         let (_uniform_buf, bind_group) = write_shadow_uniforms(device, gpu, &view_proj);
 
-    if !casters.is_empty() {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        for caster in &casters {
-            push_volume_prism(&mut vertices, &mut indices, caster, light_pos);
-        }
-        if !indices.is_empty() {
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("shadow_volume_vertices"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("shadow_volume_indices"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-            let stencil = depth_format_has_stencil(depth_format);
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Display Volume Shadow Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: color_view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: stencil.then_some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                    }),
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-                pass.set_pipeline(if stencil {
-                    &gpu.volume_pipeline
-                } else {
-                    &gpu.equivalent_pipeline
-                });
-                pass.set_bind_group(0, &bind_group, &[]);
-                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        if !casters.is_empty() {
+            let mut vertices = Vec::new();
+            let mut indices = Vec::new();
+            for caster in &casters {
+                push_volume_prism(&mut vertices, &mut indices, caster, light_pos);
             }
-            if stencil {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Display Stencil Shadow Fill"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: color_view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                    }),
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
+            if !indices.is_empty() {
+                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("shadow_volume_vertices"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
                 });
-                pass.set_pipeline(&gpu.fill_pipeline);
-                pass.set_bind_group(0, &bind_group, &[]);
-                pass.draw(0..4, 0..1);
+                let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("shadow_volume_indices"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                let stencil = depth_format_has_stencil(depth_format);
+                {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Display Volume Shadow Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: color_view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: stencil.then_some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                        }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+                    pass.set_pipeline(if stencil {
+                        &gpu.volume_pipeline
+                    } else {
+                        &gpu.equivalent_pipeline
+                    });
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                }
+                if stencil {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Display Stencil Shadow Fill"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: color_view,
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                        }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+                    pass.set_pipeline(&gpu.fill_pipeline);
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.draw(0..4, 0..1);
+                }
             }
         }
-    }
 
-    if overlays.is_empty() {
-        return;
-    }
-    let mut overlay_verts = Vec::new();
-    for overlay in &overlays {
-        push_overlay_billboard(
-            &mut overlay_verts,
-            overlay.position,
-            camera,
-            overlay.color,
-        );
-    }
-    if overlay_verts.is_empty() {
-        return;
-    }
-    let overlay_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("occlusion_overlay_vertices"),
-        contents: bytemuck::cast_slice(&overlay_verts),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
-    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("Display Occlusion Overlay Pass"),
-        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            view: color_view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Load,
-                store: wgpu::StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            view: depth_view,
-            depth_ops: Some(wgpu::Operations {
-                load: wgpu::LoadOp::Load,
-                store: wgpu::StoreOp::Store,
+        if overlays.is_empty() {
+            return;
+        }
+        let mut overlay_verts = Vec::new();
+        for overlay in &overlays {
+            push_overlay_billboard(&mut overlay_verts, overlay.position, camera, overlay.color);
+        }
+        if overlay_verts.is_empty() {
+            return;
+        }
+        let overlay_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("occlusion_overlay_vertices"),
+            contents: bytemuck::cast_slice(&overlay_verts),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Display Occlusion Overlay Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: color_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
             }),
-            stencil_ops: None,
-        }),
-        occlusion_query_set: None,
-        timestamp_writes: None,
-    });
-    pass.set_pipeline(&gpu.overlay_pipeline);
-    pass.set_bind_group(0, &bind_group, &[]);
-    pass.set_vertex_buffer(0, overlay_buffer.slice(..));
-    pass.draw(0..(overlay_verts.len() / 7) as u32, 0..1);
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&gpu.overlay_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, overlay_buffer.slice(..));
+        pass.draw(0..(overlay_verts.len() / 7) as u32, 0..1);
     });
 }
-
 
 /// Terrain-and-sky AABB used by particle cull (C++ getMaximumVisibleBox(..., TRUE)).
 #[derive(Debug, Clone, Copy)]
@@ -1067,7 +1051,9 @@ pub fn maximum_visible_box(
         forward[2] * up[0] - forward[0] * up[2],
         forward[0] * up[1] - forward[1] * up[0],
     ];
-    let rl = (right[0] * right[0] + right[1] * right[1] + right[2] * right[2]).sqrt().max(1e-5);
+    let rl = (right[0] * right[0] + right[1] * right[1] + right[2] * right[2])
+        .sqrt()
+        .max(1e-5);
     right[0] /= rl;
     right[1] /= rl;
     right[2] /= rl;
@@ -1262,7 +1248,5 @@ mod tests {
         assert!(!overlays.iter().any(|overlay| {
             overlay.kind == OverlayKind::HeatVision && overlay.position == [1.0, 2.0, 3.0]
         }));
-
     }
-
 }

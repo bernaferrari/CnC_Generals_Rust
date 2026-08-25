@@ -8,9 +8,9 @@ use crate::object::behavior::advanced_behavior_system::BehaviorEvent;
 use super::advanced_behavior_system::{
     AdvancedBehavior, BehaviorContext, BehaviorOutcome, BehaviorPriority, BehaviorState,
 };
+use crate::GameLogicResult;
 use crate::common::*;
 use crate::object::{Object, ObjectId};
-use crate::GameLogicResult;
 use async_trait::async_trait;
 use nalgebra::{Point2, Vector2};
 use serde::{Deserialize, Serialize};

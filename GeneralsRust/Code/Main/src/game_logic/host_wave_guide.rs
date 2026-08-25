@@ -63,7 +63,6 @@ pub fn wave_shape_world_points(pos_x: f32, pos_z: f32, facing: f32) -> Vec<(f32,
     points
 }
 
-
 #[inline]
 pub fn ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) * WAVE_GUIDE_LOGIC_FPS / 1000.0).round() as u32
@@ -116,7 +115,6 @@ impl Default for HostWaveGuideData {
         }
     }
 }
-
 
 impl HostWaveGuideData {
     pub fn ensure_active(&mut self, current_frame: u32) {
@@ -207,8 +205,6 @@ pub fn leftover_wave_guide_audio_tick(
     (looping, splash)
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,5 +262,4 @@ mod tests {
             "leftover splash roll must emit WaveRandomSplash at leftover frequency"
         );
     }
-
 }

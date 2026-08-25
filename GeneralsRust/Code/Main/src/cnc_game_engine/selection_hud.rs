@@ -1,7 +1,7 @@
 //! Selection / HUD click gates that C++ owns in Mouse / SelectionXlat / LookAtXlat.
 
 pub(super) use crate::pick_ray::{
-    is_os_style_double_click, world_lmb_selection_allowed, OS_DOUBLE_CLICK_SLOP_PX,
+    OS_DOUBLE_CLICK_SLOP_PX, is_os_style_double_click, world_lmb_selection_allowed,
 };
 
 /// Win32 `GetDoubleClickTime` default is 500ms; honor the OS when we can.
@@ -71,12 +71,30 @@ mod tests {
         // Given: OS 500ms / 4px, a 3px wobble that is 15wu on the terrain.
         // When: the second click is inside the OS rectangle.
         // Then: it is a double-click even though world delta is > 10wu.
-        assert!(is_os_style_double_click(200, 3.0, 0.0, 500, OS_DOUBLE_CLICK_SLOP_PX));
+        assert!(is_os_style_double_click(
+            200,
+            3.0,
+            0.0,
+            500,
+            OS_DOUBLE_CLICK_SLOP_PX
+        ));
         // Given: 6px wobble (outside SM_CXDOUBLECLK).
         // Then: not a double-click even if world delta is tiny.
-        assert!(!is_os_style_double_click(200, 6.0, 0.0, 500, OS_DOUBLE_CLICK_SLOP_PX));
+        assert!(!is_os_style_double_click(
+            200,
+            6.0,
+            0.0,
+            500,
+            OS_DOUBLE_CLICK_SLOP_PX
+        ));
         // Given: past the OS interval.
-        assert!(!is_os_style_double_click(600, 0.0, 0.0, 500, OS_DOUBLE_CLICK_SLOP_PX));
+        assert!(!is_os_style_double_click(
+            600,
+            0.0,
+            0.0,
+            500,
+            OS_DOUBLE_CLICK_SLOP_PX
+        ));
     }
 
     #[test]

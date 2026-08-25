@@ -2,8 +2,8 @@
 
 use super::*;
 use game_engine::common::bit_flags::ModelConditionBitFlags;
-use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::Xfer;
+use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::thing::module::Module;
 use gamelogic::common::types::WeaponSlotType;
 use std::collections::HashMap;
@@ -89,7 +89,6 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
     /// Replace the team indicator color.
     /// C++ `ObjectDrawInterface::replaceIndicatorColor(color)`.
     fn replace_indicator_color(&mut self, _color: Option<(u8, u8, u8)>) {}
-
 
     /// Hide or show this module's render object and shadow.
     /// C++ `ObjectDrawInterface::setHidden(Bool)`.

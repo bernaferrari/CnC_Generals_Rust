@@ -20,9 +20,9 @@
 //!   dist/sec and rads/sec, so we convert when resolving for Object.movement
 
 use game_engine::common::ini::ini_locomotor::{
-    get_locomotor_store, get_locomotor_store_mut, load_locomotors_from_str,
-    parse_locomotor_template_definition, LocomotorAppearance as SourceLocomotorAppearance,
-    LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorTemplate,
+    LocomotorAppearance as SourceLocomotorAppearance,
+    LocomotorBehaviorZ as SourceLocomotorBehaviorZ, LocomotorTemplate, get_locomotor_store,
+    get_locomotor_store_mut, load_locomotors_from_str, parse_locomotor_template_definition,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -129,7 +129,6 @@ pub const ANGRY_MOB_NEXUS_LOCOMOTOR: &str = "AngryMobNexusLocomotor";
 pub const HUMAN_CLIFF_LOCOMOTOR: &str = "HumanCliffLocomotor";
 /// Retail AmericaVehicleSpyDrone SET_NORMAL residual.
 pub const SPY_DRONE_LOCOMOTOR: &str = "SpyDroneLocomotor";
-
 
 /// Wave 81/92/103 residual seed table: (name, Speed, Acceleration, TurnRate deg).
 /// Values match retail Locomotor.ini for common host units.
@@ -328,7 +327,6 @@ pub fn ensure_host_locomotor_store() -> usize {
     added += seed_exact_human_cliff_locomotor();
     added += seed_exact_spy_drone_locomotor();
 
-
     // Always fill missing golden / Wave 81 common-unit locomotors.
     // (INI load may have BasicHuman but omit some residual names.)
     added += seed_known_host_locomotors();
@@ -440,7 +438,6 @@ pub fn locomotor_set_names_for_unit(template_name: &str) -> Vec<String> {
     };
     names.iter().map(|n| (*n).to_string()).collect()
 }
-
 
 /// Wave 81 residual honesty: common-unit locomotor seed residual table.
 ///
@@ -1020,7 +1017,6 @@ fn seed_wander_phase(object: &mut crate::game_logic::object::Object, wander_leng
     object.wander_offset_increasing = pure_logic_random_int(seed, 22, 0, 1) != 0;
 }
 
-
 fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomotorBinding) -> bool {
     left.movement == right.movement
         && left.visual_physics == right.visual_physics
@@ -1179,7 +1175,6 @@ fn seed_known_host_locomotors() -> usize {
             props.insert("SlideIntoPlaceTime".to_string(), "100".to_string());
         }
 
-
         match parse_locomotor_template_definition(name, &props) {
             Ok(template) => match get_locomotor_store_mut().add_template(template) {
                 Ok(()) => {
@@ -1232,9 +1227,9 @@ fn ensure_chinook_helix_slide_into_place() -> usize {
                         "Host LocomotorStore: cannot seed {name} SlideIntoPlaceTime: {e}"
                     ),
                 },
-                Err(e) => log::warn!(
-                    "Host LocomotorStore: cannot parse {name} SlideIntoPlaceTime: {e}"
-                ),
+                Err(e) => {
+                    log::warn!("Host LocomotorStore: cannot parse {name} SlideIntoPlaceTime: {e}")
+                }
             }
             continue;
         }
@@ -1255,7 +1250,6 @@ fn ensure_chinook_helix_slide_into_place() -> usize {
     }
     patched
 }
-
 
 fn seed_exact_combat_bike_normal_locomotors() -> usize {
     let mut added = 0usize;
@@ -1316,21 +1310,16 @@ fn seed_exact_human_cliff_locomotor() -> usize {
         Ok(template) => match get_locomotor_store_mut().add_template(template) {
             Ok(()) => 1,
             Err(error) => {
-                log::warn!(
-                    "Host LocomotorStore: cannot seed {HUMAN_CLIFF_LOCOMOTOR}: {error}"
-                );
+                log::warn!("Host LocomotorStore: cannot seed {HUMAN_CLIFF_LOCOMOTOR}: {error}");
                 0
             }
         },
         Err(error) => {
-            log::warn!(
-                "Host LocomotorStore: cannot parse {HUMAN_CLIFF_LOCOMOTOR}: {error}"
-            );
+            log::warn!("Host LocomotorStore: cannot parse {HUMAN_CLIFF_LOCOMOTOR}: {error}");
             0
         }
     }
 }
-
 
 fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
     let mut added = 0usize;
@@ -1442,10 +1431,7 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
             props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
         }
         if surfaces == "AIR" {
-            props.insert(
-                "AllowAirborneMotiveForce".to_string(),
-                "Yes".to_string(),
-            );
+            props.insert("AllowAirborneMotiveForce".to_string(), "Yes".to_string());
         }
         match parse_locomotor_template_definition(name, &props) {
             Ok(template) => match get_locomotor_store_mut().add_template(template) {
@@ -1485,16 +1471,17 @@ fn seed_exact_spy_drone_locomotor() -> usize {
     props.insert("Braking".to_string(), "50".to_string());
     props.insert("PreferredHeight".to_string(), "40".to_string());
     props.insert("PreferredHeightDamping".to_string(), "0.8".to_string());
-    props.insert("ZAxisBehavior".to_string(), "SURFACE_RELATIVE_HEIGHT".to_string());
+    props.insert(
+        "ZAxisBehavior".to_string(),
+        "SURFACE_RELATIVE_HEIGHT".to_string(),
+    );
     props.insert("AllowAirborneMotiveForce".to_string(), "Yes".to_string());
     props.insert("StickToGround".to_string(), "No".to_string());
     match parse_locomotor_template_definition(SPY_DRONE_LOCOMOTOR, &props) {
         Ok(template) => match get_locomotor_store_mut().add_template(template) {
             Ok(()) => 1,
             Err(error) => {
-                log::warn!(
-                    "Host LocomotorStore: cannot seed SpyDroneLocomotor: {error}"
-                );
+                log::warn!("Host LocomotorStore: cannot seed SpyDroneLocomotor: {error}");
                 0
             }
         },
@@ -1504,7 +1491,6 @@ fn seed_exact_spy_drone_locomotor() -> usize {
         }
     }
 }
-
 
 /// Test helper: force re-bootstrap attempt (does not clear existing templates).
 #[cfg(test)]
@@ -1786,8 +1772,7 @@ mod tests {
             p
         })
         .expect("parse omitted works-when-dead");
-        let omitted_binding =
-            host_locomotor_binding_from_template(&omitted).expect("bind omitted");
+        let omitted_binding = host_locomotor_binding_from_template(&omitted).expect("bind omitted");
         assert!(!omitted_binding.locomotor_works_when_dead);
         let mut changed = binding;
         changed.locomotor_works_when_dead = false;
@@ -1836,10 +1821,9 @@ mod tests {
         ground.movement.max_speed = 0.0;
         ground.movement.velocity = Vec3::ZERO;
         assert!(
-            (ground.host_locomotor_distance_to_goal(
-                ground.get_position(),
-                Vec3::new(1.0, 0.0, 0.0)
-            ) - 1.0)
+            (ground
+                .host_locomotor_distance_to_goal(ground.get_position(), Vec3::new(1.0, 0.0, 0.0))
+                - 1.0)
                 .abs()
                 < 1e-4
         );
@@ -1856,10 +1840,8 @@ mod tests {
         dive.movement.target_position = Some(Vec3::new(1.0, 0.0, 0.0));
         dive.movement.max_speed = 0.0;
         dive.movement.velocity = Vec3::ZERO;
-        let d3 = dive.host_locomotor_distance_to_goal(
-            dive.get_position(),
-            Vec3::new(1.0, 0.0, 0.0),
-        );
+        let d3 =
+            dive.host_locomotor_distance_to_goal(dive.get_position(), Vec3::new(1.0, 0.0, 0.0));
         assert!(d3 > 9.0, "flag uses 3D hypotenuse, got {d3}");
         dive.update_movement(1.0 / 30.0);
         assert!(
@@ -1873,10 +1855,8 @@ mod tests {
         apply_host_locomotor_binding(&mut proj, &omitted_binding);
         assert!(!proj.close_enough_dist_3d);
         proj.set_position(Vec3::new(0.0, 10.0, 0.0));
-        let pd = proj.host_locomotor_distance_to_goal(
-            proj.get_position(),
-            Vec3::new(1.0, 0.0, 0.0),
-        );
+        let pd =
+            proj.host_locomotor_distance_to_goal(proj.get_position(), Vec3::new(1.0, 0.0, 0.0));
         assert!(pd > 9.0, "KINDOF_PROJECTILE leftover-uses 3D, got {pd}");
     }
 
@@ -1907,11 +1887,7 @@ mod tests {
             .templates
             .insert("AmericaVehicleChinook".to_string(), chinook);
         let id = logic
-            .create_object(
-                "AmericaVehicleChinook",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaVehicleChinook", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("create Chinook");
         let obj = logic.objects.get(&id).expect("chinook");
         assert!(
@@ -1920,7 +1896,6 @@ mod tests {
             obj.ultra_accurate_slide_factor
         );
     }
-
 
     #[test]
     fn lift_and_speed_limit_z_bind_per_frame_units() {
@@ -1937,8 +1912,7 @@ mod tests {
             "Common stores Lift/900, got {}",
             authored.lift
         );
-        let binding =
-            host_locomotor_binding_from_template(&authored).expect("bind hover lift");
+        let binding = host_locomotor_binding_from_template(&authored).expect("bind hover lift");
         assert!(
             (binding.max_lift - 0.1).abs() < 1e-6,
             "live lift must stay per-frame², not *900, got {}",
@@ -2095,5 +2069,4 @@ mod tests {
             crate::game_logic::LocomotorAppearance::Climber
         );
     }
-
 }

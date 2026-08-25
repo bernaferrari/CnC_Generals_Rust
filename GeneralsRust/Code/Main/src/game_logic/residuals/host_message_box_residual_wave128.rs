@@ -139,9 +139,9 @@ mod tests {
     #[test]
     fn simulate_message_box_prepare_yes_residual_live() {
         use game_client::gui::callbacks::{
-            residual_message_box_is_visible, residual_message_box_last_action,
-            residual_message_box_type_ordinal, simulate_message_box_prepare_yes,
-            simulate_message_box_show_yes_no, ResidualMessageBoxAction,
+            ResidualMessageBoxAction, residual_message_box_is_visible,
+            residual_message_box_last_action, residual_message_box_type_ordinal,
+            simulate_message_box_prepare_yes, simulate_message_box_show_yes_no,
         };
         assert!(simulate_message_box_show_yes_no("T", "B"));
         assert!(residual_message_box_is_visible());

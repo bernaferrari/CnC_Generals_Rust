@@ -437,9 +437,11 @@ mod tests {
         let achievements =
             calculator.calculate_achievements(&player1, &all_stats, Duration::from_secs(1800));
 
-        assert!(achievements
-            .iter()
-            .any(|a| a.achievement_type == AchievementType::TopGun));
+        assert!(
+            achievements
+                .iter()
+                .any(|a| a.achievement_type == AchievementType::TopGun)
+        );
     }
 
     #[test]
@@ -455,9 +457,11 @@ mod tests {
             Duration::from_secs(500), // Under 10 minutes
         );
 
-        assert!(achievements
-            .iter()
-            .any(|a| a.achievement_type == AchievementType::QuickVictory));
+        assert!(
+            achievements
+                .iter()
+                .any(|a| a.achievement_type == AchievementType::QuickVictory)
+        );
     }
 
     #[test]
@@ -472,9 +476,11 @@ mod tests {
         let achievements =
             calculator.calculate_achievements(&player, &all_stats, Duration::from_secs(1800));
 
-        assert!(achievements
-            .iter()
-            .any(|a| a.achievement_type == AchievementType::Domination));
+        assert!(
+            achievements
+                .iter()
+                .any(|a| a.achievement_type == AchievementType::Domination)
+        );
     }
 
     #[test]
@@ -496,9 +502,11 @@ mod tests {
         let achievements =
             calculator.calculate_achievements(&player1, &all_stats, Duration::from_secs(1800));
 
-        assert!(achievements
-            .iter()
-            .any(|a| a.achievement_type == AchievementType::WarHero));
+        assert!(
+            achievements
+                .iter()
+                .any(|a| a.achievement_type == AchievementType::WarHero)
+        );
     }
 
     #[test]

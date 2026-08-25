@@ -226,7 +226,8 @@ pub(crate) fn optional_int(data: &dyn EngineModuleData, field: &str) -> Option<O
 }
 
 pub(crate) fn optional_string(data: &dyn EngineModuleData, field: &str) -> Option<String> {
-    data.get_ini_field(field).map(|value| value.trim().to_string())
+    data.get_ini_field(field)
+        .map(|value| value.trim().to_string())
 }
 
 /// Walk the frozen Object INI template for the first DumbProjectile / MissileAI module.

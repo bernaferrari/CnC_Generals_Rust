@@ -1,7 +1,6 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
-
 pub(super) const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
 /// C++ `View::m_FOV` is the **horizontal** field of view (View.h:173, View.cpp:53).
 /// glam `perspective_rh` takes vertical FOV, so convert at matrix build time.
@@ -165,12 +164,19 @@ unsafe extern "C" {
     fn CGEventGetLocation(event: *mut std::ffi::c_void) -> CgPoint;
     fn CGWindowListCopyWindowInfo(option: u32, relative_window: u32) -> *mut std::ffi::c_void;
     fn CFArrayGetCount(the_array: *mut std::ffi::c_void) -> isize;
-    fn CFArrayGetValueAtIndex(the_array: *mut std::ffi::c_void, idx: isize) -> *const std::ffi::c_void;
+    fn CFArrayGetValueAtIndex(
+        the_array: *mut std::ffi::c_void,
+        idx: isize,
+    ) -> *const std::ffi::c_void;
     fn CFDictionaryGetValue(
         the_dict: *const std::ffi::c_void,
         key: *const std::ffi::c_void,
     ) -> *const std::ffi::c_void;
-    fn CFNumberGetValue(number: *const std::ffi::c_void, the_type: i32, value_ptr: *mut std::ffi::c_void) -> u8;
+    fn CFNumberGetValue(
+        number: *const std::ffi::c_void,
+        the_type: i32,
+        value_ptr: *mut std::ffi::c_void,
+    ) -> u8;
     fn CFStringCreateWithCString(
         alloc: *mut std::ffi::c_void,
         c_str: *const i8,
@@ -230,7 +236,8 @@ unsafe fn macos_own_cg_window_bounds(target_w: f64, target_h: f64) -> Option<NsR
         return None;
     }
     let pid = libc::getpid();
-    let cstr = |s: &[u8]| CFStringCreateWithCString(std::ptr::null_mut(), s.as_ptr() as *const i8, UTF8);
+    let cstr =
+        |s: &[u8]| CFStringCreateWithCString(std::ptr::null_mut(), s.as_ptr() as *const i8, UTF8);
     let key_pid = cstr(b"kCGWindowOwnerPID\0");
     let key_bounds = cstr(b"kCGWindowBounds\0");
     let key_x = cstr(b"X\0");
@@ -272,20 +279,24 @@ unsafe fn macos_own_cg_window_bounds(target_w: f64, target_h: f64) -> Option<NsR
             }
             Some(v)
         };
-        if let (Some(x), Some(y), Some(w), Some(h)) =
-            (read_f64(key_x), read_f64(key_y), read_f64(key_w), read_f64(key_h))
-        {
+        if let (Some(x), Some(y), Some(w), Some(h)) = (
+            read_f64(key_x),
+            read_f64(key_y),
+            read_f64(key_w),
+            read_f64(key_h),
+        ) {
             if w > 1.0 && h > 1.0 {
-                let score = (w - want_w)
-                    .abs()
-                    .min((w - target_w).abs())
+                let score = (w - want_w).abs().min((w - target_w).abs())
                     + (h - want_h).abs().min((h - target_h).abs());
                 if found.as_ref().map(|(s, _)| *s).unwrap_or(f64::MAX) > score {
                     found = Some((
                         score,
                         NsRect {
                             origin: CgPoint { x, y },
-                            size: NsSize { width: w, height: h },
+                            size: NsSize {
+                                width: w,
+                                height: h,
+                            },
                         },
                     ));
                 }
@@ -302,7 +313,6 @@ unsafe fn macos_own_cg_window_bounds(target_w: f64, target_h: f64) -> Option<NsR
     found.map(|(_, rect)| rect)
 }
 
-
 pub(super) fn device_button_to_mouse(button: u32) -> Option<MouseButton> {
     match button {
         0 => Some(MouseButton::Left),
@@ -311,7 +321,6 @@ pub(super) fn device_button_to_mouse(button: u32) -> Option<MouseButton> {
         _ => None,
     }
 }
-
 
 pub(super) fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
     let was_minimized = *minimized;
@@ -704,7 +713,6 @@ impl PendingWeaponCommand {
         const ALLOW_SHRUBBERY_TARGET: u32 = 0x0000_0010;
         self.options & ALLOW_SHRUBBERY_TARGET != 0
     }
-
 }
 
 /// Parsed `COMBATDROP` targeting data retained while the player chooses a
@@ -774,7 +782,6 @@ impl PendingMapCommand {
         }
     }
 }
-
 
 /// What the active left-button gesture must do once it is released.
 ///

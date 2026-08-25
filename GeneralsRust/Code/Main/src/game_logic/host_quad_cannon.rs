@@ -164,11 +164,7 @@ pub fn target_is_airborne_for_quad(is_aircraft: bool, airborne_target: bool) -> 
 ///
 /// Fail-closed: not full PreferredAgainst matrix beyond air/ground anti masks.
 pub fn preferred_quad_slot(target_is_air: bool) -> u8 {
-    if target_is_air {
-        1
-    } else {
-        0
-    }
+    if target_is_air { 1 } else { 0 }
 }
 
 /// Ground gun residual stats for salvage tier.

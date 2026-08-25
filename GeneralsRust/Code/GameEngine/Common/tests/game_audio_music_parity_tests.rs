@@ -1,7 +1,7 @@
 use game_engine::common::audio::{
-    music_repeats_source_infinitely, AudioAffect, AudioEventInfo, AudioEventRts, AudioFileCache,
-    AudioManager, AudioPriority, AudioRequest, AudioType, Coord3D, OwnerType, PortionToPlay,
-    RequestType, AC_INTERRUPT, AC_LOOP, AHSV_STOP_THE_MUSIC_FADE, ST_GLOBAL, ST_WORLD,
+    AC_INTERRUPT, AC_LOOP, AHSV_STOP_THE_MUSIC_FADE, AudioAffect, AudioEventInfo, AudioEventRts,
+    AudioFileCache, AudioManager, AudioPriority, AudioRequest, AudioType, Coord3D, OwnerType,
+    PortionToPlay, RequestType, ST_GLOBAL, ST_WORLD, music_repeats_source_infinitely,
 };
 use std::sync::Arc;
 
@@ -88,10 +88,7 @@ fn stop_the_music_fade_ramps_instead_of_immediate_stop() {
     // (MilesAudioManager.cpp:885-907, 2410-2458). Fade sentinel must not
     // release the stream on the same frame.
     let mut audio = AudioManager::new();
-    audio.insert_playing_event_for_test(event_from(
-        info("Theme", AudioType::Music, 0, 0, 1),
-        1001,
-    ));
+    audio.insert_playing_event_for_test(event_from(info("Theme", AudioType::Music, 0, 0, 1), 1001));
     assert_eq!(audio.active_event_count(), 1);
 
     audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
@@ -140,20 +137,14 @@ fn ac_loop_decreases_count_and_restarts_sound_portion() {
     // C++ MilesAudioManager::notifyOfAudioCompletion (MilesAudioManager.cpp:1519-1530)
     // AC_LOOP + PP_Sound → decreaseLoopCount + startNextLoop.
     let mut audio = AudioManager::new();
-    let mut event = event_from(
-        info("Ambient", AudioType::SoundEffect, AC_LOOP, 0, 2),
-        1001,
-    );
+    let mut event = event_from(info("Ambient", AudioType::SoundEffect, AC_LOOP, 0, 2), 1001);
     event.set_loop_count(2);
     event.set_next_play_portion(PortionToPlay::Sound);
     audio.insert_playing_event_for_test(event);
 
     assert!(audio.force_notify_completion_for_test(1001));
     assert_eq!(audio.active_event_loop_count(1001), Some(1));
-    assert_eq!(
-        audio.active_event_portion(1001),
-        Some(PortionToPlay::Sound)
-    );
+    assert_eq!(audio.active_event_portion(1001), Some(PortionToPlay::Sound));
 
     assert!(!audio.force_notify_completion_for_test(1001));
     assert_eq!(audio.active_event_count(), 0);
@@ -163,19 +154,13 @@ fn ac_loop_decreases_count_and_restarts_sound_portion() {
 fn attack_portion_advances_to_sound_before_loop_restart() {
     // C++ notifyOfAudioCompletion: AC_LOOP + PP_Attack sets PP_Sound then loops.
     let mut audio = AudioManager::new();
-    let mut event = event_from(
-        info("Ambient", AudioType::SoundEffect, AC_LOOP, 0, 3),
-        1001,
-    );
+    let mut event = event_from(info("Ambient", AudioType::SoundEffect, AC_LOOP, 0, 3), 1001);
     event.set_loop_count(3);
     event.set_next_play_portion(PortionToPlay::Attack);
     audio.insert_playing_event_for_test(event);
 
     assert!(audio.force_notify_completion_for_test(1001));
-    assert_eq!(
-        audio.active_event_portion(1001),
-        Some(PortionToPlay::Sound)
-    );
+    assert_eq!(audio.active_event_portion(1001), Some(PortionToPlay::Sound));
     assert_eq!(audio.active_event_loop_count(1001), Some(2));
 }
 
@@ -186,10 +171,7 @@ fn dead_owner_and_min_volume_cull_playing_3d() {
     let mut audio = AudioManager::new();
     audio.init();
 
-    let mut dead = event_from(
-        info("Engine", AudioType::SoundEffect, 0, ST_WORLD, 1),
-        1001,
-    );
+    let mut dead = event_from(info("Engine", AudioType::SoundEffect, 0, ST_WORLD, 1), 1001);
     dead.set_object_id(7);
     dead.owner_type = OwnerType::Dead;
     audio.insert_playing_event_for_test(dead);
@@ -349,10 +331,8 @@ fn next_music_track_stops_playing_and_queues_next() {
     manager.register_audio_event_info(info("TrackA", AudioType::Music, 0, 0, 1));
     manager.register_audio_event_info(info("TrackB", AudioType::Music, 0, 0, 1));
 
-    manager.insert_playing_event_for_test(event_from(
-        info("TrackA", AudioType::Music, 0, 0, 1),
-        1001,
-    ));
+    manager
+        .insert_playing_event_for_test(event_from(info("TrackA", AudioType::Music, 0, 0, 1), 1001));
     assert_eq!(manager.get_music_track_name(), "TrackA");
 
     let next = manager.next_music_track();
@@ -452,6 +432,3 @@ fn update_drains_queued_play_requests_like_miles_process_request_list() {
         "AudioManager::update must process AR_Play"
     );
 }
-
-
-

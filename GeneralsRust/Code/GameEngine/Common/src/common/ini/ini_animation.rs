@@ -2,7 +2,7 @@
 //! Author: Colin Day, July 2002
 //! Rust port: 2025
 
-use super::ini::{FieldParse, INIError, INIResult, INI};
+use super::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini_mapped_image::get_mapped_image_collection;
 use once_cell::sync::OnceCell;

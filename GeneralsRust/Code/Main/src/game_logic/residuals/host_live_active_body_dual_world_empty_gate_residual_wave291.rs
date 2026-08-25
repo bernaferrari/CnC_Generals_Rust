@@ -80,8 +80,16 @@ pub fn honesty_live_active_body_dual_world_empty_gate_residual_pack_wave291() ->
 }
 
 fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    crate::game_logic::residuals::harness::last_rust_fn_body(src, name.trim_start_matches("fn ").trim_end_matches('('))
-        .or_else(|| crate::game_logic::residuals::harness::rust_fn_body(src, name.trim_start_matches("fn ").trim_end_matches('(')))
+    crate::game_logic::residuals::harness::last_rust_fn_body(
+        src,
+        name.trim_start_matches("fn ").trim_end_matches('('),
+    )
+    .or_else(|| {
+        crate::game_logic::residuals::harness::rust_fn_body(
+            src,
+            name.trim_start_matches("fn ").trim_end_matches('('),
+        )
+    })
 }
 
 /// Source residual: ActiveBody empty-registry helper plus C++ hull path.

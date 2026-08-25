@@ -5,7 +5,7 @@
 //! port-allocation deltas.
 
 use crate::nat_traversal::{MANGLER_PORT, MANGLER_SERVERS};
-use crate::transport_udp::{calculate_packet_crc, xor_decrypt, xor_encrypt, GENERALS_MAGIC_NUMBER};
+use crate::transport_udp::{GENERALS_MAGIC_NUMBER, calculate_packet_crc, xor_decrypt, xor_encrypt};
 use parking_lot::Mutex;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -186,10 +186,7 @@ fn persist(det: &Detection) {
             out.push_str(&format!("FirewallBehavior={}\n", det.behavior.0));
             wrote_behavior = true;
         } else if line.starts_with("FirewallPortAllocationDelta=") {
-            out.push_str(&format!(
-                "FirewallPortAllocationDelta={}\n",
-                det.port_delta
-            ));
+            out.push_str(&format!("FirewallPortAllocationDelta={}\n", det.port_delta));
             wrote_delta = true;
         } else {
             out.push_str(line);
@@ -200,10 +197,7 @@ fn persist(det: &Detection) {
         out.push_str(&format!("FirewallBehavior={}\n", det.behavior.0));
     }
     if !wrote_delta {
-        out.push_str(&format!(
-            "FirewallPortAllocationDelta={}\n",
-            det.port_delta
-        ));
+        out.push_str(&format!("FirewallPortAllocationDelta={}\n", det.port_delta));
     }
     let _ = std::fs::write(path, out);
 }
@@ -274,7 +268,8 @@ fn classify(det: &mut Detection) {
             det.behavior = FirewallBehavior::DUMB_MANGLING;
             det.port_delta = mangled as i32 - original as i32;
             if det.port_delta.abs() > 0 {
-                det.behavior.insert(FirewallBehavior::SIMPLE_PORT_ALLOCATION);
+                det.behavior
+                    .insert(FirewallBehavior::SIMPLE_PORT_ALLOCATION);
             }
         }
     } else {
@@ -282,7 +277,8 @@ fn classify(det: &mut Detection) {
         let ports: Vec<i32> = det.responses.iter().map(|(_, p, _)| *p as i32).collect();
         if ports.len() >= 2 {
             det.port_delta = ports[1] - ports[0];
-            det.behavior.insert(FirewallBehavior::RELATIVE_PORT_ALLOCATION);
+            det.behavior
+                .insert(FirewallBehavior::RELATIVE_PORT_ALLOCATION);
         }
     }
 }

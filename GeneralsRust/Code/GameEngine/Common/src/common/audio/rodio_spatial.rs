@@ -1,8 +1,8 @@
 //! Rodio stand-in for Miles `AIL_set_3D_position` + one falloff pass.
 
 use super::audio_event_rts::{
-    miles_event_world_position, miles_get_effective_volume, miles_positional_gain,
-    miles_positional_ranges, AudioEventRts, Coord3D, MilesVolumeSliders,
+    AudioEventRts, Coord3D, MilesVolumeSliders, miles_event_world_position,
+    miles_get_effective_volume, miles_positional_gain, miles_positional_ranges,
 };
 use super::game_audio::Real;
 

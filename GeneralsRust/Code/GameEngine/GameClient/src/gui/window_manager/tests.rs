@@ -1768,8 +1768,8 @@ fn get_window_by_id_returns_first_traversal_match_like_cpp() {
 
 #[test]
 fn os_mouse_dispatch_selects_push_button_when_shell_inactive() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     let _lock = lock_test_mouse();
     crate::gui::shell::get_shell().set_shell_active(false);
@@ -1806,8 +1806,8 @@ fn os_click_named_window_hit_tests_widget_tree_and_selects_owner() {
         dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
         reset_os_wnd_widget_tree_nav_for_tests,
     };
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     let _lock = lock_test_mouse();
     reset_os_wnd_widget_tree_nav_for_tests();
@@ -2323,14 +2323,18 @@ fn destroy_window_recursively_destroys_children_like_cpp() {
     assert_eq!(manager.window_count, 0);
     assert!(manager.get_window_by_id(parent_id).is_none());
     assert!(manager.get_window_by_id(child_id).is_none());
-    assert!(parent
-        .borrow()
-        .get_status()
-        .contains(WindowStatus::DESTROYED));
-    assert!(child
-        .borrow()
-        .get_status()
-        .contains(WindowStatus::DESTROYED));
+    assert!(
+        parent
+            .borrow()
+            .get_status()
+            .contains(WindowStatus::DESTROYED)
+    );
+    assert!(
+        child
+            .borrow()
+            .get_status()
+            .contains(WindowStatus::DESTROYED)
+    );
 }
 
 #[test]
@@ -2857,7 +2861,11 @@ fn layout_load_adds_only_top_level_windows_like_cpp() {
         .create_window_from_definition(&parent, None, &layout, &layout_def, &mut info)
         .expect("parent+child create");
 
-    assert_eq!(info.windows.len(), 1, "C++ scriptInfo.windows is roots only");
+    assert_eq!(
+        info.windows.len(),
+        1,
+        "C++ scriptInfo.windows is roots only"
+    );
     assert_eq!(layout.borrow().windows.len(), 1);
     layout.borrow().hide(false);
     let child_win = manager
@@ -2919,4 +2927,3 @@ fn combo_field_click_opens_list_and_claims_lone_window() {
         manager.reset();
     });
 }
-

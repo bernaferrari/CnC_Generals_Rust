@@ -3,13 +3,13 @@
 //! Equivalent to the C++ ProfileHighLevel class, provides timer-based profiling
 //! and logical profiling with hierarchical naming schemes.
 
-use crate::timing::ProfileTimer;
 use crate::ProfileResult;
+use crate::timing::ProfileTimer;
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// High level profile ID - equivalent to ProfileHighLevel::Id
 #[derive(Debug, Clone)]

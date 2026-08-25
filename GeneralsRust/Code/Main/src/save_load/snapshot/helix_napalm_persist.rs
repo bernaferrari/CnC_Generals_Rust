@@ -13,8 +13,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -43,10 +43,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load firestorms.
     game_logic.helix_napalm.clear();
     let Some(suffix) = find_fsgm_suffix(bytes) else {

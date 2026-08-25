@@ -1327,7 +1327,6 @@ pub(super) fn install_contain_overrides() -> Result<(), String> {
     )?;
     apply_stored_locomotors_to_all_templates();
     Ok(())
-
 }
 
 static CONTAIN_OVERRIDES_READY: OnceLock<Result<(), String>> = OnceLock::new();

@@ -9,11 +9,6 @@ pub mod xfer_load;
 pub mod xfer_save;
 
 pub use xfer::{
-    bit_clear,
-    // Helper functions
-    bit_set,
-    bit_test,
-    xfer_options,
     Coord2D,
     // Geometric types
     Coord3D,
@@ -36,20 +31,25 @@ pub use xfer::{
     XferMode,
     XferStatus,
     XferVersion,
+    bit_clear,
+    // Helper functions
+    bit_set,
+    bit_test,
+    xfer_options,
 };
 
 pub use xfer_load::XferLoad;
 pub use xfer_save::XferSave;
 
 pub use SaveGame::{
-    apply_campaign_manager_runtime, capture_campaign_manager_runtime, get_game_state,
-    get_runtime_drawable_id_counter, get_runtime_object_id_counter, init_game_state,
-    register_campaign_manager_runtime_hooks, register_drawable_id_counter_hooks,
-    register_object_id_counter_hooks, register_save_load_campaign_hooks,
-    register_save_load_lifecycle_hooks, register_save_load_mission_hooks,
-    register_save_load_skirmish_hooks, register_save_lock_ghost_objects_hook,
-    set_runtime_drawable_id_counter, set_runtime_object_id_counter, AvailableGameInfo,
-    CampaignManagerXferState, ChallengeGameInfoXfer, ChallengeSlotXfer, GameState, GameStateMap,
-    SaveCode, SaveDate, SaveFileType, SaveGameInfo, SaveLoadLayoutType, SnapshotType,
-    CHALLENGE_MAX_SLOTS,
+    AvailableGameInfo, CHALLENGE_MAX_SLOTS, CampaignManagerXferState, ChallengeGameInfoXfer,
+    ChallengeSlotXfer, GameState, GameStateMap, SaveCode, SaveDate, SaveFileType, SaveGameInfo,
+    SaveLoadLayoutType, SnapshotType, apply_campaign_manager_runtime,
+    capture_campaign_manager_runtime, get_game_state, get_runtime_drawable_id_counter,
+    get_runtime_object_id_counter, init_game_state, register_campaign_manager_runtime_hooks,
+    register_drawable_id_counter_hooks, register_object_id_counter_hooks,
+    register_save_load_campaign_hooks, register_save_load_lifecycle_hooks,
+    register_save_load_mission_hooks, register_save_load_skirmish_hooks,
+    register_save_lock_ghost_objects_hook, set_runtime_drawable_id_counter,
+    set_runtime_object_id_counter,
 };

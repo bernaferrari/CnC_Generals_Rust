@@ -85,8 +85,8 @@ pub fn residual_host_construction_complete_clear_ready_log_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_construction_complete_clear_ready_log_helper_last_action(
-) -> ResidualHostConstructionCompleteClearReadyLogHelperAction {
+pub fn residual_host_construction_complete_clear_ready_log_helper_last_action()
+-> ResidualHostConstructionCompleteClearReadyLogHelperAction {
     ResidualHostConstructionCompleteClearReadyLogHelperAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -138,8 +138,8 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
     None
 }
 
-pub fn honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626(
-) -> bool {
+pub fn honesty_host_construction_complete_clear_ready_log_helper_method_names_residual_wave626()
+-> bool {
     let names = LIVE_HOST_CONSTRUCTION_COMPLETE_CLEAR_READY_LOG_HELPER_METHOD_NAMES_WAVE626;
     let ok = residual_name_index(names, "host_construction_complete_clear_ready_log").is_some()
         && residual_name_index(names, "writeback_rebuild_producer_to_host").is_some()
@@ -149,8 +149,8 @@ pub fn honesty_host_construction_complete_clear_ready_log_helper_method_names_re
     ok
 }
 
-pub fn honesty_host_construction_complete_clear_ready_log_helper_source_markers_residual_wave626(
-) -> bool {
+pub fn honesty_host_construction_complete_clear_ready_log_helper_source_markers_residual_wave626()
+-> bool {
     let gl = gl_source();
     let sh = shadow_source();
     let obj = object_source();
@@ -198,8 +198,8 @@ pub fn honesty_host_construction_complete_clear_ready_log_helper_source_markers_
     ok
 }
 
-pub fn honesty_host_construction_complete_clear_ready_log_helper_nav_commands_residual_wave626(
-) -> bool {
+pub fn honesty_host_construction_complete_clear_ready_log_helper_nav_commands_residual_wave626()
+-> bool {
     let steps = LIVE_HOST_CONSTRUCTION_COMPLETE_CLEAR_READY_LOG_HELPER_NAV_STEPS_WAVE626;
     let cmds =
         RUNTIME_HOST_LIVE_HOST_CONSTRUCTION_COMPLETE_CLEAR_READY_LOG_HELPER_CMD_NAMES_WAVE626;

@@ -372,11 +372,7 @@ fn ray_box_intersection(ray: &PickRay, bbox: &AABoxClass) -> Option<f32> {
         }
     }
 
-    if tmin >= 0.0 {
-        Some(tmin)
-    } else {
-        None
-    }
+    if tmin >= 0.0 { Some(tmin) } else { None }
 }
 
 #[cfg(test)]

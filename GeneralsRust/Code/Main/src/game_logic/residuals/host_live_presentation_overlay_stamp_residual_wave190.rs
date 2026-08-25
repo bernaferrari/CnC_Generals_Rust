@@ -95,7 +95,7 @@ pub fn honesty_engine_exports_overlay_stamp_source() -> bool {
 /// Live residual: overlay sets non-zero stamp after shadow desync.
 pub fn simulate_live_presentation_overlay_stamp_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

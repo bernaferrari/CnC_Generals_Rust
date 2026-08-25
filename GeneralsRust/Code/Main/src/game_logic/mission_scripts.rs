@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use crate::localization;
 use gamelogic::scripting::core::{Script, ScriptAction, ScriptActionType, ScriptList};
 use gamelogic::scripting::engine::{
-    get_script_engine, initialize_script_engine, ScriptActionHandler,
+    ScriptActionHandler, get_script_engine, initialize_script_engine,
 };
 use gamelogic::scripting::evaluator::ScriptEvaluator;
 use gamelogic::{GameLogicError, GameLogicResult};
@@ -325,7 +325,6 @@ pub struct NamedSpecialPowerCountdownMutation {
     pub op: crate::game_logic::NamedSpecialPowerCountdownOp,
     pub seconds: i32,
 }
-
 
 fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {
     // Generals Coord3D: (x,y) on the map plane, z = height.
@@ -1313,7 +1312,6 @@ impl MissionScriptHooks {
         }
     }
 
-
     pub fn push_superweapon_object_display_mutation(
         &self,
         request: SuperweaponObjectDisplayMutation,
@@ -1843,7 +1841,6 @@ impl MissionScriptHooks {
             .unwrap_or_default()
     }
 
-
     pub fn drain_superweapon_object_display_mutations(
         &self,
     ) -> Vec<SuperweaponObjectDisplayMutation> {
@@ -2135,7 +2132,6 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         Ok(())
     }
 
-
     fn set_camera_zoom(&self, zoom: f32, duration_seconds: f32) -> GameLogicResult<()> {
         self.hooks.push_camera_zoom(CameraZoomRequest {
             zoom,
@@ -2404,8 +2400,8 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         power_name: &str,
         pause: bool,
     ) -> GameLogicResult<()> {
-        self.hooks
-            .push_named_special_power_countdown_mutation(NamedSpecialPowerCountdownMutation {
+        self.hooks.push_named_special_power_countdown_mutation(
+            NamedSpecialPowerCountdownMutation {
                 unit_name: unit_name.to_string(),
                 power_name: power_name.to_string(),
                 op: if pause {
@@ -2414,7 +2410,8 @@ impl ScriptActionHandler for MissionScriptActionHandler {
                     crate::game_logic::NamedSpecialPowerCountdownOp::Start
                 },
                 seconds: 0,
-            });
+            },
+        );
         Ok(())
     }
 
@@ -2424,13 +2421,14 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         power_name: &str,
         seconds: i32,
     ) -> GameLogicResult<()> {
-        self.hooks
-            .push_named_special_power_countdown_mutation(NamedSpecialPowerCountdownMutation {
+        self.hooks.push_named_special_power_countdown_mutation(
+            NamedSpecialPowerCountdownMutation {
                 unit_name: unit_name.to_string(),
                 power_name: power_name.to_string(),
                 op: crate::game_logic::NamedSpecialPowerCountdownOp::Set,
                 seconds,
-            });
+            },
+        );
         Ok(())
     }
 
@@ -2440,16 +2438,16 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         power_name: &str,
         seconds: i32,
     ) -> GameLogicResult<()> {
-        self.hooks
-            .push_named_special_power_countdown_mutation(NamedSpecialPowerCountdownMutation {
+        self.hooks.push_named_special_power_countdown_mutation(
+            NamedSpecialPowerCountdownMutation {
                 unit_name: unit_name.to_string(),
                 power_name: power_name.to_string(),
                 op: crate::game_logic::NamedSpecialPowerCountdownOp::Add,
                 seconds,
-            });
+            },
+        );
         Ok(())
     }
-
 
     fn setup_camera(
         &self,
@@ -2616,14 +2614,14 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn sound_play_named(&self, sound: &str, unit_name: &str) -> GameLogicResult<()> {
-        let Some(object_id) = gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(
-            || {
+        let Some(object_id) =
+            gamelogic::scripting::host_script_named_unit_id(unit_name).or_else(|| {
                 gamelogic::scripting::engine::get_named_object_tracker()
                     .get_object_id(unit_name)
                     .ok()
                     .flatten()
-            },
-        ) else {
+            })
+        else {
             return Ok(());
         };
         let handle = Self::play_named_sound_through_the_audio(sound, object_id);
@@ -3333,7 +3331,10 @@ mod tests {
         // Seed a 5s VO completion (150 frames) as TheAudio would.
         {
             let mut map = hooks.speech_complete_frame.lock().expect("map");
-            map.insert("Briefing".to_string(), 10 + speech_frames_from_length_ms(5_000.0));
+            map.insert(
+                "Briefing".to_string(),
+                10 + speech_frames_from_length_ms(5_000.0),
+            );
         }
         assert!(
             !hooks.is_speech_complete("Briefing", false),
@@ -3371,7 +3372,10 @@ mod tests {
         // Seed a 5s SFX completion (150 frames) as leftover TheAudio would.
         {
             let mut map = hooks.audio_complete_frame.lock().expect("map");
-            map.insert("Boom".to_string(), 10 + speech_frames_from_length_ms(5_000.0));
+            map.insert(
+                "Boom".to_string(),
+                10 + speech_frames_from_length_ms(5_000.0),
+            );
         }
         assert!(
             !hooks.is_audio_complete("Boom", false),
@@ -3426,7 +3430,6 @@ mod tests {
             "flush removes the leftover completed-video entry"
         );
     }
-
 
     #[test]
     fn handler_forwards_radar_force_updates() {
@@ -3653,11 +3656,13 @@ mod tests {
         // C++ ScriptActions::doMusicTrackChange → TheAudio->addAudioEvent(track).
         // Live GAME_SHELL uses MissionScriptActionHandler, which previously only
         // noted the name and never queued AR_Play.
-        let manager =
-            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
         let before = {
             let guard = manager.lock().expect("THE_AUDIO lock");
-            (guard.pending_play_request_count(), guard.get_music_track_name())
+            (
+                guard.pending_play_request_count(),
+                guard.get_music_track_name(),
+            )
         };
 
         if let Ok(mut guard) = manager.lock() {
@@ -3687,6 +3692,8 @@ mod tests {
                     priority: game_engine::common::audio::AudioPriority::Normal,
                     min_distance: 25.0,
                     max_distance: 1000.0,
+                    low_pass_freq: 1.0,
+                    is_level_specific: false,
                 });
             }
         }
@@ -3699,7 +3706,10 @@ mod tests {
 
         let after = {
             let guard = manager.lock().expect("THE_AUDIO lock");
-            (guard.pending_play_request_count(), guard.get_music_track_name())
+            (
+                guard.pending_play_request_count(),
+                guard.get_music_track_name(),
+            )
         };
         assert!(
             after.0 > before.0 || after.1 == "ShellMapMusic",
@@ -3725,7 +3735,6 @@ mod tests {
             "MUSIC_SET_TRACK must not broadcast Music track: name: {messages:?}"
         );
     }
-
 
     #[test]
     fn handler_forwards_weather_visibility_requests() {
@@ -3982,7 +3991,7 @@ mod tests {
     fn live_quick_victory_starts_timer_then_posts_clear_game_data() {
         // C++ ScriptActions.cpp:169-176 doQuickVictory → startQuickEndGameTimer.
         // ScriptEngine.cpp:5514-5518 expiry appends MSG_CLEAR_GAME_DATA.
-        use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+        use game_engine::common::message_stream::{GameMessageType, get_message_stream};
         use gamelogic::scripting::core::ScriptAction;
         use gamelogic::scripting::evaluator::ScriptEvaluator;
 
@@ -4053,5 +4062,4 @@ mod tests {
         assert_eq!(resets[0].ease_out_seconds, 0.6);
         assert_eq!(resets[0].position, Vec3::new(10.0, 3.0, 20.0));
     }
-
 }

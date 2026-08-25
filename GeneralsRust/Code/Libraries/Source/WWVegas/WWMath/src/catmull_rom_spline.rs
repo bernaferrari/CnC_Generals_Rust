@@ -3,9 +3,9 @@
 //! Catmull-Rom splines are a special case of Cardinal splines with a fixed tightness of 0.5.
 //! They provide smooth curves that pass through all control points.
 
+use crate::Vector3;
 use crate::curve::{Curve1D, Curve3D};
 use crate::hermite_spline::{HermiteSpline1D, HermiteSpline3D};
-use crate::Vector3;
 
 /// 3D Catmull-Rom spline
 #[derive(Debug, Clone)]

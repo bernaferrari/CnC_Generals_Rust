@@ -11,23 +11,23 @@
 //! It does not serialize these values and does not change snapshot/Xfer v4.
 
 use crate::ai::integration::{
-    replace_ai_integration_for_world_boundary, take_ai_integration_for_world_boundary,
-    AiIntegrationManager,
+    AiIntegrationManager, replace_ai_integration_for_world_boundary,
+    take_ai_integration_for_world_boundary,
 };
-use crate::ai::{replace_global_ai_for_world_boundary, take_global_ai_for_world_boundary, AI};
-use crate::player::{player_list, PlayerList};
+use crate::ai::{AI, replace_global_ai_for_world_boundary, take_global_ai_for_world_boundary};
+use crate::player::{PlayerList, player_list};
 use crate::scripting::engine::{
-    get_area_tracker, get_named_object_tracker, get_script_engine, ScriptEngine,
+    ScriptEngine, get_area_tracker, get_named_object_tracker, get_script_engine,
 };
 use crate::scripting::events::{AreaTrackerState, NamedObjectTrackerState};
-use crate::sides_list::{get_sides_list, SidesList};
-use crate::system::shroud_manager::{get_shroud_manager, ShroudManager};
+use crate::sides_list::{SidesList, get_sides_list};
+use crate::system::shroud_manager::{ShroudManager, get_shroud_manager};
 use crate::team::{
-    get_team_factory, replace_pending_team_script_events_for_world_boundary,
-    take_pending_team_script_events_for_world_boundary, TeamFactory, TeamFactoryDeferredEffects,
-    TeamScriptEventQueue,
+    TeamFactory, TeamFactoryDeferredEffects, TeamScriptEventQueue, get_team_factory,
+    replace_pending_team_script_events_for_world_boundary,
+    take_pending_team_script_events_for_world_boundary,
 };
-use crate::terrain::{get_terrain_logic, TerrainLogic};
+use crate::terrain::{TerrainLogic, get_terrain_logic};
 use std::cell::{Cell, RefCell};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 

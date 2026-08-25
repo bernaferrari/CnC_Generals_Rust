@@ -7,11 +7,11 @@
 //! Original C++ Author: Chris Brue, July 2002
 
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
-use crate::upgrade::mask::UpgradeMask;
 use crate::common::*;
 use crate::object::body::ArmorSetType;
 use crate::object::draw::TerrainDecalType;
-use game_engine::common::ini::{INIError, INI};
+use crate::upgrade::mask::UpgradeMask;
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use std::sync::Arc;

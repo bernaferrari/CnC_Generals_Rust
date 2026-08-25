@@ -8,11 +8,11 @@ use glam::{Mat4, Vec3};
 use std::collections::HashSet;
 use std::sync::Arc;
 use ww3d_assets::{
+    AggregatePrototype,
     assets::AssetManager,
     prototypes::{
         CollectionPrototype, HlodAggregateEntry, HlodPrototype, LodModelPrototype, MeshPrototype,
     },
-    AggregatePrototype,
 };
 
 /// Build a `LodObject` from an asset prototype.
@@ -92,11 +92,7 @@ pub fn build_lod_object_from_prototype(
         has_levels = true;
     }
 
-    if has_levels {
-        Some(lod_object)
-    } else {
-        None
-    }
+    if has_levels { Some(lod_object) } else { None }
 }
 
 pub fn build_lod_object_from_hlod_prototype(
@@ -183,11 +179,7 @@ pub fn build_lod_object_from_hlod_prototype(
         has_levels = true;
     }
 
-    if has_levels {
-        Some(lod_object)
-    } else {
-        None
-    }
+    if has_levels { Some(lod_object) } else { None }
 }
 
 fn collect_runtime_data(

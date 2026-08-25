@@ -78,8 +78,8 @@ pub fn residual_entity_presentation_combat_ui_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_entity_presentation_combat_ui_last_action(
-) -> ResidualEntityPresentationCombatUiAction {
+pub fn residual_entity_presentation_combat_ui_last_action()
+-> ResidualEntityPresentationCombatUiAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualEntityPresentationCombatUiAction::MethodNames,
         2 => ResidualEntityPresentationCombatUiAction::SourceMarkers,

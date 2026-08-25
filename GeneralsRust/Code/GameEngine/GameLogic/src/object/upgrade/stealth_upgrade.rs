@@ -13,9 +13,9 @@ use crate::common::{
 };
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::upgrade::modules::upgrade_mux::{UpgradeMux, UpgradeMuxData};
 use crate::upgrade::UpgradeMask;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::upgrade::modules::upgrade_mux::{UpgradeMux, UpgradeMuxData};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::debug;
@@ -48,7 +48,6 @@ impl StealthUpgradeModuleData {
         ini.init_from_ini_with_fields(self, STEALTH_UPGRADE_FIELDS)
     }
 }
-
 
 impl ModuleData for StealthUpgradeModuleData {
     fn set_module_tag_name_key(&mut self, key: NameKeyType) {
@@ -212,7 +211,6 @@ impl UpgradeModuleInterface for StealthUpgrade {
     }
 }
 
-
 impl Snapshotable for StealthUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let current_version: u8 = 1;
@@ -350,5 +348,4 @@ mod tests {
         assert!(!upgrade.mux.is_already_upgraded());
         assert!(upgrade.can_upgrade(mask));
     }
-
 }

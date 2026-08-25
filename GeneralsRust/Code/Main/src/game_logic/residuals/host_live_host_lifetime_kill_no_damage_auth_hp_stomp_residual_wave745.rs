@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostLifetimeKillNoDamageAuthHpStompAction) {
 pub fn residual_host_lifetime_kill_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_lifetime_kill_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostLifetimeKillNoDamageAuthHpStompAction {
+pub fn residual_host_lifetime_kill_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostLifetimeKillNoDamageAuthHpStompAction {
     ResidualHostLifetimeKillNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

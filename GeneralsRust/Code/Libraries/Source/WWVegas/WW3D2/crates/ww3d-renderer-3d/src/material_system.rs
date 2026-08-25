@@ -10,8 +10,8 @@ use crate::rendering::texture_system::texture_base::{TextureAddressMode, Texture
 use crate::texture_system::{SurfaceClass, TextureClass};
 use glam::{Vec3, Vec4};
 use std::array;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use ww3d_collision::bounding_volumes::OBBoxClass;
 
 /// Vertex material class - defines surface properties

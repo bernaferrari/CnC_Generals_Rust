@@ -134,10 +134,11 @@ mod tests {
     #[test]
     fn simulate_single_player_prepare_new_residual_live() {
         use game_client::gui::callbacks::{
-            residual_single_player_menu_button_pushed, residual_single_player_menu_last_action,
+            ResidualSinglePlayerMenuAction, residual_single_player_menu_button_pushed,
+            residual_single_player_menu_last_action,
             simulate_single_player_menu_back_button_gadget_selected,
             simulate_single_player_menu_clear_button_pushed,
-            simulate_single_player_menu_prepare_new, ResidualSinglePlayerMenuAction,
+            simulate_single_player_menu_prepare_new,
         };
         assert!(
             simulate_single_player_menu_prepare_new(),

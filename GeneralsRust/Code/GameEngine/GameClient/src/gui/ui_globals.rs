@@ -272,7 +272,6 @@ pub fn submit_cursor_tooltip(renderer: &mut UIRenderer) -> bool {
     true
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

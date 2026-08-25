@@ -26,9 +26,9 @@ impl Object {
         data.building_height = (self.health.maximum.max(100.0) * 0.12)
             .clamp(15.0, 60.0)
             .max(radius * 0.8);
-        if let Some(ini) =
-            crate::game_logic::host_structure_collapse::collapse_ini_for_template(&self.template_name)
-        {
+        if let Some(ini) = crate::game_logic::host_structure_collapse::collapse_ini_for_template(
+            &self.template_name,
+        ) {
             data.bind_ini(&ini);
         }
         // Mid delay residual (average of 15–30).
@@ -86,7 +86,6 @@ impl Object {
             }
         }
     }
-
 
     /// Presentation vertical offset from structure collapse residual.
     pub fn presentation_collapse_height_offset(&self) -> f32 {
@@ -341,7 +340,6 @@ impl Object {
         self.set_status_no_collisions(true);
     }
 
-
     /// C++ SlowDeathBehavior::beginSlowDeath residual.
     /// Returns true if slow death started (caller should defer destroy).
     /// Starts only when Object INI authors `SlowDeathBehavior`.
@@ -514,7 +512,13 @@ impl Object {
 
     pub fn take_pending_create_object_die_spawns(
         &mut self,
-    ) -> (Vec<String>, f32, bool, f32, Option<crate::game_logic::ObjectId>) {
+    ) -> (
+        Vec<String>,
+        f32,
+        bool,
+        f32,
+        Option<crate::game_logic::ObjectId>,
+    ) {
         let spawns = std::mem::take(&mut self.pending_create_object_die_spawns);
         let dmg = self.create_object_die_transfer_damage;
         self.create_object_die_transfer_damage = 0.0;
@@ -593,15 +597,12 @@ impl Object {
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
-        let leftover_vet =
-            crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(self.experience.level);
-        let leftover_status = self.object_status_bits;
-        let hits = fx.collect_applicable_mux_hits(
-            &upgrades,
-            death_type,
-            leftover_vet,
-            leftover_status,
+        let leftover_vet = crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
+            self.experience.level,
         );
+        let leftover_status = self.object_status_bits;
+        let hits =
+            fx.collect_applicable_mux_hits(&upgrades, death_type, leftover_vet, leftover_status);
         for (i, hit) in hits.into_iter().enumerate() {
             if !hit.orient_to_object {
                 if let Some(name) = hit.death_fx {
@@ -627,7 +628,6 @@ impl Object {
             }
         }
     }
-
 
     pub fn ensure_crush_die(&mut self) {
         if self.crush_die.is_some() {
@@ -837,7 +837,6 @@ impl Object {
         self.dispatch_pending_structure_topple_fx();
     }
 
-
     /// Combined presentation lean (tree topple or structure topple).
     pub fn presentation_topple_lean_radians(&self) -> f32 {
         if let Some(st) = self.structure_topple_data.as_ref() {
@@ -897,14 +896,14 @@ impl Object {
         // C++ Drawable::draw: setShadowsEnabled(look != STEALTHLOOK_VISIBLE_DETECTED)
         // only while the bound object is not effectively dead.
         if self.is_alive()
-            && crate::game_logic::host_upgrades::HostCamoStealthLook::from_u8(self.camo_stealth_look)
-                == crate::game_logic::host_upgrades::HostCamoStealthLook::VisibleDetected
+            && crate::game_logic::host_upgrades::HostCamoStealthLook::from_u8(
+                self.camo_stealth_look,
+            ) == crate::game_logic::host_upgrades::HostCamoStealthLook::VisibleDetected
         {
             return false;
         }
         true
     }
-
 
     /// C++ Object::topple residual.
     /// Returns true if the object should be destroyed immediately (start-topple kill).
@@ -1015,9 +1014,7 @@ impl Object {
 /// C++ `ThingTemplate::getStructureRubbleHeight` then
 /// `TheGlobalData->m_defaultStructureRubbleHeight` (ActiveBody.cpp:191-194).
 fn host_structure_rubble_height(template_name: &str) -> f32 {
-    if let Some(guard) =
-        game_engine::common::thing::thing_factory::try_get_thing_factory()
-    {
+    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
         if let Some(factory) = guard.as_ref() {
             if let Some(tmpl) = factory.find_template(template_name, false) {
                 if let Some(h) = tmpl.structure_rubble_height() {
@@ -1036,4 +1033,3 @@ fn host_structure_rubble_height(template_name: &str) -> f32 {
             crate::game_logic::host_gamedata_lobby_residual::DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
         )
 }
-

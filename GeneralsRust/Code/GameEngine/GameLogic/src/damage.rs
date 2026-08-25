@@ -5,8 +5,8 @@
 
 use crate::common::XferExt;
 use crate::common::{
-    xfer::Xfer, AsciiString, Bool, Coord3D, ObjectID, ObjectStatusTypes, Real, Snapshot,
-    ThingTemplate,
+    AsciiString, Bool, Coord3D, ObjectID, ObjectStatusTypes, Real, Snapshot, ThingTemplate,
+    xfer::Xfer,
 };
 pub use crate::common::{BodyDamageType, PlayerMaskType};
 use bitflags::bitflags;

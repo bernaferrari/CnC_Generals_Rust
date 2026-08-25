@@ -2,10 +2,10 @@
 
 use game_engine::common::audio::audio_event_rts::Coord3D;
 use game_engine::common::audio::game_audio::{
-    register_audio_view_resolver, AudioManager, AudioViewResolver, Real,
+    AudioManager, AudioViewResolver, Real, register_audio_view_resolver,
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct TestAudioViewResolver {
     tactical_view_position: Coord3D,

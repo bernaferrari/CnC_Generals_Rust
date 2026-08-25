@@ -78,7 +78,6 @@ pub fn highlander_clamp_damage(
         return (clamped, true);
     }
     (raw_amount, false)
-
 }
 
 #[cfg(test)]

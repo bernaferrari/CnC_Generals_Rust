@@ -71,8 +71,7 @@ impl SnapshotBuilder {
                     &super::lifecycle_tail::capture_lifecycle_tail(game_logic),
                 );
                 super::special_power_cooldown_persist::append_to_lifecycle_tail(
-                    &mut bytes,
-                    game_logic,
+                    &mut bytes, game_logic,
                 );
                 super::battle_plan_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::subdual_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
@@ -95,7 +94,9 @@ impl SnapshotBuilder {
                 super::jet_ai_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::chinook_ai_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::hacker_income_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
-                super::warehouse_crippling_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
+                super::warehouse_crippling_persist::append_to_lifecycle_tail(
+                    &mut bytes, game_logic,
+                );
                 super::helix_napalm_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::money_crate_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::gps_scrambler_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
@@ -118,9 +119,6 @@ impl SnapshotBuilder {
                 super::score_keeper_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::garrison_firepoint_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
                 super::stealth_detector_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
-
-
-
 
                 bytes
             },
@@ -206,7 +204,6 @@ impl SnapshotBuilder {
         self.restore_object_command_sets(snapshot, game_logic)?;
         self.restore_object_disguises(snapshot, game_logic)?;
 
-
         self.restore_cia_vision_builder_sell(snapshot, game_logic)?;
         self.restore_object_persist(snapshot, game_logic)?;
         self.restore_client_drawable_visuals(snapshot, game_logic);
@@ -276,14 +273,8 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::subdual_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::booby_trap_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::subdual_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
+        super::booby_trap_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::carpet_bomb_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -300,22 +291,13 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::weapon_set_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::ai_team_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::weapon_set_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
+        super::ai_team_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::ability_hijack_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::dock_queue_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::dock_queue_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::module_runtime_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -336,14 +318,8 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::jet_ai_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
-        super::chinook_ai_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::jet_ai_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
+        super::chinook_ai_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::hacker_income_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -368,10 +344,7 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::angry_mob_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::angry_mob_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::power_plant_rods_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -408,18 +381,12 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::firewall_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::firewall_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::neutron_slow_death_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::turret_aim_persist::apply_from_lifecycle_tail(
-            &snapshot.lifecycle_tail,
-            game_logic,
-        )?;
+        super::turret_aim_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::stealth_grant_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -432,10 +399,6 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-
-
-
-
 
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
@@ -454,7 +417,6 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-
 
         log::info!("World restoration complete");
         Ok(())
@@ -617,9 +579,9 @@ impl SnapshotBuilder {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-}
+        }
     }
 
     fn snapshot_object_status(
@@ -768,16 +730,14 @@ impl SnapshotBuilder {
             ObjectType::Infantry | ObjectType::Vehicle | ObjectType::Aircraft => {
                 Ok(ObjectTypeSnapshot::Unit(UnitSnapshot {
                     unit_type: format!("{:?}", object.object_type),
-                    formation_position: (object.formation_id != 0)
-                        .then_some(glam::Vec3::new(
-                            object.formation_offset.x,
-                            object.formation_offset.y,
-                            0.0,
-                        )),
+                    formation_position: (object.formation_id != 0).then_some(glam::Vec3::new(
+                        object.formation_offset.x,
+                        object.formation_offset.y,
+                        0.0,
+                    )),
                     formation_id: (object.formation_id != 0).then_some(object.formation_id),
                     group_id: None,
                     waypoints: remaining_unit_waypoints(object),
-
                 }))
             }
             ObjectType::Building => Ok(ObjectTypeSnapshot::Building(BuildingSnapshot {
@@ -922,7 +882,6 @@ impl SnapshotBuilder {
         }
         energy
     }
-
 
     /// C++ `Object::xfer` (`Object.cpp:4068`) and `AIUpdateInterface::xfer`
     /// (`AIUpdate.cpp:5015-5019`). World tail so nested object records stay
@@ -1218,11 +1177,9 @@ impl SnapshotBuilder {
             object.terrain_decal_size = entry.terrain_decal_size;
             if let Some(team) = entry.original_team {
                 if object.building_data.is_none() {
-                    object.building_data = Some(
-                        crate::game_logic::buildings::BuildingData::new(
-                            crate::game_logic::buildings::BuildingType::Bunker,
-                        ),
-                    );
+                    object.building_data = Some(crate::game_logic::buildings::BuildingData::new(
+                        crate::game_logic::buildings::BuildingType::Bunker,
+                    ));
                 }
                 if let Some(building) = object.building_data.as_mut() {
                     building.original_team = Some(team);
@@ -1359,10 +1316,7 @@ impl SnapshotBuilder {
 
     /// C++ `StealthUpdate::xfer` disguise identity + transition
     /// (`StealthUpdate.cpp:1141-1177`).
-    fn snapshot_object_disguises(
-        &self,
-        game_logic: &GameLogic,
-    ) -> Vec<ObjectDisguiseSnapshot> {
+    fn snapshot_object_disguises(&self, game_logic: &GameLogic) -> Vec<ObjectDisguiseSnapshot> {
         let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
         ids.sort();
         let mut entries = Vec::new();
@@ -1442,9 +1396,6 @@ impl SnapshotBuilder {
         Ok(())
     }
 
-
-
-
     fn snapshot_client_drawable_visuals(
         &self,
         game_logic: &GameLogic,
@@ -1512,7 +1463,6 @@ impl SnapshotBuilder {
         }
     }
 
-
     fn restore_cia_vision_builder_sell(
         &self,
         snapshot: &WorldSnapshot,
@@ -1570,7 +1520,6 @@ impl SnapshotBuilder {
         game_logic.restore_sell_list_from_snapshot(&sell_entries);
         Ok(())
     }
-
 
     fn restore_player_ranks(
         &self,
@@ -1818,15 +1767,18 @@ impl SnapshotBuilder {
         let height_map = _game_logic
             .snapshot_terrain_heights_for_path_grid()
             .unwrap_or_default();
-        let (logic_width, logic_height, logic_heights) =
-            gamelogic::terrain::get_terrain_logic()
-                .read()
-                .ok()
-                .map(|terrain| {
-                    let (w, h) = terrain.logic_height_map_extents();
-                    (w.max(0) as u32, h.max(0) as u32, terrain.logic_height_map_bytes().to_vec())
-                })
-                .unwrap_or((0, 0, Vec::new()));
+        let (logic_width, logic_height, logic_heights) = gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .map(|terrain| {
+                let (w, h) = terrain.logic_height_map_extents();
+                (
+                    w.max(0) as u32,
+                    h.max(0) as u32,
+                    terrain.logic_height_map_bytes().to_vec(),
+                )
+            })
+            .unwrap_or((0, 0, Vec::new()));
         Ok(TerrainSnapshot {
             width,
             height,
@@ -1839,7 +1791,6 @@ impl SnapshotBuilder {
             logic_heights,
         })
     }
-
 
     #[allow(dead_code)] // Save system: will be wired to full save/load integration
     fn snapshot_weather(&self, _game_logic: &GameLogic) -> SaveLoadResult<WeatherSnapshot> {
@@ -2248,10 +2199,12 @@ impl SnapshotBuilder {
                     airfield_id,
                     spaces: spaces
                         .into_iter()
-                        .map(|(object_id, reserved_for_exit)| AirfieldParkingSpaceSnapshot {
-                            object_id,
-                            reserved_for_exit,
-                        })
+                        .map(
+                            |(object_id, reserved_for_exit)| AirfieldParkingSpaceSnapshot {
+                                object_id,
+                                reserved_for_exit,
+                            },
+                        )
                         .collect(),
                 })
                 .collect(),
@@ -2274,10 +2227,12 @@ impl SnapshotBuilder {
             was_in_line: game_logic
                 .snapshot_airfield_runway_was_in_line()
                 .into_iter()
-                .map(|(airfield_id, was_in_line)| AirfieldRunwayWasInLineSnapshot {
-                    airfield_id,
-                    was_in_line,
-                })
+                .map(
+                    |(airfield_id, was_in_line)| AirfieldRunwayWasInLineSnapshot {
+                        airfield_id,
+                        was_in_line,
+                    },
+                )
                 .collect(),
             jet_stalls,
             flight_decks: game_logic
@@ -2304,12 +2259,12 @@ impl SnapshotBuilder {
                                 .collect(),
                             runways: runways
                                 .into_iter()
-                                .map(|(in_use_takeoff, in_use_landing)| {
-                                    FlightDeckRunwaySnapshot {
+                                .map(
+                                    |(in_use_takeoff, in_use_landing)| FlightDeckRunwaySnapshot {
                                         in_use_takeoff,
                                         in_use_landing,
-                                    }
-                                })
+                                    },
+                                )
                                 .collect(),
                             got_info,
                             designated_target,
@@ -2330,11 +2285,7 @@ impl SnapshotBuilder {
         gamelogic::helpers::TheGameLogic::set_scoring_enabled(snapshot.is_scoring_enabled);
         game_logic.set_limit_superweapons(snapshot.limit_superweapons);
         if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
-            leftover.set_superweapon_restriction(if snapshot.limit_superweapons {
-                1
-            } else {
-                0
-            });
+            leftover.set_superweapon_restriction(if snapshot.limit_superweapons { 1 } else { 0 });
         }
         game_logic.restore_cave_system(snapshot.cave_system.clone());
         game_logic.restore_tunnel_network(snapshot.tunnel_network.clone());
@@ -2409,7 +2360,6 @@ impl SnapshotBuilder {
                 .collect(),
         );
     }
-
 }
 
 fn disguise_team_to_u8(team: Option<Team>) -> u8 {
@@ -2439,5 +2389,3 @@ fn remaining_unit_waypoints(object: &Object) -> Vec<Vec3> {
         .min(object.movement.path.len());
     object.movement.path[idx..].to_vec()
 }
-
-

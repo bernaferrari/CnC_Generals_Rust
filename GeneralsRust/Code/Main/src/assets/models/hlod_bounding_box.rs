@@ -1,7 +1,7 @@
 //! C++ `HLodClass::Update_Obj_Space_Bounding_Volumes` BOUNDINGBOX scan.
 
 use super::w3d_primitive_protos::W3dBoxProto;
-use super::{W3dHlod, W3DModel};
+use super::{W3DModel, W3dHlod};
 use glam::{Mat4, Vec3};
 
 /// Leaf after the first `.` (`strchr(name, '.') + 1` in `hlod.cpp:3301`).
@@ -63,7 +63,9 @@ pub fn posed_obbox_obj_space(
 }
 
 pub fn should_skip_obbox_child(model: &W3DModel, child_name: &str) -> bool {
-    model.boxes.iter().any(|box_proto| {
-        box_proto.is_oriented() && box_matches_child(box_proto, child_name)
-    }) && hlod_child_leaf_name(child_name).eq_ignore_ascii_case("BOUNDINGBOX")
+    model
+        .boxes
+        .iter()
+        .any(|box_proto| box_proto.is_oriented() && box_matches_child(box_proto, child_name))
+        && hlod_child_leaf_name(child_name).eq_ignore_ascii_case("BOUNDINGBOX")
 }

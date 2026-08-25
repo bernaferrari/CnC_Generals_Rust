@@ -91,7 +91,6 @@ pub const SALVAGE_MONEY_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
 /// C++ GameMakeColor(0,0,0,230) OR'd onto player->getPlayerColor().
 pub const SALVAGE_MONEY_FLOATING_TEXT_ALPHA: u8 = 230;
 
-
 /// Retail 1000DollarCrate MoneyProvided residual.
 pub const DOLLAR_CRATE_1000_MONEY: u32 = 1000;
 /// Retail 2500DollarCrate MoneyProvided residual.
@@ -246,7 +245,6 @@ fn crate_collide_module_kindof(template_name: &str, key: &str) -> Option<u128> {
     .ok()
     .map(|mask| mask.bits())
 }
-
 
 /// One residual money crate registered after DeliverPayload spawn / test seed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -639,7 +637,6 @@ impl HostMoneyCrateRegistry {
         }
     }
 
-
     /// C++ DeletionUpdate arm residual after crate spawn.
     pub fn arm_deletion_update(
         &mut self,
@@ -851,7 +848,6 @@ impl HostMoneyCrateRegistry {
             picker_id,
         }
     }
-
 
     /// Apply a successful residual pickup: remove crate entry and update honesty.
     pub fn record_pickup(
@@ -1130,7 +1126,9 @@ mod tests {
             false, true, false, false
         ));
         let projectile = default_forbidden_kind_of();
-        assert!(HostMoneyCrateRegistry::picker_matches_kindof(0, 0, projectile));
+        assert!(HostMoneyCrateRegistry::picker_matches_kindof(
+            0, 0, projectile
+        ));
         assert!(!HostMoneyCrateRegistry::picker_matches_kindof(
             projectile, 0, projectile
         ));
@@ -1138,7 +1136,9 @@ mod tests {
         assert!(HostMoneyCrateRegistry::picker_matches_kindof(
             vehicle, vehicle, 0
         ));
-        assert!(!HostMoneyCrateRegistry::picker_matches_kindof(0, vehicle, 0));
+        assert!(!HostMoneyCrateRegistry::picker_matches_kindof(
+            0, vehicle, 0
+        ));
         assert!(HostMoneyCrateRegistry::is_legal_building_picker(
             true, false, true, true, true
         ));

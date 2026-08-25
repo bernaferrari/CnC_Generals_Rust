@@ -220,11 +220,7 @@ impl PlayerPostGameStats {
             factors += 1;
         }
 
-        if factors > 0 {
-            rating.min(100.0)
-        } else {
-            0.0
-        }
+        if factors > 0 { rating.min(100.0) } else { 0.0 }
     }
 }
 

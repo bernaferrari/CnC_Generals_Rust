@@ -5,7 +5,7 @@
 
 use glam::{Vec2, Vec3, Vec4};
 use std::sync::Arc;
-use wgpu::{util::DeviceExt, Device, Queue, RenderPass};
+use wgpu::{Device, Queue, RenderPass, util::DeviceExt};
 
 /// Segmented line renderer class
 #[allow(dead_code)] // C++ parity

@@ -76,8 +76,8 @@ pub fn residual_projectile_authority_flare_host_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_projectile_authority_flare_host_last_action(
-) -> ResidualProjectileAuthorityFlareHostAction {
+pub fn residual_projectile_authority_flare_host_last_action()
+-> ResidualProjectileAuthorityFlareHostAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualProjectileAuthorityFlareHostAction::MethodNames,
         2 => ResidualProjectileAuthorityFlareHostAction::SourceMarkers,

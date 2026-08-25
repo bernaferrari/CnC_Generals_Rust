@@ -226,7 +226,7 @@ impl ZlibHeader {
         // Calculate flags
         let mut flags = 0u8;
         flags |= (level as u8 / 3) << 6; // Compression level (2 bits)
-                                         // FCHECK will be calculated later to make header checksum valid
+        // FCHECK will be calculated later to make header checksum valid
 
         Self {
             compression_method,
@@ -343,11 +343,7 @@ impl CompressionStats {
     pub fn throughput_mb_s(&self) -> f64 {
         let mb = self.original_size as f64 / (1024.0 * 1024.0);
         let seconds = self.compression_time.as_secs_f64();
-        if seconds > 0.0 {
-            mb / seconds
-        } else {
-            0.0
-        }
+        if seconds > 0.0 { mb / seconds } else { 0.0 }
     }
 }
 

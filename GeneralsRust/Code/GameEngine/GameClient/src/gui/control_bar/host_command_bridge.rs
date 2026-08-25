@@ -182,7 +182,6 @@ pub enum HostControlBarRequest {
         special_power_id: Option<u32>,
         /// C++ MSG_EXIT occupant (`m_containData.objectID`), not the container.
         exit_object_id: Option<u32>,
-
     },
     /// Arm a placement/targeting interaction for the host input layer.
     ArmTarget {
@@ -317,8 +316,8 @@ impl Drop for HostControlBarInputScope {
 /// the host request until that deferred event is replayed.  Carrying this
 /// value across that queue preserves the real physical/injected distinction
 /// without extending the scope beyond its original OS dispatch.
-pub(crate) fn host_control_bar_input_provenance_for_current_dispatch(
-) -> HostControlBarInputProvenance {
+pub(crate) fn host_control_bar_input_provenance_for_current_dispatch()
+-> HostControlBarInputProvenance {
     let thread_id = std::thread::current().id();
     host_control_bar_input_context_state()
         .lock()
@@ -592,7 +591,6 @@ fn direct_host_request(
         exit_object_id: button.exit_object_id,
     }
 }
-
 
 /// Publish a request only while the host bridge owns Control Bar authority.
 ///

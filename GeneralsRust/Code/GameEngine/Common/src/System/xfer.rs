@@ -5,7 +5,7 @@
 //       CRC computations etc
 
 use crate::common::ini::ini_upgrade::get_upgrade_center;
-use crate::common::rts::science::{get_science_store, ScienceType, SCIENCE_INVALID};
+use crate::common::rts::science::{SCIENCE_INVALID, ScienceType, get_science_store};
 use crate::common::system::geometry::Matrix3D;
 use crate::common::system::kind_of::KIND_OF_BIT_NAMES;
 use crate::common::thing::thing::KindOfType;
@@ -415,7 +415,9 @@ pub trait Xfer {
             XferMode::Load => {
                 // List should be empty before loading
                 if !object_id_vector.is_empty() {
-                    eprintln!("Xfer::xfer_stl_object_id_vector - object vector should be empty before loading");
+                    eprintln!(
+                        "Xfer::xfer_stl_object_id_vector - object vector should be empty before loading"
+                    );
                     return Err(XferStatus::ListNotEmpty);
                 }
 

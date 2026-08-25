@@ -11,24 +11,24 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
 
 use super::behavior_module::{
-    xfer_update_module_base_state, BehaviorModuleInterface, CountermeasuresBehaviorInterface,
+    BehaviorModuleInterface, CountermeasuresBehaviorInterface, xfer_update_module_base_state,
 };
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, DisabledMaskType, ObjectID, Real, UnsignedInt, Vec3D, Xfer,
-    XferVersion, FROM_CENTER_2D,
+    AsciiString, Bool, Coord3D, DisabledMaskType, FROM_CENTER_2D, ObjectID, Real, UnsignedInt,
+    Vec3D, Xfer, XferVersion,
 };
 use crate::helpers::{
-    get_game_logic_random_value_real, TheGameLogic, ThePartitionManager, TheThingFactory,
+    TheGameLogic, ThePartitionManager, TheThingFactory, get_game_logic_random_value_real,
 };
 use crate::modules::{
     ProjectileUpdateInterface, UpdateModuleInterface, UpdateSleepTime, UpgradeModuleInterface,
 };
 use crate::object::{
-    registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
+    INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, registry::OBJECT_REGISTRY,
 };
 use crate::upgrade::{UpgradeMask, UpgradeMux, UpgradeMuxData};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{

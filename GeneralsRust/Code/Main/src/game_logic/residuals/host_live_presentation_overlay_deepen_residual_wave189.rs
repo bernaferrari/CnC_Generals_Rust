@@ -110,7 +110,7 @@ pub fn honesty_engine_still_calls_overlay_source() -> bool {
 /// Live residual: overlay stamps deepened fields from desynced shadow entity.
 pub fn simulate_live_presentation_overlay_deepen_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

@@ -2,10 +2,9 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 use crate::game_logic::host_move_ambient_audio::{
-    drain_ambient_restarts, drain_move_loop_stops, move_uses_damaged, resolve_ambient_event,
-    resolve_for_object, TemplateMoveAmbientSlot,
+    TemplateMoveAmbientSlot, drain_ambient_restarts, drain_move_loop_stops, move_uses_damaged,
+    resolve_ambient_event, resolve_for_object,
 };
-
 
 fn leftover_ambient_is_playing(object_id: ObjectId, name: &str) -> bool {
     let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
@@ -287,9 +286,9 @@ impl GameLogic {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
     use crate::game_logic::host_move_ambient_audio::clear_test_template_move_ambient;
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
     fn tank_logic() -> (GameLogic, ObjectId) {
@@ -354,9 +353,10 @@ mod tests {
             Vec3::new(40.0, 0.0, 0.0)
         ));
         assert!(
-            logic.queued_audio_events.iter().any(|e| {
-                e.event_type == "TechnicalMoveLoop" && e.is_looping && !e.stop
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| { e.event_type == "TechnicalMoveLoop" && e.is_looping && !e.stop }),
             "empty SoundMoveStart falls through to SoundMoveLoop: {:?}",
             logic.queued_audio_events
         );
@@ -417,9 +417,10 @@ mod tests {
         }
         logic.drain_pending_move_ambient_audio();
         assert!(
-            logic.queued_audio_events.iter().any(|e| {
-                e.event_type == "CrusaderAmbientDamaged" && e.is_looping && !e.stop
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| { e.event_type == "CrusaderAmbientDamaged" && e.is_looping && !e.stop }),
             "Damaged body must start SoundAmbientDamaged: {:?}",
             logic.queued_audio_events
         );
@@ -453,7 +454,6 @@ mod tests {
         assert!(!logic.play_sound_from_named("UnitCheer", "MissingUnit"));
     }
 
-
     #[test]
     fn enable_disable_object_sound_from_script() {
         let mut logic = GameLogic::new();
@@ -485,11 +485,13 @@ mod tests {
                 .expect("factory")
                 .ambient_sound_enabled_from_script
         );
-        assert!(logic
-            .objects
-            .get(&id)
-            .and_then(|o| o.ambient_audio.as_deref())
-            .is_none());
+        assert!(
+            logic
+                .objects
+                .get(&id)
+                .and_then(|o| o.ambient_audio.as_deref())
+                .is_none()
+        );
         assert!(
             logic
                 .queued_audio_events
@@ -508,7 +510,10 @@ mod tests {
         }
         logic.drain_pending_move_ambient_audio();
         assert!(
-            logic.queued_audio_events.iter().all(|e| !e.is_looping || e.stop),
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|e| !e.is_looping || e.stop),
             "disabled-from-script ambient must not restart on body damage: {:?}",
             logic.queued_audio_events
         );
@@ -523,9 +528,10 @@ mod tests {
                 .ambient_sound_enabled_from_script
         );
         assert!(
-            logic.queued_audio_events.iter().any(|e| {
-                e.event_type == "WarFactoryAmbientLoop" && e.is_looping && !e.stop
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| { e.event_type == "WarFactoryAmbientLoop" && e.is_looping && !e.stop }),
             "ENABLE_OBJECT_SOUND must restart ambient: {:?}",
             logic.queued_audio_events
         );
@@ -634,9 +640,10 @@ mod tests {
         }
         logic.drain_pending_move_ambient_audio();
         assert!(
-            logic.queued_audio_events.iter().all(|e| {
-                !(e.event_type == "WarFactoryAmbientLoop" && e.is_looping && !e.stop)
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|e| { !(e.event_type == "WarFactoryAmbientLoop" && e.is_looping && !e.stop) }),
             "playing permanent ambient must not re-queue: {:?}",
             logic.queued_audio_events
         );
@@ -665,14 +672,12 @@ mod tests {
         logic.queued_audio_events.clear();
         logic.drain_pending_move_ambient_audio();
         assert!(
-            logic.queued_audio_events.iter().all(|e| {
-                !(e.event_type == "FactoryOneShotAmbient" && e.is_looping && !e.stop)
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|e| { !(e.event_type == "FactoryOneShotAmbient" && e.is_looping && !e.stop) }),
             "non-permanent ambient must not restart after cull: {:?}",
             logic.queued_audio_events
         );
     }
-
-
-
 }

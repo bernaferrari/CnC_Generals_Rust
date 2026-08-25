@@ -28,16 +28,16 @@
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{
-    game_client_random_value, game_client_random_value_real, BoneOverrideState,
-    MeshUvOverrideState, ModelDrawState, ModelDrawWeaponBoneBindings, SubObjectVisibilityState,
-    TheGameClient, TheGameLogic, TheGlobalData, TheParticleSystemManager,
+    BoneOverrideState, MeshUvOverrideState, ModelDrawState, ModelDrawWeaponBoneBindings,
+    SubObjectVisibilityState, TheGameClient, TheGameLogic, TheGlobalData, TheParticleSystemManager,
+    game_client_random_value, game_client_random_value_real,
 };
 use crate::object::draw::client_visual::{
-    leftover_default_shadow_texture, object_should_animate, preload_draw_asset,
-    terrain_decal_client, terrain_decal_texture_name, terrain_track_client, TerrainDecalDesc,
+    TerrainDecalDesc, leftover_default_shadow_texture, object_should_animate, preload_draw_asset,
+    terrain_decal_client, terrain_decal_texture_name, terrain_track_client,
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{

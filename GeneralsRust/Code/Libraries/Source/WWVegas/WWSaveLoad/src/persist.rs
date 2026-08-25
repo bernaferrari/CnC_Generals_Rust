@@ -91,8 +91,8 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use crate::saveload::{
-    get_save_load_system, ChunkId, ChunkLoad, ChunkSave, Persist, PersistFactory, RemapId,
-    SaveLoadError, SaveLoadResult,
+    ChunkId, ChunkLoad, ChunkSave, Persist, PersistFactory, RemapId, SaveLoadError, SaveLoadResult,
+    get_save_load_system,
 };
 
 /// Simple generic persist factory implementation

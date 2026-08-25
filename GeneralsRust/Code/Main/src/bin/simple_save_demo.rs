@@ -1,4 +1,4 @@
-use generals_main::save_load::{compression, SaveLoadError, SaveLoadResult};
+use generals_main::save_load::{SaveLoadError, SaveLoadResult, compression};
 use std::collections::HashMap;
 use std::time::Duration;
 

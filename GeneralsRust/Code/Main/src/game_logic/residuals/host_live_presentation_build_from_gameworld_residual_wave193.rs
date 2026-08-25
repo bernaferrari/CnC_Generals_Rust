@@ -105,11 +105,11 @@ pub fn honesty_engine_presentation_from_gameworld_opt_in_source() -> bool {
 /// Live residual: rebuild/build_from_gameworld produce GW-primary object roster.
 pub fn simulate_live_presentation_build_from_gameworld_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-    use gamelogic::world::entities::TemplateRef;
     use gamelogic::world::PlayerId;
+    use gamelogic::world::entities::TemplateRef;
     use glam::Vec3;
 
     if !honesty_live_presentation_build_from_gameworld_residual_pack_wave193() {

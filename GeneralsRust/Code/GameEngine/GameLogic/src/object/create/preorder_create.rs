@@ -43,8 +43,8 @@ impl CreateInterface for PreorderCreate {
                     if player_guard.did_player_preorder() {
                         object_guard.set_model_condition_state(ModelConditionFlags::PREORDER);
                     } else {
-                        let _ = object_guard
-                            .clear_model_condition_flags(ModelConditionFlags::PREORDER);
+                        let _ =
+                            object_guard.clear_model_condition_flags(ModelConditionFlags::PREORDER);
                     }
                 }
             }

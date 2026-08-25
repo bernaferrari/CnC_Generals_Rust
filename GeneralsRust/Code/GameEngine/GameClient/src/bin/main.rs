@@ -2,8 +2,8 @@
 //!
 //! Main executable for the Command & Conquer Generals Zero Hour GameClient
 
-use game_client_rust::core::GameClient;
 use game_client_rust::GameClientResult;
+use game_client_rust::core::GameClient;
 
 fn main() -> GameClientResult<()> {
     // Initialize logging

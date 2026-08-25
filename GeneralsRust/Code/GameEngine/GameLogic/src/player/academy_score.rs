@@ -228,7 +228,6 @@ impl AcademyStats {
         }
     }
 
-
     /// C++ AcademyStats::calculateAcademyAdvice — fill ScoreScreen war-school tips.
     pub fn calculate_academy_advice(
         &self,
@@ -254,7 +253,6 @@ impl AcademyStats {
         }
         info.num_tips > 0
     }
-
 }
 
 /// Score keeping system (matching C++ ScoreKeeper)
@@ -627,7 +625,6 @@ impl ScoreKeeper {
             Self::increment_object_count(&mut self.objects_lost, template_name);
         }
     }
-
 
     pub fn get_total_money_earned(&self) -> Int {
         self.supplies_collected

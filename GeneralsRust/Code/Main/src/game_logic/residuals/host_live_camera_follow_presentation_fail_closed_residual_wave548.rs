@@ -84,8 +84,8 @@ pub fn residual_camera_follow_presentation_fail_closed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_camera_follow_presentation_fail_closed_last_action(
-) -> ResidualCameraFollowPresentationFailClosedAction {
+pub fn residual_camera_follow_presentation_fail_closed_last_action()
+-> ResidualCameraFollowPresentationFailClosedAction {
     ResidualCameraFollowPresentationFailClosedAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

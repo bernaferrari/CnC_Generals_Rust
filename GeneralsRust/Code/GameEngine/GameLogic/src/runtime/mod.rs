@@ -7,13 +7,13 @@ use crate::common::Coord3D;
 use crate::logic::{GuardEvent, GuardParameters, GuardRegistry};
 use crate::path::{LocomotorSet, PathEnvironment, PathfindServicesInterface};
 use crate::world::{
-    entities::{EntityId, TemplateRef, Transform},
     EntitySummary, PlayerId, PlayerInfo, World, WorldSnapshot,
+    entities::{EntityId, TemplateRef, Transform},
 };
 use ai::AiRuntime;
 pub use ai::{AiFrameTelemetry, AiPlayerTelemetry};
 use game_engine::common::time::SimulationClock;
-use scheduler::{phases, Scheduler, SchedulerRunContext};
+use scheduler::{Scheduler, SchedulerRunContext, phases};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -558,7 +558,10 @@ mod tests {
         assert_eq!(frame.frame_index, game.stats().frame_count());
         assert_eq!(frame.clock.frame() as u64, game.stats().frame_count());
         match frame.events.as_slice() {
-            [SimulationEvent::AiDiagnostics { telemetry }, SimulationEvent::Tick { frame: 1 }] => {
+            [
+                SimulationEvent::AiDiagnostics { telemetry },
+                SimulationEvent::Tick { frame: 1 },
+            ] => {
                 assert_eq!(telemetry.frame, 1);
                 assert_eq!(telemetry.world_entities, 0);
                 assert_eq!(telemetry.command_backlog, 0);
@@ -585,10 +588,12 @@ mod tests {
         assert_eq!(game.stats().frame_count(), 10);
         assert!(game.stats().simulated_time() > Duration::ZERO);
         assert_eq!(frame.world.players.len(), 1);
-        assert!(frame
-            .events
-            .iter()
-            .any(|event| matches!(event, SimulationEvent::PlayerAdded { .. })));
+        assert!(
+            frame
+                .events
+                .iter()
+                .any(|event| matches!(event, SimulationEvent::PlayerAdded { .. }))
+        );
     }
 
     #[test]

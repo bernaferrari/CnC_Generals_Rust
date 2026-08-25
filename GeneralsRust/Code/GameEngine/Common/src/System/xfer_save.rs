@@ -250,7 +250,6 @@ impl Xfer for XferSave {
             return Err(XferStatus::StringError);
         }
 
-
         // Save length of string to follow
         let len = utf16.len() as u8;
         self.xfer_unsigned_byte(&mut len.clone())?;

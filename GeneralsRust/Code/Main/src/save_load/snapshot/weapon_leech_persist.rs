@@ -44,10 +44,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     reset_weapon_leech(game_logic);
     let Some(suffix) = find_wlch_suffix(bytes) else {
         return Ok(());
@@ -146,11 +143,7 @@ mod tests {
         );
         source.add_player(Player::new(0, Team::GLA, "GLA", true));
         let id = source
-            .create_object(
-                "GLAInfantryTerrorist",
-                Team::GLA,
-                Vec3::new(8.0, 0.0, 6.0),
-            )
+            .create_object("GLAInfantryTerrorist", Team::GLA, Vec3::new(8.0, 0.0, 6.0))
             .expect("terrorist");
         {
             let object = source.host_object_mut(id).expect("terrorist obj");

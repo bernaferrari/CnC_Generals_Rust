@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -56,9 +56,10 @@ fn special_power_has_overridable_destination(
 fn leftover_special_power_type(
     power_type: &SpecialPowerType,
 ) -> Option<gamelogic::object::special_power_types::SpecialPowerType> {
-    let name = crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
-        power_type,
-    )?;
+    let name =
+        crate::game_logic::host_special_power_enum_residual::host_command_power_cpp_enum_name(
+            power_type,
+        )?;
     gamelogic::object::special_power_types::SpecialPowerType::from_str(name)
 }
 
@@ -107,8 +108,7 @@ fn leftover_can_do_special_power_at_object(
         // C++ SPECIAL_BATTLESHIP_BOMBARDMENT: relationship != ALLIES.
         SpecialPowerType::BattleshipBombardment => relationship != Relationship::Allies,
         // C++ SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES: VEHICLE && ENEMIES.
-        SpecialPowerType::MissileDefenderLaserGuided
-        | SpecialPowerType::LaserGuidedHowitzer => {
+        SpecialPowerType::MissileDefenderLaserGuided | SpecialPowerType::LaserGuidedHowitzer => {
             target_is_vehicle && relationship == Relationship::Enemies
         }
         // Leftover can_do_special_power_at_object plant path (RemoteCharges).
@@ -156,7 +156,6 @@ fn leftover_object_click_allowed(
         logic.is_object_shrouded_for_action(unit, target),
     )
 }
-
 
 impl<'a> CommandExecutor<'a> {
     /// C++ AIGroup::groupOverrideSpecialPowerDestination residual.
@@ -335,8 +334,7 @@ impl<'a> CommandExecutor<'a> {
             if let PowerTarget::Object(_) = target {
                 if !matches!(
                     *power_type,
-                    SpecialPowerType::DemoKellRemoteCharges
-                        | SpecialPowerType::BurtonRemoteCharges
+                    SpecialPowerType::DemoKellRemoteCharges | SpecialPowerType::BurtonRemoteCharges
                 ) {
                     return CommandResult::InvalidTarget;
                 }
@@ -393,7 +391,8 @@ impl<'a> CommandExecutor<'a> {
             .filter(|&id| {
                 self.game_logic.host_object(id).is_some_and(|o| {
                     o.is_alive()
-                        && (o.thing
+                        && (o
+                            .thing
                             .template
                             .special_power_module_for_command(power_type)
                             .is_some()
@@ -418,12 +417,9 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.host_object(unit_id),
                     self.game_logic.host_object(*target_id),
                 ) {
-                    (Some(unit), Some(tgt)) => leftover_object_click_allowed(
-                        self.game_logic,
-                        unit,
-                        tgt,
-                        power_type,
-                    ),
+                    (Some(unit), Some(tgt)) => {
+                        leftover_object_click_allowed(self.game_logic, unit, tgt, power_type)
+                    }
                     _ => false,
                 };
                 allowed
@@ -450,8 +446,7 @@ impl<'a> CommandExecutor<'a> {
         // Charge starts at preparation, not on this target click.
         if matches!(
             *power_type,
-            SpecialPowerType::HackerDisableBuilding
-                | SpecialPowerType::MicrowaveDisableBuilding
+            SpecialPowerType::HackerDisableBuilding | SpecialPowerType::MicrowaveDisableBuilding
         ) {
             let PowerTarget::Object(target_id) = target else {
                 return CommandResult::InvalidTarget;
@@ -461,12 +456,9 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.host_object(unit_id),
                     self.game_logic.host_object(*target_id),
                 ) {
-                    (Some(unit), Some(tgt)) => leftover_object_click_allowed(
-                        self.game_logic,
-                        unit,
-                        tgt,
-                        power_type,
-                    ),
+                    (Some(unit), Some(tgt)) => {
+                        leftover_object_click_allowed(self.game_logic, unit, tgt, power_type)
+                    }
                     _ => false,
                 };
                 allowed
@@ -499,19 +491,15 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic.host_object(unit_id),
                     self.game_logic.host_object(*tid),
                 ) {
-                    (Some(unit), Some(tgt)) => leftover_object_click_allowed(
-                        self.game_logic,
-                        unit,
-                        tgt,
-                        power_type,
-                    ),
+                    (Some(unit), Some(tgt)) => {
+                        leftover_object_click_allowed(self.game_logic, unit, tgt, power_type)
+                    }
                     _ => false,
                 };
                 if !allowed {
                     continue;
                 }
             }
-
 
             // C++ markSpecialPowerTriggered is startPreparation, after
             // unpack/face/range. Steal/disable leftover must not consume on click.
@@ -551,7 +539,6 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if !consume_at_prep
-
                 && !consume_after_valid_object
                 && !never_consume
                 && !self
@@ -737,8 +724,6 @@ impl<'a> CommandExecutor<'a> {
                     PowerTarget::Object(_) => continue,
                 }
             } else if let Some(pos) = target_position {
-
-
                 if *power_type == SpecialPowerType::ClusterMines
                     || *power_type == SpecialPowerType::NukeDrop
                 {
@@ -979,7 +964,6 @@ impl<'a> CommandExecutor<'a> {
                         .game_logic
                         .queue_special_power_strike(power_type, unit_id, pos);
                 }
-
             }
             if *power_type != SpecialPowerType::CleanupArea
                 && crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
@@ -1005,7 +989,6 @@ impl<'a> CommandExecutor<'a> {
                         .unit_command_set_special_power_overridable_destination(unit_id, pos);
                 }
             }
-
         }
         if any {
             // C++ CommandXlat.cpp:637-651 spmInterface->getInitiateSound().
@@ -1026,10 +1009,11 @@ impl<'a> CommandExecutor<'a> {
         power_type: &SpecialPowerType,
     ) {
         let power_key = format!("{power_type:?}");
-        let retail = crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
-            power_type,
-        )
-        .map(|kind| kind.retail_initiate_sound());
+        let retail =
+            crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
+                power_type,
+            )
+            .map(|kind| kind.retail_initiate_sound());
         for &id in casters {
             let Some(obj) = self.game_logic.host_object(id) else {
                 continue;
@@ -1121,13 +1105,8 @@ impl<'a> CommandExecutor<'a> {
                 WeaponTarget::Object(id) => (Some(*id), false),
                 WeaponTarget::Location(_) => (None, true),
             };
-            self.game_logic.queue_attack_voice(
-                units,
-                target_id,
-                true,
-                at_location,
-                Some(slot),
-            );
+            self.game_logic
+                .queue_attack_voice(units, target_id, true, at_location, Some(slot));
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -1228,7 +1207,7 @@ impl<'a> CommandExecutor<'a> {
     /// Tank Hunter TNT special residual: path to target and plant timed sticky charge.
     pub(super) fn queue_tank_hunter_tnt(&mut self, unit_id: ObjectId, target_id: ObjectId) -> bool {
         use crate::game_logic::host_tank_hunter::{
-            is_tank_hunter_template, tnt_in_start_range, tnt_ready, TNT_START_ABILITY_RANGE,
+            TNT_START_ABILITY_RANGE, is_tank_hunter_template, tnt_in_start_range, tnt_ready,
         };
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
@@ -1287,8 +1266,8 @@ impl<'a> CommandExecutor<'a> {
     /// StartAbilityRange 3; markSpecialPowerTriggered at startPreparation.
     pub(super) fn queue_helix_napalm_bomb(&mut self, unit_id: ObjectId, pos: Vec3) -> bool {
         use crate::game_logic::host_helix_napalm::{
-            helix_napalm_unlocked, is_helix_napalm_caster, UPGRADE_HELIX_NAPALM_BOMB,
-            UPGRADE_HELIX_NUKE_BOMB,
+            UPGRADE_HELIX_NAPALM_BOMB, UPGRADE_HELIX_NUKE_BOMB, helix_napalm_unlocked,
+            is_helix_napalm_caster,
         };
         use crate::game_logic::{AIState, PendingSpecialAbility};
 
@@ -1310,10 +1289,8 @@ impl<'a> CommandExecutor<'a> {
             .game_logic
             .unit_command_stop_moving_order_target(unit_id, None);
         let _ = self.path_to_goal_with_state(unit_id, pos, AIState::SpecialAbility);
-        self.game_logic.queue_pending_special_ability(
-            unit_id,
-            PendingSpecialAbility::helix_napalm_at(pos),
-        );
+        self.game_logic
+            .queue_pending_special_ability(unit_id, PendingSpecialAbility::helix_napalm_at(pos));
         true
     }
 }
@@ -1564,9 +1541,7 @@ mod can_use_special_power_caster_filter_tests {
             pack_unpack_variation_factor: 0.0,
             persistence_requires_recharge: false,
         });
-        logic
-            .templates
-            .insert("HqY2oosMicrowaveTank".into(), tank);
+        logic.templates.insert("HqY2oosMicrowaveTank".into(), tank);
 
         let mut building = ThingTemplate::new("HqY2oosEnemyBuilding");
         building.set_health(2000.0);
@@ -1618,7 +1593,6 @@ mod can_use_special_power_caster_filter_tests {
     fn baikonur_location_does_not_open_door_object_does_not_spend() {
         use crate::command_system::PowerTarget;
         use crate::game_logic::KindOf;
-
 
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(0, Team::GLA, "GLA", true));
@@ -1679,10 +1653,12 @@ mod can_use_special_power_caster_filter_tests {
         }
         let bits = logic.host_object(tower_id).unwrap().model_condition_bits;
         assert_eq!(bits, 0, "location fire must not set DOOR_1_OPENING");
-        assert!(logic
-            .host_objects()
-            .values()
-            .any(|o| o.template_name == "BaikonurRocketDetonation"));
+        assert!(
+            logic
+                .host_objects()
+                .values()
+                .any(|o| o.template_name == "BaikonurRocketDetonation")
+        );
 
         assert!(
             !logic.is_special_power_ready_for(tower_id, &SpecialPowerType::BaikonurRocket),
@@ -1742,17 +1718,18 @@ mod can_use_special_power_caster_filter_tests {
         assert_eq!(ship.target, Some(tgt_id));
         assert!(ship.target_location.is_none());
         assert_eq!(ship.turret_target_id, Some(tgt_id));
-        assert!(ship
-            .fire_weapon_power
-            .as_ref()
-            .is_some_and(|r| r.target_object_id == Some(tgt_id) && !r.has_location));
+        assert!(
+            ship.fire_weapon_power
+                .as_ref()
+                .is_some_and(|r| r.target_object_id == Some(tgt_id) && !r.has_location)
+        );
     }
 
     #[test]
     fn leftover_object_click_gates_match_action_manager() {
+        use super::leftover_can_do_special_power_at_object;
         use crate::command_system::SpecialPowerType;
         use gamelogic::common::Relationship;
-        use super::leftover_can_do_special_power_at_object;
 
         let click = |power: SpecialPowerType, rel: Relationship, vehicle: bool| {
             leftover_can_do_special_power_at_object(&power, rel, vehicle, false, false)
@@ -2174,7 +2151,6 @@ mod can_use_special_power_caster_filter_tests {
         }
     }
 
-
     #[test]
     fn location_power_unit_click_leftover_gates_shroud() {
         use crate::command_system::PowerTarget;
@@ -2316,7 +2292,6 @@ mod can_use_special_power_caster_filter_tests {
         }
     }
 
-
     #[test]
     fn battleship_object_click_rejects_allies_without_consuming() {
         use crate::command_system::PowerTarget;
@@ -2373,10 +2348,10 @@ mod can_use_special_power_caster_filter_tests {
     #[test]
     fn laser_object_click_requires_enemy_vehicle() {
         use crate::command_system::PowerTarget;
+        use crate::game_logic::KindOf;
         use crate::game_logic::host_missile_defender::{
             missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
         };
-        use crate::game_logic::KindOf;
         use gamelogic::common::Relationship;
 
         let mut logic = GameLogic::new();
@@ -2465,4 +2440,3 @@ mod can_use_special_power_caster_filter_tests {
         }
     }
 }
-

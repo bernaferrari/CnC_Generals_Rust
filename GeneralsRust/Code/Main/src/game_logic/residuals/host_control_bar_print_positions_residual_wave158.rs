@@ -119,10 +119,10 @@ mod tests {
     #[test]
     fn simulate_control_bar_print_positions_prepare_sample_residual_live() {
         use game_client::gui::control_bar::{
+            CONTROL_BAR_PRINT_PARENT_NAME, ResidualControlBarPrintPositionsAction,
             residual_control_bar_print_positions_last_action,
             residual_control_bar_print_positions_line_len,
             simulate_control_bar_print_positions_prepare_sample,
-            ResidualControlBarPrintPositionsAction, CONTROL_BAR_PRINT_PARENT_NAME,
         };
         assert_eq!(
             CONTROL_BAR_PRINT_PARENT_NAME,

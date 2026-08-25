@@ -333,8 +333,10 @@ impl CollisionMath {
         box_ref: &OBBox,
         result: &mut CastResult,
     ) -> bool {
-        let local_p0 =
-            box_ref.basis.transpose_rotate_vector(line.get_p0() - box_ref.center) + box_ref.center;
+        let local_p0 = box_ref
+            .basis
+            .transpose_rotate_vector(line.get_p0() - box_ref.center)
+            + box_ref.center;
         let local_dp = box_ref.basis.transpose_rotate_vector(line.get_dp());
         let aligned = AABox::new(box_ref.center, box_ref.extent);
         let mut test = AlignedBoxRayTest::new(&aligned, local_p0, local_dp);
@@ -435,12 +437,15 @@ impl CollisionMath {
     ) -> bool {
         let rel_move = *movement - *tri_move;
         let local_move = box_ref.basis.transpose_rotate_vector(rel_move);
-        let local_v0 =
-            box_ref.basis.transpose_rotate_vector(tri.vertices[0] - box_ref.center);
-        let local_v1 =
-            box_ref.basis.transpose_rotate_vector(tri.vertices[1] - box_ref.center);
-        let local_v2 =
-            box_ref.basis.transpose_rotate_vector(tri.vertices[2] - box_ref.center);
+        let local_v0 = box_ref
+            .basis
+            .transpose_rotate_vector(tri.vertices[0] - box_ref.center);
+        let local_v1 = box_ref
+            .basis
+            .transpose_rotate_vector(tri.vertices[1] - box_ref.center);
+        let local_v2 = box_ref
+            .basis
+            .transpose_rotate_vector(tri.vertices[2] - box_ref.center);
         let local_box = AABox::new(Vector3::ZERO, box_ref.extent);
         let local_tri = Triangle::new(local_v0, local_v1, local_v2);
         let mut local_result = CastResult {
@@ -517,7 +522,6 @@ impl CollisionMath {
         }
         finalize_obb_obb(&ctx, result)
     }
-
 
     // ========================================================================================
     // Helper Functions
@@ -1161,4 +1165,3 @@ fn finalize_obb_obb(ctx: &ObbObbSweepContext, result: &mut CastResult) -> bool {
     }
     false
 }
-

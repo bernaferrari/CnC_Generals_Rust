@@ -78,8 +78,8 @@ pub fn residual_presentation_garrison_contain_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_garrison_contain_last_action(
-) -> ResidualPresentationGarrisonContainAction {
+pub fn residual_presentation_garrison_contain_last_action()
+-> ResidualPresentationGarrisonContainAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationGarrisonContainAction::MethodNames,
         2 => ResidualPresentationGarrisonContainAction::SourceMarkers,

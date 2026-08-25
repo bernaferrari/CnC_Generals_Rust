@@ -76,8 +76,8 @@ pub fn residual_production_exit_delay_sole_tick_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_production_exit_delay_sole_tick_last_action(
-) -> ResidualProductionExitDelaySoleTickAction {
+pub fn residual_production_exit_delay_sole_tick_last_action()
+-> ResidualProductionExitDelaySoleTickAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualProductionExitDelaySoleTickAction::MethodNames,
         2 => ResidualProductionExitDelaySoleTickAction::SourceMarkers,
@@ -195,7 +195,9 @@ pub fn simulate_production_exit_delay_sole_tick_host_source() -> bool {
         return false;
     };
     let win = &src[i..];
-    let ok = ok && !win.contains("tick_exit_delay") && win.contains("host_apply_unit_production_completions");
+    let ok = ok
+        && !win.contains("tick_exit_delay")
+        && win.contains("host_apply_unit_production_completions");
     residual_action_store(ResidualProductionExitDelaySoleTickAction::HostSoleSource);
     ok
 }

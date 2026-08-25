@@ -1,7 +1,7 @@
 //! Shared chassis spring / accel helpers from `Drawable.cpp`.
 
 use super::loco_state::PhysicsVisualLocoState;
-use super::types::{LocomotorVisualParams, PhysicsVisualBody, CPP_PI};
+use super::types::{CPP_PI, LocomotorVisualParams, PhysicsVisualBody};
 
 /// Ground pitch/roll from the terrain (or overlap) normal.
 ///

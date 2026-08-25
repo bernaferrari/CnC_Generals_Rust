@@ -8,8 +8,8 @@ use log::warn;
 use std::path::Path;
 
 use super::{
-    chunk::ChunkManager, height_map::HeightModOperation, terrain_visual::get_terrain_visual,
     HeightMap, TerrainConfig, TerrainError, TerrainModification, TerrainStats, TerrainVisual,
+    chunk::ChunkManager, height_map::HeightModOperation, terrain_visual::get_terrain_visual,
 };
 use crate::system::SubsystemInterface;
 
@@ -58,7 +58,7 @@ impl TerrainManager {
                 return Err(TerrainError::HeightmapError(format!(
                     "Unsupported heightmap format: .{}",
                     other
-                )))
+                )));
             }
         };
 

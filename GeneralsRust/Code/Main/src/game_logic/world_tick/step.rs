@@ -134,7 +134,6 @@ impl GameLogic {
         hasher.get()
     }
 
-
     /// Execute one simulation step.
     ///
     /// Phase ordering follows C++ GameLogic::update() (GameLogic.cpp lines 3548-3803)
@@ -534,7 +533,6 @@ impl GameLogic {
         self.update_spy_satellites();
         crate::command_executor::tick_live_beacon_client_updates(self);
 
-
         // Host CIA Intelligence residual: expire vision-spied marks + FOW undos.
         // Fail-closed vs full SpyVisionUpdate setUnitsVisionSpied module path.
         self.update_satellite_hack_spy_vision();
@@ -768,7 +766,6 @@ impl GameLogic {
         // when the current End is reached. Crate leftover is dual-world gated.
         self.update_railed_transports();
 
-
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).
@@ -885,7 +882,14 @@ impl GameLogic {
             }
             let mut exhausts: Vec<_> = snaps
                 .into_iter()
-                .map(|p| (p.id, p.shooter_id, p.position, p.live_exhaust_name().to_string()))
+                .map(|p| {
+                    (
+                        p.id,
+                        p.shooter_id,
+                        p.position,
+                        p.live_exhaust_name().to_string(),
+                    )
+                })
                 .collect();
             // HashMap-backed projectile storage has no stable iteration order;
             // stable creation order keeps host particle identities deterministic.
@@ -1143,7 +1147,6 @@ impl GameLogic {
         self.drain_masked_object_selection();
         self.update_power_disabled_state();
 
-
         // -----------------------------------------------------------------------
         // Phase 11: Damage/Physics Resolution
         // -----------------------------------------------------------------------
@@ -1171,7 +1174,6 @@ impl GameLogic {
         // Residual drain is same-frame after object combat/AI/repair and destroy.
         self.sync_host_bridge_rubble_and_scaffolds();
 
-
         // -----------------------------------------------------------------------
         // Phase 14: Weapon Store Update (C++ line 3767)
         // -----------------------------------------------------------------------
@@ -1190,7 +1192,6 @@ impl GameLogic {
                 log::warn!("Weapon store update failed: {}", e);
             }
         }
-
 
         // -----------------------------------------------------------------------
         // Phase 14b: Locomotor Store Update (C++ line 3768)

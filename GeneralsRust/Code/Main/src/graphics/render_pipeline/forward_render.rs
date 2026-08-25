@@ -13,11 +13,11 @@ use crate::graphics::render_item::RenderItemBonePaletteSource;
 use ww3d_renderer_3d::rendering::mesh_system::FrozenFowVisibility;
 
 #[cfg(feature = "game_client")]
-use game_client::effects::particle_renderer::{register_particle_renderer, ParticleUniforms};
+use game_client::effects::particle_renderer::{ParticleUniforms, register_particle_renderer};
 #[cfg(feature = "game_client")]
 use game_client::effects::weather_complete::get_weather_system;
 #[cfg(feature = "game_client")]
-use game_client::effects::{get_particle_system_manager, ParticleRenderer};
+use game_client::effects::{ParticleRenderer, get_particle_system_manager};
 #[cfg(feature = "game_client")]
 use game_client::fx_list::get_decal_manager;
 #[cfg(feature = "game_client")]
@@ -342,8 +342,7 @@ impl ForwardPass {
                     game_client::display::view::with_tactical_view_ref(|view| {
                         let cam = view.get_3d_camera_position();
                         let target = view.position();
-                        let aspect =
-                            (view.width() as f32 / view.height().max(1) as f32).max(0.01);
+                        let aspect = (view.width() as f32 / view.height().max(1) as f32).max(0.01);
                         let visible = game_client::display::shadow_pass::maximum_visible_box(
                             [cam.x, cam.y, cam.z],
                             [target.x, target.y, target.z],
@@ -356,11 +355,7 @@ impl ForwardPass {
                             aspect,
                             game_client::display::shadow_pass::terrain_min_height(),
                         );
-                        manager.cull_particles_to_visible_box(
-                            visible.center,
-                            visible.extent,
-                            512,
-                        );
+                        manager.cull_particles_to_visible_box(visible.center, visible.extent, 512);
                     });
                 }
             }
@@ -428,11 +423,7 @@ impl ForwardPass {
             // C++ W3DProjectedShadowManager::flushDecals — radius addDecal rings
             // stay ungated. Unit addShadow blobs are omitted when 2D Shadows off
             // (`collect_render_items` / W3DProjectedShadow.cpp:1303).
-            decals.extend(
-                get_projected_shadow_manager()
-                    .read()
-                    .collect_render_items(),
-            );
+            decals.extend(get_projected_shadow_manager().read().collect_render_items());
 
             if !decals.is_empty() {
                 let mut decal_uniforms = uniforms;
@@ -632,7 +623,9 @@ impl ForwardPass {
                         crate::graphics::ui_render_pass::flush_ui_to_frame(frame)
                     });
                     let _ = self.renderer.end_frame();
-                    return Err(anyhow::anyhow!("WW3D renderer handle poisoned - another thread panicked while holding the lock"));
+                    return Err(anyhow::anyhow!(
+                        "WW3D renderer handle poisoned - another thread panicked while holding the lock"
+                    ));
                 }
                 Err(std::sync::TryLockError::WouldBlock) => {
                     warn!("WW3D renderer handle already locked - skipping mesh queue");
@@ -647,7 +640,6 @@ impl ForwardPass {
                     return Ok(());
                 }
             };
-
 
             // Update camera state - must happen before queueing meshes
             self.camera.set_view_matrix(*view_matrix);
@@ -998,12 +990,7 @@ impl ForwardPass {
         {
             warn!(
                 "MaterialProbe anomaly: mostly non-visible materials (sampled={} textured={} black_diffuse={} zero_opacity={} emissive={}) sample={:?}",
-                sample_limit,
-                textured,
-                near_black_diffuse,
-                near_zero_opacity,
-                emissive,
-                samples
+                sample_limit, textured, near_black_diffuse, near_zero_opacity, emissive, samples
             );
         }
     }
@@ -1085,7 +1072,9 @@ impl ForwardPass {
         if std::env::var_os("GENERALS_FORCE_TWO_SIDED").is_some() {
             static LOGGED_FORCE_TWO_SIDED: AtomicBool = AtomicBool::new(false);
             if !LOGGED_FORCE_TWO_SIDED.swap(true, Ordering::Relaxed) {
-                warn!("GENERALS_FORCE_TWO_SIDED enabled: forcing two-sided pipelines for mesh diagnostics");
+                warn!(
+                    "GENERALS_FORCE_TWO_SIDED enabled: forcing two-sided pipelines for mesh diagnostics"
+                );
             }
             mesh.is_decal_instance = true;
         }
@@ -1198,11 +1187,7 @@ fn sample_resolved_hierarchy_bind_pose_palette(
         return None;
     }
 
-    let locals: Vec<Mat4> = hierarchy
-        .pivots
-        .iter()
-        .map(pivot_local_transform)
-        .collect();
+    let locals: Vec<Mat4> = hierarchy.pivots.iter().map(pivot_local_transform).collect();
     let mut globals = vec![Mat4::IDENTITY; hierarchy.pivots.len()];
     for (pivot_index, pivot) in hierarchy.pivots.iter().enumerate().skip(1) {
         let parent_index = usize::try_from(pivot.parent_idx).ok()?;
@@ -1262,10 +1247,8 @@ fn leftover_z_up_particle_uniforms(time: f32) -> ParticleUniforms {
         let look = Vec3::new(target.x, target.y, target.z);
         let view_matrix = Mat4::look_at_rh(camera, look, Vec3::Z);
         let aspect = (view.width() as f32 / view.height().max(1) as f32).max(0.01);
-        let fov = game_client::display::view::vertical_fov_from_horizontal(
-            view.field_of_view(),
-            aspect,
-        );
+        let fov =
+            game_client::display::view::vertical_fov_from_horizontal(view.field_of_view(), aspect);
         let projection_matrix = Mat4::perspective_rh(fov, aspect, 1.0, 20000.0);
         ParticleUniforms {
             view_matrix: view_matrix.to_cols_array_2d(),
@@ -1283,8 +1266,6 @@ fn w3d_source_transform_to_render_basis(transform: Mat4) -> Mat4 {
     ]);
     axis * transform * axis
 }
-
-
 
 #[cfg(test)]
 mod tests {

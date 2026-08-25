@@ -14,7 +14,7 @@ use crate::helpers::{TheGameLogic, TheGameText};
 use crate::player::{Player, ScienceVec};
 use crate::scripting::engine::get_script_engine;
 use game_engine::common::rts::science::get_science_store;
-use game_engine::common::rts::{ScienceType, SCIENCE_INVALID};
+use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
 
 impl Player {
     /// Reset rank state to defaults (matches C++ Player::resetRank)

@@ -79,8 +79,8 @@ pub fn residual_entity_presentation_structure_ui_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_entity_presentation_structure_ui_last_action(
-) -> ResidualEntityPresentationStructureUiAction {
+pub fn residual_entity_presentation_structure_ui_last_action()
+-> ResidualEntityPresentationStructureUiAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualEntityPresentationStructureUiAction::MethodNames,
         2 => ResidualEntityPresentationStructureUiAction::SourceMarkers,

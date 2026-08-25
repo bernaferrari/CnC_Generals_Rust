@@ -10,14 +10,14 @@
 //! Reference: C++ mesh.cpp, htree.cpp, hmodel.cpp, meshmdl.cpp
 use crate::hanim::HAnimClass;
 use crate::htree::HTreeClass;
-use crate::w3d_loader::{load_w3d_animation, load_w3d_hierarchy, W3DAnimationError};
+use crate::w3d_loader::{W3DAnimationError, load_w3d_animation, load_w3d_hierarchy};
 use glam::Vec3;
 use std::collections::HashMap;
 use std::io::{Read, Seek};
 use ww3d_core::{
-    w3d_string_from_bytes, W3DChunkType, W3dChunkHeader, W3dHModelHeaderStruct,
-    W3dHModelNodeStruct, W3dLodModelHeaderStruct, W3dLodStruct, W3dMeshHeader3Struct,
-    W3dVectorStruct, W3dVertInfStruct,
+    W3DChunkType, W3dChunkHeader, W3dHModelHeaderStruct, W3dHModelNodeStruct,
+    W3dLodModelHeaderStruct, W3dLodStruct, W3dMeshHeader3Struct, W3dVectorStruct, W3dVertInfStruct,
+    w3d_string_from_bytes,
 };
 
 /// Complete W3D model with all components

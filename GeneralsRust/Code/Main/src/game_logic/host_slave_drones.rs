@@ -149,7 +149,6 @@ pub const BATTLE_DRONE_REPAIR_WELDING_FX_BONE: &str = "Muzzle02";
 /// MiscAudio.ini slot; queue `resolve_misc_audio_event` playable name, not this token.
 pub const BATTLE_DRONE_REPAIR_SPARKS_AUDIO: &str = "RepairSparks";
 
-
 // --- Wave 61 SlavedUpdate wander residual (shared Scout/Hellfire/Battle) ---
 
 /// Retail GuardMaxRange residual.
@@ -188,8 +187,6 @@ pub fn synced_spawn_veterancy(
     };
     (high, high)
 }
-
-
 
 // --- Wave 61 body / spawn / upgrade residual ---
 
@@ -570,7 +567,6 @@ pub fn battle_drone_weld_pose(drone_pos: Vec3, bone_host_local: Option<Vec3>) ->
     }
 }
 
-
 /// C++ `RepairStates` (`SlavedUpdate.h:102-111`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BattleDroneRepairState {
@@ -697,11 +693,10 @@ impl BattleDroneWeldState {
 }
 
 /// C++ doAttackLogic DistToTargetToGrantRangeBonus² (Scout residual **20**).
-pub fn scout_drone_should_grant_range_bonus(
-    is_scout: bool,
-    slave_to_victim_dist_sqr: f32,
-) -> bool {
-    is_scout && slave_to_victim_dist_sqr < SCOUT_DIST_TO_TARGET_RANGE_BONUS * SCOUT_DIST_TO_TARGET_RANGE_BONUS
+pub fn scout_drone_should_grant_range_bonus(is_scout: bool, slave_to_victim_dist_sqr: f32) -> bool {
+    is_scout
+        && slave_to_victim_dist_sqr
+            < SCOUT_DIST_TO_TARGET_RANGE_BONUS * SCOUT_DIST_TO_TARGET_RANGE_BONUS
 }
 
 /// C++ SlavedUpdate.cpp:145-150: hijack/defect when master is no longer ALLIES.
@@ -717,7 +712,6 @@ pub fn slave_follow_destination_y(drone_y: f32, master_y: f32) -> f32 {
         drone_y.max(master_y)
     }
 }
-
 
 /// Residual HP restored for one logic frame of Battle Drone repair.
 ///
@@ -743,9 +737,9 @@ pub fn battle_drone_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Offset from master position for residual drone spawn (XZ).
@@ -915,8 +909,8 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
             for _ in 0..64 {
                 let _ = weld.tick(true);
                 if weld.weld_fx_this_tick {
-                    sparked = weld.repair_state == BattleDroneRepairState::Welding
-                        && weld.repairing;
+                    sparked =
+                        weld.repair_state == BattleDroneRepairState::Welding && weld.repairing;
                     break;
                 }
             }
@@ -927,7 +921,7 @@ pub fn honesty_slave_drones_repair_residual_ok() -> bool {
             battle_drone_weld_pose(origin, None) == origin
                 && (battle_drone_weld_pose(origin, Some(Vec3::new(4.0, 5.0, 6.0)))
                     - Vec3::new(5.0, 7.0, 9.0))
-                    .length()
+                .length()
                     < 0.01
         }
         && (battle_drone_repair_amount_for_frame(1.0) - 10.0).abs() < 0.01
@@ -1067,8 +1061,12 @@ mod tests {
 
         assert!(battle_drone_should_repair_master(true, 50.0, true, 10.0));
         assert!(!battle_drone_should_repair_master(true, 80.0, true, 10.0));
-        assert!(battle_drone_should_idle_repair_master(true, 80.0, true, 10.0));
-        assert!(!battle_drone_should_idle_repair_master(true, 100.0, true, 10.0));
+        assert!(battle_drone_should_idle_repair_master(
+            true, 80.0, true, 10.0
+        ));
+        assert!(!battle_drone_should_idle_repair_master(
+            true, 100.0, true, 10.0
+        ));
         assert!(scout_drone_should_grant_range_bonus(true, 19.0 * 19.0));
         assert!(!scout_drone_should_grant_range_bonus(true, 21.0 * 21.0));
         assert!(!scout_drone_should_grant_range_bonus(false, 0.0));
@@ -1147,10 +1145,7 @@ mod tests {
         assert_eq!(s, VeterancyLevel::Elite);
     }
 
-    fn veteran_humvee() -> (
-        crate::game_logic::GameLogic,
-        crate::game_logic::ObjectId,
-    ) {
+    fn veteran_humvee() -> (crate::game_logic::GameLogic, crate::game_logic::ObjectId) {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
         let mut logic = crate::game_logic::GameLogic::new();
         let mid = ObjectId(7100);
@@ -1217,5 +1212,4 @@ mod tests {
             "drone elite must promote master on live host tick"
         );
     }
-
 }

@@ -81,7 +81,7 @@ pub fn honesty_control_bar_materialise_residual_pack_wave165() -> bool {
 /// Live residual: ControlBar materialise peel.
 pub fn simulate_control_bar_materialise_honesty_wave165() -> bool {
     use crate::gameplay_layout::{
-        simulate_control_bar_materialise_honesty, CONTROL_BAR_RETAIL_WINDOW_COUNT,
+        CONTROL_BAR_RETAIL_WINDOW_COUNT, simulate_control_bar_materialise_honesty,
     };
     CONTROL_BAR_RETAIL_WINDOW_COUNT == CONTROL_BAR_MATERIALISE_WINDOW_COUNT_WAVE165
         && honesty_control_bar_materialise_residual_pack_wave165()

@@ -27,10 +27,10 @@ mod helpers;
 mod masks_enums;
 mod store;
 mod template;
-mod weapon_instance;
-mod weapon_instance_combat;
 mod weapon_approach;
 mod weapon_bonus;
+mod weapon_instance;
+mod weapon_instance_combat;
 mod weapon_range;
 
 // Phase 12 consolidation: leftover `template` / `weapon_instance` / `store`
@@ -45,20 +45,20 @@ pub use damage_system::*;
 pub use weapon_set::*;
 
 pub use audio_event::*;
-pub use helpers::{ObjectId, INVALID_OBJECT_ID, NO_MAX_SHOTS_LIMIT};
+pub use helpers::{INVALID_OBJECT_ID, NO_MAX_SHOTS_LIMIT, ObjectId};
 pub use masks_enums::*;
 pub use store::{
-    honesty_weapon_store_delayed_damage_residual_ok, initialize_weapon_store, shutdown_weapon_store,
-    with_weapon_store, with_weapon_store_mut, WeaponDelayedDamageInfo,
-    WeaponDelayedDamageSnapshotResidual, WeaponStore,
+    WeaponDelayedDamageInfo, WeaponDelayedDamageSnapshotResidual, WeaponStore,
+    honesty_weapon_store_delayed_damage_residual_ok, initialize_weapon_store,
+    shutdown_weapon_store, with_weapon_store, with_weapon_store_mut,
 };
 pub use template::WeaponTemplate;
 pub use weapon_instance::Weapon;
 
 pub(crate) use helpers::{
-    ammo_count_for_clip_size, dual_world_registry_unavailable, map_common_bonus_flags,
-    map_weapon_slot_to_common, weapon_slot_from_u32, weapon_slot_to_u32, weapon_status_from_u32,
-    weapon_status_to_u32, EFFECTIVELY_UNLIMITED_CLIP_AMMO,
+    EFFECTIVELY_UNLIMITED_CLIP_AMMO, ammo_count_for_clip_size, dual_world_registry_unavailable,
+    map_common_bonus_flags, map_weapon_slot_to_common, weapon_slot_from_u32, weapon_slot_to_u32,
+    weapon_status_from_u32, weapon_status_to_u32,
 };
 
 #[cfg(test)]

@@ -12,10 +12,10 @@ impl GameLogic {
         toxin_warhead: bool,
     ) -> (u32, bool) {
         use crate::game_logic::host_scud_launcher::{
+            SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO, SCUD_POISON_AUDIO,
+            SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE, UPGRADE_GLA_ANTHRAX_BETA,
             is_legal_scud_splash_target, scud_explosive_damage_at, scud_splash_radius,
-            scud_toxin_blast_damage_at, SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE, SCUD_FIRE_AUDIO,
-            SCUD_POISON_AUDIO, SCUD_POISON_DAMAGE_TYPE, SCUD_POISON_DEATH_TYPE,
-            UPGRADE_GLA_ANTHRAX_BETA,
+            scud_toxin_blast_damage_at,
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -92,8 +92,8 @@ impl GameLogic {
         // Toxin / Anthrax residual: spawn MediumPoisonField DoT (Beta/Gamma tier).
         if toxin_warhead {
             use crate::game_logic::host_toxin_tractor::{
-                anthrax_tier_from_flags, is_chem_general_template, AnthraxResidualTier,
-                UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+                AnthraxResidualTier, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+                anthrax_tier_from_flags, is_chem_general_template,
             };
             let anthrax = source
                 .and_then(|sid| {
@@ -383,10 +383,7 @@ impl GameLogic {
             self.templates.insert(plan.gunship_template.clone(), tpl);
         }
 
-        let caster_owner = self
-            .objects
-            .get(&caster_id)
-            .and_then(|o| o.owner_player_id);
+        let caster_owner = self.objects.get(&caster_id).and_then(|o| o.owner_player_id);
         let gunship_id = self.create_object(&plan.gunship_template, team, plan.spawn_pos)?;
         if let Some(g) = self.objects.get_mut(&gunship_id) {
             g.producer_id = Some(caster_id);
@@ -464,7 +461,7 @@ impl GameLogic {
     pub(in super::super) fn update_spectre_gunship_flights(&mut self) {
         use crate::game_logic::host_spectre_gunship_update::apply_spectre_door_and_afterburner;
         use crate::game_logic::host_upgrade_module_residuals::{
-            apply_choose_locomotor_set, HostLocomotorSetKind,
+            HostLocomotorSetKind, apply_choose_locomotor_set,
         };
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
@@ -563,8 +560,7 @@ impl GameLogic {
             // slight index scatter residual
             pos.x += (i as f32) * 0.5;
             pos.z += (i as f32) * 0.35;
-            let Some(id) =
-                self.create_object_for_owner_or_team(&name, team, owner_player_id, pos)
+            let Some(id) = self.create_object_for_owner_or_team(&name, team, owner_player_id, pos)
             else {
                 continue;
             };
@@ -663,7 +659,6 @@ impl GameLogic {
         Some(id)
     }
 
-
     /// C++ FireWeaponPower::doSpecialPowerAtLocation residual.
     ///
     /// Leftover `FireWeaponPower` already matches C++ (reloadAllAmmo +
@@ -728,9 +723,10 @@ impl GameLogic {
             }
         }
 
-        let ok = self.objects.get_mut(&source_id).is_some_and(|o| {
-            o.activate_fire_weapon_power_at_object(target_id)
-        });
+        let ok = self
+            .objects
+            .get_mut(&source_id)
+            .is_some_and(|o| o.activate_fire_weapon_power_at_object(target_id));
         if !ok {
             return false;
         }
@@ -912,8 +908,8 @@ impl GameLogic {
         target_pos: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_ocl_special_power::{
-            create_object_for_ocl, deliver_payload_for_ocl, ocl_execute_mode_for_template,
-            OclExecuteMode,
+            OclExecuteMode, create_object_for_ocl, deliver_payload_for_ocl,
+            ocl_execute_mode_for_template,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1087,7 +1083,8 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         let pos = self.objects.get(&caster_id)?.get_position();
         let mut plan = self.plan_ocl_special_power(power_template, caster_id, pos)?;
-        plan.create_owner = crate::game_logic::host_ocl_special_power::ocl_create_owner_for_no_target();
+        plan.create_owner =
+            crate::game_logic::host_ocl_special_power::ocl_create_owner_for_no_target();
         plan.creation_coord = pos;
         plan.target_coord = pos;
         if !plan.create_owner {
@@ -1096,7 +1093,6 @@ impl GameLogic {
         }
         self.execute_ocl_special_power(power_template, caster_id, pos)
     }
-
 
     /// C++ `TheTerrainLogic->getExtent()` for OCL CreateAtEdge.
     /// Prefer leftover TerrainLogic active boundary; else live world_min/world_max.
@@ -1668,7 +1664,11 @@ impl GameLogic {
                 self.fire_spread_reg.record_burned();
                 obj.apply_flammable_extinguish_visuals(true);
             } else if ev.aflame {
-                let smolder = obj.fire_spread.as_ref().map(|f| f.smoldering).unwrap_or(false);
+                let smolder = obj
+                    .fire_spread
+                    .as_ref()
+                    .map(|f| f.smoldering)
+                    .unwrap_or(false);
                 obj.apply_flammable_visuals(true, smolder, false);
             }
         }
@@ -1789,7 +1789,11 @@ impl GameLogic {
 
         for id in status_aflame {
             if let Some(o) = self.objects.get_mut(&id) {
-                let smolder = o.fire_spread.as_ref().map(|f| f.smoldering).unwrap_or(false);
+                let smolder = o
+                    .fire_spread
+                    .as_ref()
+                    .map(|f| f.smoldering)
+                    .unwrap_or(false);
                 o.apply_flammable_visuals(true, smolder, false);
             }
         }
@@ -1837,10 +1841,10 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_tensile_formations(&mut self) {
+        use crate::game_logic::AudioEventRequest;
         use crate::game_logic::host_tensile_formation::{
             TENSILE_BODY_DAMAGED_HEALTH_FRAC, TENSILE_CRACK_SOUND, TENSILE_PROPAGATE_RADIUS,
         };
-        use crate::game_logic::AudioEventRequest;
 
         let frame = self.frame as u32;
         let members: Vec<(ObjectId, Vec3)> = self
@@ -2127,8 +2131,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target
-                        .take_radiation_field_tick(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_radiation_field_tick(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -2166,7 +2170,7 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_nuke_cannon::{
-            nuke_shell_flight_frames, NUKE_CANNON_PROJECTILE, NUKE_SHELL_MAX_HEALTH,
+            NUKE_CANNON_PROJECTILE, NUKE_SHELL_MAX_HEALTH, nuke_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 

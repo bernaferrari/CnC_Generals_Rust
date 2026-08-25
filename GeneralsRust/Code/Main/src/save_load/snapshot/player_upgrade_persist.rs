@@ -11,8 +11,8 @@
 
 use super::player::PlayerSnapshot;
 use super::types::WorldSnapshot;
-use crate::game_logic::host_upgrades::{is_object_scoped_upgrade, HostUpgradePhase};
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_upgrades::{HostUpgradePhase, is_object_scoped_upgrade};
 
 /// Write live `completed_upgrades` onto nested `PlayerSnapshot.upgrades`.
 /// Also union completed PLAYER host-upgrade records so research that only
@@ -103,10 +103,12 @@ mod tests {
         player.complete_researched_upgrade(UPGRADE_GLA_WORKER_SHOES);
         assert!(player.completed_upgrades.contains(UPGRADE_GLA_WORKER_SHOES));
         player.complete_researched_upgrade("Upgrade_BecomeRealGLABarracks");
-        assert!(!player
-            .completed_upgrades
-            .iter()
-            .any(|name| name.eq_ignore_ascii_case("Upgrade_BecomeRealGLABarracks")));
+        assert!(
+            !player
+                .completed_upgrades
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("Upgrade_BecomeRealGLABarracks"))
+        );
     }
 
     #[test]
@@ -119,9 +121,7 @@ mod tests {
         source.add_player(player);
 
         let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         let snap = snapshot
             .players
             .iter()
@@ -144,13 +144,17 @@ mod tests {
             .expect("restore");
         let loaded = restored.get_player(1).expect("player");
         assert!(
-            loaded.completed_upgrades.contains(UPGRADE_AMERICA_FLASHBANG),
+            loaded
+                .completed_upgrades
+                .contains(UPGRADE_AMERICA_FLASHBANG),
             "loaded {:?}",
             loaded.completed_upgrades
         );
-        assert!(loaded
-            .completed_upgrades
-            .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
+        assert!(
+            loaded
+                .completed_upgrades
+                .contains(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
+        );
         assert!(loaded.completed_upgrades.contains(UPGRADE_GLA_WORKER_SHOES));
         assert!(loaded.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG));
         assert!(loaded.has_unlocked_upgrade(UPGRADE_CHINA_SUBLIMINAL_MESSAGING));
@@ -161,26 +165,22 @@ mod tests {
     fn registry_completed_player_upgrade_restores_when_hashset_empty() {
         let mut source = GameLogic::new();
         source.add_player(Player::new(1, Team::USA, "USA", true));
-        source.host_upgrades_mut().record_queue(
-            UPGRADE_AMERICA_FLASHBANG,
-            Team::USA,
-            1,
-            0,
-            None,
-        );
+        source
+            .host_upgrades_mut()
+            .record_queue(UPGRADE_AMERICA_FLASHBANG, Team::USA, 1, 0, None);
         source
             .host_upgrades_mut()
             .record_complete(UPGRADE_AMERICA_FLASHBANG, 1, 10, 1);
-        assert!(source
-            .get_player(1)
-            .expect("src")
-            .completed_upgrades
-            .is_empty());
+        assert!(
+            source
+                .get_player(1)
+                .expect("src")
+                .completed_upgrades
+                .is_empty()
+        );
 
         let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
             snapshot
                 .players
@@ -196,7 +196,9 @@ mod tests {
             .expect("restore");
         let loaded = restored.get_player(1).expect("player");
         assert!(
-            loaded.completed_upgrades.contains(UPGRADE_AMERICA_FLASHBANG),
+            loaded
+                .completed_upgrades
+                .contains(UPGRADE_AMERICA_FLASHBANG),
             "registry complete must refill completed_upgrades {:?}",
             loaded.completed_upgrades
         );

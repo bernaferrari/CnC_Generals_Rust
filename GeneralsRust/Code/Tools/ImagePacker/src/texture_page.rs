@@ -694,10 +694,7 @@ pub fn generate_mapped_image_ini(output_file: &str, pages: &[MappedImageIniPage]
                 "NONE"
             };
             out.push_str(&format!("MappedImage {}\n", image.name));
-            out.push_str(&format!(
-                "  Texture = {}_{:03}.tga\n",
-                output_file, page.id
-            ));
+            out.push_str(&format!("  Texture = {}_{:03}.tga\n", output_file, page.id));
             out.push_str(&format!("  TextureWidth = {}\n", page.width));
             out.push_str(&format!("  TextureHeight = {}\n", page.height));
             out.push_str(&format!(
@@ -826,8 +823,8 @@ fn cpp_tga4_to_rgba_top_left(tga: &[u8], w: u32, h: u32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        add_image_data_tga, ImagePlacement, TexturePage, FIT_XBORDER_LEFT, FIT_XBORDER_RIGHT,
-        FIT_XGUTTER, FIT_YBORDER_BOTTOM, FIT_YBORDER_TOP, FIT_YGUTTER,
+        FIT_XBORDER_LEFT, FIT_XBORDER_RIGHT, FIT_XGUTTER, FIT_YBORDER_BOTTOM, FIT_YBORDER_TOP,
+        FIT_YGUTTER, ImagePlacement, TexturePage, add_image_data_tga,
     };
 
     fn tga_px(buf: &[u8], dest_w: u32, col: u32, row: u32) -> [u8; 4] {
@@ -912,7 +909,8 @@ mod tests {
             for b in (a + 1)..page.placements.len() {
                 let p = page.placements[a];
                 let q = page.placements[b];
-                let overlap = p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+                let overlap =
+                    p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
                 assert!(!overlap, "overlap {p:?} {q:?}");
             }
             let p = page.placements[a];
@@ -946,10 +944,7 @@ mod tests {
         let red = vec![255u8, 0, 0, 255].repeat(8 * 8);
         let blue = vec![0u8, 0, 255, 255].repeat(8 * 8);
         let pages = super::pack_named_images_to_pages(
-            &[
-                ("Red".into(), 8, 8, red),
-                ("Blue".into(), 8, 8, blue),
-            ],
+            &[("Red".into(), 8, 8, red), ("Blue".into(), 8, 8, blue)],
             24,
             true,
         );
@@ -966,7 +961,8 @@ mod tests {
             255u8, 0, 0, 255, // top red
             0, 255, 0, 255, // bottom green
         ];
-        let pages = super::pack_named_images_to_pages(&[("Col".into(), 1, 2, col.clone())], 2, false);
+        let pages =
+            super::pack_named_images_to_pages(&[("Col".into(), 1, 2, col.clone())], 2, false);
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].sprites.len(), 1);
         assert!(!pages[0].sprites[0].rotated);
@@ -974,7 +970,17 @@ mod tests {
         let top = pages[0].sprites[0].top;
         let mut oracle = vec![0u8; 2 * 2 * 4];
         assert!(add_image_data_tga(
-            &mut oracle, 2, 2, 4, &col, 1, 2, 4, left, top, false
+            &mut oracle,
+            2,
+            2,
+            4,
+            &col,
+            1,
+            2,
+            4,
+            left,
+            top,
+            false
         ));
         assert_eq!(
             pages[0].tga, oracle,
@@ -1042,12 +1048,7 @@ mod tests {
         assert_eq!(pages[0].tga, oracle);
         // C++ dest_row = destH-1-(pageY+x); x=0 red at dest_col = pageX+(srcH-1-0)=left.
         assert_eq!(
-            tga_px(
-                &pages[0].tga,
-                8,
-                strip_sprite.left,
-                7 - strip_sprite.top
-            ),
+            tga_px(&pages[0].tga, 8, strip_sprite.left, 7 - strip_sprite.top),
             [255, 0, 0, 255],
             "rotated strip x=0 red at dest_row=destH-1-(top+0)"
         );
@@ -1119,10 +1120,7 @@ mod tests {
         let src = [
             255u8, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
         ];
-        let fit = FIT_XBORDER_LEFT
-            | FIT_XBORDER_RIGHT
-            | FIT_YBORDER_TOP
-            | FIT_YBORDER_BOTTOM;
+        let fit = FIT_XBORDER_LEFT | FIT_XBORDER_RIGHT | FIT_YBORDER_TOP | FIT_YBORDER_BOTTOM;
         assert!(TexturePage::blit_with_rgb_extend(
             &mut dest, 6, 6, &src, 2, 2, 2, 2, true, fit
         ));
@@ -1194,7 +1192,11 @@ mod tests {
             let i = ((y * 3 + x) * 4) as usize;
             (dest[i], dest[i + 1], dest[i + 2], dest[i + 3])
         };
-        assert_eq!(at(1, 0), (1, 2, 3, 0), "top-half extends up into FIT_YBORDER_TOP");
+        assert_eq!(
+            at(1, 0),
+            (1, 2, 3, 0),
+            "top-half extends up into FIT_YBORDER_TOP"
+        );
         assert_eq!(at(1, 4), (7, 8, 9, 0), "bottom-half extends down");
         assert_eq!(at(1, 1), (1, 2, 3, 255));
     }

@@ -5,8 +5,8 @@
 use crate::object::drawable::DrawableArcExt;
 use crate::player::PlayerArcExt;
 use crate::prelude::*;
-use crate::upgrade::template::UpgradeType;
 use crate::upgrade::UpgradeStatus as CrateUpgradeStatus;
+use crate::upgrade::template::UpgradeType;
 use std::sync::{Arc, RwLock};
 
 const DOOR_COUNT_MAX: usize = 4;

@@ -46,8 +46,8 @@ pub const RUNTIME_HOST_LIVE_PROJECTILE_STREAM_UPDATE_DUAL_WORLD_EMPTY_GATE_CMD_N
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_projectile_stream_update_dual_world_empty_gate_method_names_residual_wave372(
-) -> bool {
+pub fn honesty_live_projectile_stream_update_dual_world_empty_gate_method_names_residual_wave372()
+-> bool {
     LIVE_PROJECTILE_STREAM_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE372.len() == 7
         && residual_name_index(
             LIVE_PROJECTILE_STREAM_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE372,
@@ -64,8 +64,8 @@ pub fn honesty_live_projectile_stream_update_dual_world_empty_gate_method_names_
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_projectile_stream_update_dual_world_empty_gate_nav_commands_residual_wave372(
-) -> bool {
+pub fn honesty_live_projectile_stream_update_dual_world_empty_gate_nav_commands_residual_wave372()
+-> bool {
     LIVE_PROJECTILE_STREAM_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE372.len() == 4
         && residual_name_index(
             LIVE_PROJECTILE_STREAM_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE372,

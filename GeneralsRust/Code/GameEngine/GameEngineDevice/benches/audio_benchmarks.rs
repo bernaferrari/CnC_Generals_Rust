@@ -3,7 +3,7 @@
 //! Performance benchmarks for the GameEngineDevice audio subsystem.
 
 #[cfg(feature = "audio")]
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 #[cfg(feature = "audio")]
 use game_engine_device::audio::*;
 #[cfg(feature = "audio")]

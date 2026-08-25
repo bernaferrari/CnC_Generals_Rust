@@ -412,8 +412,7 @@ impl GameLogicDispatch {
 
         trace!(
             "GameLogicDispatch::update(frame={}) complete - {} commands executed",
-            frame,
-            processed_count
+            frame, processed_count
         );
 
         Ok(())
@@ -427,9 +426,7 @@ impl GameLogicDispatch {
     ) -> Result<(), AsciiString> {
         trace!(
             "Executing command: kind={:?}, player={}, frame={}",
-            command.kind,
-            command.player_index,
-            command.frame
+            command.kind, command.player_index, command.frame
         );
 
         match command.kind {
@@ -449,8 +446,7 @@ impl GameLogicDispatch {
     ) -> Result<(), AsciiString> {
         trace!(
             "System command: player={}, frame={}",
-            command.player_index,
-            command.frame
+            command.player_index, command.frame
         );
 
         if let Some(payload) = &command.payload {
@@ -469,8 +465,7 @@ impl GameLogicDispatch {
     ) -> Result<(), AsciiString> {
         trace!(
             "Player command: player={}, frame={}",
-            command.player_index,
-            command.frame
+            command.player_index, command.frame
         );
 
         if let Some(payload) = &command.payload {
@@ -505,8 +500,7 @@ impl GameLogicDispatch {
     ) -> Result<(), AsciiString> {
         trace!(
             "AI command: player={}, frame={}",
-            command.player_index,
-            command.frame
+            command.player_index, command.frame
         );
 
         if let Some(payload) = &command.payload {
@@ -547,8 +541,7 @@ impl GameLogicDispatch {
     ) -> Result<(), AsciiString> {
         trace!(
             "Executing network command: player={}, frame={}",
-            command.player_index,
-            command.frame
+            command.player_index, command.frame
         );
 
         // Validate frame synchronization
@@ -813,8 +806,7 @@ impl GameLogicDispatch {
 
         trace!(
             "Queued network command for frame {} (current: {})",
-            execution_frame,
-            self.current_frame
+            execution_frame, self.current_frame
         );
         Ok(())
     }

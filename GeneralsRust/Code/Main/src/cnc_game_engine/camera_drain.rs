@@ -62,8 +62,6 @@ fn superweapon_countdown_text(remaining: f32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
 }
 
-
-
 impl CnCGameEngine {
     /// Wave 602: via `host_route_shell_owned_screen_change`.
     pub(super) fn route_shell_owned_screen_change(&mut self, screen: Screen) {
@@ -1860,7 +1858,6 @@ impl CnCGameEngine {
             .collect()
     }
 
-
     /// Freeze-to-GameClient direct Drawable association boundary shared by the
     /// ordinary presentation shell tick and the initial match/load seed.
     ///
@@ -2001,7 +1998,15 @@ impl CnCGameEngine {
         let direct_bindings = direct_sources
             .into_iter()
             .filter_map(
-                |(object_id, raw_status, effectively_dead, position, orientation, float_yaw, float_pitch)| {
+                |(
+                    object_id,
+                    raw_status,
+                    effectively_dead,
+                    position,
+                    orientation,
+                    float_yaw,
+                    float_pitch,
+                )| {
                     let binding_key = self
                         .game_client
                         .presentation_direct_drawable_state(host_epoch, object_id)?
@@ -2023,16 +2028,15 @@ impl CnCGameEngine {
         // later against this retained client state, where a real eligible
         // Clear candidate may refresh its clear frame.
         if !presentation_time_frozen {
-            let shroud_entries =
-                direct_bindings
-                    .iter()
-                    .map(|(binding_key, raw_status, effectively_dead, _, _, _, _)| {
-                        game_client::core::game_client::FrozenDirectShroudStatus {
-                            binding_key: *binding_key,
-                            raw_status: *raw_status,
-                            effectively_dead: *effectively_dead,
-                        }
-                    });
+            let shroud_entries = direct_bindings.iter().map(
+                |(binding_key, raw_status, effectively_dead, _, _, _, _)| {
+                    game_client::core::game_client::FrozenDirectShroudStatus {
+                        binding_key: *binding_key,
+                        raw_status: *raw_status,
+                        effectively_dead: *effectively_dead,
+                    }
+                },
+            );
             let _ = self
                 .game_client
                 .apply_frozen_direct_shroud_statuses(logic_frame, shroud_entries);
@@ -2040,18 +2044,17 @@ impl CnCGameEngine {
         // Pose belongs to the identical direct binding rather than a raw
         // ObjectID. Do not filter gameplay-destroyed records here: the direct
         // source roster controls C++ Drawable residency.
-        let pose_entries =
-            direct_bindings
-                .into_iter()
-                .map(|(binding_key, _, _, position, orientation, float_yaw, float_pitch)| {
-                    game_client::core::game_client::FrozenDirectPresentationPose {
-                        binding_key,
-                        position,
-                        orientation,
-                        float_yaw,
-                        float_pitch,
-                    }
-                });
+        let pose_entries = direct_bindings.into_iter().map(
+            |(binding_key, _, _, position, orientation, float_yaw, float_pitch)| {
+                game_client::core::game_client::FrozenDirectPresentationPose {
+                    binding_key,
+                    position,
+                    orientation,
+                    float_yaw,
+                    float_pitch,
+                }
+            },
+        );
         let n = self
             .game_client
             .apply_frozen_direct_presentation_poses(pose_entries);
@@ -2393,7 +2396,6 @@ impl CnCGameEngine {
         // Wave 844: keep host sim residuals current for freeze-miss peels.
         self.host_refresh_match_sim_residuals_from_logic();
 
-
         // Wave 568: InGame script FPS residual via helper.
         self.apply_ingame_script_fps_limit_residual();
     }
@@ -2727,8 +2729,8 @@ mod replay_fast_forward_probe {
     #[cfg(test)]
     use crate::gameworld_shadow::authority_env_lock;
     use crate::gameworld_shadow::{
-        gameworld_production_sole_tick_enabled, refresh_gameworld_authority_env_caches,
-        GameWorldShadow, ShadowCoupleGuard,
+        GameWorldShadow, ShadowCoupleGuard, gameworld_production_sole_tick_enabled,
+        refresh_gameworld_authority_env_caches,
     };
     use glam::Vec3;
     use std::sync::Arc;

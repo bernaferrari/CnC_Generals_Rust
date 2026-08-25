@@ -758,17 +758,31 @@ impl DisplayAdapter {
         {
             use std::collections::HashSet;
             use winit::event_loop::EventLoopBuilder;
+            use winit::window::Window;
 
-            let event_loop = std::panic::catch_unwind(|| EventLoopBuilder::new().build())
+            let event_loop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                EventLoopBuilder::new().build()
+            }))
+            .ok()
+            .and_then(|result| result.ok());
+            if let Some(event_loop) = event_loop {
+                // Winit 0.30 exposes monitor enumeration on an active event
+                // loop or Window.  Keep this probe headless by creating an
+                // invisible temporary window, matching the prior startup
+                // behavior without showing an additional application window.
+                let window = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    event_loop.create_window(Window::default_attributes().with_visible(false))
+                }))
                 .ok()
                 .and_then(|result| result.ok());
-            if let Some(event_loop) = event_loop {
-                let primary_name = event_loop
-                    .primary_monitor()
-                    .and_then(|monitor| monitor.name());
+                let Some(window) = window else {
+                    return Vec::new();
+                };
+
+                let primary_name = window.primary_monitor().and_then(|monitor| monitor.name());
                 let mut displays = Vec::new();
 
-                for (index, monitor) in event_loop.available_monitors().enumerate() {
+                for (index, monitor) in window.available_monitors().enumerate() {
                     let monitor_name = monitor
                         .name()
                         .unwrap_or_else(|| format!("Display {}", index + 1));
@@ -819,7 +833,7 @@ impl DisplayAdapter {
                         .map(|mode| mode.resolution)
                         .unwrap_or(native_resolution);
                     let scale_factor = monitor.scale_factor() as f32;
-                    let dpi = (96.0 * scale_factor).max(1.0);
+                    let dpi = (96.0_f32 * scale_factor).max(1.0);
                     let pos = monitor.position();
 
                     let (refresh_min, refresh_max) = if modes.is_empty() {

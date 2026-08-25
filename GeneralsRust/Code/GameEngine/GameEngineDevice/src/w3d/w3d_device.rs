@@ -9,8 +9,8 @@ use super::{
     W3DRenderer,
 };
 use crate::{
-    video::{MsaaSettings, Resolution},
     DeviceStatus, DeviceType, PerformanceMetrics,
+    video::{MsaaSettings, Resolution},
 };
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
@@ -800,9 +800,7 @@ impl W3DDevice {
             },
         )
         .await
-        .map_err(|e| {
-            W3DError::InitializationFailed(format!("Failed to create device: {:?}", e))
-        })?;
+        .map_err(|e| W3DError::InitializationFailed(format!("Failed to create device: {:?}", e)))?;
 
         tracing::info!("Created wgpu device with features: {:?}", device.features());
 

@@ -6,7 +6,7 @@ use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_network::{Money, PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_RANDOM};
 use std::collections::HashMap;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 

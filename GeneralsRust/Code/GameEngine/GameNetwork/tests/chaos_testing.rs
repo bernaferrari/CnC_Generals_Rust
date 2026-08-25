@@ -404,7 +404,11 @@ mod chaos_tests {
                 let progress = (elapsed / config.test_duration.as_secs_f64()) * 100.0;
                 println!(
                     "Progress: {:.0}% | Drops: {} | Reconnects: {} | Avg Latency: {:.0}ms | Timeouts: {}",
-                    progress, metrics.drops, metrics.reconnects, metrics.avg_latency_ms(), metrics.timeouts
+                    progress,
+                    metrics.drops,
+                    metrics.reconnects,
+                    metrics.avg_latency_ms(),
+                    metrics.timeouts
                 );
             }
         }

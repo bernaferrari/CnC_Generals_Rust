@@ -7,17 +7,17 @@
 //! - Fade in/out effects
 
 use crate::{
+    AudioSource,
     error::Result,
     mixer::{AudioMixer, VoiceHandle, VoiceParams, VoiceStopReason},
     sound_scene_obj::SoundObjectId,
-    AudioSource,
 };
 use log::{debug, trace};
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -215,11 +215,7 @@ impl AudioBus {
     }
 
     pub fn volume(&self) -> f32 {
-        if self.mute {
-            0.0
-        } else {
-            self.volume.current
-        }
+        if self.mute { 0.0 } else { self.volume.current }
     }
 
     pub fn set_mute(&mut self, mute: bool) {

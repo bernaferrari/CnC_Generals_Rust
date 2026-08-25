@@ -6,16 +6,16 @@
 //! Split into focused submodules by helper theme.
 
 use crate::ai::object_registry::{register_legacy_object, unregister_legacy_object};
+use crate::common::Matrix3D;
 use crate::common::audio::{AudioEventRts, LeftoverAudioOwner, TimeOfDay};
 use crate::common::types::{
     EmissionVolumeType, FXListManagerInterface, ParticleSystemManagerInterface,
 };
-use crate::common::Matrix3D;
 use crate::common::{
-    AsciiString, Bool, Color, Coord3D, DisabledMaskType, DisabledType, DistanceType, FXListId,
-    GeometryInfo, Int, KindOf, MessageType, NameKeyGenerator, NameKeyType, ObjectID,
-    PathfindLayerEnum, PlayerMaskType, Real, Relationship, UnsignedInt, VeterancyLevel,
-    DISABLED_COUNT, INVALID_ID, NEVER,
+    AsciiString, Bool, Color, Coord3D, DISABLED_COUNT, DisabledMaskType, DisabledType,
+    DistanceType, FXListId, GeometryInfo, INVALID_ID, Int, KindOf, MessageType, NEVER,
+    NameKeyGenerator, NameKeyType, ObjectID, PathfindLayerEnum, PlayerMaskType, Real, Relationship,
+    UnsignedInt, VeterancyLevel,
 };
 use crate::effects::{FXList, ObjectCreationList};
 use crate::error::GameLogicError as GameError;
@@ -28,15 +28,15 @@ use crate::object::special_power_template::SpecialPowerTemplate;
 use crate::object::{Object, WEAPONSLOT_COUNT};
 use crate::weapon::WeaponBonusSet;
 use game_engine::common::audio::audio_event_rts::{
-    register_audio_event_owner_resolver, AudioEventOwnerResolver,
+    AudioEventOwnerResolver, register_audio_event_owner_resolver,
 };
 use game_engine::common::audio::game_audio::{
-    get_global_audio_manager, initialize_global_audio_manager, register_audio_locality_resolver,
-    register_audio_view_resolver, AudioLocalityRelationship, AudioLocalityResolver,
-    AudioViewResolver,
+    AudioLocalityRelationship, AudioLocalityResolver, AudioViewResolver, get_global_audio_manager,
+    initialize_global_audio_manager, register_audio_locality_resolver,
+    register_audio_view_resolver,
 };
 use game_engine::common::audio::game_sounds::{
-    register_audio_shroud_resolver, AudioShroudResolver,
+    AudioShroudResolver, register_audio_shroud_resolver,
 };
 use game_engine::common::audio::{
     AudioAffect as EngineAudioAffect, AudioEventRts as EngineAudioEventRts,
@@ -45,7 +45,7 @@ use game_engine::common::audio::{
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_game_data::ensure_global_data as ensure_engine_global_data;
 use game_engine::common::ini::{
-    get_global_data as get_engine_global_data, TimeOfDay as IniTimeOfDay,
+    TimeOfDay as IniTimeOfDay, get_global_data as get_engine_global_data,
 };
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;

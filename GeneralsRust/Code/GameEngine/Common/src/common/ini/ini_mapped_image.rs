@@ -7,7 +7,7 @@
 //! Rust port: 2025
 
 use crate::common::ascii_string::AsciiString;
-use crate::common::ini::ini::{FieldParse, INIError, INILoadType, INIResult, INI};
+use crate::common::ini::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 use once_cell::sync::OnceCell;
@@ -664,15 +664,11 @@ pub fn parse_mapped_image_definition(ini: &mut INI) -> Result<(), String> {
     let key = ImageCollection::image_key(name.as_str());
     let mut image = {
         let collection = collection_handle.read();
-        collection
-            .images
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(|| {
-                let mut new_image = Image::new();
-                new_image.set_name(name.clone());
-                new_image
-            })
+        collection.images.get(&key).cloned().unwrap_or_else(|| {
+            let mut new_image = Image::new();
+            new_image.set_name(name.clone());
+            new_image
+        })
     };
     if image.get_raw_texture_data().is_some() {
         log::warn!(
@@ -728,11 +724,7 @@ fn collect_live_ini_roots() -> Vec<PathBuf> {
     }
 
     for extracted in crate::common::system::install_layout::extracted_asset_roots() {
-        push_unique_dir(
-            &mut roots,
-            &mut seen,
-            extracted.join("Data").join("INI"),
-        );
+        push_unique_dir(&mut roots, &mut seen, extracted.join("Data").join("INI"));
         push_unique_dir(
             &mut roots,
             &mut seen,
@@ -1109,9 +1101,10 @@ End
             dirs
         );
         assert!(
-            dirs.iter().any(|dir| dir
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("TextureSize_512"))),
+            dirs.iter()
+                .any(|dir| dir.file_name().is_some_and(|name| name
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case("TextureSize_512"))),
             "expected a TextureSize_512 dir among {dirs:?}"
         );
     }

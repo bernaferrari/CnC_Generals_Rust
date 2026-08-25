@@ -100,7 +100,6 @@ pub fn peek_point_on_path_from_waypoints(pos: &Coord3D, waypoints: &[Coord3D]) -
     compute_point_on_path_from_waypoints(pos, waypoints)
 }
 
-
 /// Pathfinding request
 #[derive(Debug, Clone)]
 pub struct PathRequest {
@@ -406,7 +405,6 @@ fn astar_cell_type(ty: crate::path::PathfindCellType) -> PathfindCellType {
     }
 }
 
-
 pub(crate) fn ignored_obstacle_cells(
     ignore_obstacle_id: Option<ObjectID>,
 ) -> Option<HashSet<GridCoord>> {
@@ -427,11 +425,7 @@ pub(crate) fn ignored_obstacle_cells(
     for pos in positions {
         cells.insert(GridCoord::from_world(&pos));
     }
-    if cells.is_empty() {
-        None
-    } else {
-        Some(cells)
-    }
+    if cells.is_empty() { None } else { Some(cells) }
 }
 
 /// Cohen–Sutherland style cell-line clip against inclusive grid extent (lo, hi).
@@ -601,10 +595,6 @@ impl ObjectPathQueue {
         let id = self.slots[self.head];
         self.slots[self.head] = INVALID_ID;
         self.head = (self.head + 1) % PATHFIND_QUEUE_LEN;
-        if id == INVALID_ID {
-            None
-        } else {
-            Some(id)
-        }
+        if id == INVALID_ID { None } else { Some(id) }
     }
 }

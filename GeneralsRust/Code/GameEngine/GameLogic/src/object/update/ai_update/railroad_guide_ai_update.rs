@@ -8,8 +8,8 @@ use crate::ai::THE_AI;
 use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, ModelConditionFlags, ObjectID, Real, UnsignedInt, WaypointID,
-    FROM_CENTER_2D, INVALID_ID, INVALID_WAYPOINT_ID,
+    AsciiString, Bool, Coord3D, FROM_CENTER_2D, INVALID_ID, INVALID_WAYPOINT_ID, Int,
+    ModelConditionFlags, ObjectID, Real, UnsignedInt, WaypointID,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
@@ -17,13 +17,13 @@ use crate::helpers::{
 };
 use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, ContainModuleInterfaceExt, PhysicsBehavior,
-    UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::Object as GameObject;
 use crate::object::behavior::PhysicsBehaviorModuleData;
 use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData, NameKeyType, TrainControlInterface, TrainPullInfo,

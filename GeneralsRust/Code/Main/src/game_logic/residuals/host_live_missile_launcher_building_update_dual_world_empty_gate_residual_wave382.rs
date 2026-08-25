@@ -46,8 +46,8 @@ pub const RUNTIME_HOST_LIVE_MISSILE_LAUNCHER_BUILDING_UPDATE_DUAL_WORLD_EMPTY_GA
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_method_names_residual_wave382(
-) -> bool {
+pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_method_names_residual_wave382()
+-> bool {
     LIVE_MISSILE_LAUNCHER_BUILDING_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE382.len() == 6
         && residual_name_index(
             LIVE_MISSILE_LAUNCHER_BUILDING_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE382,
@@ -64,8 +64,8 @@ pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_metho
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_nav_commands_residual_wave382(
-) -> bool {
+pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_nav_commands_residual_wave382()
+-> bool {
     LIVE_MISSILE_LAUNCHER_BUILDING_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE382.len() == 4
         && residual_name_index(
             LIVE_MISSILE_LAUNCHER_BUILDING_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE382,
@@ -81,8 +81,8 @@ pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_nav_c
 }
 
 /// Wave 382 composite residual honesty pack.
-pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_residual_pack_wave382(
-) -> bool {
+pub fn honesty_live_missile_launcher_building_update_dual_world_empty_gate_residual_pack_wave382()
+-> bool {
     honesty_live_missile_launcher_building_update_dual_world_empty_gate_method_names_residual_wave382()
         && honesty_live_missile_launcher_building_update_dual_world_empty_gate_nav_commands_residual_wave382()
 }

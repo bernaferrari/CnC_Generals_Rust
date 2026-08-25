@@ -66,7 +66,14 @@ pub fn residual_host_eager_fire_spawn_helper_last_action() -> ResidualHostEagerF
     ResidualHostEagerFireSpawnHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn combat_source() -> &'static str {
-    include_str!("../combat.rs")
+    concat!(
+        include_str!("../combat/mod.rs"),
+        include_str!("../combat/damage.rs"),
+        include_str!("../combat/projectile.rs"),
+        include_str!("../combat/weapon_fire.rs"),
+        include_str!("../combat/resolution.rs"),
+        include_str!("../combat/tests.rs"),
+    )
 }
 fn eng_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
@@ -93,8 +100,8 @@ pub fn honesty_host_eager_fire_spawn_helper_source_markers_residual_wave682() ->
     let api_ok = sh.contains("pub fn eager_apply_host_fire_spawns_after_logic")
         && sh.contains("Wave 682")
         && sh.contains("host_fire_spawn_log::drain");
-    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
-        && eng.contains("Wave 682/925");
+    let eng_ok =
+        eng.contains("eager_apply_all_host_residuals_after_logic") && eng.contains("Wave 682/925");
     let queue_ok = combat.contains("host_fire_spawn_log::record")
         && combat.contains("gameworld_fire_spawn_authority_live")
         && combat.contains("Wave 682");
@@ -157,8 +164,8 @@ mod tests {
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
-        eager_apply_host_fire_spawns_after_logic, end_shadow_coupled_tick, GameWorldShadow,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        eager_apply_host_fire_spawns_after_logic, end_shadow_coupled_tick,
     };
     use glam::Vec3;
 

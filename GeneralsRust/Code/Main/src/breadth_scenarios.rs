@@ -14,8 +14,8 @@ use crate::save_load::campaign::{
 };
 use crate::save_load::snapshot::SnapshotBuilder;
 use crate::skirmish_config::{
-    apply_skirmish_config, GameRulesSnapshot, SkirmishMatchConfig, SkirmishPlayerTemplateSelection,
-    SkirmishSlotConfig,
+    GameRulesSnapshot, SkirmishMatchConfig, SkirmishPlayerTemplateSelection, SkirmishSlotConfig,
+    apply_skirmish_config,
 };
 use glam::Vec3;
 use std::time::{Duration, UNIX_EPOCH};
@@ -411,7 +411,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
                 reload_time: 0.5,
                 last_fire_time: -1.0,
                 ..crate::game_logic::Weapon::default()
-});
+            });
             fire_break_ok = u.fire_at(ObjectId(9999), 0.0) && !u.status.stealthed;
         }
 

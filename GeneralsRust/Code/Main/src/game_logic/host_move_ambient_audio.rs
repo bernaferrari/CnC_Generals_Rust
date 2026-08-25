@@ -162,11 +162,9 @@ pub fn resolve_template_move_ambient(
     template_name: &str,
     slot: TemplateMoveAmbientSlot,
 ) -> Option<String> {
-    if let Some(over) = TEMPLATE_OVERRIDE.with(|m| {
-        m.borrow()
-            .get(&(template_name.to_string(), slot))
-            .cloned()
-    }) {
+    if let Some(over) =
+        TEMPLATE_OVERRIDE.with(|m| m.borrow().get(&(template_name.to_string(), slot)).cloned())
+    {
         return nonempty_audio_event_name(&over);
     }
     leftover_factory_move_ambient(template_name, slot)
@@ -177,11 +175,9 @@ pub fn resolve_for_object(
     template: &ThingTemplate,
     slot: TemplateMoveAmbientSlot,
 ) -> Option<String> {
-    if let Some(over) = TEMPLATE_OVERRIDE.with(|m| {
-        m.borrow()
-            .get(&(template.name.clone(), slot))
-            .cloned()
-    }) {
+    if let Some(over) =
+        TEMPLATE_OVERRIDE.with(|m| m.borrow().get(&(template.name.clone(), slot)).cloned())
+    {
         return nonempty_audio_event_name(&over);
     }
     host_template_move_ambient(template, slot)
@@ -290,6 +286,8 @@ mod tests {
             host_template_move_ambient(&tmpl, TemplateMoveAmbientSlot::SoundAmbient).as_deref(),
             Some("CrusaderAmbientLoop")
         );
-        assert!(host_template_move_ambient(&tmpl, TemplateMoveAmbientSlot::SoundMoveLoop).is_none());
+        assert!(
+            host_template_move_ambient(&tmpl, TemplateMoveAmbientSlot::SoundMoveLoop).is_none()
+        );
     }
 }

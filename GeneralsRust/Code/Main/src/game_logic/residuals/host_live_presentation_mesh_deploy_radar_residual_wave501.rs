@@ -78,8 +78,8 @@ pub fn residual_presentation_mesh_deploy_radar_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_mesh_deploy_radar_last_action(
-) -> ResidualPresentationMeshDeployRadarAction {
+pub fn residual_presentation_mesh_deploy_radar_last_action()
+-> ResidualPresentationMeshDeployRadarAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationMeshDeployRadarAction::MethodNames,
         2 => ResidualPresentationMeshDeployRadarAction::SourceMarkers,
@@ -159,7 +159,9 @@ pub fn simulate_presentation_mesh_deploy_radar_render_source() -> bool {
     // 2026-08-15: stamp helper lives in presentation_frame/unit_render.rs;
     // pipeline_collect.rs only keeps the Wave 501 include comment.
     let ok = (rp.contains("Wave 501: deployed + radar dish bits included in stamp helper")
-        || pf.contains("Wave 501: deployed / radar dish residual bits for mesh subobject selection"))
+        || pf.contains(
+            "Wave 501: deployed / radar dish residual bits for mesh subobject selection",
+        ))
         && (rp.contains("model_condition_bits_with_combat_flags")
             || pf.contains("model_condition_bits_with_combat_flags"));
     residual_action_store(ResidualPresentationMeshDeployRadarAction::RenderSource);

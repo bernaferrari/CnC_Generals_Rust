@@ -8,13 +8,13 @@ use std::sync::{Arc, Mutex};
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, ModelConditionFlags, ObjectID, RadiusDecal,
-    RadiusDecalTemplate, Real, TheWeaponStore, ThingTemplate, UnsignedInt, Vec3D, FROM_CENTER_2D,
-    FROM_CENTER_3D, MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
+    AsciiString, Bool, Coord3D, FROM_CENTER_2D, FROM_CENTER_3D, Int, MODELCONDITION_DOOR_1_CLOSING,
+    MODELCONDITION_DOOR_1_OPENING, ModelConditionFlags, ObjectID, RadiusDecal, RadiusDecalTemplate,
+    Real, TheWeaponStore, ThingTemplate, UnsignedInt, Vec3D,
 };
 use crate::helpers::{
-    get_game_logic_random_value_real, TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic,
-    TheThingFactory,
+    TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory,
+    get_game_logic_random_value_real,
 };
 use crate::locomotor::Locomotor;
 use crate::modules::{
@@ -25,7 +25,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::state_machine::StateReturnType;
 use crate::weapon::WeaponLockType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 

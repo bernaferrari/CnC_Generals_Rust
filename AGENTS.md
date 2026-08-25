@@ -26,6 +26,8 @@ Use these repo files to confirm mapping and missing gaps:
 - `PORT_STATE.txt` (ongoing status notes)
 
 ## How Each File Matches C++ (Process)
+For Rust file splits or provenance review packets, read `GeneralsRust/Code/Main/scripts/MIGRATION_AGENT_WORKFLOW.md` before editing; it is the bounded-agent execution contract.
+
 1. Identify the original C++ file in `GeneralsMD/...`.
 2. Find the mapped Rust file using the port matrix or by matching names/paths.
 3. Port logic in order, preserving:

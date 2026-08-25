@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use game_network::{
-    commands::CommandPayload, get_network, ExecutedFrame, FrameListener, NetCommandType,
+    ExecutedFrame, FrameListener, NetCommandType, commands::CommandPayload, get_network,
 };
 use log::{debug, warn};
 use once_cell::sync::Lazy;

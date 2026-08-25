@@ -4,7 +4,7 @@
 //! The original WWLib exposed many low-level digit-array routines; the Rust port
 //! uses `num-bigint` internally and surfaces equivalent high-level behavior.
 
-pub use crate::int::{generate_prime, BigInt, RemainderTable};
+pub use crate::int::{BigInt, RemainderTable, generate_prime};
 
 pub const UNITSIZE: u32 = 32;
 pub const MAX_BIT_PRECISION: u32 = 2048;

@@ -3,20 +3,19 @@
 // Author: Rust Port
 // Desc: Special power templates and the system that holds them
 
-use crate::common::science::{ScienceType, SCIENCE_INVALID};
+use crate::common::science::{SCIENCE_INVALID, ScienceType};
 use crate::common::{AsciiString, LOGICFRAMES_PER_SECOND};
 use crate::object::special_power_types::SpecialPowerType;
 use game_engine::common::ini::ini::INI;
 use game_engine::common::ini::ini_special_power::{
-    get_special_power_store as get_ini_special_power_store,
     SpecialPowerTemplate as IniSpecialPowerTemplate,
+    get_special_power_store as get_ini_special_power_store,
 };
 use game_engine::common::rts::get_science_store;
 use game_engine::common::rts::special_power::{
-    get_special_power_store as get_rts_special_power_store,
     AcademyClassificationType as RtsAcademyClassificationType,
-    SpecialPowerTemplate as RtsSpecialPowerTemplate,
-    SpecialPowerType as RtsSpecialPowerType,
+    SpecialPowerTemplate as RtsSpecialPowerTemplate, SpecialPowerType as RtsSpecialPowerType,
+    get_special_power_store as get_rts_special_power_store,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -560,8 +559,9 @@ fn map_rts_power_type(power_type: RtsSpecialPowerType) -> SpecialPowerType {
 fn map_rts_academy(classification: RtsAcademyClassificationType) -> AcademyClassificationType {
     match classification {
         RtsAcademyClassificationType::Superpower => AcademyClassificationType::Superweapon,
-        RtsAcademyClassificationType::None
-        | RtsAcademyClassificationType::UpgradeRadar => AcademyClassificationType::Invalid,
+        RtsAcademyClassificationType::None | RtsAcademyClassificationType::UpgradeRadar => {
+            AcademyClassificationType::Invalid
+        }
     }
 }
 
@@ -679,9 +679,9 @@ fn build_from_ini_special_power(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
-    use crate::player::{player_list, Player};
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::player::{Player, player_list};
     use std::sync::RwLock;
 
     #[test]

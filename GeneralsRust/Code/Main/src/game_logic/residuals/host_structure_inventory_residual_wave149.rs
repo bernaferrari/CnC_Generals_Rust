@@ -131,13 +131,13 @@ mod tests {
     #[test]
     fn simulate_structure_inventory_prepare_occupied_residual_live() {
         use game_client::gui::control_bar::{
+            ResidualStructureInventoryAction, STRUCTURE_INVENTORY_EXIT_COMMAND_NAME,
             residual_structure_inventory_evacuate_visible,
             residual_structure_inventory_exit_visible,
             residual_structure_inventory_garrisoned_count,
             residual_structure_inventory_last_action, residual_structure_inventory_max_garrison,
             residual_structure_inventory_stop_visible, simulate_structure_inventory_clear,
-            simulate_structure_inventory_prepare_occupied, ResidualStructureInventoryAction,
-            STRUCTURE_INVENTORY_EXIT_COMMAND_NAME,
+            simulate_structure_inventory_prepare_occupied,
         };
         assert_eq!(
             STRUCTURE_INVENTORY_EXIT_COMMAND_NAME,

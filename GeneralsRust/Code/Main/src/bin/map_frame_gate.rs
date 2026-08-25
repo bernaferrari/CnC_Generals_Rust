@@ -9,7 +9,7 @@
 //!   2 — usage error
 
 use generals_main::map_frame_scenario::{
-    format_map_frame_report, run_map_frame_scenario, MapFrameStatus, DEFAULT_MAP_FRAME_ADVANCE,
+    DEFAULT_MAP_FRAME_ADVANCE, MapFrameStatus, format_map_frame_report, run_map_frame_scenario,
 };
 
 fn main() {

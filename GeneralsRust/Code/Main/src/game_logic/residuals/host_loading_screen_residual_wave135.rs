@@ -117,10 +117,10 @@ mod tests {
     #[test]
     fn simulate_loading_prepare_map_load_residual_live() {
         use game_client::gui::loading_screen::{
-            residual_loading_screen_is_visible, residual_loading_screen_last_action,
-            residual_loading_screen_map_name, residual_loading_screen_progress,
-            simulate_loading_screen_finish, simulate_loading_screen_prepare_map_load,
-            ResidualLoadingScreenAction,
+            ResidualLoadingScreenAction, residual_loading_screen_is_visible,
+            residual_loading_screen_last_action, residual_loading_screen_map_name,
+            residual_loading_screen_progress, simulate_loading_screen_finish,
+            simulate_loading_screen_prepare_map_load,
         };
         assert!(
             simulate_loading_screen_prepare_map_load("Maps/Test/Test.map", 40),

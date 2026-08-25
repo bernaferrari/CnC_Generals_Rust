@@ -1,9 +1,9 @@
 #![cfg(feature = "w3d")]
 
 use game_engine_device::w3d::volumetric_shadow::{
-    construct_shadow_volume, ShadowGeometryMesh, AIRBORNE_UNIT_GROUND_DELTA, MAX_POLYGON_NEIGHBORS,
-    MAX_SHADOW_CASTER_MESHES, MAX_SILHOUETTE_EDGES, OVERHANGING_OBJECT_CLAMP_ANGLE,
-    SHADOW_EXTRUSION_BUFFER, SHADOW_SAMPLING_INTERVAL,
+    AIRBORNE_UNIT_GROUND_DELTA, MAX_POLYGON_NEIGHBORS, MAX_SHADOW_CASTER_MESHES,
+    MAX_SILHOUETTE_EDGES, OVERHANGING_OBJECT_CLAMP_ANGLE, SHADOW_EXTRUSION_BUFFER,
+    SHADOW_SAMPLING_INTERVAL, ShadowGeometryMesh, construct_shadow_volume,
 };
 use glam::Vec3;
 
@@ -30,14 +30,18 @@ fn polygon_neighbors_require_opposite_edge_winding() {
 
     assert_eq!(mesh.poly_neighbors[0].my_index, 0);
     assert_eq!(mesh.poly_neighbors[1].my_index, 1);
-    assert!(mesh.poly_neighbors[0]
-        .neighbor
-        .iter()
-        .any(|edge| edge.neighbor_index == 1 && edge.neighbor_edge_index == [1, 2]));
-    assert!(mesh.poly_neighbors[1]
-        .neighbor
-        .iter()
-        .any(|edge| edge.neighbor_index == 0 && edge.neighbor_edge_index == [2, 1]));
+    assert!(
+        mesh.poly_neighbors[0]
+            .neighbor
+            .iter()
+            .any(|edge| edge.neighbor_index == 1 && edge.neighbor_edge_index == [1, 2])
+    );
+    assert!(
+        mesh.poly_neighbors[1]
+            .neighbor
+            .iter()
+            .any(|edge| edge.neighbor_index == 0 && edge.neighbor_edge_index == [2, 1])
+    );
 }
 
 #[test]
@@ -49,10 +53,12 @@ fn flipped_coplanar_triangles_are_not_valid_neighbors() {
     ];
     let mesh = ShadowGeometryMesh::new(verts, vec![[0, 1, 2], [0, 2, 1]]);
 
-    assert!(mesh.poly_neighbors[0]
-        .neighbor
-        .iter()
-        .all(|edge| edge.neighbor_index == -1));
+    assert!(
+        mesh.poly_neighbors[0]
+            .neighbor
+            .iter()
+            .all(|edge| edge.neighbor_index == -1)
+    );
 }
 
 #[test]

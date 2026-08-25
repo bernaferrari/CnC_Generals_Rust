@@ -30,7 +30,7 @@
 
 use crate::game_logic::host_armor_residual::honesty_armor_residual_expand_wave103;
 use crate::game_logic::host_special_power_enum_residual::{
-    special_power_bit_name_index, SPECIAL_POWER_BIT_NAME_LIST,
+    SPECIAL_POWER_BIT_NAME_LIST, special_power_bit_name_index,
 };
 use crate::game_logic::locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
 use crate::game_logic::special_power_strikes::duration_ms_to_logic_frames;

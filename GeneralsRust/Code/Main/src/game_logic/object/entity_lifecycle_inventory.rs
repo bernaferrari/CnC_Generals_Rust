@@ -1,5 +1,6 @@
 //! Produce ordered module-state payloads from a live Main `Object`.
 
+use super::Object;
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
     ActiveBodyCrushResidual, CreateObjectDieTransferResidual, EmoticonSurrenderResidual,
@@ -7,9 +8,8 @@ use super::entity_lifecycle_residuals::{
     SpecialPowerCooldownResidual, WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
-use super::Object;
-use crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle;
 use crate::game_logic::host_fire_weapon_when_damaged::HostFireWeaponWhenDamagedData;
+use crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle;
 use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
 use serde::{Deserialize, Serialize};
 
@@ -123,8 +123,6 @@ impl FiringTrackerResidual {
     }
 }
 
-
-
 pub(crate) fn collect_module_states(
     object: &Object,
 ) -> Result<Vec<EntityModuleState>, EntityLifecycleCodecError> {
@@ -143,7 +141,11 @@ pub(crate) fn collect_module_states(
         &object.hacker_disable_channel,
     )?;
     push_opt(&mut out, TAG_TOPPLE, &object.topple_data)?;
-    push_opt(&mut out, TAG_STRUCTURE_TOPPLE, &object.structure_topple_data)?;
+    push_opt(
+        &mut out,
+        TAG_STRUCTURE_TOPPLE,
+        &object.structure_topple_data,
+    )?;
     push_opt(
         &mut out,
         TAG_STRUCTURE_COLLAPSE,
@@ -227,7 +229,11 @@ pub(crate) fn collect_module_states(
         TAG_CLUSTER_MINES_TRANSPORT,
         &object.cluster_mines_transport,
     )?;
-    push_opt(&mut out, TAG_EMP_PULSE_TRANSPORT, &object.emp_pulse_transport)?;
+    push_opt(
+        &mut out,
+        TAG_EMP_PULSE_TRANSPORT,
+        &object.emp_pulse_transport,
+    )?;
     push_opt(&mut out, TAG_TENSILE_FORMATION, &object.tensile_formation)?;
     push_opt(&mut out, TAG_FIRE_SPREAD, &object.fire_spread)?;
     push_opt(&mut out, TAG_BASE_REGENERATE, &object.base_regenerate)?;
@@ -280,7 +286,11 @@ pub(crate) fn collect_module_states(
     )?;
     push_opt(&mut out, TAG_ASSAULT_TRANSPORT, &object.assault_transport)?;
     push_opt(&mut out, TAG_DEPLOY_STYLE, &object.deploy_style)?;
-    push_opt(&mut out, TAG_COMMAND_BUTTON_HUNT, &object.command_button_hunt)?;
+    push_opt(
+        &mut out,
+        TAG_COMMAND_BUTTON_HUNT,
+        &object.command_button_hunt,
+    )?;
     push_present(
         &mut out,
         TAG_FIRE_WEAPON_WHEN_DEAD,

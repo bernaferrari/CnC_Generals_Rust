@@ -1015,9 +1015,7 @@ impl LaserSegmentUpload {
         streams: &[crate::presentation_frame::PresentationProjectileStream],
         scene_lines: &[crate::presentation_frame::PresentationSceneLine],
     ) -> Self {
-        if beams.is_empty()
-            && streams.iter().all(|s| s.points.len() < 2)
-            && scene_lines.is_empty()
+        if beams.is_empty() && streams.iter().all(|s| s.points.len() < 2) && scene_lines.is_empty()
         {
             return Self::empty();
         }
@@ -1248,11 +1246,11 @@ pub fn pack_orbital_soft_edge_from_frames(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_base_defense::{
-        build_patriot_laser_line3d_segments, make_patriot_assist_lasers, PATRIOT_LASER_ARC_HEIGHT,
-        PATRIOT_LASER_SEGMENTS,
-    };
     use crate::game_logic::ObjectId;
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_LASER_ARC_HEIGHT, PATRIOT_LASER_SEGMENTS, build_patriot_laser_line3d_segments,
+        make_patriot_assist_lasers,
+    };
     use crate::presentation_frame::PresentationLaserBeam;
 
     #[test]

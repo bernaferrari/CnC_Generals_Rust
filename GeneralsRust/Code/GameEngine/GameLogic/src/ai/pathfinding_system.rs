@@ -13,7 +13,7 @@
 //! - Waypoint network support
 
 use super::pathfind_complete::PathRequest as ClassicPathRequest;
-use crate::common::{Coord2D, Coord3D, ICoord2D, ObjectID, Real, INVALID_ID};
+use crate::common::{Coord2D, Coord3D, ICoord2D, INVALID_ID, ObjectID, Real};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::f32::INFINITY;

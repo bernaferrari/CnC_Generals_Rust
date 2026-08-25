@@ -1,7 +1,7 @@
 use super::*;
 use game_engine::common::ini::ini_game_data::{
-    get_global_data, GlobalData as AuthoredGlobalData, TerrainLighting as AuthoredTerrainLighting,
-    TimeOfDay, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT,
+    GlobalData as AuthoredGlobalData, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_COUNT,
+    TerrainLighting as AuthoredTerrainLighting, TimeOfDay, get_global_data,
 };
 use std::sync::Arc;
 
@@ -177,9 +177,9 @@ fn merge_map_and_frozen_lights(
     }) {
         object_global_lights[0] = Some(map_object);
     }
-    if let Some(map_terrain) = meta.and_then(|m| {
-        light_from_map_channels(m.ambient_color, m.sun_color, m.sun_direction)
-    }) {
+    if let Some(map_terrain) =
+        meta.and_then(|m| light_from_map_channels(m.ambient_color, m.sun_color, m.sun_direction))
+    {
         terrain_global_lights[0] = Some(map_terrain);
     }
     if let Some(m) = meta {
@@ -495,7 +495,6 @@ pub struct PresentationWorldEnv {
     /// script MOVE_CAMERA_TO queue (`PresentationFrame.camera_focus`).
     #[serde(default)]
     pub initial_camera_position: Option<[f32; 3]>,
-
 }
 
 impl PresentationWorldEnv {
@@ -626,10 +625,7 @@ impl PresentationWorldEnv {
         // C++ W3DDisplay::setTimeOfDay applies all 3 object lights; TerrainVisual
         // uses the terrain array. Map objects-lighting wins for units/shadows.
         let (object_global_lights, terrain_global_lights, infantry_light_scale) =
-            merge_map_and_frozen_lights(
-                meta.as_ref(),
-                freeze_current_all_game_data_lighting(),
-            );
+            merge_map_and_frozen_lights(meta.as_ref(), freeze_current_all_game_data_lighting());
         let primary_object_lighting = object_global_lights[0];
         let primary_terrain_lighting = terrain_global_lights[0];
         // Units/shadows: C++ W3DDisplay.cpp:2128 uses objects lighting, not terrain.
@@ -681,11 +677,9 @@ impl PresentationWorldEnv {
             bridge_segments,
             runtime_heightmap,
             terrain_texture_classes,
-            initial_camera_position: meta.as_ref().and_then(|m| {
-                m.initial_camera_position
-                    .map(|p| [p.x, p.y, p.z])
-            }),
-
+            initial_camera_position: meta
+                .as_ref()
+                .and_then(|m| m.initial_camera_position.map(|p| [p.x, p.y, p.z])),
         }
     }
 
@@ -837,7 +831,7 @@ fn default_fog_alpha() -> u8 {
 mod lighting_parity_tests {
     use super::*;
     use game_engine::common::ini::ini_game_data::{
-        ensure_global_data, Coord3D, RGBColor, TimeOfDay,
+        Coord3D, RGBColor, TimeOfDay, ensure_global_data,
     };
 
     #[test]
@@ -889,24 +883,14 @@ mod lighting_parity_tests {
             [0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 2.0, 0.0, 0.0],
             [0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 3.0, 0.0, 0.0],
         ];
-        let (object_lights, terrain_lights, _) =
-            merge_map_and_frozen_lights(Some(&meta), None);
+        let (object_lights, terrain_lights, _) = merge_map_and_frozen_lights(Some(&meta), None);
         let unit = object_lights[0].expect("objects lighting");
         assert_eq!(unit.ambient, [0.9, 0.8, 0.7]);
         assert_eq!(unit.diffuse, [0.15, 0.25, 0.35]);
         assert_eq!(unit.light_pos, [9.0, 8.0, 7.0]);
-        assert_eq!(
-            terrain_lights[0].map(|l| l.ambient),
-            Some([0.1, 0.1, 0.1])
-        );
-        assert_eq!(
-            object_lights[1].map(|l| l.diffuse),
-            Some([0.4, 0.0, 0.0])
-        );
-        assert_eq!(
-            object_lights[2].map(|l| l.diffuse),
-            Some([0.0, 0.5, 0.0])
-        );
+        assert_eq!(terrain_lights[0].map(|l| l.ambient), Some([0.1, 0.1, 0.1]));
+        assert_eq!(object_lights[1].map(|l| l.diffuse), Some([0.4, 0.0, 0.0]));
+        assert_eq!(object_lights[2].map(|l| l.diffuse), Some([0.0, 0.5, 0.0]));
     }
 
     #[test]
@@ -920,7 +904,10 @@ mod lighting_parity_tests {
         }
         let logic = GameLogic::new();
         let night = PresentationWorldEnv::from_logic(&logic);
-        assert!(night.is_night, "TIME_OF_DAY_NIGHT must stamp MODELCONDITION_NIGHT");
+        assert!(
+            night.is_night,
+            "TIME_OF_DAY_NIGHT must stamp MODELCONDITION_NIGHT"
+        );
         {
             let mut data = handle.write();
             data.time_of_day = TimeOfDay::Afternoon;
@@ -929,5 +916,4 @@ mod lighting_parity_tests {
         assert!(!day.is_night);
         *handle.write() = previous;
     }
-
 }

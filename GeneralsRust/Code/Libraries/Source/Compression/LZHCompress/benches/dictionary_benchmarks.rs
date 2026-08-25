@@ -1,7 +1,7 @@
 #![cfg(feature = "dictionary_compression")]
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use lzh_compression::{compress_parallel, CompressionLevel};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use lzh_compression::{CompressionLevel, compress_parallel};
 
 fn dictionary_parallel(c: &mut Criterion) {
     let data = vec![0_u8; 256 * 1024];

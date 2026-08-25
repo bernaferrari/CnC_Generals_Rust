@@ -7,27 +7,27 @@
 ** Real C&C game engine replacing the cube demo with full RTS gameplay
 */
 
-use crate::assets::{get_asset_manager, W3DModel};
+use crate::assets::{W3DModel, get_asset_manager};
 use crate::command_line::CommandLineArgs;
 use crate::fow_rendering;
 use crate::game_logic::script_events::{self, ScriptEvent};
 use crate::game_logic::victory_conditions::AllianceState;
 use crate::game_logic::*;
 use crate::graphics::{
-    graphics_system::MAX_STAGE_TEXTURES, render_pipeline::gameplay_to_render_transform,
-    GraphicsSystem, RenderPipeline,
+    GraphicsSystem, RenderPipeline, graphics_system::MAX_STAGE_TEXTURES,
+    render_pipeline::gameplay_to_render_transform,
 };
 #[cfg(feature = "integration-diagnostics")]
 use crate::integration_bridge::IntegrationTelemetryBridge;
 use crate::localization;
-use crate::platform::{create_platform_message_handler, WindowMessageProcessor};
+use crate::platform::{WindowMessageProcessor, create_platform_message_handler};
 use crate::runtime::attachments::AttachmentDispatcher;
 use crate::save_load::{
-    init_game_state_system, GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
+    GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, init_game_state_system,
 };
 use crate::subsystem_manager::{
-    get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, AudioManagerSubsystem,
-    NetworkSubsystem, SubsystemInterface,
+    AudioManagerSubsystem, NetworkSubsystem, SubsystemInterface, get_subsystem_manager,
+    init_subsystem_manager, with_subsystem_mut,
 };
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
@@ -38,16 +38,16 @@ use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTi
 use anyhow::Result;
 pub use game_engine::common::game_engine::GameState;
 use game_engine::common::game_engine::{
-    register_command_list_init, register_game_client_factory, GameClientInterface,
+    GameClientInterface, register_command_list_init, register_game_client_factory,
 };
 use game_engine::common::system::subsystem_interface::{
     SubsystemError, SubsystemResult, SubsystemState,
 };
 use glam::{Mat4, Vec2, Vec3};
 #[cfg(feature = "integration-diagnostics")]
-use integration::diagnostics::SystemDiagnostics;
-#[cfg(feature = "integration-diagnostics")]
 use integration::IntegrationConfig;
+#[cfg(feature = "integration-diagnostics")]
+use integration::diagnostics::SystemDiagnostics;
 use log::{debug, error, info, warn};
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -102,12 +102,12 @@ mod dispatch;
 mod host;
 mod host_authority;
 mod hotkeys;
+pub(crate) mod ini_crc_boot;
 mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
 pub(crate) mod object_ini_boot;
-pub(crate) mod ini_crc_boot;
 mod options_bridge;
 mod presentation_terrain_cache;
 #[cfg(feature = "game_client")]
@@ -128,7 +128,7 @@ pub fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
     camera_drain::run_replay_fast_forward_engine_probe()
 }
 use presentation_terrain_cache::PresentationTerrainCache;
-use run_loop::{resolve_ui_structure_template_name, SoundType};
+use run_loop::{SoundType, resolve_ui_structure_template_name};
 use runtime::{RuntimeHostBridge, RuntimeHostSnapshot};
 #[cfg(feature = "internal")]
 pub use types::parity_test_support;
@@ -170,11 +170,11 @@ fn startup_worker_owns(generation: u64) -> bool {
 }
 
 #[cfg(test)]
+mod architecture_honesty_tests;
+#[cfg(test)]
 mod source_scan_tests;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod architecture_honesty_tests;
 
 /// Concatenated engine source for residual `include_str!` scans.
 pub const ENGINE_SRC: &str = concat!(
@@ -189,6 +189,10 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("ini_crc_boot.rs"),
     include_str!("input.rs"),
     include_str!("mouse.rs"),
+    include_str!("mouse/selection_input.rs"),
+    include_str!("mouse/camera.rs"),
+    include_str!("mouse/ui_dispatch.rs"),
+    include_str!("mouse/world_pick.rs"),
     include_str!("minimap_bridge.rs"),
     include_str!("object_ini_boot.rs"),
     include_str!("options_bridge.rs"),

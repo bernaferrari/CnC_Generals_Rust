@@ -14,7 +14,7 @@ use crate::render_object_system::{
     OBBoxCollisionTestClass, OBBoxIntersectionTestClass, RayCollisionTestClass, RenderInfoClass,
     RenderObjClass, SpecialRenderInfoClass,
 };
-use crate::rendering::shader_system::shader::{ShaderClass, SORT_LEVEL_NONE};
+use crate::rendering::shader_system::shader::{SORT_LEVEL_NONE, ShaderClass};
 use glam::{Mat4, Vec3, Vec4};
 use std::any::Any;
 use ww3d_collision::bounding_volumes::sphere::SphereClass;

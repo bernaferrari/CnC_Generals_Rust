@@ -447,9 +447,7 @@ impl Player {
         let bits = retail_kindof_bits_for_template(template_name);
         self.score_keeper
             .add_object_built_template(template_name, bits);
-        if let Ok(factory_guard) =
-            game_engine::common::thing::thing_factory::get_thing_factory()
-        {
+        if let Ok(factory_guard) = game_engine::common::thing::thing_factory::get_thing_factory() {
             if let Some(factory) = factory_guard.as_ref() {
                 if let Some(template) = factory.find_template(template_name, false) {
                     let cost = template.get_build_cost().max(0) as u32;
@@ -482,11 +480,7 @@ fn retail_kindof_bits_for_template(template_name: &str) -> u64 {
 }
 
 /// Host `spawn_skirmish_starting_units` scores leftover Player like C++.
-pub fn notify_skirmish_starting_object(
-    player_id: u32,
-    template_name: &str,
-    is_structure: bool,
-) {
+pub fn notify_skirmish_starting_object(player_id: u32, template_name: &str, is_structure: bool) {
     if template_name.is_empty() {
         return;
     }
@@ -526,7 +520,9 @@ pub fn notify_live_object_built(player_id: u32, template_name: &str) {
         return;
     };
     let bits = retail_kindof_bits_for_template(template_name);
-    guard.score_keeper.add_object_built_template(template_name, bits);
+    guard
+        .score_keeper
+        .add_object_built_template(template_name, bits);
     // Live notify previously wrote ScoreKeeper only; leftover academy stayed empty.
     if bits & (1u64 << 7) != 0 {
         guard.academy_stats.record_building_built(template_name);
@@ -568,11 +564,7 @@ pub fn notify_live_object_destroyed(
 }
 
 /// Live mid-game loss → leftover `ScoreKeeper::addObjectLost`.
-pub fn notify_live_object_lost(
-    player_id: u32,
-    template_name: &str,
-    under_construction: bool,
-) {
+pub fn notify_live_object_lost(player_id: u32, template_name: &str, under_construction: bool) {
     if template_name.is_empty() {
         return;
     }

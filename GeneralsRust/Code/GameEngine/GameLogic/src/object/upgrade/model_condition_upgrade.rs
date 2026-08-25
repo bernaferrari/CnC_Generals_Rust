@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ModelConditionFlags, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -224,7 +226,6 @@ fn parse_model_condition_flag(token: &str) -> Option<ModelConditionFlags> {
     }
 }
 
-
 fn parse_condition_flag_field(
     _ini: &mut INI,
     data: &mut ModelConditionUpgradeModuleData,
@@ -242,12 +243,11 @@ fn parse_condition_flag_field(
 
 crate::impl_upgrade_mux_field_parsers!(ModelConditionUpgradeModuleData);
 
-const MODEL_CONDITION_UPGRADE_FIELDS: &[FieldParse<ModelConditionUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
+const MODEL_CONDITION_UPGRADE_FIELDS: &[FieldParse<ModelConditionUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!(FieldParse {
         token: "ConditionFlag",
         parse: parse_condition_flag_field,
-    },
-);
+    },);
 
 #[cfg(test)]
 mod tests {
@@ -293,4 +293,3 @@ mod tests {
         );
     }
 }
-

@@ -1,7 +1,7 @@
 //! Resolve an HLOD child name against a parsed dazzle prototype.
 
-use super::w3d_dazzle_loader::W3dDazzleProto;
 use super::W3DModel;
+use super::w3d_dazzle_loader::W3dDazzleProto;
 
 pub fn hlod_child_is_dazzle(model: &W3DModel, child_name: &str) -> Option<usize> {
     let leaf = child_name

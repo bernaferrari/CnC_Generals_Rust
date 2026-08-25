@@ -8,19 +8,19 @@
 
 use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use crate::damage::{
-    get_damage_type_flag, BodyDamageType, DamageInfo, DamageType, DamageTypeFlags,
+    BodyDamageType, DamageInfo, DamageType, DamageTypeFlags, get_damage_type_flag,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
     UpgradeModuleInterface,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::upgrade::{UpgradeMask, UpgradeMux, UpgradeMuxData};
 use crate::weapon::with_weapon_store;
 use crate::weapon::{Weapon, WeaponSlotType, WeaponStatus, WeaponTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

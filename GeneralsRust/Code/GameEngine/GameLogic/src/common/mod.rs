@@ -82,10 +82,10 @@ pub fn name_key_generate(name: &str) -> NameKeyType {
 pub use crate::system::game_logic::GameLogic;
 
 pub use crate::helpers::{
-    game_logic_random_value, get_game_logic_random_value as GameLogicRandomValue,
-    get_game_logic_random_value_real as GameLogicRandomValueReal, TheFXListStore,
-    TheGameLODManager, TheInGameUI, TheMessageStream, TheObjectCreationListStore,
-    ThePartitionManager, TheThingFactory, TheWeaponStore,
+    TheFXListStore, TheGameLODManager, TheInGameUI, TheMessageStream, TheObjectCreationListStore,
+    ThePartitionManager, TheThingFactory, TheWeaponStore, game_logic_random_value,
+    get_game_logic_random_value as GameLogicRandomValue,
+    get_game_logic_random_value_real as GameLogicRandomValueReal,
 };
 
 pub use crate::common::xfer::XferExt;

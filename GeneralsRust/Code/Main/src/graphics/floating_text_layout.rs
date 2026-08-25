@@ -61,9 +61,9 @@ use crate::graphics::game_text_residual::{
     honesty_display_string_measure, measure_display_string_residual,
 };
 use crate::presentation_frame::{
-    PresentationFloatingText, PresentationFrame, PresentationWorldAnim,
     PRESENTATION_FLOATING_TEXT_MOVE_UP_SPEED, PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
-    PRESENTATION_FLOATING_TEXT_VANISH_RATE,
+    PRESENTATION_FLOATING_TEXT_VANISH_RATE, PresentationFloatingText, PresentationFrame,
+    PresentationWorldAnim,
 };
 
 // --- Wave 76: InGameUI / DisplayString font residual table ---
@@ -1449,11 +1449,7 @@ pub fn font_chars_pixel_overlap_residual(font_height: i32) -> i32 {
 /// C++ `FontCharsClass::Get_Char_Width` residual: Width or 0 when missing.
 #[inline]
 pub fn font_chars_get_char_width_residual(glyph_width: u32, present: bool) -> u32 {
-    if present {
-        glyph_width
-    } else {
-        0
-    }
+    if present { glyph_width } else { 0 }
 }
 
 /// C++ `FontCharsClass::Get_Char_Spacing` residual:
@@ -1731,7 +1727,7 @@ pub fn honesty_display_string_residual_deepen_pack_wave102() -> bool {
 mod tests {
     use super::*;
     use crate::presentation_frame::{
-        PresentationFloatingText, PresentationWorldAnim, PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES,
+        PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES, PresentationFloatingText, PresentationWorldAnim,
     };
 
     #[test]

@@ -10,25 +10,25 @@ use crate::action_manager::{ActionManager, CanEnterType};
 use crate::ai::states::AICommandParmsStorage;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
-    AsciiString, Bool, Coord3D, DrawableID, Int, KindOf, Matrix3D, ObjectID, ObjectStatusMaskType,
-    PathfindLayerEnum, Real, UnsignedInt, INVALID_ID, LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, Coord3D, DrawableID, INVALID_ID, Int, KindOf, LOGICFRAMES_PER_SECOND,
+    Matrix3D, ObjectID, ObjectStatusMaskType, PathfindLayerEnum, Real, UnsignedInt,
 };
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameClient, TheGameLogic,
-    TheParticleSystemManager, ThePartitionManager, TheTerrainLogic, TheThingFactory,
+    TheGameClient, TheGameLogic, TheParticleSystemManager, ThePartitionManager, TheTerrainLogic,
+    TheThingFactory, get_game_logic_random_value, get_game_logic_random_value_real,
 };
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt, SupplyTruckAIInterface,
 };
+use crate::object::Object;
 use crate::object::draw::draw_module::RGBColor;
 use crate::object::drawable::{Drawable, DrawableArcExt};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use crate::object::Object;
 use crate::player::player_list;
 use crate::supply_system::{SupplyTruckAIUpdate, SupplyTruckAIUpdateData, SupplyTruckState};
 use crate::upgrade::center::get_upgrade_center;
 use game_engine::common::global_data;
-use game_engine::common::ini::{FieldParse, INIError, INILoadType, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -101,7 +101,6 @@ fn chinook_dump_owner_crate_visuals(owner: &Object, max_boxes: i32) {
     }
 }
 
-
 /// C++ `getObject()->isKindOf(KINDOF_CAN_ATTACK)` — not `OBJECT_STATUS_CAN_ATTACK`.
 fn chinook_kind_of_can_attack(owner: &Object) -> bool {
     chinook_attack_allowed_by_kind_of(owner.is_kind_of(KindOf::CanAttack))
@@ -133,7 +132,11 @@ pub fn chinook_should_auto_takeoff(
 }
 
 /// C++ `ChinookAIUpdate.cpp:1022-1028` `getAiFreeToExit`.
-pub fn chinook_free_to_exit(landed: bool, doing_combat_drop: bool, exiter_can_rappel: bool) -> bool {
+pub fn chinook_free_to_exit(
+    landed: bool,
+    doing_combat_drop: bool,
+    exiter_can_rappel: bool,
+) -> bool {
     landed || (doing_combat_drop && exiter_can_rappel)
 }
 
@@ -186,7 +189,6 @@ pub fn chinook_evac_and_exit_pipeline() -> [&'static str; 6] {
         "HeadOffMap",
     ]
 }
-
 
 /// Module data for ChinookAIUpdate (INI-driven).
 #[derive(Debug, Clone)]
@@ -876,7 +878,6 @@ impl ChinookAIUpdate {
         drop(draw_guard);
         chinook_dump_owner_crate_visuals(&owner_guard, self.base.get_max_boxes());
 
-
         let mut num_ropes = self.data.num_ropes as usize;
         if num_ropes > rope_positions.len() {
             num_ropes = rope_positions.len();
@@ -1319,7 +1320,6 @@ impl ChinookAIUpdate {
             while self.base.lose_one_box() {}
         }
 
-
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
@@ -1575,7 +1575,13 @@ impl ChinookAIUpdate {
             ChinookAIState::MoveToAndEvacAndExitInit | ChinookAIState::None => ChinookAIState::None,
         };
         if next != self.machine_state {
-            self.set_my_state(next, self.goal_object, Some(self.goal_pos), CommandSourceType::FromAi, ai);
+            self.set_my_state(
+                next,
+                self.goal_object,
+                Some(self.goal_pos),
+                CommandSourceType::FromAi,
+                ai,
+            );
         } else {
             self.machine_state = ChinookAIState::None;
         }
@@ -1603,7 +1609,6 @@ impl ChinookAIUpdate {
             self.succeed_machine_state(ai);
         }
     }
-
 
     pub fn is_idle(&self) -> bool {
         // Wave 349: empty dual-world → false.
@@ -1769,7 +1774,13 @@ impl ChinookAIUpdate {
                 } else {
                     ChinookAIState::MoveToAndEvacAndExitInit
                 };
-                self.set_my_state(evac_state, None, Some(params.pos), CommandSourceType::FromAi, ai);
+                self.set_my_state(
+                    evac_state,
+                    None,
+                    Some(params.pos),
+                    CommandSourceType::FromAi,
+                    ai,
+                );
                 true
             }
             AiCommandType::Exit | AiCommandType::Evacuate => {
@@ -2923,6 +2934,4 @@ mod tests {
         assert_eq!(ai.base.get_number_boxes(), 0);
         assert!(!ai.base.lose_one_box());
     }
-
-
 }

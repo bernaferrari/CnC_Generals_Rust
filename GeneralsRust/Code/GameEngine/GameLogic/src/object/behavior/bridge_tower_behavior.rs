@@ -14,9 +14,9 @@ use crate::common::{AsciiString, BehaviorModuleData, Int, ObjectID, Real, XferVe
 use crate::damage::{BodyDamageType, DamageInfo};
 use crate::modules::{BehaviorModuleInterface, DamageModuleInterface, DieModuleInterface};
 use crate::object::{
-    registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
+    INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, registry::OBJECT_REGISTRY,
 };
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{
@@ -26,7 +26,7 @@ use game_engine::common::thing::module::{
 use game_engine::system::Xfer as EngineXfer;
 
 use super::behavior_module::{
-    xfer_behavior_module_base_versions, BridgeTowerBehaviorInterface, BridgeTowerType,
+    BridgeTowerBehaviorInterface, BridgeTowerType, xfer_behavior_module_base_versions,
 };
 
 /// Wave 318: host-only path has no dual-world factory objects.

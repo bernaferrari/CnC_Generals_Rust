@@ -15,8 +15,8 @@
 //! Restore always clears the live registry first so a load cannot leak the
 //! previous session's roster.
 
-use crate::game_logic::host_angry_mob::HostAngryMobRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_angry_mob::HostAngryMobRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -42,10 +42,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep the previous roster.
     game_logic.angry_mobs.clear();
     let Some(suffix) = find_amob_suffix(bytes) else {

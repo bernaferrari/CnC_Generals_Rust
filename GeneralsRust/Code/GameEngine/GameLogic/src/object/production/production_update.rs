@@ -16,12 +16,12 @@ use crate::common::*;
 use crate::economy::{EconomyManager, IncomeSource};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
-    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ProductionUpdateInterface,
-    UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DIE, MODULEINTERFACE_UPDATE,
-    UPDATE_SLEEP_NONE,
+    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, MODULEINTERFACE_DIE,
+    MODULEINTERFACE_UPDATE, ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    UpdateSleepTime,
 };
 use crate::object::Object;
-use crate::player::{player_list, PlayerIndex};
+use crate::player::{PlayerIndex, player_list};
 use crate::system::game_logic;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -152,7 +152,6 @@ impl ProductionUpdate {
             })
             .unwrap_or(queued_player_id)
     }
-
 
     /// Set the economy manager reference
     /// Must be called after construction to enable cost deduction
@@ -960,18 +959,24 @@ mod tests {
         let mut production = ProductionUpdate::new(data, 1);
 
         // First two should succeed
-        assert!(production
-            .enqueue_production("Tank1".to_string(), ProductionType::Unit, 1000, 300, 1,)
-            .is_ok());
+        assert!(
+            production
+                .enqueue_production("Tank1".to_string(), ProductionType::Unit, 1000, 300, 1,)
+                .is_ok()
+        );
 
-        assert!(production
-            .enqueue_production("Tank2".to_string(), ProductionType::Unit, 1000, 300, 1,)
-            .is_ok());
+        assert!(
+            production
+                .enqueue_production("Tank2".to_string(), ProductionType::Unit, 1000, 300, 1,)
+                .is_ok()
+        );
 
         // Third should fail
-        assert!(production
-            .enqueue_production("Tank3".to_string(), ProductionType::Unit, 1000, 300, 1,)
-            .is_err());
+        assert!(
+            production
+                .enqueue_production("Tank3".to_string(), ProductionType::Unit, 1000, 300, 1,)
+                .is_err()
+        );
     }
 
     #[test]

@@ -22,16 +22,16 @@
 
 use std::sync::Arc;
 use wgpu::{
-    include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendComponent, BlendFactor,
-    BlendOperation, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
-    ColorTargetState, ColorWrites, CompareFunction, DepthBiasState, DepthStencilState, Device,
-    Extent3d, FilterMode, FragmentState, FrontFace, MultisampleState, Origin3d,
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue,
-    RenderPipeline as WgpuRenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-    SamplerDescriptor, ShaderStages, StencilState, TexelCopyBufferLayout, TexelCopyTextureInfo,
-    Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType,
-    TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension, VertexState,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
+    Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites,
+    CompareFunction, DepthBiasState, DepthStencilState, Device, Extent3d, FilterMode,
+    FragmentState, FrontFace, MultisampleState, Origin3d, PipelineLayoutDescriptor, PolygonMode,
+    PrimitiveState, PrimitiveTopology, Queue, RenderPipeline as WgpuRenderPipeline,
+    RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+    StencilState, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
+    TextureView, TextureViewDescriptor, TextureViewDimension, VertexState, include_wgsl,
 };
 
 /// FOW colors matching C++ constants from Display.cpp

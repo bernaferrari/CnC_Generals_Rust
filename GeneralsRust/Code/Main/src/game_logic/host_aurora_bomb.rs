@@ -752,9 +752,9 @@ pub fn aurora_bomb_weapon(kind: HostAuroraBombKind) -> super::Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 // --- Wave 61 residual honesty packs ---

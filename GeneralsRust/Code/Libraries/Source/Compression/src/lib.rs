@@ -240,7 +240,7 @@ pub fn compress(data: &[u8], compression_type: CompressionType) -> Result<Vec<u8
         }
         CompressionType::LZH => {
             // Test: Use DEFLATE instead of custom LZH (both are LZ77+Huffman)
-            use flate2::{write::DeflateEncoder, Compression};
+            use flate2::{Compression, write::DeflateEncoder};
             use std::io::Write;
 
             let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
@@ -253,7 +253,7 @@ pub fn compress(data: &[u8], compression_type: CompressionType) -> Result<Vec<u8
         }
         CompressionType::ZLib(level) => {
             // Use flate2 for reliable DEFLATE compression
-            use flate2::{write::ZlibEncoder, Compression};
+            use flate2::{Compression, write::ZlibEncoder};
             use std::io::Write;
 
             let compression_level = Compression::new(level.clamp(1, 9) as u32);

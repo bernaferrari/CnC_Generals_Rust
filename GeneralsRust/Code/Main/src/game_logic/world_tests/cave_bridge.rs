@@ -19,15 +19,11 @@ fn ensure_cave_template(logic: &mut GameLogic, name: &str) {
 
 fn create_cave(logic: &mut GameLogic, name: &str, pos: Vec3, index: i32) -> ObjectId {
     ensure_cave_template(logic, name);
-    let id = logic
-        .create_object(name, Team::Neutral, pos)
-        .expect("cave");
+    let id = logic.create_object(name, Team::Neutral, pos).expect("cave");
     if let Some(obj) = logic.host_object_mut(id) {
         obj.install_cave_contain_residual(index);
     }
-    logic
-        .cave_system
-        .register_cave(id, index, Team::Neutral);
+    logic.cave_system.register_cave(id, index, Team::Neutral);
     id
 }
 
@@ -168,9 +164,7 @@ fn leftover_set_cave_index_drains_onto_live_host() {
     assert_eq!(logic.cave_system.index_of(a), Some(0));
     assert_eq!(logic.cave_system.index_of(b), Some(0));
 
-    use gamelogic::scripting::core::{
-        Parameter, ParameterType, ScriptAction, ScriptActionType,
-    };
+    use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     use gamelogic::scripting::executor::{
         ScriptActionDispatcher, ScriptActionResult, ScriptContext,
     };
@@ -187,8 +181,7 @@ fn leftover_set_cave_index_drains_onto_live_host() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 2))
         .expect("cave index");
-    let mut dispatcher =
-        ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
     assert_eq!(
         dispatcher.execute_action(&action).expect("SET_CAVE_INDEX"),
         ScriptActionResult::Success
@@ -204,9 +197,7 @@ fn dozer_bridge_repair_spawns_scaffold() {
     // C++ DozerAIUpdate.cpp:665-688 createBridgeScaffolding.
     let mut logic = GameLogic::new();
     let mut bridge = ThingTemplate::new("TestBridgeSpan");
-    bridge
-        .add_kind_of(KindOf::Structure)
-        .set_health(200.0);
+    bridge.add_kind_of(KindOf::Structure).set_health(200.0);
     logic.templates.insert("TestBridgeSpan".into(), bridge);
     let mut scaf = ThingTemplate::new(BRIDGE_SCAFFOLD_TEMPLATE);
     scaf.add_kind_of(KindOf::Structure).set_health(1.0);
@@ -236,9 +227,7 @@ fn bridge_rubble_restamps_and_splat_kills() {
     let mut logic = GameLogic::new();
     ensure_infantry(&mut logic);
     let mut bridge = ThingTemplate::new("RubbleBridge");
-    bridge
-        .add_kind_of(KindOf::Structure)
-        .set_health(100.0);
+    bridge.add_kind_of(KindOf::Structure).set_health(100.0);
     logic.templates.insert("RubbleBridge".into(), bridge);
     let bid = logic
         .create_object("RubbleBridge", Team::USA, Vec3::new(50.0, 0.0, 50.0))
@@ -293,7 +282,6 @@ fn ensure_bridge_span_and_tower(logic: &mut GameLogic) {
             .set_health(300.0);
         logic.templates.insert("TestDozer".into(), dozer);
     }
-
 }
 
 fn spawn_linked_bridge(logic: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId) {
@@ -492,11 +480,9 @@ fn live_tick_drains_bridge_mirrors_and_death_links() {
         step.contains("sync_host_bridge_rubble_and_scaffolds"),
         "live update_simulation must drain bridge mirrors/death/scaffolds"
     );
-    let repair = include_str!("../world_objects/support_states.rs");
+    let repair = include_str!("../world_objects/support_states/update.rs");
     assert!(
         repair.contains("repair_target_rubble") && repair.contains("remove_bridge_scaffolding"),
         "Repairing arm must allow rubble husks and remove scaffolds on complete"
     );
 }
-
-

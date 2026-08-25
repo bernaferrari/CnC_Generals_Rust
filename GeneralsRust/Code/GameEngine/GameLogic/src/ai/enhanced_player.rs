@@ -12,9 +12,9 @@ use std::sync::{Arc, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use super::{AiError, AttitudeType, Pathfinder};
-use crate::common::types::{Coord3D, Real};
 use crate::common::KindOf;
 use crate::common::ObjectID;
+use crate::common::types::{Coord3D, Real};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::{GameDifficulty, Player};
 
@@ -1223,9 +1223,10 @@ mod tests {
 
         assert_eq!(ai.player_id, 123);
         assert_eq!(ai.difficulty, GameDifficulty::Normal);
-        assert!(ai
-            .strategy_priorities
-            .contains_key(&StrategyPriority::EconomyExpansion));
+        assert!(
+            ai.strategy_priorities
+                .contains_key(&StrategyPriority::EconomyExpansion)
+        );
     }
 
     #[test]

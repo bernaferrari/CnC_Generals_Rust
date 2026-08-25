@@ -4,7 +4,7 @@
 //! Includes path optimization, caching, and serialization support.
 #![allow(missing_docs, unused_variables, unused_mut)]
 
-use super::{PathNode, PathfindLayerEnum, PATHFIND_CELL_SIZE_F};
+use super::{PATHFIND_CELL_SIZE_F, PathNode, PathfindLayerEnum};
 use crate::common::{Coord3D, CoordOrigin, ObjectID};
 use crate::path::{LocomotorSet, LocomotorSurfaceTypeMask};
 use std::ptr::{self, NonNull};

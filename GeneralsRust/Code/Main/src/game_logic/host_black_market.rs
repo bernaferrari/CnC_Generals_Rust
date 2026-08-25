@@ -52,7 +52,6 @@ pub const BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES: u32 = 60;
 /// C++ AutoDepositUpdate → Money::deposit → MiscAudio MoneyDepositSound.
 pub const BLACK_MARKET_DEPOSIT_AUDIO: &str = "MoneyDepositSound";
 
-
 /// C++ AutoDepositUpdate floating text Z lift (pos.z += 10.0f). Host Y-up → Y + 10.
 pub const BLACK_MARKET_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
 
@@ -322,7 +321,6 @@ pub fn honesty_black_market_deposit_residual_ok() -> bool {
             == black_market_ms_to_frames(BLACK_MARKET_DEPOSIT_TIMING_MS)
         && BLACK_MARKET_INITIAL_CAPTURE_BONUS == 0
         && BLACK_MARKET_DEPOSIT_AUDIO == "MoneyDepositSound"
-
 }
 
 pub fn honesty_black_market_body_residual_ok() -> bool {
@@ -396,11 +394,21 @@ mod tests {
 
     #[test]
     fn legal_income_source_matrix() {
-        assert!(is_legal_black_market_income_source(true, true, false, false));
-        assert!(!is_legal_black_market_income_source(false, true, false, false));
-        assert!(!is_legal_black_market_income_source(true, false, false, false));
-        assert!(!is_legal_black_market_income_source(true, true, true, false));
-        assert!(!is_legal_black_market_income_source(true, true, false, true));
+        assert!(is_legal_black_market_income_source(
+            true, true, false, false
+        ));
+        assert!(!is_legal_black_market_income_source(
+            false, true, false, false
+        ));
+        assert!(!is_legal_black_market_income_source(
+            true, false, false, false
+        ));
+        assert!(!is_legal_black_market_income_source(
+            true, true, true, false
+        ));
+        assert!(!is_legal_black_market_income_source(
+            true, true, false, true
+        ));
     }
 
     #[test]

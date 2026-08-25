@@ -144,7 +144,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let destination = self.get_waypoint_position(&waypoint_name)?;
         let group_arc = self.create_ai_group_from_team(&team_name)?;
 
@@ -175,7 +174,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let victim_team = self.resolve_team_name_token(&victim_team);
         if self.get_team_by_name(&victim_team).is_err() {
@@ -215,7 +213,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Create AI group from team and issue hunt command
         // C++: theGroup->groupHunt(CMD_FROM_SCRIPT)
         let group_arc = self.create_ai_group_from_team(&team_name)?;
@@ -242,7 +239,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let members = team_arc
@@ -297,7 +293,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // C++ parity: TeamDelete delegates to Team::deleteTeam(ignoreDead=false).
         let factory = get_team_factory();
         if let Ok(mut factory_guard) = factory.lock() {
@@ -328,7 +323,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         // Get team by name and kill all members
         let factory = get_team_factory();
@@ -365,7 +359,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let members = get_team_factory()
             .lock()
@@ -459,7 +452,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some(team_center) = self
             .compute_team_center_and_first(&team_arc)
@@ -532,7 +524,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let team_arc = if team_name.trim().is_empty() {
             None
@@ -623,7 +614,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Look up object ID by name and delete
         let tracker = get_named_object_tracker();
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
@@ -657,7 +647,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Look up object ID by name and kill
         let tracker = get_named_object_tracker();
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
@@ -665,9 +654,14 @@ impl ScriptActionDispatcher {
         if let Some(object_id) = object_id_opt {
             // C++ ScriptActions::doNamedKill: pUnit->kill().
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if obj_arc.write().ok().map(|mut obj_guard| {
-                    obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
-                }).is_some() {
+                if obj_arc
+                    .write()
+                    .ok()
+                    .map(|mut obj_guard| {
+                        obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+                    })
+                    .is_some()
+                {
                     log::info!("Named unit '{}' killed (ID: {})", unit_name, object_id);
                 }
             }
@@ -700,7 +694,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         // Look up object ID by name and apply damage
         let tracker = get_named_object_tracker();
@@ -760,7 +753,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(&unit_name).ok().flatten() else {
@@ -830,7 +822,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Look up attacker and victim object IDs by name
         let tracker = get_named_object_tracker();
         let attacker_id = tracker.get_object_id(&attacker_name).ok().flatten();
@@ -899,7 +890,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Look up object ID by name
         let tracker = get_named_object_tracker();
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
@@ -951,7 +941,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();
@@ -1018,7 +1007,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();

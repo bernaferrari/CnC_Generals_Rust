@@ -3,8 +3,8 @@
 
 use crate::common::xfer::{Xfer, XferExt};
 use crate::common::{
-    AsciiString, Bool, Coord2D, Coord3D, ICoord2D, ICoord3D, IRegion2D, Int, Real, Snapshot,
-    MAP_XY_FACTOR,
+    AsciiString, Bool, Coord2D, Coord3D, ICoord2D, ICoord3D, IRegion2D, Int, MAP_XY_FACTOR, Real,
+    Snapshot,
 };
 use crate::helpers::TheTerrainLogic;
 

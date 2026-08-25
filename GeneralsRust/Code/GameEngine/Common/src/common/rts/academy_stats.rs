@@ -6,8 +6,8 @@
 //!
 //! Based on C++ AcademyStats.cpp/h from GeneralsMD codebase.
 
-use crate::common::time;
 use crate::common::random_value::get_game_client_random_value;
+use crate::common::time;
 
 use super::handles::{CommandSetHandle, FrameNumber, PlayerHandle, ThingTemplateHandle};
 use once_cell::sync::OnceCell;
@@ -39,7 +39,6 @@ fn maybe_choose_tip(
     }
     *remaining -= 1;
 }
-
 
 /// Maximum number of advice tips to provide at once (C++ AcademyStats.h:39)
 pub const MAX_ADVICE_TIPS: usize = 1;
@@ -426,7 +425,6 @@ impl AcademyStats {
                 }
             }
 
-
             // C++ lines 293-305: cash before supply center
             if self.supply_centers_built == 0 && !self.spent_cash_before_building_supply_center {
                 if money < self.supply_center_cost {
@@ -452,7 +450,6 @@ impl AcademyStats {
             }
         }
     }
-
 
     /// Check if this is the first update
     pub fn is_first_update(&self) -> bool {
@@ -793,31 +790,73 @@ impl AcademyStats {
 
         if self.spent_cash_before_building_supply_center {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildSupplyCenterEarlier");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:BuildSupplyCenterEarlier",
+            );
         }
         if !self.researched_radar {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryBuildingRadar");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:TryBuildingRadar",
+            );
         }
         if self.peons_built < 2 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildMorePeons");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:BuildMorePeons",
+            );
         }
         if self.structures_captured == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryCapturingStructures");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:TryCapturingStructures",
+            );
         }
         if self.generals_points_spent == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:SpendGeneralsPoints");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:SpendGeneralsPoints",
+            );
         }
         if self.special_powers_used == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryUsingSuperweapons");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:TryUsingSuperweapons",
+            );
         }
         if self.structures_garrisoned == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryGarrisoningAStructure");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:TryGarrisoningAStructure",
+            );
         }
         let now = time::frame();
         let idle_frames = now.saturating_sub(self.last_unit_built_frame);
@@ -827,15 +866,33 @@ impl AcademyStats {
         }
         if max_idle > 300 * LOGICFRAMES_PER_SECOND || self.last_unit_built_frame == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:IdleBuildingUnits");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:IdleBuildingUnits",
+            );
         }
         if self.drag_select_units == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryDragSelectingUnits");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:TryDragSelectingUnits",
+            );
         }
         if self.upgrades_purchased == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:ResearchUpgrades");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:ResearchUpgrades",
+            );
         }
         let mut max_power_out = self.power_out_max_frames;
         if !self.had_power_last_check {
@@ -846,22 +903,39 @@ impl AcademyStats {
         }
         if max_power_out > 600 * LOGICFRAMES_PER_SECOND {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:RanOutOfPower");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:RanOutOfPower",
+            );
         }
         if self.gatherers_built == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildMoreGatherers");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:BuildMoreGatherers",
+            );
         }
         if self.heroes_built == 0 {
             available_tips += 1;
-            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildAHero");
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut remaining,
+                max_advice_tips,
+                "ACADEMY:BuildAHero",
+            );
         }
 
         if !choosing && available_tips > 0 {
             self.evaluate_tier1_advice(info, available_tips);
         }
     }
-
 
     /// Evaluate tier 2 (intermediate) advice
     /// Based on C++ AcademyStats.cpp:708-851
@@ -1061,7 +1135,6 @@ impl AcademyStats {
                 "ACADEMY:UnmannedVehicles",
             );
         }
-
 
         // C++ lines 991-1006: Advice #33 - Use disguise ability
         if self.disguisable_vehicles_built > 0 && self.vehicles_disguised == 0 {

@@ -1,0 +1,81 @@
+{
+  "schema": "generals.trace.scenario.v1",
+  "scenario": "smoke_attack",
+  "final_frame": 3,
+  "rng_base_seed": 305419896,
+  "rng_seed": [305419896, 2596069104, 324508639, 610839776, 4275878552, 1985229328],
+  "rng_draws_per_frame": 1,
+  "objects": [
+    {
+      "id": 1,
+      "template": "TraceHumvee",
+      "team": "USA",
+      "position": [0.0, 0.0, 0.0],
+      "orientation": 0.0,
+      "health": 360.0,
+      "max_health": 360.0,
+      "status_bits": 0,
+      "ai_state": "Idle",
+      "target": null,
+      "target_location": null,
+      "construction_percent": 1.0
+    },
+    {
+      "id": 2,
+      "template": "TraceTechnical",
+      "team": "GLA",
+      "position": [35.0, 0.0, 0.0],
+      "orientation": 0.0,
+      "health": 240.0,
+      "max_health": 240.0,
+      "status_bits": 0,
+      "ai_state": "Idle",
+      "target": null,
+      "target_location": null,
+      "construction_percent": 1.0
+    }
+  ],
+  "players": [
+    {
+      "id": 0,
+      "name": "USA",
+      "side": "USA",
+      "base_side": "USA",
+      "player_type": "Human",
+      "money": 0,
+      "power": 0,
+      "low_power": false,
+      "has_radar": false,
+      "is_dead": false,
+      "rank_level": 0,
+      "skill_points": 0,
+      "science_purchase_points": 0,
+      "total_score": 0
+    },
+    {
+      "id": 1,
+      "name": "GLA",
+      "side": "GLA",
+      "base_side": "GLA",
+      "player_type": "Computer",
+      "money": 0,
+      "power": 0,
+      "low_power": false,
+      "has_radar": false,
+      "is_dead": false,
+      "rank_level": 0,
+      "skill_points": 0,
+      "science_purchase_points": 0,
+      "total_score": 0
+    }
+  ],
+  "commands": [
+    {
+      "frame": 1,
+      "player_id": 0,
+      "command_id": 1,
+      "command": "AttackObject:2",
+      "selected_units": [1]
+    }
+  ]
+}

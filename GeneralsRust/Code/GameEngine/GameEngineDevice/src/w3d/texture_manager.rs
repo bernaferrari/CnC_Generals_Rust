@@ -17,8 +17,8 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::{sync::RwLock, task};
 use std::sync::atomic::{AtomicU32, Ordering};
+use tokio::{sync::RwLock, task};
 
 static CRATE_TEXTURE_REDUCTION: AtomicU32 = AtomicU32::new(0);
 
@@ -570,11 +570,7 @@ pub fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
             4.0 + (r - g) / delta
         };
         let hue = hue * 60.0;
-        if hue < 0.0 {
-            hue + 360.0
-        } else {
-            hue
-        }
+        if hue < 0.0 { hue + 360.0 } else { hue }
     };
 
     (h, s, v)
@@ -958,12 +954,8 @@ impl W3DTextureManager {
             };
             width = (width / 2).max(1);
             height = (height / 2).max(1);
-            let resized = image::imageops::resize(
-                &img,
-                width,
-                height,
-                image::imageops::FilterType::Triangle,
-            );
+            let resized =
+                image::imageops::resize(&img, width, height, image::imageops::FilterType::Triangle);
             raw_data = resized.into_raw();
         }
 

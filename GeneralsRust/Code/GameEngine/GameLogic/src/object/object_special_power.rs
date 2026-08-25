@@ -37,7 +37,6 @@ impl Object {
         crate::object::special_power_interface_cast::module_special_power_interface(module)
     }
 
-
     /// Set creator id on SpecialPowerCompletionDie modules, if present.
     pub fn set_special_power_completion_creator(&mut self, creator_id: ObjectID) {
         for entry in &self.die_module_handles {
@@ -202,7 +201,11 @@ impl Object {
     }
 
     /// Execute a command button ability with no target.
-    pub fn do_command_button(&mut self, button_id: u32, source: CommandSource) -> Result<(), String> {
+    pub fn do_command_button(
+        &mut self,
+        button_id: u32,
+        source: CommandSource,
+    ) -> Result<(), String> {
         use crate::ai::{AiCommandParams, AiCommandType};
         use crate::commands::command::CommandType;
         use crate::control_bar::get_control_bar_bridge;

@@ -18,9 +18,9 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::host_mines::{
-    CLUSTER_MINES_BOMB_TEMPLATE, CLUSTER_MINES_DELIVERY_DISTANCE, CLUSTER_MINES_DROP_OFFSET,
-    CLUSTER_MINES_OCL_TRANSPORT, CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES,
-    CLUSTER_MINES_VIEW_OBJECT_RANGE, CLUSTER_MINE_NUM_VIRTUAL,
+    CLUSTER_MINE_NUM_VIRTUAL, CLUSTER_MINES_BOMB_TEMPLATE, CLUSTER_MINES_DELIVERY_DISTANCE,
+    CLUSTER_MINES_DROP_OFFSET, CLUSTER_MINES_OCL_TRANSPORT,
+    CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES, CLUSTER_MINES_VIEW_OBJECT_RANGE,
 };
 
 /// Retail Payload residual alias.
@@ -44,8 +44,7 @@ pub fn leftover_cluster_mines_generation_fx(template_name: &str) -> Option<Strin
         if let Some(data) = entry
             .data
             .downcast_ref::<gamelogic::object::behavior::GenerateMinefieldBehaviorModuleData>(
-            )
-        {
+        ) {
             let name = data
                 .generation_fx
                 .as_deref()
@@ -83,7 +82,6 @@ pub fn play_cluster_mines_generation_fx(pos: Vec3) -> bool {
     let name = cluster_mines_generation_fx_name();
     crate::game_logic::dispatch_fx_list_at_pos(&name, pos)
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostClusterMinesFlightData {
@@ -130,8 +128,8 @@ impl HostClusterMinesFlightData {
     /// Returns (new_pos, vel, off_map / CLEAN_UP).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
         use crate::game_logic::host_deliver_payload::{
-            head_off_map_exit_point_residual, is_off_map_residual, RESIDUAL_MAP_EXTENT_MAX_X,
-            RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+            RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
+            RESIDUAL_MAP_EXTENT_MIN_Z, head_off_map_exit_point_residual, is_off_map_residual,
         };
         let hx = self.target.x - self.launch.x;
         let hz = self.target.z - self.launch.z;
@@ -139,7 +137,12 @@ impl HostClusterMinesFlightData {
             self.passed_target = true;
         }
         let (min_x, min_z, max_x, max_z) = if self.map_extent_ok() {
-            (self.map_min.x, self.map_min.z, self.map_max.x, self.map_max.z)
+            (
+                self.map_min.x,
+                self.map_min.z,
+                self.map_max.x,
+                self.map_max.z,
+            )
         } else {
             (
                 RESIDUAL_MAP_EXTENT_MIN_X,
@@ -167,8 +170,8 @@ impl HostClusterMinesFlightData {
         } else {
             Vec3::ZERO
         };
-        let at_exit = self.delivery_complete
-            && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
+        let at_exit =
+            self.delivery_complete && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
         (new_pos, vel, at_exit)
     }
 }
@@ -180,7 +183,6 @@ pub fn cluster_mines_payload_drop_pos(plane_pos: Vec3) -> Vec3 {
         plane_pos.y + CLUSTER_MINES_DROP_OFFSET.2,
         plane_pos.z + CLUSTER_MINES_DROP_OFFSET.1,
     )
-
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -277,7 +279,10 @@ mod tests {
                 break;
             }
         }
-        assert!(left && destroyed, "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}");
+        assert!(
+            left && destroyed,
+            "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}"
+        );
     }
 
     #[test]
@@ -293,9 +298,9 @@ mod tests {
             "leftover GenerationFX must play on place_cluster_mines_unvaried"
         );
         assert!(
-            place.contains("do_fx_at_position") || place.contains("play_cluster_mines_generation_fx"),
+            place.contains("do_fx_at_position")
+                || place.contains("play_cluster_mines_generation_fx"),
             "leftover play_fx is TheFXList::do_fx_at_position"
         );
     }
-
 }

@@ -6,7 +6,7 @@
 //! exposes. As platform specific backends arrive, they can plug into this
 //! registry.
 
-use crate::{formats::AudioFormat, wwaudio::DriverType3D, Driver2DKind};
+use crate::{Driver2DKind, formats::AudioFormat, wwaudio::DriverType3D};
 
 /// Enumeration of legacy backend identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -119,7 +119,7 @@ pub fn simulate_live_host_auto_deposit_dual_peel_honesty() -> bool {
 mod tests {
     use super::*;
     use crate::game_logic::host_auto_deposit_log::{
-        clear, drain, record, AutoDepositEvent, AutoDepositKind,
+        AutoDepositEvent, AutoDepositKind, clear, drain, record,
     };
     use crate::game_logic::{ObjectId, Team};
 

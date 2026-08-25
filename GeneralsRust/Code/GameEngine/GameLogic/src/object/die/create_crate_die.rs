@@ -5,23 +5,23 @@
 //! Rust conversion: 2025
 
 use super::{DieModule, DieModuleData, DieModuleInterface};
-use crate::common::science::SCIENCE_INVALID;
 use crate::common::PathfindLayerEnum;
+use crate::common::science::SCIENCE_INVALID;
 use crate::common::{
-    Bool, Coord3D, GameLogicRandomValueReal, ObjectID, Relationship, VeterancyLevel, INVALID_ID,
+    Bool, Coord3D, GameLogicRandomValueReal, INVALID_ID, ObjectID, Relationship, VeterancyLevel,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheThingFactory;
-use crate::object::crate_system::{get_crate_system, CrateTemplate};
+use crate::object::Object;
+use crate::object::crate_system::{CrateTemplate, get_crate_system};
 use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
 };
 use crate::object::draw::TerrainDecalType;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
 use crate::player::PlayerType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
@@ -160,7 +160,7 @@ pub struct CreateCrateDie {
     base: DieModule<CreateCrateDieModuleData>,
 }
 
-use crate::helpers::{FindPositionOptions, FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS, FPF_NONE};
+use crate::helpers::{FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS, FPF_NONE, FindPositionOptions};
 
 impl CreateCrateDie {
     /// Create a new CreateCrateDie module
@@ -199,7 +199,10 @@ impl CreateCrateDie {
         let Some(killer) = killer else {
             return false;
         };
-        killer.is_kind_of_multi(template.killed_by_type_kindof as crate::common::KindOfMaskType, 0)
+        killer.is_kind_of_multi(
+            template.killed_by_type_kindof as crate::common::KindOfMaskType,
+            0,
+        )
     }
 
     /// Test if killer has required science/upgrades

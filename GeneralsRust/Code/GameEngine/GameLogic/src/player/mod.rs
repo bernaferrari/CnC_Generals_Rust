@@ -16,33 +16,33 @@ pub(in crate::player) use crate::common::ThingTemplate;
 pub(in crate::player) use crate::common::*;
 pub(in crate::player) use crate::helpers::TheGameLogic;
 pub(in crate::player) use crate::modules::AIUpdateInterfaceExt;
+pub(in crate::player) use crate::object::Object;
 pub(in crate::player) use crate::object::behavior::battle_plan_update::BattlePlanBonuses;
 pub(in crate::player) use crate::object::special_power_template::SpecialPowerTemplate;
-pub(in crate::player) use crate::object::Object;
 pub(in crate::player) use crate::object_manager::get_object_manager;
 pub(in crate::player) use crate::special_power_module::integration::{FrameCount, PlayerInterface};
 pub(in crate::player) use crate::special_power_module::types::SpecialPowerID;
 pub(in crate::player) use crate::squad::Squad;
 pub(in crate::player) use crate::supply_system::ResourceGatheringManager;
 pub(in crate::player) use crate::team::{
-    get_team_factory, Team, TeamID, TeamPrototype, TeamRelationMap,
+    Team, TeamID, TeamPrototype, TeamRelationMap, get_team_factory,
 };
 pub(in crate::player) use crate::tunnel_tracker::TunnelTracker;
 pub(in crate::player) use crate::upgrade::{PlayerUpgradeManager, Upgrade, UpgradeTemplate};
 pub(in crate::player) use game_engine::common::global_data;
 pub(in crate::player) use game_engine::common::ini::ensure_player_templates_loaded;
 pub(in crate::player) use game_engine::common::name_key_generator::{
-    NameKeyGenerator, NAMEKEY_INVALID,
+    NAMEKEY_INVALID, NameKeyGenerator,
 };
 pub(in crate::player) use game_engine::common::rts::player_template::{
-    get_player_template_store, MAX_MP_STARTING_UNITS,
+    MAX_MP_STARTING_UNITS, get_player_template_store,
 };
 pub(in crate::player) use game_engine::common::rts::science::get_science_store;
 pub(in crate::player) use game_engine::common::rts::score_keeper::{
     KindOf as ScoreKindOf, KindOfMaskType as ScoreKindOfMaskType,
 };
 pub(in crate::player) use game_engine::common::rts::{
-    Money, ScienceAccess, ScienceType, SCIENCE_INVALID,
+    Money, SCIENCE_INVALID, ScienceAccess, ScienceType,
 };
 pub(in crate::player) use game_engine::common::system::snapshot::Snapshotable;
 pub(in crate::player) use game_engine::common::system::xfer::{Xfer, XferMode, XferVersion};

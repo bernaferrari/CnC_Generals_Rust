@@ -8,13 +8,14 @@ pub use game_client::gui::w3d_gadget_draw::{
     w3d_gadget_combo_box_image_draw, w3d_gadget_horizontal_slider_draw,
     w3d_gadget_horizontal_slider_image_draw, w3d_gadget_horizontal_slider_image_draw_a,
     w3d_gadget_horizontal_slider_image_draw_b, w3d_gadget_list_box_draw,
-    w3d_gadget_list_box_image_draw, w3d_gadget_progress_bar_draw, w3d_gadget_progress_bar_image_draw,
-    w3d_gadget_progress_bar_image_draw_a, w3d_gadget_push_button_draw,
-    w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
+    w3d_gadget_list_box_image_draw, w3d_gadget_progress_bar_draw,
+    w3d_gadget_progress_bar_image_draw, w3d_gadget_progress_bar_image_draw_a,
+    w3d_gadget_push_button_draw, w3d_gadget_push_button_image_draw, w3d_gadget_radio_button_draw,
     w3d_gadget_radio_button_image_draw, w3d_gadget_static_text_draw,
     w3d_gadget_static_text_image_draw, w3d_gadget_tab_control_draw,
-    w3d_gadget_tab_control_image_draw, w3d_gadget_text_entry_draw, w3d_gadget_text_entry_image_draw,
-    w3d_gadget_vertical_slider_draw, w3d_gadget_vertical_slider_image_draw,
+    w3d_gadget_tab_control_image_draw, w3d_gadget_text_entry_draw,
+    w3d_gadget_text_entry_image_draw, w3d_gadget_vertical_slider_draw,
+    w3d_gadget_vertical_slider_image_draw,
 };
 
 #[cfg(test)]

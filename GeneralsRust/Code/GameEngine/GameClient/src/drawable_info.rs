@@ -1,7 +1,7 @@
 // FILE: drawable_info.rs
 // Ported from C++ DrawableInfo.h
 
-use gamelogic::common::types::{DrawableID, ObjectID, INVALID_ID};
+use gamelogic::common::types::{DrawableID, INVALID_ID, ObjectID};
 
 /// Extra rendering flags for drawable rendering control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

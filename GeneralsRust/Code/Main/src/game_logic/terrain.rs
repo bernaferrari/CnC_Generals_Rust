@@ -222,8 +222,7 @@ impl TerrainData {
     /// and flagged cliff when maxZ−minZ > `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
     #[cfg(feature = "game_client")]
     pub fn is_cliff_at_world(&self, world: Vec3) -> bool {
-        use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::
-            cliff_cell_from_raw_heights_residual;
+        use crate::game_logic::host_terrain_bridge_water_road_residual_wave108::cliff_cell_from_raw_heights_residual;
         // Four-corner raw residual around the cell (heightmap u8 samples).
         let u = ((world.x - self.world_min.x) / self.scale_x + self.border_size as f32)
             .clamp(0.0, self.heightmap.width as f32 - 1.0);
@@ -274,22 +273,20 @@ impl TerrainData {
             if points.len() < 3 {
                 continue;
             }
-            let mut height = trigger
-                .get_point(0)
-                .map(|p| p.z as f32)
-                .unwrap_or(0.0);
+            let mut height = trigger.get_point(0).map(|p| p.z as f32).unwrap_or(0.0);
             let cx = points.iter().map(|p| p.0 as f32).sum::<f32>() / points.len() as f32;
             let cy = points.iter().map(|p| p.1 as f32).sum::<f32>() / points.len() as f32;
             if let Some(handle) = logic.get_water_handle(cx, cy) {
                 height = logic.get_water_height(handle);
             }
             plane = Some(plane.map_or(height, |p| p.max(height)));
-            self.water_polygons.push(HostWaterPolygon { points, height });
+            self.water_polygons
+                .push(HostWaterPolygon { points, height });
         }
 
-        if let Some(grid) = logic.get_water_handle_by_name(&gamelogic::common::AsciiString::from(
-            "Water Grid",
-        )) {
+        if let Some(grid) =
+            logic.get_water_handle_by_name(&gamelogic::common::AsciiString::from("Water Grid"))
+        {
             let gh = logic.get_water_height(grid);
             plane = Some(plane.map_or(gh, |p| p.max(gh)));
         }
@@ -372,11 +369,7 @@ fn point_in_host_water_polygon(points: &[(i32, i32)], x: f32, y: f32) -> bool {
     let n = points.len();
     for i in 0..n {
         let (x1, y1) = points[i];
-        let (x2, y2) = if i + 1 == n {
-            points[0]
-        } else {
-            points[i + 1]
-        };
+        let (x2, y2) = if i + 1 == n { points[0] } else { points[i + 1] };
         if y1 == y2 {
             continue;
         }

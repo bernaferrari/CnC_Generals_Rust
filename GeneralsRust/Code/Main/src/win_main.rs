@@ -19,12 +19,12 @@ use log::{debug, error, info, warn};
 #[cfg(target_os = "windows")]
 use raw_window_handle::HasWindowHandle;
 use std::env;
-use std::ffi::c_void;
 use std::ffi::CString;
+use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 use tokio::runtime::Runtime;
 use winit::{
     self,
@@ -588,9 +588,9 @@ fn parse_level(level: &str) -> log::LevelFilter {
 #[cfg(test)]
 mod tests {
     use super::{
+        APPLICATION_IS_WINDOWED, DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION, STARTUP_WINDOW_TITLE,
         centered_startup_position_from_monitor, command_line, initialize_app_windows,
-        resolve_window_mode, startup_window_attributes, APPLICATION_IS_WINDOWED,
-        DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION, STARTUP_WINDOW_TITLE,
+        resolve_window_mode, startup_window_attributes,
     };
     use std::sync::atomic::Ordering;
     use winit::{

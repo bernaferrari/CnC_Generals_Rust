@@ -781,8 +781,8 @@ pub enum CanMakeType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
     use std::sync::{Arc, RwLock};
 
@@ -883,15 +883,19 @@ mod tests {
 
         // Queue first unit
         let id1 = production.request_unique_unit_id();
-        assert!(production
-            .queue_create_unit("Tank1".to_string(), id1)
-            .is_ok());
+        assert!(
+            production
+                .queue_create_unit("Tank1".to_string(), id1)
+                .is_ok()
+        );
 
         // Queue second unit
         let id2 = production.request_unique_unit_id();
-        assert!(production
-            .queue_create_unit("Tank2".to_string(), id2)
-            .is_ok());
+        assert!(
+            production
+                .queue_create_unit("Tank2".to_string(), id2)
+                .is_ok()
+        );
 
         // Third should fail
         assert_eq!(

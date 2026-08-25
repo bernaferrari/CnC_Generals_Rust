@@ -6,10 +6,10 @@
 //! `restore_from_snapshot` installs it under `saveLockGhostObjects`.
 
 use crate::save_load::{SaveLoadError, SaveLoadResult};
+use game_engine::common::system::Snapshotable;
 use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
-use game_engine::common::system::Snapshotable;
-use gamelogic::object::w3d_ghost_object::{W3DGhostObjectManager, THE_W3D_GHOST_OBJECT_MANAGER};
+use gamelogic::object::w3d_ghost_object::{THE_W3D_GHOST_OBJECT_MANAGER, W3DGhostObjectManager};
 use std::io::Cursor;
 use std::sync::Mutex;
 

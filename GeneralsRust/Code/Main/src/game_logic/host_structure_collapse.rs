@@ -249,9 +249,7 @@ impl HostStructureCollapseData {
             return;
         }
         self.queue_mid_collapse_phase();
-        self.burst_frame = self
-            .burst_frame
-            .saturating_add(self.burst_delay_frames());
+        self.burst_frame = self.burst_frame.saturating_add(self.burst_delay_frames());
     }
 
     /// C++ beginStructureCollapse residual + `doPhaseStuff(SCPHASE_INITIAL)`.
@@ -419,7 +417,12 @@ fn first_nonempty_fx_name(raw: &str) -> Option<String> {
 /// Parse `FXList = INITIAL Name` / newline-concatenated multi `FXList =` lines.
 pub fn parse_collapse_phase_fx(
     attrs: &[(&str, &str)],
-) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let mut initial = None;
     let mut delay = None;
     let mut burst = None;
@@ -534,7 +537,9 @@ impl FxNamed for gamelogic::effects::FXList {
     }
 }
 
-fn leftover_structure_collapse_module_peel(template_name: &str) -> Option<HostStructureCollapseIni> {
+fn leftover_structure_collapse_module_peel(
+    template_name: &str,
+) -> Option<HostStructureCollapseIni> {
     let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
     let factory = guard.as_ref()?;
     let tmpl = factory.find_template(template_name, false)?;
@@ -548,8 +553,8 @@ fn leftover_structure_collapse_module_peel(template_name: &str) -> Option<HostSt
         }
         if let Some(data) = entry
             .data
-            .downcast_ref::<gamelogic::object::behavior::StructureCollapseUpdateModuleData>(
-        ) {
+            .downcast_ref::<gamelogic::object::behavior::StructureCollapseUpdateModuleData>()
+        {
             return Some(HostStructureCollapseIni {
                 min_burst_delay: data.min_burst_delay,
                 max_burst_delay: data.max_burst_delay,
@@ -655,9 +660,9 @@ pub fn clear_collapse_ini_override_for_tests() {
 /// Live lookup: override (tests) then leftover ThingFactory then Object INI.
 pub fn collapse_ini_for_template(name: &str) -> Option<HostStructureCollapseIni> {
     let hit = COLLAPSE_INI_OVERRIDE.with(|slot| {
-        slot.borrow().as_ref().and_then(|(n, ini)| {
-            n.eq_ignore_ascii_case(name).then(|| ini.clone())
-        })
+        slot.borrow()
+            .as_ref()
+            .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
     });
     if hit.is_some() {
         return hit;

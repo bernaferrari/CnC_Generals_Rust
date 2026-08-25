@@ -117,9 +117,8 @@ impl Object {
             template_geometry.get_major_radius().max(1.0);
         assistant_template.geometry_info.minor_radius =
             template_geometry.get_minor_radius().max(1.0);
-        assistant_template.geometry_info.height = template_geometry
-            .get_max_height_above_position()
-            .max(1.0);
+        assistant_template.geometry_info.height =
+            template_geometry.get_max_height_above_position().max(1.0);
         let _ = assistant.build_object_now(
             Some(&builder_snapshot),
             &assistant_template,

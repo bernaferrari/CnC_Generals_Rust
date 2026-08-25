@@ -8,7 +8,7 @@
 // This file mirrors the structure and functionality of the original C++ AudioManager
 
 use crate::assets::archive::ArchiveFileSystem;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::{HashMap, HashSet};
@@ -215,14 +215,10 @@ pub fn live_gameplay_sfx_volume_with(
     sliders: &game_engine::common::audio::MilesVolumeSliders,
     info: Option<std::sync::Arc<game_engine::common::audio::AudioEventInfo>>,
 ) -> f32 {
-    use game_engine::common::audio::{miles_get_effective_volume, AudioEventRts, Coord3D};
+    use game_engine::common::audio::{AudioEventRts, Coord3D, miles_get_effective_volume};
 
     let mut event = if let Some((x, y, z)) = position_host_yup {
-        let leftover = Coord3D {
-            x,
-            y: z,
-            z: y,
-        };
+        let leftover = Coord3D { x, y: z, z: y };
         AudioEventRts::with_position(event_name, &leftover)
     } else {
         AudioEventRts::with_event_name(event_name)
@@ -256,8 +252,6 @@ fn leftover_volume_inputs(
         guard.find_audio_event_info(event_name),
     )
 }
-
-
 
 /// AudioManager - Main audio management class (mirrors C++ AudioManager)
 /// Handles all audio operations including music, sound effects, and voice
@@ -389,7 +383,9 @@ impl AudioManager {
 
                 // Try to provide helpful diagnostics
                 if archive_system.does_file_exist(&resolved_track) {
-                    warn!("📋 File exists in archives but cannot be extracted - this may be a BIG file format issue");
+                    warn!(
+                        "📋 File exists in archives but cannot be extracted - this may be a BIG file format issue"
+                    );
                 } else {
                     warn!("📋 File not found in any loaded archives");
 
@@ -546,7 +542,6 @@ impl AudioManager {
 
         Ok(())
     }
-
 
     /// Pause audio (matches C++ pauseAudio)
     pub fn pause_audio(&self, affect: AudioAffect) {
@@ -1156,9 +1151,10 @@ mod tests {
         }));
 
         let gla = faction_music_candidates("gla").expect("gla candidates");
-        assert!(gla
-            .iter()
-            .all(|track| track.to_ascii_lowercase().starts_with("gla")));
+        assert!(
+            gla.iter()
+                .all(|track| track.to_ascii_lowercase().starts_with("gla"))
+        );
 
         assert!(faction_music_candidates("unknown").is_none());
     }
@@ -1313,8 +1309,4 @@ mod tests {
             game_engine::common::audio::game_audio::get_global_audio_manager().is_some()
         );
     }
-
-
-
 }
-

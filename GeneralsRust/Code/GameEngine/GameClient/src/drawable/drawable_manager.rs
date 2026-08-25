@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::drawable::{
-    BasicDrawable, Color, Drawable, DrawableId, DrawableStatus, DrawableType, Matrix4, StealthLook,
-    Vector3, INVALID_DRAWABLE_ID,
+    BasicDrawable, Color, Drawable, DrawableId, DrawableStatus, DrawableType, INVALID_DRAWABLE_ID,
+    Matrix4, StealthLook, Vector3,
 };
 
 /// Drawing layers for Z-ordering (based on C++ rendering system)

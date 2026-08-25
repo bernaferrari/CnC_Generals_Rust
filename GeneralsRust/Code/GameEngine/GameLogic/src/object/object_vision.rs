@@ -8,7 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-
     pub fn get_shroud_range(&self) -> Real {
         self.shroud_range
     }
@@ -432,7 +431,6 @@ impl Object {
         self.handle_threat_map();
     }
 
-
     /// Set visibility flag for a specific player
     /// Called by rendering system to update visibility based on ShroudManager
     pub fn set_visibility_for_player(&mut self, player_id: UnsignedInt, visible: bool) {
@@ -484,7 +482,6 @@ impl Object {
         self.last_visibility_update_frame = frame;
         Ok(())
     }
-
 
     /// Smoothly interpolate visibility alpha for fade-in/out effects
     /// Used for gradient fog-of-war transitions between visibility states

@@ -12,11 +12,11 @@
 use super::geometry::{Coord3D, Matrix3D, Point2D};
 use super::kind_of::KIND_OF_BIT_NAMES;
 use super::snapshot::Snapshotable;
+use crate::System::SaveGame::get_game_state;
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini_upgrade::get_upgrade_center;
-use crate::common::rts::science::{get_science_store, ScienceType, SCIENCE_INVALID};
+use crate::common::rts::science::{SCIENCE_INVALID, ScienceType, get_science_store};
 use crate::common::thing::thing::KindOfType;
-use crate::System::SaveGame::get_game_state;
 use std::io;
 
 fn upgrade_templates_in_serialization_order() -> Option<Vec<(String, u128)>> {

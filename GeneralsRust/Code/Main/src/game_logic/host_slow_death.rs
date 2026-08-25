@@ -218,7 +218,8 @@ impl HostSlowDeathData {
         if ini.fling_force > 0.0 {
             // Deterministic angle residual (object id supplied by caller via apply_fling).
             s.fling_vx = ini.fling_force * 0.15;
-            s.fling_vy = ini.fling_force * 0.08 * (ini.fling_pitch_deg.to_radians().sin().max(0.15));
+            s.fling_vy =
+                ini.fling_force * 0.08 * (ini.fling_pitch_deg.to_radians().sin().max(0.15));
         }
         // C++ SlowDeathBehavior.cpp:308 doPhaseStuff(SDPHASE_INITIAL).
         s.queue_phase_fx_initial();
@@ -427,7 +428,9 @@ fn first_nonempty_fx_name(raw: &str) -> Option<String> {
 }
 
 /// Parse `FX = INITIAL Name` / newline-concatenated multi `FX =` lines.
-pub fn parse_slow_death_phase_fx(attrs: &[(&str, &str)]) -> (Option<String>, Option<String>, Option<String>) {
+pub fn parse_slow_death_phase_fx(
+    attrs: &[(&str, &str)],
+) -> (Option<String>, Option<String>, Option<String>) {
     let mut initial = None;
     let mut midpoint = None;
     let mut final_fx = None;
@@ -490,7 +493,9 @@ pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDea
             .and_then(parse_real)
             .unwrap_or(-10.0),
         fling_force: get("FlingForce").and_then(parse_real).unwrap_or(0.0),
-        fling_force_variance: get("FlingForceVariance").and_then(parse_real).unwrap_or(0.0),
+        fling_force_variance: get("FlingForceVariance")
+            .and_then(parse_real)
+            .unwrap_or(0.0),
         fling_pitch_deg: get("FlingPitch").and_then(parse_real).unwrap_or(0.0),
         fx_initial,
         fx_midpoint,
@@ -503,10 +508,7 @@ fn authored_slow_death_ini(name: &str) -> Option<HostSlowDeathIni> {
     let manager = manager.lock().ok()?;
     let definition = manager.get_object_definition(name)?;
     for module in &definition.behavior_modules {
-        if !module
-            .class_name
-            .eq_ignore_ascii_case("SlowDeathBehavior")
-        {
+        if !module.class_name.eq_ignore_ascii_case("SlowDeathBehavior") {
             continue;
         }
         let attrs: Vec<(&str, &str)> = module
@@ -535,9 +537,9 @@ pub fn clear_slow_death_ini_override_for_tests() {
 /// Live lookup: override (tests) then authored Object INI `SlowDeathBehavior`.
 pub fn slow_death_ini_for_template(name: &str) -> Option<HostSlowDeathIni> {
     let hit = SLOW_DEATH_INI_OVERRIDE.with(|slot| {
-        slot.borrow().as_ref().and_then(|(n, ini)| {
-            n.eq_ignore_ascii_case(name).then(|| ini.clone())
-        })
+        slot.borrow()
+            .as_ref()
+            .and_then(|(n, ini)| n.eq_ignore_ascii_case(name).then(|| ini.clone()))
     });
     if hit.is_some() {
         return hit;
@@ -579,10 +581,11 @@ mod tests {
         }
         assert!(destroyed);
         assert!(d.sink_offset <= 0.0);
-        assert!(d
-            .take_pending_phase_fx()
-            .iter()
-            .any(|n| n == INFANTRY_SLOW_DEATH_FX));
+        assert!(
+            d.take_pending_phase_fx()
+                .iter()
+                .any(|n| n == INFANTRY_SLOW_DEATH_FX)
+        );
     }
 
     #[test]
@@ -626,7 +629,10 @@ mod tests {
             ("SinkDelay", "0"),
             ("SinkRate", "0"),
             ("DestructionDelay", "1000"),
-            ("FX", "INITIAL FX_DieInitial\nMIDPOINT FX_DieMid\nFINAL FX_DieFinal"),
+            (
+                "FX",
+                "INITIAL FX_DieInitial\nMIDPOINT FX_DieMid\nFINAL FX_DieFinal",
+            ),
         ]);
         assert_eq!(ini.fx_initial.as_deref(), Some("FX_DieInitial"));
         assert_eq!(ini.fx_midpoint.as_deref(), Some("FX_DieMid"));

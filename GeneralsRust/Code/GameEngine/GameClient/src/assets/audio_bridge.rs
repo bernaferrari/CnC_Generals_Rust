@@ -2,7 +2,7 @@
 
 use crate::assets::{AssetManager, AssetPriority};
 use game_engine::common::audio::{
-    register_sound_playback_hook, AudioEventRts, AudioHandle, AudioType, SoundPlaybackHook,
+    AudioEventRts, AudioHandle, AudioType, SoundPlaybackHook, register_sound_playback_hook,
 };
 use nalgebra::Vector3;
 use std::collections::HashMap;

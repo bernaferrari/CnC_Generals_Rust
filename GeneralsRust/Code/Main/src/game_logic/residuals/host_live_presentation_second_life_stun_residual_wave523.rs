@@ -76,8 +76,8 @@ pub fn residual_presentation_second_life_stun_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_second_life_stun_last_action(
-) -> ResidualPresentationSecondLifeStunAction {
+pub fn residual_presentation_second_life_stun_last_action()
+-> ResidualPresentationSecondLifeStunAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationSecondLifeStunAction::MethodNames,
         2 => ResidualPresentationSecondLifeStunAction::SourceMarkers,

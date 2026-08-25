@@ -94,11 +94,7 @@ impl QuatExtensions for Quat {
             let sin_omega_1_minus_t = (cache.omega * (1.0 - t)).sin();
 
             let result = (q1 * sin_omega_1_minus_t + q2 * sin_omega_t) / cache.sin_omega;
-            if cache.flip {
-                -result
-            } else {
-                result
-            }
+            if cache.flip { -result } else { result }
         }
     }
 

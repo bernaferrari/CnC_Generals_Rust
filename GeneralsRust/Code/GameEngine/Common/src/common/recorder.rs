@@ -10,17 +10,16 @@ use chrono::{Datelike, Local, TimeZone, Timelike};
 
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::message_stream::{
-    get_message_stream, is_network_command_message, Coord3D, GameMessage,
-    GameMessageArgumentDataType, GameMessageArgumentType, GameMessageType, ICoord2D,
-    MessageSerializer,
+    Coord3D, GameMessage, GameMessageArgumentDataType, GameMessageArgumentType, GameMessageType,
+    ICoord2D, MessageSerializer, get_message_stream, is_network_command_message,
 };
 use crate::common::random_value::{
     get_game_logic_random_seed, init_game_logic_random, init_random_with_seed,
 };
 use crate::common::version::get_version;
 use crate::game_network::{
-    game_info::{GameInfo, SlotState},
     PLAYERTEMPLATE_OBSERVER,
+    game_info::{GameInfo, SlotState},
 };
 
 /// Recorder operating mode
@@ -537,8 +536,7 @@ fn parse_replay_game_info(options: &str, info: &mut ReplayGameInfo) -> bool {
             }
             "M" => {
                 if val.len() >= 2 {
-                    info.map_contents_mask =
-                        u32::from_str_radix(&val[..2], 16).unwrap_or(0);
+                    info.map_contents_mask = u32::from_str_radix(&val[..2], 16).unwrap_or(0);
                     info.map = val[2..].to_string();
                 }
             }
@@ -705,9 +703,8 @@ fn decode_replay_type_id(
     if dense == 143 {
         return Ok(decode_set_replay_camera(args));
     }
-    MessageSerializer::decode_message_type(dense, args).map_err(|err| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", err))
-    })
+    MessageSerializer::decode_message_type(dense, args)
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", err)))
 }
 
 fn decode_selected_group_type(
@@ -735,7 +732,10 @@ fn decode_selected_group_type(
                 }
             }
             if dense == 79 {
-                Ok((GameMessageType::CreateSelectedGroup(create_new, ids), consumed))
+                Ok((
+                    GameMessageType::CreateSelectedGroup(create_new, ids),
+                    consumed,
+                ))
             } else {
                 Ok((
                     GameMessageType::CreateSelectedGroupNoSound(create_new, ids),
@@ -878,8 +878,6 @@ fn keep_command_during_playback(msg: &GameMessage) -> bool {
     let ty = msg.get_type();
     !(is_network_command_message(ty) && !matches!(ty, GameMessageType::LogicCRC(_)))
 }
-
-
 
 /// Replay header structure
 /// Matches C++ RecorderClass::ReplayHeader from Recorder.h:61-80
@@ -1189,7 +1187,6 @@ impl Recorder {
             .unwrap_or(false)
     }
 
-
     /// Drain any pending commands captured during playback
     pub fn drain_pending_commands(&mut self) -> Vec<GameMessage> {
         std::mem::take(&mut self.pending_commands)
@@ -1355,8 +1352,7 @@ impl Recorder {
         if let Some(cull) = &self.command_cull {
             cull();
         }
-        self.pending_commands
-            .retain(keep_command_during_playback);
+        self.pending_commands.retain(keep_command_during_playback);
     }
 
     /// Append next command from file to command list
@@ -2322,7 +2318,6 @@ impl Recorder {
         }
     }
 
-
     /// Cleanup replay file after desync
     /// Matches C++ RecorderClass::cleanUpReplayFile() from Recorder.cpp:265-330
     fn cleanup_replay_file(&mut self) {
@@ -3121,9 +3116,11 @@ mod tests {
         let exe_crc_offset = version_number_offset + 4;
 
         // Baseline: no differences => FALSE (matches C++).
-        assert!(!Recorder::new()
-            .test_version_playback(base_name.clone())
-            .unwrap());
+        assert!(
+            !Recorder::new()
+                .test_version_playback(base_name.clone())
+                .unwrap()
+        );
 
         let ext = writer.replay_extension();
         let version_string_name = format!("version_string_diff{ext}");
@@ -3135,9 +3132,11 @@ mod tests {
                 "version string",
             );
         });
-        assert!(Recorder::new()
-            .test_version_playback(version_string_name)
-            .unwrap());
+        assert!(
+            Recorder::new()
+                .test_version_playback(version_string_name)
+                .unwrap()
+        );
 
         let version_time_name = format!("version_time_diff{ext}");
         write_variant(&base_path, &replays_dir, &version_time_name, |bytes| {
@@ -3148,9 +3147,11 @@ mod tests {
                 "version build-time string",
             );
         });
-        assert!(Recorder::new()
-            .test_version_playback(version_time_name)
-            .unwrap());
+        assert!(
+            Recorder::new()
+                .test_version_playback(version_time_name)
+                .unwrap()
+        );
 
         let version_number_name = format!("version_number_diff{ext}");
         write_variant(&base_path, &replays_dir, &version_number_name, |bytes| {
@@ -3162,9 +3163,11 @@ mod tests {
             bytes[version_number_offset..version_number_offset + 4]
                 .copy_from_slice(&current.wrapping_add(1).to_le_bytes());
         });
-        assert!(Recorder::new()
-            .test_version_playback(version_number_name)
-            .unwrap());
+        assert!(
+            Recorder::new()
+                .test_version_playback(version_number_name)
+                .unwrap()
+        );
 
         let exe_crc_name = format!("exe_crc_diff{ext}");
         write_variant(&base_path, &replays_dir, &exe_crc_name, |bytes| {
@@ -3242,13 +3245,16 @@ mod tests {
             replay_type_id(&GameMessageType::CreateTeamSlot(3)).unwrap(),
             CPP_MSG_CREATE_TEAM0 + 3
         );
-        let (ty, _) = decode_replay_type_id(1068, &[GameMessageArgumentType::Location(
-            crate::common::message_stream::game_message::Coord3D {
-                x: 1.0,
-                y: 2.0,
-                z: 3.0,
-            },
-        )])
+        let (ty, _) = decode_replay_type_id(
+            1068,
+            &[GameMessageArgumentType::Location(
+                crate::common::message_stream::game_message::Coord3D {
+                    x: 1.0,
+                    y: 2.0,
+                    z: 3.0,
+                },
+            )],
+        )
         .unwrap();
         assert!(matches!(ty, GameMessageType::DoMoveTo(_)));
         let (ty, _) = decode_replay_type_id(1009, &[]).unwrap();
@@ -3265,8 +3271,11 @@ mod tests {
             height: 100,
         };
         let mut buf = Vec::new();
-        Recorder::write_argument(&mut buf, &GameMessageArgumentType::PixelRegion(region.clone()))
-            .unwrap();
+        Recorder::write_argument(
+            &mut buf,
+            &GameMessageArgumentType::PixelRegion(region.clone()),
+        )
+        .unwrap();
         assert_eq!(
             buf,
             [
@@ -3535,7 +3544,10 @@ mod tests {
 
         {
             let stream = get_message_stream();
-            stream.write().unwrap_or_else(|e| e.into_inner()).clear_messages();
+            stream
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear_messages();
         }
 
         let mut reader = Recorder::new();
@@ -3551,7 +3563,9 @@ mod tests {
                 .map(|msg| msg.get_type().clone())
                 .collect();
             assert!(
-                types.iter().any(|ty| matches!(ty, GameMessageType::NewGame)),
+                types
+                    .iter()
+                    .any(|ty| matches!(ty, GameMessageType::NewGame)),
                 "playbackFile must append MSG_NEW_GAME to TheMessageStream, got {types:?}"
             );
         }
@@ -3573,4 +3587,4 @@ mod tests {
             );
         }
     }
- }
+}

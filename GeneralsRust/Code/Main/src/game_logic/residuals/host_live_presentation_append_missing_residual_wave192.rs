@@ -107,11 +107,11 @@ pub fn honesty_engine_append_after_overlay_source() -> bool {
 /// Live residual: append creates a frame object for a shadow-only entity.
 pub fn simulate_live_presentation_append_missing_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-    use gamelogic::world::entities::TemplateRef;
     use gamelogic::world::PlayerId;
+    use gamelogic::world::entities::TemplateRef;
     use glam::Vec3;
 
     if !honesty_live_presentation_append_missing_residual_pack_wave192() {

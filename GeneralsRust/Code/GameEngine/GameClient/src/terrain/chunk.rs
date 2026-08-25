@@ -6,8 +6,8 @@
 
 use crate::fx_list::{do_the_dynamic_light, scene_dynamic_lights};
 use crate::terrain::{
-    calculate_terrain_lod, HeightMap, TerrainConfig, TerrainError, TerrainLOD, TerrainModification,
-    TerrainResult, TerrainVertex,
+    HeightMap, TerrainConfig, TerrainError, TerrainLOD, TerrainModification, TerrainResult,
+    TerrainVertex, calculate_terrain_lod,
 };
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::HashMap;
@@ -92,7 +92,6 @@ fn static_diffuse_from_normal(normal: Vec3) -> [f32; 4] {
     color[2] = color[2].max(COLOR_FLOOR);
     color
 }
-
 
 /// Unique identifier for terrain chunks
 pub type ChunkId = u32;
@@ -407,7 +406,7 @@ impl TerrainChunk {
         let h10 = self.sample_height_grid(x1, z0); // p1
         let h01 = self.sample_height_grid(x0, z1); // p3
         let h11 = self.sample_height_grid(x1, z1); // p2
-                                                   // Same plane split as HeightMap::get_height_at / C++ fy > fx upper triangle.
+        // Same plane split as HeightMap::get_height_at / C++ fy > fx upper triangle.
         if tz > tx {
             h01 + (1.0 - tz) * (h00 - h01) + tx * (h11 - h01)
         } else {
@@ -550,17 +549,12 @@ impl TerrainChunk {
         // rejects everything (identity/wrong clip space), keep chunks under
         // the look-at so Alpine is not a blue void.
         let camera = frustum.view_matrix.inverse().transform_point3(Vec3::ZERO);
-        let pad = (max.x - min.x)
-            .abs()
-            .max((max.z - min.z).abs())
-            .max(512.0);
+        let pad = (max.x - min.x).abs().max((max.z - min.z).abs()).max(512.0);
         camera.x + pad >= min.x
             && camera.x - pad <= max.x
             && camera.z + pad >= min.z
             && camera.z - pad <= max.z
-
     }
-
 
     /// Apply terrain modification to this chunk
     pub fn apply_modification(&mut self, modification: &TerrainModification) -> TerrainResult<()> {
@@ -1506,7 +1500,6 @@ impl ChunkManager {
             } else if (chunk.visible || near_camera) && !chunk.vertices.is_empty() {
                 chunk.apply_dynamic_lights();
             }
-
         }
 
         self.stats.rendered_chunks = self.stats.visible_chunks;
@@ -1696,8 +1689,8 @@ mod tests {
     #[test]
     fn generate_geometry_bakes_do_the_dynamic_light_into_vertex_color() {
         use crate::fx_list::{
-            clear_scene_dynamic_lights, create_display_light_pulse, do_the_dynamic_light,
-            drain_display_light_pulses, scene_dynamic_lights, DisplayLightPulse,
+            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            do_the_dynamic_light, drain_display_light_pulses, scene_dynamic_lights,
         };
 
         let _ = drain_display_light_pulses();

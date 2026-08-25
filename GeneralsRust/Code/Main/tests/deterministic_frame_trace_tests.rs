@@ -1,7 +1,8 @@
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::deterministic_trace::{
-    calculate_frame_crc, compare_frame_traces, first_trace_difference, run_trace_scenario,
-    FrameTrace, TraceDifference, TraceObject, TracePlayer, TraceScenario,
+    FrameTrace, TraceDifference, TraceEvent, TraceObject, TracePlayer, TraceScenario,
+    calculate_frame_crc, compare_frame_traces, first_trace_difference,
+    first_trace_field_difference, run_trace_scenario,
 };
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
 use glam::Vec3;
@@ -153,7 +154,10 @@ fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
         .create_object("TraceHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("humvee should spawn");
     let technical = game_logic
-        .create_object("TraceTechnical", Team::GLA, Vec3::new(35.0, 0.0, 0.0))
+        // Keep the fixture inside the retail close-range LOS bypass. The
+        // differential trace is meant to exercise command/combat state, not
+        // depend on whichever terrain/path grid another test initialized.
+        .create_object("TraceTechnical", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
         .expect("technical should spawn");
 
     let humvee_weapon = Some(Weapon {
@@ -162,7 +166,7 @@ fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
         reload_time: 0.0,
         projectile_speed: 0.0,
         ..Weapon::default()
-});
+    });
     game_logic
         .get_objects_mut()
         .get_mut(&humvee)
@@ -248,6 +252,40 @@ fn frame_trace_compare_reports_length_mismatch_after_common_prefix() {
             right_len: 1,
         }
     );
+}
+
+#[test]
+fn detailed_trace_reports_first_rng_state_event_and_xfer_byte() {
+    let baseline = baseline_trace(false);
+
+    let mut rng_changed = baseline.clone();
+    rng_changed[0].rng_seed[2] ^= 1;
+    let difference = first_trace_field_difference(&baseline, &rng_changed).unwrap();
+    assert_eq!(difference.category, "rng");
+    assert_eq!(difference.path, "rng[2]");
+
+    let mut state_changed = baseline.clone();
+    state_changed[0].objects[0].health -= 1.0;
+    let difference = first_trace_field_difference(&baseline, &state_changed).unwrap();
+    assert_eq!(difference.category, "objects");
+    assert!(difference.path.ends_with(".health"));
+
+    let mut event_changed = baseline.clone();
+    event_changed[0].events.push(TraceEvent {
+        kind: "Audio".to_string(),
+        source: Some(ObjectId(10)),
+        target: None,
+        payload: "WeaponFire".to_string(),
+    });
+    let difference = first_trace_field_difference(&baseline, &event_changed).unwrap();
+    assert_eq!(difference.category, "events");
+    assert!(difference.path.starts_with("events[0]"));
+
+    let mut xfer_changed = baseline.clone();
+    xfer_changed[0].xfer_bytes = vec![1, 2, 3];
+    let difference = first_trace_field_difference(&baseline, &xfer_changed).unwrap();
+    assert_eq!(difference.category, "xfer");
+    assert_eq!(difference.path, "xfer[0]");
 }
 
 #[test]

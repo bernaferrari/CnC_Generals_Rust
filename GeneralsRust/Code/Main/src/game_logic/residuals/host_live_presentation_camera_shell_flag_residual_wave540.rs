@@ -78,8 +78,8 @@ pub fn residual_presentation_camera_shell_flag_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_camera_shell_flag_last_action(
-) -> ResidualPresentationCameraShellFlagAction {
+pub fn residual_presentation_camera_shell_flag_last_action()
+-> ResidualPresentationCameraShellFlagAction {
     ResidualPresentationCameraShellFlagAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

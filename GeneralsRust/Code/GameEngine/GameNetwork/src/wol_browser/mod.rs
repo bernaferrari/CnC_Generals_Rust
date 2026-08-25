@@ -17,7 +17,7 @@ use crate::error::{NetworkError, NetworkResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use tracing::{debug, error, info, instrument, warn};
 
 /// Westwood Online Browser interface
@@ -405,7 +405,13 @@ impl WolBrowser {
             script.chars().take(50).collect::<String>()
         );
 
-        let html = self.state.read().await.page_html.clone().unwrap_or_default();
+        let html = self
+            .state
+            .read()
+            .await
+            .page_html
+            .clone()
+            .unwrap_or_default();
         Ok(html)
     }
 

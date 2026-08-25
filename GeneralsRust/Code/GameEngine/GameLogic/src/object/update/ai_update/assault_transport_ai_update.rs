@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use crate::ai::object_registry::get_legacy_object;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::{Bool, Coord3D, ObjectID, Real, UnsignedInt, INVALID_ID};
+use crate::common::{Bool, Coord3D, INVALID_ID, ObjectID, Real, UnsignedInt};
 use crate::helpers::TheGameLogic;
 use crate::modules::{AIUpdateInterface, AIUpdateInterfaceExt, AssaultTransportAIUpdateInterface};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::weapon::NO_MAX_SHOTS_LIMIT;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -383,11 +383,7 @@ impl AssaultTransportAIUpdate {
                     };
                     guard.is_effectively_dead()
                 };
-                if is_dead {
-                    None
-                } else {
-                    Some(target)
-                }
+                if is_dead { None } else { Some(target) }
             });
 
         if let Some(_target) = designated_target.as_ref() {

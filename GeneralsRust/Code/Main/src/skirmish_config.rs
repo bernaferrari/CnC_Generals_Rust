@@ -5,7 +5,7 @@
 
 use crate::ai::AIDifficulty;
 use crate::game_logic::{GameLogic, GameMode, Player, PlayerTemplateIdentity, Team};
-use crate::ui::skirmish_menu::{Faction, GameRules, GameSlot, PlayerType, MAX_SLOTS};
+use crate::ui::skirmish_menu::{Faction, GameRules, GameSlot, MAX_SLOTS, PlayerType};
 use serde::{Deserialize, Serialize};
 
 /// The exact C++ `GameSlot::m_playerTemplate` selection for an occupied
@@ -391,10 +391,7 @@ fn resolve_random_skirmish_template(
 /// C++ `populateRandomStartPosition` (GameLogic.cpp:785-1048).
 /// Unassigned (`-1`) slots get unused map start spots; first pick is random,
 /// later picks prefer farthest empty spots (teammates stay close).
-pub fn populate_random_start_position(
-    slots: &mut [SkirmishSlotConfig],
-    map_name: &str,
-) {
+pub fn populate_random_start_position(slots: &mut [SkirmishSlotConfig], map_name: &str) {
     use game_engine::common::random_value::get_game_logic_random_value;
 
     let starts = crate::game_logic::script_loader::parse_player_start_waypoints(map_name)
@@ -440,10 +437,7 @@ pub fn populate_random_start_position(
         if idx < 0 || idx >= num_players {
             return true;
         }
-        taken[idx as usize]
-            || slots
-                .iter()
-                .any(|s| s.is_active && s.start_position == idx)
+        taken[idx as usize] || slots.iter().any(|s| s.is_active && s.start_position == idx)
     };
 
     let mut team_pos = [-1i32; MAX_SLOTS];
@@ -475,7 +469,9 @@ pub fn populate_random_start_position(
                 }
             }
             if pick < 0 {
-                pick = (0..num_players).find(|&n| !is_taken(n, &taken, slots)).unwrap_or(0);
+                pick = (0..num_players)
+                    .find(|&n| !is_taken(n, &taken, slots))
+                    .unwrap_or(0);
             }
             has_start_spot_been_picked = true;
             if team >= 0 && (team as usize) < MAX_SLOTS {
@@ -548,7 +544,6 @@ fn skirmish_num_teams(slots: &[SkirmishSlotConfig]) -> i32 {
     }
     num_teams
 }
-
 
 fn resolve_skirmish_slots(
     config: &SkirmishMatchConfig,
@@ -671,7 +666,6 @@ pub fn apply_skirmish_config(
                 slot.color_rgb,
             );
 
-
         player.start_position = start_position;
         player.alliance_team = slot.team;
         logic.add_player(player);
@@ -702,7 +696,6 @@ pub fn apply_skirmish_config(
                 slot.color_rgb,
             );
 
-
         player.start_position = start_position;
         player.alliance_team = slot.team;
         let is_observer = player.is_observer;
@@ -712,9 +705,7 @@ pub fn apply_skirmish_config(
         drop(player);
 
         if is_observer {
-            if let Ok(mut shroud) =
-                gamelogic::system::shroud_manager::get_shroud_manager().lock()
-            {
+            if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
                 let _ = shroud.reveal_map_for_player_permanently(player_id);
             }
             if slot.is_human {
@@ -781,7 +772,7 @@ pub fn config_from_client_skirmish_setup(
     map_override: Option<&str>,
 ) -> Option<SkirmishMatchConfig> {
     use game_client::gui::get_skirmish_setup;
-    use game_client::{SlotState, MAX_SLOTS, PLAYERTEMPLATE_RANDOM};
+    use game_client::{MAX_SLOTS, PLAYERTEMPLATE_RANDOM, SlotState};
     use game_engine::common::ini::ensure_player_templates_loaded;
     use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
     use game_engine::common::rts::player_template::get_player_template_store;
@@ -1181,7 +1172,8 @@ mod tests {
             .expect_err("a locked Boss persona must not reach host Skirmish startup");
         assert!(error.contains("FactionBossGeneral"), "{error}");
         assert!(
-            error.contains("locked General persona") || error.contains("no Skirmish StartingBuilding"),
+            error.contains("locked General persona")
+                || error.contains("no Skirmish StartingBuilding"),
             "{error}"
         );
         assert_eq!(logic.game_mode(), GameMode::SinglePlayer);
@@ -1689,7 +1681,9 @@ mod tests {
         assert!(
             candidates.iter().any(|(identity, team)| {
                 *team == Team::USA
-                    && identity.template_name.eq_ignore_ascii_case("FactionAmerica")
+                    && identity
+                        .template_name
+                        .eq_ignore_ascii_case("FactionAmerica")
             }),
             "FactionAmerica must stay eligible: {candidates:?}"
         );
@@ -1755,10 +1749,7 @@ mod tests {
         let snap = shroud.snapshot_state();
         assert!(
             snap.pending_permanent_reveal_players.contains(&id)
-                || snap
-                    .grid
-                    .as_ref()
-                    .is_some_and(|_| true),
+                || snap.grid.as_ref().is_some_and(|_| true),
             "ReplayObserver must be queued for or already have permanent reveal"
         );
     }
@@ -1824,6 +1815,4 @@ mod tests {
             ),
         }
     }
-
-
 }

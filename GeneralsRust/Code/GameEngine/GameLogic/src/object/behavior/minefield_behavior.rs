@@ -6,9 +6,9 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, KindOf, ModuleData, ObjectID, ObjectStatusMaskType,
-    ObjectStatusTypes, PathfindLayerEnum, Real, Relationship, TheGameLogic, UnsignedInt,
-    XferVersion, INVALID_ID, MODELCONDITION_RUBBLE,
+    AsciiString, Bool, Coord3D, INVALID_ID, Int, KindOf, MODELCONDITION_RUBBLE, ModuleData,
+    ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PathfindLayerEnum, Real, Relationship,
+    TheGameLogic, UnsignedInt, XferVersion,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::effects::ObjectCreationList;
@@ -17,13 +17,13 @@ use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, DamageModuleInterface, DieModuleInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{
-    xfer_update_module_base_state, BehaviorModuleData, LandMineInterface,
-};
 use crate::object::Object as GameObject;
 use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
-use crate::weapon::{with_weapon_store, WeaponTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{
+    BehaviorModuleData, LandMineInterface, xfer_update_module_base_state,
+};
+use crate::weapon::{WeaponTemplate, with_weapon_store};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -667,7 +667,16 @@ impl MinefieldBehavior {
             }
         }
 
-        let (other_pos, owner_pos, geom_type, major_radius, minor_radius, should_ignore_worker, clearing_mines, relationship) = {
+        let (
+            other_pos,
+            owner_pos,
+            geom_type,
+            major_radius,
+            minor_radius,
+            should_ignore_worker,
+            clearing_mines,
+            relationship,
+        ) = {
             let Ok(object) = owner.read() else {
                 return;
             };
@@ -854,8 +863,10 @@ fn clip_point_to_footprint(
             }
         }
         GeometryType::Box => {
-            pt.x = pt.x.clamp(geom_center.x - major_radius, geom_center.x + major_radius);
-            pt.y = pt.y.clamp(geom_center.y - minor_radius, geom_center.y + minor_radius);
+            pt.x =
+                pt.x.clamp(geom_center.x - major_radius, geom_center.x + major_radius);
+            pt.y =
+                pt.y.clamp(geom_center.y - minor_radius, geom_center.y + minor_radius);
         }
     }
 }

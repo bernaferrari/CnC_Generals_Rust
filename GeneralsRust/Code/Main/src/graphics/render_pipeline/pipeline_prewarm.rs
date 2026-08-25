@@ -318,7 +318,11 @@ impl RenderPipeline {
 
         info!(
             "Startup model prewarm: map='{}' candidates={} requested={} cache_hits={} resolved={} missing={} graphics_cached={}",
-            if map_name.is_empty() { "<unknown>" } else { &map_name },
+            if map_name.is_empty() {
+                "<unknown>"
+            } else {
+                &map_name
+            },
             candidates.len(),
             stats.requested,
             stats.cache_hits,
@@ -406,7 +410,9 @@ impl RenderPipeline {
                 }
                 if chunk_count == 0 {
                     if !LOGGED_ZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
-                        warn!("Terrain visual updated but no visible chunks were selected for drawing");
+                        warn!(
+                            "Terrain visual updated but no visible chunks were selected for drawing"
+                        );
                     }
                 } else if !LOGGED_NONZERO_TERRAIN_CHUNKS.swap(true, Ordering::Relaxed) {
                     info!(

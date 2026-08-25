@@ -2,7 +2,7 @@
 
 use crate::gui::control_bar::publish_host_cancel_structure_placement;
 use crate::gui::{
-    write_input_focus_response, GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, write_input_focus_response,
 };
 use crate::helpers::{TheControlBar, TheInGameUI};
 use game_engine::common::name_key_generator::NameKeyGenerator;

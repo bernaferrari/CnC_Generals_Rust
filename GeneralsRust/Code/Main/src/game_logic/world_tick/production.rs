@@ -7,7 +7,6 @@ impl GameLogic {
     /// C++ DozerAIUpdate.cpp:305 — one exclusive builder per structure.
 
     pub(in super::super) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
-
         const BUILDER_RANGE: f32 = crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE;
 
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
@@ -52,25 +51,30 @@ impl GameLogic {
 
         // Pre-scan dozers: exclusive builder + idle at ACTION dock
         // (C++ DozerActionDoActionState BUILD, DozerAIUpdate.cpp:482-507).
-        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>, bool, Option<Vec3>)> =
-            self.objects
-                .values()
-                .filter(|obj| obj.is_alive() && obj.can_construct())
-                .map(|obj| {
-                    let arrived = !obj.status.moving
-                        && obj.movement.current_path_index >= obj.movement.path.len();
-                    (
-                        obj.id,
-                        obj.get_position(),
-                        object_owner_player_ids.get(&obj.id).copied().flatten(),
-                        obj.target,
-                        arrived,
-                        obj.dozer_dock_action,
-                    )
-                })
-                .collect();
-
-
+        let dozer_info: Vec<(
+            ObjectId,
+            Vec3,
+            Option<u32>,
+            Option<ObjectId>,
+            bool,
+            Option<Vec3>,
+        )> = self
+            .objects
+            .values()
+            .filter(|obj| obj.is_alive() && obj.can_construct())
+            .map(|obj| {
+                let arrived = !obj.status.moving
+                    && obj.movement.current_path_index >= obj.movement.path.len();
+                (
+                    obj.id,
+                    obj.get_position(),
+                    object_owner_player_ids.get(&obj.id).copied().flatten(),
+                    obj.target,
+                    arrived,
+                    obj.dozer_dock_action,
+                )
+            })
+            .collect();
 
         let mut completed_superweapon_detects: Vec<ObjectId> = Vec::new();
         let mut completed_structures: Vec<ObjectId> = Vec::new();
@@ -345,12 +349,7 @@ impl GameLogic {
 
     /// C++ `DozerAIUpdate::startBuildingSound` / Worker twin.
     /// Plays the building's PerUnitSound "UnderConstruction" on the site.
-    pub fn start_building_sound(
-        &mut self,
-        site_id: ObjectId,
-        template_name: &str,
-        pos: Vec3,
-    ) {
+    pub fn start_building_sound(&mut self, site_id: ObjectId, template_name: &str, pos: Vec3) {
         let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
             template_name,
             "UnderConstruction",
@@ -599,7 +598,6 @@ impl GameLogic {
         }
     }
 
-
     pub(in super::super) fn update_production(&mut self, dt: f32) {
         // C++ ProductionUpdate.cpp:671 — re-check allowedToBuild on queue head.
         self.cancel_script_disallowed_production_queue_heads();
@@ -630,7 +628,6 @@ impl GameLogic {
         self.apply_upgrade_production_completions(upgrade_completions);
         self.apply_unit_production_completions(unit_completions);
     }
-
 
     /// Wave 613: host production completion collection residual.
     ///
@@ -744,7 +741,6 @@ impl GameLogic {
                     usize::MAX
                 };
 
-
                 // Under PRODUCTION_AUTHORITY, GameWorld ticks queue progress;
                 // host only exits delay + completes when writeback already finished the head.
                 let completed_prod = if sole {
@@ -770,43 +766,42 @@ impl GameLogic {
                             }
                             None
                         } else {
-                        let ready_count = ready_by_producer
-                            .get(&id)
-                            .and_then(|events| {
-                                building.production_queue.first().map(|head| {
-                                    events
-                                        .iter()
-                                        .filter(|event| {
-                                            event.is_upgrade == head.is_upgrade()
-                                                && event
-                                                    .template_name
-                                                    .eq_ignore_ascii_case(&head.template_name)
-                                        })
-                                        .count()
-                                        .min(u32::MAX as usize)
-                                        as u32
+                            let ready_count = ready_by_producer
+                                .get(&id)
+                                .and_then(|events| {
+                                    building.production_queue.first().map(|head| {
+                                        events
+                                            .iter()
+                                            .filter(|event| {
+                                                event.is_upgrade == head.is_upgrade()
+                                                    && event
+                                                        .template_name
+                                                        .eq_ignore_ascii_case(&head.template_name)
+                                            })
+                                            .count()
+                                            .min(u32::MAX as usize)
+                                            as u32
+                                    })
                                 })
-                            })
-                            .unwrap_or(0);
-                        let ready_count = if airfield_holds_parking {
-                            ready_count.min(parking_free as u32)
-                        } else {
-                            ready_count
-                        };
-                        (ready_count > 0)
-                            .then(|| {
-                                building.try_complete_production_at_power_with_exit_metadata(
-                                    pf,
-                                    exit_metadata.as_ref(),
-                                    Some(ready_count),
-                                )
-                            })
-                            .flatten()
+                                .unwrap_or(0);
+                            let ready_count = if airfield_holds_parking {
+                                ready_count.min(parking_free as u32)
+                            } else {
+                                ready_count
+                            };
+                            (ready_count > 0)
+                                .then(|| {
+                                    building.try_complete_production_at_power_with_exit_metadata(
+                                        pf,
+                                        exit_metadata.as_ref(),
+                                        Some(ready_count),
+                                    )
+                                })
+                                .flatten()
                         }
                     } else {
                         None
                     }
-
                 } else {
                     // `ProductionUpdate::update` increments the integer frame
                     // counter before it handles the completed unit's exit
@@ -868,7 +863,6 @@ impl GameLogic {
                             },
                         )
                     }
-
                 };
                 // GameWorld production residual: snapshot queue progress each tick
                 // unless sole-tick owns progress (Wave 477) — then enqueue/complete logs
@@ -1327,7 +1321,6 @@ impl GameLogic {
                 if airfield_output {
                     if self.reserve_produced_aircraft_parking_space(producer_id, new_id) {
                         let _ = self.place_produced_jet_at_parking_pose(producer_id, new_id);
-
                     } else {
                         log::warn!(
                             "Production aircraft {:?} from airfield {:?} held: no ParkingPlace stall",
@@ -1637,14 +1630,11 @@ impl GameLogic {
                         .objects
                         .get(&producer_id)
                         .map(|producer| producer.movement.velocity);
-                    if let (Some(vel), Some(unit)) =
-                        (producer_vel, self.objects.get_mut(&new_id))
-                    {
+                    if let (Some(vel), Some(unit)) = (producer_vel, self.objects.get_mut(&new_id)) {
                         let mass = unit.physics_get_mass();
                         unit.apply_motive_force(vel * mass);
                         const STARTING_PITCH_COEFF: f32 = 0.04;
-                        unit.shock_pitch_rate =
-                            unit.center_of_mass_offset * STARTING_PITCH_COEFF;
+                        unit.shock_pitch_rate = unit.center_of_mass_offset * STARTING_PITCH_COEFF;
                         unit.record_host_shock_stun();
                     }
                 }
@@ -1659,30 +1649,24 @@ impl GameLogic {
                     .get(&new_id)
                     .map(|unit| unit.selection_radius)
                     .unwrap_or(8.0);
-                let (surfaces, is_crusher, seeker_player, crusher_level, ground_move) =
-                    self.objects
-                        .get(&new_id)
-                        .map(|unit| {
-                            let surfaces = if unit.locomotor_surfaces != 0 {
-                                unit.locomotor_surfaces
-                            } else {
-                                crate::game_logic::LOCO_SURFACE_GROUND
-                            };
-                            (
-                                surfaces,
-                                unit.crusher_level > 0,
-                                unit.owner_player_id,
-                                unit.crusher_level,
-                                (surfaces & crate::game_logic::LOCO_SURFACE_GROUND) != 0,
-                            )
-                        })
-                        .unwrap_or((
-                            crate::game_logic::LOCO_SURFACE_GROUND,
-                            false,
-                            None,
-                            0,
-                            true,
-                        ));
+                let (surfaces, is_crusher, seeker_player, crusher_level, ground_move) = self
+                    .objects
+                    .get(&new_id)
+                    .map(|unit| {
+                        let surfaces = if unit.locomotor_surfaces != 0 {
+                            unit.locomotor_surfaces
+                        } else {
+                            crate::game_logic::LOCO_SURFACE_GROUND
+                        };
+                        (
+                            surfaces,
+                            unit.crusher_level > 0,
+                            unit.owner_player_id,
+                            unit.crusher_level,
+                            (surfaces & crate::game_logic::LOCO_SURFACE_GROUND) != 0,
+                        )
+                    })
+                    .unwrap_or((crate::game_logic::LOCO_SURFACE_GROUND, false, None, 0, true));
                 let mut natural = if let Some(prod) = self.objects.get(&producer_id) {
                     let f = prod.thing.get_direction_vector();
                     if let Some(exit) = producer_exit_metadata {
@@ -1730,7 +1714,6 @@ impl GameLogic {
                 self.follow_exit_production_path(new_id, &exit_path, producer_id);
             }
 
-
             // SupplyCenterProductionExitUpdate performs the ordinary exit
             // route first, then forces only SupplyTruckAI-capable outputs into
             // their Wanting state, then GrantTemporaryStealth (cpp:114-126).
@@ -1774,9 +1757,9 @@ impl GameLogic {
             {
                 let Some(template) = self.resolved_player_template(pid) else {
                     log::error!(
-                            "Rejecting selected PlayerTemplate starter spawn for player {}: identity no longer resolves",
-                            pid
-                        );
+                        "Rejecting selected PlayerTemplate starter spawn for player {}: identity no longer resolves",
+                        pid
+                    );
                     continue;
                 };
                 (
@@ -1876,9 +1859,7 @@ impl GameLogic {
                     }
                     self.ensure_ai_faction_templates(player.team);
                     if self.create_object_for_player(building, pid, pos).is_some() {
-                        gamelogic::player::notify_skirmish_starting_object(
-                            pid, building, true,
-                        );
+                        gamelogic::player::notify_skirmish_starting_object(pid, building, true);
                         base = Some(pos);
                         log::info!(
                             "Wave 831/832: seeded starting building {} for player {} at {:?}",

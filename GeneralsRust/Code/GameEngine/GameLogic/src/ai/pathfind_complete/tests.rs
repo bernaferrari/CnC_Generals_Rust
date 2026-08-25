@@ -808,8 +808,11 @@ fn segment_intersects_no_building_false() {
     let mut i1 = Coord3D::new(0.0, 0.0, 0.0);
     let mut i2 = Coord3D::new(0.0, 0.0, 0.0);
     let mut i3 = Coord3D::new(0.0, 0.0, 0.0);
-    assert!(!system
-        .segment_intersects_tall_building(&from, &mut to, INVALID_ID, &mut i1, &mut i2, &mut i3));
+    assert!(
+        !system.segment_intersects_tall_building(
+            &from, &mut to, INVALID_ID, &mut i1, &mut i2, &mut i3
+        )
+    );
 }
 
 #[test]
@@ -866,6 +869,40 @@ fn build_actual_path_prepends_unit_feet() {
     assert_eq!(result.waypoints.len(), result.can_optimize.len());
     // First waypoint should be unit feet.
     assert!((result.waypoints[0].x - from.x).abs() < 0.01);
+}
+
+#[test]
+fn build_actual_path_empty_grid_returns_cpp_failure() {
+    let system = PathfindingSystem::new(8, 8);
+    let from = Coord3D::new(5.0, 5.0, 0.0);
+    let to = Coord3D::new(65.0, 65.0, 0.0);
+    let result = system.build_actual_path(&[], &from, &to, SURFACE_GROUND, false, false, true);
+    assert!(
+        !result.success,
+        "empty A* path is C++ NULL, not a direct path"
+    );
+    assert!(result.waypoints.is_empty());
+}
+
+#[test]
+fn find_path_propagates_build_failure_without_raw_grid_fallback() {
+    let src = PATHFIND_COMPLETE_SRC;
+    let prod = src.split("#[cfg(test)]").next().expect("production");
+    let start = prod
+        .find("let built = self.build_actual_path_for_object")
+        .expect("internalFindPath buildActualPath call");
+    let end = start
+        + prod[start..]
+            .find("/// Find closest reachable path")
+            .expect("findClosestPath follows internalFindPath");
+    let branch = &prod[start..end];
+    assert!(branch.contains("if built.success"));
+    assert!(branch.contains("PathResult::none()"));
+    assert!(
+        !branch.contains("Fallback manual conversion")
+            && !branch.contains("adjust_coord_to_cell(coord.x, coord.y"),
+        "internalFindPath must not turn buildActualPath failure into raw grid waypoints"
+    );
 }
 
 #[test]
@@ -1027,7 +1064,10 @@ fn adjust_to_landing_refuses_other_aircraft_goal() {
     assert!(system.adjust_to_landing_destination_for(&from, &mut own, 0.0, 99));
     let reserved_cell = PathfindingSystem::cell_for_unit_position(&reserved, true);
     let own_cell = PathfindingSystem::cell_for_unit_position(&own, true);
-    assert_eq!(own_cell, reserved_cell, "owner may land on own goalAircraft");
+    assert_eq!(
+        own_cell, reserved_cell,
+        "owner may land on own goalAircraft"
+    );
 
     let mut other = reserved;
     assert!(system.adjust_to_landing_destination_for(&from, &mut other, 0.0, 12));
@@ -1151,16 +1191,22 @@ fn get_cell_type_at_layer_ground_truncates_toward_zero() {
 fn get_cell_type_at_layer_missing_cell_is_none() {
     // None = C++ getCell NULL → CELL_IMPASSABLE for diesOnBadLand.
     let system = PathfindingSystem::new(8, 8);
-    assert!(system
-        .get_cell_type_at_cell(PathfindLayerEnum::Ground, -1, 0)
-        .is_none());
-    assert!(system
-        .get_cell_type_at_cell(PathfindLayerEnum::Ground, 99, 99)
-        .is_none());
+    assert!(
+        system
+            .get_cell_type_at_cell(PathfindLayerEnum::Ground, -1, 0)
+            .is_none()
+    );
+    assert!(
+        system
+            .get_cell_type_at_cell(PathfindLayerEnum::Ground, 99, 99)
+            .is_none()
+    );
     // Top with no BridgeLayer cell → None (impassable).
-    assert!(system
-        .get_cell_type_at_layer(&Coord3D::new(15.0, 15.0, 0.0), PathfindLayerEnum::Top)
-        .is_none());
+    assert!(
+        system
+            .get_cell_type_at_layer(&Coord3D::new(15.0, 15.0, 0.0), PathfindLayerEnum::Top)
+            .is_none()
+    );
 }
 
 #[test]
@@ -1171,9 +1217,11 @@ fn get_cell_type_at_layer_top_uses_bridge_bounds() {
         system.get_cell_type_at_cell(PathfindLayerEnum::Top, 3, 3),
         Some(PathfindCellType::Clear)
     );
-    assert!(system
-        .get_cell_type_at_cell(PathfindLayerEnum::Top, 10, 10)
-        .is_none());
+    assert!(
+        system
+            .get_cell_type_at_cell(PathfindLayerEnum::Top, 10, 10)
+            .is_none()
+    );
 }
 
 #[test]
@@ -2455,9 +2503,11 @@ fn tall_building_segment_finds_obstacle_id_building() {
     // No registry object → no tall building found (cannot resolve KindOf).
     let from = Coord3D::new(50.0, 100.0, 0.0);
     let to = Coord3D::new(150.0, 100.0, 0.0);
-    assert!(system
-        .find_tall_building_along_segment(&from, &to, INVALID_ID)
-        .is_none());
+    assert!(
+        system
+            .find_tall_building_along_segment(&from, &to, INVALID_ID)
+            .is_none()
+    );
 }
 
 #[test]
@@ -2902,6 +2952,34 @@ fn find_path_still_works_open_ground() {
     let r = system.find_path(req);
     assert!(r.success);
     assert!(r.waypoints.len() >= 2);
+}
+
+#[test]
+fn find_path_blocked_wall_returns_cpp_failure() {
+    let mut system = PathfindingSystem::new(4, 4);
+    system.new_map();
+    // A complete impassable column separates the start and destination cells.
+    for y in [5.0, 15.0, 25.0, 35.0] {
+        system.set_cell_type(&Coord3D::new(15.0, y, 0.0), PathfindCellType::Impassable);
+    }
+    let request = PathRequest {
+        object_id: INVALID_ID,
+        from: Coord3D::new(5.0, 5.0, 0.0),
+        to: Coord3D::new(35.0, 35.0, 0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let result = system.find_path(request);
+    assert!(
+        !result.success,
+        "blocked route must return C++ NULL-equivalent"
+    );
+    assert!(result.waypoints.is_empty());
 }
 
 #[test]

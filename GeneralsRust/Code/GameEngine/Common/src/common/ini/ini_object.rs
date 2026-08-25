@@ -9,12 +9,12 @@
 //! Desc:   Parsing Object INI entries
 
 use crate::common::ascii_string::AsciiString;
-use crate::common::ini::ini::{INIError, INIResult, INI};
+use crate::common::ini::ini::{INI, INIError, INIResult};
 use crate::common::thing::thing_factory::{
-    get_thing_factory, init_thing_factory, ThingFactory as RuntimeThingFactory,
+    ThingFactory as RuntimeThingFactory, get_thing_factory, init_thing_factory,
 };
 use crate::common::thing::thing_template::{
-    parse_bool_field, parse_u32_field, split_weapon_condition_tokens, WeaponSetDefinition,
+    WeaponSetDefinition, parse_bool_field, parse_u32_field, split_weapon_condition_tokens,
 };
 use once_cell::sync::Lazy;
 use std::collections::{BTreeMap, HashMap};

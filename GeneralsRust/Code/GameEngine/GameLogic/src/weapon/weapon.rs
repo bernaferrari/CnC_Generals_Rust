@@ -7,15 +7,15 @@
 //! - GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp
 //! - GeneralsMD/Code/GameEngine/Include/GameLogic/Weapon.h
 
-use crate::common::{Bool, Coord3D, KindOf, ObjectID, Real, UnsignedInt, INVALID_ID};
+use crate::common::{Bool, Coord3D, INVALID_ID, KindOf, ObjectID, Real, UnsignedInt};
 use crate::damage::{
     DamageInfo, DamageInfoInput, DamageType as LogicDamageType, DeathType as LogicDeathType,
 };
-use crate::helpers::{get_game_logic_random_value, TheGameLogic, TheTerrainLogic, TheThingFactory};
+use crate::helpers::{TheGameLogic, TheTerrainLogic, TheThingFactory, get_game_logic_random_value};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::weapon::{
-    DamageType, DeathType, WeaponBonus, WeaponBonusConditionFlags, WeaponBonusField,
-    WeaponReloadType, WeaponSlotType, WeaponStatus, WeaponTemplate, NO_MAX_SHOTS_LIMIT,
+    DamageType, DeathType, NO_MAX_SHOTS_LIMIT, WeaponBonus, WeaponBonusConditionFlags,
+    WeaponBonusField, WeaponReloadType, WeaponSlotType, WeaponStatus, WeaponTemplate,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
@@ -1738,11 +1738,10 @@ impl Snapshotable for Weapon {
                         return Err(format!(
                             "Weapon template '{}' not found in WeaponStore",
                             tmpl_name
-                        ))
+                        ));
                     }
                 }
             }
-
         }
 
         // Weapon slot
@@ -1761,7 +1760,6 @@ impl Snapshotable for Weapon {
                 _ => WeaponSlotType::Primary,
             };
         }
-
 
         // Status
         let mut status = self.status as i32;

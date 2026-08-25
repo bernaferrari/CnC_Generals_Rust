@@ -2,9 +2,9 @@
 
 use crate::gui::control_bar::publish_host_dismiss_in_game_popup_message;
 use crate::gui::{
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowMsgPayload,
     get_display_string_manager, get_font_library, payload, pop_payload, push_payload,
-    queue_window_manager_op, with_window_manager, write_input_focus_response, GameWindow,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowMsgPayload,
+    queue_window_manager_op, with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
 use crate::message_stream::game_message::GameMessageType;
@@ -316,10 +316,11 @@ pub fn in_game_popup_message_system(
 mod tests {
     use super::*;
     use crate::gui::control_bar::{
-        acquire_host_control_bar_bridge_test_guard, clear_host_control_bar_requests,
-        set_host_control_bar_bridge_enabled, take_host_control_bar_requests, HostControlBarRequest,
+        HostControlBarRequest, acquire_host_control_bar_bridge_test_guard,
+        clear_host_control_bar_requests, set_host_control_bar_bridge_enabled,
+        take_host_control_bar_requests,
     };
-    use crate::gui::{with_payload, with_window_manager, WindowInputReturnCode};
+    use crate::gui::{WindowInputReturnCode, with_payload, with_window_manager};
     use crate::message_stream::get_message_stream;
     use std::sync::atomic::{AtomicBool, Ordering};
 

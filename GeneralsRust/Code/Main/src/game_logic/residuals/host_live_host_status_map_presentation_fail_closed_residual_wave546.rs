@@ -78,8 +78,8 @@ pub fn residual_host_status_map_presentation_fail_closed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_status_map_presentation_fail_closed_last_action(
-) -> ResidualHostStatusMapPresentationFailClosedAction {
+pub fn residual_host_status_map_presentation_fail_closed_last_action()
+-> ResidualHostStatusMapPresentationFailClosedAction {
     ResidualHostStatusMapPresentationFailClosedAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

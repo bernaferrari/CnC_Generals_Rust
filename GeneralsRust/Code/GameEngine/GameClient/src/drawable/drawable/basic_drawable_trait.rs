@@ -1,10 +1,10 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
-use crate::display::view::{with_tactical_view_ref, Point3};
+use crate::display::view::{Point3, with_tactical_view_ref};
 use crate::draw_group_info::get_draw_group_info;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
-use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::font::{FontDesc, get_font_library};
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
@@ -14,15 +14,15 @@ use game_engine::common::audio::audio_event_rts::AudioEventRts;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::get_global_audio_manager;
 use game_engine::common::bit_flags::{
-    create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
+    ModelConditionBitFlags, ModelConditionFlags, create_model_condition_flags,
 };
-use game_engine::common::ini::{get_anim2d_collection, get_global_data, TimeOfDay as IniTimeOfDay};
+use game_engine::common::ini::{TimeOfDay as IniTimeOfDay, get_anim2d_collection, get_global_data};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
+use gamelogic::common::types::{FormationID, INVALID_ID, ObjectID, WeaponSlotType};
 use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
+use gamelogic::player::{NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS, Player};
 use parking_lot::Mutex;
 use std::error::Error;
 use std::sync::Arc;
@@ -249,9 +249,9 @@ impl Drawable for BasicDrawable {
                     }
                 }
             }
-        if let Some(handle) = &self.terrain_decal_handle {
-            handle.set_position(self.position.x, self.position.y, self.position.z);
-        }
+            if let Some(handle) = &self.terrain_decal_handle {
+                handle.set_position(self.position.x, self.position.y, self.position.z);
+            }
         } else {
             self.decal_opacity = 0.0;
         }
@@ -260,7 +260,9 @@ impl Drawable for BasicDrawable {
             let effectively_dead = self.object_id.is_some_and(|obj_id| {
                 OBJECT_REGISTRY
                     .get_object(obj_id)
-                    .and_then(|obj_arc| obj_arc.read().ok().map(|guard| guard.is_effectively_dead()))
+                    .and_then(|obj_arc| {
+                        obj_arc.read().ok().map(|guard| guard.is_effectively_dead())
+                    })
                     .unwrap_or(false)
             });
             if effectively_dead {
@@ -310,7 +312,6 @@ impl Drawable for BasicDrawable {
         self.publish_wheel_info_to_logic();
         self.apply_pending_time_of_day();
         self.restart_ambient_if_dropped();
-
     }
 
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
@@ -668,11 +669,7 @@ impl Drawable for BasicDrawable {
             }
         }
 
-        if drew_anything {
-            Ok(())
-        } else {
-            Ok(())
-        }
+        if drew_anything { Ok(()) } else { Ok(()) }
     }
 
     fn set_current_frame(&mut self, frame: u32) {

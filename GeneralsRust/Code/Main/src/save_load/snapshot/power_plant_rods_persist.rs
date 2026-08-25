@@ -47,10 +47,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: reconstructed objects start idle; a reused GameLogic
     // must not keep the previous session's rod clocks.
     reset_rods(game_logic);
@@ -153,11 +150,7 @@ mod tests {
         );
         source.add_player(Player::new(0, Team::USA, "USA", true));
         let plant = source
-            .create_object(
-                "AmericaPowerPlant",
-                Team::USA,
-                Vec3::new(20.0, 0.0, 16.0),
-            )
+            .create_object("AmericaPowerPlant", Team::USA, Vec3::new(20.0, 0.0, 16.0))
             .expect("plant");
         {
             let object = source.host_object_mut(plant).expect("plant obj");

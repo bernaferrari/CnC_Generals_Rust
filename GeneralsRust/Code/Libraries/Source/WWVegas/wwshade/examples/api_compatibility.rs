@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 use wwshade::{
-    create_renderer, create_shader_interface, get_backend_info, has_modern_support,
-    initialize_rendering, ShdDefClassId, ShdResult,
+    ShdDefClassId, ShdResult, create_renderer, create_shader_interface, get_backend_info,
+    has_modern_support, initialize_rendering,
 };
 
 #[tokio::main]

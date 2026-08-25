@@ -46,7 +46,6 @@ pub const BRIDGE_DAMAGED_TO_SOUND: &str = "BridgeDamaged";
 /// C++ Roads.ini `RepairedToSound` residual.
 pub const BRIDGE_REPAIRED_TO_SOUND: &str = "BridgeRepaired";
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostBridgeMirrorKind {
     Damage,
@@ -132,7 +131,13 @@ pub struct HostScaffoldTile {
 }
 
 impl HostScaffoldTile {
-    fn from_rise_build(rise_to: Vec3, build_pos: Vec3, angle: f32, height: f32, is_support: bool) -> Self {
+    fn from_rise_build(
+        rise_to: Vec3,
+        build_pos: Vec3,
+        angle: f32,
+        height: f32,
+        is_support: bool,
+    ) -> Self {
         let create_pos = Vec3::new(
             rise_to.x,
             rise_to.y - height.max(0.0) - BRIDGE_SCAFFOLD_SINK_FUDGE,
@@ -162,7 +167,6 @@ pub struct HostScaffoldAnim {
     pub last_pos: Vec3,
 }
 
-
 impl HostScaffoldAnim {
     pub fn from_tile(id: ObjectId, tile: &HostScaffoldTile, center: Vec3) -> Self {
         let dist_build = (tile.build_pos - tile.rise_to).length();
@@ -181,7 +185,6 @@ impl HostScaffoldAnim {
             lateral_speed: BRIDGE_SCAFFOLD_LATERAL_SPEED * ratio,
             vertical_speed: BRIDGE_SCAFFOLD_VERTICAL_SPEED,
             last_pos: tile.create_pos,
-
         }
     }
 
@@ -211,7 +214,9 @@ impl HostScaffoldAnim {
             HostScaffoldMotion::Rise => (self.vertical_speed, self.create_pos, self.rise_to),
             HostScaffoldMotion::Sink => (self.vertical_speed, self.rise_to, self.create_pos),
             HostScaffoldMotion::BuildAcross => (self.lateral_speed, self.rise_to, self.build_pos),
-            HostScaffoldMotion::TearDownAcross => (self.lateral_speed, self.build_pos, self.rise_to),
+            HostScaffoldMotion::TearDownAcross => {
+                (self.lateral_speed, self.build_pos, self.rise_to)
+            }
             HostScaffoldMotion::Still => return current,
         };
         let total_distance = (end - start).length() * 0.25;
@@ -304,12 +309,7 @@ impl HostBridgeSpan {
         point_in_quad(
             pos.x,
             pos.z,
-            &[
-                self.from_left,
-                self.from_right,
-                self.to_right,
-                self.to_left,
-            ],
+            &[self.from_left, self.from_right, self.to_right, self.to_left],
         )
     }
 
@@ -352,7 +352,6 @@ pub struct HostBridgeBehaviorRegistry {
     pub die_ocl: u32,
     #[serde(default)]
     pub damaged_syncs: u32,
-
 
     spans: HashMap<u32, HostBridgeSpan>,
     #[serde(default)]
@@ -418,7 +417,6 @@ impl HostBridgeBehaviorRegistry {
                 });
             }
         }
-
     }
 
     /// C++ `BridgeBehavior::setTower` — bind the four targetable towers.
@@ -517,7 +515,6 @@ impl HostBridgeBehaviorRegistry {
         moved
     }
 
-
     pub fn remove_scaffolding(&mut self, bridge: ObjectId) -> Vec<ObjectId> {
         let Some(span) = self.spans.get_mut(&bridge.0) else {
             return Vec::new();
@@ -527,7 +524,6 @@ impl HostBridgeBehaviorRegistry {
         span.scaffold_anims.clear();
         std::mem::take(&mut span.scaffold_ids)
     }
-
 
     /// Bind live object ids to tiled rise/build-across anims.
 
@@ -576,7 +572,11 @@ impl HostBridgeBehaviorRegistry {
             let mut support_build = left_build;
             support_build.y -= height;
             tiles.push(HostScaffoldTile::from_rise_build(
-                support_rise, support_build, left_angle, height, true,
+                support_rise,
+                support_build,
+                left_angle,
+                height,
+                true,
             ));
             created += 1;
             if created >= num_objects {
@@ -584,20 +584,27 @@ impl HostBridgeBehaviorRegistry {
             }
             let right_build = right_start + right_vector * offset + Vec3::new(0.1, 0.0, 0.0);
             tiles.push(HostScaffoldTile::from_rise_build(
-                right_start, right_build, right_angle, height, false,
+                right_start,
+                right_build,
+                right_angle,
+                height,
+                false,
             ));
             let mut support_rise = right_start;
             support_rise.y -= height;
             let mut support_build = right_build;
             support_build.y -= height;
             tiles.push(HostScaffoldTile::from_rise_build(
-                support_rise, support_build, right_angle, height, true,
+                support_rise,
+                support_build,
+                right_angle,
+                height,
+                true,
             ));
             created += 1;
         }
         tiles
     }
-
 
     /// Enter `BODY_RUBBLE`: restamp deck + collect occupants to splat.
     pub fn on_enter_rubble(&mut self, bridge: ObjectId, occupants: &[ObjectId]) -> bool {
@@ -622,7 +629,6 @@ impl HostBridgeBehaviorRegistry {
         }
     }
 
-
     pub fn mark_death(&mut self, bridge: ObjectId, frame: u32) {
         if let Some(span) = self.spans.get_mut(&bridge.0) {
             if span.death_frame == 0 {
@@ -632,7 +638,6 @@ impl HostBridgeBehaviorRegistry {
             }
         }
     }
-
 
     /// C++ `BridgeBehavior::update` delayed FX: fire each authored delay once.
     pub fn take_due_die_fx(&mut self, bridge: ObjectId, frame: u32) -> usize {
@@ -680,7 +685,6 @@ impl HostBridgeBehaviorRegistry {
         n
     }
 
-
     /// C++ `onBodyDamageStateChange` — true when the synced state changed.
     pub fn note_body_state(&mut self, bridge: ObjectId, state: u8) -> bool {
         let Some(span) = self.spans.get_mut(&bridge.0) else {
@@ -706,7 +710,6 @@ impl HostBridgeBehaviorRegistry {
         body_transition_cues_for(old_state, new_state)
     }
 
-
     pub fn record_mirror_applied(&mut self) {
         self.mirrors = self.mirrors.saturating_add(1);
     }
@@ -715,7 +718,11 @@ impl HostBridgeBehaviorRegistry {
         self.death_links = self.death_links.saturating_add(1);
     }
 
-    pub fn occupants_on_deck(&self, bridge: ObjectId, positions: &[(ObjectId, Vec3)]) -> Vec<ObjectId> {
+    pub fn occupants_on_deck(
+        &self,
+        bridge: ObjectId,
+        positions: &[(ObjectId, Vec3)],
+    ) -> Vec<ObjectId> {
         let Some(span) = self.spans.get(&bridge.0) else {
             return Vec::new();
         };
@@ -770,7 +777,6 @@ fn leftover_road_for_template(
         &ascii,
     )
 }
-
 
 fn body_transition_cues_for(old_state: u8, new_state: u8) -> HostBridgeBodyFxCue {
     let repaired = leftover_is_condition_worse(old_state, new_state);
@@ -837,7 +843,11 @@ fn body_transition_cues_for(old_state: u8, new_state: u8) -> HostBridgeBodyFxCue
 }
 
 /// Bind leftover terrain object id and write mid-damage / rubble state.
-pub fn sync_leftover_bridge_body_state(object_id: u32, pos: Vec3, state: gamelogic::common::BodyDamageType) {
+pub fn sync_leftover_bridge_body_state(
+    object_id: u32,
+    pos: Vec3,
+    state: gamelogic::common::BodyDamageType,
+) {
     let loc = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
     if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
         let from_left = terrain
@@ -850,7 +860,6 @@ pub fn sync_leftover_bridge_body_state(object_id: u32, pos: Vec3, state: gamelog
     }
     let _ = leftover_bridge_template_name(object_id, pos);
 }
-
 
 pub fn is_bridge_or_tower_template(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
@@ -915,7 +924,11 @@ mod tests {
         assert!(reg.is_scaffold_present(id));
         assert!(reg.honesty_scaffold_ok());
         let tiles = reg.tiled_scaffold_sites(id);
-        assert!(tiles.len() >= 2, "C++ tiles from both ends, got {}", tiles.len());
+        assert!(
+            tiles.len() >= 2,
+            "C++ tiles from both ends, got {}",
+            tiles.len()
+        );
         assert!(!reg.create_scaffolding(id));
         let gone = reg.remove_scaffolding(id);
         assert!(gone.is_empty());
@@ -948,13 +961,7 @@ mod tests {
         let span = ObjectId(1);
         let t0 = ObjectId(10);
         let t1 = ObjectId(11);
-        reg.register_span(
-            span,
-            Vec3::ZERO,
-            Vec3::X,
-            Vec3::Z,
-            Vec3::new(1.0, 0.0, 1.0),
-        );
+        reg.register_span(span, Vec3::ZERO, Vec3::X, Vec3::Z, Vec3::new(1.0, 0.0, 1.0));
         reg.bind_towers(span, [t0, t1, ObjectId(0), ObjectId(0)]);
         let targets = reg.mirror_targets(t0);
         assert!(targets.contains(&span));
@@ -976,9 +983,14 @@ mod tests {
         );
         let tiles = reg.tiled_scaffold_sites(id);
         let deck: Vec<_> = tiles.iter().filter(|t| !t.is_support).collect();
-        assert!(deck.len() >= 2, "C++ tiles from both ends, got {}", deck.len());
         assert!(
-            deck.iter().any(|t| (t.rise_to - deck[0].rise_to).length() > 1.0),
+            deck.len() >= 2,
+            "C++ tiles from both ends, got {}",
+            deck.len()
+        );
+        assert!(
+            deck.iter()
+                .any(|t| (t.rise_to - deck[0].rise_to).length() > 1.0),
             "left and right rise points must differ"
         );
         for tile in deck {
@@ -986,7 +998,8 @@ mod tests {
                 tile.create_pos.y < tile.rise_to.y,
                 "C++ setScaffoldData starts sunken"
             );
-            let mut anim = HostScaffoldAnim::from_tile(ObjectId(1), tile, Vec3::new(5.0, 0.0, 20.0));
+            let mut anim =
+                HostScaffoldAnim::from_tile(ObjectId(1), tile, Vec3::new(5.0, 0.0, 20.0));
             assert_eq!(anim.motion, HostScaffoldMotion::Rise);
             let first = anim.step(anim.last_pos);
             assert!(first.y > tile.create_pos.y);
@@ -1037,5 +1050,4 @@ mod tests {
         assert!(reg.die_fx >= 2);
         assert!(reg.die_ocl >= 2);
     }
-
 }

@@ -17,7 +17,7 @@ use crate::ai::modules::{
     BuildOrderOptimizer, DifficultyHandler, GameDifficulty, StrategicDecision,
     StrategicDecisionMaker, ThreatAssessmentSystem,
 };
-use crate::ai::{AiData, AiError, AiGroup, AttackPriorityInfo, PartitionFilter, AI};
+use crate::ai::{AI, AiData, AiError, AiGroup, AttackPriorityInfo, PartitionFilter};
 use crate::common::{Coord3D, ObjectID, PlayerId, Real};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock};

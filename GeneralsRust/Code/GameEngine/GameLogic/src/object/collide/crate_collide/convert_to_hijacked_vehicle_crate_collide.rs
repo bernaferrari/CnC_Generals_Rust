@@ -18,23 +18,23 @@ fn resolve_crate_object(
 }
 
 use crate::common::{
-    kindof_from_name, CommandSourceType, FieldParse, KindOf, ObjectStatusMaskType,
-    ObjectStatusTypes,
+    CommandSourceType, FieldParse, KindOf, ObjectStatusMaskType, ObjectStatusTypes,
+    kindof_from_name,
 };
 use crate::helpers::{EvaEvent, TheAudio, TheEva, TheGameLogic, TheRadar};
 use crate::modules::AIUpdateInterfaceExt;
+use crate::object::Object;
+use crate::object::collide::COLLISION_MANAGER;
+use crate::object::collide::Coord3D as CollideCoord3D;
+use crate::object::collide::LegacyCollideAdapter;
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as LegacyCrateCollide, CrateCollideModuleData as LegacyCrateCollideModuleData,
 };
 use crate::object::collide::crate_collide::*;
-use crate::object::collide::Coord3D as CollideCoord3D;
-use crate::object::collide::LegacyCollideAdapter;
-use crate::object::collide::COLLISION_MANAGER;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::update::ai_update::dozer_ai_update::DozerTask;
-use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 
 /// Module data for hijacked vehicle conversion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -608,14 +608,8 @@ mod tests {
         )
         .expect("hijacked vehicle crate ini parses");
 
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
-        assert_ne!(
-            data.base.forbidden_kind_of & (KindOf::Drone.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
+        assert_ne!(data.base.forbidden_kind_of & (KindOf::Drone.cpp_mask()), 0);
         assert_ne!(
             data.base.forbidden_kind_of & (KindOf::Aircraft.cpp_mask()),
             0
@@ -642,9 +636,11 @@ mod tests {
     fn hijacked_vehicle_crate_build_field_parse_omits_non_cpp_range_token() {
         let fields = ConvertToHijackedVehicleCrateCollideModuleData::build_field_parse();
         assert!(fields.iter().any(|field| field.token == "RequiredKindOf"));
-        assert!(!fields
-            .iter()
-            .any(|field| field.token == "RangeOfEffect" || field.token == "EffectRange"));
+        assert!(
+            !fields
+                .iter()
+                .any(|field| field.token == "RangeOfEffect" || field.token == "EffectRange")
+        );
     }
 
     #[test]

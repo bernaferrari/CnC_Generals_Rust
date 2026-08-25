@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{AABox, Triangle, Vec3, CastResult, CollisionMath};
+    use crate::{AABox, CastResult, CollisionMath, Triangle, Vec3};
 
     #[test]
     fn swept_aabox_triangle_face_hit() {
@@ -88,7 +88,11 @@ mod tests {
         let line = crate::LineSegment::new(Vec3::new(-3.0, 0.0, 0.0), Vec3::new(3.0, 0.0, 0.0));
         let box_ref = AABox::new(Vec3::ZERO, Vec3::splat(1.0));
         let mut result = CastResult::new();
-        assert!(CollisionMath::collide_line_aabox(&line, &box_ref, &mut result));
+        assert!(CollisionMath::collide_line_aabox(
+            &line,
+            &box_ref,
+            &mut result
+        ));
         assert!(!result.start_bad);
         assert!(result.fraction > 0.0 && result.fraction < 1.0);
         assert!(result.normal.x < -0.5);
@@ -106,21 +110,21 @@ mod tests {
                 Vec3::new(0.0, 0.0, 1.0),
             ],
         };
-        let obbox = crate::OBBox::from_center_extent_basis(
-            Vec3::ZERO,
-            Vec3::new(2.0, 0.05, 0.05),
-            basis,
-        );
+        let obbox =
+            crate::OBBox::from_center_extent_basis(Vec3::ZERO, Vec3::new(2.0, 0.05, 0.05), basis);
         // Ray down -Z through (1.2, 1.2): hits rotated box, misses AABB of local extents
-        let hit_line =
-            crate::LineSegment::new(Vec3::new(1.2, 1.2, 2.0), Vec3::new(1.2, 1.2, -2.0));
+        let hit_line = crate::LineSegment::new(Vec3::new(1.2, 1.2, 2.0), Vec3::new(1.2, 1.2, -2.0));
         let mut hit = CastResult::new();
-        assert!(CollisionMath::collide_line_obbox(&hit_line, &obbox, &mut hit));
+        assert!(CollisionMath::collide_line_obbox(
+            &hit_line, &obbox, &mut hit
+        ));
 
         let miss_line =
             crate::LineSegment::new(Vec3::new(1.5, 0.0, -2.0), Vec3::new(1.5, 0.0, 2.0));
         let mut miss = CastResult::new();
-        assert!(!CollisionMath::collide_line_obbox(&miss_line, &obbox, &mut miss));
+        assert!(!CollisionMath::collide_line_obbox(
+            &miss_line, &obbox, &mut miss
+        ));
     }
 
     // C++ colmathobbtri.cpp — continuous sweep hits a thin triangle start/end both miss
@@ -144,6 +148,4 @@ mod tests {
         assert!(!result.start_bad);
         assert!(result.fraction > 0.0 && result.fraction < 1.0);
     }
-
 }
-

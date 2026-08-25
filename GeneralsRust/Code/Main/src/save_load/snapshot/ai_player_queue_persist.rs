@@ -460,10 +460,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     game_logic.clear_ai_player_queue_persist();
     let Some(suffix) = find_aitq_suffix(bytes) else {
         return Ok(());
@@ -491,25 +488,41 @@ pub fn apply_from_lifecycle_tail(
         let old: AIPlayerQueuePersistPayloadV1 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v1 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
-            players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
+            players: old
+                .players
+                .into_iter()
+                .map(AIPlayerQueuePersist::from)
+                .collect(),
         }
     } else if version == AITQ_VERSION_V2 {
         let old: AIPlayerQueuePersistPayloadV2 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v2 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
-            players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
+            players: old
+                .players
+                .into_iter()
+                .map(AIPlayerQueuePersist::from)
+                .collect(),
         }
     } else if version == AITQ_VERSION_V3 {
         let old: AIPlayerQueuePersistPayloadV3 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v3 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
-            players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
+            players: old
+                .players
+                .into_iter()
+                .map(AIPlayerQueuePersist::from)
+                .collect(),
         }
     } else if version == AITQ_VERSION_V4 {
         let old: AIPlayerQueuePersistPayloadV4 = bincode::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v4 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
-            players: old.players.into_iter().map(AIPlayerQueuePersist::from).collect(),
+            players: old
+                .players
+                .into_iter()
+                .map(AIPlayerQueuePersist::from)
+                .collect(),
         }
     } else {
         bincode::deserialize(encoded)
@@ -559,10 +572,9 @@ mod tests {
             "ChinaTankBattleMaster".into(),
             ThingTemplate::new("ChinaTankBattleMaster"),
         );
-        logic.templates.insert(
-            "ChinaDozer".into(),
-            ThingTemplate::new("ChinaDozer"),
-        );
+        logic
+            .templates
+            .insert("ChinaDozer".into(), ThingTemplate::new("ChinaDozer"));
         logic.templates.insert(
             "ChinaSupplyWarehouse".into(),
             ThingTemplate::new("ChinaSupplyWarehouse"),
@@ -877,7 +889,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn v2_suffix_loads_queues_and_leaves_rebuild_counts_empty() {
         let mut logic = china_ai_logic();
@@ -940,7 +951,9 @@ mod tests {
             "v2 saves have no remaining-rebuild table"
         );
         assert!(
-            row.building_destroyed_at_times.iter().all(|stamp| stamp.is_none()),
+            row.building_destroyed_at_times
+                .iter()
+                .all(|stamp| stamp.is_none()),
             "v2 saves have no rebuild-delay clock table"
         );
         assert!(
@@ -1008,7 +1021,9 @@ mod tests {
         assert_eq!(row.team_queue[0].name, "LegacyV3");
         assert_eq!(&row.building_rebuild_counts[..2], &[2, 1]);
         assert!(
-            row.building_destroyed_at_times.iter().all(|stamp| stamp.is_none()),
+            row.building_destroyed_at_times
+                .iter()
+                .all(|stamp| stamp.is_none()),
             "v3 saves have no rebuild-delay clock table"
         );
         assert!(
@@ -1025,11 +1040,7 @@ mod tests {
             ThingTemplate::new("ChinaPowerPlant"),
         );
         let plant = source
-            .create_object(
-                "ChinaPowerPlant",
-                Team::China,
-                Vec3::new(-50.0, 0.0, 0.0),
-            )
+            .create_object("ChinaPowerPlant", Team::China, Vec3::new(-50.0, 0.0, 0.0))
             .expect("power plant");
         if let Some(object) = source.host_object_mut(plant) {
             object.status.under_construction = true;
@@ -1156,10 +1167,7 @@ mod tests {
         let mut logic = china_ai_logic();
         let mut rows = logic.capture_ai_player_queue_persist();
         {
-            let row = rows
-                .iter_mut()
-                .find(|row| row.player_id == 1)
-                .expect("row");
+            let row = rows.iter_mut().find(|row| row.player_id == 1).expect("row");
             row.building_object_ids[0] = Some(9999);
             row.building_is_built[0] = true;
         }
@@ -1178,5 +1186,4 @@ mod tests {
             "stale binding must not keep is_built"
         );
     }
-
 }

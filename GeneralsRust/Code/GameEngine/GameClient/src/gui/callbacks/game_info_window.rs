@@ -6,14 +6,14 @@ use std::sync::{Arc, Mutex};
 
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    with_window_manager, write_input_focus_response, Color, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    Color, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    with_window_manager, write_input_focus_response,
 };
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::get_player_template_store;
-use game_network::{GameInfo, SlotState, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER};
+use game_network::{GameInfo, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, SlotState};
 use gamelogic::helpers::TheGameText;
 
 #[derive(Default)]

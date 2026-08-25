@@ -705,15 +705,14 @@ pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
     // GENERALS_RUNTIME_EXE_PREFER_RELEASE=1 restores release-first. Override
     // with GENERALS_RUNTIME_EXE. GENERALS_RUNTIME_EXE_PREFER_DEBUG=1 still
     // means newest-mtime (same as default).
-    let prefer_release_first = std::env::var_os("GENERALS_RUNTIME_EXE_PREFER_RELEASE").is_some_and(
-        |v| {
+    let prefer_release_first =
+        std::env::var_os("GENERALS_RUNTIME_EXE_PREFER_RELEASE").is_some_and(|v| {
             let s = v.to_string_lossy();
             !(s.is_empty()
                 || s == "0"
                 || s.eq_ignore_ascii_case("false")
                 || s.eq_ignore_ascii_case("no"))
-        },
-    );
+        });
     let candidates = [
         PathBuf::from("target/release/generals"),
         PathBuf::from("GeneralsRust/target/release/generals"),
@@ -722,9 +721,7 @@ pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
         PathBuf::from("GeneralsRust/target/debug/generals"),
         PathBuf::from("./target/debug/generals"),
     ];
-    if let Some(path) =
-        resolve_runtime_exe_from_candidates(&candidates, !prefer_release_first)
-    {
+    if let Some(path) = resolve_runtime_exe_from_candidates(&candidates, !prefer_release_first) {
         return Some(path);
     }
     // Try next to current exe
@@ -1356,8 +1353,7 @@ fn run_executable_smoke_once(
             if snap.last_gameplay_cmd.starts_with("train_ok") {
                 saw_train_ok = true;
                 train_detail = snap.last_gameplay_cmd.clone();
-            } else if snap.last_gameplay_cmd.starts_with("train_") && train_detail.is_empty()
-            {
+            } else if snap.last_gameplay_cmd.starts_with("train_") && train_detail.is_empty() {
                 train_detail = snap.last_gameplay_cmd.clone();
             }
             if snap.last_gameplay_cmd.starts_with("save_ok") {
@@ -1847,7 +1843,12 @@ fn run_executable_smoke_once(
                                 commanded_at = Some(Instant::now());
                             }
                         } else {
-                            let _ = write_control(&control_path, &["construct|template=USA_Barracks|spawn_dozer=1|alias_fallback=1|auto_target=1"]);
+                            let _ = write_control(
+                                &control_path,
+                                &[
+                                    "construct|template=USA_Barracks|spawn_dozer=1|alias_fallback=1|auto_target=1",
+                                ],
+                            );
                             gameplay_step = 3;
                             commanded_at = Some(Instant::now());
                         }
@@ -1962,63 +1963,67 @@ fn run_executable_smoke_once(
                             }
                             // stay on step 4 — bounded by train_retry_started
                         } else {
-                        // Host residual: train_ok queues production; wait until a second
-                        // local mobile exits so later formation/select residuals are honest.
-                        // Fail-closed timeout still advances so the chain cannot hang forever.
-                        let train_mobile_ready = snap.local_mobile_units >= 2;
-                        let train_wait_expired = commanded_at
-                            .map(|t| t.elapsed() > Duration::from_secs(20))
-                            .unwrap_or(false);
-                        if !train_mobile_ready && !train_wait_expired {
-                            // keep polling; do not advance yet
-                        } else if !saw_early_combat_cmd {
-                            // Wave 864: issue combat early while InGame so match_damage
-                            // counters have time to accumulate before late options steps.
-                            let _ = write_control(
-                                &control_path,
-                                &["attack_nearest_enemy|auto_target=1"],
-                            );
-                            saw_early_combat_cmd = true;
-                            commanded_at = Some(Instant::now());
-                        } else if commanded_at
-                            .map(|t| t.elapsed() < Duration::from_secs(12))
-                            .unwrap_or(false)
-                        {
-                            // Wave 1112/1115: longer window for attack residual + damage
-                            // counters (2s/6s were flaky under load; still fail-closed).
-                            // Wave 1115: re-issue attack mid-window so FOW/retarget lag
-                            // still has a chance to apply host_damage_log totals.
-                            if snap.last_gameplay_cmd.starts_with("attack_ok") {
-                                saw_attack_ok = true;
-                            }
-                            if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
-                                saw_combat_damage = true;
-                            }
-                            let elapsed = commanded_at.map(|t| t.elapsed()).unwrap_or_default();
-                            if !saw_combat_damage
-                                && elapsed >= Duration::from_secs(4)
-                                && elapsed < Duration::from_secs(5)
-                            {
+                            // Host residual: train_ok queues production; wait until a second
+                            // local mobile exits so later formation/select residuals are honest.
+                            // Fail-closed timeout still advances so the chain cannot hang forever.
+                            let train_mobile_ready = snap.local_mobile_units >= 2;
+                            let train_wait_expired = commanded_at
+                                .map(|t| t.elapsed() > Duration::from_secs(20))
+                                .unwrap_or(false);
+                            if !train_mobile_ready && !train_wait_expired {
+                                // keep polling; do not advance yet
+                            } else if !saw_early_combat_cmd {
+                                // Wave 864: issue combat early while InGame so match_damage
+                                // counters have time to accumulate before late options steps.
                                 let _ = write_control(
                                     &control_path,
                                     &["attack_nearest_enemy|auto_target=1"],
                                 );
+                                saw_early_combat_cmd = true;
+                                commanded_at = Some(Instant::now());
+                            } else if commanded_at
+                                .map(|t| t.elapsed() < Duration::from_secs(12))
+                                .unwrap_or(false)
+                            {
+                                // Wave 1112/1115: longer window for attack residual + damage
+                                // counters (2s/6s were flaky under load; still fail-closed).
+                                // Wave 1115: re-issue attack mid-window so FOW/retarget lag
+                                // still has a chance to apply host_damage_log totals.
+                                if snap.last_gameplay_cmd.starts_with("attack_ok") {
+                                    saw_attack_ok = true;
+                                }
+                                if snap.match_damage_applied > 0.0 || snap.match_kills > 0 {
+                                    saw_combat_damage = true;
+                                }
+                                let elapsed = commanded_at.map(|t| t.elapsed()).unwrap_or_default();
+                                if !saw_combat_damage
+                                    && elapsed >= Duration::from_secs(4)
+                                    && elapsed < Duration::from_secs(5)
+                                {
+                                    let _ = write_control(
+                                        &control_path,
+                                        &["attack_nearest_enemy|auto_target=1"],
+                                    );
+                                }
+                            } else if launch == ExecutableSmokeLaunch::Windowed {
+                                let _ = write_control(
+                                    &control_path,
+                                    &[
+                                        "upgrade|name=UpgradeAmericaRangerCaptureBuilding|auto_target=1",
+                                    ],
+                                );
+                                gameplay_step = 5;
+                                commanded_at = Some(Instant::now());
+                            } else {
+                                let _ = write_control(
+                                    &control_path,
+                                    &[
+                                        "upgrade|name=UpgradeAmericaRangerCaptureBuilding|grant_supplies=1|alias_fallback=1|auto_target=1",
+                                    ],
+                                );
+                                gameplay_step = 5;
+                                commanded_at = Some(Instant::now());
                             }
-                        } else if launch == ExecutableSmokeLaunch::Windowed {
-                            let _ = write_control(
-                                &control_path,
-                                &["upgrade|name=UpgradeAmericaRangerCaptureBuilding|auto_target=1"],
-                            );
-                            gameplay_step = 5;
-                            commanded_at = Some(Instant::now());
-                        } else {
-                            let _ = write_control(
-                                &control_path,
-                                &["upgrade|name=UpgradeAmericaRangerCaptureBuilding|grant_supplies=1|alias_fallback=1|auto_target=1"],
-                            );
-                            gameplay_step = 5;
-                            commanded_at = Some(Instant::now());
-                        }
                         }
                     } else if gameplay_step == 5
                         && (snap.last_gameplay_cmd.starts_with("upgrade_ok")
@@ -2084,9 +2089,7 @@ fn run_executable_smoke_once(
                         if snap.last_gameplay_cmd.starts_with("load_") {
                             load_detail = snap.last_gameplay_cmd.clone();
                         }
-                        if launch == ExecutableSmokeLaunch::Windowed
-                            && !saw_load_ok
-                            && saw_save_ok
+                        if launch == ExecutableSmokeLaunch::Windowed && !saw_load_ok && saw_save_ok
                         {
                             if load_retry_started.is_none() {
                                 load_retry_started = Some(Instant::now());
@@ -3262,7 +3265,9 @@ fn run_executable_smoke_once(
                         {
                             let _ = write_control(
                                 &control_path,
-                                &["train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1|alias_fallback=1|auto_target=1"],
+                                &[
+                                    "train_unit|template=AmericaInfantryRanger|force_complete=1|grant_supplies=1|alias_fallback=1|auto_target=1",
+                                ],
                             );
                         }
                         // Primary: select+move+attack. Residual: production+attack proves
@@ -3603,7 +3608,7 @@ pub fn format_executable_smoke_report(r: &ExecutableSmokeResult) -> String {
         r.interactive_gameplay,
         sit_through_missing,
         r.host_vertical_slice_ok,
-            r.presentation_live_fallback_ok,
+        r.presentation_live_fallback_ok,
         r.process_started,
         r.reached_menu,
         r.shell_wnd_ok,
@@ -3745,10 +3750,7 @@ mod tests {
         fs::write(&older, b"old").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(1100));
         fs::write(&newer, b"new").unwrap();
-        let picked = resolve_runtime_exe_from_candidates(
-            &[older.clone(), newer.clone()],
-            true,
-        );
+        let picked = resolve_runtime_exe_from_candidates(&[older.clone(), newer.clone()], true);
         assert_eq!(
             picked.as_deref(),
             Some(newer.as_path()),
@@ -3973,11 +3975,16 @@ mod tests {
             .nth(1)
             .expect("launch match");
         assert!(launch.contains("Windowed => \"-runtime_host=windowed\""));
-        assert!(!include_str!("bin/windowed_acceptance_gate.rs").contains("-runtime_host=headless"));
+        assert!(
+            !include_str!("bin/windowed_acceptance_gate.rs").contains("-runtime_host=headless")
+        );
         let observer = src
             .split("pub fn run_windowed_acceptance_smoke")
             .nth(1)
-            .and_then(|s| s.split("fn run_executable_smoke_with_launch_and_driver").next())
+            .and_then(|s| {
+                s.split("fn run_executable_smoke_with_launch_and_driver")
+                    .next()
+            })
             .expect("windowed observer entrypoint");
         assert!(
             observer.contains("SmokeDriver::ManualObserver"),
@@ -4233,7 +4240,6 @@ mod tests {
             include_str!("main.rs").contains("create_host_event_loop"),
             "production main must use the Regular-activation EventLoop helper"
         );
-
     }
 
     #[test]
@@ -4279,8 +4285,7 @@ mod tests {
             "skirmish path must latch inside handle_mouse_button_input"
         );
         assert!(
-            !input.contains("click_skirmish_start")
-                && !input.contains("main_menu_skirmish_wnd_ok"),
+            !input.contains("click_skirmish_start") && !input.contains("main_menu_skirmish_wnd_ok"),
             "host click_skirmish_start residual is not the wnd_widget_tree_nav latch"
         );
         let snap = include_str!("cnc_game_engine/dispatch.rs");
@@ -4296,7 +4301,8 @@ mod tests {
             "InGame", "shellmap"
         ));
         assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
-            "InGame", "ShellMapMD"
+            "InGame",
+            "ShellMapMD"
         ));
         assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
             "InGame", "-"
@@ -4305,14 +4311,16 @@ mod tests {
             "InGame", "  "
         ));
         assert!(!ExecutableSmokeResult::reached_ingame_from_live_map(
-            "Menu", "Lone Eagle"
+            "Menu",
+            "Lone Eagle"
         ));
         assert!(ExecutableSmokeResult::reached_ingame_from_live_map(
             "InGame",
             "Lone Eagle"
         ));
         assert!(ExecutableSmokeResult::reached_ingame_from_live_map(
-            "Paused", "MapsZH/foo"
+            "Paused",
+            "MapsZH/foo"
         ));
         let smoke = include_str!("executable_smoke.rs");
         let prod = smoke.split("#[cfg(test)]").next().expect("prod");
@@ -4426,10 +4434,11 @@ shell_active=true
         let snap = parse_status(&path).expect("parse");
         assert_eq!(snap.shell_screen_count, 1);
         assert!(snap.shell_active);
-        assert!(snap
-            .shell_top_wnd
-            .to_ascii_lowercase()
-            .contains("mainmenu.wnd"));
+        assert!(
+            snap.shell_top_wnd
+                .to_ascii_lowercase()
+                .contains("mainmenu.wnd")
+        );
         let _ = std::fs::remove_file(&path);
     }
 }

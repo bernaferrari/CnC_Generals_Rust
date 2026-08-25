@@ -1,13 +1,13 @@
 //! Mechanical split from `assets/models.rs`. No behavior change.
 #![allow(dead_code, unused_imports)]
 use super::prelude::*;
-use super::*;
 use super::w3d_anim::*;
 use super::w3d_format::*;
 use super::w3d_loader::*;
 use super::w3d_loader_parse::*;
 use super::w3d_mesh::*;
 use super::w3d_model::*;
+use super::*;
 
 pub(super) struct MeshHeader {
     pub version: u32,
@@ -46,7 +46,9 @@ pub fn get_common_cnc_units() -> Vec<&'static str> {
     ]
 }
 
-pub(super) fn deduplicate_stage_uv_layers(layers: Vec<Vec<[f32; 2]>>) -> (Vec<Vec<[f32; 2]>>, Vec<u8>) {
+pub(super) fn deduplicate_stage_uv_layers(
+    layers: Vec<Vec<[f32; 2]>>,
+) -> (Vec<Vec<[f32; 2]>>, Vec<u8>) {
     pub(super) const MAX_CHANNELS: usize = 4;
     let mut unique_layers: Vec<Vec<[f32; 2]>> = Vec::new();
     let mut stage_channels: Vec<u8> = Vec::new();

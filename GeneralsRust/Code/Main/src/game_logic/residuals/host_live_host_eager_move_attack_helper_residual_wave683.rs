@@ -61,8 +61,8 @@ fn residual_action_store(a: ResidualHostEagerMoveAttackHelperAction) {
 pub fn residual_host_eager_move_attack_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_eager_move_attack_helper_last_action(
-) -> ResidualHostEagerMoveAttackHelperAction {
+pub fn residual_host_eager_move_attack_helper_last_action()
+-> ResidualHostEagerMoveAttackHelperAction {
     ResidualHostEagerMoveAttackHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
@@ -92,8 +92,8 @@ pub fn honesty_host_eager_move_attack_helper_source_markers_residual_wave683() -
         && sh.contains("host_move_log::drain")
         && sh.contains("queue_set_attack_target_for_host")
         && sh.contains("queue_set_move_target_for_host");
-    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
-        && eng.contains("Wave 682/925");
+    let eng_ok =
+        eng.contains("eager_apply_all_host_residuals_after_logic") && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerMoveAttackHelperAction::SourceMarkers);
     ok
@@ -149,9 +149,9 @@ mod tests {
     use crate::game_logic::host_move_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_apply_host_move_attack_after_logic, eager_map_host_spawn_if_coupled,
-        end_shadow_coupled_tick, install_active_shadow_for_coupled_tick, GameWorldShadow,
+        end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
     };
     use glam::Vec3;
 

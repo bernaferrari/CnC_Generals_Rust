@@ -44,7 +44,7 @@ use crate::common::{Coord3D, KindOf, ObjectID, ObjectShroudStatus};
 use crate::object_manager::get_object_manager;
 use crate::player::PLAYER_INDEX_INVALID;
 use crate::weapon::WeaponStore;
-use game_engine::common::system::radar::{get_radar_system, CellShroudStatus};
+use game_engine::common::system::radar::{CellShroudStatus, get_radar_system};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -842,11 +842,7 @@ impl ShroudGrid {
         let distance = (dx * dx + dy * dy).sqrt();
         let mul = (1.0 - distance / radius).clamp(0.0, 1.0);
         let scaled = (base_value as f32) * mul;
-        if scaled <= 0.0 {
-            0
-        } else {
-            scaled as u32
-        }
+        if scaled <= 0.0 { 0 } else { scaled as u32 }
     }
 
     /// Add looker to a horizontal line of cells
@@ -1508,8 +1504,7 @@ impl ShroudManager {
 
         trace!(
             "ShroudManager::update(frame={}): Full visibility recalculation (vision_recalc={})",
-            frame,
-            needs_vision_recalc
+            frame, needs_vision_recalc
         );
 
         self.last_update_frame = frame;
@@ -1738,7 +1733,7 @@ impl ShroudManager {
         player_id: u32,
         object_id: ObjectID,
     ) -> Result<bool, String> {
-        use crate::system::detection_manager::{get_detection_manager, DetectionModifier};
+        use crate::system::detection_manager::{DetectionModifier, get_detection_manager};
         use crate::system::stealth_manager::get_stealth_manager;
 
         if player_id >= MAX_PLAYER_COUNT as u32 {
@@ -2654,7 +2649,7 @@ pub fn get_shroud_manager() -> &'static Mutex<ShroudManager> {
 mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
-    use crate::object_manager::{get_object_manager, GameObjectInstance, ObjectCreationFlags};
+    use crate::object_manager::{GameObjectInstance, ObjectCreationFlags, get_object_manager};
     use crate::team::Team;
     use std::sync::{Arc, RwLock};
 

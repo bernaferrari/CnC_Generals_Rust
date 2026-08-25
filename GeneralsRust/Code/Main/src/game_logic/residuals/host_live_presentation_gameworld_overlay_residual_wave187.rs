@@ -107,7 +107,7 @@ pub fn honesty_engine_calls_overlay_source() -> bool {
 /// Live residual: build_from_logic then overlay stamps shadow health/pose.
 pub fn simulate_live_presentation_gameworld_overlay_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

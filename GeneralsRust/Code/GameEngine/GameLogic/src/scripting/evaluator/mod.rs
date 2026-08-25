@@ -6,15 +6,15 @@
 //! Split into focused submodules by condition/action family.
 
 use super::core::*;
-use super::engine::{get_area_tracker, get_named_object_tracker, ScriptActionHandler, *};
+use super::engine::{ScriptActionHandler, get_area_tracker, get_named_object_tracker, *};
 use super::executor::{
     ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator, ScriptConditionResult,
     ScriptContext,
 };
 use crate::commands::get_selection_manager;
 use crate::common::{
-    AsciiString, DisabledType, KindOf, ObjectID, ObjectShroudStatus, PlayerMaskType, UnsignedInt,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, ObjectShroudStatus,
+    PlayerMaskType, UnsignedInt,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::ContainModuleInterface;
@@ -25,7 +25,7 @@ use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
+use game_engine::common::rts::{SCIENCE_INVALID, get_science_store};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

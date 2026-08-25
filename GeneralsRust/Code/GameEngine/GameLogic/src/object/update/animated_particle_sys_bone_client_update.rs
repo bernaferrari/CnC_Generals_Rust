@@ -5,11 +5,11 @@ use crate::common::ObjectID;
 use crate::helpers::TheGameLogic;
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::BaseModuleData;
 use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use game_engine::common::thing::module::BaseModuleData;
 
 use std::sync::Arc;
 
@@ -56,7 +56,6 @@ impl AnimatedParticleSysBoneClientUpdateModule {
     pub fn life(&self) -> u32 {
         self.life
     }
-
 }
 
 impl Module for AnimatedParticleSysBoneClientUpdateModule {

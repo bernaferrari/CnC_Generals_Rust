@@ -4,6 +4,11 @@ members = [
     # Main executable
     "Code/Main",
 
+    # Repository-level integration/characterization tests. These are a dedicated
+    # package so the virtual workspace root does not leave GeneralsRust/tests orphaned.
+    "tests",
+    "validation",
+
     # Game Engine Core
     "Code/GameEngine/Common",
     "Code/GameEngine/GameEngineDevice",

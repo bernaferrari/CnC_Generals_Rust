@@ -80,8 +80,8 @@ pub fn residual_play_time_local_player_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_play_time_local_player_presentation_helper_last_action(
-) -> ResidualPlayTimeLocalPlayerPresentationHelperAction {
+pub fn residual_play_time_local_player_presentation_helper_last_action()
+-> ResidualPlayTimeLocalPlayerPresentationHelperAction {
     ResidualPlayTimeLocalPlayerPresentationHelperAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

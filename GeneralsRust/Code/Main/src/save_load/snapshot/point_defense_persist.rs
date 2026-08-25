@@ -55,10 +55,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep the previous cooldown.
     game_logic.point_defense_next_ready_frame.clear();
     game_logic.point_defense_next_ready_frame_1.clear();
@@ -222,9 +219,7 @@ mod tests {
     #[test]
     fn absent_suffix_clears_stale_point_defense() {
         let mut logic = GameLogic::new();
-        logic
-            .point_defense_next_ready_frame
-            .insert(ObjectId(3), 12);
+        logic.point_defense_next_ready_frame.insert(ObjectId(3), 12);
         logic
             .point_defense_next_ready_frame_1
             .insert(ObjectId(3), 19);

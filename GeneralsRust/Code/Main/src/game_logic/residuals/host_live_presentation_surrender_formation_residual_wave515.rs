@@ -77,8 +77,8 @@ pub fn residual_presentation_surrender_formation_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_surrender_formation_last_action(
-) -> ResidualPresentationSurrenderFormationAction {
+pub fn residual_presentation_surrender_formation_last_action()
+-> ResidualPresentationSurrenderFormationAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationSurrenderFormationAction::MethodNames,
         2 => ResidualPresentationSurrenderFormationAction::SourceMarkers,

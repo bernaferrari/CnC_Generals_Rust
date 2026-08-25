@@ -48,7 +48,7 @@ impl Object {
         slot: Option<u8>,
         target_anti_mask: u32,
     ) -> bool {
-        use gamelogic::weapon::{with_weapon_store, WeaponAntiMask};
+        use gamelogic::weapon::{WeaponAntiMask, with_weapon_store};
 
         if target_anti_mask == 0 {
             return false;
@@ -360,7 +360,7 @@ impl Object {
     /// matches leftover `Weapon::update` late refill + C++ `getStatus` READY.
     fn complete_elapsed_auto_reload_clips(&mut self, current_time: f32) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_reload_type_for_weapon_name, HostReloadType,
+            HostReloadType, host_reload_type_for_weapon_name,
         };
         let rof = self.weapon_bonus_fields().2;
         let mut completed = false;
@@ -421,9 +421,7 @@ impl Object {
             return;
         }
         if current_time - weapon.last_fire_time < reload - 1e-6 {
-            if weapon.reloading_clip
-                || (weapon.clip_size > 0 && weapon.ammo == Some(0))
-            {
+            if weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0)) {
                 self.weapon_fire_status = WeaponFireStatus::ReloadingClip;
             } else {
                 self.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
@@ -473,7 +471,6 @@ impl Object {
         false
     }
 
-
     /// Combat weapon choice.
     ///
     /// Slot: `0` = primary, `1` = secondary, `2` = tertiary.
@@ -494,18 +491,10 @@ impl Object {
         let target_faerie = target.is_faerie_fire();
         let primary_valid = self.leftover_choose_best_slot_valid(0, target);
         let secondary_valid = self.leftover_choose_best_slot_valid(1, target);
-        let primary_ok = self.leftover_choose_best_slot_ready(
-            0,
-            target,
-            current_time,
-            target_faerie,
-        );
-        let secondary_ok = self.leftover_choose_best_slot_ready(
-            1,
-            target,
-            current_time,
-            target_faerie,
-        );
+        let primary_ok =
+            self.leftover_choose_best_slot_ready(0, target, current_time, target_faerie);
+        let secondary_ok =
+            self.leftover_choose_best_slot_ready(1, target, current_time, target_faerie);
 
         // Manual weapon-slot toggle (command residual).
         if self.active_weapon_slot == 2 {
@@ -524,10 +513,7 @@ impl Object {
         }
 
         if !primary_ok && !secondary_ok {
-            if gamelogic::weapon::choose_best_uses_backup(
-                false,
-                primary_valid || secondary_valid,
-            ) {
+            if gamelogic::weapon::choose_best_uses_backup(false, primary_valid || secondary_valid) {
                 return self.leftover_choose_best_backup_slot(
                     target,
                     primary_valid,
@@ -674,8 +660,7 @@ impl Object {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
-        let status_ready =
-            self.weapon_ready_vs_target_bonused(weapon, current_time, target_faerie);
+        let status_ready = self.weapon_ready_vs_target_bonused(weapon, current_time, target_faerie);
         gamelogic::weapon::choose_best_ready_after_turret_aim(
             status_ready,
             self.is_weapon_slot_on_turret_and_aiming_at_target(slot, target),
@@ -696,7 +681,9 @@ impl Object {
             return None;
         }
         gamelogic::weapon::with_weapon_store(|store| {
-            store.find_weapon_template(name).map(|wt| wt.get_damage_type())
+            store
+                .find_weapon_template(name)
+                .map(|wt| wt.get_damage_type())
         })
         .ok()
         .flatten()
@@ -773,11 +760,7 @@ impl Object {
     }
 
     /// Leftover `AIUpdateInterface::isWeaponSlotOnTurretAndAimingAtTarget`.
-    pub fn is_weapon_slot_on_turret_and_aiming_at_target(
-        &self,
-        slot: u8,
-        victim: &Object,
-    ) -> bool {
+    pub fn is_weapon_slot_on_turret_and_aiming_at_target(&self, slot: u8, victim: &Object) -> bool {
         self.is_weapon_slot_on_turret(slot) && self.is_trying_to_aim_at_target(victim.id)
     }
 
@@ -877,10 +860,8 @@ impl Object {
             let name = self.weapon_name_for_slot(firing_slot);
             self.live_reload_interval(weapon, name, rof)
         };
-        let next_ready = crate::game_logic::weapon_bootstrap::shared_next_ready_time(
-            latest,
-            firing_interval,
-        );
+        let next_ready =
+            crate::game_logic::weapon_bootstrap::shared_next_ready_time(latest, firing_interval);
         // C++ `weapon->setStatus(RELOADING_CLIP)` / `BETWEEN_FIRING_SHOTS`
         // on every slot *before* ready checks re-read status.
         let firing_reloading = self.weapon_slot(firing_slot).is_some_and(|weapon| {
@@ -918,7 +899,10 @@ impl Object {
     /// BETWEEN_FIRING_SHOTS, C++ restarts that wait from *now* with the new
     /// bonus delay. ShareWeaponReloadTime then copies the new next-shot stamp
     /// and RELOADING_CLIP onto every sibling (1961-1972).
-    pub(in crate::game_logic::object) fn apply_weapon_bonus_rof_restart(&mut self, current_time: f32) {
+    pub(in crate::game_logic::object) fn apply_weapon_bonus_rof_restart(
+        &mut self,
+        current_time: f32,
+    ) {
         let rof = self.weapon_bonus_fields().2;
         let mut restart_slots = [false; 3];
         let mut any_restart = false;
@@ -970,15 +954,13 @@ impl Object {
         current_time: f32,
         prev_rof: f32,
     ) -> bool {
-        let clip_wait =
-            weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0));
+        let clip_wait = weapon.reloading_clip || (weapon.clip_size > 0 && weapon.ammo == Some(0));
         if !clip_wait && weapon.last_fire_time <= 0.0 && self.last_fire_frame == 0 {
             return false;
         }
         let interval = self.live_reload_interval(weapon, name, prev_rof);
         current_time - weapon.last_fire_time < interval - 1e-6
     }
-
 
     pub fn weapon_slot(&self, slot: u8) -> Option<&Weapon> {
         match slot {
@@ -1232,11 +1214,7 @@ impl Object {
                 1
             }
         } else if level == 2 {
-            if two != u32::MAX && c < two {
-                0
-            } else {
-                2
-            }
+            if two != u32::MAX && c < two { 0 } else { 2 }
         } else if c > one {
             1
         } else {
@@ -1292,8 +1270,10 @@ impl Object {
     /// Bind the force-reload delay from the weapon that just fired.
     pub fn stamp_auto_reload_when_idle_from_slot(&mut self, slot: u8, frame: u32) {
         let delay = match self.weapon_name_for_slot(slot) {
-            Some(name) => crate::game_logic::thing::ThingTemplate::weapon_tracker_from_store(name)
-                .auto_reload_when_idle_frames,
+            Some(name) => {
+                crate::game_logic::thing::ThingTemplate::weapon_tracker_from_store(name)
+                    .auto_reload_when_idle_frames
+            }
             None if slot == 0 => self.auto_reload_when_idle_frames,
             None => 0,
         };
@@ -1382,7 +1362,7 @@ mod tests {
             range: 200.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-}
+        }
     }
 
     #[test]
@@ -1493,11 +1473,11 @@ mod tests {
         attacker.weapon = Some(Weapon {
             last_fire_time: 4.0,
             ..weapon(10.0)
-});
+        });
         attacker.secondary_weapon = Some(Weapon {
             last_fire_time: 0.0,
             ..weapon(10.0)
-});
+        });
         attacker.sync_shared_weapon_reload();
         assert_eq!(attacker.weapon.as_ref().unwrap().last_fire_time, 4.0);
         assert_eq!(
@@ -1523,18 +1503,21 @@ mod tests {
             last_fire_time: 4.0,
             reload_time: 0.2,
             ..weapon(10.0)
-});
+        });
         attacker.secondary_weapon = Some(Weapon {
             last_fire_time: 0.0,
             reload_time: 3.0,
             ..weapon(10.0)
-});
+        });
         attacker.sync_shared_weapon_reload();
         let gun = attacker.weapon.as_ref().unwrap();
         let pods = attacker.secondary_weapon.as_ref().unwrap();
         let gun_ready = gun.last_fire_time + 0.2;
         let pods_ready = pods.last_fire_time + 3.0;
-        assert!((gun_ready - pods_ready).abs() < 1e-4, "{gun_ready} vs {pods_ready}");
+        assert!(
+            (gun_ready - pods_ready).abs() < 1e-4,
+            "{gun_ready} vs {pods_ready}"
+        );
         assert!((gun.last_fire_time - 4.0).abs() < 1e-4);
     }
 
@@ -1595,7 +1578,7 @@ mod tests {
             ammo: Some(8),
             clip_reload_time: 10.0,
             ..weapon(40.0)
-});
+        });
         attacker.sync_shared_weapon_reload();
         assert!(
             attacker.secondary_weapon.as_ref().unwrap().reloading_clip,
@@ -1608,19 +1591,12 @@ mod tests {
             attacker.secondary_weapon.as_ref().unwrap().reloading_clip,
             "sibling ReloadingClip must survive getStatus refresh"
         );
-        assert_eq!(
-            attacker.weapon_fire_status,
-            WeaponFireStatus::ReloadingClip
-        );
+        assert_eq!(attacker.weapon_fire_status, WeaponFireStatus::ReloadingClip);
     }
 
     #[test]
     fn clip_reload_elapse_refills_and_clears_reloading() {
-        let mut attacker = Object::new(
-            ThingTemplate::new("ClipWait"),
-            ObjectId(1),
-            Team::USA,
-        );
+        let mut attacker = Object::new(ThingTemplate::new("ClipWait"), ObjectId(1), Team::USA);
         attacker.weapon = Some(Weapon {
             last_fire_time: 1.0,
             clip_size: 4,
@@ -1641,11 +1617,7 @@ mod tests {
 
     #[test]
     fn clip_reload_time_zero_is_ready_same_frame() {
-        let mut attacker = Object::new(
-            ThingTemplate::new("InstantClip"),
-            ObjectId(1),
-            Team::USA,
-        );
+        let mut attacker = Object::new(ThingTemplate::new("InstantClip"), ObjectId(1), Team::USA);
         attacker.weapon = Some(Weapon {
             last_fire_time: 1.0,
             clip_size: 2,
@@ -1663,11 +1635,7 @@ mod tests {
 
     #[test]
     fn rof_bonus_change_restarts_in_progress_reload() {
-        let mut attacker = Object::new(
-            ThingTemplate::new("RofWait"),
-            ObjectId(1),
-            Team::USA,
-        );
+        let mut attacker = Object::new(ThingTemplate::new("RofWait"), ObjectId(1), Team::USA);
         attacker.weapon = Some(Weapon {
             last_fire_time: 1.0,
             reload_time: 1.0,
@@ -1732,11 +1700,8 @@ mod tests {
 
     #[test]
     fn leftover_choose_best_skips_zero_damage_unless_unresistable() {
-        let mut attacker = Object::new(
-            ThingTemplate::new("ZeroDmgChooser"),
-            ObjectId(1),
-            Team::USA,
-        );
+        let mut attacker =
+            Object::new(ThingTemplate::new("ZeroDmgChooser"), ObjectId(1), Team::USA);
         attacker.weapon = Some(weapon(0.0));
         attacker.secondary_weapon = Some(weapon(10.0));
         let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
@@ -1766,11 +1731,7 @@ mod tests {
 
     #[test]
     fn leftover_choose_best_turret_aim_demotes_ready_slot() {
-        let mut attacker = Object::new(
-            ThingTemplate::new("TurretChooser"),
-            ObjectId(1),
-            Team::USA,
-        );
+        let mut attacker = Object::new(ThingTemplate::new("TurretChooser"), ObjectId(1), Team::USA);
         attacker.weapon = Some(weapon(100.0));
         attacker.secondary_weapon = Some(weapon(10.0));
         attacker.turret_enabled = true;
@@ -1814,11 +1775,7 @@ mod tests {
 
     #[test]
     fn leftover_choose_best_backup_picks_unready_valid_slot() {
-        let mut attacker = Object::new(
-            ThingTemplate::new("BackupChooser"),
-            ObjectId(1),
-            Team::USA,
-        );
+        let mut attacker = Object::new(ThingTemplate::new("BackupChooser"), ObjectId(1), Team::USA);
         attacker.weapon = Some(Weapon {
             last_fire_time: 1.0,
             reload_time: 1.0,

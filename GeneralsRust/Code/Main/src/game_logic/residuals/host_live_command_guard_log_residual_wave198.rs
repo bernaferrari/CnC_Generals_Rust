@@ -89,7 +89,7 @@ pub fn honesty_execute_guard_records_source() -> bool {
     // Wave 232: guard last-writes via unit_command_guard_full (records host_guard_log).
     if body.contains("unit_command_guard_full") {
         // 2026-08-15: scan host plus extra world_* splits.
-    let gl = super::host_logic_scan_src();
+        let gl = super::host_logic_scan_src();
         let gi = match gl.find("pub fn unit_command_guard_full") {
             Some(gi) => gi,
             None => return false,
@@ -114,7 +114,7 @@ pub fn honesty_shadow_drains_guard_log_source() -> bool {
     let stop_ok = stop.contains("host_guard_log::record")
         || (stop.contains("unit_command_stop") && {
             // 2026-08-15: scan host plus extra world_* splits.
-    let gl = super::host_logic_scan_src();
+            let gl = super::host_logic_scan_src();
             let gi = gl.find("pub fn unit_command_stop").unwrap_or(0);
             let gbody = &gl[gi..];
             gbody.contains("host_guard_log::record")

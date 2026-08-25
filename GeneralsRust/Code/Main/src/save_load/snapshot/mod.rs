@@ -59,13 +59,18 @@
 //! Wave 957: host_object/host_objects authority dual-read seal.
 
 mod ai;
-mod builder;
 mod battle_plan_persist;
+mod builder;
 
+mod ability_hijack_persist;
+mod booby_trap_persist;
+mod carpet_bomb_persist;
 mod client_drawable;
 mod client_drawable_xfer;
-mod game_state;
+mod dozer_repair_persist;
 mod game_client_save;
+mod game_state;
+mod hotkey_squad_persist;
 mod legacy_bincode;
 mod lifecycle_tail;
 mod load_post_process;
@@ -73,60 +78,52 @@ mod object;
 pub(crate) mod persist_v18;
 mod player;
 mod player_upgrade_persist;
+mod production_door_persist;
+mod rebuild_hole_persist;
 mod restore;
 mod shroud;
-mod special_powers;
 mod special_power_cooldown_persist;
+mod special_powers;
 mod subdual_persist;
-mod hotkey_squad_persist;
-mod booby_trap_persist;
-mod carpet_bomb_persist;
-mod production_door_persist;
-mod dozer_repair_persist;
-mod rebuild_hole_persist;
 mod weapon_set_persist;
-mod ability_hijack_persist;
 
-mod ai_team_persist;
-mod dock_queue_persist;
-mod module_runtime_persist;
-mod deliver_payload_persist;
-mod object_module_xfer_persist;
-mod auto_deposit_persist;
-mod supply_drop_persist;
-mod jet_ai_persist;
-mod chinook_ai_persist;
-mod hacker_income_persist;
-mod warehouse_crippling_persist;
-mod helix_napalm_persist;
-mod money_crate_persist;
-mod gps_scrambler_persist;
-mod dynamic_shroud_persist;
-mod angry_mob_persist;
-mod power_plant_rods_persist;
-mod cleanup_hazard_persist;
-mod point_defense_persist;
-mod projectile_stream_persist;
-mod transport_exit_persist;
-mod bridge_behavior_persist;
-mod object_xfer_persist;
 pub(crate) mod ai_player_queue_persist;
-mod inferno_fire_persist;
+mod ai_team_persist;
+mod angry_mob_persist;
+mod auto_deposit_persist;
+mod bridge_behavior_persist;
+mod chinook_ai_persist;
+mod cleanup_hazard_persist;
+mod deliver_payload_persist;
+mod dock_queue_persist;
+mod dynamic_shroud_persist;
 mod firewall_persist;
-mod neutron_slow_death_persist;
-mod turret_aim_persist;
-mod stealth_grant_persist;
-mod weapon_leech_persist;
-mod score_keeper_persist;
 mod garrison_firepoint_persist;
+mod gps_scrambler_persist;
+mod hacker_income_persist;
+mod helix_napalm_persist;
+mod inferno_fire_persist;
+mod jet_ai_persist;
+mod module_runtime_persist;
+mod money_crate_persist;
+mod neutron_slow_death_persist;
+mod object_module_xfer_persist;
+mod object_xfer_persist;
+mod point_defense_persist;
+mod power_plant_rods_persist;
+mod projectile_stream_persist;
+mod score_keeper_persist;
 mod stealth_detector_persist;
-
+mod stealth_grant_persist;
+mod supply_drop_persist;
+mod transport_exit_persist;
+mod turret_aim_persist;
+mod warehouse_crippling_persist;
+mod weapon_leech_persist;
 
 mod particle_system_save;
-mod terrain_visual_save;
 mod player_team_persist;
-
-
+mod terrain_visual_save;
 
 mod terrain;
 mod types;
@@ -140,58 +137,58 @@ mod tests;
 pub use ai::*;
 pub use builder::*;
 pub use client_drawable::*;
+pub use game_client_save::{
+    CHUNK_GAME_CLIENT, capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
+    restore_objectless_from_client_drawables, stash_loaded_game_client_xfer,
+    take_loaded_game_client_xfer,
+};
 pub use game_state::*;
 pub use gamelogic::system::shroud_manager::{
     ShroudCellSnapshot, ShroudGridSnapshot, ShroudPendingUndoRevealSnapshot, ShroudSnapshot,
 };
-pub(crate) use legacy_bincode::*;
-pub use lifecycle_tail::{
-    apply_lifecycle_tail_to_host, capture_lifecycle_tail, contain_fixups_from_tail,
-    decode_lifecycle_tail, encode_lifecycle_tail, producer_fixups_from_tail, ContainLink,
-    LifecycleTail, ProducerLink,
-};
-pub use object::*;
-pub use persist_v18::{
-    CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
-};
 pub use hotkey_squad_persist::{
     peek_pending_control_groups, set_pending_control_groups, take_pending_control_groups,
 };
+pub(crate) use legacy_bincode::*;
+pub use lifecycle_tail::{
+    ContainLink, LifecycleTail, ProducerLink, apply_lifecycle_tail_to_host, capture_lifecycle_tail,
+    contain_fixups_from_tail, decode_lifecycle_tail, encode_lifecycle_tail,
+    producer_fixups_from_tail,
+};
+pub use object::*;
+pub use particle_system_save::{
+    CHUNK_PARTICLE_SYSTEM, capture_particle_system_xfer_bytes,
+    restore_particle_system_from_xfer_bytes, stash_loaded_particle_system_xfer,
+    take_loaded_particle_system_xfer,
+};
+pub use persist_v18::{
+    CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
+};
 pub use player::*;
+pub use player_team_persist::{
+    CHUNK_PLAYERS, CHUNK_TEAM_FACTORY, apply_pending as apply_pending_player_team_chunks,
+    stamp_from_live as stamp_player_team_chunks,
+    stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,
+    write_team_factory_block,
+};
 pub use special_powers::*;
 pub use terrain::*;
+pub use terrain_visual_save::{
+    CHUNK_TERRAIN_VISUAL, capture_terrain_visual_xfer_bytes,
+    restore_terrain_visual_from_xfer_bytes, stash_loaded_terrain_visual_xfer,
+    take_loaded_terrain_visual_xfer,
+};
 pub use types::*;
 pub use w3d_ghost_save::{
-    capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
+    CHUNK_GHOST_OBJECT, capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
     save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
-    CHUNK_GHOST_OBJECT,
 };
-pub use game_client_save::{
-    capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
-    restore_objectless_from_client_drawables, stash_loaded_game_client_xfer,
-    take_loaded_game_client_xfer, CHUNK_GAME_CLIENT,
-};
-pub use particle_system_save::{
-    capture_particle_system_xfer_bytes, restore_particle_system_from_xfer_bytes,
-    stash_loaded_particle_system_xfer, take_loaded_particle_system_xfer, CHUNK_PARTICLE_SYSTEM,
-};
-pub use terrain_visual_save::{
-    capture_terrain_visual_xfer_bytes, restore_terrain_visual_from_xfer_bytes,
-    stash_loaded_terrain_visual_xfer, take_loaded_terrain_visual_xfer, CHUNK_TERRAIN_VISUAL,
-};
-pub use player_team_persist::{
-    apply_pending as apply_pending_player_team_chunks, stamp_from_live as stamp_player_team_chunks,
-    stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,
-    write_team_factory_block, CHUNK_PLAYERS, CHUNK_TEAM_FACTORY,
-};
-
 
 /// Concatenated live snapshot sources for residual `include_str` scans.
 pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("ai.rs"),
     include_str!("battle_plan_persist.rs"),
-
     include_str!("builder.rs"),
     include_str!("client_drawable.rs"),
     include_str!("client_drawable_xfer.rs"),
@@ -215,7 +212,6 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("rebuild_hole_persist.rs"),
     include_str!("weapon_set_persist.rs"),
     include_str!("ability_hijack_persist.rs"),
-
     include_str!("ai_team_persist.rs"),
     include_str!("dock_queue_persist.rs"),
     include_str!("module_runtime_persist.rs"),
@@ -249,14 +245,9 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("score_keeper_persist.rs"),
     include_str!("garrison_firepoint_persist.rs"),
     include_str!("stealth_detector_persist.rs"),
-
-
     include_str!("particle_system_save.rs"),
     include_str!("terrain_visual_save.rs"),
     include_str!("player_team_persist.rs"),
-
-
-
     include_str!("terrain.rs"),
     include_str!("types.rs"),
     include_str!("xfer_helpers.rs"),

@@ -5,7 +5,7 @@ use crate::helpers::{
     BoneOverrideState, DrawWheelInfo, TheAudio, TheGameClient, TheGameLogic,
     TheParticleSystemManager,
 };
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
@@ -96,8 +96,6 @@ pub fn prune_live_host_truck_dust(owner_id: ObjectID) {
         }
     });
 }
-
-
 
 #[derive(Debug, Clone)]
 pub struct W3DTruckDrawModuleData {
@@ -414,9 +412,7 @@ impl W3DTruckDraw {
             return;
         };
         if self.landing_sound.is_none() {
-            if let Some(sound) = template
-                .get_per_unit_sound(&String::from("TruckLandingSound"))
-            {
+            if let Some(sound) = template.get_per_unit_sound(&String::from("TruckLandingSound")) {
                 let name = sound.get_event_name();
                 if !name.is_empty() {
                     self.landing_sound = Some(crate::common::audio::AudioEventRts::new(name));
@@ -424,8 +420,7 @@ impl W3DTruckDraw {
             }
         }
         if self.powerslide_sound.is_none() {
-            if let Some(sound) = template
-                .get_per_unit_sound(&String::from("TruckPowerslideSound"))
+            if let Some(sound) = template.get_per_unit_sound(&String::from("TruckPowerslideSound"))
             {
                 let name = sound.get_event_name();
                 if !name.is_empty() {
@@ -560,8 +555,8 @@ impl W3DTruckDraw {
         self.is_powersliding = false;
         if physics.is_motive && !physics.airborne {
             self.enable_emitters(true);
-            let accel_len = (physics.accel_x * physics.accel_x + physics.accel_y * physics.accel_y)
-                .sqrt();
+            let accel_len =
+                (physics.accel_x * physics.accel_x + physics.accel_y * physics.accel_y).sqrt();
             let mut accelerating = accel_len > ACCEL_THRESHOLD;
             if accelerating {
                 let dot = physics.accel_x * physics.vel_x + physics.accel_y * physics.vel_y;
@@ -763,7 +758,6 @@ impl W3DTruckDraw {
                                 .peek_cached_point_on_path()
                                 .or_else(|| ai_guard.get_path_destination())
                             {
-
                                 let pos = *owner_guard.get_position();
                                 let facing = owner_guard.get_orientation();
                                 let angle_to_goal = relative_angle_2d(pos, facing, point);

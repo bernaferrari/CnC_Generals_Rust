@@ -241,9 +241,9 @@ pub fn rebel_weapon(has_ap_bullets: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Whether residual fire should apply GLA Rebel residual path (gun honesty).

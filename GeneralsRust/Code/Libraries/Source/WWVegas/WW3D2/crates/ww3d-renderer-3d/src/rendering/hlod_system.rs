@@ -753,10 +753,12 @@ mod tests {
         assert!(
             optimized.lod_levels[0].distance_threshold < optimized.lod_levels[1].distance_threshold
         );
-        assert!(optimized
-            .lod_levels
-            .iter()
-            .all(|level| level.screen_size_threshold > 0.0));
+        assert!(
+            optimized
+                .lod_levels
+                .iter()
+                .all(|level| level.screen_size_threshold > 0.0)
+        );
     }
 
     #[test]

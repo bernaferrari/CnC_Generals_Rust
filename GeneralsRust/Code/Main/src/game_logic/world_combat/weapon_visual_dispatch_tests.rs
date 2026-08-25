@@ -3,9 +3,9 @@
 use super::super::*;
 use super::weapon_visual_capture::source_is_locally_controlled;
 use crate::presentation_frame::{
-    build_frozen_weapon_visual_dispatch_plan, FrozenW3dWeaponVisualBarrel,
-    FrozenWeaponVisualDischarge, FrozenWeaponVisualDrawState, FrozenWeaponVisualFxRoute,
-    FrozenWeaponVisualModuleProbe,
+    FrozenW3dWeaponVisualBarrel, FrozenWeaponVisualDischarge, FrozenWeaponVisualDrawState,
+    FrozenWeaponVisualFxRoute, FrozenWeaponVisualModuleProbe,
+    build_frozen_weapon_visual_dispatch_plan,
 };
 
 fn test_object(id: u32) -> Object {
@@ -20,7 +20,7 @@ fn test_object(id: u32) -> Object {
         ammo: Some(4),
         clip_size: 4,
         ..Weapon::default()
-});
+    });
     object
 }
 
@@ -138,10 +138,11 @@ fn null_fx_starts_recoil_on_every_eligible_module() {
     )
     .expect("null FX plan");
     assert_eq!(plan.targets.len(), 2);
-    assert!(plan
-        .targets
-        .iter()
-        .all(|target| target.starts_recoil_or_muzzle && !target.stops_after_fire_fx));
+    assert!(
+        plan.targets
+            .iter()
+            .all(|target| target.starts_recoil_or_muzzle && !target.stops_after_fire_fx)
+    );
 }
 
 #[test]

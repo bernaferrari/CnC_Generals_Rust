@@ -8,7 +8,7 @@
 use crate::core::error::{Error, RendererResult};
 use crate::core::ww3dformat::WW3DFormat;
 use crate::rendering::texture_decode::{
-    decode_texture_file, TextureData, TextureDataKind, TextureMipLevel,
+    TextureData, TextureDataKind, TextureMipLevel, decode_texture_file,
 };
 use crate::rendering::texture_system::texture_base::{PoolType, TexAssetType, TextureBaseClass};
 use std::collections::HashMap;

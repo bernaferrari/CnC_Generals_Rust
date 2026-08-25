@@ -57,8 +57,8 @@ fn cb_source() -> &'static str {
 }
 
 // 2026-08-15: widen post-split scan window to the rest of the concat.
-pub fn honesty_host_production_factory_kind_presentation_residual_method_names_residual_wave1009(
-) -> bool {
+pub fn honesty_host_production_factory_kind_presentation_residual_method_names_residual_wave1009()
+-> bool {
     let names = LIVE_HOST_PRODUCTION_FACTORY_KIND_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE1009;
     let ok = residual_name_index(names, "FSBarracks").is_some()
         && residual_name_index(names, "Wave 1009").is_some();
@@ -67,8 +67,8 @@ pub fn honesty_host_production_factory_kind_presentation_residual_method_names_r
     ok
 }
 
-pub fn honesty_host_production_factory_kind_presentation_residual_nav_commands_residual_wave1009(
-) -> bool {
+pub fn honesty_host_production_factory_kind_presentation_residual_nav_commands_residual_wave1009()
+-> bool {
     let steps = LIVE_HOST_PRODUCTION_FACTORY_KIND_PRESENTATION_RESIDUAL_NAV_STEPS_WAVE1009;
     let ok = residual_name_index(
         steps,

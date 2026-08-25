@@ -135,7 +135,6 @@ impl GameLogic {
         n
     }
 
-
     /// C++ America Scout/Battle/Hellfire drone object-upgrade residual.
     ///
     /// Attaches the residual slave drone to each living master vehicle that does
@@ -147,7 +146,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_slave_drones::{
-            is_slave_drone_master_template, slave_drone_conflicts_with_owned, SlaveDroneKind,
+            SlaveDroneKind, is_slave_drone_master_template, slave_drone_conflicts_with_owned,
         };
 
         let kind = SlaveDroneKind::from_upgrade_name(upgrade_name).unwrap_or(SlaveDroneKind::Scout);
@@ -340,7 +339,7 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_radar::{is_radar_provider_template, UPGRADE_GLA_RADAR};
+        use crate::game_logic::host_radar::{UPGRADE_GLA_RADAR, is_radar_provider_template};
         use crate::game_logic::host_structure_economy_residual::UPGRADE_AMERICA_RADAR;
 
         let canonical = if upgrade_name.to_ascii_lowercase().contains("china") {
@@ -387,8 +386,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_slave_drones::{
-            drone_armor_add_max_health, is_battle_drone_template, is_hellfire_drone_template,
-            is_scout_drone_template, SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR,
+            SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
+            is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
         };
 
         let mut n = 0u32;
@@ -441,7 +440,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_mig::{
-            apply_mig_aircraft_armor_health, is_mig_template, UPGRADE_CHINA_AIRCRAFT_ARMOR,
+            UPGRADE_CHINA_AIRCRAFT_ARMOR, apply_mig_aircraft_armor_health, is_mig_template,
         };
 
         let mut n = 0u32;
@@ -522,7 +521,7 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_mig::{is_nuke_mig_template, UPGRADE_CHINA_TACTICAL_NUKE_MIG};
+        use crate::game_logic::host_mig::{UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template};
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -560,7 +559,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_scud_launcher::{
-            is_scud_launcher_template, UPGRADE_GLA_ANTHRAX_BETA,
+            UPGRADE_GLA_ANTHRAX_BETA, is_scud_launcher_template,
         };
         use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
 
@@ -638,7 +637,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_gla_rebel::is_gla_rebel_template;
         use crate::game_logic::host_jarmen_kell::{
-            is_jarmen_kell_template, UPGRADE_GLA_AP_BULLETS,
+            UPGRADE_GLA_AP_BULLETS, is_jarmen_kell_template,
         };
         use crate::game_logic::host_quad_cannon::is_quad_cannon_template;
         use crate::game_logic::host_technical::is_technical_template;
@@ -714,7 +713,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_battlemaster::{
-            is_battlemaster_template, UPGRADE_CHINA_URANIUM_SHELLS,
+            UPGRADE_CHINA_URANIUM_SHELLS, is_battlemaster_template,
         };
         use crate::game_logic::host_overlord_gun::is_overlord_gun_chassis;
 
@@ -815,7 +814,7 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_scorpion::{is_scorpion_template, UPGRADE_GLA_SCORPION_ROCKET};
+        use crate::game_logic::host_scorpion::{UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template};
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -848,7 +847,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_base_defense::is_stinger_site_structure;
         use crate::game_logic::host_rpg_trooper::is_rpg_trooper_template;
-        use crate::game_logic::host_scorpion::{is_scorpion_template, UPGRADE_GLA_AP_ROCKETS};
+        use crate::game_logic::host_scorpion::{UPGRADE_GLA_AP_ROCKETS, is_scorpion_template};
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
@@ -898,7 +897,7 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_raptor::{is_raptor_template, UPGRADE_AMERICA_LASER_MISSILES};
+        use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -931,7 +930,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_battlemaster::{
-            is_battlemaster_template, is_china_horde_update_unit, UPGRADE_NATIONALISM,
+            UPGRADE_NATIONALISM, is_battlemaster_template, is_china_horde_update_unit,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::is_red_guard_template;
@@ -999,7 +998,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_battlemaster::{
-            is_china_horde_update_unit, leftover_horde_fanaticism_bonus, UPGRADE_FANATICISM,
+            UPGRADE_FANATICISM, is_china_horde_update_unit, leftover_horde_fanaticism_bonus,
         };
 
         let ids: Vec<ObjectId> = self
@@ -1034,7 +1033,6 @@ impl GameLogic {
         n
     }
 
-
     /// C++ Upgrade_ChinaChainGuns residual — gattling/minigun damage ×1.25.
     pub(in super::super) fn apply_chain_guns_to_team(
         &mut self,
@@ -1043,7 +1041,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
         use crate::game_logic::host_gattling_tank::{
-            is_gattling_tank_template, UPGRADE_CHINA_CHAIN_GUNS,
+            UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
 
@@ -1098,7 +1096,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_propaganda::{
-            is_propaganda_tower, UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+            UPGRADE_CHINA_SUBLIMINAL_MESSAGING, is_propaganda_tower,
         };
         let mut affected = 0u32;
         for obj in self.objects.values_mut() {
@@ -1141,8 +1139,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> bool {
         use crate::game_logic::host_structure_economy_residual::{
-            is_power_plant_template, AMERICA_POWER_ENERGY_BONUS,
-            UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+            AMERICA_POWER_ENERGY_BONUS, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+            is_power_plant_template,
         };
 
         let bonus = AMERICA_POWER_ENERGY_BONUS;
@@ -1186,7 +1184,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_structure_economy_residual::{
-            is_power_plant_template, UPGRADE_AMERICA_ADVANCED_CONTROL_RODS,
+            UPGRADE_AMERICA_ADVANCED_CONTROL_RODS, is_power_plant_template,
         };
 
         let mut plant_ids: Vec<ObjectId> = Vec::new();
@@ -1234,8 +1232,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_gla_worker::{
-            is_gla_worker_template, worker_residual_speed, UPGRADE_GLA_WORKER_SHOES,
-            WORKER_SHOES_AUDIO,
+            UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_AUDIO, is_gla_worker_template,
+            worker_residual_speed,
         };
 
         let mut affected = 0u32;
@@ -1275,8 +1273,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_nuclear_tanks::{
-            has_nuclear_tanks_upgrade, is_nuclear_tanks_eligible, nuclear_tanks_residual_speed,
-            NUCLEAR_TANKS_UPGRADE_AUDIO, UPGRADE_CHINA_NUCLEAR_TANKS,
+            NUCLEAR_TANKS_UPGRADE_AUDIO, UPGRADE_CHINA_NUCLEAR_TANKS, has_nuclear_tanks_upgrade,
+            is_nuclear_tanks_eligible, nuclear_tanks_residual_speed,
         };
 
         let mut affected = 0u32;
@@ -1314,7 +1312,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_booby_trap::{
-            is_booby_trap_planter_template, UPGRADE_GLA_REBEL_BOOBY_TRAP,
+            UPGRADE_GLA_REBEL_BOOBY_TRAP, is_booby_trap_planter_template,
         };
 
         let mut affected = 0u32;
@@ -1348,7 +1346,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_upgrades::is_flashbang_unit_template;
         use crate::game_logic::weapon_bootstrap::{
-            ensure_host_weapon_store, RANGER_SECONDARY_WEAPON,
+            RANGER_SECONDARY_WEAPON, ensure_host_weapon_store,
         };
 
         ensure_host_weapon_store();
@@ -1383,7 +1381,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_upgrades::is_tow_unit_template;
         use crate::game_logic::weapon_bootstrap::{
-            ensure_host_weapon_store, HUMVEE_SECONDARY_WEAPON,
+            HUMVEE_SECONDARY_WEAPON, ensure_host_weapon_store,
         };
 
         ensure_host_weapon_store();
@@ -1427,8 +1425,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_usa_tanks::{
-            apply_composite_armor_health, is_composite_armor_unit_template,
-            UPGRADE_AMERICA_COMPOSITE_ARMOR,
+            UPGRADE_AMERICA_COMPOSITE_ARMOR, apply_composite_armor_health,
+            is_composite_armor_unit_template,
         };
 
         let mut affected = 0u32;
@@ -1470,7 +1468,7 @@ impl GameLogic {
         use crate::game_logic::host_neutron_shell::UPGRADE_CHINA_NEUTRON_SHELLS;
         use crate::game_logic::host_upgrades::is_neutron_shell_unit_template;
         use crate::game_logic::weapon_bootstrap::{
-            ensure_host_weapon_store, NUKE_CANNON_NEUTRON_WEAPON,
+            NUKE_CANNON_NEUTRON_WEAPON, ensure_host_weapon_store,
         };
 
         ensure_host_weapon_store();
@@ -1505,8 +1503,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_comanche_rocket_pods::{
-            comanche_antitank_weapon, comanche_rocket_pod_weapon, is_comanche_template,
-            UPGRADE_COMANCHE_ROCKET_PODS,
+            UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_weapon, comanche_rocket_pod_weapon,
+            is_comanche_template,
         };
 
         let tertiary = comanche_rocket_pod_weapon();
@@ -1586,10 +1584,10 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_bunker_buster::{
-            is_bunker_buster_carrier, UPGRADE_AMERICA_BUNKER_BUSTERS,
+            UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier,
         };
         use crate::game_logic::weapon_bootstrap::{
-            ensure_host_weapon_store, STEALTH_JET_MISSILE_WEAPON,
+            STEALTH_JET_MISSILE_WEAPON, ensure_host_weapon_store,
         };
 
         ensure_host_weapon_store();
@@ -1622,7 +1620,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
-            is_capture_capable_infantry_template, UPGRADE_INFANTRY_CAPTURE,
+            UPGRADE_INFANTRY_CAPTURE, is_capture_capable_infantry_template,
         };
 
         let mut affected = 0u32;
@@ -1654,8 +1652,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
-            camouflage_stealth_allowed_frame, is_camouflage_unit_template,
             CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
+            camouflage_stealth_allowed_frame, is_camouflage_unit_template,
         };
 
         let mut affected = 0u32;
@@ -1700,8 +1698,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
-            camo_netting_stealth_allowed_frame, is_camo_netting_structure_template,
             CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
+            camo_netting_stealth_allowed_frame, is_camo_netting_structure_template,
         };
 
         let mut affected = 0u32;
@@ -1753,14 +1751,12 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_mines::{
-            is_demo_trap_template, DemoTrapProfile, HostMineKind,
-        };
+        use crate::game_logic::host_mines::{DemoTrapProfile, HostMineKind, is_demo_trap_template};
         use crate::game_logic::host_toxin_tractor::{
-            is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT, is_toxin_tractor_template,
         };
         use crate::game_logic::host_upgrades::{
-            is_anthrax_gamma_unit_template, UPGRADE_CHEM_ANTHRAX_GAMMA,
+            UPGRADE_CHEM_ANTHRAX_GAMMA, is_anthrax_gamma_unit_template,
         };
 
         let mut affected = 0u32;
@@ -1770,7 +1766,8 @@ impl GameLogic {
             }
             let demo_trap = is_demo_trap_template(&obj.template_name)
                 && obj.mine_data.as_ref().is_some_and(|md| {
-                    matches!(md.kind, HostMineKind::DemoTrap) && md.demo_trap_profile.spawns_poison()
+                    matches!(md.kind, HostMineKind::DemoTrap)
+                        && md.demo_trap_profile.spawns_poison()
                 });
             if !is_anthrax_gamma_unit_template(&obj.template_name)
                 && !is_toxin_tractor_template(&obj.template_name)
@@ -1800,8 +1797,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_demo_suicide_bomb::{
-            demo_command_set_upgrade_for_template, is_demo_suicide_bomb_eligible_template,
-            UPGRADE_DEMO_SUICIDE_BOMB,
+            UPGRADE_DEMO_SUICIDE_BOMB, demo_command_set_upgrade_for_template,
+            is_demo_suicide_bomb_eligible_template,
         };
 
         let mut affected = 0u32;

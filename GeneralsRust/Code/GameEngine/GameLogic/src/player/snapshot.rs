@@ -31,9 +31,8 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMaskType) -> Result<(
                 let mut name = String::new();
                 xfer.xfer_ascii_string(&mut name)
                     .map_err(|e| format!("KindOfMask name load failed: {}", e))?;
-                let bit = KindOfMask::from_string(&name).ok_or_else(|| {
-                    format!("KindOfMask invalid bit name '{}'", name)
-                })?;
+                let bit = KindOfMask::from_string(&name)
+                    .ok_or_else(|| format!("KindOfMask invalid bit name '{}'", name))?;
                 named |= bit;
             }
             *mask = named.bits() as KindOfMaskType;
@@ -51,7 +50,6 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMaskType) -> Result<(
         )),
     }
 }
-
 
 /// Save/load support for Player.
 /// Matches C++ Player::xfer (Player.cpp:3975, version 8).

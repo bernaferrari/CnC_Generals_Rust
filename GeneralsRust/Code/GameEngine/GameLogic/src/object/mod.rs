@@ -31,7 +31,7 @@ pub mod weapon;
 // pub mod update_modules;
 // pub mod concrete_update_modules;
 pub mod drawable;
-pub use drawable::{apply_debris_draw, DebrisDrawAnims, DrawableArcExt};
+pub use drawable::{DebrisDrawAnims, DrawableArcExt, apply_debris_draw};
 pub mod crate_registry_bind;
 pub mod experience_tracker;
 pub mod firing_tracker;
@@ -42,10 +42,10 @@ pub mod object;
 pub mod object_creation_list;
 pub mod object_factory;
 pub mod object_types;
-pub mod partition_manager;
 mod partition_data;
+pub mod partition_manager;
 pub use partition_data::{
-    partition_cell_shroud_status, stamp_partition_cell_lookers, PartitionData,
+    PartitionData, partition_cell_shroud_status, stamp_partition_cell_lookers,
 };
 
 pub mod registry;
@@ -62,8 +62,8 @@ pub use crate::common::types::ObjectStatusTypes;
 pub use crate::template::ObjectTemplate;
 pub use ghost_object::{GhostObject, GhostObjectManager, THE_GHOST_OBJECT_MANAGER};
 pub use w3d_ghost_object::{
-    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, W3DGhostObject, W3DGhostObjectManager,
-    W3DGhostSnapshotKey, W3DRenderObjectSnapshot, THE_W3D_GHOST_OBJECT_MANAGER,
+    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, THE_W3D_GHOST_OBJECT_MANAGER, W3DGhostObject,
+    W3DGhostObjectManager, W3DGhostSnapshotKey, W3DRenderObjectSnapshot,
 };
 
 use once_cell::sync::Lazy;
@@ -74,12 +74,12 @@ use std::fmt;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use game_engine::common::thing::module_factory::{
-    get_module_factory, init_module_factory, ModuleFactory,
+    ModuleFactory, get_module_factory, init_module_factory,
 };
 use game_engine::common::{
+    audio::AudioPriority,
     audio::dynamic_audio_event_info::DynamicAudioEventInfo,
     audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager},
-    audio::AudioPriority,
     name_key_generator::NameKeyGenerator,
     system::{Snapshotable as EngineSnapshotable, Xfer as EngineXfer},
     thing::module::{
@@ -96,11 +96,10 @@ use crate::common::types::ControlBarInterface;
 use crate::common::{
     AsciiString, Bool, Byte, Color, CommandSourceType, Coord2D, Coord3D, DefaultThingTemplate,
     Dict, DictType, DisabledMaskType, DisabledType, FormationID, GeometryInfo, ICoord3D, Int,
-    KindOf, KindOfMask, KindOfMaskType, Matrix3D, ModelConditionFlags, NameKeyType, ObjectID,
-    ObjectShroudStatus, ObjectStatusMaskType, PathfindLayerEnum, PlayerId, PlayerMaskType, Real,
-    Relationship, Snapshot, TeamMemberList, Thing, ThingTemplate, TurretType, UnsignedByte,
-    UnsignedInt, UpgradeMaskType, VeterancyLevel, WeaponBonusConditionFlags,
-    LOGICFRAMES_PER_SECOND,
+    KindOf, KindOfMask, KindOfMaskType, LOGICFRAMES_PER_SECOND, Matrix3D, ModelConditionFlags,
+    NameKeyType, ObjectID, ObjectShroudStatus, ObjectStatusMaskType, PathfindLayerEnum, PlayerId,
+    PlayerMaskType, Real, Relationship, Snapshot, TeamMemberList, Thing, ThingTemplate, TurretType,
+    UnsignedByte, UnsignedInt, UpgradeMaskType, VeterancyLevel, WeaponBonusConditionFlags,
 };
 use game_engine::common::game_common::FOREVER;
 use glam::{EulerRot, Mat4};
@@ -112,9 +111,9 @@ use crate::common::xfer::Xfer;
 use crate::contain_module_overrides::ContainModuleDataKind;
 
 use crate::ai::AIGroup;
-use crate::attack::{AbleToAttackType, CanAttackResult, ATTACKRESULT_POSSIBLE};
-use crate::common::types::WeaponBonusConditionType;
+use crate::attack::{ATTACKRESULT_POSSIBLE, AbleToAttackType, CanAttackResult};
 use crate::common::ArmorSetType;
+use crate::common::types::WeaponBonusConditionType;
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::experience::ExperienceTracker;
 use crate::helpers::{
@@ -151,26 +150,26 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
+use crate::GameLogicResult;
 use crate::object::special_power_types::{SpecialPowerMask, SpecialPowerType};
 use crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeHandle;
 use crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeHandle;
 use crate::object::upgrade::subobjects_upgrade::SubObjectsUpgradeHandle;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
-use crate::player::{player_list, Player, PlayerIndex, PlayerType};
+use crate::player::{Player, PlayerIndex, PlayerType, player_list};
 use crate::scripting::engine::get_event_manager;
 use crate::scripting::events::{GameEvent, GameEventType};
 use crate::scripting::{ScriptPriority, ScriptValue};
 use crate::stealth_update::StealthUpdateHandle;
 use crate::team::{Team, TeamID};
-use crate::upgrade::center::get_upgrade_center;
 use crate::upgrade::UpgradeTemplate;
+use crate::upgrade::center::get_upgrade_center;
 use crate::upgrade_legacy::upgrade_mask_for_ascii;
 use crate::weapon::{
     Weapon, WeaponAntiMask, WeaponBonusConditionType as WeaponModuleBonusConditionType,
     WeaponChoiceCriteria, WeaponLockType, WeaponSet, WeaponSetFlags, WeaponSetType, WeaponSlotType,
     WeaponStatus,
 };
-use crate::GameLogicResult;
 
 pub trait ObjectLockExt {
     fn lock(&self) -> std::sync::LockResult<std::sync::RwLockWriteGuard<'_, Object>>;
@@ -1118,7 +1117,6 @@ enum UpgradeModuleKindMut<'a> {
     AutoHeal(&'a mut crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule),
 }
 
-
 impl<'a> UpgradeModuleKindMut<'a> {
     fn into_interface(self) -> &'a mut dyn UpgradeModuleInterface {
         match self {
@@ -1336,7 +1334,6 @@ enum DieModuleKindMut<'a> {
 }
 
 impl<'a> DieModuleKindMut<'a> {
-
     fn into_interface(self) -> &'a mut dyn DieModuleInterface {
         match self {
             Self::Wrapper(module) => module,
@@ -1964,8 +1961,8 @@ impl ModuleUpdateProxy {
         );
         update_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
         if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
-        {
+            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>(
+        ) {
             return Some(module.update_simple());
         }
         update_via_behavior!(
@@ -2117,8 +2114,8 @@ impl ModuleUpdateProxy {
         );
         mask_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
         if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
-        {
+            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>(
+        ) {
             return Some(module.get_disabled_types_to_process());
         }
         mask_via_behavior!(
@@ -2194,8 +2191,8 @@ impl ModuleUpdateProxy {
         );
         phase_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
         if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
-        {
+            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>(
+        ) {
             return Some(module.get_update_phase());
         }
         phase_via_behavior!(
@@ -2555,7 +2552,6 @@ pub type RadarObject = game_engine::common::system::radar::RadarObject;
 
 // PartitionData lives in `partition_data.rs` (C++ PartitionData::getShroudedStatus).
 
-
 /// Polygon trigger for area detection.
 pub use crate::polygon_trigger::PolygonTrigger;
 
@@ -2842,9 +2838,15 @@ fn weapon_set_model_condition(flag: WeaponSetType) -> Option<ModelConditionFlags
 }
 
 // Inherent Object methods and later trait impls live in sibling files.
+mod capture;
+mod command_buttons;
+mod command_weapon;
+mod die_hooks;
+mod disabled;
+mod entity_module_host;
+mod init;
 mod object_combat;
 mod object_impl_imports;
-mod entity_module_host;
 mod object_lifecycle;
 mod object_modules;
 mod object_queries;
@@ -2857,17 +2859,11 @@ mod object_triggers;
 mod object_update;
 mod object_upgrade;
 mod object_vision;
-mod command_weapon;
-mod disabled;
-mod init;
+mod object_xfer;
 mod status_cmds;
 mod vision;
-mod die_hooks;
-mod capture;
-mod command_buttons;
-mod object_xfer;
 
 pub use object_thing::ObjectArcExt;
-pub(crate) use object_thing::{make_drawable_module_thing_handle, ObjectThingHandle};
+pub(crate) use object_thing::{ObjectThingHandle, make_drawable_module_thing_handle};
 
 pub type ObjectId = ObjectID;

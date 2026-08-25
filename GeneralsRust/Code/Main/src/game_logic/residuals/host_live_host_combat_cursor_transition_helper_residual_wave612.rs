@@ -86,8 +86,8 @@ pub fn residual_host_combat_cursor_transition_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_combat_cursor_transition_helper_last_action(
-) -> ResidualHostCombatCursorTransitionHelperAction {
+pub fn residual_host_combat_cursor_transition_helper_last_action()
+-> ResidualHostCombatCursorTransitionHelperAction {
     ResidualHostCombatCursorTransitionHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

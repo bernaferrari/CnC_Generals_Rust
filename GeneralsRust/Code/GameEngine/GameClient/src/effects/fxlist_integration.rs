@@ -123,9 +123,7 @@ impl FXNugget for SoundFXNugget {
         // C++ SoundFXNugget::doFXObj (FXList.cpp:90-99): setPlayerIndex + setPosition.
         // Leftover integration has no Object; the live GameClient runner sets
         // the controlling-player index. Position-only here still hits TheAudio.
-        use game_engine::common::audio::audio_event_rts::{
-            AudioEventRts, Coord3D as AudioCoord3D,
-        };
+        use game_engine::common::audio::audio_event_rts::{AudioEventRts, Coord3D as AudioCoord3D};
         use game_engine::common::audio::game_audio::{
             get_global_audio_manager, initialize_global_audio_manager,
         };

@@ -327,7 +327,6 @@ pub struct ObjectDisguiseSnapshot {
     pub disguise_halfpoint_reached: bool,
 }
 
-
 /// C++ `OverchargeBehavior::xfer` (`OverchargeBehavior.cpp:275-289`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectOverchargeSnapshot {
@@ -493,7 +492,6 @@ pub struct AirfieldParkingWorldSnapshot {
     pub jet_stalls: Vec<AirfieldJetStallSnapshot>,
     pub flight_decks: Vec<FlightDeckPersistSnapshot>,
 }
-
 
 pub const fn default_next_weapon_discharge_sequence() -> u64 {
     1

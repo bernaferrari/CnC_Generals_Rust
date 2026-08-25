@@ -31,9 +31,9 @@
 use std::sync::Arc;
 
 // Public modules
+pub mod audio_cache;
 pub mod audio_event_rts;
 pub mod audio_request;
-pub mod audio_cache;
 
 pub mod dynamic_audio_event_info;
 pub mod game_audio;
@@ -57,44 +57,43 @@ pub mod streaming; // Audio streaming for large files // Sound effects managemen
 
 // Re-export commonly used types and functions
 pub use audio_event_rts::{
-    miles_get_effective_volume, miles_positional_gain, miles_positional_ranges, AudioEventInfo,
-    AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D, DynamicAudioEventRts,
-    MilesVolumeSliders, OwnerType, PortionToPlay, TimeOfDay, AC_ALL, AC_INTERRUPT, AC_LOOP,
+    AC_ALL, AC_INTERRUPT, AC_LOOP, AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority,
+    AudioType, Coord3D, DynamicAudioEventRts, MilesVolumeSliders, OwnerType, PortionToPlay,
     ST_ALLIES, ST_ENEMIES, ST_EVERYONE, ST_GLOBAL, ST_PLAYER, ST_SHROUDED, ST_UI, ST_WORLD,
+    TimeOfDay, miles_get_effective_volume, miles_positional_gain, miles_positional_ranges,
 };
 
-pub use audio_request::{AudioRequest, RequestData, RequestType};
 pub use audio_cache::AudioFileCache;
-
+pub use audio_request::{AudioRequest, RequestData, RequestType};
 
 pub use dynamic_audio_event_info::{BitFlags, DynamicAudioEventInfo, OverriddenFields};
 
 pub use game_audio::{
-    load_audio_event_inis, music_repeats_source_infinitely, register_animation_sound_library,
-    register_audio_locality_resolver, register_sound_playback_hook, should_play_locally_for_players,
-    sound_playback_hook_registered, AudioAffect, AudioLocalityRelationship, AudioLocalityResolver,
-    AudioManager, AudioSettings, MiscAudio, MusicManager, SoundManager, SoundPlaybackHook,
-    AHSV_STOP_THE_MUSIC, AHSV_STOP_THE_MUSIC_FADE,
+    AHSV_STOP_THE_MUSIC, AHSV_STOP_THE_MUSIC_FADE, AudioAffect, AudioLocalityRelationship,
+    AudioLocalityResolver, AudioManager, AudioSettings, MiscAudio, MusicManager, SoundManager,
+    SoundPlaybackHook, load_audio_event_inis, music_repeats_source_infinitely,
+    register_animation_sound_library, register_audio_locality_resolver,
+    register_sound_playback_hook, should_play_locally_for_players, sound_playback_hook_registered,
 };
 
-pub use game_music::{create_music_manager, MusicManagerImpl, MusicTrack};
+pub use game_music::{MusicManagerImpl, MusicTrack, create_music_manager};
 pub use gameplay_audio_dispatch::{
-    dispatch_eva_announcement, dispatch_ui_sound, dispatch_unit_death, dispatch_weapon_fire,
-    register_gameplay_audio_dispatch, GameplayAudioDispatch,
+    GameplayAudioDispatch, dispatch_eva_announcement, dispatch_ui_sound, dispatch_unit_death,
+    dispatch_weapon_fire, register_gameplay_audio_dispatch,
 };
 
 pub use game_sounds::{
-    create_sound_manager, register_audio_shroud_resolver, shrouded_positional_event_is_blocked,
-    AudioShroudResolver, PlayNowAudioQueries, SoundManagerImpl,
+    AudioShroudResolver, PlayNowAudioQueries, SoundManagerImpl, create_sound_manager,
+    register_audio_shroud_resolver, shrouded_positional_event_is_blocked,
 };
 
 pub use game_speech::{
-    create_speech_interface, Speaker, Speech, SpeechInfo, SpeechItem, SpeechManager,
+    Speaker, Speech, SpeechInfo, SpeechItem, SpeechManager, create_speech_interface,
 };
 
 pub use simple_player::{
-    create_simple_player, play_audio_file, AudioBuffer, PlayerEvent, PlayerStatus, SimplePlayer,
-    WaveFormat,
+    AudioBuffer, PlayerEvent, PlayerStatus, SimplePlayer, WaveFormat, create_simple_player,
+    play_audio_file,
 };
 
 pub use url_launch::{

@@ -9,8 +9,8 @@ use super::{PathfindCell, PathfindCellType, PathfindLayer};
 use crate::common::{ICoord2D, IRegion2D};
 use crate::locomotor::SURFACE_AIR;
 use crate::path::{
-    LocomotorSurfaceTypeMask, ZoneStorageType, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE,
-    SURFACE_WATER,
+    LocomotorSurfaceTypeMask, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
+    ZoneStorageType,
 };
 
 /// Zone block size matching C++ implementation

@@ -170,11 +170,7 @@ pub fn next_power_of_2(val: u32) -> u32 {
     }
 
     let pot = find_pot(val as i32) as u32;
-    if pot == val {
-        pot << 1
-    } else {
-        pot
-    }
+    if pot == val { pot << 1 } else { pot }
 }
 
 /// Find the previous power of 2 less than or equal to the given value.

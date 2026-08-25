@@ -31,23 +31,23 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers, AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction,
-    PartitionFilter, THE_AI,
+    search_qualifiers,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
-use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePartitionManager};
+use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, PhysicsBehaviorExt, FAST_AS_POSSIBLE,
+    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -62,7 +62,7 @@ use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
-    Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT,
+    NO_MAX_SHOTS_LIMIT, Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus,
 };
 use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 
@@ -958,8 +958,11 @@ pub(crate) fn should_seed_attack_common_target(
 }
 
 pub(crate) fn seed_team_target_if_attack_common(team: &mut Team, victim_id: ObjectID) {
-    if should_seed_attack_common_target(true, team.attack_common_target(), team.get_team_target_object())
-    {
+    if should_seed_attack_common_target(
+        true,
+        team.attack_common_target(),
+        team.get_team_target_object(),
+    ) {
         team.set_team_target_object(victim_id);
     }
 }
@@ -1029,7 +1032,6 @@ impl ClassicState for AIAttackFireWeaponState {
                 }
             }
         }
-
 
         owner_guard.set_status(
             ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon),
@@ -1350,7 +1352,12 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
 
     let victim_speed = victim
         .get_physics()
-        .and_then(|physics| physics.lock().ok().map(|guard| guard.get_forward_speed_2d()))
+        .and_then(|physics| {
+            physics
+                .lock()
+                .ok()
+                .map(|guard| guard.get_forward_speed_2d())
+        })
         .unwrap_or(0.0);
 
     if victim_speed >= our_max_speed {
@@ -1596,7 +1603,12 @@ impl AIAttackPursueTargetState {
 
             let mut desired_speed = victim_guard
                 .get_physics()
-                .and_then(|physics| physics.lock().ok().map(|guard| guard.get_forward_speed_2d()))
+                .and_then(|physics| {
+                    physics
+                        .lock()
+                        .ok()
+                        .map(|guard| guard.get_forward_speed_2d())
+                })
                 .unwrap_or(FAST_AS_POSSIBLE);
             desired_speed *= 0.95;
             // C++ AIStates.cpp:3058-3060 canCrushOrSquish → FAST_AS_POSSIBLE.

@@ -35,10 +35,11 @@ impl GameWorldShadow {
                     } else {
                         let hid = self.entity_to_host.get(&eid.get()).copied().unwrap_or(0);
                         let slot = hid % 8;
-                        let dest = crate::game_logic::host_angry_mob::angry_mob_member_orbit_destination(
-                            glam::Vec3::new(x, y, z),
-                            slot,
-                        );
+                        let dest =
+                            crate::game_logic::host_angry_mob::angry_mob_member_orbit_destination(
+                                glam::Vec3::new(x, y, z),
+                                slot,
+                            );
                         let dx = e.transform.position.x - dest.x;
                         let dz = e.transform.position.z - dest.z;
                         if dx * dx + dz * dz > 100.0 {
@@ -100,12 +101,16 @@ impl GameWorldShadow {
                 fire_at.y = 0.0;
                 let mut team = crate::game_logic::Team::Neutral;
                 let mut producer = crate::game_logic::ObjectId(p.source_id);
-                let mut jet_eid = self.host_to_entity.get(&p.source_id).copied().and_then(|eid| {
-                    self.world
-                        .entity(eid)
-                        .filter(|e| e.a10_strike_transport_active)
-                        .map(|_| eid)
-                });
+                let mut jet_eid = self
+                    .host_to_entity
+                    .get(&p.source_id)
+                    .copied()
+                    .and_then(|eid| {
+                        self.world
+                            .entity(eid)
+                            .filter(|e| e.a10_strike_transport_active)
+                            .map(|_| eid)
+                    });
                 if jet_eid.is_none() {
                     jet_eid = self.host_to_entity.values().copied().find(|&eid| {
                         self.world.entity(eid).is_some_and(|e| {
@@ -226,9 +231,7 @@ impl GameWorldShadow {
 
         // Wave 818: player radar provider count residual.
         {
-            use crate::game_logic::host_radar::{
-                is_disabled_for_radar, is_legal_radar_provider,
-            };
+            use crate::game_logic::host_radar::{is_disabled_for_radar, is_legal_radar_provider};
             const COMMAND_CENTER_BIT: u32 = 1u32 << 8;
             let mut providers_by_team: std::collections::HashMap<u8, u32> =
                 std::collections::HashMap::new();
@@ -337,8 +340,8 @@ impl GameWorldShadow {
                 .and_then(|&eid| self.world.entity(eid))
                 .is_some_and(living);
         }
-        self.host_to_entity.values().any(|&eid| {
-            self.world.entity(eid).is_some_and(living)
-        })
+        self.host_to_entity
+            .values()
+            .any(|&eid| self.world.entity(eid).is_some_and(living))
     }
 }

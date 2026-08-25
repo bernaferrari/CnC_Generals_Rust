@@ -32,19 +32,17 @@ use crate::common::{
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::modules::{
-    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ExitDoorType,
-    ProductionUpdateInterface, UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DIE,
-    MODULEINTERFACE_UPDATE, UPDATE_SLEEP_NONE,
+    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ExitDoorType, MODULEINTERFACE_DIE,
+    MODULEINTERFACE_UPDATE, ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{
-    xfer_update_module_base_state, BehaviorModuleData,
-};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::system::game_logic;
+use crate::upgrade::UpgradeStatus;
 use crate::upgrade::center::THE_UPGRADE_CENTER;
 use crate::upgrade::template::UpgradeType;
-use crate::upgrade::UpgradeStatus;
 use game_engine::bit_flags::create_model_condition_flags;
-use crate::system::game_logic;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -108,7 +106,6 @@ pub struct QuantityModifier {
     /// How many to produce (e.g., 4 for Red Guards)
     pub quantity: i32,
 }
-
 
 fn parse_int_field(
     _ini: &mut INI,
@@ -878,8 +875,7 @@ impl ProductionUpdateComplete {
 
             // Apply quantity modifier
             // Matches C++ ProductionUpdate.cpp:417-425 isEquivalentTo
-            prod_state.quantity_total =
-                self.quantity_for_template(&prod_state.entry.template_name);
+            prod_state.quantity_total = self.quantity_for_template(&prod_state.entry.template_name);
 
             self.current_production = Some(prod_state);
             self.sync_actively_constructing_flag();
@@ -1394,7 +1390,10 @@ impl ProductionUpdateComplete {
             }
             return;
         };
-        let player = owner.read().ok().and_then(|guard| guard.get_controlling_player());
+        let player = owner
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_controlling_player());
         if let Some(player) = player {
             let player_index = player
                 .read()
@@ -2170,8 +2169,7 @@ mod tests {
 
     #[test]
     fn sold_freezes_queue_any_disable_does_not() {
-        let production =
-            ProductionUpdateComplete::new(ProductionUpdateModuleData::default(), 42);
+        let production = ProductionUpdateComplete::new(ProductionUpdateModuleData::default(), 42);
         assert!(production.should_halt_production(true, false));
         assert!(production.should_halt_production(true, true));
         assert!(!production.should_halt_production(false, true));

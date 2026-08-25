@@ -4,28 +4,28 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Coord2D, Coord3D, GameLogicRandomValue, GameLogicRandomValueReal, Matrix3D,
-    ModelConditionFlags, ModuleData, ObjectID, Real, UnsignedInt, PLAYERMASK_ALL,
+    ModelConditionFlags, ModuleData, ObjectID, PLAYERMASK_ALL, Real, UnsignedInt,
 };
-use crate::damage::{get_damage_type_flag, DamageInfo, DamageType};
+use crate::damage::{DamageInfo, DamageType, get_damage_type_flag};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    game_client_random_value, TheFXListStore, TheGameLogic, TheObjectCreationListStore,
-    TheTerrainLogic, TheWeaponStore,
+    TheFXListStore, TheGameLogic, TheObjectCreationListStore, TheTerrainLogic, TheWeaponStore,
+    game_client_random_value,
 };
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::die::{
-    parse_death_type_flags_tokens, parse_object_status_mask_tokens,
-    parse_veterancy_level_flags_tokens, DieMuxData, ObjectStatusMask,
-};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::die::{
+    DieMuxData, ObjectStatusMask, parse_death_type_flags_tokens, parse_object_status_mask_tokens,
+    parse_veterancy_level_flags_tokens,
+};
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
 use crate::scripting::engine::get_script_engine;
 use crate::weapon::with_weapon_store;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

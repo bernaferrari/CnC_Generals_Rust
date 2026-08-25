@@ -16,13 +16,12 @@ use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 #[cfg(feature = "w3d")]
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
 
 #[cfg(feature = "w3d")]
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindingType, BlendComponent, BlendFactor, BlendOperation,
     BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState,
@@ -35,6 +34,7 @@ use wgpu::{
     TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureDescriptor,
     TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
     TextureViewDimension, VertexBufferLayout, VertexState,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 
 /// Maximum number of materials in GPU buffer

@@ -140,7 +140,8 @@ pub fn simulate_entity_presentation_mesh_fow_entity_source() -> bool {
     let pf = pf_source();
     // 2026-08-15: overlay.rs stamps ent.mesh_scale + FOW alphas (not the old
     // mesh_scale_for_unit(&ent.template.name) call).
-    let ok = (pf.contains("Wave 492: mesh scale + FOW from GW entity residual (not hard defaults)")
+    let ok = (pf
+        .contains("Wave 492: mesh scale + FOW from GW entity residual (not hard defaults)")
         || pf.contains("ent.mesh_scale"))
         && (pf.contains("mesh_scale_for_unit(&ent.template.name)")
             || pf.contains("mesh_scale_from_template")

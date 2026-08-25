@@ -135,8 +135,8 @@ impl HostDaisyCutterFlightData {
     /// Returns (new_pos, vel, off_map / CLEAN_UP).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
         use crate::game_logic::host_deliver_payload::{
-            head_off_map_exit_point_residual, is_off_map_residual, RESIDUAL_MAP_EXTENT_MAX_X,
-            RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+            RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
+            RESIDUAL_MAP_EXTENT_MIN_Z, head_off_map_exit_point_residual, is_off_map_residual,
         };
         let hx = self.target.x - self.launch.x;
         let hz = self.target.z - self.launch.z;
@@ -144,7 +144,12 @@ impl HostDaisyCutterFlightData {
             self.passed_target = true;
         }
         let (min_x, min_z, max_x, max_z) = if self.map_extent_ok() {
-            (self.map_min.x, self.map_min.z, self.map_max.x, self.map_max.z)
+            (
+                self.map_min.x,
+                self.map_min.z,
+                self.map_max.x,
+                self.map_max.z,
+            )
         } else {
             (
                 RESIDUAL_MAP_EXTENT_MIN_X,
@@ -172,8 +177,8 @@ impl HostDaisyCutterFlightData {
         } else {
             Vec3::ZERO
         };
-        let at_exit = self.delivery_complete
-            && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
+        let at_exit =
+            self.delivery_complete && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
         (new_pos, vel, at_exit)
     }
 }
@@ -228,8 +233,7 @@ pub fn honesty_daisy_cutter_flight_residual_ok() -> bool {
         && (CRUISE_MISSILE_RADIUS - 150.0).abs() < 0.1
         && DAISY_CUTTER_IMPACT_DELAY_FRAMES == 90
         && DaisyFlightPayloadTier::Moab.transport() == "AmericaJetB3"
-        && DaisyFlightPayloadTier::from_ocl_name("SUPERWEAPON_MOAB")
-            == DaisyFlightPayloadTier::Moab
+        && DaisyFlightPayloadTier::from_ocl_name("SUPERWEAPON_MOAB") == DaisyFlightPayloadTier::Moab
         && DaisyFlightPayloadTier::from_ocl_name("SUPERWEAPON_DaisyCutter")
             == DaisyFlightPayloadTier::DaisyCutter
 }
@@ -268,6 +272,9 @@ mod tests {
                 break;
             }
         }
-        assert!(left && destroyed, "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}");
+        assert!(
+            left && destroyed,
+            "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}"
+        );
     }
 }

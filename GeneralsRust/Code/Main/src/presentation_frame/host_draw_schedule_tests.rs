@@ -1,12 +1,12 @@
 //! Host present-path schedule: one loco step per presented frame.
 
 use super::host_draw_schedule::{
-    begin_presented_frame, particle_visual_ms, phase_log, reset_host_present_schedule,
-    run_host_present_visual_phases, HostPresentPhase, HostPresentVisualInput, HOST_VISUAL_FRAME_MS,
+    HOST_VISUAL_FRAME_MS, HostPresentPhase, HostPresentVisualInput, begin_presented_frame,
+    particle_visual_ms, phase_log, reset_host_present_schedule, run_host_present_visual_phases,
 };
 use super::physics_visual_host::{
-    apply_to_world_matrix, insert_facts_for_test, loco_state, reset_host_physics_visual_state,
-    HostPhysicsVisualFacts,
+    HostPhysicsVisualFacts, apply_to_world_matrix, insert_facts_for_test, loco_state,
+    reset_host_physics_visual_state,
 };
 use crate::game_logic::ObjectId;
 use game_client::physics_visual::{

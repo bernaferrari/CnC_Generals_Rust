@@ -119,8 +119,9 @@ mod tests {
     #[test]
     fn simulate_eva_prepare_low_power_residual_live() {
         use game_client::eva::{
-            residual_eva_is_enabled, residual_eva_last_action, residual_eva_last_message_index,
-            simulate_eva_disable, simulate_eva_prepare_low_power_alert, ResidualEvaAction,
+            ResidualEvaAction, residual_eva_is_enabled, residual_eva_last_action,
+            residual_eva_last_message_index, simulate_eva_disable,
+            simulate_eva_prepare_low_power_alert,
         };
         assert!(
             simulate_eva_prepare_low_power_alert(),

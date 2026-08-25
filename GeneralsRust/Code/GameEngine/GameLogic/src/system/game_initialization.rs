@@ -9,10 +9,10 @@
 
 use super::game_start::{GameStartSequence, ScriptResult};
 use super::map_loader::{Coord3D, MapCache, MapLoader};
-use super::player_init::{make_player_template, Difficulty, PlayerInitializer, PlayerList};
+use super::player_init::{Difficulty, PlayerInitializer, PlayerList, make_player_template};
 use super::victory_conditions::{ScoreKeeper, VictoryConditions, VictoryType};
-use crate::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 use crate::ai::THE_AI;
+use crate::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 use crate::common::well_known_keys::{
     key_multiplayer_start_index, key_player_allies, key_player_color, key_player_display_name,
     key_player_enemies, key_player_faction, key_player_is_human, key_player_is_preorder,
@@ -28,16 +28,16 @@ use crate::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerType as LogicPlayerType, ThePlayerList,
 };
-use crate::sides_list::{get_sides_list, SidesList};
-use crate::team::get_team_factory;
+use crate::sides_list::{SidesList, get_sides_list};
 use crate::team::MAX_GENERIC_SCRIPTS;
-use game_engine::common::ini::ini::{INILoadType, INI};
+use crate::team::get_team_factory;
+use game_engine::System::get_game_state;
+use game_engine::common::ini::ini::{INI, INILoadType};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::resource_manager::get_resource_manager;
-use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
+use game_engine::common::rts::player_template::{PlayerTemplate, get_player_template_store};
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
-use game_engine::System::get_game_state;
 
 use std::fs;
 use std::io;
@@ -263,10 +263,7 @@ impl GameInitializer {
         let Some(observer) = observer else {
             return;
         };
-        let index = observer
-            .read()
-            .ok()
-            .map(|player| player.get_player_index());
+        let index = observer.read().ok().map(|player| player.get_player_index());
         let Some(index) = index else {
             return;
         };
@@ -421,8 +418,6 @@ impl GameInitializer {
         Self::load_map_sidecar_resources(map_name);
     }
 
-
-
     fn load_map_sidecar_resources(map_path: &str) {
         let map_for_sidecars = Self::resolve_sidecar_map_path(map_path);
         let Some(map_dir) = Self::map_directory_for_sidecars(&map_for_sidecars) else {
@@ -511,7 +506,6 @@ impl GameInitializer {
         }
     }
 
-
     fn smart_asset_purge_from_usage_manifest(path: &str) {
         let resources = Self::read_asset_usage_manifest(path);
 
@@ -585,7 +579,6 @@ impl GameInitializer {
     }
 }
 
-
 /// C++ GameLogic.cpp:2407-2408 `ini.load(..., INI_LOAD_CREATE_OVERRIDES)`.
 pub fn load_map_ini_create_overrides_from_contents(contents: &str) -> Result<(), String> {
     if contents.trim().is_empty() {
@@ -640,7 +633,6 @@ fn load_map_ini_create_overrides_from_path<P: AsRef<Path>>(path: P) -> Result<()
         .map_err(|err| err.to_string())
 }
 
-
 fn extract_map_ini_named_blocks(contents: &str, block_names: &[&str]) -> String {
     let mut out = String::new();
     let mut in_block = false;
@@ -672,18 +664,14 @@ fn count_map_ini_blocks(contents: &str, block_names: &[&str]) -> usize {
     contents
         .lines()
         .filter(|line| {
-            line.trim()
-                .split_whitespace()
-                .next()
-                .is_some_and(|token| {
-                    block_names
-                        .iter()
-                        .any(|name| token.eq_ignore_ascii_case(name))
-                })
+            line.trim().split_whitespace().next().is_some_and(|token| {
+                block_names
+                    .iter()
+                    .any(|name| token.eq_ignore_ascii_case(name))
+            })
         })
         .count()
 }
-
 
 impl GameInitializer {
     /// Phase 2: Initialize players from map data and templates
@@ -850,10 +838,7 @@ impl GameInitializer {
             .player_list
             .init_relationships_from_allies_enemies();
 
-        Self::sync_player_list_to_game_logic(
-            &game_state.player_list,
-            params.starting_resources,
-        );
+        Self::sync_player_list_to_game_logic(&game_state.player_list, params.starting_resources);
         Self::sync_teams_from_sides();
         Self::sync_side_scripts_to_script_engine();
         Self::initialize_ai_integration_for_players();
@@ -1230,11 +1215,7 @@ impl GameInitializer {
                     if let Some(text) = match team_dict.get_type(key) {
                         Some(_) => {
                             let value = team_dict.get_ascii_string(key);
-                            if value.is_empty() {
-                                None
-                            } else {
-                                Some(value)
-                            }
+                            if value.is_empty() { None } else { Some(value) }
                         }
                         None => None,
                     } {
@@ -1286,9 +1267,7 @@ impl GameInitializer {
 
             if dict.get_type(key_player_start_money()).is_some() {
                 let money = dict.get_int(key_player_start_money());
-                player.current_money = player
-                    .current_money
-                    .saturating_add(money.max(0) as u32);
+                player.current_money = player.current_money.saturating_add(money.max(0) as u32);
             }
 
             if !player.is_human {
@@ -1652,7 +1631,7 @@ mod tests {
 
     #[test]
     fn test_start_new_game_request_is_cleared_before_initialize_game_entry() {
-        use crate::system::game_logic::{GameLogic, GAME_SKIRMISH};
+        use crate::system::game_logic::{GAME_SKIRMISH, GameLogic};
         use game_engine::common::ini::get_global_data;
         use std::sync::Mutex;
 

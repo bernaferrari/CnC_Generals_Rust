@@ -19,11 +19,7 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use wgpu::{Queue, SurfaceConfiguration};
-use winit::{
-    dpi::LogicalSize,
-    event_loop::EventLoop,
-    window::{Window, WindowBuilder},
-};
+use winit::{dpi::LogicalSize, event_loop::EventLoop, window::Window};
 
 /// Platform level errors.
 #[derive(Debug, Error)]
@@ -196,10 +192,12 @@ impl PlatformContext {
         let event_loop =
             EventLoop::new().map_err(|e| PlatformError::WindowCreation(e.to_string()))?;
         let window = Arc::new(
-            WindowBuilder::new()
-                .with_title(title)
-                .with_inner_size(LogicalSize::new(width as f64, height as f64))
-                .build(&event_loop)
+            event_loop
+                .create_window(
+                    Window::default_attributes()
+                        .with_title(title)
+                        .with_inner_size(LogicalSize::new(width as f64, height as f64)),
+                )
                 .map_err(|e| PlatformError::WindowCreation(e.to_string()))?,
         );
 

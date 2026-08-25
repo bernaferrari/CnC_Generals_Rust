@@ -8,33 +8,28 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
+use crate::gamespy_game::{with_gamespy_game_info, with_gamespy_game_info_mut};
+use crate::gamespy_overlay::{
+    GameSpyOverlayType, close_all_overlays, close_overlay, gs_message_box_ok, open_overlay,
+    raise_gs_message_box, toggle_overlay,
+};
 use crate::gui::callbacks::online_callback_support::{
     challenge_general_starts_enabled, dispatch_esc_gadget_selected, mapped_image_size,
     packed_ui_color,
-};
-use crate::gamespy_game::{with_gamespy_game_info, with_gamespy_game_info_mut};
-use crate::gamespy_overlay::{
-    close_all_overlays, close_overlay, gs_message_box_ok, open_overlay, raise_gs_message_box,
-    toggle_overlay, GameSpyOverlayType,
 };
 use crate::gui::callbacks::wol_buddy_overlay::handle_buddy_responses;
 use crate::gui::callbacks::wol_welcome_menu::populate_player_info_windows;
 
 use crate::gui::gadgets::{ComboBox, ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
+    with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
-use crate::shell_hooks::{
-    signal_ui_interaction, SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME,
-};
-use gamelogic::helpers::TheGameLogic;
-use gamelogic::system::game_logic::GAME_SHELL;
-use game_network::nat::{
-    reset_the_nat, the_nat_establish, the_nat_state, the_nat_update, NatBehavior, NatState,
-};
 use crate::map_util::get_map_cache_manager;
+use crate::shell_hooks::{
+    SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME, signal_ui_interaction,
+};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -44,14 +39,19 @@ use game_engine::common::preferences::{LadderPref, LadderPreferences, Quickmatch
 use game_engine::common::random_value::get_game_client_random_value;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_network::gamespy::config::GameSpyConfig;
-use game_network::gamespy::ladder_defs::{get_ladder_list, init_ladder_list, LadderInfo};
-use game_network::gamespy::peer_defs::{default_gamespy_colors, get_gamespy_info, GameSpyColor};
+use game_network::gamespy::ladder_defs::{LadderInfo, get_ladder_list, init_ladder_list};
+use game_network::gamespy::peer_defs::{GameSpyColor, default_gamespy_colors, get_gamespy_info};
 use game_network::gamespy::peer_thread::{
-    get_peer_message_queue, PeerRequest, PeerRequestType, PeerResponseType, QMStatus,
+    PeerRequest, PeerRequestType, PeerResponseType, QMStatus, get_peer_message_queue,
 };
-use game_network::gamespy::persistent_storage_thread::{get_ps_message_queue, PSResponseType};
+use game_network::gamespy::persistent_storage_thread::{PSResponseType, get_ps_message_queue};
+use game_network::nat::{
+    NatBehavior, NatState, reset_the_nat, the_nat_establish, the_nat_state, the_nat_update,
+};
 use game_network::rank_point_value::calculate_rank;
-use game_network::{FirewallBehaviorType, SlotState, MAX_SLOTS, PLAYERTEMPLATE_RANDOM};
+use game_network::{FirewallBehaviorType, MAX_SLOTS, PLAYERTEMPLATE_RANDOM, SlotState};
+use gamelogic::helpers::TheGameLogic;
+use gamelogic::system::game_logic::GAME_SHELL;
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -810,10 +810,7 @@ fn set_listbox_selection(
     );
 }
 
-pub fn wol_quick_match_menu_init(
-    layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = quickmatch_state();
     let mut state = state_slot.borrow_mut();
     state.is_in_init = true;
@@ -869,18 +866,10 @@ pub fn wol_quick_match_menu_init(
     });
 
     if let Some(parent) = state.parent.clone() {
-        state.button_back = parent
-            .borrow()
-            .find_child_by_id(state.button_back_id);
-        state.button_start = parent
-            .borrow()
-            .find_child_by_id(state.button_start_id);
-        state.button_stop = parent
-            .borrow()
-            .find_child_by_id(state.button_stop_id);
-        state.button_widen = parent
-            .borrow()
-            .find_child_by_id(state.button_widen_id);
+        state.button_back = parent.borrow().find_child_by_id(state.button_back_id);
+        state.button_start = parent.borrow().find_child_by_id(state.button_start_id);
+        state.button_stop = parent.borrow().find_child_by_id(state.button_stop_id);
+        state.button_widen = parent.borrow().find_child_by_id(state.button_widen_id);
         state.quickmatch_text_window = parent
             .borrow()
             .find_child_by_id(state.listbox_quick_match_id);
@@ -896,24 +885,16 @@ pub fn wol_quick_match_menu_init(
         state.combo_box_num_players = parent
             .borrow()
             .find_child_by_id(state.combo_box_num_players_id);
-        state.combo_box_ladder = parent
-            .borrow()
-            .find_child_by_id(state.combo_box_ladder_id);
+        state.combo_box_ladder = parent.borrow().find_child_by_id(state.combo_box_ladder_id);
         state.combo_box_max_disconnects = parent
             .borrow()
             .find_child_by_id(state.combo_box_max_disconnects_id);
         state.static_text_num_players = parent
             .borrow()
             .find_child_by_id(state.static_text_num_players_id);
-        state.combo_box_side = parent
-            .borrow()
-            .find_child_by_id(state.combo_box_side_id);
-        state.combo_box_color = parent
-            .borrow()
-            .find_child_by_id(state.combo_box_color_id);
-        state.button_buddies = parent
-            .borrow()
-            .find_child_by_id(state.button_buddies_id);
+        state.combo_box_side = parent.borrow().find_child_by_id(state.combo_box_side_id);
+        state.combo_box_color = parent.borrow().find_child_by_id(state.combo_box_color_id);
+        state.button_buddies = parent.borrow().find_child_by_id(state.button_buddies_id);
     }
 
     if let Some(info) = get_gamespy_info() {
@@ -1062,10 +1043,7 @@ fn shutdown_complete(layout: &WindowLayout) {
     state.next_screen = None;
 }
 
-pub fn wol_quick_match_menu_shutdown(
-    layout: &WindowLayout,
-    user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     if let Some(info) = get_gamespy_info() {
         if let Ok(mut info) = info.lock() {
             info.unregister_text_window(
@@ -1105,10 +1083,7 @@ pub fn wol_quick_match_menu_shutdown(
     raise_gs_message_box();
 }
 
-pub fn wol_quick_match_menu_update(
-    layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_quick_match_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = quickmatch_state();
     let mut state = state_slot.borrow_mut();
     let shell_finished = get_shell().is_anim_finished();
@@ -1394,7 +1369,7 @@ pub fn wol_quick_match_menu_update(
                                                         8088,
                                                     )),
                                                     NatBehavior::from_raw(
-                                                        slot.get_nat_behavior() as u16,
+                                                        slot.get_nat_behavior() as u16
                                                     ),
                                                 ))
                                             })
@@ -1510,7 +1485,7 @@ pub fn wol_quick_match_menu_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let state_slot = quickmatch_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
@@ -1799,13 +1774,13 @@ fn start_quickmatch(state: &mut WolQuickMatchState) {
     req.qm_discons = num_discons;
 
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
-        let ping = info.get_ping_string().as_str().to_string();
-        for (dst, src) in req.qm_pings.iter_mut().zip(ping.as_bytes().iter()) {
-            *dst = *src;
+        if let Ok(info) = slot.lock() {
+            let ping = info.get_ping_string().as_str().to_string();
+            for (dst, src) in req.qm_pings.iter_mut().zip(ping.as_bytes().iter()) {
+                *dst = *src;
+            }
         }
     }
-}
 
     let (bot_id, room_id) = config.get_qm_config();
     req.qm_bot_id = bot_id;

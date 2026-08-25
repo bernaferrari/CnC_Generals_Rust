@@ -10,25 +10,25 @@
 
 use super::core::*;
 use super::engine::{
-    get_area_tracker, get_named_object_tracker, get_script_engine, with_script_engine_mut,
-    with_script_engine_ref, TFade,
+    TFade, get_area_tracker, get_named_object_tracker, get_script_engine, with_script_engine_mut,
+    with_script_engine_ref,
 };
-use crate::ai::integration::{with_ai_integration_mut, IntegratedAiPlayer};
+use crate::ai::integration::{IntegratedAiPlayer, with_ai_integration_mut};
 use crate::ai::{
     AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, AttitudeType, GuardMode,
 };
 use crate::commands::{
-    get_command_queue_manager, Command, CommandPriority, CommandType, QueuedCommand,
+    Command, CommandPriority, CommandType, QueuedCommand, get_command_queue_manager,
 };
 use crate::common::{
-    AsciiString, Color, CommandSourceType, Coord3D, ObjectID, Relationship, WaypointID, INVALID_ID,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, Color, CommandSourceType, Coord3D, INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID,
+    Relationship, WaypointID,
 };
 use crate::control_bar::{get_control_bar_bridge, set_command_set_slot_override};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheAudio, TheGameLogic,
-    ThePartitionManager, TheVictoryConditions,
+    TheAudio, TheGameLogic, ThePartitionManager, TheVictoryConditions, get_game_logic_random_value,
+    get_game_logic_random_value_real,
 };
 use crate::modules::AIAttitudeType;
 use crate::object::behavior::auto_heal_behavior::parse_kind_of;
@@ -39,7 +39,7 @@ use crate::object::update::special_power_update::SpecialPowerCommandOption;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
 use crate::object_manager::get_object_manager;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use crate::player::{player_list, PlayerType};
+use crate::player::{PlayerType, player_list};
 use crate::system::game_logic::TheObjectFactory;
 use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
@@ -48,13 +48,13 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
-use game_engine::common::system::radar::{get_radar_system, RadarEventType};
+use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
+use game_engine::common::system::radar::{RadarEventType, get_radar_system};
 use once_cell::sync::Lazy;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
-use std::cell::RefCell;
 
 /// Live host drain: TEAM/NAMED move and attack when leftover `OBJECT_REGISTRY` is empty.
 /// C++ `ScriptActions::doMoveToWaypoint` / `doNamedMoveToWaypoint` / `doAttack` /
@@ -62,14 +62,38 @@ use std::cell::RefCell;
 /// `doTeamAttackNamed`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptMoveAttackRequest {
-    TeamMove { team: String, waypoint: String },
-    NamedMove { unit: String, waypoint: String },
-    TeamAttackTeam { attacker: String, victim: String },
-    NamedAttackNamed { attacker: String, victim: String },
-    NamedAttackArea { unit: String, area: String },
-    NamedAttackTeam { unit: String, team: String },
-    TeamAttackArea { team: String, area: String },
-    TeamAttackNamed { team: String, unit: String },
+    TeamMove {
+        team: String,
+        waypoint: String,
+    },
+    NamedMove {
+        unit: String,
+        waypoint: String,
+    },
+    TeamAttackTeam {
+        attacker: String,
+        victim: String,
+    },
+    NamedAttackNamed {
+        attacker: String,
+        victim: String,
+    },
+    NamedAttackArea {
+        unit: String,
+        area: String,
+    },
+    NamedAttackTeam {
+        unit: String,
+        team: String,
+    },
+    TeamAttackArea {
+        team: String,
+        area: String,
+    },
+    TeamAttackNamed {
+        team: String,
+        unit: String,
+    },
     /// C++ `doMoveUnitTowardsNearest` — closest template/ObjectTypes in trigger.
     NamedMoveTowardsNearest {
         unit: String,
@@ -167,12 +191,21 @@ pub enum HostScriptNamedFireSpecialPowerRequest {
 /// C++ `ScriptActions::doNamedStop` / `doTeamStop` (`aiIdle` / `groupIdle`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptIdleRequest {
-    NamedStop { unit: String },
-    TeamStop { team: String, disband: bool },
+    NamedStop {
+        unit: String,
+    },
+    TeamStop {
+        team: String,
+        disband: bool,
+    },
     /// C++ `doIdleAllPlayerUnits` — empty player = every human player.
-    IdleAll { player: String },
+    IdleAll {
+        player: String,
+    },
     /// C++ `doResumeSupplyTruckingForIdleUnits`.
-    ResumeSupply { player: String },
+    ResumeSupply {
+        player: String,
+    },
 }
 
 /// Live host drain: NAMED/TEAM DELETE, KILL, DAMAGE.
@@ -180,14 +213,31 @@ pub enum HostScriptIdleRequest {
 /// `doTeamDelete` / `doTeamKill` / `doDamageTeamMembers`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HostScriptKillDeleteDamageRequest {
-    NamedDelete { unit: String },
-    NamedKill { unit: String },
-    NamedDamage { unit: String, amount: i32 },
-    TeamDelete { team: String, ignore_dead: bool },
-    TeamKill { team: String },
-    TeamDamage { team: String, amount: f32 },
+    NamedDelete {
+        unit: String,
+    },
+    NamedKill {
+        unit: String,
+    },
+    NamedDamage {
+        unit: String,
+        amount: i32,
+    },
+    TeamDelete {
+        team: String,
+        ignore_dead: bool,
+    },
+    TeamKill {
+        team: String,
+    },
+    TeamDamage {
+        team: String,
+        amount: f32,
+    },
     /// C++ `doDestroyAllContained` (`iterateContained(killTheObject)`).
-    DestroyAllContained { unit: String },
+    DestroyAllContained {
+        unit: String,
+    },
 }
 
 /// Live host drain: SOUND_PLAY_NAMED / ENABLE_OBJECT_SOUND / DISABLE_OBJECT_SOUND.
@@ -222,18 +272,9 @@ pub enum HostScriptMoneyRequest {
 /// `doNamedTransferAssetsToPlayer` (`transferObjectToPlayer` / `transferAssetsFromThat`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptTransferRequest {
-    Player {
-        from: String,
-        to: String,
-    },
-    Named {
-        unit: String,
-        player: String,
-    },
-    Team {
-        team: String,
-        player: String,
-    },
+    Player { from: String, to: String },
+    Named { unit: String, player: String },
+    Team { team: String, player: String },
 }
 
 /// Live host drain: PLAYER_RELATES_PLAYER.
@@ -303,8 +344,14 @@ pub enum HostScriptStealthEnabledRequest {
 /// C++ `Player::setCanBuildUnits` / `setCanBuildBase` / `setObjectsEnabled`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptCanBuildRequest {
-    Units { player: String, enable: bool },
-    Base { player: String, enable: bool },
+    Units {
+        player: String,
+        enable: bool,
+    },
+    Base {
+        player: String,
+        enable: bool,
+    },
     Factories {
         player: String,
         template: String,
@@ -416,12 +463,24 @@ pub struct HostScriptForceSelectRequest {
 /// `setListInScoreScreen(false)` / `friend_setSkillset` / `doPlayerKill`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptPlayerMiscRequest {
-    SellEverything { player: String },
-    RepairNamed { player: String, structure: String },
-    ExcludeFromScore { player: String },
-    SelectSkillset { player: String, skillset: i32 },
+    SellEverything {
+        player: String,
+    },
+    RepairNamed {
+        player: String,
+        structure: String,
+    },
+    ExcludeFromScore {
+        player: String,
+    },
+    SelectSkillset {
+        player: String,
+        skillset: i32,
+    },
     /// C++ `ScriptActions::doPlayerKill` → `Player::killPlayer`.
-    Kill { player: String },
+    Kill {
+        player: String,
+    },
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
@@ -517,16 +576,6 @@ pub struct HostScriptSkirmishBaseDefenseRequest {
     pub structure: Option<String>,
     pub flank: bool,
 }
-
-
-
-
-
-
-
-
-
-
 
 thread_local! {
     static HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS: RefCell<Vec<(String, String)>> =
@@ -673,8 +722,7 @@ pub fn take_host_skirmish_build_requests() -> Vec<String> {
 /// Leftover crate objects are empty on the player path.
 pub fn request_host_set_cave_index(cave_name: &str, cave_index: i32) {
     HOST_SET_CAVE_INDEX_REQUESTS.with(|q| {
-        q.borrow_mut()
-            .push((cave_name.to_string(), cave_index));
+        q.borrow_mut().push((cave_name.to_string(), cave_index));
     });
 }
 
@@ -702,7 +750,6 @@ pub fn take_host_team_panel_flag_requests() -> Vec<(String, String, bool)> {
     HOST_TEAM_PANEL_FLAG_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
-
 pub fn take_host_set_cave_index_requests() -> Vec<(String, i32)> {
     HOST_SET_CAVE_INDEX_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
@@ -711,11 +758,8 @@ pub fn take_host_set_cave_index_requests() -> Vec<(String, i32)> {
 /// `grant == true` → grantScience; false → attemptToPurchaseScience.
 pub fn request_host_science_action(player_name: &str, science_name: &str, grant: bool) {
     HOST_SCIENCE_ACTION_REQUESTS.with(|q| {
-        q.borrow_mut().push((
-            player_name.to_string(),
-            science_name.to_string(),
-            grant,
-        ));
+        q.borrow_mut()
+            .push((player_name.to_string(), science_name.to_string(), grant));
     });
 }
 
@@ -775,8 +819,11 @@ pub fn take_host_build_team_requests() -> Vec<(String, String)> {
 /// Live host drain: `RECRUIT_TEAM` → `AIPlayer::recruitSpecificAITeam`.
 pub fn request_host_recruit_team(owner_name: &str, team_name: &str, recruit_radius: f32) {
     HOST_RECRUIT_TEAM_REQUESTS.with(|q| {
-        q.borrow_mut()
-            .push((owner_name.to_string(), team_name.to_string(), recruit_radius));
+        q.borrow_mut().push((
+            owner_name.to_string(),
+            team_name.to_string(),
+            recruit_radius,
+        ));
     });
 }
 
@@ -858,8 +905,7 @@ pub fn take_host_ai_player_build_type_nearest_team_requests() -> Vec<(String, St
 /// Live host drain: `TEAM_GUARD_SUPPLY_CENTER` → `AIPlayer::guardSupplyCenter`.
 pub fn request_host_guard_supply_center(team_name: &str, min_supplies: i32) {
     HOST_GUARD_SUPPLY_CENTER_REQUESTS.with(|q| {
-        q.borrow_mut()
-            .push((team_name.to_string(), min_supplies));
+        q.borrow_mut().push((team_name.to_string(), min_supplies));
     });
 }
 
@@ -1143,16 +1189,15 @@ pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialComman
     HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| q.borrow_mut().push(req));
 }
 
-pub fn take_host_team_partial_command_button_requests() -> Vec<HostScriptTeamPartialCommandButtonRequest>
-{
+pub fn take_host_team_partial_command_button_requests()
+-> Vec<HostScriptTeamPartialCommandButtonRequest> {
     HOST_TEAM_PARTIAL_COMMAND_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 /// Live host drain: SET_BASE_CONSTRUCTION_SPEED → `AIPlayer::setTeamDelaySeconds`.
 pub fn request_host_set_base_construction_speed(player: &str, delay_seconds: i32) {
     HOST_SET_BASE_CONSTRUCTION_SPEED_REQUESTS.with(|q| {
-        q.borrow_mut()
-            .push((player.to_string(), delay_seconds));
+        q.borrow_mut().push((player.to_string(), delay_seconds));
     });
 }
 
@@ -1170,7 +1215,6 @@ pub fn request_host_set_train_held(unit: &str, held: bool) {
 pub fn take_host_set_train_held_requests() -> Vec<(String, bool)> {
     HOST_SET_TRAIN_HELD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
-
 
 /// C++ `ScriptEngine::setToppleDirection` live map. Consulted by host topple.
 pub fn request_host_script_topple_direction(unit: &str, dx: f32, dy: f32) {
@@ -1207,20 +1251,10 @@ pub fn take_host_skirmish_base_defense_requests() -> Vec<HostScriptSkirmishBaseD
     HOST_SKIRMISH_BASE_DEFENSE_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
-
-
-
-
-
-
-
-
-
 /// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.
 pub fn request_host_skirmish_attack_nearest_group(team: &str, comparison: i32, value: i32) {
     HOST_SKIRMISH_ATTACK_GROUP_REQUESTS.with(|q| {
-        q.borrow_mut()
-            .push((team.to_string(), comparison, value));
+        q.borrow_mut().push((team.to_string(), comparison, value));
     });
 }
 
@@ -1229,11 +1263,7 @@ pub fn take_host_skirmish_attack_nearest_group_requests() -> Vec<(String, i32, i
 }
 
 /// Live host drain: SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT.
-pub fn request_host_skirmish_command_button_most_valuable(
-    team: &str,
-    ability: &str,
-    range: f32,
-) {
+pub fn request_host_skirmish_command_button_most_valuable(team: &str, ability: &str, range: f32) {
     HOST_SKIRMISH_CMD_BUTTON_REQUESTS.with(|q| {
         q.borrow_mut()
             .push((team.to_string(), ability.to_string(), range));
@@ -1243,10 +1273,6 @@ pub fn request_host_skirmish_command_button_most_valuable(
 pub fn take_host_skirmish_command_button_most_valuable_requests() -> Vec<(String, String, f32)> {
     HOST_SKIRMISH_CMD_BUTTON_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
-
-
-
-
 
 /// Wave 284: host-only path has no dual-world factory objects.
 #[inline]
@@ -1259,8 +1285,6 @@ pub(super) fn current_script_player_name() -> String {
         .flatten()
         .unwrap_or_default()
 }
-
-
 
 fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D {
     game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z)

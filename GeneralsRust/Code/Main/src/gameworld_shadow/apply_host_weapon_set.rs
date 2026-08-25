@@ -13,8 +13,8 @@ impl GameWorldShadow {
         obj: &crate::game_logic::Object,
     ) {
         use gamelogic::world::{
-            WeaponSlotFacts, WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY,
-            WEAPON_SLOT_TERTIARY,
+            WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY,
+            WEAPON_SLOT_TERTIARY, WeaponSlotFacts,
         };
         let lock_slot = obj.weapon_lock_slot;
         let lock_ty = obj.weapon_lock_type as u8;

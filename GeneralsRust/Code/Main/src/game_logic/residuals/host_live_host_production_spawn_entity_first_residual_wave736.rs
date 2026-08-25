@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostProductionSpawnEntityFirstAction) {
 pub fn residual_host_production_spawn_entity_first_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_production_spawn_entity_first_last_action(
-) -> ResidualHostProductionSpawnEntityFirstAction {
+pub fn residual_host_production_spawn_entity_first_last_action()
+-> ResidualHostProductionSpawnEntityFirstAction {
     ResidualHostProductionSpawnEntityFirstAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

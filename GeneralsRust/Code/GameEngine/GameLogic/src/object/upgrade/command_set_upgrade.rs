@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
 
 /// Module data describing the command set upgrade.
 #[derive(Debug, Clone)]
@@ -190,9 +191,8 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
         let found = OBJECT_REGISTRY
             .with_object_mut(self.object_id, |object_guard| apply_to(object_guard))
             .or_else(|| {
-                TheGameLogic::find_object_by_id(self.object_id).and_then(|obj| {
-                    obj.write().ok().map(|mut guard| apply_to(&mut guard))
-                })
+                TheGameLogic::find_object_by_id(self.object_id)
+                    .and_then(|obj| obj.write().ok().map(|mut guard| apply_to(&mut guard)))
             });
         if found.is_none() {
             log::warn!("CommandSetUpgrade: Object {} not found", self.object_id);

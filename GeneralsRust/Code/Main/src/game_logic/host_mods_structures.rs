@@ -6,11 +6,11 @@
 
 #![allow(unused_imports)]
 
-use super::combat;
 use super::ObjectId;
 use super::Team;
 use super::VeterancyLevel;
 use super::Weapon;
+use super::combat;
 
 use super::host_rng_residual;
 
@@ -91,7 +91,6 @@ pub mod host_supply_drop_zone;
 
 #[path = "host_supply_gather.rs"]
 pub mod host_supply_gather;
-
 
 #[path = "host_tunnel_network.rs"]
 pub mod host_tunnel_network;

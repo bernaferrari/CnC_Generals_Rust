@@ -9,7 +9,7 @@
 
 use std::sync::{Arc, RwLock};
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -195,7 +195,6 @@ impl DefectorSpecialPower {
     fn dispatch_on_special_power_creation(&mut self) {}
 }
 
-
 impl Module for DefectorSpecialPower {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -239,7 +238,6 @@ impl BehaviorModuleInterface for DefectorSpecialPower {
 }
 super::interface::impl_special_power_subclass!(DefectorSpecialPower);
 
-
 impl Snapshotable for DefectorSpecialPower {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -260,7 +258,6 @@ impl Snapshotable for DefectorSpecialPower {
         super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
-
 
 // INI field parsers
 

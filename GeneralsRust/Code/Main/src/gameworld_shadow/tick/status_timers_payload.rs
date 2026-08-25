@@ -102,7 +102,7 @@ impl GameWorldShadow {
         // Wave 789: AnthraxBomb DeliverPayload flight residual.
         if e.anthrax_transport_active {
             use crate::game_logic::host_anthrax_bomb_flight::{
-                AnthraxBombPayloadTier, ANTHRAX_DELIVERY_DISTANCE,
+                ANTHRAX_DELIVERY_DISTANCE, AnthraxBombPayloadTier,
             };
             let tier = if e.anthrax_transport_tier == 1 {
                 AnthraxBombPayloadTier::Gamma
@@ -111,36 +111,41 @@ impl GameWorldShadow {
             };
             let hx = e.anthrax_transport_target_x - e.anthrax_transport_launch_x;
             let hz = e.anthrax_transport_target_z - e.anthrax_transport_launch_z;
-            let (min_x, min_z, max_x, max_z) = if self.map_max_x > self.map_min_x
-                && self.map_max_z > self.map_min_z
-            {
-                (self.map_min_x, self.map_min_z, self.map_max_x, self.map_max_z)
-            } else {
-                use crate::game_logic::host_deliver_payload::{
-                    RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
-                    RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+            let (min_x, min_z, max_x, max_z) =
+                if self.map_max_x > self.map_min_x && self.map_max_z > self.map_min_z {
+                    (
+                        self.map_min_x,
+                        self.map_min_z,
+                        self.map_max_x,
+                        self.map_max_z,
+                    )
+                } else {
+                    use crate::game_logic::host_deliver_payload::{
+                        RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
+                        RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+                    };
+                    (
+                        RESIDUAL_MAP_EXTENT_MIN_X,
+                        RESIDUAL_MAP_EXTENT_MIN_Z,
+                        RESIDUAL_MAP_EXTENT_MAX_X,
+                        RESIDUAL_MAP_EXTENT_MAX_Z,
+                    )
                 };
-                (
-                    RESIDUAL_MAP_EXTENT_MIN_X,
-                    RESIDUAL_MAP_EXTENT_MIN_Z,
-                    RESIDUAL_MAP_EXTENT_MAX_X,
-                    RESIDUAL_MAP_EXTENT_MAX_Z,
-                )
-            };
             let (dest_x, dest_z) = if e.anthrax_delivery_complete {
-                let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
-                    glam::Vec3::new(
-                        e.transform.position.x,
-                        e.transform.position.y,
-                        e.transform.position.z,
-                    ),
-                    hx,
-                    hz,
-                    min_x,
-                    min_z,
-                    max_x,
-                    max_z,
-                );
+                let exit =
+                    crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+                        glam::Vec3::new(
+                            e.transform.position.x,
+                            e.transform.position.y,
+                            e.transform.position.z,
+                        ),
+                        hx,
+                        hz,
+                        min_x,
+                        min_z,
+                        max_x,
+                        max_z,
+                    );
                 (exit.x, exit.z)
             } else {
                 (e.anthrax_transport_target_x, e.anthrax_transport_target_z)
@@ -405,7 +410,7 @@ impl GameWorldShadow {
         // Wave 792: A10 Thunderbolt transport residual.
         if e.a10_strike_transport_active {
             use crate::game_logic::host_a10_strike_flight::{
-                tick_a10_dive, A10_CRUISE_HEIGHT, A10_VULCAN_DELAY_FRAMES,
+                A10_CRUISE_HEIGHT, A10_VULCAN_DELAY_FRAMES, tick_a10_dive,
             };
             let target = glam::Vec3::new(
                 e.a10_strike_transport_target_x,
@@ -422,18 +427,22 @@ impl GameWorldShadow {
                     + (pos.z - e.a10_strike_transport_target_z) * hz
                     > 0.0;
             let (dest_x, dest_z) = if past_target {
-                let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
-                    glam::Vec3::new(pos.x, pos.y, pos.z),
-                    hx,
-                    hz,
-                    self.map_min_x,
-                    self.map_min_z,
-                    self.map_max_x,
-                    self.map_max_z,
-                );
+                let exit =
+                    crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+                        glam::Vec3::new(pos.x, pos.y, pos.z),
+                        hx,
+                        hz,
+                        self.map_min_x,
+                        self.map_min_z,
+                        self.map_max_x,
+                        self.map_max_z,
+                    );
                 (exit.x, exit.z)
             } else {
-                (e.a10_strike_transport_target_x, e.a10_strike_transport_target_z)
+                (
+                    e.a10_strike_transport_target_x,
+                    e.a10_strike_transport_target_z,
+                )
             };
             let dx = dest_x - pos.x;
             let dz = dest_z - pos.z;
@@ -606,38 +615,43 @@ impl GameWorldShadow {
                     > 0.0;
             let hid = self.entity_to_host.get(&eid.get()).copied();
             let still_pending = hid.is_some_and(|h| {
-                self.carpet_pending_drops.iter().any(|p| {
-                    p.transport_id == h || p.transport_id == 0
-                })
+                self.carpet_pending_drops
+                    .iter()
+                    .any(|p| p.transport_id == h || p.transport_id == 0)
             });
             // C++ HeadOffMap after DeliveringState. Wait at moveToPos until payload is out.
             let head_off = past_target && !still_pending;
-            let (min_x, min_z, max_x, max_z) = if self.map_max_x > self.map_min_x
-                && self.map_max_z > self.map_min_z
-            {
-                (self.map_min_x, self.map_min_z, self.map_max_x, self.map_max_z)
-            } else {
-                use crate::game_logic::host_deliver_payload::{
-                    RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
-                    RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+            let (min_x, min_z, max_x, max_z) =
+                if self.map_max_x > self.map_min_x && self.map_max_z > self.map_min_z {
+                    (
+                        self.map_min_x,
+                        self.map_min_z,
+                        self.map_max_x,
+                        self.map_max_z,
+                    )
+                } else {
+                    use crate::game_logic::host_deliver_payload::{
+                        RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
+                        RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+                    };
+                    (
+                        RESIDUAL_MAP_EXTENT_MIN_X,
+                        RESIDUAL_MAP_EXTENT_MIN_Z,
+                        RESIDUAL_MAP_EXTENT_MAX_X,
+                        RESIDUAL_MAP_EXTENT_MAX_Z,
+                    )
                 };
-                (
-                    RESIDUAL_MAP_EXTENT_MIN_X,
-                    RESIDUAL_MAP_EXTENT_MIN_Z,
-                    RESIDUAL_MAP_EXTENT_MAX_X,
-                    RESIDUAL_MAP_EXTENT_MAX_Z,
-                )
-            };
             let (dest_x, dest_z) = if head_off {
-                let exit = crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
-                    glam::Vec3::new(pos.x, pos.y, pos.z),
-                    hx,
-                    hz,
-                    min_x,
-                    min_z,
-                    max_x,
-                    max_z,
-                );
+                let exit =
+                    crate::game_logic::host_deliver_payload::head_off_map_exit_point_residual(
+                        glam::Vec3::new(pos.x, pos.y, pos.z),
+                        hx,
+                        hz,
+                        min_x,
+                        min_z,
+                        max_x,
+                        max_z,
+                    );
                 (exit.x, exit.z)
             } else {
                 (

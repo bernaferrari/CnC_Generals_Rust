@@ -12,7 +12,7 @@
 //! Rust conversion: 2025
 
 use super::compression::{
-    compress_data, decompress_data, get_preferred_compression, is_data_compressed, CompressionLevel,
+    CompressionLevel, compress_data, decompress_data, get_preferred_compression, is_data_compressed,
 };
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;

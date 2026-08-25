@@ -44,8 +44,8 @@ pub const RUNTIME_HOST_LIVE_BAIKONUR_LAUNCH_POWER_DUAL_WORLD_EMPTY_GATE_CMD_NAME
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_baikonur_launch_power_dual_world_empty_gate_method_names_residual_wave400(
-) -> bool {
+pub fn honesty_live_baikonur_launch_power_dual_world_empty_gate_method_names_residual_wave400()
+-> bool {
     LIVE_BAIKONUR_LAUNCH_POWER_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE400.len() == 6
         && residual_name_index(
             LIVE_BAIKONUR_LAUNCH_POWER_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE400,
@@ -62,8 +62,8 @@ pub fn honesty_live_baikonur_launch_power_dual_world_empty_gate_method_names_res
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_baikonur_launch_power_dual_world_empty_gate_nav_commands_residual_wave400(
-) -> bool {
+pub fn honesty_live_baikonur_launch_power_dual_world_empty_gate_nav_commands_residual_wave400()
+-> bool {
     LIVE_BAIKONUR_LAUNCH_POWER_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE400.len() == 4
         && residual_name_index(
             LIVE_BAIKONUR_LAUNCH_POWER_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE400,

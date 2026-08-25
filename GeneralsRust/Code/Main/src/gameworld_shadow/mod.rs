@@ -27,9 +27,8 @@ use std::collections::{HashMap, HashSet};
 mod tick;
 mod types;
 pub use tick::*;
-pub use types::*;
 use types::HordePlayerRel;
-
+pub use types::*;
 
 mod apply_host_combat;
 mod apply_host_damage;

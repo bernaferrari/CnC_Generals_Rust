@@ -8,11 +8,11 @@ use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModule, BehaviorModuleInterface,
     ExitDoorType as ModuleExitDoorType, ExitInterface as ModuleExitInterface,
-    SupplyTruckAIInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_FOREVER,
+    SupplyTruckAIInterface, UPDATE_SLEEP_FOREVER, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::path::PATHFIND_CELL_SIZE_F;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData, ModuleInterfaceType, NameKeyType, Thing as ModuleThing,

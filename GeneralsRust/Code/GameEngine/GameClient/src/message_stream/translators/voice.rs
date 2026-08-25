@@ -140,7 +140,10 @@ pub(crate) fn play_voice_for_command(
     pick_and_play_unit_voice_response(selection, msg, &VoicePlayInfo::default());
 }
 
-fn enter_voice_name(guard: &gamelogic::object::Object, target_id: ObjectID) -> Option<&'static str> {
+fn enter_voice_name(
+    guard: &gamelogic::object::Object,
+    target_id: ObjectID,
+) -> Option<&'static str> {
     let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
         return Some("VoiceEnter");
     };
@@ -175,7 +178,8 @@ fn move_voice_name(
         if let Some(target_id) = info.target_id {
             if let Some(target_obj) = OBJECT_REGISTRY.get_object(target_id) {
                 if let Ok(target_guard) = target_obj.read() {
-                    if guard.can_crush_or_squish(&target_guard, CrushSquishTestType::TestCrushOrSquish)
+                    if guard
+                        .can_crush_or_squish(&target_guard, CrushSquishTestType::TestCrushOrSquish)
                     {
                         return Some("VoiceCrush");
                     }
@@ -212,7 +216,6 @@ fn leftover_player_has_worker_shoes(guard: &gamelogic::object::Object) -> bool {
             .is_some_and(|player| player.has_upgrade_complete(upgrade.as_ref()))
     })
 }
-
 
 fn named_template_voice(
     template: &dyn gamelogic::thing_template::ThingTemplate,

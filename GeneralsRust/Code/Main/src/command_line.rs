@@ -113,7 +113,6 @@ impl CommandLineArgs {
                 parsed.options.insert(option.clone(), value.clone());
                 Self::store_hyphen_underscore_twin(&mut parsed.options, &option, &value);
 
-
                 // Handle specific options
                 match option.as_str() {
                     "win" | "windowed" | "w" => {
@@ -307,14 +306,8 @@ impl CommandLineArgs {
                             &value,
                         );
                     }
-                    "runtime_host"
-                    | "runtime-host"
-                    | "gpui_control"
-                    | "gpui-control"
-                    | "gpui_status"
-                    | "gpui-status"
-                    | "gpui_frame"
-                    | "gpui-frame" => {}
+                    "runtime_host" | "runtime-host" | "gpui_control" | "gpui-control"
+                    | "gpui_status" | "gpui-status" | "gpui_frame" | "gpui-frame" => {}
                     _ => {
                         // Unknown option, log but don't fail
                         warn!("Unknown command line option: {}", option);
@@ -671,7 +664,9 @@ impl CommandLineArgs {
         println!("    -autoreplay            Automatically replay last game");
         println!("    -benchmark             Run in benchmark mode");
         println!("    -displayDebug          Show the legacy debug/diagnostics overlay");
-        println!("    -integrationDiagnostics Enable WW3D integration telemetry bridge (requires feature)");
+        println!(
+            "    -integrationDiagnostics Enable WW3D integration telemetry bridge (requires feature)"
+        );
         println!("    -smoke-test           Boot to the main menu and exit successfully");
         println!("    -server                Run as dedicated server");
         println!("    -client                Run as client");

@@ -142,7 +142,6 @@ pub fn attach_leaflet_fx_particle(object_id: u32, template_name: &str) -> bool {
     gamelogic::helpers::attach_particle_system_to_object(&name, object_id).is_some()
 }
 
-
 /// Activate audio residual (SoundEffects.ini LeafletDrop).
 pub const LEAFLET_ACTIVATE_AUDIO: &str = "LeafletDrop";
 /// Impact / disable audio residual (SoundEffects.ini LeafletDropEffect).

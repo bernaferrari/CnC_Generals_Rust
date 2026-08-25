@@ -3,7 +3,7 @@
 //! Corresponds to C++ INI::parseMetaMapDefinition in MetaEvent.cpp
 //! Parses keyboard command mappings for game actions.
 
-use crate::common::ini::{ini, FieldParse, INIError, INIResult, LookupListRec, INI};
+use crate::common::ini::{FieldParse, INI, INIError, INIResult, LookupListRec, ini};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
@@ -688,9 +688,10 @@ mod tests {
         map.add_mapping("SELECT_ALL".to_string(), rec.clone());
 
         assert!(map.get_mapping("SELECT_ALL").is_some());
-        assert!(map
-            .find_action(30, TRANSITION_DOWN, MODIFIER_CTRL)
-            .is_some());
+        assert!(
+            map.find_action(30, TRANSITION_DOWN, MODIFIER_CTRL)
+                .is_some()
+        );
     }
 
     #[test]

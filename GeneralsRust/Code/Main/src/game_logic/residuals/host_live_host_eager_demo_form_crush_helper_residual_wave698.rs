@@ -63,8 +63,8 @@ fn residual_action_store(a: ResidualHostEagerDemoFormCrushHelperAction) {
 pub fn residual_host_eager_demo_form_crush_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_eager_demo_form_crush_helper_last_action(
-) -> ResidualHostEagerDemoFormCrushHelperAction {
+pub fn residual_host_eager_demo_form_crush_helper_last_action()
+-> ResidualHostEagerDemoFormCrushHelperAction {
     ResidualHostEagerDemoFormCrushHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
@@ -163,11 +163,11 @@ mod tests {
     use crate::game_logic::host_formation_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_apply_host_crush_vision_after_logic, eager_apply_host_demo_mine_cheer_after_logic,
         eager_apply_host_formation_after_logic, eager_map_host_spawn_if_coupled,
         end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
-        shadow_session_after_host_tick, GameWorldShadow,
+        shadow_session_after_host_tick,
     };
     use glam::Vec3;
 

@@ -1,8 +1,8 @@
 //! C++ InGameUI.cpp:3654-3666 READY strip flash (not static yellow 0:00).
 
 use game_client_rust::gui::ingame_ui::{
-    superweapon_ready_draw_style, SuperweaponFlashState, SUPERWEAPON_FLASH_RGBA,
-    SUPERWEAPON_NORMAL_POINT_SIZE, SUPERWEAPON_NORMAL_RGBA, SUPERWEAPON_READY_POINT_SIZE,
+    SUPERWEAPON_FLASH_RGBA, SUPERWEAPON_NORMAL_POINT_SIZE, SUPERWEAPON_NORMAL_RGBA,
+    SUPERWEAPON_READY_POINT_SIZE, SuperweaponFlashState, superweapon_ready_draw_style,
 };
 
 #[test]

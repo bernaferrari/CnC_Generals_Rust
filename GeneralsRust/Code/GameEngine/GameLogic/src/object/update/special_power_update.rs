@@ -3,14 +3,14 @@
 // Author: Rust Port
 // Desc: Special power update module interface
 
-use crate::common::science::{ScienceType, SCIENCE_INVALID};
+use crate::common::science::{SCIENCE_INVALID, ScienceType};
 use crate::common::types::ModuleData;
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
 use crate::common::{NameKeyGenerator, UnsignedInt};
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_module::Waypoint;
-use crate::object::Object as GameObject;
 use bitflags::bitflags;
 use game_engine::common::system::Snapshotable;
 

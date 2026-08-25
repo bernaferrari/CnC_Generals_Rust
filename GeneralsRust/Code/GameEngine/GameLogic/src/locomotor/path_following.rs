@@ -10,13 +10,13 @@
 //!
 //! Matches C++ AIStates.cpp::AIInternalMoveToState::update() lines 1743-1920
 
+use crate::ai::THE_AI;
 use crate::ai::pathfinding_system::{
     GridCoord, MovementCapabilities, Path, PathRequest, PathResult, PathfindLayerEnum,
     PathfindingSystem,
 };
-use crate::ai::THE_AI;
 use crate::common::{
-    Coord3D, ObjectID, Real, INVALID_ID, LOGICFRAMES_PER_SECOND, MODELCONDITION_OVER_WATER,
+    Coord3D, INVALID_ID, LOGICFRAMES_PER_SECOND, MODELCONDITION_OVER_WATER, ObjectID, Real,
 };
 use crate::helpers::TheTerrainLogic;
 use crate::locomotor::{ActivePath, BodyDamageType, Locomotor, LocomotorAppearance};

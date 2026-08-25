@@ -6,9 +6,9 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::common::types::{
-    ModelConditionFlags, MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
+    MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
     MODELCONDITION_DOOR_1_WAITING_OPEN, MODELCONDITION_DOOR_1_WAITING_TO_CLOSE,
-    OBJECT_STATUS_UNDER_CONSTRUCTION,
+    ModelConditionFlags, OBJECT_STATUS_UNDER_CONSTRUCTION,
 };
 
 /// Wave 382: host-only path has no dual-world factory objects.
@@ -23,11 +23,11 @@ use crate::helpers::TheFXList;
 use crate::helpers::{TheAudio, TheGameLogic};
 use crate::modules::{
     BehaviorModuleInterface, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
-    UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

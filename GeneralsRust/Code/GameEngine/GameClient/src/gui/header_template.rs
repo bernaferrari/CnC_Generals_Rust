@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::ini::{
-    register_block_parser, FieldParse, INIError, INILoadType, INIResult, INI,
+    FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
 };
 
 use crate::global_language::get_global_language_data;

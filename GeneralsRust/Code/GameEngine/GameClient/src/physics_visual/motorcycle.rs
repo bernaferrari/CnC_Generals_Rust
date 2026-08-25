@@ -1,5 +1,6 @@
 //! C++ `Drawable::calcPhysicsXformMotorcycle` (`Drawable.cpp:2190-2482`).
 
+use super::PhysicsVisualXform;
 use super::loco_state::PhysicsVisualLocoState;
 use super::rng::ClientVisualRng;
 use super::spring::{finish_accel_totals, ground_pitch_roll};
@@ -8,7 +9,6 @@ use super::wheels::apply_grounded_z;
 use super::wheels_suspension::{
     apply_airborne_rear_extension_mirrored, apply_motorcycle_suspension,
 };
-use super::PhysicsVisualXform;
 
 /// Motorcycle: no airborne return; totalRoll always 0 (impossible predicate).
 pub fn calc_motorcycle(

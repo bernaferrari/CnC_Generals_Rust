@@ -33,7 +33,6 @@ pub use button_map::*;
 mod record_tap;
 pub use record_tap::*;
 
-
 #[cfg(test)]
 mod tests;
 

@@ -12,19 +12,19 @@ use crate::common::{
 };
 use crate::damage::DamageInfo;
 use crate::modules::{BehaviorModuleInterface, DieModuleInterface, UpgradeModuleInterface};
+use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{
-    xfer_behavior_module_base_versions, BehaviorModuleData,
+    BehaviorModuleData, xfer_behavior_module_base_versions,
 };
 use crate::object::die::{
-    parse_death_type_flags_tokens, parse_object_status_mask_tokens,
-    parse_veterancy_level_flags_tokens, DieMuxData,
+    DieMuxData, parse_death_type_flags_tokens, parse_object_status_mask_tokens,
+    parse_veterancy_level_flags_tokens,
 };
-use crate::object::Object as GameObject;
 use crate::upgrade::modules::upgrade_mux::UpgradeMuxData;
 use crate::upgrade::{UpgradeMask, UpgradeMux};
-use crate::weapon::with_weapon_store;
 use crate::weapon::WeaponTemplate;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::weapon::with_weapon_store;
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -519,11 +519,11 @@ mod tests {
             .conflicting_upgrade_names
             .push(crate::common::AsciiString::from("Upgrade_Bio"));
         assert!(data.upgrade_mux_data.is_triggered_by("Upgrade_HE"));
-        assert!(data
-            .upgrade_mux_data
-            .conflicting_upgrade_names
-            .iter()
-            .any(|n| n.as_str() == "Upgrade_Bio"));
+        assert!(
+            data.upgrade_mux_data
+                .conflicting_upgrade_names
+                .iter()
+                .any(|n| n.as_str() == "Upgrade_Bio")
+        );
     }
-
 }

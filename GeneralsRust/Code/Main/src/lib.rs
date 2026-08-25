@@ -36,8 +36,8 @@
 extern crate ww3d_renderer_3d as ww3d_renderer_3d;
 
 pub mod assets;
-pub mod env_compat;
 pub mod cnc_game_engine;
+pub mod env_compat;
 pub mod fow_rendering;
 pub mod game_engine;
 pub mod game_logic;
@@ -125,8 +125,8 @@ pub mod network {
 
     pub fn clear_active_network_interface() {}
 }
-pub mod save_load;
 pub mod pick_ray;
+pub mod save_load;
 pub mod selection_renderer;
 pub mod unit_control;
 pub mod unit_input_handler;
@@ -144,7 +144,6 @@ pub mod gameworld_shadow;
 pub mod golden_campaign;
 pub mod golden_skirmish;
 pub mod map_frame_scenario;
-pub mod playability_integration;
 pub mod presentation_frame;
 pub mod release_candidate;
 pub mod windowed_acceptance;

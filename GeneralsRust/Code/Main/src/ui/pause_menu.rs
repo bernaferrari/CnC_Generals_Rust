@@ -4,8 +4,8 @@
 //! providing options to resume, adjust settings, save/load, or exit to main menu.
 
 use super::{
-    layout, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen,
-    UIEvent, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
+    layout, sound_files, utils,
 };
 use crate::game_logic::GameMode;
 use crate::localization;

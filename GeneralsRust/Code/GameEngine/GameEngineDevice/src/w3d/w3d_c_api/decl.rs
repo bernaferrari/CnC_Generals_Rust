@@ -2,6 +2,11 @@
 //!
 //! Split from `w3d_c_api.rs`.
 
+use super::constants::*;
+use super::leftover::*;
+use super::streams::*;
+use super::textures::*;
+use super::types::*;
 use crate::w3d::renderer::{batch_material_params, batch_priority};
 use crate::w3d::w3d_device::RenderObject;
 use crate::w3d::{
@@ -10,19 +15,14 @@ use crate::w3d::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
-use super::constants::*;
-use super::leftover::*;
-use super::streams::*;
-use super::textures::*;
-use super::types::*;
 
 pub(super) fn overlay_stream_components(
     device: &W3DDeviceC,
@@ -449,7 +449,10 @@ pub(super) fn apply_declared_color(
     applied
 }
 
-pub(super) fn stream_vertex_bytes(source: &StagedStreamSource, vertex_index: usize) -> Option<&[u8]> {
+pub(super) fn stream_vertex_bytes(
+    source: &StagedStreamSource,
+    vertex_index: usize,
+) -> Option<&[u8]> {
     let base_offset = staged_stream_base_byte(source)?;
     let stream_offset = vertex_index.checked_mul(source.vertex_stride)?;
     let base = base_offset.checked_add(stream_offset)?;
@@ -504,7 +507,11 @@ pub(super) fn read_uv_from_decl(bytes: &[u8], offset: usize, decl_type: u8) -> O
     }
 }
 
-pub(super) fn read_position_from_decl(bytes: &[u8], offset: usize, decl_type: u8) -> Option<(f32, f32, f32)> {
+pub(super) fn read_position_from_decl(
+    bytes: &[u8],
+    offset: usize,
+    decl_type: u8,
+) -> Option<(f32, f32, f32)> {
     match decl_type {
         D3DDECLTYPE_FLOAT1 => Some((read_f32_at(bytes, offset)?, 0.0, 0.0)),
         D3DDECLTYPE_FLOAT2 => Some((
@@ -569,7 +576,11 @@ pub(super) fn read_position_from_decl(bytes: &[u8], offset: usize, decl_type: u8
     }
 }
 
-pub(super) fn read_normal_from_decl(bytes: &[u8], offset: usize, decl_type: u8) -> Option<(f32, f32, f32)> {
+pub(super) fn read_normal_from_decl(
+    bytes: &[u8],
+    offset: usize,
+    decl_type: u8,
+) -> Option<(f32, f32, f32)> {
     match decl_type {
         D3DDECLTYPE_FLOAT2 => Some((
             read_f32_at(bytes, offset)?,

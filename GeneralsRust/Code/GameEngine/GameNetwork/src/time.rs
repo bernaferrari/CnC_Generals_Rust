@@ -6,8 +6,8 @@
 //! for `Instant::now()`, guaranteeing deterministic timing across platforms.
 
 use std::ops::{Add, AddAssign, Sub, SubAssign};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// Monotonic timestamp used throughout the GameNetwork crate.

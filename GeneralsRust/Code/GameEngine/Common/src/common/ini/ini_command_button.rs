@@ -3,9 +3,9 @@
 //! Desc: Command buttons are the atomic units we can configure into command sets
 //!       to then display in the context sensitive user interface
 
-use super::ini::{FieldParse, INIError, INILoadType, INIResult, LookupListRec, INI};
+use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult, LookupListRec};
 use crate::common::ini::ini_misc_audio::AudioEventRTS;
-use crate::common::rts::{get_science_store, ScienceType, WeaponSlotType, SCIENCE_INVALID};
+use crate::common::rts::{SCIENCE_INVALID, ScienceType, WeaponSlotType, get_science_store};
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -497,7 +497,6 @@ impl ControlBar {
             button
         };
 
-
         // Parse the button fields
         ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
 
@@ -738,7 +737,6 @@ fn parse_command_field_unit_specific_sound(
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     button.unit_specific_sound = AudioEventRTS::from_event_name((*token).to_string());
     Ok(())
-
 }
 
 fn parse_command_field_science(

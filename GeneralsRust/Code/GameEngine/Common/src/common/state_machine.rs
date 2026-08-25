@@ -4,8 +4,8 @@
 //! `updateStateMachine` recursion (max 20) are first-class. The older
 //! `enter`/`exit`/`update(dt)` helpers remain as thin wrappers.
 
-use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use crate::common::system::geometry::Coord3D;
+use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::collections::HashMap;
 
 /// State machine state ID (`StateID` in C++).

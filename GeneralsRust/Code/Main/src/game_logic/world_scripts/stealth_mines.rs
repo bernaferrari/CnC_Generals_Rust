@@ -28,7 +28,6 @@ impl GameLogic {
             .map(|(id, o)| (*id, o.status.stealthed, o.status.detected))
             .collect();
 
-
         // Expire timed detections (unit may remain stealthed).
         // C++ StealthUpdate.cpp:768-801 — DETECTED clear on a garrison rider
         // refreshes the container's apparent controller / hide flag.
@@ -73,7 +72,6 @@ impl GameLogic {
             }
         }
 
-
         // Bomb truck disguise: RevealDistanceFromTarget only when getCurrentVictim
         // exists and FROM_CENTER_2D <= 100. Attack-move / ground fire have no victim.
         {
@@ -109,12 +107,11 @@ impl GameLogic {
             }
         }
 
-
         // Pathfinder residual: leftover destalth only when leftover velocity
         // exceeds leftover MoveThresholdSpeed (C++ StealthUpdate.cpp:389-392).
         {
             use crate::game_logic::host_pathfinder::{
-                pathfinder_stealth_desired, PATHFINDER_MOVE_THRESHOLD_SPEED,
+                PATHFINDER_MOVE_THRESHOLD_SPEED, pathfinder_stealth_desired,
             };
             use gamelogic::stealth_update::leftover_stealth_move_threshold_speed;
             // Class bit set at spawn — no per-frame template-name scan.
@@ -175,10 +172,11 @@ impl GameLogic {
                     continue;
                 };
                 let leftover_velocity = obj.velocity_magnitude();
-                let leftover_speed = gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
-                    &obj.template_name,
-                )
-                .unwrap_or(0.0);
+                let leftover_speed =
+                    gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
+                        &obj.template_name,
+                    )
+                    .unwrap_or(0.0);
                 let moving = gamelogic::stealth_update::leftover_not_while_moving_destalths(
                     leftover_velocity,
                     leftover_speed,
@@ -200,12 +198,11 @@ impl GameLogic {
             }
         }
 
-
         // Listening Outpost residual: StealthForbiddenConditions = MOVING RIDERS_ATTACKING.
         // C++ StealthUpdate.cpp:737-739 re-arms StealthDelay (2000ms / 60f) every forbidden frame.
         {
             use crate::game_logic::host_listening_outpost::{
-                listening_outpost_stealth_desired, LISTENING_OUTPOST_STEALTH_DELAY_FRAMES,
+                LISTENING_OUTPOST_STEALTH_DELAY_FRAMES, listening_outpost_stealth_desired,
             };
             // Style bit installed at spawn for LO templates — no name scan.
             let lo_ids: Vec<ObjectId> = self
@@ -247,10 +244,11 @@ impl GameLogic {
                     obj.rearm_stealth_delay(frame);
                 }
                 let leftover_velocity = obj.velocity_magnitude();
-                let leftover_speed = gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
-                    &obj.template_name,
-                )
-                .unwrap_or(0.0);
+                let leftover_speed =
+                    gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
+                        &obj.template_name,
+                    )
+                    .unwrap_or(0.0);
                 let moving = gamelogic::stealth_update::leftover_not_while_moving_destalths(
                     leftover_velocity,
                     leftover_speed,
@@ -272,7 +270,7 @@ impl GameLogic {
         // StealthDelay 2500ms (75f) before re-cloak. C++ GLAInfantryRebel StealthUpdate.
         {
             use crate::game_logic::host_upgrades::{
-                camouflage_unit_stealth_desired, UPGRADE_GLA_CAMOUFLAGE,
+                UPGRADE_GLA_CAMOUFLAGE, camouflage_unit_stealth_desired,
             };
 
             // Upgrade tag is only applied to camouflage-eligible units at unlock.
@@ -319,11 +317,11 @@ impl GameLogic {
         {
             use crate::game_logic::host_black_market::is_black_market_template;
             use crate::game_logic::host_upgrades::{
-                camo_netting_heat_vision_opacity, camo_netting_order_idle_enemy_in_range,
-                camo_netting_pulse_opacity, camo_netting_stealth_look,
-                camo_netting_structure_stealth_desired, is_camo_netting_structure_template,
-                stealth_same_controlling_player, CAMO_NETTING_FRIENDLY_OPACITY_MAX,
-                CAMO_NETTING_FRIENDLY_OPACITY_MIN, UPGRADE_GLA_CAMO_NETTING,
+                CAMO_NETTING_FRIENDLY_OPACITY_MAX, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+                UPGRADE_GLA_CAMO_NETTING, camo_netting_heat_vision_opacity,
+                camo_netting_order_idle_enemy_in_range, camo_netting_pulse_opacity,
+                camo_netting_stealth_look, camo_netting_structure_stealth_desired,
+                is_camo_netting_structure_template, stealth_same_controlling_player,
             };
 
             let live_markets: Vec<(Team, Option<u32>)> = self
@@ -371,12 +369,7 @@ impl GameLogic {
                     obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
                 let taking_damage = obj.stealth_taking_non_healing_damage(frame);
                 let has_live_black_market = live_markets.iter().any(|(team, player)| {
-                    stealth_same_controlling_player(
-                        obj.team,
-                        obj.owner_player_id,
-                        *team,
-                        *player,
-                    )
+                    stealth_same_controlling_player(obj.team, obj.owner_player_id, *team, *player)
                 });
                 // Delay is applied in apply_stealth_allowed_update, not allowedToStealth.
                 let Some(allowed) = camo_netting_structure_stealth_desired(
@@ -427,7 +420,6 @@ impl GameLogic {
                         opacity_reveals = opacity_reveals.saturating_add(1);
                     }
                 }
-
 
                 // StealthLook residual for enemy observer (default host residual view).
                 // Detected stealthed structures → heat-vision second material pass.
@@ -506,11 +498,7 @@ impl GameLogic {
                         let dist = (dx * dx + dz * dz).sqrt();
                         let vision = {
                             let sr = o.get_template().sight_range;
-                            if sr > 0.0 {
-                                sr
-                            } else {
-                                150.0
-                            }
+                            if sr > 0.0 { sr } else { 150.0 }
                         };
                         let can_attack = o.weapon.is_some()
                             || o.is_kind_of(KindOf::Attackable)
@@ -620,9 +608,10 @@ impl GameLogic {
         // C++ StealthUpdate.cpp:531-556 calcStealthOwner; effects stay on the bike.
         {
             use crate::game_logic::host_combat_cycle::{
+                COMBAT_CYCLE_USE_RIDER_STEALTH, CombatCycleRider,
                 combat_cycle_rider_stealth_desired, combat_cycle_stealth_owner_rider,
                 is_combat_cycle_template, rider_from_template_name, rider_grants_can_stealth,
-                rider_stealth_delay_frames, CombatCycleRider, COMBAT_CYCLE_USE_RIDER_STEALTH,
+                rider_stealth_delay_frames,
             };
             let bike_ids: Vec<ObjectId> = self
                 .objects
@@ -705,8 +694,8 @@ impl GameLogic {
         // StealthDelay 2000ms (C++ StealthUpdate allowedToStealth).
         {
             use crate::game_logic::host_radar_stealth_vision_residual::{
-                stealth_fighter_allowed_to_stealth_residual,
                 STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL,
+                stealth_fighter_allowed_to_stealth_residual,
             };
             use crate::game_logic::host_stealth_fighter::is_stealth_fighter_template;
             let sf_ids: Vec<ObjectId> = self
@@ -726,11 +715,12 @@ impl GameLogic {
                 if obj.stealth_delay_frames == 0 {
                     obj.stealth_delay_frames = STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL;
                 }
-                if !obj.status.stealthed && obj.stealth_allowed_frame == 0 && !obj.stealth_delay_pending
+                if !obj.status.stealthed
+                    && obj.stealth_allowed_frame == 0
+                    && !obj.stealth_delay_pending
                 {
                     // C++ ctor: m_stealthAllowedFrame = now + StealthDelay.
-                    obj.stealth_allowed_frame =
-                        frame.saturating_add(obj.stealth_delay_frames);
+                    obj.stealth_allowed_frame = frame.saturating_add(obj.stealth_delay_frames);
                 }
                 let attacking = obj.stealth_is_firing_weapon();
                 obj.apply_stealth_allowed_update(
@@ -744,7 +734,7 @@ impl GameLogic {
         // (C++ StealthUpdate.cpp mine setEffectiveOpacity(0,0)).
         {
             use crate::game_logic::host_radar_stealth_vision_residual::{
-                is_mine_stealth_kind_residual, MINE_STEALTH_OPACITY_RESIDUAL,
+                MINE_STEALTH_OPACITY_RESIDUAL, is_mine_stealth_kind_residual,
             };
             let mine_ids: Vec<ObjectId> = self
                 .objects
@@ -836,8 +826,10 @@ impl GameLogic {
                                 ))
                     })
                 });
-                let (requires_black_market, has_live_black_market) =
-                    self.objects.get(&gid).map(|obj| {
+                let (requires_black_market, has_live_black_market) = self
+                    .objects
+                    .get(&gid)
+                    .map(|obj| {
                         let requires = is_camo_netting_structure_template(&obj.template_name)
                             && obj.stealth_breaks_on_damage;
                         let has = live_markets.iter().any(|(team, player)| {
@@ -849,15 +841,17 @@ impl GameLogic {
                             )
                         });
                         (requires, has)
-                    }).unwrap_or((false, false));
+                    })
+                    .unwrap_or((false, false));
                 let Some(obj) = self.objects.get_mut(&gid) else {
                     continue;
                 };
                 let leftover_velocity = obj.velocity_magnitude();
-                let leftover_speed = gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
-                    &obj.template_name,
-                )
-                .unwrap_or(0.0);
+                let leftover_speed =
+                    gamelogic::stealth_update::leftover_stealth_move_threshold_speed(
+                        &obj.template_name,
+                    )
+                    .unwrap_or(0.0);
                 let moving = gamelogic::stealth_update::leftover_not_while_moving_destalths(
                     leftover_velocity,
                     leftover_speed,
@@ -890,7 +884,8 @@ impl GameLogic {
             extra_required: u128,
             extra_forbidden: u128,
         }
-        let mut detectors: Vec<(ObjectId, Team, Option<u32>, Vec3, f32, DetFlags, u32)> = Vec::new();
+        let mut detectors: Vec<(ObjectId, Team, Option<u32>, Vec3, f32, DetFlags, u32)> =
+            Vec::new();
         let mut scanned_detector_ids: Vec<ObjectId> = Vec::new();
         for (id, o) in &self.objects {
             if !(o.is_detector
@@ -919,9 +914,9 @@ impl GameLogic {
             // sleep unless CanDetectWhileGarrisoned / CanDetectWhileTransported.
             if o.is_contained() {
                 use crate::game_logic::host_radar_stealth_vision_residual::{
-                    detector_can_scan_while_contained_residual,
                     DETECTOR_CAN_DETECT_WHILE_GARRISONED_CTOR_DEFAULT_RESIDUAL,
                     DETECTOR_CAN_DETECT_WHILE_TRANSPORTED_CTOR_DEFAULT_RESIDUAL,
+                    detector_can_scan_while_contained_residual,
                 };
                 let garrisonable = o
                     .contained_by
@@ -1005,7 +1000,6 @@ impl GameLogic {
             self.clear_detector_ir_grids_for(&scanning);
         }
 
-
         // Collect stealthed targets first to avoid borrow conflicts.
         let stealthed_ids: Vec<ObjectId> = self
             .objects
@@ -1017,10 +1011,8 @@ impl GameLogic {
             std::collections::HashSet::new();
 
         for sid in stealthed_ids {
-            let Some((s_team, s_owner, s_pos, already_detected, s_kind)) = self
-                .objects
-                .get(&sid)
-                .map(|o| {
+            let Some((s_team, s_owner, s_pos, already_detected, s_kind)) =
+                self.objects.get(&sid).map(|o| {
                     (
                         o.team,
                         o.owner_player_id,
@@ -1166,13 +1158,11 @@ impl GameLogic {
                 .collect();
             let mut touched: Vec<ObjectId> = Vec::new();
             for bid in buildings {
-                let Some((b_pos, occupants, b_kind)) = self.objects.get(&bid).map(|b| {
-                    (
-                        b.get_position(),
-                        b.contained_units(),
-                        b.kind_of_cpp_mask(),
-                    )
-                }) else {
+                let Some((b_pos, occupants, b_kind)) = self
+                    .objects
+                    .get(&bid)
+                    .map(|b| (b.get_position(), b.contained_units(), b.kind_of_cpp_mask()))
+                else {
                     continue;
                 };
                 let stealth_riders: Vec<ObjectId> = occupants
@@ -1203,10 +1193,8 @@ impl GameLogic {
                     let expires = frame.saturating_add(hold);
                     let mut marked = false;
                     for rid in &stealth_riders {
-                        let Some((r_team, r_owner)) = self
-                            .objects
-                            .get(rid)
-                            .map(|o| (o.team, o.owner_player_id))
+                        let Some((r_team, r_owner)) =
+                            self.objects.get(rid).map(|o| (o.team, o.owner_player_id))
                         else {
                             continue;
                         };
@@ -1252,10 +1240,8 @@ impl GameLogic {
                 continue;
             };
             let pos = obj.get_position();
-            let local_ok = crate::game_logic::source_is_locally_controlled(
-                obj.owner_player_id,
-                local,
-            );
+            let local_ok =
+                crate::game_logic::source_is_locally_controlled(obj.owner_player_id, local);
             if obj.status.stealthed != was_stealthed {
                 // Cloak and destalth both play StealthOn in retail.
                 events.push((id, pos, SOUND_STEALTH_ON));
@@ -1356,8 +1342,7 @@ impl GameLogic {
             .and_then(|mgr| mgr.get_host_object_shroud_status(local, det_id.0));
         match status {
             Some(shroud) => {
-                (shroud as u8)
-                    <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
+                (shroud as u8) <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
             }
             // C++ Object.cpp:1786-1788: no PartitionData → CLEAR.
             None => true,
@@ -1423,7 +1408,8 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&id) else {
                 continue;
             };
-            if is_camo_netting_structure_template(&obj.template_name) && obj.stealth_breaks_on_damage
+            if is_camo_netting_structure_template(&obj.template_name)
+                && obj.stealth_breaks_on_damage
             {
                 continue;
             }
@@ -1445,9 +1431,10 @@ impl GameLogic {
                 && (obj.stealth_is_firing_weapon()
                     || obj.status.using_ability
                     || matches!(obj.ai_state, AIState::SpecialAbility));
-            let can_disguise = crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
-                &obj.template_name,
-            );
+            let can_disguise =
+                crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
+                    &obj.template_name,
+                );
             // C++ isDisguised() is `m_disguiseAsTemplate != NULL` (set on
             // disguiseAsObject, before halfpoint). Host keeps the template in
             // pending until halfpoint, then `status.disguised`.
@@ -1499,20 +1486,19 @@ impl GameLogic {
         }
         self.drain_hidden_drawable_selection();
         self.drain_masked_object_selection();
-
     }
 
-
-
     /// C++ StealthDetectorUpdate.cpp:199-260 first-detect radar/audio/UI.
-    pub(crate) fn fire_stealth_discover_feedback(&mut self, target_id: ObjectId, detector_ids: &[ObjectId]) {
+    pub(crate) fn fire_stealth_discover_feedback(
+        &mut self,
+        target_id: ObjectId,
+        detector_ids: &[ObjectId],
+    ) {
         use crate::game_logic::host_radar_stealth_vision_residual::{
             SPOTTER_AUDIO_STEALTH_DISCOVERED, SPOTTER_AUDIO_STEALTH_NEUTRALIZED,
             SPOTTER_MESSAGE_STEALTH_DISCOVERED, SPOTTER_MESSAGE_STEALTH_NEUTRALIZED,
         };
-        use game_engine::common::system::radar::{
-            get_radar_system, Coord3D, RadarEventType,
-        };
+        use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
 
         let Some(target) = self.objects.get(&target_id) else {
             return;
@@ -1570,11 +1556,7 @@ impl GameLogic {
                     SPOTTER_MESSAGE_STEALTH_DISCOVERED,
                     "Stealth discovered",
                 );
-                self.queue_radar_message_at(
-                    msg,
-                    pos,
-                    radar_notifications::RadarKind::Generic,
-                );
+                self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
                 self.queue_audio_event(
                     AudioEventRequest::new(SPOTTER_AUDIO_STEALTH_DISCOVERED)
                         .with_object(target_id)
@@ -1606,11 +1588,7 @@ impl GameLogic {
                     SPOTTER_MESSAGE_STEALTH_NEUTRALIZED,
                     "Stealth neutralized",
                 );
-                self.queue_radar_message_at(
-                    msg,
-                    pos,
-                    radar_notifications::RadarKind::Attack,
-                );
+                self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
                 self.queue_audio_event(
                     AudioEventRequest::new(SPOTTER_AUDIO_STEALTH_NEUTRALIZED)
                         .with_object(target_id)
@@ -1622,7 +1600,6 @@ impl GameLogic {
             }
         }
     }
-
 
     /// Place a residual land mine at `position` for `team`.
     pub fn place_land_mine(
@@ -1663,7 +1640,7 @@ impl GameLogic {
         producer: Option<ObjectId>,
         has_gamma: bool,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_mines::{demo_trap_profile, HostMineData, HostMineKind};
+        use crate::game_logic::host_mines::{HostMineData, HostMineKind, demo_trap_profile};
 
         let profile = demo_trap_profile(template_name, has_gamma, false);
         self.ensure_residual_mine_template(template_name, HostMineKind::DemoTrap);
@@ -1807,13 +1784,12 @@ impl GameLogic {
         producer: Option<ObjectId>,
     ) -> Vec<ObjectId> {
         use crate::game_logic::host_mines::{
-            cluster_smart_border_positions, CLUSTER_MINES_MINE_TEMPLATE,
+            CLUSTER_MINES_MINE_TEMPLATE, cluster_smart_border_positions,
         };
         // Leftover GenerateMinefieldBehavior::place_mines play_fx GenerationFX
         // at the bomb/object center (`TheFXList::do_fx_at_position`).
-        let _ = crate::game_logic::host_cluster_mines_flight::play_cluster_mines_generation_fx(
-            center,
-        );
+        let _ =
+            crate::game_logic::host_cluster_mines_flight::play_cluster_mines_generation_fx(center);
 
         let positions = cluster_smart_border_positions(center);
         let mut ids = Vec::with_capacity(positions.len());
@@ -1828,7 +1804,6 @@ impl GameLogic {
                 self.apply_land_mine_scoot(id, center, pos);
                 ids.push(id);
             }
-
         }
         if !ids.is_empty() {
             self.queue_audio_event(
@@ -1842,9 +1817,7 @@ impl GameLogic {
 
     /// C++ GenerateMinefieldBehavior::placeMineAt underwater / cliff / under-structure skip.
     fn mine_spot_blocked(&self, pos: Vec3) -> bool {
-        use crate::game_logic::host_mines::{
-            mine_spot_under_structure, LAND_MINE_GEOMETRY_RADIUS,
-        };
+        use crate::game_logic::host_mines::{LAND_MINE_GEOMETRY_RADIUS, mine_spot_under_structure};
         if let Some(terrain) = self.terrain.as_ref() {
             if terrain.is_underwater_at_world(pos) || terrain.is_cliff_at_world(pos) {
                 return true;
@@ -1856,9 +1829,7 @@ impl GameLogic {
                 && mine_spot_under_structure(
                     pos,
                     obj.get_position(),
-                    obj.selection_radius
-                        .max(obj.thing.geometry.radius)
-                        .max(1.0),
+                    obj.selection_radius.max(obj.thing.geometry.radius).max(1.0),
                     LAND_MINE_GEOMETRY_RADIUS,
                 )
         })
@@ -1890,8 +1861,8 @@ impl GameLogic {
         upgrade: &str,
     ) -> u32 {
         use crate::game_logic::host_mines::{
-            china_mine_template_for_upgrade, is_china_emp_mines_upgrade, is_china_mines_upgrade,
-            structure_minefield_positions_for_geom, HostMineKind,
+            HostMineKind, china_mine_template_for_upgrade, is_china_emp_mines_upgrade,
+            is_china_mines_upgrade, structure_minefield_positions_for_geom,
         };
         if !is_china_mines_upgrade(upgrade) {
             return 0;
@@ -1983,7 +1954,10 @@ impl GameLogic {
         let Some(md) = obj.mine_data.as_mut() else {
             return;
         };
-        if !matches!(md.kind, crate::game_logic::host_mines::HostMineKind::LandMine) {
+        if !matches!(
+            md.kind,
+            crate::game_logic::host_mines::HostMineKind::LandMine
+        ) {
             return;
         }
         let spawn = md.set_scoot_parms(start, dest, ground_y);
@@ -2019,8 +1993,6 @@ impl GameLogic {
             }
         }
     }
-
-
 
     pub(in super::super) fn ensure_residual_mine_template(
         &mut self,
@@ -2062,8 +2034,8 @@ impl GameLogic {
         delay_frames: Option<u32>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_mines::{
-            can_place_remote_charge, can_place_timed_charge, HostMineData, HostMineKind,
-            BURTON_UNIQUE_CHARGE_TARGETS,
+            BURTON_UNIQUE_CHARGE_TARGETS, HostMineData, HostMineKind, can_place_remote_charge,
+            can_place_timed_charge,
         };
 
         // C++ MaxSpecialObjects + UniqueSpecialObjectTargets residual (Burton C4).
@@ -2145,9 +2117,10 @@ impl GameLogic {
             }
             crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
                 let mut d = HostMineData::remote_demo_charge();
-                d.next_ping_frame = Some(self.frame.saturating_add(
-                    crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES,
-                ));
+                d.next_ping_frame = Some(
+                    self.frame
+                        .saturating_add(crate::game_logic::host_mines::UNIT_BOMB_PING_FRAMES),
+                );
                 d
             }
         };
@@ -2158,9 +2131,8 @@ impl GameLogic {
             data = data.with_attach(t);
         }
 
-        let planter_owner = producer.and_then(|pid| {
-            self.objects.get(&pid).and_then(|o| o.owner_player_id)
-        });
+        let planter_owner =
+            producer.and_then(|pid| self.objects.get(&pid).and_then(|o| o.owner_player_id));
         let producer_pos =
             producer.and_then(|pid| self.objects.get(&pid).map(|o| o.get_position()));
         let dest_ground = self.terrain_height_at(position).unwrap_or(position.y);
@@ -2169,7 +2141,6 @@ impl GameLogic {
             crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
                 | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
         );
-
 
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
@@ -2206,7 +2177,6 @@ impl GameLogic {
                     }
                 }
             }
-
         }
 
         self.mine_residual_places = self.mine_residual_places.saturating_add(1);
@@ -2255,8 +2225,8 @@ impl GameLogic {
     /// Every LOGICFRAMES_PER_SECOND plays per-unit UnitBombPing.
     pub(crate) fn update_sticky_bomb_attachments(&mut self) {
         use crate::game_logic::host_mines::{
-            sticky_immobile_follow_pos, sticky_vehicle_follow_pos, HostMineKind, STICKY_OFFSET_Z,
-            UNIT_BOMB_PING_AUDIO, UNIT_BOMB_PING_FRAMES,
+            HostMineKind, STICKY_OFFSET_Z, UNIT_BOMB_PING_AUDIO, UNIT_BOMB_PING_FRAMES,
+            sticky_immobile_follow_pos, sticky_vehicle_follow_pos,
         };
 
         let frame = self.frame;
@@ -2340,9 +2310,10 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&charge_id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     let next = md.next_ping_frame.unwrap_or(frame);
-                    md.next_ping_frame = Some(next.saturating_add(UNIT_BOMB_PING_FRAMES).max(
-                        frame.saturating_add(UNIT_BOMB_PING_FRAMES),
-                    ));
+                    md.next_ping_frame = Some(
+                        next.saturating_add(UNIT_BOMB_PING_FRAMES)
+                            .max(frame.saturating_add(UNIT_BOMB_PING_FRAMES)),
+                    );
                 }
             }
             // C++ StickyBombUpdate::update: getPerUnitSound("UnitBombPing") + setObjectID.
@@ -2417,18 +2388,9 @@ impl GameLogic {
             if let Some(p) = self.booby_trap.plant_mut(sid) {
                 p.next_ping_frame = Some(frame.saturating_add(UNIT_BOMB_PING_FRAMES));
             }
-            self.queue_resolved_per_unit_sound(
-                cid,
-                UNIT_BOMB_PING_AUDIO,
-                true,
-                false,
-                None,
-                140,
-            );
+            self.queue_resolved_per_unit_sound(cid, UNIT_BOMB_PING_AUDIO, true, false, None, 140);
         }
     }
-
-
 
     /// C++ RemoteC4Charge SpecialObjectsPersistWhenOwnerDies = No residual.
     /// TimedC4Charge persists (BURTON_TIMED_PERSIST_WHEN_OWNER_DIES = true).
@@ -2451,11 +2413,7 @@ impl GameLogic {
                     .get(&pid)
                     .map(|p| !p.is_alive() || p.status.destroyed || p.status.effectively_dead)
                     .unwrap_or(true);
-                if owner_dead {
-                    Some(*id)
-                } else {
-                    None
-                }
+                if owner_dead { Some(*id) } else { None }
             })
             .collect();
         for id in due {
@@ -2483,9 +2441,8 @@ impl GameLogic {
     fn update_land_mine_regen_and_virtual(&mut self) {
         use crate::game_logic::host_enum_table_residual::rubble_model_bit;
         use crate::game_logic::host_mines::{
-            HostMineKind, MineOnDamageStep, MINE_CREATOR_DEATH_CHECK_FRAMES,
+            HostMineKind, MINE_CREATOR_DEATH_CHECK_FRAMES, MineOnDamageStep,
         };
-
 
         let frame = self.frame;
         let ids: Vec<ObjectId> = self
@@ -2509,10 +2466,12 @@ impl GameLogic {
         let mut destroy: Vec<ObjectId> = Vec::new();
 
         for id in ids {
-            let producer = self
-                .objects
-                .get(&id)
-                .and_then(|o| o.mine_data.as_ref().and_then(|m| m.producer_id).or(o.producer_id));
+            let producer = self.objects.get(&id).and_then(|o| {
+                o.mine_data
+                    .as_ref()
+                    .and_then(|m| m.producer_id)
+                    .or(o.producer_id)
+            });
             let producer_dead = match producer {
                 Some(pid) => self
                     .objects
@@ -2560,7 +2519,11 @@ impl GameLogic {
                 }
             }
 
-            if md.last_synced_health.is_some_and(|h| (h - health).abs() < 1e-4) && !self_drain && !healing
+            if md
+                .last_synced_health
+                .is_some_and(|h| (h - health).abs() < 1e-4)
+                && !self_drain
+                && !healing
             {
                 continue;
             }
@@ -2579,8 +2542,7 @@ impl GameLogic {
                     MineOnDamageStep::Detonate => {
                         let expected =
                             md.virtual_mines_expected_from_health(health, max_h, healing);
-                        want_detonate_n =
-                            md.virtual_mines_remaining.saturating_sub(expected);
+                        want_detonate_n = md.virtual_mines_remaining.saturating_sub(expected);
                         break;
                     }
                 }
@@ -2608,7 +2570,6 @@ impl GameLogic {
             if want_destroy {
                 destroy.push(id);
             }
-
         }
 
         for (id, n) in detonate {
@@ -2653,10 +2614,10 @@ impl GameLogic {
 
     pub fn update_mines_and_demo_traps(&mut self) {
         use crate::game_logic::host_mines::{
-            can_clear_mine_kind, demo_trap_skips_dozer_disarm_while_attacking, is_mine_clearer,
-            land_mine_geometry_contacts, mine_clear_allowed_for_order, minefield_skips_worker,
-            victim_mine_collide_radius, HostMineDetonateReason, HostMineKind,
-            DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
+            DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE, HostMineDetonateReason,
+            HostMineKind, can_clear_mine_kind, demo_trap_skips_dozer_disarm_while_attacking,
+            is_mine_clearer, land_mine_geometry_contacts, mine_clear_allowed_for_order,
+            minefield_skips_worker, victim_mine_collide_radius,
         };
 
         let frame = self.frame;
@@ -2776,15 +2737,13 @@ impl GameLogic {
                 if !obj.is_alive() || obj.mine_data.is_some() {
                     return None;
                 }
-                let is_dozer =
-                    is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name);
+                let is_dozer = is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name);
                 let weapon_disarm = obj
                     .weapon_name_for_slot(0)
                     .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
                     .unwrap_or(false)
                     || obj.weapon_set_mine_clearing_detail;
-                let attacking = obj.status.attacking
-                    || matches!(obj.ai_state, AIState::Attacking);
+                let attacking = obj.status.attacking || matches!(obj.ai_state, AIState::Attacking);
                 if demo_trap_skips_dozer_disarm_while_attacking(is_dozer, weapon_disarm, attacking)
                 {
                     return None;
@@ -2796,9 +2755,7 @@ impl GameLogic {
                 if !combatant {
                     return None;
                 }
-                let ground_y = self
-                    .terrain_height_at(obj.get_position())
-                    .unwrap_or(0.0);
+                let ground_y = self.terrain_height_at(obj.get_position()).unwrap_or(0.0);
                 if crate::game_logic::host_mines::is_above_terrain(obj.get_position().y, ground_y) {
                     return None;
                 }
@@ -2869,14 +2826,14 @@ impl GameLogic {
                                 &o.template_name,
                             )
                         })
-                        .unwrap_or(crate::game_logic::host_mines::DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES);
+                        .unwrap_or(
+                            crate::game_logic::host_mines::DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES,
+                        );
                     let ready = self
                         .objects
                         .get_mut(&mine_id)
                         .and_then(|o| o.mine_data.as_mut())
-                        .is_some_and(|md| {
-                            md.begin_or_ready_clear_pre_attack(*cid, frame, delay)
-                        });
+                        .is_some_and(|md| md.begin_or_ready_clear_pre_attack(*cid, frame, delay));
                     if ready && !clear_due.iter().any(|(m, _)| *m == mine_id) {
                         clear_due.push((mine_id, *cid));
                     }
@@ -3101,10 +3058,10 @@ impl GameLogic {
 
     /// C++ MinefieldBehavior::detonateOnce — one virtual mine, pad may persist.
     fn trip_virtual_land_mine(&mut self, mine_id: ObjectId, victim_pos: Vec3) -> bool {
-        use crate::game_logic::host_mines::{
-            clip_point_to_mine_footprint, LAND_MINE_GEOMETRY_RADIUS, MINE_MIN_HEALTH,
-        };
         use crate::game_logic::host_enum_table_residual::rubble_model_bit;
+        use crate::game_logic::host_mines::{
+            LAND_MINE_GEOMETRY_RADIUS, MINE_MIN_HEALTH, clip_point_to_mine_footprint,
+        };
 
         let Some(mine) = self.objects.get(&mine_id) else {
             return false;
@@ -3120,12 +3077,17 @@ impl GameLogic {
         let Some(data) = mine.mine_data.as_ref() else {
             return false;
         };
-        if !data.is_active() || !matches!(data.kind, crate::game_logic::host_mines::HostMineKind::LandMine)
+        if !data.is_active()
+            || !matches!(
+                data.kind,
+                crate::game_logic::host_mines::HostMineKind::LandMine
+            )
         {
             return false;
         }
         let mine_pos = mine.get_position();
-        let blast_pos = clip_point_to_mine_footprint(mine_pos, victim_pos, LAND_MINE_GEOMETRY_RADIUS);
+        let blast_pos =
+            clip_point_to_mine_footprint(mine_pos, victim_pos, LAND_MINE_GEOMETRY_RADIUS);
         let destroy_pad = {
             let Some(obj) = self.objects.get_mut(&mine_id) else {
                 return false;
@@ -3182,7 +3144,9 @@ impl GameLogic {
                 md.producer_id,
             )
         };
-        self.apply_mine_splash(mine_id, blast_pos, damage, radius, kind, mine_team, producer);
+        self.apply_mine_splash(
+            mine_id, blast_pos, damage, radius, kind, mine_team, producer,
+        );
         true
     }
 
@@ -3190,7 +3154,7 @@ impl GameLogic {
     /// C++ Weapon DAMAGE_DISARM → LandMineInterface::disarm / destroyObject residual.
     /// Demo traps (KINDOF_DEMOTRAP) are disarmed the same way — no explosion.
     pub fn clear_mine_internal(&mut self, mine_id: ObjectId, clearer_id: ObjectId) -> bool {
-        use crate::game_logic::host_mines::{can_clear_mine_kind, MINE_CLEARED_AUDIO};
+        use crate::game_logic::host_mines::{MINE_CLEARED_AUDIO, can_clear_mine_kind};
 
         let Some(mine) = self.objects.get(&mine_id) else {
             return false;
@@ -3210,7 +3174,10 @@ impl GameLogic {
         }
         let mine_pos = mine.get_position();
         let keep_regen_pad = data.regenerates
-            && matches!(data.kind, crate::game_logic::host_mines::HostMineKind::LandMine);
+            && matches!(
+                data.kind,
+                crate::game_logic::host_mines::HostMineKind::LandMine
+            );
 
         if keep_regen_pad {
             use crate::game_logic::host_enum_table_residual::rubble_model_bit;
@@ -3267,7 +3234,7 @@ impl GameLogic {
         mine_id: ObjectId,
         reason: crate::game_logic::host_mines::HostMineDetonateReason,
     ) -> bool {
-        use crate::game_logic::host_mines::{damage_at_distance, HostMineDetonateReason};
+        use crate::game_logic::host_mines::{HostMineDetonateReason, damage_at_distance};
 
         let Some(mine) = self.objects.get(&mine_id) else {
             return false;
@@ -3278,8 +3245,10 @@ impl GameLogic {
         if !mine.is_alive() && !matches!(reason, HostMineDetonateReason::Killed) {
             // Last detonateOnce of a 0-HP non-regen pad still fires + destroyObject.
             let last_virtual = mine.mine_data.as_ref().is_some_and(|md| {
-                matches!(md.kind, crate::game_logic::host_mines::HostMineKind::LandMine)
-                    && !md.detonated
+                matches!(
+                    md.kind,
+                    crate::game_logic::host_mines::HostMineKind::LandMine
+                ) && !md.detonated
             });
             if !last_virtual {
                 return false;
@@ -3581,9 +3550,7 @@ impl GameLogic {
         blast_pos: Vec3,
         mine_team: Team,
     ) -> Vec<(ObjectId, Team)> {
-        use crate::game_logic::host_mines::{
-            neutron_mine_victim_effect, NeutronMineVictimEffect,
-        };
+        use crate::game_logic::host_mines::{NeutronMineVictimEffect, neutron_mine_victim_effect};
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
         let mut contained_kill: Vec<ObjectId> = Vec::new();
         let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
@@ -3619,7 +3586,8 @@ impl GameLogic {
             );
             match effect {
                 NeutronMineVictimEffect::None => {}
-                NeutronMineVictimEffect::KillInfantry | NeutronMineVictimEffect::KillCliffJumper => {
+                NeutronMineVictimEffect::KillInfantry
+                | NeutronMineVictimEffect::KillCliffJumper => {
                     contained_kill.extend(victim.contained_units());
                     destroy_ids.push((vid, mine_team));
                 }
@@ -3646,7 +3614,7 @@ impl GameLogic {
     /// Land mines: DetonatedBy ENEMIES | NEUTRAL (ctor default).
     fn mine_proximity_skips_friendly(&self, mine_id: ObjectId, victim_id: ObjectId) -> bool {
         use crate::game_logic::host_mines::{
-            demo_trap_proximity_requires_enemies, land_mine_proximity_trips, HostMineKind,
+            HostMineKind, demo_trap_proximity_requires_enemies, land_mine_proximity_trips,
         };
         use gamelogic::common::Relationship;
 
@@ -3678,10 +3646,7 @@ impl GameLogic {
             .as_ref()
             .is_some_and(|md| matches!(md.kind, HostMineKind::LandMine));
         if is_land {
-            !land_mine_proximity_trips(
-                rel == Relationship::Enemies,
-                rel == Relationship::Neutral,
-            )
+            !land_mine_proximity_trips(rel == Relationship::Enemies, rel == Relationship::Neutral)
         } else {
             !demo_trap_proximity_requires_enemies(rel == Relationship::Enemies)
         }
@@ -3719,14 +3684,9 @@ impl GameLogic {
                 }
                 let enemy = match (o.owner_player_id, v_owner) {
                     (Some(a), Some(b)) => {
-                        self.player_relationship(a, b)
-                            == gamelogic::common::Relationship::Enemies
+                        self.player_relationship(a, b) == gamelogic::common::Relationship::Enemies
                     }
-                    _ => {
-                        o.team != v_team
-                            && o.team != Team::Neutral
-                            && v_team != Team::Neutral
-                    }
+                    _ => o.team != v_team && o.team != Team::Neutral && v_team != Team::Neutral,
                 };
                 if !enemy {
                     return None;
@@ -3831,10 +3791,8 @@ impl GameLogic {
             match rel {
                 Relationship::Enemies => {
                     if has_data {
-                        let _ = self.detonate_mine_internal(
-                            mine_id,
-                            HostMineDetonateReason::Proximity,
-                        );
+                        let _ =
+                            self.detonate_mine_internal(mine_id, HostMineDetonateReason::Proximity);
                     } else if let Some(obj) = self.objects.get_mut(&mine_id) {
                         obj.take_damage_from_typed_death(
                             obj.health.maximum.max(1.0),
@@ -3857,7 +3815,10 @@ impl GameLogic {
 fn land_mine_pad_takes_splash(victim: &Object) -> bool {
     victim.mine_data.as_ref().is_some_and(|md| {
         !md.detonated
-            && matches!(md.kind, crate::game_logic::host_mines::HostMineKind::LandMine)
+            && matches!(
+                md.kind,
+                crate::game_logic::host_mines::HostMineKind::LandMine
+            )
             && md.has_virtual_charge()
     })
 }
@@ -3881,5 +3842,3 @@ fn mine_splash_distance(victim: &Object, blast_pos: Vec3) -> f32 {
         (dx * dx + dz * dz).sqrt()
     }
 }
-
-

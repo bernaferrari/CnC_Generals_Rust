@@ -15,7 +15,7 @@ use super::decals::DecalRenderItem;
 use super::particle_manager::*;
 use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
-use crate::system::smudge::{get_smudge_manager, SmudgeSetHandle};
+use crate::system::smudge::{SmudgeSetHandle, get_smudge_manager};
 
 /// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
 ///
@@ -167,10 +167,30 @@ fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
             let u0 = ix as f32 / cells as f32;
             let u1 = (ix + 1) as f32 / cells as f32;
             let corners = [
-                (u0, v0, -half_x + u0 * half_x * 2.0, -half_y + v0 * half_y * 2.0),
-                (u1, v0, -half_x + u1 * half_x * 2.0, -half_y + v0 * half_y * 2.0),
-                (u0, v1, -half_x + u0 * half_x * 2.0, -half_y + v1 * half_y * 2.0),
-                (u1, v1, -half_x + u1 * half_x * 2.0, -half_y + v1 * half_y * 2.0),
+                (
+                    u0,
+                    v0,
+                    -half_x + u0 * half_x * 2.0,
+                    -half_y + v0 * half_y * 2.0,
+                ),
+                (
+                    u1,
+                    v0,
+                    -half_x + u1 * half_x * 2.0,
+                    -half_y + v0 * half_y * 2.0,
+                ),
+                (
+                    u0,
+                    v1,
+                    -half_x + u0 * half_x * 2.0,
+                    -half_y + v1 * half_y * 2.0,
+                ),
+                (
+                    u1,
+                    v1,
+                    -half_x + u1 * half_x * 2.0,
+                    -half_y + v1 * half_y * 2.0,
+                ),
             ];
             let mut world = [[0.0f32; 3]; 4];
             for (i, &(u, v, lx, ly)) in corners.iter().enumerate() {
@@ -204,12 +224,12 @@ fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
                     uv: [corners[3].0, corners[3].1],
                 },
             ];
-            vertices.extend_from_slice(&[verts[0], verts[1], verts[2], verts[2], verts[1], verts[3]]);
+            vertices
+                .extend_from_slice(&[verts[0], verts[1], verts[2], verts[2], verts[1], verts[3]]);
         }
     }
     vertices
 }
-
 
 impl ParticleBatch {
     pub fn new(shader_type: ParticleShaderType, texture_name: String) -> Self {
@@ -239,7 +259,6 @@ impl ParticleBatch {
         append_streak_polyline(&mut self.vertices, system);
         self.dirty = true;
     }
-
 
     /// Add layered volume-particle slices sorted from the camera-facing side.
     pub fn add_volume_particle(
@@ -390,7 +409,8 @@ pub fn particle_type_name_is_smud(name: &str) -> bool {
 /// authored SMUDGE systems still use ParticleName `"SMUDGE RESERVED"`.
 #[must_use]
 pub fn system_is_heat_smudge(system: &ParticleSystem) -> bool {
-    system.is_using_smudge() || particle_type_name_is_smud(&system.template().info().particle_type_name)
+    system.is_using_smudge()
+        || particle_type_name_is_smud(&system.template().info().particle_type_name)
 }
 
 /// C++ `doParticles` start: `setSmudgeCountLastFrame(0)` then one `addSmudgeSet`.
@@ -463,7 +483,6 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
     visible
 }
 
-
 fn particle_billboard_vertex(particle: &Particle, system: &ParticleSystem) -> ParticleVertex {
     ParticleVertex {
         position: [
@@ -472,12 +491,7 @@ fn particle_billboard_vertex(particle: &Particle, system: &ParticleSystem) -> Pa
             particle.position.z,
         ],
         size: [particle.size, particle.size],
-        color: [
-            particle.color[0],
-            particle.color[1],
-            particle.color[2],
-            1.0,
-        ],
+        color: [particle.color[0], particle.color[1], particle.color[2], 1.0],
         uv_rect: [0.0, 0.0, 1.0, 1.0],
         rotation: particle.angle_z,
         alpha: particle.alpha,
@@ -574,7 +588,6 @@ pub struct ParticleRenderer {
     heat_haze_sampler: wgpu::Sampler,
     scene_copy: Option<wgpu::Texture>,
     scene_copy_bind_group: Option<wgpu::BindGroup>,
-
 
     /// Billboard vertices (quad)
     billboard_buffer: wgpu::Buffer,
@@ -1037,10 +1050,13 @@ impl ParticleRenderer {
 
         let heat_haze_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Heat Haze Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/particle_heat_haze.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("shaders/particle_heat_haze.wgsl").into(),
+            ),
         });
         let heat_haze_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<crate::effects::heat_haze::HeatHazeGpuVertex>() as u64,
+            array_stride: std::mem::size_of::<crate::effects::heat_haze::HeatHazeGpuVertex>()
+                as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -1130,93 +1146,95 @@ impl ParticleRenderer {
             cache: None,
         });
 
-        let decal_modulate_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Decal Modulate Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &decal_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[decal_vertex_layout.clone()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &decal_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState {
-                        color: particle_multiply_color_blend(),
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::Zero,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let decal_modulate_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Decal Modulate Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &decal_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[decal_vertex_layout.clone()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &decal_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_format,
+                        blend: Some(wgpu::BlendState {
+                            color: particle_multiply_color_blend(),
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::Zero,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: depth_format,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
-        let decal_additive_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Decal Additive Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &decal_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[decal_vertex_layout],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &decal_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let decal_additive_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Decal Additive Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &decal_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[decal_vertex_layout],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &decal_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::SrcAlpha,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: depth_format,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
         // Create default white texture
         let default_texture = Self::create_default_texture(&device, &queue);
@@ -1232,7 +1250,6 @@ impl ParticleRenderer {
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-
 
         Ok(Self {
             device,
@@ -1263,7 +1280,6 @@ impl ParticleRenderer {
             scene_copy: None,
             scene_copy_bind_group: None,
 
-
             billboard_buffer,
 
             stats: ParticleRenderStats::default(),
@@ -1293,7 +1309,6 @@ impl ParticleRenderer {
         // C++ `doParticles` allocates one smudge set, then SMUD* systems
         // `addSmudgeToSet` instead of filling the point-group buffers.
         begin_particle_heat_smudge_frame();
-
 
         // Collect particles into batches
         for system in systems {
@@ -1512,14 +1527,17 @@ impl ParticleRenderer {
                     (start[1] + end[1]) * 0.5,
                     (start[2] + end[2]) * 0.5,
                 ],
-                size: [length, mesh.vertices.len() as f32 * 0.0 + {
-                    let p0 = mesh.vertices[0].position;
-                    let p1 = mesh.vertices[1].position;
-                    let wx = p1[0] - p0[0];
-                    let wy = p1[1] - p0[1];
-                    let wz = p1[2] - p0[2];
-                    (wx * wx + wy * wy + wz * wz).sqrt().max(0.05)
-                }],
+                size: [
+                    length,
+                    mesh.vertices.len() as f32 * 0.0 + {
+                        let p0 = mesh.vertices[0].position;
+                        let p1 = mesh.vertices[1].position;
+                        let wx = p1[0] - p0[0];
+                        let wy = p1[1] - p0[1];
+                        let wz = p1[2] - p0[2];
+                        (wx * wx + wy * wy + wz * wz).sqrt().max(0.05)
+                    },
+                ],
                 color,
                 uv_rect: [0.0, 0.0, 1.0, 1.0],
                 rotation: dy.atan2(dx),
@@ -1768,7 +1786,6 @@ impl ParticleRenderer {
         }
         self.stats.render_time_ms += start_time.elapsed().as_secs_f64() * 1000.0;
     }
-
 
     /// Collect particles from a system into appropriate batches
     fn collect_system_particles(&mut self, system: &ParticleSystem, camera_position: [f32; 3]) {
@@ -2044,9 +2061,10 @@ impl ParticleRenderer {
         }
         let size = source.size();
         let format = source.format();
-        let rebuild = self.scene_copy.as_ref().is_none_or(|tex| {
-            tex.size() != size || tex.format() != format
-        });
+        let rebuild = self
+            .scene_copy
+            .as_ref()
+            .is_none_or(|tex| tex.size() != size || tex.format() != format);
         if rebuild {
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Heat Haze Scene Copy"),
@@ -2118,8 +2136,6 @@ mod tests {
         assert_eq!(std::mem::offset_of!(ParticleVertex, rotation), 52);
         assert_eq!(std::mem::offset_of!(ParticleVertex, alpha), 56);
         assert_eq!(std::mem::offset_of!(ParticleVertex, billboard), 60);
-
-
     }
 
     #[test]
@@ -2199,7 +2215,10 @@ mod tests {
         }
         let spans_x = corners.iter().any(|c| (c[0] - 10.0).abs() > 0.1);
         let spans_z = corners.iter().any(|c| (c[2] - 20.0).abs() > 0.1);
-        assert!(spans_x && spans_z, "quad must extend in X and Z, not stand up: {corners:?}");
+        assert!(
+            spans_x && spans_z,
+            "quad must extend in X and Z, not stand up: {corners:?}"
+        );
 
         let shader = include_str!("shaders/particle_vertex.wgsl");
         assert!(
@@ -2211,7 +2230,6 @@ mod tests {
             "world-Y as V stands particles up on a Y-up host"
         );
     }
-
 
     #[test]
     fn volume_particle_emits_default_depth_layers() {

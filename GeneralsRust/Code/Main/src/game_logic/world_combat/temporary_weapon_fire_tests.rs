@@ -6,7 +6,7 @@ use super::temporary_weapon_status::{
     store_fields_for_weapon_name,
 };
 use super::weapon_visual_capture::select_weapon_template_fx;
-use super::weapon_visual_freeze::{classify_draw_module_declaration, DrawModuleFireFxClass};
+use super::weapon_visual_freeze::{DrawModuleFireFxClass, classify_draw_module_declaration};
 use crate::game_logic::host_temporary_weapon_behavior::{
     FireWeaponDamageTypeMask, FireWeaponUpgradeMuxMetadata, FireWeaponWhenDamagedMetadata,
     FireWeaponWhenDamagedRuntimeState, FireWeaponWhenDamagedWeaponRole, FireWeaponWhenDeadMetadata,
@@ -245,7 +245,10 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     let source = ObjectId(15);
     logic.objects.insert(source, object);
     let first = logic.execute_temporary_weapon_on_die(source);
-    assert!(first > 0, "StartsActive default with empty conflict ownership must fire");
+    assert!(
+        first > 0,
+        "StartsActive default with empty conflict ownership must fire"
+    );
     assert!(
         logic
             .host_object(source)
@@ -260,7 +263,10 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     object.temporary_weapon_runtime.dead[1].upgrade_executed = false;
     logic.objects.insert(source, object);
     let upgraded = logic.execute_temporary_weapon_on_die(source);
-    assert!(upgraded > 0, "TriggeredBy HE must activate exclusive death module");
+    assert!(
+        upgraded > 0,
+        "TriggeredBy HE must activate exclusive death module"
+    );
     assert!(
         logic
             .host_object(source)
@@ -587,8 +593,6 @@ fn damaged_continuous_fires_every_ready_module() {
         assert_eq!(state1.last_fire_frame, 10);
     }
 }
-
-
 
 #[test]
 fn fx_selection_uses_detonate_only_when_projectile_detonation() {

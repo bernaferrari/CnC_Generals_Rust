@@ -6,7 +6,7 @@ use std::path::Path;
 use ww3d_assets::prototypes::{
     CollectionPrototype, HlodPrototype, LodModelPrototype, MeshPrototype,
 };
-use ww3d_assets::AssetManager;
+use ww3d_assets::{AssetManager, W3DLoader};
 use ww3d_geometry::bounding_volumes::BoundingVolumeUtils;
 
 /// Snapshot describing the state of loaded WW3D assets for validation.
@@ -16,6 +16,10 @@ pub struct Snapshot {
     pub lod_models: BTreeMap<String, Vec<LodEntrySnapshot>>,
     pub collections: BTreeMap<String, CollectionSnapshot>,
     pub hlods: BTreeMap<String, HLodSnapshot>,
+    #[serde(default)]
+    pub animations: BTreeMap<String, AnimationSnapshot>,
+    #[serde(default)]
+    pub hierarchies: BTreeMap<String, HierarchySnapshot>,
 }
 
 impl Snapshot {
@@ -25,6 +29,8 @@ impl Snapshot {
             lod_models: BTreeMap::new(),
             collections: BTreeMap::new(),
             hlods: BTreeMap::new(),
+            animations: BTreeMap::new(),
+            hierarchies: BTreeMap::new(),
         }
     }
 }
@@ -32,9 +38,17 @@ impl Snapshot {
 /// Summary for all mesh prototypes discovered in a single asset file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AssetSnapshot {
+    /// Every prototype name registered from this file, including non-mesh
+    /// render objects.  C++ `WW3DAssetManager` rejects duplicate names, so
+    /// an unexpected name is a parity failure even when its geometry is empty.
+    #[serde(default)]
+    pub prototype_names: Vec<String>,
     pub meshes: BTreeMap<String, MeshSnapshot>,
     pub total_vertices: usize,
     pub total_triangles: usize,
+    /// Texture references in the order emitted by the W3D mesh loader.
+    #[serde(default)]
+    pub texture_order: Vec<String>,
 }
 
 /// Captures geometric stats for a mesh prototype.
@@ -46,6 +60,31 @@ pub struct MeshSnapshot {
     pub bounding_sphere_center: [f32; 3],
     pub aabb_min: [f32; 3],
     pub aabb_max: [f32; 3],
+    #[serde(default)]
+    pub texture_order: Vec<String>,
+    #[serde(default)]
+    pub vertex_material_order: Vec<String>,
+    #[serde(default)]
+    pub material_info: Option<MaterialInfoSnapshot>,
+    #[serde(default)]
+    pub material_passes: Vec<MaterialPassSnapshot>,
+}
+
+/// Backend-neutral material counts and pass ordering.  This intentionally
+/// contains no DirectX/WGPU handles: it describes the W3D material contract.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MaterialInfoSnapshot {
+    pub pass_count: u32,
+    pub vertex_material_count: u32,
+    pub shader_count: u32,
+    pub texture_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MaterialPassSnapshot {
+    pub vertex_material_id: u32,
+    pub shader_id: u32,
+    pub texture_count: u32,
 }
 
 /// Captures a single LOD entry for a LodModelPrototype.
@@ -60,6 +99,10 @@ pub struct LodEntrySnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CollectionSnapshot {
     pub object_names: Vec<String>,
+    #[serde(default)]
+    pub placeholder_names: Vec<String>,
+    #[serde(default)]
+    pub transform_node_names: Vec<String>,
     pub placeholder_count: usize,
     pub transform_node_count: usize,
     pub snap_point_count: usize,
@@ -71,6 +114,8 @@ pub struct HLodSnapshot {
     pub hierarchy: String,
     pub lod_layers: Vec<HLodLayerSnapshot>,
     pub aggregate_chunk_count: usize,
+    #[serde(default)]
+    pub proxy_objects: Vec<HLodObjectSnapshot>,
 }
 
 /// Snapshot describing sub-objects bound to a single HLOD LOD level.
@@ -79,6 +124,42 @@ pub struct HLodLayerSnapshot {
     pub max_screen_size: f32,
     pub sub_object_count: usize,
     pub proxy_count: usize,
+    #[serde(default)]
+    pub sub_objects: Vec<HLodObjectSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HLodObjectSnapshot {
+    pub name: String,
+    pub bone_index: u32,
+}
+
+/// A hierarchy name and pivot ordering, matching C++ `HTreeManager`'s
+/// ordered pivot table without including backend-specific transforms.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HierarchySnapshot {
+    pub pivot_order: Vec<String>,
+    pub parent_indices: Vec<i32>,
+}
+
+/// Animation identity and channel presence/order.  The source C++ loader
+/// keeps one channel set per bone; preserving that shape catches dropped or
+/// reordered animation channels while remaining backend neutral.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AnimationSnapshot {
+    pub hierarchy: String,
+    pub num_frames: u32,
+    pub frame_rate: u16,
+    pub bone_channels: Vec<AnimationBoneSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AnimationBoneSnapshot {
+    pub has_x: bool,
+    pub has_y: bool,
+    pub has_z: bool,
+    pub has_rotation: bool,
+    pub has_visibility: bool,
 }
 
 /// Capture a validation snapshot for the provided assets. Paths are resolved relative to `cwd`.
@@ -97,6 +178,14 @@ where
             .ok_or_else(|| anyhow::anyhow!("Invalid asset path: {}", path.display()))?
             .to_string();
 
+        // Keep a parser-level view as well as the AssetManager view.  The C++
+        // manager handles hierarchy and animation chunks before registering
+        // render-object prototypes; those resources are not all represented by
+        // AssetManager prototypes yet, so dropping this view would make a
+        // missing animation look like a successful empty validation.
+        let model = W3DLoader::load(path)
+            .with_context(|| format!("failed to parse W3D asset {}", path.display()))?;
+
         let before: HashSet<String> = manager.asset_names().cloned().collect();
         manager
             .load_w3d(path)
@@ -104,6 +193,12 @@ where
 
         let after: HashSet<String> = manager.asset_names().cloned().collect();
         let new_entries: Vec<String> = after.difference(&before).cloned().collect();
+
+        let mut prototype_names: Vec<String> = new_entries
+            .iter()
+            .filter_map(|name| sanitize_label(name))
+            .collect();
+        prototype_names.sort();
 
         let mut mesh_map = BTreeMap::new();
         let mut total_vertices = 0usize;
@@ -145,19 +240,96 @@ where
             }
         }
 
-        if !mesh_map.is_empty() {
-            snapshot.assets.insert(
-                label,
-                AssetSnapshot {
-                    meshes: mesh_map,
-                    total_vertices,
-                    total_triangles,
+        let texture_order = model
+            .textures
+            .iter()
+            .filter_map(|name| sanitize_label(name))
+            .collect();
+        snapshot.assets.insert(
+            label,
+            AssetSnapshot {
+                prototype_names,
+                meshes: mesh_map,
+                total_vertices,
+                total_triangles,
+                texture_order,
+            },
+        );
+
+        for hierarchy in model.hierarchies {
+            let Some(name) = sanitize_label(&hierarchy.header.name) else {
+                continue;
+            };
+            snapshot.hierarchies.insert(
+                name,
+                HierarchySnapshot {
+                    pivot_order: hierarchy
+                        .pivots
+                        .iter()
+                        .filter_map(|pivot| sanitize_label(&pivot.name))
+                        .collect(),
+                    parent_indices: hierarchy
+                        .pivots
+                        .iter()
+                        .map(|pivot| pivot.parent_idx)
+                        .collect(),
+                },
+            );
+        }
+
+        for animation in model.animations {
+            let Some(name) = sanitize_label(&animation.header.name) else {
+                continue;
+            };
+            snapshot.animations.insert(
+                name,
+                AnimationSnapshot {
+                    hierarchy: animation.header.hierarchy_name.clone(),
+                    num_frames: animation.header.num_frames,
+                    frame_rate: animation.header.frame_rate,
+                    bone_channels: animation
+                        .bone_animations
+                        .iter()
+                        .map(|bone| AnimationBoneSnapshot {
+                            has_x: bone.x_channel.is_some(),
+                            has_y: bone.y_channel.is_some(),
+                            has_z: bone.z_channel.is_some(),
+                            has_rotation: bone.rotation_channel.is_some(),
+                            has_visibility: bone.visibility_channel.is_some(),
+                        })
+                        .collect(),
                 },
             );
         }
     }
 
     Ok(snapshot)
+}
+
+/// Capture a deterministic W3D byte fixture without requiring retail data on
+/// disk.  The temporary file preserves the same parser path as retail assets
+/// and is removed before returning (including on parse failure).
+pub fn capture_snapshot_from_bytes(asset_name: &str, bytes: &[u8]) -> Result<Snapshot> {
+    let stem = sanitize_label(asset_name).unwrap_or_else(|| "fixture".to_string());
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let directory =
+        std::env::temp_dir().join(format!("ww3d-validation-{}-{}", std::process::id(), unique));
+    std::fs::create_dir(&directory).with_context(|| {
+        format!(
+            "failed to create temporary W3D fixture directory {}",
+            directory.display()
+        )
+    })?;
+    let path = directory.join(format!("{stem}.w3d"));
+    std::fs::write(&path, bytes)
+        .with_context(|| format!("failed to write temporary W3D fixture {}", path.display()))?;
+    let result = capture_snapshot(&[&path]);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir(&directory);
+    result
 }
 
 fn sanitize_label(raw: &str) -> Option<String> {
@@ -187,6 +359,34 @@ fn capture_mesh_snapshot(mesh: &MeshPrototype) -> MeshSnapshot {
         bounding_sphere_center: sphere.center.into(),
         aabb_min: min.into(),
         aabb_max: max.into(),
+        texture_order: mesh
+            .textures
+            .iter()
+            .filter_map(|texture| fixed_name(&texture.name))
+            .collect(),
+        vertex_material_order: mesh
+            .vertex_material_names
+            .iter()
+            .filter_map(|material| fixed_name(&material.material_name))
+            .collect(),
+        material_info: mesh
+            .material_info
+            .as_ref()
+            .map(|info| MaterialInfoSnapshot {
+                pass_count: info.pass_count,
+                vertex_material_count: info.vert_matl_count,
+                shader_count: info.shader_count,
+                texture_count: info.texture_count,
+            }),
+        material_passes: mesh
+            .passes
+            .iter()
+            .map(|pass| MaterialPassSnapshot {
+                vertex_material_id: pass.vm_id,
+                shader_id: pass.shader_id,
+                texture_count: pass.texture_count,
+            })
+            .collect(),
     }
 }
 
@@ -204,6 +404,16 @@ fn capture_lod_snapshot(lod: &LodModelPrototype) -> Vec<LodEntrySnapshot> {
 fn capture_collection_snapshot(collection: &CollectionPrototype) -> CollectionSnapshot {
     CollectionSnapshot {
         object_names: collection.object_names.clone(),
+        placeholder_names: collection
+            .placeholders
+            .iter()
+            .map(|placeholder| placeholder.name.clone())
+            .collect(),
+        transform_node_names: collection
+            .transform_nodes
+            .iter()
+            .map(|node| node.name.clone())
+            .collect(),
         placeholder_count: collection.placeholders.len(),
         transform_node_count: collection.transform_nodes.len(),
         snap_point_count: collection.snap_points.len(),
@@ -224,10 +434,34 @@ fn capture_hlod_snapshot(hlod: &HlodPrototype) -> HLodSnapshot {
                     .iter()
                     .filter(|model| model.bone_index != u32::MAX)
                     .count(),
+                sub_objects: lod_entry
+                    .models
+                    .iter()
+                    .map(|model| HLodObjectSnapshot {
+                        name: model.name.clone(),
+                        bone_index: model.bone_index,
+                    })
+                    .collect(),
             })
             .collect(),
-        aggregate_chunk_count: hlod.aggregate_chunks.len(),
+        aggregate_chunk_count: hlod.aggregates.len(),
+        proxy_objects: hlod
+            .proxy_entries
+            .iter()
+            .map(|proxy| HLodObjectSnapshot {
+                name: proxy.name.clone(),
+                bone_index: proxy.bone_index,
+            })
+            .collect(),
     }
+}
+
+fn fixed_name(bytes: &[u8]) -> Option<String> {
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    sanitize_label(std::str::from_utf8(&bytes[..end]).ok()?)
 }
 
 /// Serialize a snapshot to JSON.
@@ -242,6 +476,43 @@ pub fn read_snapshot(path: impl AsRef<Path>) -> Result<Snapshot> {
     let bytes = std::fs::read(path.as_ref())
         .with_context(|| format!("failed to read snapshot {}", path.as_ref().display()))?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+/// Resolve a retail asset only when the caller explicitly provisions one.
+///
+/// The repository intentionally contains no retail game data.  Validation
+/// must not silently substitute a fixture (or silently pass) when a retail
+/// comparison is requested, so a missing `WW3D_RETAIL_ASSET_ROOT` is an
+/// actionable error.
+pub fn provisioned_retail_asset(relative_path: impl AsRef<Path>) -> Result<std::path::PathBuf> {
+    let root = std::env::var_os("WW3D_RETAIL_ASSET_ROOT").ok_or_else(|| {
+        anyhow::anyhow!(
+            "WW3D_RETAIL_ASSET_ROOT is not set; provision extracted retail W3D data before running retail validation"
+        )
+    })?;
+    let root = std::path::PathBuf::from(root);
+    if !root.is_dir() {
+        anyhow::bail!(
+            "WW3D_RETAIL_ASSET_ROOT is not a directory: {}",
+            root.display()
+        );
+    }
+    let path = root.join(relative_path.as_ref());
+    if !path.is_file() {
+        anyhow::bail!(
+            "provisioned retail asset does not exist: {}",
+            path.display()
+        );
+    }
+    Ok(path)
+}
+
+/// Load a provisioned retail asset through the same snapshot path as fixtures.
+/// Callers should compare the returned snapshot against a separately
+/// provisioned retail baseline; no repository fixture is used as a fallback.
+pub fn capture_provisioned_retail_snapshot(relative_path: impl AsRef<Path>) -> Result<Snapshot> {
+    let path = provisioned_retail_asset(relative_path)?;
+    capture_snapshot(&[path])
 }
 
 /// Compare two snapshots and return a list of discrepancies. Empty list means parity.
@@ -264,6 +535,19 @@ pub fn diff_snapshots(expected: &Snapshot, actual: &Snapshot) -> Vec<String> {
                     ));
                 }
 
+                diff_ordered(
+                    &format!("asset {} prototype names", asset),
+                    &expected_snapshot.prototype_names,
+                    &actual_snapshot.prototype_names,
+                    &mut diffs,
+                );
+                diff_ordered(
+                    &format!("asset {} texture order", asset),
+                    &expected_snapshot.texture_order,
+                    &actual_snapshot.texture_order,
+                    &mut diffs,
+                );
+
                 for (mesh_name, mesh_expected) in &expected_snapshot.meshes {
                     match actual_snapshot.meshes.get(mesh_name) {
                         Some(mesh_actual) => {
@@ -273,6 +557,15 @@ pub fn diff_snapshots(expected: &Snapshot, actual: &Snapshot) -> Vec<String> {
                             "asset {} missing mesh {} in actual snapshot",
                             asset, mesh_name
                         )),
+                    }
+                }
+
+                for mesh_name in actual_snapshot.meshes.keys() {
+                    if !expected_snapshot.meshes.contains_key(mesh_name) {
+                        diffs.push(format!(
+                            "asset {} unexpected mesh {} in actual snapshot",
+                            asset, mesh_name
+                        ));
                     }
                 }
             }
@@ -371,6 +664,24 @@ pub fn diff_snapshots(expected: &Snapshot, actual: &Snapshot) -> Vec<String> {
                         actual_collection.snap_point_count
                     ));
                 }
+                diff_ordered(
+                    &format!("collection {} object names", collection),
+                    &expected_collection.object_names,
+                    &actual_collection.object_names,
+                    &mut diffs,
+                );
+                diff_ordered(
+                    &format!("collection {} placeholder names", collection),
+                    &expected_collection.placeholder_names,
+                    &actual_collection.placeholder_names,
+                    &mut diffs,
+                );
+                diff_ordered(
+                    &format!("collection {} transform node names", collection),
+                    &expected_collection.transform_node_names,
+                    &actual_collection.transform_node_names,
+                    &mut diffs,
+                );
             }
             None => diffs.push(format!(
                 "missing collection {} in actual snapshot",
@@ -405,6 +716,12 @@ pub fn diff_snapshots(expected: &Snapshot, actual: &Snapshot) -> Vec<String> {
                         actual_hlod.aggregate_chunk_count
                     ));
                 }
+                diff_ordered(
+                    &format!("hlod {} proxy objects", name),
+                    &expected_hlod.proxy_objects,
+                    &actual_hlod.proxy_objects,
+                    &mut diffs,
+                );
                 if expected_hlod.lod_layers.len() != actual_hlod.lod_layers.len() {
                     diffs.push(format!(
                         "hlod {} layer count mismatch: expected {}, got {}",
@@ -441,6 +758,12 @@ pub fn diff_snapshots(expected: &Snapshot, actual: &Snapshot) -> Vec<String> {
                             name, idx, expected_layer.proxy_count, actual_layer.proxy_count
                         ));
                     }
+                    diff_ordered(
+                        &format!("hlod {} layer {} sub-objects", name, idx),
+                        &expected_layer.sub_objects,
+                        &actual_layer.sub_objects,
+                        &mut diffs,
+                    );
                 }
             }
             None => diffs.push(format!("missing hlod {} in actual snapshot", name)),
@@ -456,7 +779,60 @@ pub fn diff_snapshots(expected: &Snapshot, actual: &Snapshot) -> Vec<String> {
         }
     }
 
+    diff_named_maps(
+        "hierarchy",
+        &expected.hierarchies,
+        &actual.hierarchies,
+        &mut diffs,
+    );
+    diff_named_maps(
+        "animation",
+        &expected.animations,
+        &actual.animations,
+        &mut diffs,
+    );
+
     diffs
+}
+
+fn diff_ordered<T: std::fmt::Debug + PartialEq>(
+    label: &str,
+    expected: &[T],
+    actual: &[T],
+    diffs: &mut Vec<String>,
+) {
+    if expected != actual {
+        diffs.push(format!(
+            "{} mismatch: expected {:?}, got {:?}",
+            label, expected, actual
+        ));
+    }
+}
+
+fn diff_named_maps<T: std::fmt::Debug + PartialEq>(
+    kind: &str,
+    expected: &BTreeMap<String, T>,
+    actual: &BTreeMap<String, T>,
+    diffs: &mut Vec<String>,
+) {
+    for name in expected.keys() {
+        match actual.get(name) {
+            Some(actual_value) if actual_value == &expected[name] => {}
+            Some(actual_value) => diffs.push(format!(
+                "{} {} mismatch: expected {:?}, got {:?}",
+                kind, name, expected[name], actual_value
+            )),
+            None => diffs.push(format!("missing {} {} in actual snapshot", kind, name)),
+        }
+    }
+    for name in actual.keys() {
+        if !expected.contains_key(name) {
+            diffs.push(format!(
+                "unexpected {} {} present in actual snapshot",
+                kind, name
+            ));
+        }
+    }
 }
 
 fn diff_mesh(
@@ -509,6 +885,30 @@ fn diff_mesh(
             actual.aabb_max
         ));
     }
+    diff_ordered(
+        &format!("asset {} mesh {} texture order", asset, mesh_name),
+        &expected.texture_order,
+        &actual.texture_order,
+        diffs,
+    );
+    diff_ordered(
+        &format!("asset {} mesh {} vertex material order", asset, mesh_name),
+        &expected.vertex_material_order,
+        &actual.vertex_material_order,
+        diffs,
+    );
+    if expected.material_info != actual.material_info {
+        diffs.push(format!(
+            "asset {} mesh {} material info mismatch: expected {:?}, got {:?}",
+            asset, mesh_name, expected.material_info, actual.material_info
+        ));
+    }
+    diff_ordered(
+        &format!("asset {} mesh {} material pass order", asset, mesh_name),
+        &expected.material_passes,
+        &actual.material_passes,
+        diffs,
+    );
 }
 
 fn approx_vec(lhs: &[f32; 3], rhs: &[f32; 3]) -> bool {
@@ -527,17 +927,72 @@ fn approx_eq(lhs: f32, rhs: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
-    fn smoke_capture_on_required_asset() -> Result<()> {
-        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../Code/Libraries/Source/WWVegas/WW3D2/RequiredAssets");
-        let snapshot = capture_snapshot([base.join("ShatterPlanes0.w3d")])?;
-        // Ensure we captured at least one mesh and aggregate stats make sense.
+    fn diff_rejects_unexpected_mesh_and_object_names() {
+        let mut expected = Snapshot::new();
+        expected.assets.insert(
+            "fixture".to_string(),
+            AssetSnapshot {
+                prototype_names: vec!["MeshA".to_string()],
+                meshes: BTreeMap::from([(
+                    "MeshA".to_string(),
+                    MeshSnapshot {
+                        vertex_count: 1,
+                        triangle_count: 1,
+                        bounding_sphere_radius: 1.0,
+                        bounding_sphere_center: [0.0; 3],
+                        aabb_min: [-1.0; 3],
+                        aabb_max: [1.0; 3],
+                        texture_order: vec!["base.tga".to_string()],
+                        vertex_material_order: vec!["base".to_string()],
+                        material_info: None,
+                        material_passes: Vec::new(),
+                    },
+                )]),
+                total_vertices: 1,
+                total_triangles: 1,
+                texture_order: vec!["base.tga".to_string()],
+            },
+        );
+        let mut actual = expected.clone();
+        let unexpected_mesh = actual.assets["fixture"].meshes["MeshA"].clone();
+        actual
+            .assets
+            .get_mut("fixture")
+            .unwrap()
+            .prototype_names
+            .push("Unexpected".into());
+        actual
+            .assets
+            .get_mut("fixture")
+            .unwrap()
+            .meshes
+            .insert("Unexpected".into(), unexpected_mesh);
+        let diffs = diff_snapshots(&expected, &actual);
+        assert!(diffs
+            .iter()
+            .any(|diff| diff.contains("unexpected mesh Unexpected")));
+        assert!(diffs
+            .iter()
+            .any(|diff| diff.contains("prototype names mismatch")));
+    }
+
+    #[test]
+    fn retail_resolution_is_fail_closed_without_provisioning() {
+        if std::env::var_os("WW3D_RETAIL_ASSET_ROOT").is_none() {
+            let error = provisioned_retail_asset("W3D/CBChalet3.w3d").unwrap_err();
+            assert!(error.to_string().contains("WW3D_RETAIL_ASSET_ROOT"));
+        }
+    }
+
+    #[test]
+    #[ignore = "requires provisioned retail W3D data and is intentionally fail-closed"]
+    fn provisioned_retail_snapshot_is_explicit() -> Result<()> {
+        let snapshot = capture_provisioned_retail_snapshot("W3D/CBChalet3.w3d")?;
         assert!(
             !snapshot.assets.is_empty(),
-            "expected at least one asset snapshot"
+            "retail snapshot must be nonempty"
         );
         Ok(())
     }

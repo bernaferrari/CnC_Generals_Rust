@@ -8,8 +8,8 @@ use crate::terrain::TerrainLogic;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use petgraph::graph::{Graph, NodeIndex};
 use petgraph::Undirected;
+use petgraph::graph::{Graph, NodeIndex};
 
 pub type WaypointId = u32;
 

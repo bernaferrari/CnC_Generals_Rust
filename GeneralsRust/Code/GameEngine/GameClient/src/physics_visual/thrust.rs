@@ -1,8 +1,8 @@
 //! C++ `Drawable::calcPhysicsXformThrust` (`Drawable.cpp:1446-1521`).
 
+use super::PhysicsVisualXform;
 use super::loco_state::PhysicsVisualLocoState;
 use super::types::LocomotorVisualParams;
-use super::PhysicsVisualXform;
 
 /// Thrust wobble / roll. No object, physics, or terrain input.
 pub fn calc_thrust(

@@ -1,5 +1,5 @@
 use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::system::big_file_system::{BigFileSystem, BIG_FILE_IDENTIFIER};
+use game_engine::common::system::big_file_system::{BIG_FILE_IDENTIFIER, BigFileSystem};
 use game_engine::common::system::file_system::FilenameList;
 use std::fs;
 use std::io::{self, Read, Write};

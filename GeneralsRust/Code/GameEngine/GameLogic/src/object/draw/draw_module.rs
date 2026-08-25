@@ -350,7 +350,6 @@ pub trait ObjectDrawInterface {
     /// C++ `ObjectDrawInterface::replaceIndicatorColor`.
     fn replace_indicator_color(&mut self, _color: i32) {}
 
-
     /// Handle weapon fire FX
     ///
     /// # Arguments

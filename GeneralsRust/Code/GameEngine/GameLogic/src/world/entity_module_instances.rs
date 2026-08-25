@@ -5,10 +5,11 @@
 //! `TheGameLogic` update registration (no ticking).
 
 use super::entity_modules::{
-    helper_handle_name, EntityModuleInstallSpec, HELPER_TAG_DEFECTION, HELPER_TAG_FIRING_TRACKER,
-    HELPER_TAG_REPULSOR, HELPER_TAG_SMC, HELPER_TAG_STATUS, HELPER_TAG_SUBDUAL,
-    HELPER_TAG_TEMP_WEAPON_BONUS, HELPER_TAG_WEAPON_STATUS,
+    EntityModuleInstallSpec, HELPER_TAG_DEFECTION, HELPER_TAG_FIRING_TRACKER, HELPER_TAG_REPULSOR,
+    HELPER_TAG_SMC, HELPER_TAG_STATUS, HELPER_TAG_SUBDUAL, HELPER_TAG_TEMP_WEAPON_BONUS,
+    HELPER_TAG_WEAPON_STATUS, helper_handle_name,
 };
+use crate::object::firing_tracker::FiringTracker;
 use crate::object::helper::{
     ObjectDefectionHelper, ObjectDefectionHelperModuleData, ObjectRepulsorHelper,
     ObjectRepulsorHelperModuleData, ObjectSMCHelper, ObjectSMCHelperModuleData,
@@ -16,7 +17,6 @@ use crate::object::helper::{
     StatusDamageHelperModuleData, SubdualDamageHelper, SubdualDamageHelperModuleData,
     TempWeaponBonusHelper, TempWeaponBonusHelperModuleData,
 };
-use crate::object::firing_tracker::FiringTracker;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]

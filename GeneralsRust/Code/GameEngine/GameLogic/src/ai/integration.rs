@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 use std::time::{Duration, Instant};
 
-use crate::common::types::{Coord3D, Real};
-use crate::common::xfer::Xfer;
 use crate::common::KindOf;
 use crate::common::ObjectID;
 use crate::common::Snapshot;
+use crate::common::types::{Coord3D, Real};
+use crate::common::xfer::Xfer;
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::player::{player_list, GameDifficulty, Player};
+use crate::player::{GameDifficulty, Player, player_list};
 use crate::system::game_logic::get_game_logic;
 use crate::terrain::get_terrain_logic;
 use crate::world::World;
@@ -287,7 +287,6 @@ impl IntegratedAiPlayer {
         }
     }
 
-
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
         match self {
             IntegratedAiPlayer::Standard(player) => player.xfer(xfer),
@@ -323,11 +322,9 @@ impl IntegratedAiPlayer {
     pub fn get_ai_enemy_index(&mut self) -> Option<i32> {
         match self {
             IntegratedAiPlayer::Standard(_) => None,
-            IntegratedAiPlayer::Skirmish(player) => player.get_ai_enemy().and_then(|arc| {
-                arc.read()
-                    .ok()
-                    .map(|guard| guard.get_player_index() as i32)
-            }),
+            IntegratedAiPlayer::Skirmish(player) => player
+                .get_ai_enemy()
+                .and_then(|arc| arc.read().ok().map(|guard| guard.get_player_index() as i32)),
         }
     }
 
@@ -1293,7 +1290,6 @@ pub fn update_ai_integration(
     ai_execute(frame_time)
 }
 
-
 /// Handle that implements Common `AIPlayerInterface` by forwarding into the
 /// live GameLogic AI player owned by `AiIntegrationManager`.
 #[derive(Debug)]
@@ -1338,8 +1334,10 @@ impl game_engine::common::rts::player::AIPlayerInterface for AiPlayerBridge {
 
     fn get_ai_difficulty(&self) -> game_engine::common::rts::player::GameDifficulty {
         with_ai_integration(|mgr| {
-            mgr.with_player(self.player_id, |player| to_common_difficulty(player.get_ai_difficulty()))
-                .unwrap_or(game_engine::common::rts::player::GameDifficulty::Normal)
+            mgr.with_player(self.player_id, |player| {
+                to_common_difficulty(player.get_ai_difficulty())
+            })
+            .unwrap_or(game_engine::common::rts::player::GameDifficulty::Normal)
         })
         .unwrap_or(game_engine::common::rts::player::GameDifficulty::Normal)
     }
@@ -1408,20 +1406,19 @@ impl game_engine::common::rts::player::AIPlayerInterface for AiPlayerBridge {
         });
     }
 
-
     fn calc_closest_construction_zone(
         &self,
         template_name: &str,
     ) -> Option<game_engine::common::rts::player::Coord3D> {
         with_ai_integration(|mgr| {
             mgr.with_player(self.player_id, |player| {
-                player.calc_closest_construction_zone(template_name).map(|p| {
-                    game_engine::common::rts::player::Coord3D {
+                player
+                    .calc_closest_construction_zone(template_name)
+                    .map(|p| game_engine::common::rts::player::Coord3D {
                         x: p.x,
                         y: p.y,
                         z: p.z,
-                    }
-                })
+                    })
             })
             .flatten()
         })
@@ -1443,8 +1440,8 @@ pub fn ai_player_interface(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use game_engine::system::xfer_load::XferLoad;
     use game_engine::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1503,12 +1500,16 @@ mod tests {
         assert_eq!(manager.get_unit_group_count(), 1);
 
         // Add units to group
-        assert!(manager
-            .add_unit_to_group(group_id, 100, UnitRole::Leader)
-            .is_ok());
-        assert!(manager
-            .add_unit_to_group(group_id, 101, UnitRole::Tank)
-            .is_ok());
+        assert!(
+            manager
+                .add_unit_to_group(group_id, 100, UnitRole::Leader)
+                .is_ok()
+        );
+        assert!(
+            manager
+                .add_unit_to_group(group_id, 101, UnitRole::Tank)
+                .is_ok()
+        );
 
         // Remove unit from group
         assert!(manager.remove_unit_from_group(group_id, 100).is_ok());

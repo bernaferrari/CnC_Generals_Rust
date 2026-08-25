@@ -97,7 +97,7 @@ impl AssetProcessor for MeshOptimizer {
             _ => {
                 return Err(AssetError::ProcessingFailed(
                     "MeshOptimizer requires mesh data".to_string(),
-                ))
+                ));
             }
         }
 
@@ -217,7 +217,7 @@ impl AssetProcessor for TextureCompressor {
             _ => {
                 return Err(AssetError::ProcessingFailed(
                     "TextureCompressor requires texture data".to_string(),
-                ))
+                ));
             }
         }
 
@@ -339,7 +339,7 @@ impl AssetProcessor for LodGenerator {
             _ => {
                 return Err(AssetError::ProcessingFailed(
                     "LodGenerator requires mesh data".to_string(),
-                ))
+                ));
             }
         }
 

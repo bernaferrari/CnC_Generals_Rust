@@ -163,7 +163,6 @@ pub fn hacker_disable_fx_pulse(
     )
 }
 
-
 /// Absolute expiry frame for residual disable (now + EffectDuration frames).
 pub fn hacker_disable_until_frame(current_frame: u32) -> u32 {
     current_frame.saturating_add(HACKER_DISABLE_EFFECT_DURATION_FRAMES)

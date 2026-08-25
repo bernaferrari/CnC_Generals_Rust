@@ -63,10 +63,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     reset_turret_aim(game_logic);
     let Some(suffix) = find_trai_suffix(bytes) else {
         return Ok(());
@@ -220,11 +217,7 @@ mod tests {
         );
         source.add_player(Player::new(0, Team::USA, "USA", true));
         let id = source
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(12.0, 0.0, 8.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(12.0, 0.0, 8.0))
             .expect("tank");
         {
             let object = source.host_object_mut(id).expect("tank obj");

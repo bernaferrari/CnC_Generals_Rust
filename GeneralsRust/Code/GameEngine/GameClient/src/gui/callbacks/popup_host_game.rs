@@ -4,14 +4,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::gamespy_overlay::{
-    close_overlay, open_overlay, queue_host_request, set_lobby_attempt_host_join,
-    GameSpyHostRequest, GameSpyOverlayType,
+    GameSpyHostRequest, GameSpyOverlayType, close_overlay, open_overlay, queue_host_request,
+    set_lobby_attempt_host_join,
 };
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::callbacks::popup_ladder_select::populate_custom_ladder_combo_box;
 use crate::gui::{
-    with_window_manager, write_input_focus_response, CustomMatchPreferencesStore, GameWindow,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GCM_SELECTED,
+    CustomMatchPreferencesStore, GCM_SELECTED, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, with_window_manager, write_input_focus_response,
 };
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -20,7 +20,7 @@ use game_network::gamespy::config::GameSpyConfig;
 use game_network::gamespy::ladder_defs::get_ladder_list;
 use game_network::gamespy::peer_defs::get_gamespy_info;
 use game_network::gamespy::peer_thread::{
-    get_peer_message_queue, init_peer_message_queue, PeerRequest, PeerRequestType,
+    PeerRequest, PeerRequestType, get_peer_message_queue, init_peer_message_queue,
 };
 
 const KEY_ESC: usize = 0x1B;
@@ -283,7 +283,7 @@ pub fn popup_host_game_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
             let state_slot = popup_host_state();
-    let state = state_slot.borrow_mut();
+            let state = state_slot.borrow_mut();
             if data1 as i32 == state.text_entry_game_name_id {
                 trim_game_name_leading_whitespace(&state);
             }
@@ -291,7 +291,7 @@ pub fn popup_host_game_system(
         }
         WindowMessage::User(code) if code == GCM_SELECTED => {
             let state_slot = popup_host_state();
-    let state = state_slot.borrow_mut();
+            let state = state_slot.borrow_mut();
             if data1 as i32 == state.combo_box_ladder_name_id
                 && selected_combo_data(window).is_some_and(|ladder_id| ladder_id < 0)
             {
@@ -303,7 +303,7 @@ pub fn popup_host_game_system(
         }
         WindowMessage::GadgetSelected => {
             let state_slot = popup_host_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if control_id == state.button_cancel_id {
                 // Clear modal before closing - matches C++ GWM_DESTROY handling
@@ -362,9 +362,8 @@ pub fn popup_host_game_system(
                 let (ladder_ip, ladder_port) = get_ladder_list()
                     .and_then(|list| {
                         list.read().ok().and_then(|l| {
-                            l.find_ladder_by_index(ladder_id).map(|info| {
-                                (info.address.to_string(), info.port)
-                            })
+                            l.find_ladder_by_index(ladder_id)
+                                .map(|info| (info.address.to_string(), info.port))
                         })
                     })
                     .unwrap_or_default();
@@ -417,7 +416,7 @@ pub fn popup_host_game_system(
         }
         WindowMessage::GadgetEditDone => {
             let state_slot = popup_host_state();
-    let state = state_slot.borrow_mut();
+            let state = state_slot.borrow_mut();
             if data1 as i32 == state.text_entry_game_name_id {
                 trim_game_name_leading_whitespace(&state);
                 return WindowMsgHandled::Handled;
@@ -426,7 +425,7 @@ pub fn popup_host_game_system(
         }
         WindowMessage::Destroy => {
             let state_slot = popup_host_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             state.parent = None;
             WindowMsgHandled::Handled
         }

@@ -103,9 +103,11 @@ mod stealth_stress_tests {
 
         // Set all to invisible
         for i in 1..=object_count {
-            assert!(manager
-                .set_stealth_status(i as ObjectID, 0, StealthStatus::Invisible)
-                .is_ok());
+            assert!(
+                manager
+                    .set_stealth_status(i as ObjectID, 0, StealthStatus::Invisible)
+                    .is_ok()
+            );
         }
 
         // Verify all are invisible
@@ -164,9 +166,11 @@ mod stealth_stress_tests {
 
         // Setup detectors
         for i in 1..=detector_count {
-            assert!(detection_mgr
-                .register_object((1000 + i) as ObjectID)
-                .is_ok());
+            assert!(
+                detection_mgr
+                    .register_object((1000 + i) as ObjectID)
+                    .is_ok()
+            );
             detection_mgr
                 .set_detection_strength(
                     (1000 + i) as ObjectID,
@@ -236,9 +240,11 @@ mod stealth_stress_tests {
             let strength = StealthStrength::new((i % 100) as f32);
 
             assert!(manager.set_stealth_status(i as ObjectID, 0, state).is_ok());
-            assert!(manager
-                .set_stealth_strength(i as ObjectID, strength)
-                .is_ok());
+            assert!(
+                manager
+                    .set_stealth_strength(i as ObjectID, strength)
+                    .is_ok()
+            );
         }
 
         // Verify states

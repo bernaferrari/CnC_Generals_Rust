@@ -11,7 +11,6 @@
 mod prelude;
 pub(self) use prelude::*;
 
-
 mod authority;
 mod construct;
 mod crate_tick;
@@ -19,43 +18,41 @@ mod host;
 mod player;
 mod script_camera;
 
+pub(self) use authority::DestructionEvent;
+pub(crate) use authority::{AcceptedGatherCommand, SupplyDropoffEvent};
+pub use authority::{
+    CommandPipelineOp, DirectPlayerOrder, HordeGrantCounter, HostObjectIdOp, HostObjectIdResult,
+    HostResidualMutationOp, HostSupportOp, HostSupportResult, HostWritebackOp, ObjectIdentityClear,
+    ObjectLifecycleOp, ObjectLifecycleResult, PostWritebackCompleteOp, ProductionAuthorityOp,
+    ProductionAuthorityResult, ReadyLogDrainOp, SessionControlOp, SpawnedPayloadKind,
+};
 pub use crate_tick::{
-    tick_gamelogic_crate, crate_empty_noop_tick_count, AICommand, PendingSpecialAbility,
-    AudioEventRequest, GameMode, FixedStepDiagnostics, SimTimingSnapshot, PlayerStatistics,
+    AICommand, AudioEventRequest, FixedStepDiagnostics, GameMode, PendingSpecialAbility,
+    PlayerStatistics, SimTimingSnapshot, crate_empty_noop_tick_count, tick_gamelogic_crate,
+};
+pub(self) use crate_tick::{CRATE_EMPTY_NOOP_TICKS, GAME_LOGIC, note_crate_empty_noop_if_any};
+pub(crate) use host::PathfindingHeightSamples;
+pub use host::{GameLogic, RuntimeWeatherState};
+pub(self) use player::{
+    AirfieldHealingInfo, AirfieldParkingSpace, FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL,
+    HostHeliTakeoffOrLanding, ObjectSellInfo, REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC,
+    REBUILD_HOLE_MAX_HEALTH_RESIDUAL, REBUILD_HOLE_WORKER_RESPAWN_FRAMES,
+    REBUILD_HOLE_WORKER_TEMPLATE, SELL_CONSTRUCTION_DECREMENT_RESIDUAL,
+    SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL, TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL,
+    capture_upgrade_names_for_team, normalize_upgrade_name,
 };
 pub use player::{
     HostAuthoredBuild, HostObjectStore, Player, PlayerMapSideState, PlayerTemplateIdentity,
     SkirmishRulesState,
 };
-pub use host::{GameLogic, RuntimeWeatherState};
 pub use script_camera::{
-    AttackPriorityInfo, ATTACK_PRIORITY_DISTANCE_MODIFIER, find_enemy_flags, MoodMatrixAction,
-    mood_action_adjust, CanAttackResult, AbleToAttackType, AttackMachineResult, AttackFireResult,
-    AttackAimResult,
-};
-pub use authority::{
-    DirectPlayerOrder, ObjectLifecycleOp, ObjectLifecycleResult, CommandPipelineOp,
-    SessionControlOp, HostSupportOp, HostSupportResult, ProductionAuthorityOp,
-    ProductionAuthorityResult, PostWritebackCompleteOp, ReadyLogDrainOp, HostObjectIdOp,
-    HostObjectIdResult, HostResidualMutationOp, ObjectIdentityClear, HordeGrantCounter,
-    SpawnedPayloadKind, HostWritebackOp,
-};
-pub(crate) use authority::{AcceptedGatherCommand, SupplyDropoffEvent};
-pub(self) use authority::DestructionEvent;
-pub(self) use crate_tick::{CRATE_EMPTY_NOOP_TICKS, GAME_LOGIC, note_crate_empty_noop_if_any};
-pub(crate) use host::PathfindingHeightSamples;
-pub(self) use player::{
-    capture_upgrade_names_for_team, normalize_upgrade_name, AirfieldHealingInfo,
-    AirfieldParkingSpace, HostHeliTakeoffOrLanding, ObjectSellInfo,
-
-    FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL, REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC,
-    REBUILD_HOLE_MAX_HEALTH_RESIDUAL, REBUILD_HOLE_WORKER_RESPAWN_FRAMES,
-    REBUILD_HOLE_WORKER_TEMPLATE, SELL_CONSTRUCTION_DECREMENT_RESIDUAL,
-    SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL, TOTAL_FRAMES_TO_SELL_OBJECT_RESIDUAL,
+    ATTACK_PRIORITY_DISTANCE_MODIFIER, AbleToAttackType, AttackAimResult, AttackFireResult,
+    AttackMachineResult, AttackPriorityInfo, CanAttackResult, MoodMatrixAction, find_enemy_flags,
+    mood_action_adjust,
 };
 pub(self) use script_camera::{
-    derive_objective_status, localized_objective_string, mission_objective_to_display,
     ParabolicEase, ScriptBroadcast, ScriptCameraMoveTo, ScriptCameraPathMove,
+    derive_objective_status, localized_objective_string, mission_objective_to_display,
 };
 
 // Split `impl GameLogic` chunks as real child modules (type-checked separately).
@@ -64,7 +61,7 @@ pub(self) use script_camera::{
 #[path = "../world_combat/mod.rs"]
 mod world_combat;
 pub(crate) use world_combat::weapon_visual_capture::{
-    source_is_locally_controlled, PendingWeaponVisualDispatchCapture,
+    PendingWeaponVisualDispatchCapture, source_is_locally_controlled,
 };
 #[path = "../world_objects/mod.rs"]
 mod world_objects;
@@ -160,12 +157,10 @@ pub struct ObjectInfo {
 }
 
 #[derive(Clone)]
-    struct ShroudVisibilitySnapshot {
+struct ShroudVisibilitySnapshot {
     visible_objects: HashSet<u32>,
     explored_objects: HashSet<u32>,
 }
-
-
 
 #[cfg(test)]
 #[path = "../world_tests/mod.rs"]

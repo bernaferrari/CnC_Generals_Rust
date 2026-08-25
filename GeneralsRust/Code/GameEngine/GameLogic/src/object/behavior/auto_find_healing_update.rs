@@ -5,14 +5,14 @@
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
-    AsciiString, KindOf, ModuleData, ObjectID, Real, UnsignedInt, XferVersion, FROM_CENTER_2D,
+    AsciiString, FROM_CENTER_2D, KindOf, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
 };
 use crate::helpers::ThePartitionManager;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::player::PlayerType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

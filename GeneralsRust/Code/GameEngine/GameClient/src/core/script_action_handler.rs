@@ -1,16 +1,17 @@
 use crate::display::display::{DebugDisplayCallback, Display as GraphicsDisplay};
 use crate::display::view::{
-    with_tactical_view, with_tactical_view_ref, CameraLockType, CameraShakeType, FilterMode,
-    FilterType, Point3, Vector2,
+    CameraLockType, CameraShakeType, FilterMode, FilterType, Point3, Vector2, with_tactical_view,
+    with_tactical_view_ref,
 };
 use crate::effects::weather_complete::get_weather_system_mut;
 use crate::game_text::GameText;
 use crate::gui::callbacks::control_bar_callbacks::{hide_control_bar, show_control_bar};
 use crate::helpers::TheInGameUI;
-use crate::terrain::terrain_visual::get_terrain_visual;
 use crate::terrain::TerrainVisual;
+use crate::terrain::terrain_visual::get_terrain_visual;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::system::radar::get_radar_system;
+use gamelogic::GameLogicResult;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::common::types::ObjectID;
@@ -18,7 +19,6 @@ use gamelogic::helpers::{TheAudio, TheFXList, TheGameLogic, TheScriptEngine, The
 use gamelogic::object_manager::get_object_manager;
 use gamelogic::player::player_list;
 use gamelogic::scripting::engine::ScriptActionHandler;
-use gamelogic::GameLogicResult;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -48,7 +48,6 @@ fn destroy_tracked_win_lose_window() {
         }
     });
 }
-
 
 pub fn register_script_display_bridge(display: Option<Arc<Mutex<GraphicsDisplay>>>) {
     SCRIPT_DISPLAY.with(|slot| *slot.borrow_mut() = display);
@@ -106,15 +105,10 @@ pub fn is_script_display_movie_capture_enabled() -> bool {
 
 /// C++ `TheDisplay->setDisplayMode`. Queues a host device change when Display
 /// is not installed (Main-owned swap chain).
-pub fn apply_script_display_mode(
-    xres: u32,
-    yres: u32,
-    bit_depth: u32,
-    windowed: bool,
-) -> bool {
-    if let Some(ok) = with_script_display(|display| {
-        display.set_display_mode(xres, yres, bit_depth, windowed)
-    }) {
+pub fn apply_script_display_mode(xres: u32, yres: u32, bit_depth: u32, windowed: bool) -> bool {
+    if let Some(ok) =
+        with_script_display(|display| display.set_display_mode(xres, yres, bit_depth, windowed))
+    {
         return ok;
     }
     if crate::display::display_fx::is_valid_device_mode(xres, yres, bit_depth) {
@@ -155,8 +149,6 @@ pub fn set_script_display_gamma(gamma: f32, bright: f32, contrast: f32) -> bool 
 pub fn take_script_display_screenshot() -> Option<String> {
     with_script_display(|display| display.take_screenshot())
 }
-
-
 
 pub fn script_popup_message(
     message: &str,
@@ -987,7 +979,6 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         Ok(())
     }
 
-
     fn zoom_camera(
         &self,
         zoom: f32,
@@ -1698,9 +1689,8 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     fn create_win_lose_window(&self, layout_filename: &str) -> GameLogicResult<()> {
         // C++ ScriptActions.cpp:201/204/225/228/247 TheWindowManager->winCreateFromScript.
         destroy_tracked_win_lose_window();
-        let created = crate::gui::with_window_manager(|manager| {
-            manager.load_window(layout_filename)
-        });
+        let created =
+            crate::gui::with_window_manager(|manager| manager.load_window(layout_filename));
         if let Ok(window) = created {
             let window_id = window.borrow().get_id();
             WIN_LOSE_MESSAGE_WINDOW.with(|slot| {
@@ -1757,10 +1747,12 @@ mod tests {
         let handler = GameClientScriptActionHandler::new();
         assert!(handler.is_video_complete("intro", true));
         assert!(!TheGameLogic::is_intro_movie_playing());
-        assert!(!fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap()
-            .contains("intro"));
+        assert!(
+            !fullscreen_movie_wait_slot()
+                .lock()
+                .unwrap()
+                .contains("intro")
+        );
     }
 
     #[test]
@@ -1775,10 +1767,12 @@ mod tests {
         let handler = GameClientScriptActionHandler::new();
         assert!(handler.is_video_complete("radar", true));
         assert!(TheGameLogic::is_intro_movie_playing());
-        assert!(!radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .contains("radar"));
+        assert!(
+            !radar_movie_wait_slot()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains("radar")
+        );
     }
 
     #[test]
@@ -1795,14 +1789,18 @@ mod tests {
 
         reset_script_action_runtime_state();
 
-        assert!(fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty());
-        assert!(radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty());
+        assert!(
+            fullscreen_movie_wait_slot()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_empty()
+        );
+        assert!(
+            radar_movie_wait_slot()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_empty()
+        );
         assert!(!TheGameLogic::is_intro_movie_playing());
     }
 
@@ -1820,14 +1818,18 @@ mod tests {
 
         clear_pending_fullscreen_movie_key("shared");
 
-        assert!(!fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap()
-            .contains("shared"));
-        assert!(radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .contains("shared"));
+        assert!(
+            !fullscreen_movie_wait_slot()
+                .lock()
+                .unwrap()
+                .contains("shared")
+        );
+        assert!(
+            radar_movie_wait_slot()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains("shared")
+        );
     }
 
     #[test]
@@ -1844,14 +1846,18 @@ mod tests {
 
         clear_pending_radar_movie_key("shared");
 
-        assert!(fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap()
-            .contains("shared"));
-        assert!(!radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .contains("shared"));
+        assert!(
+            fullscreen_movie_wait_slot()
+                .lock()
+                .unwrap()
+                .contains("shared")
+        );
+        assert!(
+            !radar_movie_wait_slot()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains("shared")
+        );
     }
 
     #[test]
@@ -1899,8 +1905,7 @@ mod tests {
 
     fn register_script_music_track(name: &str) {
         use game_engine::common::audio::{AudioEventInfo, AudioPriority, AudioType};
-        let manager =
-            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
         if let Ok(mut guard) = manager.lock() {
             if guard.find_audio_event_info(name).is_none() {
                 guard.register_audio_event_info(AudioEventInfo {
@@ -1936,8 +1941,7 @@ mod tests {
             audio.update();
         }
 
-        let manager =
-            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
         {
             let guard = manager.lock().expect("THE_AUDIO lock");
             assert!(
@@ -1973,8 +1977,7 @@ mod tests {
             audio.update();
         }
 
-        let manager =
-            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
         {
             let guard = manager.lock().expect("THE_AUDIO lock");
             assert!(
@@ -1992,5 +1995,4 @@ mod tests {
             "stop_music must issue AHSV_StopTheMusicFade, not remove tracked handles first"
         );
     }
-
 }

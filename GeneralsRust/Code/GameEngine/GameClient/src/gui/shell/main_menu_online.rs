@@ -2,9 +2,7 @@
 
 use super::MainMenuState;
 use crate::gui::shell::queue_shell_push;
-use crate::shell_hooks::{
-    SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED, THE_SHELL_HOOK_NAMES,
-};
+use crate::shell_hooks::{SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED, THE_SHELL_HOOK_NAMES};
 use game_network::download_manager::download_manager;
 use game_network::gamespy::peer_defs::set_up_gamespy;
 use gamelogic::helpers::TheScriptEngine;

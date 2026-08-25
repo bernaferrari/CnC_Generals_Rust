@@ -42,12 +42,12 @@ use crate::common::{
     VeterancyLevel,
 };
 use crate::damage::{
-    clear_death_type_flag, set_death_type_flag, DamageInfo, DeathType, DeathTypeFlags,
-    DEATH_TYPE_FLAGS_ALL, DEATH_TYPE_FLAGS_NONE,
+    DEATH_TYPE_FLAGS_ALL, DEATH_TYPE_FLAGS_NONE, DamageInfo, DeathType, DeathTypeFlags,
+    clear_death_type_flag, set_death_type_flag,
 };
 use crate::object::Object;
 use bitflags::bitflags;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData};

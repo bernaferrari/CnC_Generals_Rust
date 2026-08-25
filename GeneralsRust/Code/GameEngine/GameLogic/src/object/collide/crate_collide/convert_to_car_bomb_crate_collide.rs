@@ -18,20 +18,20 @@ fn resolve_crate_object(
 }
 
 use crate::common::{
-    kindof_from_name, FieldParse, FieldType, KindOf, ObjectStatusMaskType, ObjectStatusTypes,
+    FieldParse, FieldType, KindOf, ObjectStatusMaskType, ObjectStatusTypes, kindof_from_name,
 };
 use crate::effects::FXList;
 use crate::helpers::TheFXListStore;
+use crate::object::Object;
+use crate::object::collide::Coord3D as CollideCoord3D;
+use crate::object::collide::LegacyCollideAdapter;
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as LegacyCrateCollide, CrateCollideModuleData as LegacyCrateCollideModuleData,
 };
 use crate::object::collide::crate_collide::*;
-use crate::object::collide::Coord3D as CollideCoord3D;
-use crate::object::collide::LegacyCollideAdapter;
-use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
 use crate::weapon::{WeaponSetFlags, WeaponSetType};
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 
 /// Module data for convert to car bomb crate collide behavior
 #[derive(Debug, Clone)]
@@ -532,9 +532,11 @@ mod tests {
     #[test]
     fn car_bomb_crate_build_field_parse_exposes_cpp_fx_list_token() {
         let fields = ConvertToCarBombCrateCollideModuleData::build_field_parse();
-        assert!(fields
-            .iter()
-            .any(|field| field.token == "FXList" && field.target == "fx_list"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.token == "FXList" && field.target == "fx_list")
+        );
     }
 
     #[test]
@@ -551,10 +553,7 @@ mod tests {
         )
         .expect("car bomb crate kind-of masks parse");
 
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
         assert_ne!(
             data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0

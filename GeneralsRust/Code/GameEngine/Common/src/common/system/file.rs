@@ -193,11 +193,7 @@ impl BaseFile {
         let size = file.seek(0, SeekMode::End).unwrap_or(0);
         let _ = file.seek(pos, SeekMode::Start);
 
-        if size < 0 {
-            0
-        } else {
-            size
-        }
+        if size < 0 { 0 } else { size }
     }
 
     /// Get current position in file
@@ -305,11 +301,13 @@ mod tests {
         let mut file = BaseFile::new();
 
         // Test invalid access combinations
-        assert!(file
-            .open_base("test.txt", FileAccess::STREAMING.combine(FileAccess::WRITE))
-            .is_err());
-        assert!(file
-            .open_base("test.txt", FileAccess::TEXT.combine(FileAccess::BINARY))
-            .is_err());
+        assert!(
+            file.open_base("test.txt", FileAccess::STREAMING.combine(FileAccess::WRITE))
+                .is_err()
+        );
+        assert!(
+            file.open_base("test.txt", FileAccess::TEXT.combine(FileAccess::BINARY))
+                .is_err()
+        );
     }
 }

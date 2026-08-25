@@ -551,8 +551,8 @@ fn live_letterbox_overlay_queues_scripted_camera_fade() {
 }
 
 use super::{
-    should_exit_for_smoke_test, should_keep_logic_running_while_iconic, CnCGameEngine, GameMode,
-    GameState, StartupNewGameDispatch,
+    CnCGameEngine, GameMode, GameState, StartupNewGameDispatch, should_exit_for_smoke_test,
+    should_keep_logic_running_while_iconic,
 };
 use crate::command_line::CommandLineArgs;
 use game_engine::common::global_data::{
@@ -569,7 +569,8 @@ fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
     let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
     let previous_rank_points =
         gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
-    let previous_session = crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty();
+    let previous_session =
+        crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
     *game_engine::common::global_data::write() = global_snapshot;
     gamelogic::helpers::TheScriptEngine::set_global_difficulty(previous_difficulty);
@@ -710,13 +711,21 @@ fn configured_startup_shell_map_uses_disk_shellmapmd_when_cache_empty() {
                     || selected.to_ascii_lowercase().contains("shellmapmd"),
                 "windowed boot must select ShellMapMD (got {selected})"
             );
-            assert!(game_engine::common::global_data::read().writable.shell_map_on);
+            assert!(
+                game_engine::common::global_data::read()
+                    .writable
+                    .shell_map_on
+            );
         } else {
             assert!(
                 shell_map.is_none(),
                 "missing ShellMapMD asset must fail-soft (documented asset gate)"
             );
-            assert!(!game_engine::common::global_data::read().writable.shell_map_on);
+            assert!(
+                !game_engine::common::global_data::read()
+                    .writable
+                    .shell_map_on
+            );
         }
     });
 }
@@ -740,7 +749,11 @@ fn configured_startup_shell_map_remaps_stale_shellmap1_to_shellmapmd() {
                 selected.to_ascii_lowercase().contains("shellmapmd"),
                 "got {selected}"
             );
-            assert!(game_engine::common::global_data::read().writable.shell_map_on);
+            assert!(
+                game_engine::common::global_data::read()
+                    .writable
+                    .shell_map_on
+            );
         }
     });
 }
@@ -881,7 +894,6 @@ fn restart_mission_reposts_new_game_payload_like_cpp() {
     );
 }
 
-
 #[test]
 fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation() {
     with_global_and_startup_state_snapshot_restored(|| {
@@ -1005,11 +1017,10 @@ fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
         max_fps: Some(30),
     };
 
-    assert!(CnCGameEngine::campaign_launch_start_overrides(
-        GameMode::SinglePlayer,
-        Some(&descriptor),
-    )
-    .is_err());
+    assert!(
+        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&descriptor),)
+            .is_err()
+    );
 
     let source = include_str!("dispatch.rs");
     let rejection = &source[source
@@ -1104,7 +1115,7 @@ fn startup_new_game_dispatch_ignores_unrelated_messages() {
 
 #[test]
 fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
-    use game_engine::common::message_stream::{get_message_stream, GameMessage, GameMessageType};
+    use game_engine::common::message_stream::{GameMessage, GameMessageType, get_message_stream};
 
     let stream = get_message_stream();
     {
@@ -1131,9 +1142,11 @@ fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
         .iter()
         .map(|m| m.get_type().clone())
         .collect();
-    assert!(types
-        .iter()
-        .any(|t| matches!(t, GameMessageType::ClearGameData)));
+    assert!(
+        types
+            .iter()
+            .any(|t| matches!(t, GameMessageType::ClearGameData))
+    );
     assert!(types.iter().any(|t| matches!(t, GameMessageType::Invalid)));
     assert!(!types.iter().any(|t| matches!(t, GameMessageType::NewGame)));
     // silence unused import if GameMessage only used above via type
@@ -1144,7 +1157,7 @@ fn take_new_game_dispatch_drains_stream_and_keeps_other_messages() {
 fn take_clear_game_data_drains_stream_and_keeps_other_messages() {
     // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA; Main must
     // consume it so scripted VICTORY/DEFEAT actually ends the live match.
-    use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+    use game_engine::common::message_stream::{GameMessageType, get_message_stream};
 
     let stream = get_message_stream();
     {
@@ -1206,14 +1219,13 @@ fn clear_game_data_pushes_score_screen_not_main_menu() {
     );
 }
 
-
 #[test]
 fn peek_new_game_leaves_message_for_propagate_messages() {
     // C++ GameLogic::logicMessageDispatcher MSG_NEW_GAME
     // (GameLogicDispatch.cpp:396-423) consumes the streamed message after
     // MessageStream::propagateMessages. Host start peeks so pump can still
     // deliver NewGame to crate GameLogic.
-    use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+    use game_engine::common::message_stream::{GameMessageType, get_message_stream};
 
     let stream = get_message_stream();
     {
@@ -1269,7 +1281,6 @@ fn menu_shell_pumps_new_game_after_host_start() {
         "host start must peek NewGame, then pump so crate GameLogic sees MSG_NEW_GAME"
     );
 }
-
 
 #[test]
 fn menu_does_not_skip_world_scene_after_warmup() {

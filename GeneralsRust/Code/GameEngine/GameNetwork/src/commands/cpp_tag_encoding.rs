@@ -249,11 +249,7 @@ pub fn header_overhead(has_frame: bool) -> usize {
     let base_size = 10;
 
     // F(1) + frame(4)
-    if has_frame {
-        base_size + 5
-    } else {
-        base_size
-    }
+    if has_frame { base_size + 5 } else { base_size }
 }
 
 #[cfg(test)]

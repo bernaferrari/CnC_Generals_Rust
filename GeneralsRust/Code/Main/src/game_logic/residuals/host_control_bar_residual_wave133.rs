@@ -144,9 +144,9 @@ mod tests {
     #[test]
     fn simulate_control_bar_prepare_options_residual_live() {
         use game_client::gui::callbacks::{
-            residual_control_bar_is_visible, residual_control_bar_last_action,
-            simulate_control_bar_hide, simulate_control_bar_prepare_options,
-            ResidualControlBarAction,
+            ResidualControlBarAction, residual_control_bar_is_visible,
+            residual_control_bar_last_action, simulate_control_bar_hide,
+            simulate_control_bar_prepare_options,
         };
         assert!(
             simulate_control_bar_prepare_options(),

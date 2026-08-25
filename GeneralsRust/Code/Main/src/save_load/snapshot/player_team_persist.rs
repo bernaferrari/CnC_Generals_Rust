@@ -213,7 +213,6 @@ fn science_name_from_type(science: game_engine::common::rts::ScienceType) -> Str
     String::new()
 }
 
-
 fn science_type_from_name(name: &str) -> game_engine::common::rts::ScienceType {
     if let Some(store) = game_engine::common::rts::get_science_store() {
         let science = store.get_science_from_internal_name(name);
@@ -486,11 +485,7 @@ pub fn write_team_factory_block<W: Write + Seek>(
         let mut generic_count = MAX_GENERIC_SCRIPTS as u16;
         map_xfer(xfer.xfer_unsigned_short(&mut generic_count))?;
         for i in 0..MAX_GENERIC_SCRIPTS {
-            let mut flag = team
-                .generic_script_attempts
-                .get(i)
-                .copied()
-                .unwrap_or(true);
+            let mut flag = team.generic_script_attempts.get(i).copied().unwrap_or(true);
             map_xfer(xfer.xfer_bool(&mut flag))?;
         }
         let mut recruitability_set = team.recruitability_set;
@@ -637,7 +632,10 @@ fn capture_leftover_players() -> Vec<PlayerRuntimePersist> {
     };
     let mut out = Vec::new();
     for idx in 0..list.get_player_count() {
-        let Some(player_arc) = list.get_player(idx as gamelogic::player::PlayerIndex).cloned() else {
+        let Some(player_arc) = list
+            .get_player(idx as gamelogic::player::PlayerIndex)
+            .cloned()
+        else {
             continue;
         };
         let Ok(player) = player_arc.read() else {
@@ -804,11 +802,7 @@ fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist 
             })
             .collect();
         slot.units_should_hunt = player.units_should_hunt;
-        slot.current_selection = player
-            .selected_objects
-            .iter()
-            .map(|id| id.0)
-            .collect();
+        slot.current_selection = player.selected_objects.iter().map(|id| id.0).collect();
         slot.did_preorder = player.did_preorder;
     }
     persist
@@ -921,7 +915,10 @@ fn peek_pending_teams() -> Option<TeamFactoryChunkPersist> {
 }
 
 fn take_pending_players() -> Option<PlayersChunkPersist> {
-    PENDING_PLAYERS.lock().ok().and_then(|mut guard| guard.take())
+    PENDING_PLAYERS
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
 }
 
 fn take_pending_teams() -> Option<TeamFactoryChunkPersist> {
@@ -941,14 +938,19 @@ fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersi
         .team_relations
         .iter()
         .filter(|rel| !rel.team_name.trim().is_empty())
-        .map(|rel| (rel.team_name.clone(), relationship_from_i32(rel.relationship)))
+        .map(|rel| {
+            (
+                rel.team_name.clone(),
+                relationship_from_i32(rel.relationship),
+            )
+        })
         .collect();
     for rel in &persist.player_relations {
         if rel.player_index >= 0 {
-            player
-                .map_side
-                .relations
-                .insert(rel.player_index as u32, relationship_from_i32(rel.relationship));
+            player.map_side.relations.insert(
+                rel.player_index as u32,
+                relationship_from_i32(rel.relationship),
+            );
         }
     }
     player.can_build_units = persist.can_build_units;
@@ -998,11 +1000,15 @@ fn apply_player_to_leftover(persist: &PlayerRuntimePersist) {
     };
     for name in &persist.sciences_disabled {
         let science = science_type_from_name(name);
-        player.set_science_availability(science, gamelogic::player::ScienceAvailabilityType::Disabled);
+        player.set_science_availability(
+            science,
+            gamelogic::player::ScienceAvailabilityType::Disabled,
+        );
     }
     for name in &persist.sciences_hidden {
         let science = science_type_from_name(name);
-        player.set_science_availability(science, gamelogic::player::ScienceAvailabilityType::Hidden);
+        player
+            .set_science_availability(science, gamelogic::player::ScienceAvailabilityType::Hidden);
     }
     for name in &persist.sciences {
         let science = science_type_from_name(name);
@@ -1245,12 +1251,21 @@ mod tests {
         let player_bytes = players_only.into_inner();
         assert!(player_bytes.len() > 2, "must not be NullSnapshot");
         let parsed_players = parse_players_block(&player_bytes).expect("parse players");
-        assert_eq!(parsed_players.players[0].sciences_disabled, ["SCIENCE_PaladinTank"]);
-        assert_eq!(parsed_players.players[0].sciences_hidden, ["SCIENCE_StealthFighter"]);
+        assert_eq!(
+            parsed_players.players[0].sciences_disabled,
+            ["SCIENCE_PaladinTank"]
+        );
+        assert_eq!(
+            parsed_players.players[0].sciences_hidden,
+            ["SCIENCE_StealthFighter"]
+        );
         assert!(!parsed_players.players[0].can_build_units);
         assert!(parsed_players.players[0].radar_disabled);
         assert!((parsed_players.players[0].skill_points_modifier - 1.5).abs() < f32::EPSILON);
-        assert_eq!(parsed_players.players[0].team_relations[0].team_name, "CivilianConvoy");
+        assert_eq!(
+            parsed_players.players[0].team_relations[0].team_name,
+            "CivilianConvoy"
+        );
         assert!(parsed_players.players[0].attacked_by[2]);
         assert!(parsed_players.players[0].units_should_hunt);
         assert_eq!(parsed_players.players[0].current_selection, [11, 22]);
@@ -1276,7 +1291,10 @@ mod tests {
         assert!(parsed_teams.teams[0].check_enemy_sighted);
         assert!(parsed_teams.teams[0].persist_edge_flags);
         assert_eq!(parsed_teams.prototypes[0].team_name, "HuntWave");
-        assert_eq!(parsed_teams.prototypes[0].attack_priority_name, "PrioritySetA");
+        assert_eq!(
+            parsed_teams.prototypes[0].attack_priority_name,
+            "PrioritySetA"
+        );
         assert_eq!(parsed_teams.prototypes[0].production_priority, 42);
         let _ = parsed_players;
     }
@@ -1314,10 +1332,7 @@ mod tests {
         assert!(player.radar_disabled);
         assert!(player.get_attacked_by(3));
         assert!(player.units_should_hunt);
-        assert_eq!(
-            player.selected_objects,
-            vec![ObjectId(11), ObjectId(22)]
-        );
+        assert_eq!(player.selected_objects, vec![ObjectId(11), ObjectId(22)]);
         assert!(player.did_preorder);
     }
 }

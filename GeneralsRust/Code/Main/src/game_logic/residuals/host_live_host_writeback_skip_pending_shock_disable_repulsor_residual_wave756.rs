@@ -62,8 +62,8 @@ fn residual_action_store(a: ResidualHostWritebackSkipPendingShockDisableRepulsor
 pub fn residual_host_writeback_skip_pending_shock_disable_repulsor_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_writeback_skip_pending_shock_disable_repulsor_last_action(
-) -> ResidualHostWritebackSkipPendingShockDisableRepulsorAction {
+pub fn residual_host_writeback_skip_pending_shock_disable_repulsor_last_action()
+-> ResidualHostWritebackSkipPendingShockDisableRepulsorAction {
     ResidualHostWritebackSkipPendingShockDisableRepulsorAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -80,8 +80,8 @@ fn disable_log() -> &'static str {
 fn repulsor_log() -> &'static str {
     include_str!("../host_repulsor_log.rs")
 }
-pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_method_names_residual_wave756(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_method_names_residual_wave756()
+-> bool {
     let names = LIVE_HOST_WRITEBACK_SKIP_PENDING_SHOCK_DISABLE_REPULSOR_METHOD_NAMES_WAVE756;
     let ok = residual_name_index(names, "has_pending").is_some()
         && residual_name_index(names, "writeback_shock_stun_to_host").is_some()
@@ -92,8 +92,8 @@ pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_method_names_r
     residual_action_store(ResidualHostWritebackSkipPendingShockDisableRepulsorAction::MethodNames);
     ok
 }
-pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_source_markers_residual_wave756(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_source_markers_residual_wave756()
+-> bool {
     let sh = sh_source();
     let ok = sh.contains("Wave 756")
         && sh.contains("host_shock_stun_log::has_pending")
@@ -109,8 +109,8 @@ pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_source_markers
     );
     ok
 }
-pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_nav_commands_residual_wave756(
-) -> bool {
+pub fn honesty_host_writeback_skip_pending_shock_disable_repulsor_nav_commands_residual_wave756()
+-> bool {
     let steps = LIVE_HOST_WRITEBACK_SKIP_PENDING_SHOCK_DISABLE_REPULSOR_NAV_STEPS_WAVE756;
     let cmds =
         RUNTIME_HOST_LIVE_HOST_WRITEBACK_SKIP_PENDING_SHOCK_DISABLE_REPULSOR_CMD_NAMES_WAVE756;

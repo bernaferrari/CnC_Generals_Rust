@@ -257,9 +257,7 @@ pub fn host_command_power_cpp_enum_name(
 ///
 /// C++ `SpecialPowerModule::aboutToDoSpecialPower` notifies
 /// `getSpecialPowerTemplate()->getName()` (the INI block name).
-pub fn special_power_ini_template_name(
-    power: &HostCommandSpecialPowerType,
-) -> &'static str {
+pub fn special_power_ini_template_name(power: &HostCommandSpecialPowerType) -> &'static str {
     use HostCommandSpecialPowerType as P;
     match power {
         P::Airstrike => "SuperweaponA10ThunderboltMissileStrike",
@@ -305,7 +303,6 @@ pub fn special_power_ini_template_name(
         _ => host_command_power_cpp_enum_name(power).unwrap_or("SPECIAL_INVALID"),
     }
 }
-
 
 /// Lookup bit-name list index for a C++ SPECIAL_* residual string.
 pub fn special_power_bit_name_index(name: &str) -> Option<usize> {

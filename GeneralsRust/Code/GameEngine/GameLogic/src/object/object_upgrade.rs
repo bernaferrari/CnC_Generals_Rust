@@ -61,8 +61,6 @@ impl Object {
         }
     }
 
-
-
     /// Whether the object is currently invulnerable.
     pub fn is_invulnerable(&mut self) -> bool {
         if self.invulnerable_until_frame == 0 {
@@ -107,9 +105,15 @@ impl Object {
                     {
                         let misc_audio = misc_audio.read();
                         let sound_name = if self.is_kind_of(KindOf::Structure) {
-                            misc_audio.building_reenabled.playable_event_name().to_string()
+                            misc_audio
+                                .building_reenabled
+                                .playable_event_name()
+                                .to_string()
                         } else if self.is_kind_of(KindOf::Vehicle) {
-                            misc_audio.vehicle_reenabled.playable_event_name().to_string()
+                            misc_audio
+                                .vehicle_reenabled
+                                .playable_event_name()
+                                .to_string()
                         } else {
                             String::new()
                         };
@@ -1061,10 +1065,7 @@ impl Object {
     /// `MAX_COMMANDS_PER_SET` slots via `getCommandButton(i)` (which consults
     /// `GameLogic::findControlBarOverride`). True only if that button's
     /// `getUpgradeTemplate()` matches the requested upgrade.
-    pub fn can_produce_upgrade(
-        &self,
-        upgrade: &crate::upgrade::template::UpgradeTemplate,
-    ) -> bool {
+    pub fn can_produce_upgrade(&self, upgrade: &crate::upgrade::template::UpgradeTemplate) -> bool {
         let Some(control_bar) = crate::control_bar::get_control_bar_bridge() else {
             return false;
         };

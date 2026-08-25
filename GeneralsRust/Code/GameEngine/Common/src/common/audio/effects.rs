@@ -11,7 +11,7 @@
 
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;

@@ -493,7 +493,6 @@ impl PlayerList {
         }
     }
 
-
     /// Notify all players that a team is about to be deleted.
     /// C++ Reference: PlayerList::teamAboutToBeDeleted() lines 285-295
     ///

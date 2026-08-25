@@ -3,8 +3,8 @@
 //! This module handles texture creation, management, and operations for WGPU,
 //! equivalent to the DirectX8 texture functionality.
 
-use crate::core::error::{Error, Result};
 use crate::core::WW3DFormat;
+use crate::core::error::{Error, Result};
 use image::{ImageBuffer, Rgba};
 use std::sync::Arc;
 use wgpu::{

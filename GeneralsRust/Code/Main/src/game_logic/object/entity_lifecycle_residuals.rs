@@ -6,15 +6,12 @@
 
 use super::Object;
 use crate::command_system::SpecialPowerType;
-use crate::game_logic::host_railroad::{
-    railroad_car, restore_railroad_car, HostRailroadCar,
-};
-use crate::game_logic::object::WeaponLockType;
 use crate::game_logic::ObjectId;
+use crate::game_logic::host_railroad::{HostRailroadCar, railroad_car, restore_railroad_car};
+use crate::game_logic::object::WeaponLockType;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub(crate) struct FireWeaponWhenDeadResidual {
@@ -81,7 +78,6 @@ pub(crate) struct PhysicsBehaviorResidual {
 pub(crate) struct RailroadBehaviorResidual {
     pub car: HostRailroadCar,
 }
-
 
 impl FireWeaponWhenDeadResidual {
     pub(crate) fn present(object: &Object) -> bool {
@@ -293,15 +289,15 @@ impl RailroadBehaviorResidual {
 mod tests {
     use super::*;
     use crate::game_logic::host_enum_table_residual::{
-        host_model_condition_has, MC_BIT_STUNNED_FLAILING,
+        MC_BIT_STUNNED_FLAILING, host_model_condition_has,
     };
     use crate::game_logic::host_neutron_missile_slow_death::MC_BIT_FRONTCRUSHED;
     use crate::game_logic::host_railroad::{
-        railroad_car, railroad_registry_reset, restore_railroad_car, HostConductorState,
-        HostRailroadCar,
+        HostConductorState, HostRailroadCar, railroad_car, railroad_registry_reset,
+        restore_railroad_car,
     };
-    use crate::game_logic::{ObjectId, Team, ThingTemplate};
     use crate::game_logic::object::Object;
+    use crate::game_logic::{ObjectId, Team, ThingTemplate};
 
     fn test_object() -> Object {
         Object::new(ThingTemplate::new("SaveACar"), ObjectId(21), Team::USA)
@@ -316,13 +312,16 @@ mod tests {
         src.last_damage_timestamp = Some(44);
         src.apply_crush_die_model_conditions();
         let envelope = src.entity_lifecycle_envelope();
-        assert!(envelope
-            .module_states
-            .iter()
-            .any(|m| m.tag == super::super::entity_lifecycle_tags::TAG_ACTIVE_BODY));
+        assert!(
+            envelope
+                .module_states
+                .iter()
+                .any(|m| m.tag == super::super::entity_lifecycle_tags::TAG_ACTIVE_BODY)
+        );
 
         let mut dst = test_object();
-        dst.entity_apply_lifecycle_envelope(&envelope).expect("apply");
+        dst.entity_apply_lifecycle_envelope(&envelope)
+            .expect("apply");
         assert!(dst.front_crushed);
         assert!(!dst.back_crushed);
         assert!(dst.indestructible);
@@ -347,13 +346,16 @@ mod tests {
         src.extra_friction = -0.02;
         src.refresh_model_condition_bits();
         let envelope = src.entity_lifecycle_envelope();
-        assert!(envelope
-            .module_states
-            .iter()
-            .any(|m| m.tag == super::super::entity_lifecycle_tags::TAG_PHYSICS_BEHAVIOR));
+        assert!(
+            envelope
+                .module_states
+                .iter()
+                .any(|m| m.tag == super::super::entity_lifecycle_tags::TAG_PHYSICS_BEHAVIOR)
+        );
 
         let mut dst = test_object();
-        dst.entity_apply_lifecycle_envelope(&envelope).expect("apply");
+        dst.entity_apply_lifecycle_envelope(&envelope)
+            .expect("apply");
         assert_eq!(dst.shock_stun_frames, 40);
         assert!((dst.shock_yaw_rate - 0.3).abs() < 1e-6);
         assert_eq!(dst.physics_current_overlap, Some(ObjectId(7)));
@@ -384,15 +386,18 @@ mod tests {
         restore_railroad_car(car);
 
         let envelope = src.entity_lifecycle_envelope();
-        assert!(envelope
-            .module_states
-            .iter()
-            .any(|m| m.tag == super::super::entity_lifecycle_tags::TAG_RAILROAD));
+        assert!(
+            envelope
+                .module_states
+                .iter()
+                .any(|m| m.tag == super::super::entity_lifecycle_tags::TAG_RAILROAD)
+        );
 
         railroad_registry_reset();
         assert!(railroad_car(src.id).is_none());
         let mut dst = test_object();
-        dst.entity_apply_lifecycle_envelope(&envelope).expect("apply");
+        dst.entity_apply_lifecycle_envelope(&envelope)
+            .expect("apply");
         let restored = railroad_car(src.id).expect("restored car");
         assert_eq!(restored.conductor_state, HostConductorState::WaitAtStation);
         assert!((restored.speed - 2.5).abs() < 1e-6);

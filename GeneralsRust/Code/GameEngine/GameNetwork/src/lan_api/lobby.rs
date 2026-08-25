@@ -1473,12 +1473,12 @@ impl LanLobby {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DiscoveryConfig;
     use crate::connection::ConnectionManager;
     use crate::error::{NetworkError, NetworkResult};
-    use crate::lan_api::{lan_event_channel, LanEventReceiver, LanEventSender, LanMessageType};
-    use crate::security::encryption::{self, EncryptedPacket};
+    use crate::lan_api::{LanEventReceiver, LanEventSender, LanMessageType, lan_event_channel};
     use crate::security::SecurityManager;
-    use crate::DiscoveryConfig;
+    use crate::security::encryption::{self, EncryptedPacket};
     use rustls::crypto::ring;
     use std::net::{IpAddr, Ipv4Addr};
     use std::sync::Arc;
@@ -1852,7 +1852,7 @@ mod tests {
             loop {
                 match bridge_rx.recv().await {
                     Some(LanBridgeEvent::NetworkMessage(message, sender)) => {
-                        break (message, sender)
+                        break (message, sender);
                     }
                     Some(_) => continue,
                     None => panic!("LAN bridge closed before message received"),

@@ -78,8 +78,8 @@ pub fn residual_presentation_firesound_audio_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_firesound_audio_last_action(
-) -> ResidualPresentationFiresoundAudioAction {
+pub fn residual_presentation_firesound_audio_last_action()
+-> ResidualPresentationFiresoundAudioAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationFiresoundAudioAction::MethodNames,
         2 => ResidualPresentationFiresoundAudioAction::SourceMarkers,

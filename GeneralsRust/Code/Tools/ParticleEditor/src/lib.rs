@@ -9,8 +9,8 @@ pub mod timeline;
 pub mod ui;
 
 pub use chrome::{
-    apply_chrome_field, chrome_menus, status_bar_text, ChromeAction, ChromeField, ChromeMenu,
-    ChromeViewState,
+    ChromeAction, ChromeField, ChromeMenu, ChromeViewState, apply_chrome_field, chrome_menus,
+    status_bar_text,
 };
 pub use editor::ParticleEditorTool;
 pub use export::{ExportFormat, ParticleExporter};

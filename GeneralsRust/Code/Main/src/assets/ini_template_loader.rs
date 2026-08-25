@@ -856,7 +856,6 @@ fn apply_scatter_target_line(template: &mut gamelogic::WeaponTemplate, value: &s
     }
 }
 
-
 /// Register a weapon template from the historical last-assignment-wins view.
 ///
 /// This stays available for focused callers/tests. Real Weapon.ini loading uses
@@ -906,7 +905,6 @@ fn register_weapon_template_from_properties(
     if let Some(val) = properties.get("DamageStatusType") {
         template.damage_status_type = parse_damage_status_type(val);
     }
-
 
     if let Some(val) = properties.get("WeaponSpeed") {
         if let Ok(speed) = val.parse::<f32>() {
@@ -1196,7 +1194,6 @@ fn register_weapon_template_from_properties(
         template.set_historic_bonus_weapon_name(val);
     }
 
-
     if let Some(val) = properties.get("LaserName") {
         template.laser_name = val.trim().to_string();
     }
@@ -1307,7 +1304,6 @@ fn register_weapon_template_from_properties(
     // scalar-property parsing above because a HashMap has already discarded
     // repeated `Veterancy…` / `WeaponBonus` / `ScatterTarget` assignments.
     apply_weapon_effect_references(&mut template, ordered);
-
 
     // Register the template into the GameLogic WeaponStore
     match gamelogic::with_weapon_store_mut(|store| {
@@ -1488,7 +1484,6 @@ fn apply_weapon_effect_references(
         if key.eq_ignore_ascii_case("ScatterTarget") {
             apply_scatter_target_line(template, value);
         }
-
     }
 }
 
@@ -1504,7 +1499,6 @@ const UPGRADE_INI_SETTER_FIELDS: &[&str] = &[
     "UnitSpecificSound",
     "AcademyClassify",
 ];
-
 
 /// Look up an INI property with C++-style case-insensitive field names.
 fn find_ini_property<'a>(properties: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
@@ -1527,7 +1521,7 @@ fn apply_upgrade_template_ini_fields(
     name: &str,
     properties: &HashMap<String, String>,
 ) -> Result<(), String> {
-    use game_engine::common::ini::{INIError, INI};
+    use game_engine::common::ini::{INI, INIError};
     use gamelogic::upgrade::center::with_upgrade_center_mut;
 
     let mut source = String::new();
@@ -1593,7 +1587,7 @@ fn register_science_template(name: &str, properties: &HashMap<String, String>) -
     use game_engine::common::ascii_string::AsciiString;
     use game_engine::common::ini::ini_science::{get_science_store_mut, parse_science_definition};
     use game_engine::common::rts::science::{
-        get_science_store_mut as get_live_science_store_mut, init_science_store, ScienceDefinition,
+        ScienceDefinition, get_science_store_mut as get_live_science_store_mut, init_science_store,
     };
 
     match parse_science_definition(name, properties) {
@@ -1749,7 +1743,6 @@ fn parse_damage_status_type(s: &str) -> gamelogic::weapon::ObjectStatusTypes {
     gamelogic::weapon::ObjectStatusTypes::new(status as u32)
 }
 
-
 /// Parse a death type string into the GameLogic DeathType.
 fn parse_death_type(s: &str) -> gamelogic::DeathType {
     match s.to_lowercase().as_str() {
@@ -1828,7 +1821,6 @@ End
         assert!((delta - std::f32::consts::PI / 6.0).abs() < 1e-5);
     }
 
-
     #[test]
     fn weapon_anti_mask_honors_no_and_every_cxx_target_category() {
         let ini_content = r#"
@@ -1889,7 +1881,6 @@ End
         .expect("weapon store available");
     }
 
-
     #[test]
     fn weapon_shots_per_barrel_is_retained_from_authored_ini() {
         let ini_content = r#"
@@ -1947,7 +1938,6 @@ End
         })
         .expect("weapon store available");
     }
-
 
     #[test]
     fn weapon_effect_references_preserve_repeated_veterancy_lines_in_order() {
@@ -2296,7 +2286,6 @@ End
             ]
         );
     }
-
 
     #[test]
     fn test_parse_damage_type() {

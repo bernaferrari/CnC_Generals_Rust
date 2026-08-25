@@ -133,7 +133,6 @@ impl Player {
         }
     }
 
-
     /// Check if this player is allied with another player
     pub fn is_allied_with_player(&self, that_player: &Player) -> Bool {
         matches!(self.get_relationship(that_player), Relationship::Allies)

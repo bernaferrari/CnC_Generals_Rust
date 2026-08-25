@@ -1,13 +1,13 @@
 //! Core audible sound object mirroring WWAudio's `AudibleSoundClass`.
 
 use crate::{
+    AudioSource, Priority, Volume,
     aud_time::audio_get_time,
     error::Result,
     handles::Sound2DHandle,
     math::{Matrix3D, Vector3},
     sound_scene_obj::{SoundObjectId, SoundSceneObject},
     sound_types::{SoundClassId, SoundState, SoundType},
-    AudioSource, Priority, Volume,
 };
 use log::warn;
 use std::sync::Arc;
@@ -233,11 +233,7 @@ impl AudibleSound {
     }
 
     pub fn volume(&self) -> f32 {
-        if self.is_muted {
-            0.0
-        } else {
-            self.volume
-        }
+        if self.is_muted { 0.0 } else { self.volume }
     }
 
     pub fn set_muted(&mut self, muted: bool) {
@@ -497,10 +493,10 @@ impl AudibleSound {
 mod tests {
     use super::*;
     use crate::{
+        AudioMixer, MixerConfig,
         formats::{AudioFormat, ChannelLayout, SampleRate, SampleWidth},
         handles::Sound2DHandle,
         sound_types::SoundClassId,
-        AudioMixer, MixerConfig,
     };
     use std::sync::Arc;
 

@@ -11,24 +11,24 @@
 //! - Real-time mixing and effects processing
 
 use kira::{
+    Volume,
     manager::{AudioManager, AudioManagerSettings},
-    sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
     sound::PlaybackRate,
     sound::PlaybackState as KiraPlaybackState,
+    sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
     spatial::{
         emitter::{EmitterHandle, EmitterSettings},
         listener::{ListenerHandle, ListenerSettings},
         scene::SpatialSceneSettings,
     },
     track::{
+        TrackBuilder, TrackHandle,
         effect::{
             filter::{FilterBuilder, FilterHandle, FilterMode},
             reverb::{ReverbBuilder, ReverbHandle},
         },
-        TrackBuilder, TrackHandle,
     },
     tween::Tween,
-    Volume,
 };
 use nalgebra::{UnitQuaternion, Vector3};
 use serde::{Deserialize, Serialize};

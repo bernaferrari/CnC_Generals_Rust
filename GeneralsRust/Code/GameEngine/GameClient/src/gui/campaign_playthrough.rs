@@ -326,10 +326,12 @@ mod tests {
             report.challenge_generals_unimplemented,
             report.challenge_first
         );
-        assert!(report.usa_missions[0]
-            .map_name
-            .to_ascii_lowercase()
-            .contains("md_usa01"));
+        assert!(
+            report.usa_missions[0]
+                .map_name
+                .to_ascii_lowercase()
+                .contains("md_usa01")
+        );
         assert_eq!(
             campaign_map_stem(&report.usa_missions[0].map_name).to_ascii_lowercase(),
             "md_usa01"
@@ -361,25 +363,31 @@ mod tests {
         );
         assert_eq!(NUM_GENERALS, 12);
         assert_eq!(report.gla_missions.len(), 5);
-        assert!(report.gla_missions[0]
-            .movie_label
-            .to_ascii_lowercase()
-            .contains("md_gla01"));
+        assert!(
+            report.gla_missions[0]
+                .movie_label
+                .to_ascii_lowercase()
+                .contains("md_gla01")
+        );
         assert!(report.gla_missions[4].victorious);
         assert_eq!(report.china_missions.len(), 5);
-        assert!(report.china_missions[0]
-            .movie_label
-            .to_ascii_lowercase()
-            .contains("md_china01"));
+        assert!(
+            report.china_missions[0]
+                .movie_label
+                .to_ascii_lowercase()
+                .contains("md_china01")
+        );
         assert!(report.china_missions[4].victorious);
         let challenge0_last = report.challenge_campaigns[0]
             .1
             .last()
             .expect("CHALLENGE_0 last mission");
         assert!(challenge0_last.victorious);
-        assert!(challenge0_last
-            .final_victory_movie
-            .to_ascii_lowercase()
-            .contains("victory"));
+        assert!(
+            challenge0_last
+                .final_victory_movie
+                .to_ascii_lowercase()
+                .contains("victory")
+        );
     }
 }

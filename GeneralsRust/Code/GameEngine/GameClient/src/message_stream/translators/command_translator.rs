@@ -680,7 +680,7 @@ impl CommandTranslator {
 
         match attack_result {
             CanAttackResult::Possible => {
-                return Some(GameMessageType::DoAttackObjectHint(target_id))
+                return Some(GameMessageType::DoAttackObjectHint(target_id));
             }
             CanAttackResult::PossibleAfterMoving => {
                 return Some(GameMessageType::DoAttackObjectAfterMovingHint(target_id));

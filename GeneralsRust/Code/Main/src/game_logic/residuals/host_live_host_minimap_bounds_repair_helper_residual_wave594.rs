@@ -81,8 +81,8 @@ pub fn residual_host_minimap_bounds_repair_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_minimap_bounds_repair_helper_last_action(
-) -> ResidualHostMinimapBoundsRepairHelperAction {
+pub fn residual_host_minimap_bounds_repair_helper_last_action()
+-> ResidualHostMinimapBoundsRepairHelperAction {
     ResidualHostMinimapBoundsRepairHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

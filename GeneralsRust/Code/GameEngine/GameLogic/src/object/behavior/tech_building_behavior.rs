@@ -11,9 +11,9 @@ use crate::helpers::{TheFXListStore, TheGameLogic};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -23,7 +23,7 @@ use std::sync::{Arc, RwLock, Weak};
 use crate::common::ModelConditionFlags;
 use crate::damage::DamageInfo;
 use crate::effects::FXList;
-use crate::player::{player_list, Player};
+use crate::player::{Player, player_list};
 
 /// Wave 436: host-only path has no dual-world factory objects.
 #[inline]

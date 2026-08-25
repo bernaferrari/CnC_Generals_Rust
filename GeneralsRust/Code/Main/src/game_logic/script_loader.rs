@@ -7,32 +7,32 @@
 ** rust structures under gamelogic::scripting::core.
 */
 
-use std::collections::hash_map::DefaultHasher;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::cell::Cell;
 
 use game_engine::common::dict::{Dict, DictType};
-use game_engine::common::ini::{try_get_terrain_roads, INILoadType, INI};
+use game_engine::common::ini::{INI, INILoadType, try_get_terrain_roads};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{
-    file::FileAccess, file_system::get_file_system, DataChunkInfo, DataChunkInput,
+    DataChunkInfo, DataChunkInput, file::FileAccess, file_system::get_file_system,
 };
+use gamelogic::GameLogicError;
 use gamelogic::common::MAP_XY_FACTOR;
+use gamelogic::common::{AsciiString, ICoord3D};
+use gamelogic::polygon_trigger::PolygonTrigger;
 use gamelogic::scripting::core::{
     Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptGroup, ScriptList,
 };
-use gamelogic::scripting::{parse_player_scripts_list_chunk, ScriptListReadInfo};
-use gamelogic::system::map_loader::BridgeData;
-use gamelogic::common::{AsciiString, ICoord3D};
-use gamelogic::polygon_trigger::PolygonTrigger;
+use gamelogic::scripting::{ScriptListReadInfo, parse_player_scripts_list_chunk};
 use gamelogic::system::Coord3D as SystemCoord3D;
-use gamelogic::GameLogicError;
+use gamelogic::system::map_loader::BridgeData;
 use log::{debug, info, trace, warn};
 
 type LoaderResult<T> = Result<T, GameLogicError>;
@@ -161,7 +161,6 @@ fn first_readable_map_ini_companion(dir: &Path, names: &[&str]) -> Option<(PathB
     }
     None
 }
-
 
 fn path_is_accessible(path: &Path) -> bool {
     resolve_with_file_system(path).is_some() || path.exists()
@@ -294,8 +293,7 @@ fn ensure_terrain_roads_loaded() {
 
 fn is_terrain_road_name(name: &str) -> bool {
     ensure_terrain_roads_loaded();
-    try_get_terrain_roads()
-        .is_some_and(|roads| roads.find_road(name).is_some())
+    try_get_terrain_roads().is_some_and(|roads| roads.find_road(name).is_some())
 }
 
 fn decompress_map_bytes(raw_bytes: &[u8]) -> LoaderResult<Vec<u8>> {
@@ -367,8 +365,7 @@ fn decompress_refpack_stream(data: &[u8], expected_size: usize) -> Result<Vec<u8
         // Keep going (the inner size is authoritative for this stream), but surface the mismatch.
         trace!(
             "RefPack size mismatch: outer={}, inner={}",
-            expected_size,
-            ulen
+            expected_size, ulen
         );
     }
 
@@ -609,7 +606,6 @@ pub struct PlacedObject {
     pub properties: Dict,
 }
 
-
 /// C++ SidesList build-list entry residual (skirmish army / base placements).
 #[derive(Debug, Clone)]
 pub struct SideBuildEntry {
@@ -627,7 +623,6 @@ pub struct SideBuildEntry {
     pub unsellable: Option<bool>,
     pub repairable: Option<bool>,
 }
-
 
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
@@ -760,7 +755,6 @@ pub struct BlendTileInfo {
     pub long_diagonal: u8,
     pub custom_blend_edge_class: i32,
 }
-
 
 /// Result returned after decoding a map file.
 pub struct MapScriptLoadResult {
@@ -995,16 +989,12 @@ fn parse_lighting_payload_for_settings(
     meta.objects_sun_color = Some([objects[3], objects[4], objects[5]]);
     meta.objects_sun_direction = Some([objects[6], objects[7], objects[8]]);
     if version >= 2 {
-        meta.objects_extra_lights = vec![
-            objects_lights[row_index][1],
-            objects_lights[row_index][2],
-        ];
+        meta.objects_extra_lights =
+            vec![objects_lights[row_index][1], objects_lights[row_index][2]];
     }
     if version >= 3 {
-        meta.terrain_extra_lights = vec![
-            terrain_lights[row_index][1],
-            terrain_lights[row_index][2],
-        ];
+        meta.terrain_extra_lights =
+            vec![terrain_lights[row_index][1], terrain_lights[row_index][2]];
     }
     apply_map_lighting_to_global_data(time_of_day, version, &terrain_lights, &objects_lights);
     // Never invent fog/sky from this chunk — C++ FogEnabled defaults false
@@ -1050,7 +1040,7 @@ fn apply_map_lighting_to_global_data(
     objects_lights: &[[[f32; 9]; 3]; 4],
 ) {
     use game_engine::common::ini::ini_game_data::{
-        ensure_global_data, TimeOfDay, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_FIRST,
+        MAX_GLOBAL_LIGHTS, TIME_OF_DAY_FIRST, TimeOfDay, ensure_global_data,
     };
     let handle = ensure_global_data();
     let mut data = handle.write();
@@ -1083,9 +1073,6 @@ fn apply_map_lighting_to_global_data(
         }
     }
 }
-
-
-
 
 /// C++ GameLogic::loadMapINI — pull `ParticleSystem` blocks out of mixed map.ini.
 pub fn extract_map_ini_particle_system_blocks(contents: &str) -> String {
@@ -1139,7 +1126,7 @@ pub fn overlay_map_ini_particle_systems(contents: &str) -> usize {
     #[cfg(feature = "game_client")]
     {
         use game_client::effects::{
-            get_particle_system_manager_mut, ParticleSystemINIParser, ParticleSystemManager,
+            ParticleSystemINIParser, ParticleSystemManager, get_particle_system_manager_mut,
         };
         if let Ok(mut guard) = get_particle_system_manager_mut() {
             let manager = guard.get_or_insert_with(ParticleSystemManager::new);
@@ -1193,7 +1180,6 @@ pub fn overlay_map_ini_create_overrides(contents: &str) -> usize {
     }
 }
 
-
 /// Overlay map.ini `Weather` onto `TheWeatherSetting` via CREATE_OVERRIDES
 /// (C++ GameLogic.cpp:2407-2408 `ini.load(..., INI_LOAD_CREATE_OVERRIDES)`).
 /// Returns whether a Weather block was applied.
@@ -1244,8 +1230,6 @@ fn sync_live_snow_manager_from_common() {
     }
 }
 
-
-
 /// Parse settings from an already-decompressed chunky map.
 pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMetadata> {
     let map_name = chunky.source.to_string_lossy();
@@ -1261,7 +1245,6 @@ fn parse_map_settings_from_loaded_chunky(
     if let Some((ver, payload)) = find_chunk_by_label(body, &chunky.toc, "GlobalLighting")? {
         parse_lighting_payload_for_settings(ver, payload, &mut meta)?;
     }
-
 
     if let Some((min, max)) = parse_world_bounds_from_chunky(chunky).ok().flatten() {
         meta.world_min = Some(min);
@@ -1311,8 +1294,9 @@ fn parse_map_settings_from_loaded_chunky(
         }
     }
 
-    meta.initial_camera_position = parse_initial_camera_position_from_chunky(chunky).ok().flatten();
-
+    meta.initial_camera_position = parse_initial_camera_position_from_chunky(chunky)
+        .ok()
+        .flatten();
 
     // Heightmap hint: look for common heightmap filenames next to the .map.
     if let Some(map_path) = locate_map_file(map_name) {
@@ -1368,7 +1352,6 @@ fn parse_map_settings_from_loaded_chunky(
             {
                 let _ = overlay_map_ini_create_overrides(&contents);
             }
-
 
             // C++ parity: only treat dedicated heightmap companions as terrain sources.
             // Generic *.tga beside a map is commonly preview/sky art, not elevation data.
@@ -1586,7 +1569,6 @@ pub fn parse_blend_tile_data_from_chunky(
 
     let mut blended_tiles = Vec::new();
     if num_blended_tiles > 1 && reader.remaining() > 0 {
-
         blended_tiles.reserve(num_blended_tiles.saturating_sub(1));
         for _ in 1..num_blended_tiles {
             let blend_ndx = reader.read_i32()?;
@@ -1595,16 +1577,8 @@ pub fn parse_blend_tile_data_from_chunky(
             let right_diagonal = reader.read_u8()?;
             let left_diagonal = reader.read_u8()?;
             let inverted = reader.read_u8()?;
-            let long_diagonal = if version >= 3 {
-                reader.read_u8()?
-            } else {
-                0
-            };
-            let custom_blend_edge_class = if version >= 4 {
-                reader.read_i32()?
-            } else {
-                -1
-            };
+            let long_diagonal = if version >= 3 { reader.read_u8()? } else { 0 };
+            let custom_blend_edge_class = if version >= 4 { reader.read_i32()? } else { -1 };
             let _flag = reader.read_i32()?;
             blended_tiles.push(BlendTileInfo {
                 blend_ndx,
@@ -1731,7 +1705,8 @@ pub fn parse_runtime_weather_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Opt
     let Some(dict) = parse_runtime_world_info_dict(chunky)? else {
         return Ok(None);
     };
-    Ok(dict_lookup_ci(&dict, &["weather", "Weather"]).and_then(|value| parse_world_weather_value(&value)))
+    Ok(dict_lookup_ci(&dict, &["weather", "Weather"])
+        .and_then(|value| parse_world_weather_value(&value)))
 }
 
 /// C++ `Weather` int / WorldBuilder name → `WEATHER_NORMAL=0` / `WEATHER_SNOWY=1`.
@@ -1797,7 +1772,6 @@ fn parse_runtime_world_info_dict(
     }
 }
 
-
 /// Parse `PolygonTriggers`, including water-area flags and point Z heights.
 ///
 /// C++ `PolygonTrigger::ParsePolygonTriggersDataChunk` (PolygonTrigger.cpp).
@@ -1806,7 +1780,8 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
     chunky: &ChunkyMap,
 ) -> LoaderResult<Vec<PolygonTrigger>> {
     let body = &chunky.bytes[chunky.body_offset..];
-    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "PolygonTriggers")? else {
+    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "PolygonTriggers")?
+    else {
         return Ok(Vec::new());
     };
 
@@ -1879,11 +1854,8 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
         if points.len() < 2 {
             continue;
         }
-        let mut trigger = PolygonTrigger::new(
-            trigger_id,
-            AsciiString::from(trigger_name.as_str()),
-            points,
-        );
+        let mut trigger =
+            PolygonTrigger::new(trigger_id, AsciiString::from(trigger_name.as_str()), points);
         trigger.set_layer_name(AsciiString::from(layer_name.as_str()));
         trigger.set_water_area(is_water);
         trigger.set_river(is_river);
@@ -1919,7 +1891,11 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
             (border + water_extent_y) as i32,
             7,
         ));
-        trigger.add_point(ICoord3D::new((-border) as i32, (border + water_extent_y) as i32, 7));
+        trigger.add_point(ICoord3D::new(
+            (-border) as i32,
+            (border + water_extent_y) as i32,
+            7,
+        ));
         triggers.push(trigger);
     }
 
@@ -1943,7 +1919,6 @@ pub fn install_runtime_polygon_triggers(triggers: &[PolygonTrigger]) {
         terrain.add_trigger_area(trigger.clone());
     }
 }
-
 
 /// Parse runtime terrain-road segments from map objects.
 ///
@@ -2391,17 +2366,11 @@ fn parse_map_object_chunk(
         )
         .map(|value| parse_ini_boolish(&value));
 
-        enabled = dict_lookup_ci(
-            &dict,
-            &["objectEnabled", "enabled", "object_enabled"],
-        )
-        .map(|value| parse_ini_boolish(&value));
+        enabled = dict_lookup_ci(&dict, &["objectEnabled", "enabled", "object_enabled"])
+            .map(|value| parse_ini_boolish(&value));
 
-        powered = dict_lookup_ci(
-            &dict,
-            &["objectPowered", "powered", "object_powered"],
-        )
-        .map(|value| parse_ini_boolish(&value));
+        powered = dict_lookup_ci(&dict, &["objectPowered", "powered", "object_powered"])
+            .map(|value| parse_ini_boolish(&value));
 
         indestructible = dict_lookup_ci(
             &dict,
@@ -2412,7 +2381,6 @@ fn parse_map_object_chunk(
             ],
         )
         .map(|value| parse_ini_boolish(&value));
-
 
         object_weather = dict_lookup_ci(&dict, &["objectWeather", "object_weather"])
             .and_then(|value| parse_object_weather_value(&value));
@@ -2434,7 +2402,6 @@ fn parse_map_object_chunk(
         object_weather,
         properties,
     }))
-
 }
 
 fn parse_waypoint_object_chunk(
@@ -2628,11 +2595,7 @@ fn runtime_bridge_width_from_template(template_name: &str) -> Option<f32> {
     let template = factory.find_template(template_name, false)?;
     let geometry = template.get_template_geometry_info();
     let width = (geometry.minor_radius() * 2.0).max(0.0);
-    if width > 0.0 {
-        Some(width)
-    } else {
-        None
-    }
+    if width > 0.0 { Some(width) } else { None }
 }
 
 fn build_runtime_road_data(
@@ -2767,7 +2730,6 @@ fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Optio
         object_weather: None,
         properties: Dict::new(),
     }))
-
 }
 
 fn parse_chunk_dict(
@@ -2849,7 +2811,7 @@ fn parse_chunk_dict_typed(
                 return Err(configuration_error(format!(
                     "Unknown map dict value type {}",
                     data_type
-                )))
+                )));
             }
         }
     }
@@ -3819,8 +3781,14 @@ mod tests {
         payload.extend_from_slice(&4i32.to_le_bytes()); // Night
         for tod in 0..4 {
             let t = tod as f32;
-            push_f32s(&mut payload, [0.1 + t, 0.2, 0.3, 0.4, 0.5, 0.6, 1.0, 2.0, 3.0]);
-            push_f32s(&mut payload, [0.9, 0.8, 0.7, 0.15, 0.25, 0.35, 9.0, 8.0, 7.0]);
+            push_f32s(
+                &mut payload,
+                [0.1 + t, 0.2, 0.3, 0.4, 0.5, 0.6, 1.0, 2.0, 3.0],
+            );
+            push_f32s(
+                &mut payload,
+                [0.9, 0.8, 0.7, 0.15, 0.25, 0.35, 9.0, 8.0, 7.0],
+            );
         }
         let mut meta = MapMetadata::default();
         parse_lighting_payload_for_settings(1, &payload, &mut meta).expect("parse lighting");
@@ -3855,7 +3823,6 @@ mod tests {
             assert!(snow.lock().expect("snow lock").is_visible());
         }
     }
-
 
     #[test]
     fn retail_shell_map_terrain_chunks_decode_when_present() {
@@ -3976,7 +3943,6 @@ End\n";
         );
     }
 
-
     #[test]
     fn world_weather_and_object_weather_values_match_cpp() {
         assert_eq!(parse_world_weather_value("1"), Some(1));
@@ -4010,9 +3976,6 @@ End\n";
             None
         );
     }
-
-
-
 
     #[test]
     fn lone_eagle_fast_chunky_parses_in_under_five_seconds() {
@@ -4048,10 +4011,7 @@ End\n";
             "Lone Eagle CPU parse took {:?}; hang is not parse",
             elapsed
         );
-        assert!(
-            heightmap.is_some(),
-            "Lone Eagle must embed HeightMapData"
-        );
+        assert!(heightmap.is_some(), "Lone Eagle must embed HeightMapData");
     }
 
     #[test]
@@ -4085,7 +4045,6 @@ End\n";
             "Lone Eagle settings must carry placements or starts"
         );
     }
-
 
     fn chunk(id: u32, version: u16, payload: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -4253,7 +4212,6 @@ End\n";
         bytes
     }
 
-
     fn icoord(x: i32, y: i32, z: i32, out: &mut Vec<u8>) {
         out.extend_from_slice(&x.to_le_bytes());
         out.extend_from_slice(&y.to_le_bytes());
@@ -4334,8 +4292,8 @@ End\n";
         assert_eq!(triggers[0].get_trigger_name().as_str(), "Lake");
         assert_eq!(triggers[0].get_point(0).map(|p| p.z), Some(12));
 
-        let bridges = parse_runtime_bridges_from_chunky(&chunky)
-            .expect("bridge endpoints should pair");
+        let bridges =
+            parse_runtime_bridges_from_chunky(&chunky).expect("bridge endpoints should pair");
         assert_eq!(bridges.len(), 1);
         assert_eq!(bridges[0].template_name, "TestBridge");
         assert_eq!(bridges[0].from.z, 20.0);
@@ -4351,9 +4309,11 @@ End\n";
             parse_runtime_water_height_from_chunky(&missing).unwrap(),
             None
         );
-        assert!(parse_runtime_polygon_triggers_from_chunky(&missing)
-            .unwrap()
-            .is_empty());
+        assert!(
+            parse_runtime_polygon_triggers_from_chunky(&missing)
+                .unwrap()
+                .is_empty()
+        );
 
         let mut map_data = gamelogic::system::map_loader::MapData::new();
         map_data.water_height = Some(water_height);
@@ -4378,7 +4338,14 @@ End\n";
 
     #[test]
     fn live_fast_path_source_wires_water_and_add_bridge() {
-        let src = include_str!("world_save.rs");
+        let src = concat!(
+            include_str!("world_save.rs"),
+            include_str!("world_save/world_subsystems.rs"),
+            include_str!("world_save/world_paths.rs"),
+            include_str!("world_save/world_runtime.rs"),
+            include_str!("world_save/world_players.rs"),
+            include_str!("world_save/world_load.rs"),
+        );
         assert!(
             src.contains("parse_runtime_water_height_from_chunky")
                 && src.contains("parse_runtime_polygon_triggers_from_chunky")
@@ -4387,11 +4354,24 @@ End\n";
                 && src.contains("map_data.bridges = bridges"),
             "live fast-path MapData must keep water polygons/height and parsed bridges"
         );
-        let terrain_src = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../GameEngine/GameLogic/src/terrain.rs"
-        ));
-        let prod = terrain_src.split("#[cfg(test)]").next().expect("production");
+        let terrain_src = concat!(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../GameEngine/GameLogic/src/terrain/map_height.rs"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../GameEngine/GameLogic/src/terrain/bridge.rs"
+            )),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../GameEngine/GameLogic/src/terrain/bridges.rs"
+            )),
+        );
+        let prod = terrain_src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production");
         assert!(
             prod.contains("add_bridge_to_logic") && prod.contains("bridge_info_from_map_data"),
             "TerrainLogic::load_map_data must call add_bridge_to_logic for map bridges"
@@ -4427,7 +4407,9 @@ mod locate_map_file_workspace_residual_tests {
             path.display()
         );
         assert!(
-            path.to_string_lossy().to_ascii_lowercase().contains("shellmapmd"),
+            path.to_string_lossy()
+                .to_ascii_lowercase()
+                .contains("shellmapmd"),
             "unexpected resolve {}",
             path.display()
         );

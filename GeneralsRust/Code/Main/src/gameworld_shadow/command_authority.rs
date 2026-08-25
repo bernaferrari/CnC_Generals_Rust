@@ -55,8 +55,10 @@ impl GameWorldShadow {
             let Some(attacker) = self.entity_for_host(*unit) else {
                 continue;
             };
-            self.world
-                .queue_mutation(WorldMutation::SetAttackTarget { attacker, target: Some(target) });
+            self.world.queue_mutation(WorldMutation::SetAttackTarget {
+                attacker,
+                target: Some(target),
+            });
             self.world.queue_mutation(WorldMutation::PushAiDecision {
                 host_object: unit.0,
                 kind: AI_KIND_ATTACK,

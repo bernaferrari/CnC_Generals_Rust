@@ -13,7 +13,7 @@
 use super::renderer::{InstanceData, RenderBatch};
 use super::w3d_device::RenderObject;
 use super::{BoundingBox, Camera, Result, W3DError};
-use bytemuck::{bytes_of, cast_slice, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, bytes_of, cast_slice};
 use glam::{Mat4, Vec3, Vec4};
 use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;

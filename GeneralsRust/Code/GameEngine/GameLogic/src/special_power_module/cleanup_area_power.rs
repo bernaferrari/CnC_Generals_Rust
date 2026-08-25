@@ -136,7 +136,7 @@ impl SpecialPowerModuleInterface for CleanupAreaPower {
             None => {
                 return ActivationResult::InvalidTarget {
                     reason: "Cleanup area power requires targeting".to_string(),
-                }
+                };
             }
         };
 

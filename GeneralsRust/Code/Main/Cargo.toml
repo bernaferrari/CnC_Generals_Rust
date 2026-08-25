@@ -352,10 +352,6 @@ path = "src/bin/window_test.rs"
 required-features = ["dev-tools"]
 
 [[bin]]
-name = "playability_audit"
-path = "src/bin/playability_audit.rs"
-
-[[bin]]
 name = "map_frame_gate"
 path = "src/bin/map_frame_gate.rs"
 
@@ -398,6 +394,10 @@ path = "src/bin/deterministic_trace_dump.rs"
 [[bin]]
 name = "deterministic_trace_compare"
 path = "src/bin/deterministic_trace_compare.rs"
+
+[[bin]]
+name = "deterministic_fixture_trace"
+path = "src/bin/deterministic_fixture_trace.rs"
 
 [[example]]
 name = "telemetry_bridge"

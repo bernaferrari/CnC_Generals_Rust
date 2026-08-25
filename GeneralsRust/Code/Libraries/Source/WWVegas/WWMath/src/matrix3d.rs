@@ -6,7 +6,7 @@
 //! Matrix3D represents a 3D transformation matrix using 3 Vector4 rows,
 //! where the last row is implicitly [0,0,0,1] for homogeneous coordinates.
 
-use crate::{Matrix3, Vector3, Vector4, WWMath, EPSILON};
+use crate::{EPSILON, Matrix3, Vector3, Vector4, WWMath};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign,
 };

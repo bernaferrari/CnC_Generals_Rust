@@ -345,10 +345,7 @@ impl RenderPipeline {
 
                     info!(
                         "Loaded terrain visual from presentation heightmap ({}x{}, world_size=({:.1}, {:.1}))",
-                        heightmap_resolution.0,
-                        heightmap_resolution.1,
-                        world_size.0,
-                        world_size.1
+                        heightmap_resolution.0, heightmap_resolution.1, world_size.0, world_size.1
                     );
                     return Ok(true);
                 }

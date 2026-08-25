@@ -552,11 +552,11 @@ impl W3DWaypointBuffer {
 
     /// Submit one `drawWaypoints` frame as SCMNode models + EXLaser scene lines.
     pub fn submit_frame(&self, frame: &WaypointDrawFrame) {
+        use game_client::render_bridge::{RenderBridge, submit_bridge_scene_line};
         use game_engine::common::system::geometry::Coord3D;
         use game_engine::common::system::scene_submission::SceneLineDesc;
         use game_engine::common::system::scene_submission::SceneModelDesc;
         use game_engine::common::system::scene_submission::SceneSubmission;
-        use game_client::render_bridge::{submit_bridge_scene_line, RenderBridge};
 
         for line in &frame.lines {
             if line.points.len() < 2 {
@@ -585,9 +585,12 @@ impl W3DWaypointBuffer {
             let mut desc = SceneModelDesc::default();
             desc.drawable_id = 0x5700_0000 | index as u32;
             desc.model_name = WAYPOINT_NODE_RENDER_OBJECT.to_string();
-            desc.world_transform = game_engine::common::system::geometry::Matrix3D::from_translation(
-                Coord3D::new(position[0], position[1], position[2]),
-            );
+            desc.world_transform =
+                game_engine::common::system::geometry::Matrix3D::from_translation(Coord3D::new(
+                    position[0],
+                    position[1],
+                    position[2],
+                ));
             desc.cast_shadow = false;
             SceneSubmission::submit_model(&bridge, desc);
         }

@@ -18,13 +18,13 @@ mod wheels;
 mod wheels_suspension;
 
 pub use apply::{
-    apply_physics_visual_xform, post_multiply_physics_visual_xform, PhysicsVisualInput,
+    PhysicsVisualInput, apply_physics_visual_xform, post_multiply_physics_visual_xform,
 };
 pub use calc::calc_physics_visual_xform;
 pub use loco_state::PhysicsVisualLocoState;
 pub use rng::{ClientVisualRng, LiveClientRng, ScriptedClientRng};
 pub use types::{
-    LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualAppearance, PhysicsVisualBody, CPP_PI,
+    CPP_PI, LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualAppearance, PhysicsVisualBody,
 };
 
 /// The already-calculated output of C++ `Drawable::calcPhysicsXform`.

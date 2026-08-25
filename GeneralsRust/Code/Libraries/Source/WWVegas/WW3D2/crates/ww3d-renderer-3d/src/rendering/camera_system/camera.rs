@@ -572,8 +572,14 @@ impl CameraClass {
                 let right = self.view_plane_max.x * znear;
                 let bottom = self.view_plane_min.y * znear;
                 let top = self.view_plane_max.y * znear;
-                self.projection_matrix =
-                    frustum_rh(left, right, bottom, top, znear, self.far_clip.max(znear + 1.0e-4));
+                self.projection_matrix = frustum_rh(
+                    left,
+                    right,
+                    bottom,
+                    top,
+                    znear,
+                    self.far_clip.max(znear + 1.0e-4),
+                );
             }
             ProjectionType::Ortho => {
                 self.projection_matrix = Mat4::orthographic_rh(

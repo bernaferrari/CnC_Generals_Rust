@@ -3,8 +3,8 @@
 use game_engine::common::ini::ini_road as common_roads;
 
 pub use common_roads::{
-    BodyDamageType, BridgeTowerType, RGBColor, TerrainRoadCollection, TerrainRoadType,
-    MAX_BRIDGE_BODY_FX,
+    BodyDamageType, BridgeTowerType, MAX_BRIDGE_BODY_FX, RGBColor, TerrainRoadCollection,
+    TerrainRoadType,
 };
 
 /// Access the global terrain road collection (mirrors TheTerrainRoads).

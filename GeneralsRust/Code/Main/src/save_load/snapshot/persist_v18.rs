@@ -7,8 +7,7 @@ use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::radar::{
-    get_radar_system, Coord3D, ICoord2D, RadarEvent, RadarEventType, MAX_RADAR_EVENTS,
-    RGBAColorInt,
+    Coord3D, ICoord2D, MAX_RADAR_EVENTS, RGBAColorInt, RadarEvent, RadarEventType, get_radar_system,
 };
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -76,8 +75,6 @@ pub struct NamedRevealPersist {
     pub radius_to_reveal: f32,
     pub player_name: String,
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct WaterUpdatePersist {
@@ -334,8 +331,18 @@ fn persist_radar_event(event: &RadarEvent) -> RadarEventPersist {
         create_frame: event.create_frame,
         die_frame: event.die_frame,
         fade_frame: event.fade_frame,
-        color1: [event.color1.r, event.color1.g, event.color1.b, event.color1.a],
-        color2: [event.color2.r, event.color2.g, event.color2.b, event.color2.a],
+        color1: [
+            event.color1.r,
+            event.color1.g,
+            event.color1.b,
+            event.color1.a,
+        ],
+        color2: [
+            event.color2.r,
+            event.color2.g,
+            event.color2.b,
+            event.color2.a,
+        ],
         world_loc: [event.world_loc.x, event.world_loc.y, event.world_loc.z],
         radar_loc: [event.radar_loc.x, event.radar_loc.y],
         sound_played: event.sound_played,
@@ -349,8 +356,18 @@ fn restore_radar_event(entry: &RadarEventPersist) -> RadarEvent {
         create_frame: entry.create_frame,
         die_frame: entry.die_frame,
         fade_frame: entry.fade_frame,
-        color1: RGBAColorInt::new(entry.color1[0], entry.color1[1], entry.color1[2], entry.color1[3]),
-        color2: RGBAColorInt::new(entry.color2[0], entry.color2[1], entry.color2[2], entry.color2[3]),
+        color1: RGBAColorInt::new(
+            entry.color1[0],
+            entry.color1[1],
+            entry.color1[2],
+            entry.color1[3],
+        ),
+        color2: RGBAColorInt::new(
+            entry.color2[0],
+            entry.color2[1],
+            entry.color2[2],
+            entry.color2[3],
+        ),
         world_loc: Coord3D::new(entry.world_loc[0], entry.world_loc[1], entry.world_loc[2]),
         radar_loc: ICoord2D::new(entry.radar_loc[0], entry.radar_loc[1]),
         sound_played: entry.sound_played,
@@ -450,7 +467,6 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
         persist.script_engine_tail = Some(tail);
     }
 
-
     persist.script_actives = game_logic
         .snapshot_script_actives()
         .into_iter()
@@ -501,8 +517,8 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
         let Some(object) = game_logic.host_object(id) else {
             continue;
         };
-        let tint_envelope = crate::game_logic::capture_drawable_tint_envelope(id.0)
-            .unwrap_or_default();
+        let tint_envelope =
+            crate::game_logic::capture_drawable_tint_envelope(id.0).unwrap_or_default();
         let mut explicit_opacity = object.drawable_explicit_opacity;
         let mut stealth_opacity = object.camo_friendly_opacity;
         let mut effective_stealth_opacity = object.camo_friendly_opacity;
@@ -563,14 +579,14 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
                 overlay_icons = left
                     .overlay_icons
                     .into_iter()
-                    .map(|(name, keep_till_frame, template_name, anim_frame)| {
-                        DrawableIconPersist {
+                    .map(
+                        |(name, keep_till_frame, template_name, anim_frame)| DrawableIconPersist {
                             name,
                             keep_till_frame,
                             template_name,
                             anim_frame,
-                        }
-                    })
+                        },
+                    )
                     .collect();
             }
         }
@@ -632,7 +648,6 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
         });
     }
 
-
     persist
 }
 
@@ -664,13 +679,12 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
         );
     }
 
-    game_logic.restore_script_named_timers(persist.named_timers.iter().map(|timer| {
-        (
-            timer.name.clone(),
-            timer.text.clone(),
-            timer.is_countdown,
-        )
-    }));
+    game_logic.restore_script_named_timers(
+        persist
+            .named_timers
+            .iter()
+            .map(|timer| (timer.name.clone(), timer.text.clone(), timer.is_countdown)),
+    );
     game_logic.restore_script_named_timer_display_shown(persist.named_timer_display_shown);
     game_logic.restore_script_superweapon_display_enabled(!persist.superweapon_hidden_by_script);
     game_logic.restore_script_superweapon_hidden_objects(
@@ -695,15 +709,17 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
     let sequential: Vec<gamelogic::scripting::engine::SequentialScriptSnapshot> = persist
         .script_sequential
         .iter()
-        .map(|script| gamelogic::scripting::engine::SequentialScriptSnapshot {
-            team_id: script.team_id,
-            object_id: script.object_id,
-            script_name: script.script_name.clone(),
-            current_instruction: script.current_instruction,
-            times_to_loop: script.times_to_loop,
-            frames_to_wait: script.frames_to_wait,
-            dont_advance_instruction: script.dont_advance_instruction,
-        })
+        .map(
+            |script| gamelogic::scripting::engine::SequentialScriptSnapshot {
+                team_id: script.team_id,
+                object_id: script.object_id,
+                script_name: script.script_name.clone(),
+                current_instruction: script.current_instruction,
+                times_to_loop: script.times_to_loop,
+                frames_to_wait: script.frames_to_wait,
+                dont_advance_instruction: script.dont_advance_instruction,
+            },
+        )
         .collect();
     let named_reveals: Vec<(String, String, f32, String)> = persist
         .script_named_reveals
@@ -727,7 +743,6 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
         engine.reapply_named_map_reveals();
     });
 
-
     game_logic.restore_script_actives(
         &persist
             .script_actives
@@ -741,14 +756,16 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
         let entries = persist
             .water_updates
             .iter()
-            .map(|entry| gamelogic::terrain::TerrainDynamicWaterSnapshotEntry {
-                trigger_id: entry.trigger_id,
-                water_name: AsciiString::new(),
-                change_per_frame: entry.change_per_frame,
-                target_height: entry.target_height,
-                damage_amount: entry.damage_amount,
-                current_height: entry.current_height,
-            })
+            .map(
+                |entry| gamelogic::terrain::TerrainDynamicWaterSnapshotEntry {
+                    trigger_id: entry.trigger_id,
+                    water_name: AsciiString::new(),
+                    change_per_frame: entry.change_per_frame,
+                    target_height: entry.target_height,
+                    damage_amount: entry.damage_amount,
+                    current_height: entry.current_height,
+                },
+            )
             .collect();
         let _ = terrain.restore_dynamic_water_entries(entries);
     }
@@ -756,7 +773,12 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
     game_logic.restore_radar_script_state(!persist.radar_hidden, persist.radar_forced);
     if let Ok(mut radar) = get_radar_system().write() {
         let mut events = std::array::from_fn(|_| RadarEvent::default());
-        for (idx, entry) in persist.radar_events.iter().take(MAX_RADAR_EVENTS).enumerate() {
+        for (idx, entry) in persist
+            .radar_events
+            .iter()
+            .take(MAX_RADAR_EVENTS)
+            .enumerate()
+        {
             events[idx] = restore_radar_event(entry);
         }
         radar.restore_persist_state(
@@ -861,12 +883,9 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
                     })
                     .collect(),
             };
-            let _ = game_client::core::restore_live_drawable_xfer_visuals(
-                entry.object_id,
-                &visuals,
-            );
+            let _ =
+                game_client::core::restore_live_drawable_xfer_visuals(entry.object_id, &visuals);
         }
-
     }
 }
 
@@ -1053,7 +1072,6 @@ pub fn write_script_engine_block<W: Write + Seek>(
         let mut dont_advance = script.dont_advance_instruction;
         map_xfer(xfer.xfer_bool(&mut dont_advance))?;
     }
-
 
     let mut counters_size = persist.script_counters.len() as u16;
     map_xfer(xfer.xfer_unsigned_short(&mut counters_size))?;
@@ -1870,7 +1888,8 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut cursor, 1);
             write_terrain_logic_block(&mut xfer, &persist).expect("write terrain");
         }
-        let (boundary, water) = parse_terrain_logic_block(&cursor.into_inner()).expect("parse terrain");
+        let (boundary, water) =
+            parse_terrain_logic_block(&cursor.into_inner()).expect("parse terrain");
         assert_eq!(boundary, 1);
         assert_eq!(water[0].trigger_id, 7);
         assert!((water[0].damage_amount - 5.0).abs() < f32::EPSILON);
@@ -1913,7 +1932,11 @@ mod tests {
         }
         let (sequential, counters, _flags, _actives, named_reveals, tail) =
             parse_script_engine_block(&cursor.into_inner()).expect("parse");
-        assert_eq!(sequential.len(), 1, "sequential count must not be written as 0");
+        assert_eq!(
+            sequential.len(),
+            1,
+            "sequential count must not be written as 0"
+        );
         assert_eq!(sequential[0].object_id, 42);
         assert_eq!(sequential[0].script_name, "UnitHuntSeq");
         assert_eq!(sequential[0].current_instruction, 3);
@@ -2005,5 +2028,4 @@ mod tests {
         assert_eq!(tail.object_types[0].0, "Tanks");
         assert_eq!(tail.completed_video[0], "Intro");
     }
-
 }

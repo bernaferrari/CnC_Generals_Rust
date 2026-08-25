@@ -7,39 +7,38 @@ use crate::core::script_action_handler::{
 use crate::game_text::GameText;
 use crate::gui::callbacks::popup_replay::popup_replay_update;
 use crate::gui::campaign_launch_host_bridge::{
-    publish_host_campaign_launch, HostCampaignLaunchDescriptor,
+    HostCampaignLaunchDescriptor, publish_host_campaign_launch,
 };
 use crate::gui::campaign_manager::{
-    get_campaign_manager, Campaign, GameDifficulty as CampaignDifficulty,
+    Campaign, GameDifficulty as CampaignDifficulty, get_campaign_manager,
 };
 use crate::gui::challenge_generals::get_challenge_generals;
+use crate::gui::get_skirmish_setup;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::shell::Shell;
 use crate::gui::{
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
     queue_shell_operation, queue_shell_pop, queue_shell_shutdown_complete,
-    show_shell_map_if_available, with_window_manager, write_input_focus_response, GameWindow,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    show_shell_map_if_available, with_window_manager, write_input_focus_response,
 };
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
-use game_engine::common::recorder::{get_recorder, RecorderMode};
-use game_engine::common::skirmish_battle_honors::{
-    SkirmishBattleHonors, BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE,
-    BATTLE_HONOR_BATTLE_TANK, BATTLE_HONOR_BLITZ10, BATTLE_HONOR_BLITZ5,
-    BATTLE_HONOR_CAMPAIGN_CHINA, BATTLE_HONOR_CAMPAIGN_GLA, BATTLE_HONOR_CAMPAIGN_USA,
-    BATTLE_HONOR_CHALLENGE_MODE, BATTLE_HONOR_LOYALTY_CHINA, BATTLE_HONOR_LOYALTY_GLA,
-    BATTLE_HONOR_LOYALTY_USA, BATTLE_HONOR_STREAK, BH_CHALLENGE_MASK_1, BH_CHALLENGE_MASK_2,
-    BH_CHALLENGE_MASK_3, BH_CHALLENGE_MASK_4, BH_CHALLENGE_MASK_5, BH_CHALLENGE_MASK_6,
-    BH_CHALLENGE_MASK_7,
-};
+use game_engine::common::recorder::{RecorderMode, get_recorder};
 use game_engine::common::rts::score_keeper::{KindOf, KindOfMaskType};
-use crate::gui::get_skirmish_setup;
+use game_engine::common::skirmish_battle_honors::{
+    BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK, BATTLE_HONOR_BLITZ5,
+    BATTLE_HONOR_BLITZ10, BATTLE_HONOR_CAMPAIGN_CHINA, BATTLE_HONOR_CAMPAIGN_GLA,
+    BATTLE_HONOR_CAMPAIGN_USA, BATTLE_HONOR_CHALLENGE_MODE, BATTLE_HONOR_LOYALTY_CHINA,
+    BATTLE_HONOR_LOYALTY_GLA, BATTLE_HONOR_LOYALTY_USA, BATTLE_HONOR_STREAK, BH_CHALLENGE_MASK_1,
+    BH_CHALLENGE_MASK_2, BH_CHALLENGE_MASK_3, BH_CHALLENGE_MASK_4, BH_CHALLENGE_MASK_5,
+    BH_CHALLENGE_MASK_6, BH_CHALLENGE_MASK_7, SkirmishBattleHonors,
+};
+use game_network::{GameInfo, GameSlot, MAX_SLOTS as NETWORK_MAX_SLOTS, SlotState};
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine, TheVictoryConditions};
 use gamelogic::player::{Player, PlayerType, ThePlayerList};
 use gamelogic::system::game_logic::{GAME_INTERNET, GAME_LAN, GAME_SINGLE_PLAYER, GAME_SKIRMISH};
-use game_network::{GameInfo, GameSlot, SlotState, MAX_SLOTS as NETWORK_MAX_SLOTS};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -1800,7 +1799,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn final_victory_movie_includes_challenge_campaigns_like_cpp() {
         let campaign = campaign_with_final_movie(true, "USACampaignVictory");
@@ -1902,7 +1900,9 @@ mod tests {
     fn skirmish_honor_persist_skip_matches_cpp_sandbox_and_defeat() {
         // Sandbox or undecided + still active → skip.
         assert!(should_skip_skirmish_honor_persist(true, false, true, true));
-        assert!(should_skip_skirmish_honor_persist(false, false, false, true));
+        assert!(should_skip_skirmish_honor_persist(
+            false, false, false, true
+        ));
         // Finished allied defeat while still watching AI → persist loss.
         assert!(!should_skip_skirmish_honor_persist(
             false, true, false, true
@@ -1958,12 +1958,18 @@ mod tests {
         let mut stats = gamelogic::player::AcademyStats::new();
         let mut info = game_engine::common::rts::AcademyAdviceInfo::default();
         assert!(stats.calculate_academy_advice(&mut info));
-        assert_eq!(info.advice.first().map(String::as_str), Some("ACADEMY:TryBuildingRadar"));
+        assert_eq!(
+            info.advice.first().map(String::as_str),
+            Some("ACADEMY:TryBuildingRadar")
+        );
 
         stats.apply_live_notify_snapshot(true, 3, 1, true);
         info = game_engine::common::rts::AcademyAdviceInfo::default();
         assert!(stats.calculate_academy_advice(&mut info));
-        assert_ne!(info.advice.first().map(String::as_str), Some("ACADEMY:TryBuildingRadar"));
+        assert_ne!(
+            info.advice.first().map(String::as_str),
+            Some("ACADEMY:TryBuildingRadar")
+        );
     }
 }
 

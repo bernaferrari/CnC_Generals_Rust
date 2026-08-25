@@ -1,6 +1,6 @@
 //! Audio caching system for efficient memory management.
 
-use crate::{error::Result, AudioSource, Priority};
+use crate::{AudioSource, Priority, error::Result};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;

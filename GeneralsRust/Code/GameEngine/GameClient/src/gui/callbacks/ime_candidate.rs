@@ -1,11 +1,11 @@
 //! IMECandidate.cpp callback port.
 
 use crate::gui::display_string::DisplayStringHandle;
-use crate::gui::ime_manager::{get_ime_manager, ImeManager};
+use crate::gui::ime_manager::{ImeManager, get_ime_manager};
 use crate::gui::{
-    get_display_string_manager, get_font_library, with_window_manager, GameWindow,
-    WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled, WindowState, WindowStatus,
-    WIN_COLOR_UNDEFINED,
+    GameWindow, WIN_COLOR_UNDEFINED, WindowInstanceData, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowState, WindowStatus, get_display_string_manager, get_font_library,
+    with_window_manager,
 };
 use std::sync::{Arc, Mutex};
 

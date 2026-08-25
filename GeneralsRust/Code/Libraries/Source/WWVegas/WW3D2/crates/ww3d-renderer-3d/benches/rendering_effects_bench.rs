@@ -2,10 +2,10 @@
 //!
 //! Ensures 60+ FPS on target hardware and memory usage under 100MB
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec3;
 use ww3d_renderer_3d::rendering::{
-    post_process::{rgb_to_luminance, tone_map_reinhard, GaussianBlur},
+    post_process::{GaussianBlur, rgb_to_luminance, tone_map_reinhard},
     reflection_system::ReflectionPlane,
 };
 

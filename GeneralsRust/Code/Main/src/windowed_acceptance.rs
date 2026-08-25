@@ -84,7 +84,7 @@
 //! injected fake asset roots.
 
 use crate::executable_smoke::{
-    lone_eagle_map_on_disk, ExecutableSmokeResult, LONE_EAGLE_CANDIDATES,
+    ExecutableSmokeResult, LONE_EAGLE_CANDIDATES, lone_eagle_map_on_disk,
 };
 use std::path::{Path, PathBuf};
 
@@ -404,8 +404,12 @@ pub fn evaluate_windowed_acceptance_with_assets(
         missing.push(WINDOWS_GAME_ASSETS_MISSING.to_string());
     }
 
-    let (status, exit_code, passed) =
-        classify_windowed_acceptance(r.status.as_str(), windowed_launch, all_eight, assets_present);
+    let (status, exit_code, passed) = classify_windowed_acceptance(
+        r.status.as_str(),
+        windowed_launch,
+        all_eight,
+        assets_present,
+    );
 
     WindowedAcceptanceReport {
         windowed_launch,
@@ -560,10 +564,12 @@ mod tests {
                 report.missing
             );
         }
-        assert!(!report
-            .missing
-            .iter()
-            .any(|m| m == WINDOWS_GAME_ASSETS_MISSING));
+        assert!(
+            !report
+                .missing
+                .iter()
+                .any(|m| m == WINDOWS_GAME_ASSETS_MISSING)
+        );
     }
 
     #[test]
@@ -1010,7 +1016,10 @@ mod tests {
         let observer = smoke
             .split("pub fn run_windowed_acceptance_smoke")
             .nth(1)
-            .and_then(|s| s.split("fn run_executable_smoke_with_launch_and_driver").next())
+            .and_then(|s| {
+                s.split("fn run_executable_smoke_with_launch_and_driver")
+                    .next()
+            })
             .expect("windowed acceptance observer entrypoint");
         assert!(
             observer.contains("SmokeDriver::ManualObserver"),

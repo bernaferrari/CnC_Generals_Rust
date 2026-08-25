@@ -62,8 +62,8 @@ fn residual_action_store(a: ResidualHostEagerStatusVeterancyHelperAction) {
 pub fn residual_host_eager_status_veterancy_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_eager_status_veterancy_helper_last_action(
-) -> ResidualHostEagerStatusVeterancyHelperAction {
+pub fn residual_host_eager_status_veterancy_helper_last_action()
+-> ResidualHostEagerStatusVeterancyHelperAction {
     ResidualHostEagerStatusVeterancyHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {
@@ -154,10 +154,10 @@ mod tests {
     use crate::game_logic::host_veterancy_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_apply_host_status_after_logic, eager_apply_host_veterancy_after_logic,
         eager_map_host_spawn_if_coupled, end_shadow_coupled_tick,
-        install_active_shadow_for_coupled_tick, shadow_session_after_host_tick, GameWorldShadow,
+        install_active_shadow_for_coupled_tick, shadow_session_after_host_tick,
     };
     use glam::Vec3;
 

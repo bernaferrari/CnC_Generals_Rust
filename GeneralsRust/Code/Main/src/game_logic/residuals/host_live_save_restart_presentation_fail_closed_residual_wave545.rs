@@ -78,8 +78,8 @@ pub fn residual_save_restart_presentation_fail_closed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_save_restart_presentation_fail_closed_last_action(
-) -> ResidualSaveRestartPresentationFailClosedAction {
+pub fn residual_save_restart_presentation_fail_closed_last_action()
+-> ResidualSaveRestartPresentationFailClosedAction {
     ResidualSaveRestartPresentationFailClosedAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

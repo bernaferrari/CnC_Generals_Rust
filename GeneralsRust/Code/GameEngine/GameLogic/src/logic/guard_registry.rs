@@ -2,8 +2,8 @@
 
 use super::guard::{GuardBehaviour, GuardEvent, GuardParameters};
 use crate::runtime::SimulationEvent;
-use crate::world::entities::{EntityId, Transform};
 use crate::world::World;
+use crate::world::entities::{EntityId, Transform};
 use std::collections::HashMap;
 
 /// Aggregated statistics describing guard controllers.

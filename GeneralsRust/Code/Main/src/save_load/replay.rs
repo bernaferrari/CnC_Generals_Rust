@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 static HOST_REPLAY_CONTROLS_HIDDEN: AtomicBool = AtomicBool::new(true);
 
@@ -1046,5 +1046,4 @@ mod tests {
             vec![5]
         );
     }
-
 }

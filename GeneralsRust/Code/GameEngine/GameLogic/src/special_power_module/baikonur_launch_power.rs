@@ -319,7 +319,7 @@ impl SpecialPowerModuleInterface for BaikonurLaunchPower {
             None => {
                 return ActivationResult::InvalidTarget {
                     reason: "Nuclear launch requires targeting".to_string(),
-                }
+                };
             }
         };
 

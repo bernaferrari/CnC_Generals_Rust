@@ -3,11 +3,11 @@
 // Ported to Rust
 
 use crate::helpers::{TheGameClient, TheGameLogic, TheParticleSystemManager};
-use crate::object::drawable::DrawableArcExt;
 use crate::object::ObjectArcExt;
+use crate::object::drawable::DrawableArcExt;
 use crate::player::ThePlayerList;
 use crate::prelude::*;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData, NameKeyType,

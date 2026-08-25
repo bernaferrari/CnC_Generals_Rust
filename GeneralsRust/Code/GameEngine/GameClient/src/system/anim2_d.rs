@@ -7,7 +7,7 @@ use crate::gui::ui_globals::with_ui_renderer;
 use crate::gui::ui_renderer::UIRect;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::ini::INILoadType;
-use game_engine::common::ini::{get_anim2d_collection, Anim2DMode, Anim2DTemplate, INI};
+use game_engine::common::ini::{Anim2DMode, Anim2DTemplate, INI, get_anim2d_collection};
 use game_engine::common::random_value::get_game_client_random_value;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::helpers::TheGameLogic;
@@ -453,7 +453,7 @@ fn argb_to_rgba_u8(color: u32, alpha: f32) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::display::image::{get_mapped_image_collection, ICoord2D, Image};
+    use crate::display::image::{ICoord2D, Image, get_mapped_image_collection};
     use game_engine::common::ascii_string::AsciiString;
     use game_engine::common::ini::Anim2DTemplate;
 

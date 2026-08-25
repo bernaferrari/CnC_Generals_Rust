@@ -230,7 +230,7 @@ impl CompressionUtils {
     pub fn compress(data: &[u8], algorithm: CompressionAlgorithm) -> NetworkResult<Vec<u8>> {
         match algorithm {
             CompressionAlgorithm::Zlib => {
-                use flate2::{write::ZlibEncoder, Compression};
+                use flate2::{Compression, write::ZlibEncoder};
                 use std::io::Write;
 
                 let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());

@@ -262,7 +262,6 @@ fn bomb_truck_disguise_holds_without_victim() {
     );
 }
 
-
 /// Fail-closed: non-bomb-truck cannot issue DisguiseAsVehicle.
 #[test]
 fn bomb_truck_disguise_residual_rejects_non_bomb_truck_caster() {
@@ -770,15 +769,19 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    assert!(game_logic
-        .host_upgrades()
-        .honesty_queue_ok(HostUpgradeKind::Camouflage));
+    assert!(
+        game_logic
+            .host_upgrades()
+            .honesty_queue_ok(HostUpgradeKind::Camouflage)
+    );
 
     game_logic.update();
 
-    assert!(game_logic
-        .host_upgrades()
-        .honesty_complete_ok(HostUpgradeKind::Camouflage));
+    assert!(
+        game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::Camouflage)
+    );
     assert!(
         game_logic
             .host_upgrades()
@@ -948,8 +951,8 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
 #[test]
 fn marauder_residual_salvage_fire_rate_tiers() {
     use crate::game_logic::host_marauder::{
-        is_marauder_template, MarauderWeaponTier, MARAUDER_DAMAGE, MARAUDER_RANGE,
-        MARAUDER_TANK_GUN,
+        MARAUDER_DAMAGE, MARAUDER_RANGE, MARAUDER_TANK_GUN, MarauderWeaponTier,
+        is_marauder_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1044,15 +1047,17 @@ fn marauder_residual_salvage_fire_rate_tiers() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_marauder_shell_projectile(
-                marauder_id,
-                from,
-                aim,
-                Some(enemy),
-                crate::game_logic::host_marauder::MARAUDER_SPEED_TIER0,
-            )
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_marauder_shell_projectile(
+                    marauder_id,
+                    from,
+                    aim,
+                    Some(enemy),
+                    crate::game_logic::host_marauder::MARAUDER_SPEED_TIER0,
+                )
+                .is_some()
+        );
         game_logic.marauder_residual_fires = game_logic.marauder_residual_fires.saturating_add(1);
     }
     for _ in 0..80 {
@@ -1099,8 +1104,8 @@ fn marauder_residual_salvage_fire_rate_tiers() {
 #[test]
 fn scorpion_residual_gun_salvage_and_rocket() {
     use crate::game_logic::host_scorpion::{
-        is_scorpion_template, ScorpionSalvageTier, SCORPION_GUN_DAMAGE, SCORPION_GUN_DAMAGE_PLUS,
-        SCORPION_RANGE, SCORPION_TANK_GUN, UPGRADE_GLA_SCORPION_ROCKET,
+        SCORPION_GUN_DAMAGE, SCORPION_GUN_DAMAGE_PLUS, SCORPION_RANGE, SCORPION_TANK_GUN,
+        ScorpionSalvageTier, UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1254,9 +1259,11 @@ fn scorpion_residual_gun_salvage_and_rocket() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_scorpion_shell_projectile(scorp_id, from, aim, None, 0)
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_scorpion_shell_projectile(scorp_id, from, aim, None, 0)
+                .is_some()
+        );
         game_logic.scorpion_residual_fires = game_logic.scorpion_residual_fires.saturating_add(1);
     }
     for _ in 0..80 {
@@ -1329,9 +1336,11 @@ fn scorpion_residual_gun_salvage_and_rocket() {
             .host_object(far)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_scorpion_missile_projectile(scorp_id, from, aim, Some(far), 1)
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_scorpion_missile_projectile(scorp_id, from, aim, Some(far), 1)
+                .is_some()
+        );
         game_logic.scorpion_residual_missile_fires =
             game_logic.scorpion_residual_missile_fires.saturating_add(1);
     }
@@ -1366,8 +1375,8 @@ fn scorpion_residual_gun_salvage_and_rocket() {
 #[test]
 fn tomahawk_residual_dual_radius_missile() {
     use crate::game_logic::host_tomahawk::{
-        is_tomahawk_template, TOMAHAWK_MIN_RANGE, TOMAHAWK_MISSILE_WEAPON, TOMAHAWK_PRIMARY_DAMAGE,
-        TOMAHAWK_RANGE,
+        TOMAHAWK_MIN_RANGE, TOMAHAWK_MISSILE_WEAPON, TOMAHAWK_PRIMARY_DAMAGE, TOMAHAWK_RANGE,
+        is_tomahawk_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1515,8 +1524,8 @@ fn tomahawk_residual_dual_radius_missile() {
 #[test]
 fn mig_residual_napalm_and_black_napalm() {
     use crate::game_logic::host_mig::{
-        is_mig_template, is_nuke_mig_template, MIG_MIN_RANGE, MIG_PRIMARY_DAMAGE, MIG_RANGE,
-        NAPALM_MISSILE_WEAPON,
+        MIG_MIN_RANGE, MIG_PRIMARY_DAMAGE, MIG_RANGE, NAPALM_MISSILE_WEAPON, is_mig_template,
+        is_nuke_mig_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1598,9 +1607,11 @@ fn mig_residual_napalm_and_black_napalm() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy))
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_mig_missile_projectile(mig_id, from, aim, Some(enemy))
+                .is_some()
+        );
         game_logic.mig_residual_fires = game_logic.mig_residual_fires.saturating_add(1);
     }
     for _ in 0..120 {
@@ -1711,8 +1722,8 @@ fn mig_residual_napalm_and_black_napalm() {
 #[test]
 fn mig_nuke_residual_tactical_nuke() {
     use crate::game_logic::host_mig::{
-        is_nuke_mig_template, NUKE_MIG_MISSILE_WEAPON, NUKE_MIG_PRIMARY_DAMAGE,
-        NUKE_TACTICAL_PRIMARY_DAMAGE,
+        NUKE_MIG_MISSILE_WEAPON, NUKE_MIG_PRIMARY_DAMAGE, NUKE_TACTICAL_PRIMARY_DAMAGE,
+        is_nuke_mig_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1851,8 +1862,8 @@ fn mig_nuke_residual_tactical_nuke() {
 #[test]
 fn fire_base_residual_howitzer() {
     use crate::game_logic::host_fire_base::{
-        is_fire_base_template, FIRE_BASE_DAMAGE, FIRE_BASE_HOWITZER_WEAPON, FIRE_BASE_MIN_RANGE,
-        FIRE_BASE_RANGE,
+        FIRE_BASE_DAMAGE, FIRE_BASE_HOWITZER_WEAPON, FIRE_BASE_MIN_RANGE, FIRE_BASE_RANGE,
+        is_fire_base_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1940,9 +1951,11 @@ fn fire_base_residual_howitzer() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(150.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_fire_base_shell_projectile(fb_id, from, aim, Some(enemy))
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_fire_base_shell_projectile(fb_id, from, aim, Some(enemy))
+                .is_some()
+        );
         game_logic.fire_base_residual_fires = game_logic.fire_base_residual_fires.saturating_add(1);
     }
     for _ in 0..120 {
@@ -1993,8 +2006,8 @@ fn fire_base_residual_howitzer() {
 #[test]
 fn raptor_residual_missiles_and_laser_missiles() {
     use crate::game_logic::host_raptor::{
-        is_king_raptor_template, is_raptor_template, KING_RAPTOR_DAMAGE, KING_RAPTOR_RANGE,
-        RAPTOR_DAMAGE, RAPTOR_JET_MISSILE_WEAPON, RAPTOR_MIN_RANGE, RAPTOR_RANGE,
+        KING_RAPTOR_DAMAGE, KING_RAPTOR_RANGE, RAPTOR_DAMAGE, RAPTOR_JET_MISSILE_WEAPON,
+        RAPTOR_MIN_RANGE, RAPTOR_RANGE, is_king_raptor_template, is_raptor_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2067,9 +2080,11 @@ fn raptor_residual_missiles_and_laser_missiles() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(120.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_raptor_missile_projectile(raptor_id, from, aim, Some(enemy))
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_raptor_missile_projectile(raptor_id, from, aim, Some(enemy))
+                .is_some()
+        );
         game_logic.raptor_residual_fires = game_logic.raptor_residual_fires.saturating_add(1);
     }
     for _ in 0..120 {
@@ -2159,8 +2174,8 @@ fn raptor_residual_missiles_and_laser_missiles() {
 #[test]
 fn stealth_fighter_residual_missiles_and_splash() {
     use crate::game_logic::host_stealth_fighter::{
-        is_stealth_fighter_template, STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_MIN_RANGE,
-        STEALTH_FIGHTER_RANGE, STEALTH_JET_MISSILE_WEAPON,
+        STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_MIN_RANGE, STEALTH_FIGHTER_RANGE,
+        STEALTH_JET_MISSILE_WEAPON, is_stealth_fighter_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2238,9 +2253,11 @@ fn stealth_fighter_residual_missiles_and_splash() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_stealth_jet_missile_projectile(fighter_id, from, aim, Some(enemy))
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_stealth_jet_missile_projectile(fighter_id, from, aim, Some(enemy))
+                .is_some()
+        );
         game_logic.stealth_fighter_residual_fires =
             game_logic.stealth_fighter_residual_fires.saturating_add(1);
     }
@@ -2289,8 +2306,8 @@ fn stealth_fighter_residual_missiles_and_splash() {
 #[test]
 fn comanche_residual_cannon_and_antitank() {
     use crate::game_logic::host_comanche_rocket_pods::{
-        is_comanche_template, COMANCHE_ANTITANK_WEAPON, COMANCHE_AT_PRIMARY_DAMAGE,
-        COMANCHE_CANNON_DAMAGE, COMANCHE_PRIMARY_WEAPON,
+        COMANCHE_ANTITANK_WEAPON, COMANCHE_AT_PRIMARY_DAMAGE, COMANCHE_CANNON_DAMAGE,
+        COMANCHE_PRIMARY_WEAPON, is_comanche_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2533,7 +2550,7 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
         INFERNO_FIRE_DAMAGE_PER_TICK, INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
     };
     use crate::game_logic::weapon_bootstrap::{
-        ensure_host_weapon_store, INFERNO_CANNON_PRIMARY_WEAPON,
+        INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
     };
 
     ensure_host_weapon_store();
@@ -2599,9 +2616,11 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
             .host_object(enemy_id)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), true)
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_inferno_shell_projectile(cannon_id, from, aim, Some(enemy_id), true)
+                .is_some()
+        );
     }
     for _ in 0..200 {
         game_logic.frame = game_logic.frame.saturating_add(1);
@@ -2665,7 +2684,7 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
 #[test]
 fn battle_drone_residual_attach_fire_and_repair() {
     use crate::game_logic::host_slave_drones::{
-        is_battle_drone_template, SlaveDroneKind, BATTLE_DRONE_GUN_DAMAGE, BATTLE_DRONE_MACHINE_GUN,
+        BATTLE_DRONE_GUN_DAMAGE, BATTLE_DRONE_MACHINE_GUN, SlaveDroneKind, is_battle_drone_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2781,8 +2800,8 @@ fn battle_drone_residual_attach_fire_and_repair() {
 #[test]
 fn overlord_gun_residual_dual_radius_and_uranium() {
     use crate::game_logic::host_overlord_gun::{
-        is_overlord_gun_chassis, OVERLORD_PRIMARY_DAMAGE, OVERLORD_RANGE, OVERLORD_TANK_GUN,
-        UPGRADE_CHINA_URANIUM_SHELLS,
+        OVERLORD_PRIMARY_DAMAGE, OVERLORD_RANGE, OVERLORD_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS,
+        is_overlord_gun_chassis,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2874,9 +2893,11 @@ fn overlord_gun_residual_dual_radius_and_uranium() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(100.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_overlord_shell_projectile(ov_id, from, aim, Some(enemy))
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_overlord_shell_projectile(ov_id, from, aim, Some(enemy))
+                .is_some()
+        );
     }
     for _ in 0..100 {
         game_logic.frame = game_logic.frame.saturating_add(1);
@@ -2930,8 +2951,8 @@ fn overlord_gun_residual_dual_radius_and_uranium() {
 #[test]
 fn jarmen_kell_residual_sniper_and_ap_bullets() {
     use crate::game_logic::host_jarmen_kell::{
-        is_jarmen_kell_template, JARMEN_KELL_DAMAGE, JARMEN_KELL_RANGE, JARMEN_KELL_RIFLE,
-        UPGRADE_GLA_AP_BULLETS,
+        JARMEN_KELL_DAMAGE, JARMEN_KELL_RANGE, JARMEN_KELL_RIFLE, UPGRADE_GLA_AP_BULLETS,
+        is_jarmen_kell_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3037,8 +3058,8 @@ fn jarmen_kell_residual_sniper_and_ap_bullets() {
 #[test]
 fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
     use crate::game_logic::host_battlemaster::{
-        is_battlemaster_template, BATTLE_MASTER_DAMAGE, BATTLE_MASTER_RANGE,
-        BATTLE_MASTER_TANK_GUN, UPGRADE_CHINA_URANIUM_SHELLS, UPGRADE_NATIONALISM,
+        BATTLE_MASTER_DAMAGE, BATTLE_MASTER_RANGE, BATTLE_MASTER_TANK_GUN,
+        UPGRADE_CHINA_URANIUM_SHELLS, UPGRADE_NATIONALISM, is_battlemaster_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3188,9 +3209,11 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_battlemaster_shell_projectile(bm0, from, aim, Some(enemy))
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_battlemaster_shell_projectile(bm0, from, aim, Some(enemy))
+                .is_some()
+        );
     }
     // DumbProjectile Bezier residual: advance BattleMasterTankShell to impact.
     for _ in 0..80 {
@@ -3246,7 +3269,7 @@ fn battlemaster_residual_gun_uranium_and_horde_nationalism() {
 fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
     use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
     use crate::game_logic::host_red_guard::{
-        is_red_guard_template, REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE,
+        REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE, is_red_guard_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3405,7 +3428,7 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
 fn tank_hunter_residual_rpg_horde_and_tnt() {
     use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
     use crate::game_logic::host_tank_hunter::{
-        is_tank_hunter_template, TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE,
+        TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE, is_tank_hunter_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -3520,9 +3543,11 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
             .host_object(enemy)
             .map(|o| o.get_position())
             .unwrap_or(Vec3::new(80.0, 0.0, 0.0));
-        assert!(game_logic
-            .spawn_tank_hunter_missile_projectile(th0, from, aim, Some(enemy))
-            .is_some());
+        assert!(
+            game_logic
+                .spawn_tank_hunter_missile_projectile(th0, from, aim, Some(enemy))
+                .is_some()
+        );
         game_logic.tank_hunter_residual_fires =
             game_logic.tank_hunter_residual_fires.saturating_add(1);
     }
@@ -3615,7 +3640,7 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
 #[test]
 fn rebel_residual_gun_and_ap_bullets() {
     use crate::game_logic::host_gla_rebel::{
-        is_gla_rebel_template, REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE, UPGRADE_GLA_AP_BULLETS,
+        REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE, UPGRADE_GLA_AP_BULLETS, is_gla_rebel_template,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 

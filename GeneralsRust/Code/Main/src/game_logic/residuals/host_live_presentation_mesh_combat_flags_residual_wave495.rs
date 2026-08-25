@@ -78,8 +78,8 @@ pub fn residual_presentation_mesh_combat_flags_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_mesh_combat_flags_last_action(
-) -> ResidualPresentationMeshCombatFlagsAction {
+pub fn residual_presentation_mesh_combat_flags_last_action()
+-> ResidualPresentationMeshCombatFlagsAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationMeshCombatFlagsAction::MethodNames,
         2 => ResidualPresentationMeshCombatFlagsAction::SourceMarkers,

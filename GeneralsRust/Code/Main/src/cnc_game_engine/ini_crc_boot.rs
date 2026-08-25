@@ -3,10 +3,10 @@
 //! C++ `GameEngine.cpp:314-530` wraps every `initSubsystem` INI load in one
 //! `XferCRC`. GameData-only hashing is not the MP/replay identity.
 
-use game_engine::common::ini::{INILoadType, INI};
+use game_engine::common::ini::{INI, INILoadType};
+use game_engine::common::system::Xfer;
 use game_engine::common::system::xfer_crc::XferCRC;
 use game_engine::common::system::xfer_load::XferLoad;
-use game_engine::common::system::Xfer;
 use log::debug;
 use std::io::Cursor;
 use std::path::Path;

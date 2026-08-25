@@ -100,7 +100,7 @@ impl GameWorldShadow {
         // Wave 798: ToxinStream projectile residual.
         if e.toxin_stream_projectile {
             use crate::game_logic::host_toxin_tractor::{
-                toxin_stream_missile_step_speed, TOXIN_STREAM_MISSILE_TURN_DISTANCE,
+                TOXIN_STREAM_MISSILE_TURN_DISTANCE, toxin_stream_missile_step_speed,
             };
             let pos = e.transform.position;
             let (aim_x, aim_y, aim_z) = if e.toxin_stream_has_aim {
@@ -204,7 +204,7 @@ impl GameWorldShadow {
         // Wave 799: AngryMob projectile residual.
         if e.angry_mob_projectile {
             use crate::game_logic::host_angry_mob::{
-                angry_mob_projectile_bezier_point, AngryMobProjectileKind,
+                AngryMobProjectileKind, angry_mob_projectile_bezier_point,
             };
             let pos = e.transform.position;
             let from = if e.angry_mob_projectile_has_from {

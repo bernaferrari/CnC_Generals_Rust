@@ -23,7 +23,7 @@ use crate::common::{
 use once_cell::sync::Lazy;
 use std::{
     any::Any,
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     mem,
     sync::{Arc, Mutex},
 };
@@ -213,7 +213,6 @@ const BUILTIN_BEHAVIOR_DESCRIPTORS: &[(&str, ModuleInterfaceType)] = &[
     ),
     ("BaikonurLaunchPower", ModuleInterfaceType::UPDATE),
     ("DefectorSpecialPower", ModuleInterfaceType::UPDATE),
-
     ("BattlePlanUpdate", ModuleInterfaceType::UPDATE),
     ("ProjectileStreamUpdate", ModuleInterfaceType::UPDATE),
     ("QueueProductionExitUpdate", ModuleInterfaceType::UPDATE),

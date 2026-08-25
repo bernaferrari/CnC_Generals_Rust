@@ -8,7 +8,7 @@
 use super::super::UpgradeMask;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::*;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use std::sync::Arc;
@@ -179,7 +179,9 @@ impl RadarUpgrade {
             // In a real implementation, this would be done via a mutable reference
             // For now, we log the intent - full implementation requires refactoring
             // the Player system to support mutable access during capture
-            log::warn!("RadarUpgrade::on_capture needs mutable Player access to remove radar from old owner");
+            log::warn!(
+                "RadarUpgrade::on_capture needs mutable Player access to remove radar from old owner"
+            );
             self.mux.set_upgrade_executed(false);
         }
 

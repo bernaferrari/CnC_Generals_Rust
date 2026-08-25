@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -177,7 +177,6 @@ impl CleanupAreaPower {
     fn dispatch_on_special_power_creation(&mut self) {}
 }
 
-
 impl Module for CleanupAreaPower {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -221,7 +220,6 @@ impl BehaviorModuleInterface for CleanupAreaPower {
 }
 super::interface::impl_special_power_subclass!(CleanupAreaPower);
 
-
 impl Snapshotable for CleanupAreaPower {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -242,7 +240,6 @@ impl Snapshotable for CleanupAreaPower {
         super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
-
 
 // INI field parsers
 
@@ -306,8 +303,10 @@ mod tests {
         let arc_data = Arc::new(data);
         let power = CleanupAreaPower::new(0, 0, arc_data);
         // Should return Ok without panicking when owner doesn't exist
-        assert!(power
-            .do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0))
-            .is_ok());
+        assert!(
+            power
+                .do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0))
+                .is_ok()
+        );
     }
 }

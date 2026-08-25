@@ -86,8 +86,8 @@ pub fn residual_command_integration_presentation_fill_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_command_integration_presentation_fill_last_action(
-) -> ResidualCommandIntegrationPresentationFillAction {
+pub fn residual_command_integration_presentation_fill_last_action()
+-> ResidualCommandIntegrationPresentationFillAction {
     ResidualCommandIntegrationPresentationFillAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

@@ -82,8 +82,7 @@ mod tests {
 
     #[test]
     fn host_wave_inflation_shipped_fn_contains_rejects_self_table_only() {
-        let table_only =
-            "const NAMES: &[&str] = &[\"draw_construct_percent\", \"Wave 1115\", \"playable_claim = false\"];";
+        let table_only = "const NAMES: &[&str] = &[\"draw_construct_percent\", \"Wave 1115\", \"playable_claim = false\"];";
         assert!(
             !shipped_fn_contains(
                 table_only,

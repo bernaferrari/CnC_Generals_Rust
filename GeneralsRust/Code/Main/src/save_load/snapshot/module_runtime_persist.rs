@@ -17,7 +17,7 @@ use crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData;
 use crate::game_logic::host_countermeasures::{
     HostCountermeasuresState, PendingCountermeasureFlareSpawn,
 };
-use crate::game_logic::host_enemy_near::{HostEnemyNearData, ENEMY_NEAR_MODEL_CONDITION};
+use crate::game_logic::host_enemy_near::{ENEMY_NEAR_MODEL_CONDITION, HostEnemyNearData};
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -69,10 +69,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_msrt_suffix(bytes) else {
         return Ok(());
     };
@@ -250,25 +247,13 @@ mod tests {
         source.add_player(Player::new(0, Team::USA, "USA", true));
 
         let raptor = source
-            .create_object(
-                "AmericaJetRaptor",
-                Team::USA,
-                Vec3::new(0.0, 20.0, 0.0),
-            )
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 20.0, 0.0))
             .expect("raptor");
         let gate = source
-            .create_object(
-                "AmericaCheckpoint",
-                Team::USA,
-                Vec3::new(40.0, 0.0, 0.0),
-            )
+            .create_object("AmericaCheckpoint", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .expect("gate");
         let wall = source
-            .create_object(
-                "AmericaWallSegment",
-                Team::USA,
-                Vec3::new(80.0, 0.0, 0.0),
-            )
+            .create_object("AmericaWallSegment", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .expect("wall");
 
         let mut cm = HostCountermeasuresState::full_load();
@@ -282,13 +267,13 @@ mod tests {
         cm.next_volley_frame = 74;
         cm.flare_ids = vec![ObjectId(501), ObjectId(502), ObjectId(503), ObjectId(504)];
         source.countermeasures.restore_state(raptor, cm);
-        source
-            .countermeasures
-            .restore_pending_flare_spawns(vec![PendingCountermeasureFlareSpawn {
+        source.countermeasures.restore_pending_flare_spawns(vec![
+            PendingCountermeasureFlareSpawn {
                 aircraft_id: raptor,
                 frame: 40,
                 volley_index: 1,
-            }]);
+            },
+        ]);
 
         {
             let object = source.host_object_mut(gate).expect("gate");

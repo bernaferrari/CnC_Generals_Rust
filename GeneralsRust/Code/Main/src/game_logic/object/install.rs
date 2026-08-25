@@ -2,7 +2,6 @@ use super::*;
 
 impl Object {
     pub(crate) fn is_power_style_disabled(&self) -> bool {
-
         self.status.disabled_underpowered
             || self.status.disabled_emp
             || self.status.disabled_subdued
@@ -16,7 +15,6 @@ impl Object {
 
     /// C++ Object.cpp:2078-2088 / 2237-2247 Building/Vehicle Disabled/Reenabled.
     pub(crate) fn queue_power_disable_misc_audio(&self, becoming: bool) {
-
         let token = if self.is_kind_of(crate::game_logic::KindOf::Structure) {
             if becoming {
                 "BuildingDisabled"
@@ -111,10 +109,7 @@ impl Object {
         if !self.is_disarmable_mine() {
             return false;
         }
-        let keep_regen = self
-            .mine_data
-            .as_ref()
-            .is_some_and(|md| md.regenerates);
+        let keep_regen = self.mine_data.as_ref().is_some_and(|md| md.regenerates);
         if keep_regen {
             use crate::game_logic::host_enum_table_residual::rubble_model_bit;
             use crate::game_logic::host_mines::MINE_MIN_HEALTH;
@@ -574,10 +569,12 @@ impl Object {
         if self.default_auto_heal.is_some() {
             return;
         }
-        if let Some(data) = crate::game_logic::host_heal::HostDefaultAutoHealData::for_trainable_template(
-            &self.template_name,
-            self.is_trainable(),
-        ) {
+        if let Some(data) =
+            crate::game_logic::host_heal::HostDefaultAutoHealData::for_trainable_template(
+                &self.template_name,
+                self.is_trainable(),
+            )
+        {
             self.default_auto_heal = Some(data);
         }
     }
@@ -587,7 +584,6 @@ impl Object {
             ah.on_damage(current_frame);
         }
     }
-
 
     pub fn notify_base_regenerate_damage(&mut self, current_frame: u32, is_healing: bool) {
         if let Some(br) = self.base_regenerate.as_mut() {
@@ -650,8 +646,7 @@ impl Object {
             ),
         );
         // C++ setCommandButton → aiIdle(CMD_FROM_AI).
-        self.last_command_source =
-            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+        self.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
         self.set_ai_state(AIState::Idle);
         self.target = None;
         self.stop_moving();
@@ -693,7 +688,6 @@ impl Object {
         self.record_host_ai_request();
     }
 
-
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
         let becoming = !self.is_disabled();
         let already_power = self.is_power_style_disabled();
@@ -721,7 +715,6 @@ impl Object {
         }
     }
 
-
     pub fn tick_disabled_hacked(&mut self, current_frame: u32) {
         if self.status.disabled_hacked
             && self.status.disabled_hacked_until_frame > 0
@@ -737,7 +730,6 @@ impl Object {
             }
         }
     }
-
 
     /// Disable until_frame residual → GameWorld SetDisableTimers.
     pub fn record_disable_timers(&mut self) {
@@ -789,7 +781,6 @@ impl Object {
         }
     }
 
-
     /// Apply DISABLED_PARALYZED residual until `until_frame` (absolute host logic frame).
     /// C++ BattlePlanUpdate::paralyzeTroop: setDisabledUntil(DISABLED_PARALYZED, now + frames).
     /// Refresh extends the timer if a later expiry is provided.
@@ -830,28 +821,26 @@ impl Object {
     /// not turn Overcharge off; EnergyBonus is folded out of the live power
     /// scan while `is_disabled`.
     pub(crate) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
-
         use crate::game_logic::host_radar::{
             leftover_on_disabled_edge_radar, leftover_radar_upgrade_is_applied,
             record_leftover_radar_disabled_edge,
         };
         use crate::game_logic::host_upgrades::{
-            normalize_upgrade_identity, radar_provider_required_research_upgrade,
-            UPGRADE_CHINA_RADAR,
+            UPGRADE_CHINA_RADAR, normalize_upgrade_identity,
+            radar_provider_required_research_upgrade,
         };
 
         let required = radar_provider_required_research_upgrade(&self.template_name);
         let tagged = required.is_some_and(|req| {
             self.has_upgrade_tag(req)
                 || self.has_upgrade_tag(UPGRADE_CHINA_RADAR)
-                || self.applied_upgrades.iter().any(|name| {
-                    normalize_upgrade_identity(name).contains("chinaradar")
-                })
+                || self
+                    .applied_upgrades
+                    .iter()
+                    .any(|name| normalize_upgrade_identity(name).contains("chinaradar"))
         });
         let applied = leftover_radar_upgrade_is_applied(&self.template_name, tagged);
-        if let Some(disable_proof) =
-            leftover_on_disabled_edge_radar(&self.template_name, applied)
-        {
+        if let Some(disable_proof) = leftover_on_disabled_edge_radar(&self.template_name, applied) {
             record_leftover_radar_disabled_edge(
                 self.owner_player_id,
                 becoming_disabled,
@@ -1018,12 +1007,7 @@ impl Object {
     }
 
     /// C++ `AIRappelState::onEnter`: dest Z + MODELCONDITION_RAPPELLING.
-    pub fn begin_rappel(
-        &mut self,
-        dest_y: f32,
-        target_is_bldg: bool,
-        target: Option<ObjectId>,
-    ) {
+    pub fn begin_rappel(&mut self, dest_y: f32, target_is_bldg: bool, target: Option<ObjectId>) {
         self.status.rappelling = true;
         self.status.rappel_dest_y = dest_y;
         self.status.rappel_target_is_bldg = target_is_bldg;

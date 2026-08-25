@@ -16,7 +16,7 @@
 //! - Not full projectile Object creation
 
 use crate::game_logic::host_enum_table_residual::{
-    host_calc_body_damage_state, HostBodyDamageType,
+    HostBodyDamageType, host_calc_body_damage_state,
 };
 use crate::game_logic::host_temporary_weapon_behavior::FireWeaponDamageTypeMask;
 use serde::{Deserialize, Serialize};
@@ -265,15 +265,11 @@ mod tests {
         // C++ reloadAmmo: first damaged tick arms the clip, does not fire.
         assert!(d.tick_continuous(40.0, 100.0, 1).is_none());
         let reload = d.continuous_reload_frames.max(1);
-        let w = d
-            .tick_continuous(40.0, 100.0, 1 + reload)
-            .expect("cont");
+        let w = d.tick_continuous(40.0, 100.0, 1 + reload).expect("cont");
         assert!(w.contains("PoisonField"));
         // reload gate
         assert!(d.tick_continuous(40.0, 100.0, 2 + reload).is_none());
-        let w2 = d
-            .tick_continuous(40.0, 100.0, 1 + reload + reload)
-            .unwrap();
+        let w2 = d.tick_continuous(40.0, 100.0, 1 + reload + reload).unwrap();
         assert!(w2.contains("PoisonField"));
     }
 }

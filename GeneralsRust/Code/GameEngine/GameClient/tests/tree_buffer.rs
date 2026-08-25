@@ -1,9 +1,9 @@
 use game_client_rust::terrain::{
-    BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeFxKind, TreeGeometryType,
-    TreeModuleData, TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere,
-    W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS,
-    DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
-    TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX,
+    ANGULAR_LIMIT, BreezeInfo, CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE,
+    END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX,
+    TreeCollisionUnit, TreeConstructionGeometry, TreeFxKind, TreeGeometryType, TreeModuleData,
+    TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere,
+    W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX, W3DToppleState, W3DTreeBuffer,
 };
 use glam::{Mat4, Vec2, Vec3, Vec4};
 
@@ -65,10 +65,12 @@ fn constants_and_clear_match_cpp_shape() {
     assert!(buffer.trees().is_empty());
     assert!(buffer.tree_types().is_empty());
     assert_eq!(buffer.bounds(), TreeRegion2D::default());
-    assert!(buffer
-        .area_partition()
-        .iter()
-        .all(|&v| v == END_OF_PARTITION));
+    assert!(
+        buffer
+            .area_partition()
+            .iter()
+            .all(|&v| v == END_OF_PARTITION)
+    );
 }
 
 #[test]

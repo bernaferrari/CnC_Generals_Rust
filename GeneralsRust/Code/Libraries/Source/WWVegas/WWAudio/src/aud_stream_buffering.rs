@@ -887,11 +887,7 @@ impl StreamProfile {
 
     /// Get current processing rate (bytes per second)
     pub fn get_rate(&self) -> u64 {
-        if self.active {
-            self.processing_rate
-        } else {
-            0
-        }
+        if self.active { self.processing_rate } else { 0 }
     }
 
     /// Check if profiling is active

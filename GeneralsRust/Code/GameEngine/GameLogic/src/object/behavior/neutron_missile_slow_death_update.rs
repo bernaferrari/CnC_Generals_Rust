@@ -11,12 +11,12 @@ use crate::helpers::{
 use crate::modules::{
     BehaviorModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::behavior::slow_death_behavior::SlowDeathPhaseType;
 use crate::object::behavior::topple_update::{TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX};
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{

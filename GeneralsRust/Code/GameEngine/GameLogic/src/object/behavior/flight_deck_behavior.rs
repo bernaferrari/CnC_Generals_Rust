@@ -13,12 +13,12 @@ use std::sync::{Arc, RwLock};
 
 use crate::ai::group::GuardMode;
 use crate::ai::{AiCommandType, CommandSourceType, THE_AI};
-use crate::common::xfer::XferExt;
 use crate::common::ThingTemplate;
+use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, CoordOrigin, Int, Matrix3D, ModelConditionFlags, ObjectID,
-    ObjectStatusMaskType, Real, UnsignedInt, FROM_CENTER_2D, LOGICFRAMES_PER_SECOND, NEVER,
-    SECONDS_PER_LOGICFRAME_REAL,
+    AsciiString, Bool, Coord3D, CoordOrigin, FROM_CENTER_2D, Int, LOGICFRAMES_PER_SECOND, Matrix3D,
+    ModelConditionFlags, NEVER, ObjectID, ObjectStatusMaskType, Real, SECONDS_PER_LOGICFRAME_REAL,
+    UnsignedInt,
 };
 use crate::helpers::{
     TheGameLogic, TheParticleSystemManager, ThePartitionManager, TheThingFactory,
@@ -26,17 +26,17 @@ use crate::helpers::{
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, DieModuleInterface,
     ExitDoorType as ModuleExitDoorType, ExitInterface as ModuleExitInterface,
-    ProductionUpdateInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::{
     BehaviorModuleData, PPInfo as SharedPPInfo,
     ParkingPlaceBehaviorInterface as SharedParkingPlaceBehaviorInterface,
     RunwayReservationType as SharedRunwayReservationType, Team as SharedTeam,
 };
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
 use crate::template::ObjectTemplate;
 use crate::weapon::NO_MAX_SHOTS_LIMIT;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing as ModuleThing};
@@ -2600,8 +2600,8 @@ fn ai_command_type_from_i32(value: i32) -> AiCommandType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
     use std::sync::{Arc, RwLock};
 

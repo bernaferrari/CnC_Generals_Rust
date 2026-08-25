@@ -11,8 +11,8 @@ use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
 use crate::gui::gadgets::{
@@ -46,8 +46,8 @@ use crate::gui::w3d_gadget_draw::{
 };
 
 use crate::gui::window_script::{
-    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
-    WindowLayoutDefinition,
+    TabControlData as ScriptTabControlData, WindowDefinition, WindowLayoutDefinition,
+    parse_window_script,
 };
 
 use crate::game_text::GameText;
@@ -135,10 +135,10 @@ mod wnd_parse;
 
 pub use layout::{WindowLayout, WindowLayoutInfo};
 pub use reentry::{
-    dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager, hide_window_rc,
-    queue_create_layout, queue_set_focus, queue_window_manager_op,
+    ReentryFallback, dispatch_os_key_to_window_manager, dispatch_os_mouse_to_window_manager,
+    hide_window_rc, queue_create_layout, queue_set_focus, queue_window_manager_op,
     queue_window_manager_op_deferred, window_manager_try_borrow_free, with_window_manager,
-    with_window_manager_ref, ReentryFallback,
+    with_window_manager_ref,
 };
 pub use types::{CaptureFlags, ModalWindow, TabDirection};
 

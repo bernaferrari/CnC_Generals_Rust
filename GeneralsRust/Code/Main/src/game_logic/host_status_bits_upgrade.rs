@@ -16,7 +16,7 @@
 //! ObjectStatus Xfer rebind / Drawable status reflection.
 
 use crate::game_logic::host_enum_table_residual::{
-    object_status_bit_name_index, OBJECT_STATUS_BIT_NAME_LIST, OBJECT_STATUS_COUNT,
+    OBJECT_STATUS_BIT_NAME_LIST, OBJECT_STATUS_COUNT, object_status_bit_name_index,
 };
 use serde::{Deserialize, Serialize};
 
@@ -220,7 +220,10 @@ pub fn collect_status_bits_for_upgrade(
         .filter(|peel| peel_applies_to_template(peel, template_name))
         .map(|peel| {
             (
-                peel.status_to_set.iter().map(|s| (*s).to_string()).collect(),
+                peel.status_to_set
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect(),
                 peel.status_to_clear
                     .iter()
                     .map(|s| (*s).to_string())
@@ -229,7 +232,6 @@ pub fn collect_status_bits_for_upgrade(
         })
         .collect()
 }
-
 
 /// Peels matching an upgrade name (case-insensitive contains/equality).
 pub fn peels_for_upgrade(upgrade_name: &str) -> Vec<&'static StatusBitsUpgradePeel> {
@@ -357,11 +359,8 @@ mod tests {
         // hq-kpm9g: upgrades outside the 3 hardcoded peels must still apply
         // authored StatusToSet/StatusToClear.
         assert!(peels_for_upgrade("Upgrade_DemoSuicideCarbomb").is_empty());
-        let parsed = parse_status_bits_upgrade_fields(
-            "Upgrade_DemoSuicideCarbomb",
-            "IS_CARBOMB",
-            "",
-        );
+        let parsed =
+            parse_status_bits_upgrade_fields("Upgrade_DemoSuicideCarbomb", "IS_CARBOMB", "");
         assert!(!parsed.status_to_set.is_empty());
         let bits =
             apply_status_bits_upgrade_names(0, &parsed.status_to_set, &parsed.status_to_clear);

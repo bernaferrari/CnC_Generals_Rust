@@ -52,8 +52,8 @@ fn residual_action_store(a: ResidualHostScorpionMissileDualPeelAction) {
 pub fn residual_host_scorpion_missile_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_scorpion_missile_dual_peel_last_action(
-) -> ResidualHostScorpionMissileDualPeelAction {
+pub fn residual_host_scorpion_missile_dual_peel_last_action()
+-> ResidualHostScorpionMissileDualPeelAction {
     ResidualHostScorpionMissileDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {

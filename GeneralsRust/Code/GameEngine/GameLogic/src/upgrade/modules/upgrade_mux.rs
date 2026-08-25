@@ -5,9 +5,9 @@
 //!
 //! Original C++ Authors: Johnson, Day, Smallwood, September 2002
 
-use super::super::{upgrade_mask_for_name, UpgradeMask};
+use super::super::{UpgradeMask, upgrade_mask_for_name};
 use crate::common::*;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::Arc;
 
@@ -199,7 +199,6 @@ impl UpgradeMuxData {
         self.fx_list_upgrade = Some(Arc::new(FXList::new(value)));
         Ok(())
     }
-
 
     /// Parse from INI
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
@@ -414,7 +413,6 @@ fn parse_fx_list_upgrade(
     data.parse_fx_list_upgrade_tokens(tokens)
 }
 
-
 const UPGRADE_MUX_DATA_FIELDS: &[FieldParse<UpgradeMuxData>] = &[
     FieldParse {
         token: "TriggeredBy",
@@ -545,6 +543,4 @@ mod tests {
             "C++ onDie only skips when object/player completed mask intersects ConflictsWith"
         );
     }
-
-
 }

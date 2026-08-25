@@ -115,13 +115,10 @@ pub fn squish_geom_collides_with(
     victim_height: f32,
 ) -> bool {
     use gamelogic::object::collide::{
-        collide_test_dispatch, CollideInfo, CollideLocAndNormal, Coord3D, GeometryInfo,
+        CollideInfo, CollideLocAndNormal, Coord3D, GeometryInfo, collide_test_dispatch,
     };
-    let geom_victim = GeometryInfo::new_cylinder(
-        SQUISH_CRUSH_RADIUS,
-        victim_height.max(0.01),
-        true,
-    );
+    let geom_victim =
+        GeometryInfo::new_cylinder(SQUISH_CRUSH_RADIUS, victim_height.max(0.01), true);
     let info_a = CollideInfo::new(
         Coord3D::new(crusher_pos.0, crusher_pos.2, crusher_pos.1),
         crusher_geom,
@@ -169,9 +166,7 @@ pub fn within_squish_radius(
 /// C++ `findUpdateModule("HijackerUpdate")` residual: module is authored on
 /// hijacker infantry templates.
 pub fn template_has_hijacker_update(victim_template: &str) -> bool {
-    victim_template
-        .to_ascii_lowercase()
-        .contains("hijacker")
+    victim_template.to_ascii_lowercase().contains("hijacker")
 }
 
 /// C++ `findModule("SquishCollide")` (`Object.cpp:1133`). Authored on infantry
@@ -186,9 +181,10 @@ pub fn template_has_squish_collide(template_name: &str) -> bool {
     let Some(definition) = guard.get_object_definition(template_name) else {
         return false;
     };
-    definition.behavior_modules.iter().any(|module| {
-        module.class_name.eq_ignore_ascii_case("SquishCollide")
-    })
+    definition
+        .behavior_modules
+        .iter()
+        .any(|module| module.class_name.eq_ignore_ascii_case("SquishCollide"))
 }
 
 /// C++ `SquishCollide::onCollide` (`SquishCollide.cpp:51-70`): skip crush only
@@ -214,6 +210,7 @@ pub struct HostSquishCollideLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_logic::ObjectId;
 
     #[test]
     fn toward_and_away() {
@@ -226,15 +223,12 @@ mod tests {
     #[test]
     fn skip_only_when_goal_matches_and_ability() {
         // C++ SquishCollide.cpp:51-70 — template peel alone is not a skip.
-        let crusher = super::ObjectId(7);
+        let crusher = ObjectId(7);
         assert!(!should_skip_squish_for_goal_ability(
-            None,
-            crusher,
-            true,
-            false
+            None, crusher, true, false
         ));
         assert!(!should_skip_squish_for_goal_ability(
-            Some(super::ObjectId(99)),
+            Some(ObjectId(99)),
             crusher,
             true,
             true

@@ -3,19 +3,19 @@
 //! WeaponBonusUpdate - Weapon damage and range bonuses
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::common::xfer::XferExt;
 use crate::common::WeaponBonusConditionType;
+use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, KindOfMaskType, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
-    KIND_OF_MASK_NONE,
+    AsciiString, KIND_OF_MASK_NONE, KindOfMaskType, ModuleData, ObjectID, Real, UnsignedInt,
+    XferVersion,
 };
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::registry::OBJECT_REGISTRY;
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

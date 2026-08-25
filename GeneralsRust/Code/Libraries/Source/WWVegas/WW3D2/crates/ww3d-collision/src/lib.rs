@@ -44,11 +44,11 @@ pub mod spatial {
 }
 
 pub use crate::bounding_volumes::{
+    AABox, OBBox, Plane, Sphere,
     aabox::AABoxClass,
     obbox::OBBoxClass,
     plane::{PlaneClass, PlaneClassification},
     sphere::SphereClass,
-    AABox, OBBox, Plane, Sphere,
 };
 
 /// Ray-AABB intersection test

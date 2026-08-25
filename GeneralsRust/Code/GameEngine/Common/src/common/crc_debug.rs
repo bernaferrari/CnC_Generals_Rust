@@ -18,16 +18,16 @@ use std::env;
 use std::fs::File;
 #[cfg(feature = "debug_crc")]
 use std::io::Write;
+#[cfg(feature = "debug_crc")]
+use std::sync::Arc;
 #[cfg(not(feature = "debug_crc"))]
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 #[cfg(feature = "debug_crc")]
-use std::sync::Arc;
+use tracing::Subscriber;
 #[cfg(feature = "debug_crc")]
 use tracing::field::{Field, Visit};
 #[cfg(feature = "debug_crc")]
-use tracing::Subscriber;
-#[cfg(feature = "debug_crc")]
-use tracing::{event, Level};
+use tracing::{Level, event};
 #[cfg(feature = "debug_crc")]
 use tracing_subscriber::layer::{Context, Layer};
 #[cfg(feature = "debug_crc")]

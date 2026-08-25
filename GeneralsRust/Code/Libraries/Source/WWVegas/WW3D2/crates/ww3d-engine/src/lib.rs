@@ -18,16 +18,16 @@ use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ww3d_core::ensure_class_registry_initialized;
 use ww3d_gpu::{GpuDevice, GpuError, shared_device};
 
 mod frame_submit;
 pub use frame_submit::{
-    frame_is_active, last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame,
-    reset_submit_debug, submit_out_of_frame, submit_owned_frame, submit_recorded,
-    total_owned_submits, FrameCommandPhase, OutOfFrameReason, SUBMIT_DEBUG_ENV,
+    FrameCommandPhase, OutOfFrameReason, SUBMIT_DEBUG_ENV, frame_is_active,
+    last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame, reset_submit_debug,
+    submit_out_of_frame, submit_owned_frame, submit_recorded, total_owned_submits,
 };
 
 // Re-export core types
@@ -825,12 +825,8 @@ impl Engine {
         let adapter = request_adapter(&instance, Some(&surface), config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device = acquire_or_create_gpu_device(
-            &adapter,
-            config.features,
-            config.limits.clone(),
-        )
-        .await?;
+        let gpu_device =
+            acquire_or_create_gpu_device(&adapter, config.features, config.limits.clone()).await?;
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -882,12 +878,8 @@ impl Engine {
         let adapter = request_adapter(&instance, None, config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device = acquire_or_create_gpu_device(
-            &adapter,
-            config.features,
-            config.limits.clone(),
-        )
-        .await?;
+        let gpu_device =
+            acquire_or_create_gpu_device(&adapter, config.features, config.limits.clone()).await?;
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -2386,9 +2378,10 @@ mod tests {
         let cfg = EngineConfig::default();
         assert_eq!(cfg.width, 1280);
         assert_eq!(cfg.height, 720);
-        assert!(cfg
-            .surface_usage
-            .contains(wgpu::TextureUsages::RENDER_ATTACHMENT));
+        assert!(
+            cfg.surface_usage
+                .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+        );
         assert_eq!(cfg.sample_count, 1);
     }
 }

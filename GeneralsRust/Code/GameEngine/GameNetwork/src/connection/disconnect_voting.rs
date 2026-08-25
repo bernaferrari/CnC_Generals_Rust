@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -562,8 +562,10 @@ impl DisconnectVotingCoordinator {
         // Initiate automatic vote (system is voter 255)
         let vote_id = self.initiate_vote(player_id, reason, 255, evidence).await?;
 
-        info!("Triggered automatic disconnect vote for player {} (packet_loss: {:.2}%, latency: {:.0}ms)", 
-              player_id, packet_loss, latency);
+        info!(
+            "Triggered automatic disconnect vote for player {} (packet_loss: {:.2}%, latency: {:.0}ms)",
+            player_id, packet_loss, latency
+        );
 
         Ok(Some(vote_id))
     }

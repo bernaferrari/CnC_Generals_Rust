@@ -5,11 +5,11 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::common::{AsciiString, ObjectID, ThingTemplate, INVALID_ID};
+use crate::common::{AsciiString, INVALID_ID, ObjectID, ThingTemplate};
 pub use crate::common::{BodyDamageType, VeterancyLevel};
 pub use crate::damage::{DamageInfo, DamageInfoInput, DamageInfoOutput, DamageType, DeathType};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
-use game_engine::common::bit_flags::{create_armor_set_flags, ArmorSetBitFlags};
+use game_engine::common::bit_flags::{ArmorSetBitFlags, create_armor_set_flags};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Legacy alias retained for compatibility with existing modules/tests.

@@ -341,9 +341,10 @@ mod tests {
         assert_eq!(body.get_damage_scalar(), 1.5);
 
         // Max health operations
-        assert!(body
-            .set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
-            .is_ok());
+        assert!(
+            body.set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 200.0);
 
         // Crushed state operations
@@ -366,9 +367,10 @@ mod tests {
         assert_eq!(body.get_health(), 1.0);
 
         // Reduce max health - immortal constraint should still apply
-        assert!(body
-            .set_max_health(50.0, MaxHealthChangeType::SameCurrentHealth)
-            .is_ok());
+        assert!(
+            body.set_max_health(50.0, MaxHealthChangeType::SameCurrentHealth)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 50.0);
         assert_eq!(body.get_health(), 1.0); // Should still be 1, not 0
 
@@ -378,9 +380,10 @@ mod tests {
 
         // Increase max health and try preserving ratio
         let previous_health = body.get_health();
-        assert!(body
-            .set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
-            .is_ok());
+        assert!(
+            body.set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 200.0);
         // Health should scale proportionally: 1/50 * 200 = 4
         assert_eq!(body.get_health(), 4.0);
@@ -399,9 +402,14 @@ mod tests {
         assert_eq!(body.get_health(), 1.0);
 
         // Veterancy should still work and preserve immortality
-        assert!(body
-            .on_veterancy_level_changed(VeterancyLevel::Regular, VeterancyLevel::Veteran, false)
-            .is_ok());
+        assert!(
+            body.on_veterancy_level_changed(
+                VeterancyLevel::Regular,
+                VeterancyLevel::Veteran,
+                false
+            )
+            .is_ok()
+        );
 
         // Should have veteran armor flag
         assert!(body.test_armor_set_flag(ArmorSetType::Veteran));
@@ -450,9 +458,10 @@ mod tests {
         assert_eq!(body.get_health(), 1.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::ReallyDamaged);
 
-        assert!(body
-            .set_max_health(25.0, MaxHealthChangeType::FullyHeal)
-            .is_ok());
+        assert!(
+            body.set_max_health(25.0, MaxHealthChangeType::FullyHeal)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 25.0);
         assert_eq!(body.get_health(), 25.0);
         assert_eq!(body.get_previous_health(), 1.0);
@@ -466,9 +475,10 @@ mod tests {
         let mut body = create_test_immortal_body();
         assert!(body.internal_change_health(-90.0).is_ok());
         assert_eq!(body.get_health(), 10.0);
-        assert!(body
-            .set_max_health(5.0, MaxHealthChangeType::AddCurrentHealthToo)
-            .is_ok());
+        assert!(
+            body.set_max_health(5.0, MaxHealthChangeType::AddCurrentHealthToo)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 5.0);
         assert_eq!(body.get_health(), 1.0);
     }

@@ -413,9 +413,10 @@ mod tests {
         assert!(body.internal_change_health(50.0).is_ok());
         assert_eq!(body.get_health(), 0.0);
 
-        assert!(body
-            .set_max_health(100.0, MaxHealthChangeType::FullyHeal)
-            .is_ok());
+        assert!(
+            body.set_max_health(100.0, MaxHealthChangeType::FullyHeal)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 0.0);
 
         assert!(body.set_initial_health(75).is_ok());

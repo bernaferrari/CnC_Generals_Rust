@@ -12,8 +12,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload so
 //! older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::host_hacker_income::HostHackerIncomeRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_hacker_income::HostHackerIncomeRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -50,10 +50,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load hack cycles.
     game_logic.hacker_income.clear();
     let Some(suffix) = find_hkin_suffix(bytes) else {
@@ -107,10 +104,10 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_hacker_income::{
-        HackerInternetPhase, PendingHackerCommand, HACKER_CASH_INTERVAL_FRAMES,
-    };
     use crate::game_logic::ObjectId;
+    use crate::game_logic::host_hacker_income::{
+        HACKER_CASH_INTERVAL_FRAMES, HackerInternetPhase, PendingHackerCommand,
+    };
     use glam::Vec3;
 
     #[test]
@@ -157,9 +154,7 @@ mod tests {
             Some(201)
         );
         assert!(
-            !restored
-                .hacker_income
-                .finish_unpack_if_due(unpacking, 139),
+            !restored.hacker_income.finish_unpack_if_due(unpacking, 139),
             "mid-unpack must continue"
         );
         assert!(restored.hacker_income.finish_unpack_if_due(unpacking, 140));
@@ -188,9 +183,7 @@ mod tests {
     #[test]
     fn absent_suffix_clears_stale_hacker_income() {
         let mut logic = GameLogic::new();
-        logic
-            .hacker_income
-            .start_hacking(ObjectId(3), 0, 10, 60);
+        logic.hacker_income.start_hacking(ObjectId(3), 0, 10, 60);
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         assert!(!logic.hacker_income.is_hacking(ObjectId(3)));
         assert!(logic.hacker_income.pack_phase(ObjectId(3)).is_none());

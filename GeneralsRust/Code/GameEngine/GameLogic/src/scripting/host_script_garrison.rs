@@ -57,9 +57,11 @@ mod tests {
             unit: "Ranger01".into(),
             dest: "Humvee01".into(),
         });
-        request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest {
-            team: "USA_Infantry".into(),
-        });
+        request_host_script_garrison_enter(
+            HostScriptGarrisonEnterExitRequest::TeamGarrisonNearest {
+                team: "USA_Infantry".into(),
+            },
+        );
         request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::PlayerExitAll {
             player: "PlyrAmerica".into(),
         });

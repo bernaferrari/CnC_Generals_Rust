@@ -82,8 +82,8 @@ pub fn residual_host_render_ui_overlays_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_render_ui_overlays_helper_last_action(
-) -> ResidualHostRenderUiOverlaysHelperAction {
+pub fn residual_host_render_ui_overlays_helper_last_action()
+-> ResidualHostRenderUiOverlaysHelperAction {
     ResidualHostRenderUiOverlaysHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

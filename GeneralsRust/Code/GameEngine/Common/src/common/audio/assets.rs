@@ -11,7 +11,7 @@
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::fs::{metadata, File};
+use std::fs::{File, metadata};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
@@ -22,7 +22,7 @@ use hound::{WavReader, WavSpec};
 #[cfg(feature = "audio")]
 use symphonia::core::audio::{AudioBuffer, Signal};
 #[cfg(feature = "audio")]
-use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions};
 #[cfg(feature = "audio")]
 use symphonia::core::formats::{FormatOptions, FormatReader};
 #[cfg(feature = "audio")]

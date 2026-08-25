@@ -6,14 +6,14 @@ use std::rc::Rc;
 use crate::gamespy_game::{
     push_gamespy_game_options, with_gamespy_game_info, with_gamespy_game_info_mut,
 };
-use crate::gamespy_overlay::{close_overlay, raise_gs_message_box, GameSpyOverlayType};
+use crate::gamespy_overlay::{GameSpyOverlayType, close_overlay, raise_gs_message_box};
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::callbacks::wol_game_setup_menu::refresh_map_selection_ui;
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
     get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowStatus,
+    write_input_focus_response,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image, populate_map_listbox,
@@ -22,7 +22,7 @@ use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::CustomMatchPreferences;
 use game_network::gamespy::peer_defs::get_gamespy_info;
-use game_network::{SlotState, MAX_SLOTS};
+use game_network::{MAX_SLOTS, SlotState};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -79,7 +79,8 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
         return;
     }
 
-    let Some(image) = crate::gui::callbacks::online_callback_support::lookup_window_image(image_name)
+    let Some(image) =
+        crate::gui::callbacks::online_callback_support::lookup_window_image(image_name)
     else {
         return;
     };
@@ -315,13 +316,10 @@ pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     layout.hide(false);
 }
 
-pub fn wol_map_select_menu_shutdown(
-    layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_map_select_menu_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     {
         let state_slot = map_select_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.parent = None;
         state.listbox_map = None;
         state.map_preview = None;
@@ -331,10 +329,7 @@ pub fn wol_map_select_menu_shutdown(
     let _ = try_with_shell_mut(|shell| shell.shutdown_complete(None, false));
 }
 
-pub fn wol_map_select_menu_update(
-    _layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_map_select_menu_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = map_select_state();
     let mut state = state_slot.borrow_mut();
     if state.raise_message_boxes {
@@ -376,7 +371,7 @@ pub fn wol_map_select_menu_system(
         WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::Destroy => {
             let state_slot = map_select_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             state.parent = None;
             state.listbox_map = None;
             state.map_preview = None;
@@ -386,7 +381,7 @@ pub fn wol_map_select_menu_system(
         WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let state_slot = map_select_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
                 show_underlying_game_options(true);
@@ -452,7 +447,7 @@ pub fn wol_map_select_menu_system(
         }
         WindowMessage::GadgetValueChanged => {
             let state_slot = map_select_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);
@@ -462,7 +457,7 @@ pub fn wol_map_select_menu_system(
         }
         WindowMessage::User(0x8000) => {
             let state_slot = map_select_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);

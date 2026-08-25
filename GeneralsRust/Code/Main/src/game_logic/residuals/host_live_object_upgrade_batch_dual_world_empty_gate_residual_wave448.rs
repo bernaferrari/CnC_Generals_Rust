@@ -57,8 +57,8 @@ pub const RUNTIME_HOST_LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_CMD_NAMES
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_object_upgrade_batch_dual_world_empty_gate_method_names_residual_wave448(
-) -> bool {
+pub fn honesty_live_object_upgrade_batch_dual_world_empty_gate_method_names_residual_wave448()
+-> bool {
     LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448.len() == 7
         && residual_name_index(
             LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448,
@@ -75,8 +75,8 @@ pub fn honesty_live_object_upgrade_batch_dual_world_empty_gate_method_names_resi
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_object_upgrade_batch_dual_world_empty_gate_nav_commands_residual_wave448(
-) -> bool {
+pub fn honesty_live_object_upgrade_batch_dual_world_empty_gate_nav_commands_residual_wave448()
+-> bool {
     LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE448.len() == 4
         && residual_name_index(
             LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE448,

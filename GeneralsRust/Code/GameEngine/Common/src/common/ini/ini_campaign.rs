@@ -5,7 +5,7 @@
 //!
 //! Purpose: INI parsing for Campaign and Mission definitions
 
-use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
+use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::ini::ini_misc_audio::AudioEventRTS;
 
 // Constants matching C++ definitions

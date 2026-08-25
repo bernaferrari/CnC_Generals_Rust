@@ -4,8 +4,8 @@
 use crate::ai::integration::with_ai_integration_mut;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, ICoord2D, Matrix3D, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
-    INVALID_ID,
+    AsciiString, Coord3D, ICoord2D, INVALID_ID, Matrix3D, ModuleData, ObjectID, Real, UnsignedInt,
+    XferVersion,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::effects::FXList;
@@ -15,12 +15,12 @@ use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, PhysicsBehaviorExt, ToppleControlInterface,
     UpdateModuleInterface,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
-use crate::path::{grid_to_world, world_to_grid, PathfindLayerEnum, PATHFIND_CELL_SIZE_F};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::path::{PATHFIND_CELL_SIZE_F, PathfindLayerEnum, grid_to_world, world_to_grid};
 use crate::scripting::engine::get_script_engine;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{

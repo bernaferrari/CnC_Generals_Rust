@@ -65,13 +65,13 @@ impl WindowsFirewallHelper {
 #[cfg(target_os = "windows")]
 impl FirewallIntegration for WindowsFirewallHelper {
     fn add_port_exception(&self, port: u16, protocol: Protocol) -> NetworkResult<()> {
-        use windows::core::{ComInterface, BSTR};
         use windows::Win32::NetworkManagement::WindowsFirewall::{
-            INetFwPolicy2, INetFwRule, NetFwPolicy2, NET_FW_ACTION_ALLOW, NET_FW_RULE_DIR_IN,
+            INetFwPolicy2, INetFwRule, NET_FW_ACTION_ALLOW, NET_FW_RULE_DIR_IN, NetFwPolicy2,
         };
         use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+            CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
         };
+        use windows::core::{BSTR, ComInterface};
 
         unsafe {
             // Initialize COM
@@ -164,11 +164,11 @@ impl FirewallIntegration for WindowsFirewallHelper {
     }
 
     fn remove_port_exception(&self, port: u16, protocol: Protocol) -> NetworkResult<()> {
-        use windows::core::BSTR;
         use windows::Win32::NetworkManagement::WindowsFirewall::{INetFwPolicy2, NetFwPolicy2};
         use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+            CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
         };
+        use windows::core::BSTR;
 
         unsafe {
             // Initialize COM
@@ -208,11 +208,11 @@ impl FirewallIntegration for WindowsFirewallHelper {
     }
 
     fn has_port_exception(&self, port: u16, protocol: Protocol) -> NetworkResult<bool> {
-        use windows::core::BSTR;
         use windows::Win32::NetworkManagement::WindowsFirewall::{INetFwPolicy2, NetFwPolicy2};
         use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+            CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
         };
+        use windows::core::BSTR;
 
         unsafe {
             // Initialize COM
@@ -308,7 +308,9 @@ impl FirewallIntegration for LinuxFirewallHelper {
                         Ok(())
                     }
                     _ => {
-                        warn!("Failed to add Linux firewall exception - may require manual configuration");
+                        warn!(
+                            "Failed to add Linux firewall exception - may require manual configuration"
+                        );
                         Ok(()) // Don't fail, just warn
                     }
                 }

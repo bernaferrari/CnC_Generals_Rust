@@ -1,0 +1,51 @@
+[package]
+name = "generals-root-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autotests = false
+
+[dependencies]
+env_logger = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+
+[[test]]
+name = "integration_ai_statemachine"
+path = "integration_ai_statemachine.rs"
+
+[[test]]
+name = "integration_audio"
+path = "integration_audio.rs"
+
+[[test]]
+name = "integration_game_initialization"
+path = "integration_game_initialization.rs"
+
+[[test]]
+name = "integration_ini_loading"
+path = "integration_ini_loading.rs"
+
+[[test]]
+name = "integration_network_serialization"
+path = "integration_network_serialization.rs"
+
+[[test]]
+name = "integration_object_lifecycle"
+path = "integration_object_lifecycle.rs"
+
+[[test]]
+name = "integration_pathfinding"
+path = "integration_pathfinding.rs"
+
+[[test]]
+name = "integration_save_load"
+path = "integration_save_load.rs"
+
+[[test]]
+name = "integration_ui_rendering"
+path = "integration_ui_rendering.rs"
+
+[[test]]
+name = "integration_weapon_damage"
+path = "integration_weapon_damage.rs"

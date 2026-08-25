@@ -3,7 +3,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use game_engine::common::ini::{
-    register_block_parser, FieldParse, INIError, INILoadType, INIResult, INI,
+    FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
 };
 use game_engine::common::random_value::get_game_client_random_value;
 use gamelogic::common::audio::AudioEventRts;
@@ -960,7 +960,6 @@ pub fn eva_check_info_count() -> usize {
         .unwrap_or(0)
 }
 
-
 pub fn reset_eva_system() {
     set_eva_host_frame(0);
     clear_eva_host_sufficient_power();
@@ -1085,12 +1084,14 @@ mod tests {
         let eva = get_eva();
         let eva = eva.lock().expect("THE_EVA lock");
         assert_eq!(eva.all_check_infos.len(), 49);
-        assert!(eva
-            .get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")
-            .is_some());
-        assert!(eva
-            .get_eva_check_info_by_name("SuperweaponLaunched_Enemy_Sneak_Attack")
-            .is_some());
+        assert!(
+            eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")
+                .is_some()
+        );
+        assert!(
+            eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_Sneak_Attack")
+                .is_some()
+        );
     }
 
     #[test]
@@ -1204,11 +1205,7 @@ pub fn residual_eva_is_enabled() -> bool {
 /// Residual: last EvaMessage index flagged for play (None if none).
 pub fn residual_eva_last_message_index() -> Option<usize> {
     let idx = RESIDUAL_EVA_LAST_MESSAGE.load(std::sync::atomic::Ordering::Relaxed);
-    if idx == usize::MAX {
-        None
-    } else {
-        Some(idx)
-    }
+    if idx == usize::MAX { None } else { Some(idx) }
 }
 
 /// Residual: enable EVA without INI reload.

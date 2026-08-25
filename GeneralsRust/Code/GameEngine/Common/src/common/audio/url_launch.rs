@@ -26,7 +26,7 @@ use winapi::um::processthreadsapi::{CreateProcessW, PROCESS_INFORMATION};
 #[cfg(windows)]
 use winapi::um::winnt::{KEY_READ, LPCWSTR, LPWSTR};
 #[cfg(windows)]
-use winapi::um::winreg::{RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CLASSES_ROOT};
+use winapi::um::winreg::{HKEY, HKEY_CLASSES_ROOT, RegCloseKey, RegOpenKeyExW, RegQueryValueExW};
 
 // Type aliases for compatibility
 pub type HResult = i32;

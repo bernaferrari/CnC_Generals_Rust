@@ -4,7 +4,7 @@ use crate::common::*;
 use crate::helpers::TheGameLogic;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::registry::OBJECT_REGISTRY;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;

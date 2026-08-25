@@ -31,11 +31,7 @@ fn destroy_marks_then_process_removes_in_lockstep() {
     assert_eq!(shadow.world().pending_destroy_ids().len(), 1);
 
     let probe = shadow.probe(&mut logic);
-    assert!(
-        probe.destroy_visibility_match,
-        "{}",
-        probe.format_report()
-    );
+    assert!(probe.destroy_visibility_match, "{}", probe.format_report());
 
     assert_eq!(shadow.world_mut().process_destroy_list(), 1);
     assert!(shadow.world().entity(eid).is_none());

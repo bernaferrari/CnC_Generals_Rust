@@ -1,6 +1,6 @@
 //! Audio event system and callback management.
 
-use crate::{error::Result, Priority};
+use crate::{Priority, error::Result};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 

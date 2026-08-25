@@ -124,7 +124,9 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
         include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_dispatch.rs"),
         include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/types.rs"),
         include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/globals.rs"),
-        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_lifecycle.rs"),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_lifecycle.rs"
+        ),
         include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_update.rs"),
         include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/partition.rs"),
         include_str!("../../../../GameEngine/GameLogic/src/system/mod.rs"),
@@ -137,7 +139,7 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
         return false;
     }
     // C++ has no registry skip: helper is false when GameLogic has objects.
-        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
     let helper_ok = g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()")
         && g.contains("false");
@@ -156,13 +158,13 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
         let i = g.find("pub fn update(&mut self, frame: u32)")?;
         crate::game_logic::residuals::harness::rust_fn_body(&g[i..], "update")
     });
-    let Some(clean) = crate::game_logic::residuals::harness::last_rust_fn_body(
-        g,
-        "cleanup_dead_objects",
-    ) else {
+    let Some(clean) =
+        crate::game_logic::residuals::harness::last_rust_fn_body(g, "cleanup_dead_objects")
+    else {
         return false;
     };
-    let Some(prod) = crate::game_logic::residuals::harness::last_rust_fn_body(g, "energy_production")
+    let Some(prod) =
+        crate::game_logic::residuals::harness::last_rust_fn_body(g, "energy_production")
     else {
         return false;
     };
@@ -170,10 +172,10 @@ pub fn honesty_system_game_logic_dual_world_empty_gate_source() -> bool {
     else {
         return false;
     };
-        // 2026-08-15: GameLogic::update comments mention the helper as a
-        // do-not-call (impl_update.rs). Live skip is BOTH store_is_empty and
-        // objects.is_empty — not a dual_world_registry_unavailable() call.
-        helper_ok
+    // 2026-08-15: GameLogic::update comments mention the helper as a
+    // do-not-call (impl_update.rs). Live skip is BOTH store_is_empty and
+    // objects.is_empty — not a dual_world_registry_unavailable() call.
+    helper_ok
         && upd.is_some_and(|u| {
             u.contains("store_is_empty()")
                 && u.contains("self.objects.is_empty()")

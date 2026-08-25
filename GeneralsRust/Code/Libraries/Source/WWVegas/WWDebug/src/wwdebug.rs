@@ -202,10 +202,10 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::Diagnostics::Debug::OutputDebugStringA;
         use windows_sys::Win32::System::Memory::{
-            CreateFileMappingA, MapViewOfFile, FILE_MAP_WRITE, PAGE_READWRITE,
+            CreateFileMappingA, FILE_MAP_WRITE, MapViewOfFile, PAGE_READWRITE,
         };
         use windows_sys::Win32::System::Threading::{
-            OpenEventA, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE,
+            EVENT_MODIFY_STATE, INFINITE, OpenEventA, SetEvent, WaitForSingleObject,
         };
 
         let ready_event =

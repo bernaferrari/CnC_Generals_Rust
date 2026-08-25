@@ -29,7 +29,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::ini::{INIError, INIResult, INI};
+use super::ini::{INI, INIError, INIResult};
 use crate::common::system::kind_of::KIND_OF_BIT_NAMES;
 
 // ---------------------------------------------------------------------------

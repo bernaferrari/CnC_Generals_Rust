@@ -11,8 +11,8 @@
 
 use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility, PresentationFowGrid};
 use crate::game_logic::host_base_defense::{
-    build_patriot_laser_line3d_segments, PatriotAssistLaserKind, ResidualPatriotAssistLaser,
     PATRIOT_BINARY_DATA_STREAM, PATRIOT_LASER_INNER_COLOR, PATRIOT_LASER_TEXTURE,
+    PatriotAssistLaserKind, ResidualPatriotAssistLaser, build_patriot_laser_line3d_segments,
 };
 use crate::game_logic::{
     CombatParticleKind, CombatParticleSystemEntry, DockKind, GameLogic, KindOf, ObjectId, Team,
@@ -48,8 +48,8 @@ pub use frame::*;
 pub use lasers::*;
 pub use particles::*;
 pub use projectile::*;
-pub use spectre::*;
 pub use restrict_a::PresentationRestrictA;
+pub use spectre::*;
 pub use types::*;
 pub use unit_render::*;
 pub use weapon_visual_dispatch::*;

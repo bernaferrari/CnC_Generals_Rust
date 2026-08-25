@@ -164,11 +164,7 @@ pub fn ray_triangle_intersection(ray: Ray, triangle: Triangle) -> Option<f32> {
     // Compute t to find out where intersection point is on the line
     let t = f * edge2.dot(q);
 
-    if t > EPSILON {
-        Some(t)
-    } else {
-        None
-    }
+    if t > EPSILON { Some(t) } else { None }
 }
 
 /// Ray-sphere intersection test.

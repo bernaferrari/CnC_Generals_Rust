@@ -416,9 +416,11 @@ mod tests {
             engine.get_max_compressed_size(1000, CompressionType::LZ4),
             0
         );
-        assert!(engine
-            .compress(data, CompressionType::LZ4, CompressionLevel::Fast)
-            .is_err());
+        assert!(
+            engine
+                .compress(data, CompressionType::LZ4, CompressionLevel::Fast)
+                .is_err()
+        );
         assert!(engine.decompress(data, CompressionType::LZ4, None).is_err());
     }
 

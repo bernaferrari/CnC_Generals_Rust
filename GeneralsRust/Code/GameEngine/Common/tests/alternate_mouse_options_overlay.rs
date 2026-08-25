@@ -5,8 +5,8 @@
 //! intentionally disables its library test harness in `Cargo.toml`.
 
 use game_engine::common::global_data as runtime_global_data;
-use game_engine::common::ini::ini::{INIResult, INI};
-use game_engine::common::ini::ini_game_data::{ensure_global_data, GlobalData};
+use game_engine::common::ini::ini::{INI, INIResult};
+use game_engine::common::ini::ini_game_data::{GlobalData, ensure_global_data};
 use std::sync::Mutex;
 
 static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -87,10 +87,8 @@ fn startup_game_data_load_overlays_scroll_retaliation_double_click_gamma() {
         }
         *runtime_global_data::write() = runtime_global_data::GlobalData::default();
 
-        parse(
-            "GameData\n  KeyboardScrollSpeedFactor = 2.0\nEnd\n",
-        )
-        .expect("GameData with retail scroll factor parses");
+        parse("GameData\n  KeyboardScrollSpeedFactor = 2.0\nEnd\n")
+            .expect("GameData with retail scroll factor parses");
 
         let ini = ini_global.read();
         assert!(
@@ -125,8 +123,11 @@ fn startup_missing_scroll_factor_uses_keyboard_default_not_gamedata() {
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let user_data = tempfile::tempdir().expect("temporary user-data directory");
-        std::fs::write(user_data.path().join("Options.ini"), "UseAlternateMouse = no\n")
-            .expect("temporary Options.ini");
+        std::fs::write(
+            user_data.path().join("Options.ini"),
+            "UseAlternateMouse = no\n",
+        )
+        .expect("temporary Options.ini");
 
         {
             let mut data = ini_global.write();
@@ -144,9 +145,7 @@ fn startup_missing_scroll_factor_uses_keyboard_default_not_gamedata() {
             (ini_global.read().keyboard_scroll_factor - 0.5).abs() < 0.001,
             "missing ScrollFactor must use keyboardDefaultScrollFactor"
         );
-        assert!(
-            (runtime_global_data::read().keyboard_scroll_factor - 0.5).abs() < 0.001
-        );
+        assert!((runtime_global_data::read().keyboard_scroll_factor - 0.5).abs() < 0.001);
     }));
 
     *ini_global.write() = previous_ini;

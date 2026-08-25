@@ -5,20 +5,20 @@ use std::rc::Rc;
 
 use crate::game_text::GameText;
 use crate::gamespy_overlay::{
-    close_overlay, gs_message_box_yes_no, is_overlay_open, open_overlay, raise_gs_message_box,
-    reopen_player_info, GameSpyOverlayType,
+    GameSpyOverlayType, close_overlay, gs_message_box_yes_no, is_overlay_open, open_overlay,
+    raise_gs_message_box, reopen_player_info,
 };
+use crate::gui::CustomMatchPreferencesStore;
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::callbacks::wol_lobby_menu::refresh_game_list_boxes;
 use crate::gui::callbacks::wol_welcome_menu::{get_look_at_player, populate_player_info_windows};
-use crate::gui::CustomMatchPreferencesStore;
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::gamespy::buddy_thread::{
-    get_buddy_message_queue, BuddyRequest, BuddyRequestType,
+    BuddyRequest, BuddyRequestType, get_buddy_message_queue,
 };
 use game_network::gamespy::peer_defs::get_gamespy_info;
 
@@ -153,10 +153,7 @@ pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&dyn std
     }
 }
 
-pub fn popup_player_info_shutdown(
-    layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn popup_player_info_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     layout.hide(true);
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
@@ -164,10 +161,7 @@ pub fn popup_player_info_shutdown(
     state.is_overlay_active = false;
 }
 
-pub fn popup_player_info_update(
-    _layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn popup_player_info_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
     if state.raise_message_box {

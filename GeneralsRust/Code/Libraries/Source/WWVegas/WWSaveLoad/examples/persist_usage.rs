@@ -1,13 +1,13 @@
 //! Example demonstrating usage of the persist module for object persistence
 
 use std::any::Any;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ww_save_load::saveload::{SaveLoadError, SaveLoadResult};
 use ww_save_load::{
-    get_save_load_system, ChunkLoad, ChunkLoadExt, ChunkSave, ChunkSaveExt, Persist,
-    PersistFactory, PersistFactoryRegistry, PostLoadable, RemapId, SimplePersistFactory,
+    ChunkLoad, ChunkLoadExt, ChunkSave, ChunkSaveExt, Persist, PersistFactory,
+    PersistFactoryRegistry, PostLoadable, RemapId, SimplePersistFactory, get_save_load_system,
 };
 
 /// Example game entity that can be persisted

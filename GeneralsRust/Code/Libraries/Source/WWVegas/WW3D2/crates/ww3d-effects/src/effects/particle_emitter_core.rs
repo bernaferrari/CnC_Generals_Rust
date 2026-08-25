@@ -9,8 +9,8 @@
 //! - part_ldr.cpp/h (particle loader)
 
 use glam::{Mat4, Vec3, Vec4};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use ww3d_core::errors::W3DResult as Result;
 use ww3d_renderer_3d::bounding_volumes::{aabox::AABoxClass, sphere::SphereClass};
 use ww3d_renderer_3d::render_object_system::RenderObjClass;

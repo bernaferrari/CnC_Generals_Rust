@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -1015,11 +1015,7 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_switch_weapons(
-        &mut self,
-        units: &[ObjectId],
-        slot: u8,
-    ) -> CommandResult {
+    pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId], slot: u8) -> CommandResult {
         // C++ GameLogicDispatch.cpp:583-590 MSG_SWITCH_WEAPONS:
         // currentlySelectedGroup->setWeaponLockForGroup(weaponSlot, LOCKED_PERMANENTLY).
         let result = self.execute_set_weapon_lock(units, slot, 2);
@@ -1028,8 +1024,12 @@ impl<'a> CommandExecutor<'a> {
             // pickAndPlay PerUnitSound Voice*WeaponMode for the locked slot (skip=true).
             let voice = match slot {
                 0 => Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::PrimaryWeaponMode),
-                1 => Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::SecondaryWeaponMode),
-                2 => Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::TertiaryWeaponMode),
+                1 => {
+                    Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::SecondaryWeaponMode)
+                }
+                2 => {
+                    Some(crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::TertiaryWeaponMode)
+                }
                 _ => None,
             };
             if let Some(voice) = voice {

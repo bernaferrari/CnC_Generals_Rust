@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use crate::common::xfer::{Xfer, XferExt};
 use crate::common::Snapshot;
+use crate::common::xfer::{Xfer, XferExt};
 use crate::common::{AsciiString, Bool, Int, ThingTemplate, UnsignedInt};
 use crate::helpers::TheThingFactory;
 use crate::player::Player;

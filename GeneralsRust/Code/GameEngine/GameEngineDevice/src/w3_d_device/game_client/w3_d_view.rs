@@ -1,7 +1,7 @@
 //! W3DView shim → GameClient tactical `View::shake`.
 
 pub use game_client::display::view::{
-    with_tactical_view, with_tactical_view_ref, CameraShakeType, Point3,
+    CameraShakeType, Point3, with_tactical_view, with_tactical_view_ref,
 };
 
 /// C++ `W3DView::shake` / `TheTacticalView->shake`.

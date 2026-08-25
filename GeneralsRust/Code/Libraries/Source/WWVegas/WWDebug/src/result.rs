@@ -3,9 +3,9 @@
 //! Equivalent to the C++ ProfileResultInterface, provides interfaces for
 //! writing out profiling results in various formats.
 
+use crate::Profile;
 #[cfg(feature = "function-level")]
 use crate::func_level::ProfileFuncId;
-use crate::Profile;
 use std::fs::File;
 use std::io::{self, Write};
 
@@ -655,7 +655,10 @@ impl HtmlResultWriter {
         writeln!(writer, "    <div class=\"section\">")?;
         writeln!(writer, "        <h2>High Level Profiling</h2>")?;
         writeln!(writer, "        <table>")?;
-        writeln!(writer, "            <tr><th>Name</th><th>Description</th><th>Unit</th><th>Current</th><th>Total</th></tr>")?;
+        writeln!(
+            writer,
+            "            <tr><th>Name</th><th>Description</th><th>Unit</th><th>Current</th><th>Total</th></tr>"
+        )?;
 
         let high_level = Profile::high_level();
         let mut index = 0;
@@ -685,7 +688,10 @@ impl HtmlResultWriter {
         writeln!(writer, "    <div class=\"section\">")?;
         writeln!(writer, "        <h2>Function Level Profiling</h2>")?;
         writeln!(writer, "        <table>")?;
-        writeln!(writer, "            <tr><th>Thread</th><th>Function</th><th>Source</th><th>Line</th><th>Address</th><th>Calls</th><th>Total Time</th><th>Function Time</th></tr>")?;
+        writeln!(
+            writer,
+            "            <tr><th>Thread</th><th>Function</th><th>Source</th><th>Line</th><th>Address</th><th>Calls</th><th>Total Time</th><th>Function Time</th></tr>"
+        )?;
 
         let func_level = Profile::func_level();
         let mut thread_index = 0;
@@ -707,8 +713,14 @@ impl HtmlResultWriter {
                 writeln!(
                     writer,
                     "            <tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{:#x}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                    thread_id, function_name, source, line, address,
-                    total_calls, total_time, function_time
+                    thread_id,
+                    function_name,
+                    source,
+                    line,
+                    address,
+                    total_calls,
+                    total_time,
+                    function_time
                 )?;
 
                 func_index += 1;

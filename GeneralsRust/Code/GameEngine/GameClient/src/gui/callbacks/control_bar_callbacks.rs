@@ -3,29 +3,29 @@
 //! Implements in-game control bar callbacks and radar input handling, matching
 //! the behavior of C++ ControlBarCallback.cpp.
 
-use crate::display::view::{set_tactical_view_height_frac, with_tactical_view, Point3};
-use crate::gui::control_bar::{
-    host_control_bar_bridge_enabled, publish_host_minimap_interaction,
-    publish_host_select_next_idle_worker, ControlBar, ControlBarStage,
-    HostMinimapInteractionRequest, HostMinimapMouseButton,
-};
-use crate::gui::{
-    hide_quit_menu, toggle_diplomacy, toggle_quit_menu, with_window_manager,
-    with_window_manager_ref, AnimateWindowManager, AnimationType, GameWindow, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
-};
+use crate::display::view::{Point3, set_tactical_view_height_frac, with_tactical_view};
 use crate::gui::callbacks::replay_controls::{
     hide_replay_controls, show_replay_controls, toggle_replay_controls,
 };
+use crate::gui::control_bar::{
+    ControlBar, ControlBarStage, HostMinimapInteractionRequest, HostMinimapMouseButton,
+    host_control_bar_bridge_enabled, publish_host_minimap_interaction,
+    publish_host_select_next_idle_worker,
+};
+use crate::gui::{
+    AnimateWindowManager, AnimationType, GameWindow, WindowMessage, WindowMsgData,
+    WindowMsgHandled, hide_quit_menu, toggle_diplomacy, toggle_quit_menu, with_window_manager,
+    with_window_manager_ref,
+};
 use crate::helpers::{TheControlBar, TheInGameUI};
 
-use crate::input::{with_mouse, MouseButton};
+use crate::input::{MouseButton, with_mouse};
 use crate::language_filter::get_language_filter;
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::radar::{
-    get_radar_system, ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
+    ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, get_radar_system,
 };
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::selection::get_selection_manager;
@@ -134,7 +134,6 @@ fn local_control_bar_player_side() -> String {
         .filter(|side| !side.is_empty())
         .unwrap_or_else(|| "Observer".to_string())
 }
-
 
 fn selection_is_empty() -> bool {
     selection_count() == 0
@@ -492,11 +491,11 @@ impl ControlBarCallbacks {
         Ok(())
     }
 
-
     /// C++ GameLogic.cpp:2233 setControlBarSchemeByPlayer + ControlBarCallback.cpp:489 DEFAULT.
     fn apply_show_control_bar_scheme_and_default_stage(&self) {
         let parent_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
-        let parent_live = with_window_manager(|manager| manager.get_window_by_id(parent_id).is_some());
+        let parent_live =
+            with_window_manager(|manager| manager.get_window_by_id(parent_id).is_some());
         if !parent_live {
             return;
         }
@@ -982,7 +981,6 @@ mod tests {
         assert!(callbacks.show_control_bar(true).is_ok());
         assert!((tactical_view_height_frac() - 0.80).abs() < f32::EPSILON);
     }
-
 
     #[test]
     fn beacon_edit_text_is_language_filtered() {

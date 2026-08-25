@@ -6,14 +6,13 @@ use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
 
-use crate::common::ini::ini_game_data::{get_global_data, GlobalData};
+use crate::common::ini::ini_game_data::{GlobalData, get_global_data};
 use crate::common::ini::ini_game_lod::{
-    get_game_lod_manager, get_game_lod_manager_mut, set_dynamic_lod_level, ChipsetType, CpuType,
-    DynamicGameLODLevel, StaticGameLODInfo, StaticGameLODLevel,
+    ChipsetType, CpuType, DynamicGameLODLevel, StaticGameLODInfo, StaticGameLODLevel,
+    get_game_lod_manager, get_game_lod_manager_mut, set_dynamic_lod_level,
 };
-use crate::common::ini::{INILoadType, INI};
+use crate::common::ini::{INI, INILoadType};
 use crate::common::user_preferences::UserPreferences;
-
 
 static REBUILD_SHADOWS: OnceLock<fn()> = OnceLock::new();
 static REBUILD_SHORELINE: OnceLock<fn()> = OnceLock::new();
@@ -55,8 +54,6 @@ fn sync_writable_shadow_decals(use_volumes: bool, use_decals: bool) {
         runtime.writable.use_shadow_decals = use_decals;
     }
 }
-
-
 
 const MINIMUM_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 const PROFILE_ERROR_LIMIT: f32 = 0.94;
@@ -148,7 +145,6 @@ fn ram_mb_override() -> &'static RwLock<Option<i32>> {
     RAM_MB_OVERRIDE.get_or_init(|| RwLock::new(None))
 }
 
-
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
         "low" => Some("Low"),
@@ -235,7 +231,6 @@ pub fn set_dynamic_lod_from_string(value: &str) {
         set_dynamic_lod_level(level);
     }
 }
-
 
 pub fn get_dynamic_lod() -> String {
     dynamic_lod_name()
@@ -333,7 +328,6 @@ fn apply_static_lod_level(level_name: &str) {
     drop(global);
     sync_writable_shadow_decals(lod_info.use_shadow_volumes, lod_info.use_shadow_decals);
 
-
     // C++ GameLODManager::applyStaticLODLevel client/terrain side effects.
     if requested_texture_reduction != prev_texture {
         if let Some(hook) = ADJUST_CLIENT_LOD.get() {
@@ -355,8 +349,7 @@ fn apply_static_lod_level(level_name: &str) {
     if let Some(hook) = REBUILD_TANK_TRACKS.get() {
         hook();
     }
-    }
-
+}
 
 fn recommended_texture_reduction(
     manager: &crate::common::ini::ini_game_lod::GameLODManager,
@@ -382,7 +375,6 @@ fn recommended_texture_reduction(
 
     manager.static_game_lod_info[ideal_level.to_index().unwrap()].texture_reduction
 }
-
 
 /// Mirrors C++ `GameLODManager::refreshCustomStaticLODLevel`.
 ///
@@ -509,7 +501,6 @@ pub fn reset_static_lod_state_for_tests() {
     set_hardware_overrides_for_tests(None, None, None, None);
 }
 
-
 fn probe_cpu_type() -> CpuType {
     if let Some(value) = cpu_type_override().read().ok().and_then(|guard| *guard) {
         return value;
@@ -623,14 +614,12 @@ pub fn set_hardware_overrides_for_tests(
     }
 }
 
-
 pub fn prefers_low_res_movies() -> bool {
     // C++ ScoreScreen: !didMemPass() || findStaticLODLevel()==LOW || getStatic==LOW
     !did_mem_pass()
         || matches!(find_static_lod_level().as_str(), "Low")
         || matches!(get_static_lod().as_str(), "Low")
 }
-
 
 fn ensure_game_lod_loaded() {
     load_game_lod_ini_presets_and_options();
@@ -745,7 +734,6 @@ pub fn load_game_lod_ini_presets_and_options() {
             let global = global_data.read();
             sync_writable_shadow_decals(global.use_shadow_volumes, global.use_shadow_decals);
         }
-
     }
 
     if user_detail.eq_ignore_ascii_case("Unknown") {
@@ -795,7 +783,6 @@ pub fn get_slow_death_scale() -> f32 {
     get_game_lod_manager().get_slow_death_scale()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -814,7 +801,6 @@ mod tests {
         set_ideal_static_lod_from_string("Low");
         assert!(prefers_low_res_movies());
     }
-
 
     #[test]
     fn custom_static_lod_snapshots_current_global_settings_before_apply() {
@@ -1028,7 +1014,6 @@ mod tests {
         assert_eq!(find_static_lod_level(), "Low");
         set_hardware_overrides_for_tests(None, None, None, None);
         get_game_lod_manager_mut().init();
-
     }
 
     #[test]
@@ -1044,5 +1029,4 @@ mod tests {
         assert!((get_slow_death_scale() - 0.25).abs() < f32::EPSILON);
         set_dynamic_lod_from_string("High");
     }
-
 }

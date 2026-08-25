@@ -1,10 +1,10 @@
+use crate::RenderObjClassId;
 /// Mesh rendering system
 ///
 /// This module implements the core mesh rendering functionality for WW3D.
 use crate::errors::{W3DError, W3DResult};
 use crate::render_object::*;
 use crate::w3d_format::*;
-use crate::RenderObjClassId;
 use glam::{Mat4, Vec2, Vec3};
 use std::any::Any;
 

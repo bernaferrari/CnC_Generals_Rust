@@ -7,7 +7,7 @@ use super::draw_module::*;
 use super::w3d_model_draw::*;
 use crate::common::*;
 use crate::helpers::TheParticleSystemManager;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use glam::Vec4;

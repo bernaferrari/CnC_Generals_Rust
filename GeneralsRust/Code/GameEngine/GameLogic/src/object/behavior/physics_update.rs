@@ -12,22 +12,22 @@ mod physics_crush;
 use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, DisabledType, KindOf, LocomotorSetType, ModuleData, ObjectID,
-    ObjectStatusTypes, Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
+    AsciiString, Coord3D, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, LocomotorSetType,
     MODELCONDITION_FREEFALL, MODELCONDITION_SPLATTED, MODELCONDITION_STUNNED,
-    MODELCONDITION_STUNNED_FLAILING, SECONDS_PER_LOGICFRAME_REAL,
+    MODELCONDITION_STUNNED_FLAILING, ModuleData, ObjectID, ObjectStatusTypes, Real,
+    SECONDS_PER_LOGICFRAME_REAL, UnsignedInt, XferVersion,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, PhysicsBehavior as PhysicsBehaviorTrait,
-    PhysicsBehaviorExt, SleepyUpdatePhase, UpdateModuleInterface, UpdateSleepTime,
-    UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+    PhysicsBehaviorExt, SleepyUpdatePhase, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+    UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::BehaviorModuleData;
 use game_engine::common::global_data;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use glam::{Mat4, Quat, Vec3};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -320,7 +320,6 @@ impl PhysicsBehaviorHandle {
         (x.x, x.y, x.z)
     }
 
-
     fn add_overlap(&mut self, obj_id: ObjectID) {
         if obj_id != crate::common::INVALID_ID {
             self.state.current_overlap = obj_id;
@@ -362,12 +361,13 @@ impl PhysicsBehaviorHandle {
 
         let mut mod_force = *force;
         if self.is_motive() {
-            let dirs = obj
-                .map(|o| o.get_unit_direction_vector_2d())
-                .or_else(|| {
-                    self.object_arc()
-                        .and_then(|arc| arc.try_read().ok().map(|o| o.get_unit_direction_vector_2d()))
-                });
+            let dirs = obj.map(|o| o.get_unit_direction_vector_2d()).or_else(|| {
+                self.object_arc().and_then(|arc| {
+                    arc.try_read()
+                        .ok()
+                        .map(|o| o.get_unit_direction_vector_2d())
+                })
+            });
             if let Some((dir_x, dir_y)) = dirs {
                 let lateral_dot = force.x * -dir_y + force.y * dir_x;
                 mod_force.x = lateral_dot * -dir_y;
@@ -388,7 +388,6 @@ impl PhysicsBehaviorHandle {
             }
         }
     }
-
 }
 
 impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
@@ -417,8 +416,6 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     fn apply_force(&mut self, force: &Vec3) {
         self.apply_force_with_obj(force, None);
     }
-
-
 
     fn set_yaw_rate(&mut self, rate: Real) {
         self.state.yaw_rate = rate;
@@ -483,7 +480,6 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
-
         // C++ applies angular rates via Rotate_X/Y/Z with pitchRollYawFactor scaling.
         // angular_velocity.x = roll rate, .y = pitch rate, .z = yaw rate (per frame).
         let factor = self.module_data.pitch_roll_yaw_factor;
@@ -547,7 +543,6 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_random_rotation(&mut self) {
-
         if self.state.has_flag(FLAG_STICK_TO_GROUND) {
             return;
         }
@@ -577,7 +572,6 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn set_stunned(&mut self, stunned: bool) {
-
         self.state.set_flag(FLAG_IS_STUNNED, stunned);
         if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
             None
@@ -632,7 +626,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         let vel = self.state.vel;
         let (dir_x, dir_y) = self
             .object_arc()
-            .and_then(|arc| arc.try_read().ok().map(|o| o.get_unit_direction_vector_2d()))
+            .and_then(|arc| {
+                arc.try_read()
+                    .ok()
+                    .map(|o| o.get_unit_direction_vector_2d())
+            })
             .unwrap_or((1.0, 0.0));
         crate::modules::signed_forward_speed_2d(vel.x, vel.y, dir_x, dir_y)
     }
@@ -651,7 +649,6 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         };
         crate::modules::signed_forward_speed_3d(vel.x, vel.y, vel.z, dir_x, dir_y, dir_z)
     }
-
 
     fn clear_acceleration(&mut self) {
         self.state.accel = Coord3D::ZERO;
@@ -784,8 +781,6 @@ impl PhysicsBehaviorUpdate {
         physics_bounce::handle_bounce(state, obj, mass, old_z, new_z, ground_z)
     }
 
-
-
     fn is_zero3d(vec: Coord3D) -> bool {
         vec.x == 0.0 && vec.y == 0.0 && vec.z == 0.0
     }
@@ -877,7 +872,6 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
                 return UpdateSleepTime::None;
             }
 
-
             if let Some(terrain) = TheTerrainLogic::get() {
                 ground_z = terrain.get_layer_height(pos.x, pos.y, obj.get_layer());
                 if obj.test_status(ObjectStatusTypes::DeckHeightOffset) {
@@ -887,7 +881,8 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             }
 
             let bounce_mass = state.mass + contained_items_mass(&obj);
-            bounce_force = self.handle_bounce(state, &mut obj, bounce_mass, old_pos_z, pos.z, ground_z);
+            bounce_force =
+                self.handle_bounce(state, &mut obj, bounce_mass, old_pos_z, pos.z, ground_z);
             active_vel_z = state.vel.z;
 
             if state.has_flag(FLAG_IS_STUNNED) {
@@ -1098,9 +1093,10 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
             handle
                 .state
                 .set_flag(FLAG_ALLOW_BOUNCE, self.module_data.allow_bouncing);
-            handle
-                .state
-                .set_flag(FLAG_ALLOW_COLLIDE_FORCE, self.module_data.allow_collide_force);
+            handle.state.set_flag(
+                FLAG_ALLOW_COLLIDE_FORCE,
+                self.module_data.allow_collide_force,
+            );
             handle.state.yaw_angle = obj.get_orientation();
         }
         obj.set_physics(Some(self.physics_handle.clone()));
@@ -1120,12 +1116,7 @@ impl CollideModuleInterface for PhysicsBehaviorUpdate {
         let Ok(mut handle) = self.physics_handle.try_lock() else {
             return;
         };
-        physics_collide::on_collide(
-            &mut handle,
-            self.object_id,
-            other_id,
-            &self.module_data,
-        );
+        physics_collide::on_collide(&mut handle, self.object_id, other_id, &self.module_data);
     }
 }
 
@@ -1504,7 +1495,6 @@ mod tests {
         assert_eq!(vel.y, 0.0);
         assert_eq!(vel.z, 2.0);
     }
-
 
     #[test]
     fn physics_real_fields_use_cpp_ini_token_handling() {

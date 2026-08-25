@@ -1,5 +1,5 @@
 use crate::game_logic::victory::VictorySummary;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::warn;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock};

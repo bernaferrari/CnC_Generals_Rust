@@ -115,7 +115,6 @@ fn leftover_source_team_override(
     None
 }
 
-
 impl GameLogic {
     /// Wave 958: legacy alias — prefer [`Self::host_object`].
     #[inline]
@@ -150,7 +149,7 @@ impl GameLogic {
         query_id: ObjectId,
     ) -> Option<ObjectId> {
         let _ = team; // supplies are neutral/shared residual
-                      // Pure residual acquire: nearest harvestable supply pile (3D distance).
+        // Pure residual acquire: nearest harvestable supply pile (3D distance).
         let candidates: Vec<_> = self
             .objects
             .iter()
@@ -520,7 +519,8 @@ impl GameLogic {
                     return rel;
                 }
                 if let Some(source_player) = players.get(&source_player_id) {
-                    if let Some(rel) = source_player.team_relationship_override(target_team_instance)
+                    if let Some(rel) =
+                        source_player.team_relationship_override(target_team_instance)
                     {
                         return rel;
                     }
@@ -980,9 +980,7 @@ impl GameLogic {
             return false;
         };
         match shroud.get_host_object_shroud_status(player_id, target.id.0) {
-            Some(status) => {
-                (status as u8) >= (gamelogic::common::ObjectShroudStatus::Fogged as u8)
-            }
+            Some(status) => (status as u8) >= (gamelogic::common::ObjectShroudStatus::Fogged as u8),
             None => false,
         }
     }
@@ -1030,8 +1028,6 @@ impl GameLogic {
         // C++ wouldLikeToCollideWith → isValidToExecute extra gates.
         !crate::game_logic::host_car_bomb::hijack_target_rejected(target)
     }
-
-
 
     /// Authoritative C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)`
     /// subset used by normal player Enter.  Pilot recrew is intentionally
@@ -1100,7 +1096,6 @@ impl GameLogic {
         }
         let mut skip_capacity_for_stealth_garrison = false;
 
-
         if target.is_tunnel_network_style_container() {
             if unit.is_kind_of(KindOf::Aircraft) {
                 return false;
@@ -1155,7 +1150,6 @@ impl GameLogic {
                 return false;
             }
 
-
             // C++ ActionManager.cpp:656-675: a different player may Enter a
             // non-faction container when every occupant is KINDOF_STEALTH_GARRISON.
             // Mixed / regular occupants and faction structures still reject.
@@ -1172,7 +1166,6 @@ impl GameLogic {
                 }
             }
 
-
             // Repeat the exact parsed roster lookup in authority even when
             // presentation already filtered it.  Do not turn a Combat Cycle
             // template-name residual into a rider admission heuristic.
@@ -1187,7 +1180,6 @@ impl GameLogic {
         if skip_capacity_for_stealth_garrison {
             return true;
         }
-
 
         let Some(available) = self.normal_enter_available_capacity_for(unit_id, target_id) else {
             return false;
@@ -1581,7 +1573,6 @@ impl GameLogic {
         Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0])
     }
 
-
     /// Wave 240: selected object ids without exposing `&Player`.
     #[inline]
     pub fn player_selected_objects(&self, id: u32) -> Vec<ObjectId> {
@@ -1880,18 +1871,10 @@ impl GameLogic {
             );
         let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
             if triggered {
-                engine.notify_of_triggered_special_power(
-                    player_index,
-                    power_name,
-                    source_object.0,
-                );
+                engine.notify_of_triggered_special_power(player_index, power_name, source_object.0);
             }
             if completed {
-                engine.notify_of_completed_special_power(
-                    player_index,
-                    power_name,
-                    source_object.0,
-                );
+                engine.notify_of_completed_special_power(player_index, power_name, source_object.0);
             }
         });
     }
@@ -1991,7 +1974,6 @@ impl GameLogic {
         }
     }
 
-
     /// Tick all players' SharedSyncedTimer residual cooldowns.
     ///
     /// Fires EVA SuperweaponReady residual when a PublicTimer power finishes
@@ -2037,7 +2019,6 @@ impl GameLogic {
         for (player_id, name) in ready_events {
             self.try_eva_superweapon_ready_for_player(player_id, &name);
         }
-
     }
 
     /// C++ SpecialPowerModule::onSpecialPowerCreation residual.
@@ -2060,60 +2041,59 @@ impl GameLogic {
                 return;
             };
 
-        // Sample of host powers that may require this science residual.
-        const CANDIDATES: &[P] = &[
-            P::Airstrike,
-            P::AirForceAirstrike,
-            P::DaisyCutter,
-            P::AirForceDaisyCutter,
-            P::FuelAirBomb,
-            P::SpyDrone,
-            P::Paradrop,
-            P::InfantryParadrop,
-            P::TankParadrop,
-            P::CarpetBomb,
-            P::AirForceCarpetBomb,
-            P::EarlyChinaCarpetBomb,
-            P::ClusterMines,
-            P::EmpPulse,
-            P::LeafletDrop,
-            P::Ambush,
-            P::TerrorCell,
-            P::Frenzy,
-            P::EmergencyRepair,
-            P::GpsScrambler,
-            P::SneakAttack,
-            P::SpectreGunship,
-            P::AirForceSpectreGunship,
-            P::NapalmStrike,
-            P::BlackMarketNuke,
-            P::Artillery,
-            P::CrateDrop,
-            P::CashHack,
-            P::SpySatellite,
-        ];
-        for power in CANDIDATES {
-            let Some(req) = special_power_required_science(power) else {
-                continue;
-            };
-            // Match science residual (canonical or alias).
-            let req_n = req.to_ascii_lowercase();
-            let sci_n = sci.to_ascii_lowercase();
-            if req_n != sci_n && !sci_n.ends_with(&req_n) && !req_n.ends_with(&sci_n) {
-                continue;
+            // Sample of host powers that may require this science residual.
+            const CANDIDATES: &[P] = &[
+                P::Airstrike,
+                P::AirForceAirstrike,
+                P::DaisyCutter,
+                P::AirForceDaisyCutter,
+                P::FuelAirBomb,
+                P::SpyDrone,
+                P::Paradrop,
+                P::InfantryParadrop,
+                P::TankParadrop,
+                P::CarpetBomb,
+                P::AirForceCarpetBomb,
+                P::EarlyChinaCarpetBomb,
+                P::ClusterMines,
+                P::EmpPulse,
+                P::LeafletDrop,
+                P::Ambush,
+                P::TerrorCell,
+                P::Frenzy,
+                P::EmergencyRepair,
+                P::GpsScrambler,
+                P::SneakAttack,
+                P::SpectreGunship,
+                P::AirForceSpectreGunship,
+                P::NapalmStrike,
+                P::BlackMarketNuke,
+                P::Artillery,
+                P::CrateDrop,
+                P::CashHack,
+                P::SpySatellite,
+            ];
+            for power in CANDIDATES {
+                let Some(req) = special_power_required_science(power) else {
+                    continue;
+                };
+                // Match science residual (canonical or alias).
+                let req_n = req.to_ascii_lowercase();
+                let sci_n = sci.to_ascii_lowercase();
+                if req_n != sci_n && !sci_n.ends_with(&req_n) && !req_n.ends_with(&sci_n) {
+                    continue;
+                }
+                if !special_power_uses_shared_synced_timer(power) {
+                    continue;
+                }
+                // C++: startPowerRecharge then express ready-now for sharedNSync.
+                player.express_shared_special_power_ready_now(power);
             }
-            if !special_power_uses_shared_synced_timer(power) {
-                continue;
-            }
-            // C++: startPowerRecharge then express ready-now for sharedNSync.
-            player.express_shared_special_power_ready_now(power);
-        }
         }
         // C++ Player::addScience → SpecialPowerModule::onSpecialPowerCreation.
         // CashBountyPower is the only setter; no palace module ⇒ no bounty.
         let _ = self.apply_cash_bounty_from_palace_modules(player_id, Some(science_name));
     }
-
 
     pub fn team_has_completed_capture_upgrade(&self, team: Team) -> bool {
         let Some(player) = self.players.values().find(|player| player.team == team) else {
@@ -2274,9 +2254,10 @@ impl GameLogic {
             let Some(owner_id) = owner_id else {
                 return false;
             };
-            return self.players.get(&owner_id).is_some_and(|player| {
-                player.is_shared_special_power_ready(&power)
-            });
+            return self
+                .players
+                .get(&owner_id)
+                .is_some_and(|player| player.is_shared_special_power_ready(&power));
         }
         source.is_special_power_ready(&power)
     }
@@ -2604,10 +2585,11 @@ impl GameLogic {
             }
             // C++ StatusBitsUpgrade::upgradeImplementation — INI StatusToSet/Clear.
             {
-                let pairs = crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_upgrade(
-                    upgrade,
-                    &obj.template_name,
-                );
+                let pairs =
+                    crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_upgrade(
+                        upgrade,
+                        &obj.template_name,
+                    );
                 for (set, clear) in &pairs {
                     let set_refs: Vec<&str> = set.iter().map(String::as_str).collect();
                     let clear_refs: Vec<&str> = clear.iter().map(String::as_str).collect();
@@ -2834,7 +2816,7 @@ impl GameLogic {
         object_id: ObjectId,
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
     ) {
-        use crate::game_logic::host_slave_drones::{drone_ocl_name, SlaveDroneKind};
+        use crate::game_logic::host_slave_drones::{SlaveDroneKind, drone_ocl_name};
 
         let ctx = self.objects.get(&object_id).map(|obj| {
             (
@@ -3010,10 +2992,7 @@ mod sides_relationship_tests {
         let mut tgt = Object::new(tmpl, ObjectId(11), Team::GLA);
         tgt.owner_player_id = Some(1);
 
-        assert_eq!(
-            logic.object_relationship(&src, &tgt),
-            Relationship::Enemies
-        );
+        assert_eq!(logic.object_relationship(&src, &tgt), Relationship::Enemies);
 
         src.begin_undetected_defection(0, 30, false);
         assert_eq!(
@@ -3030,7 +3009,6 @@ mod sides_relationship_tests {
             "teammates must treat flashing defector as own"
         );
     }
-
 }
 
 #[cfg(test)]

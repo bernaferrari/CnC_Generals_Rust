@@ -175,9 +175,9 @@ mod tests {
     #[test]
     fn simulate_gameworld_authority_prepare_defaults_residual_live() {
         use crate::gameworld_shadow::{
+            GAMEWORLD_AUTHORITY_ENV_NAMES, ResidualGameWorldAuthorityAction,
             residual_gameworld_authority_enabled_count, residual_gameworld_authority_last_action,
             residual_gameworld_shadow_enabled_latch, simulate_gameworld_authority_prepare_defaults,
-            ResidualGameWorldAuthorityAction, GAMEWORLD_AUTHORITY_ENV_NAMES,
         };
         assert_eq!(
             GAMEWORLD_AUTHORITY_ENV_NAMES.len(),

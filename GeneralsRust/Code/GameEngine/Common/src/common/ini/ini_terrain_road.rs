@@ -10,7 +10,7 @@
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini_terrain_bridge::{
-    get_terrain_roads, initialize_terrain_roads, TerrainRoadType,
+    TerrainRoadType, get_terrain_roads, initialize_terrain_roads,
 };
 use crate::debug_assert_crash;
 use std::collections::HashMap;
@@ -553,19 +553,20 @@ mod tests {
     fn road_block_rejects_malformed_cpp_numeric_values() {
         let mut properties = HashMap::new();
         properties.insert("RoadWidth".to_string(), "wide".to_string());
-        assert!(IniTerrainRoad::parse_terrain_road_block(
-            AsciiString::from("BadWidth"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniTerrainRoad::parse_terrain_road_block(AsciiString::from("BadWidth"), properties)
+                .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("RoadWidthInTexture".to_string(), "many".to_string());
-        assert!(IniTerrainRoad::parse_terrain_road_block(
-            AsciiString::from("BadTextureWidth"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniTerrainRoad::parse_terrain_road_block(
+                AsciiString::from("BadTextureWidth"),
+                properties
+            )
+            .is_err()
+        );
     }
 
     #[test]

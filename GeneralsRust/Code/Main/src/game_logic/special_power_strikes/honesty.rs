@@ -535,8 +535,7 @@ pub fn honesty_napalm_strike_residual_pack_ok() -> bool {
             > 1.0
         && (HostSuperweaponKind::NapalmStrike.damage_radius() - NAPALM_STRIKE_OUTER_RADIUS).abs()
             < 0.1
-        && (HostSuperweaponKind::NapalmStrike.falloff_inner() - NAPALM_STRIKE_PRIMARY_RADIUS)
-            .abs()
+        && (HostSuperweaponKind::NapalmStrike.falloff_inner() - NAPALM_STRIKE_PRIMARY_RADIUS).abs()
             < 0.1
         && HostSuperweaponKind::NapalmStrike.authored_damage_type() == DamageType::Fire
         && crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(

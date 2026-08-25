@@ -11,7 +11,7 @@
 
 use super::{Result, W3DError};
 use crate::video::{ColorFormat, Resolution};
-use bytemuck::{cast_slice, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, cast_slice};
 use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 
 #[cfg(feature = "w3d")]
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     Buffer, BufferDescriptor, BufferUsages, Device, Extent3d, Origin3d, Queue, Texture,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 
 /// W3D file header structure (matches original C++)

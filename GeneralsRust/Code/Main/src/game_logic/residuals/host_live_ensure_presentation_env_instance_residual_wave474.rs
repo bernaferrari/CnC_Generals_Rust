@@ -79,8 +79,8 @@ pub fn residual_ensure_presentation_env_instance_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_ensure_presentation_env_instance_last_action(
-) -> ResidualEnsurePresentationEnvInstanceAction {
+pub fn residual_ensure_presentation_env_instance_last_action()
+-> ResidualEnsurePresentationEnvInstanceAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualEnsurePresentationEnvInstanceAction::MethodNames,
         2 => ResidualEnsurePresentationEnvInstanceAction::SourceMarkers,

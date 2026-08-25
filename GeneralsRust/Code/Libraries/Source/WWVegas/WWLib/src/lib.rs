@@ -197,21 +197,22 @@ pub mod xmouse;
 pub mod xpipe;
 pub mod xstraw;
 pub mod xsurface;
-pub use always::{ww_max, ww_min, W3dMpo};
+pub use always::{W3dMpo, ww_max, ww_min};
 pub use b64pipe::{Base64Pipe, CodeControl};
-pub use base64::{base64_decode, base64_encode};
 pub use base_types::*;
+pub use base64::{base64_decode, base64_encode};
 pub use blit::{
     bit_blit, bit_blit_clipped, buffer_size, from_buffer, rle_blit, rle_blit_clipped, to_buffer,
 };
 pub use blitter::{
-    BlitDarken, BlitPlainU16, BlitPlainU32, BlitPlainU8, BlitPlainXlat, BlitTransDarken,
+    BlitDarken, BlitPlainU8, BlitPlainU16, BlitPlainU32, BlitPlainXlat, BlitTransDarken,
     BlitTransLucent25, BlitTransLucent50, BlitTransLucent75, BlitTransRemapDest,
-    BlitTransRemapXlat, BlitTransU16, BlitTransU32, BlitTransU8, BlitTransXlat,
+    BlitTransRemapXlat, BlitTransU8, BlitTransU16, BlitTransU32, BlitTransXlat,
     BlitTransZRemapXlat, Blitter, RLEBlitter,
 };
-pub use blowfish::{BlowfishEngine, BlowfishError, BlowfishResult, BLOCK_SIZE, MAX_KEY_LENGTH};
+pub use blowfish::{BLOCK_SIZE, BlowfishEngine, BlowfishError, BlowfishResult, MAX_KEY_LENGTH};
 pub use blowpipe::{BlowPipe, CryptControl};
+pub use r#bool::{Bool, BoolInt, FALSE, TRUE};
 pub use callback_hook::{Callback, CallbackHook};
 pub use chunkio::{ChunkHeader, ChunkLoadClass, ChunkSaveClass, MicroChunkHeader};
 pub use convert::ConvertClass;
@@ -227,9 +228,9 @@ pub use ini::{INIClass, INIEntry, INIError, INIResult, INISection};
 pub use iostruct::*;
 #[cfg(windows)]
 pub use keyboard::{KeyboardClass, WWKeyboardClass};
-pub use lcw::{compress, decompress, LcwError, LcwResult};
+pub use lcw::{LcwError, LcwResult, compress, decompress};
 pub use lcwpipe::{CompControl, LcwPipe};
-pub use lzo::{lzo_buffer_size, LzoCompressor, LzoError, LzoResult};
+pub use lzo::{LzoCompressor, LzoError, LzoResult, lzo_buffer_size};
 pub use lzopipe::LzoPipe;
 pub use lzostraw::LzoStraw;
 pub use md5::*;
@@ -246,11 +247,10 @@ pub use msgloop::{
 pub use noinit::NoInit;
 pub use obscure::{obfuscate, obfuscate_bytes};
 pub use palette::*;
-pub use pipe::{put_to, Pipe, PipeBase};
+pub use pipe::{Pipe, PipeBase, put_to};
 pub use point::*;
-pub use r#bool::{Bool, BoolInt, FALSE, TRUE};
 pub use random::{
-    pick_random_number, Random2Class, Random3Class, Random4Class, RandomClass, RandomGenerator,
+    Random2Class, Random3Class, Random4Class, RandomClass, RandomGenerator, pick_random_number,
 };
 pub use rawfile::*;
 pub use realcrc::{crc_memory, crc_string, crc_stringi};
@@ -262,7 +262,7 @@ pub use rlerle::{
     RLEBlitTransRemapDest, RLEBlitTransRemapXlat, RLEBlitTransXlat, RLEBlitTransZRemapXlat,
 };
 pub use sha::*;
-pub use straw::{get_from, Straw, StrawBase};
+pub use straw::{Straw, StrawBase, get_from};
 pub use surface::*;
 pub use trig::*;
 pub use uarray::UniqueArrayClass;
@@ -270,7 +270,7 @@ pub use vector_class::*;
 pub use verchk::*;
 pub use win::{is_game_in_focus, print_win32_error, set_game_in_focus};
 // Note: wwfile module is available but not glob-imported to avoid name conflicts with rawfile
-pub use wwfile::{datetime, FileInterface, WWFile};
+pub use wwfile::{FileInterface, WWFile, datetime};
 
 #[cfg(test)]
 mod win32_compile_out_tests {

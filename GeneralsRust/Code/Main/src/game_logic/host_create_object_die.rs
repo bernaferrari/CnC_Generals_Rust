@@ -75,7 +75,8 @@ pub fn create_object_die_config_from_modules<'a>(
         let transfer_previous_health = transfer
             .map(|s| s.eq_ignore_ascii_case("yes") || s.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-        if let Some(cfg) = create_object_die_config_from_creation_list(ocl, transfer_previous_health)
+        if let Some(cfg) =
+            create_object_die_config_from_creation_list(ocl, transfer_previous_health)
         {
             return Some(cfg);
         }
@@ -242,10 +243,11 @@ mod tests {
     fn fuel_air_bomb_peel() {
         let d = create_object_die_config_for_template("DaisyCutterBomb").unwrap();
         assert_eq!(d.ocl_name, "SupW_OCL_FuelAirBomb");
-        assert!(d
-            .spawn_templates
-            .iter()
-            .any(|s| s.contains("FuelAirGas") || s.contains("Gas")));
+        assert!(
+            d.spawn_templates
+                .iter()
+                .any(|s| s.contains("FuelAirGas") || s.contains("Gas"))
+        );
         assert!(d.spawn_templates.iter().any(|s| s.contains("Debris")));
         let m = create_object_die_config_for_template("MOAB").unwrap();
         assert_eq!(m.spawn_templates.len(), 2);

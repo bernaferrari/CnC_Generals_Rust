@@ -1,10 +1,10 @@
 use super::super::*;
 use super::weapon_visual_capture::{
-    geometry_center, recoil_dir_from_positions, PendingWeaponVisualDispatchCapture,
+    PendingWeaponVisualDispatchCapture, geometry_center, recoil_dir_from_positions,
 };
 use crate::presentation_frame::{
-    freeze_weapon_visual_dispatch_plan, FrozenWeaponVisualDischarge,
-    FrozenWeaponVisualDispatchPlan, FrozenWeaponVisualImpulse, FrozenWeaponVisualModuleProbe,
+    FrozenWeaponVisualDischarge, FrozenWeaponVisualDispatchPlan, FrozenWeaponVisualImpulse,
+    FrozenWeaponVisualModuleProbe, freeze_weapon_visual_dispatch_plan,
 };
 
 impl GameLogic {

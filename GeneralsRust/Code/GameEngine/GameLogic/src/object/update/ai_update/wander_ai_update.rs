@@ -6,10 +6,10 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::common::{Coord3D, ObjectID};
-use crate::helpers::{get_game_logic_random_value, TheGameLogic};
+use crate::helpers::{TheGameLogic, get_game_logic_random_value};
 use crate::modules::AIUpdateInterface;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 

@@ -7,15 +7,15 @@ use std::time::{Duration, Instant};
 
 use crate::gui::callbacks::message_box::message_box_ok;
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    write_input_focus_response,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::language::Language;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::download_manager::{
-    download_manager, set_download_manager, DownloadEvent, DownloadManager, DownloadProgress,
-    QueuedDownload,
+    DownloadEvent, DownloadManager, DownloadProgress, QueuedDownload, download_manager,
+    set_download_manager,
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::helpers::TheGameText;

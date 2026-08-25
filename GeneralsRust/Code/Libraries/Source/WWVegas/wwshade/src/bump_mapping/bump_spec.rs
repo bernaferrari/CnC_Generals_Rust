@@ -4,7 +4,7 @@
 //! lighting components. It's a port of the original ShdBumpSpecDefClass from
 //! the C++ WW3D engine.
 
-use super::{constants::*, BumpMappingParams, ShaderVersion};
+use super::{BumpMappingParams, ShaderVersion, constants::*};
 use crate::def::ShdDefClass;
 use crate::error::{ShdError, ShdResult};
 use crate::interface::{RenderInfo, ShdInterface};
@@ -646,7 +646,7 @@ impl ShdInterface for V7BumpSpecShader {
             _ => {
                 return Err(ShdError::InvalidConfig(
                     "Invalid pass for DX7 bump specular".to_string(),
-                ))
+                ));
             }
         }
         Ok(())
@@ -701,7 +701,7 @@ impl ShdInterface for V6BumpSpecShader {
             _ => {
                 return Err(ShdError::InvalidConfig(
                     "Invalid pass for DX6 bump specular".to_string(),
-                ))
+                ));
             }
         }
         Ok(())

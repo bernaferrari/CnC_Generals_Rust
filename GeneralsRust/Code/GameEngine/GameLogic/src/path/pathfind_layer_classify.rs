@@ -3,7 +3,7 @@
 //! Kept out of `pathfind_layer.rs` so the layer object stays a cell matrix
 //! owner; classification is the corner-count rules from AIPathfind.cpp.
 
-use super::{PathfindCell, PathfindCellType, PathfindLayerEnum, PATHFIND_CELL_SIZE_F};
+use super::{PATHFIND_CELL_SIZE_F, PathfindCell, PathfindCellType, PathfindLayerEnum};
 use crate::common::{Coord3D, ICoord2D, ObjectID};
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::system::geometry::GeometryType;
@@ -70,12 +70,7 @@ pub fn wall_corner_count(i: i32, j: i32, wall_pieces: &[ObjectID]) -> u32 {
 
 /// Approximate C++ 4-corner bridge-polygon count when only the layer AABB exists.
 /// Interior cells → 4 (deck). Edge → 2. Corner → 1. Outside → 0.
-pub fn aabb_deck_corner_count(
-    cell_x: i32,
-    cell_y: i32,
-    lo: ICoord2D,
-    hi: ICoord2D,
-) -> u32 {
+pub fn aabb_deck_corner_count(cell_x: i32, cell_y: i32, lo: ICoord2D, hi: ICoord2D) -> u32 {
     if cell_x < lo.x || cell_x > hi.x || cell_y < lo.y || cell_y > hi.y {
         return 0;
     }
@@ -165,8 +160,7 @@ pub fn classify_bridge_aabb_cell(
         return Some(PathfindCellType::BridgeImpassable);
     }
     let count = aabb_deck_corner_count(cell_x, cell_y, lo, hi);
-    let is_entry = (cell_x == start.x && cell_y == start.y)
-        || (cell_x == end.x && cell_y == end.y);
+    let is_entry = (cell_x == start.x && cell_y == start.y) || (cell_x == end.x && cell_y == end.y);
     match count {
         4 => Some(PathfindCellType::Clear),
         0 => None,

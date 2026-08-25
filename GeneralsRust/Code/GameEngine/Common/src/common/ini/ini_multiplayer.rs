@@ -13,7 +13,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini::{
-    FieldParse, INIError, INILoadType as INIParseLoadType, INIResult, INI,
+    FieldParse, INI, INIError, INILoadType as INIParseLoadType, INIResult,
 };
 use crate::common::rts::money::Money;
 use crate::debug_assert_crash;
@@ -564,9 +564,11 @@ mod tests {
         color_def.set_color(color_def.get_rgb_value());
         color_def.set_night_color(color_def.get_rgb_night_value());
 
-        assert!(settings
-            .find_multiplayer_color_definition_by_name(&name)
-            .is_some());
+        assert!(
+            settings
+                .find_multiplayer_color_definition_by_name(&name)
+                .is_some()
+        );
 
         let money = Money::new_with_amount(1000);
         settings.add_starting_money_choice(money, true);

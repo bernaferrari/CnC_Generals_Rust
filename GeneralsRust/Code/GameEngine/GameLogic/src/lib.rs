@@ -145,8 +145,8 @@ pub mod test_sync {
 
 // Re-export commonly used types from the AI module
 pub use ai::{
-    AiCommandInterface, AiCommandParams, AiCommandType, AiData, AiError, AiGroup, AttitudeType,
-    CommandSourceType, AI, THE_AI,
+    AI, AiCommandInterface, AiCommandParams, AiCommandType, AiData, AiError, AiGroup, AttitudeType,
+    CommandSourceType, THE_AI,
 };
 
 pub use common::GeometryInfo;
@@ -155,36 +155,36 @@ pub use object::{Object, ObjectId, ObjectTemplate};
 pub use modules::{ModuleInterface, UpdateModule, UpdateModulePtr};
 
 pub use weapon::{
-    initialize_weapon_store, with_weapon_store, with_weapon_store_mut, DamageType, DeathType,
-    VeterancyLevel, Weapon, WeaponAffectsMask, WeaponAntiMask, WeaponBonus,
+    DamageType, DeathType, VeterancyLevel, Weapon, WeaponAffectsMask, WeaponAntiMask, WeaponBonus,
     WeaponBonusConditionFlags, WeaponBonusSet, WeaponCollideMask, WeaponPrefireType,
     WeaponReloadType, WeaponSlotType, WeaponStatus, WeaponStore, WeaponTemplate,
+    initialize_weapon_store, with_weapon_store, with_weapon_store_mut,
 };
 
 pub use system::game_logic::{
-    get_game_logic, init_game_logic, reset_game_logic, update_game_logic, BuildableStatus, CrcMode,
-    GameLogic, GameMode, Snapshot, SubsystemInterface, MAX_SLOTS,
+    BuildableStatus, CrcMode, GameLogic, GameMode, MAX_SLOTS, Snapshot, SubsystemInterface,
+    get_game_logic, init_game_logic, reset_game_logic, update_game_logic,
 };
 
 pub use common::INVALID_ID;
-pub use player::{player_list, GameDifficulty};
+pub use player::{GameDifficulty, player_list};
 #[cfg(feature = "network")]
 pub use system::network_bridge::{BridgeStatistics, NetworkCommandBridge};
 #[cfg(not(feature = "network"))]
 pub use system::network_bridge_stub::{BridgeStatistics, NetworkCommandBridge};
 
 pub use scripting::{
-    get_script_engine, ActionRegistry, ConditionRegistry, EventFilter, EventManager, GameEvent,
-    GameEventType, GameStateContext, Script, ScriptContext, ScriptPriority, ScriptResult,
-    ScriptTrigger, ScriptValue, ScriptingEngine, VictoryCondition, VictoryManager,
+    ActionRegistry, ConditionRegistry, EventFilter, EventManager, GameEvent, GameEventType,
+    GameStateContext, Script, ScriptContext, ScriptPriority, ScriptResult, ScriptTrigger,
+    ScriptValue, ScriptingEngine, VictoryCondition, VictoryManager, get_script_engine,
 };
 
 pub use team::get_team_factory;
 
 // Re-export singleton stubs from helpers for gameplay systems
 pub use helpers::{
-    attach_particle_system_to_object, TheInGameUI, TheParticleSystemManager, ThePartitionManager,
-    TheRadar,
+    TheInGameUI, TheParticleSystemManager, ThePartitionManager, TheRadar,
+    attach_particle_system_to_object,
 };
 
 // Re-export ModuleFactory from game_engine for convenient access
@@ -431,4 +431,3 @@ mod tests {
         );
     }
 }
-

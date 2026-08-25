@@ -44,8 +44,8 @@ pub const RUNTIME_HOST_LIVE_COMMAND_BUTTON_HUNT_UPDATE_DUAL_WORLD_EMPTY_GATE_CMD
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_command_button_hunt_update_dual_world_empty_gate_method_names_residual_wave384(
-) -> bool {
+pub fn honesty_live_command_button_hunt_update_dual_world_empty_gate_method_names_residual_wave384()
+-> bool {
     LIVE_COMMAND_BUTTON_HUNT_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE384.len() == 6
         && residual_name_index(
             LIVE_COMMAND_BUTTON_HUNT_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE384,
@@ -62,8 +62,8 @@ pub fn honesty_live_command_button_hunt_update_dual_world_empty_gate_method_name
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_command_button_hunt_update_dual_world_empty_gate_nav_commands_residual_wave384(
-) -> bool {
+pub fn honesty_live_command_button_hunt_update_dual_world_empty_gate_nav_commands_residual_wave384()
+-> bool {
     LIVE_COMMAND_BUTTON_HUNT_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE384.len() == 4
         && residual_name_index(
             LIVE_COMMAND_BUTTON_HUNT_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE384,

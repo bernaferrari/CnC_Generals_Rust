@@ -144,11 +144,10 @@ mod tests {
     #[test]
     fn simulate_map_select_prepare_ok_residual_live() {
         use game_client::gui::callbacks::{
-            residual_map_select_menu_difficulty, residual_map_select_menu_last_action,
-            residual_map_select_menu_selected_map,
+            ResidualMapSelectMenuAction, residual_map_select_menu_difficulty,
+            residual_map_select_menu_last_action, residual_map_select_menu_selected_map,
             simulate_map_select_menu_back_button_gadget_selected,
             simulate_map_select_menu_clear_button_pushed, simulate_map_select_menu_prepare_ok,
-            ResidualMapSelectMenuAction,
         };
         assert!(
             simulate_map_select_menu_prepare_ok("Maps/Test/Test.map"),

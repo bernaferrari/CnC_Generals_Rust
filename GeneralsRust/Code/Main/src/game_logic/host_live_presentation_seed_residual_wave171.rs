@@ -124,8 +124,8 @@ pub fn honesty_render_execute_presentation_only_source() -> bool {
 /// Live residual: load retail map, build PresentationFrame, require materialised objects.
 pub fn simulate_live_presentation_seed_honesty() -> bool {
     use crate::game_logic::{
-        resolve_retail_map_path, GameLogic, GameMode, DEFAULT_SKIRMISH_MAP_WAVE169,
-        LONE_EAGLE_MAP_WAVE169,
+        DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
+        resolve_retail_map_path,
     };
     use crate::presentation_frame::PresentationFrame;
 

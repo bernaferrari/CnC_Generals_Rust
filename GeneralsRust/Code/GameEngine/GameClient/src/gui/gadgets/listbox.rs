@@ -2618,7 +2618,12 @@ mod tests {
         listbox.set_focus(true);
         listbox.select_index(1, KeyModifiers::none());
 
-        for key in [KeyCode::Home, KeyCode::End, KeyCode::PageUp, KeyCode::PageDown] {
+        for key in [
+            KeyCode::Home,
+            KeyCode::End,
+            KeyCode::PageUp,
+            KeyCode::PageDown,
+        ] {
             let messages = listbox.handle_input(&InputEvent::KeyDown {
                 key,
                 modifiers: KeyModifiers::none(),
@@ -2679,8 +2684,10 @@ mod tests {
             y: 1,
             delta: -1,
         });
-        assert_eq!(custom_message(&with_buttons, "input_handled"), Some("input_handled"));
+        assert_eq!(
+            custom_message(&with_buttons, "input_handled"),
+            Some("input_handled")
+        );
         assert_eq!(listbox.scroll_offset(), 1);
     }
-
 }

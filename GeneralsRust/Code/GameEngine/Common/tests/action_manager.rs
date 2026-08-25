@@ -5,9 +5,9 @@
 //! `game_engine` disables lib tests (`[lib] test = false`), so these live here.
 
 use game_engine::common::rts::action_manager::{
-    clear_object_data_provider, kind_of_bit, object_data_provider_is_set, set_object_data_provider,
     ActionManager, CommandSourceType, Coord3D, Object, ObjectDataProvider, ObjectShroudStatus,
-    PlayerType, Relationship, SpecialPowerType,
+    PlayerType, Relationship, SpecialPowerType, clear_object_data_provider, kind_of_bit,
+    object_data_provider_is_set, set_object_data_provider,
 };
 use game_engine::common::rts::handles::ObjectHandle;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};

@@ -1,7 +1,7 @@
 //! Tests for leftover weapon types previously hosted in weapon/mod.rs.
 
 use super::*;
-use crate::common::{Coord3D, ObjectID, Real, INVALID_ID};
+use crate::common::{Coord3D, INVALID_ID, ObjectID, Real};
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use std::sync::{Arc, RwLock};
@@ -1715,10 +1715,7 @@ fn cpp_parity_reload_with_bonus_propagates_shared_reload() {
     let mut template = WeaponTemplate::new("SharedFiring".to_string());
     template.clip_size = 4;
     template.clip_reload_time = 20;
-    template.scatter_targets = vec![
-        Coord2D { x: 1.0, y: 0.0 },
-        Coord2D { x: 0.0, y: 1.0 },
-    ];
+    template.scatter_targets = vec![Coord2D { x: 1.0, y: 0.0 }, Coord2D { x: 0.0, y: 1.0 }];
     let mut firing = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     firing.ammo_in_clip = 1;
     firing.scatter_targets_unused.clear();
@@ -1916,16 +1913,19 @@ fn projectile_detonation_dispatches_historic_bonus_weapon() {
     let pos = Coord3D::new(1.0, 2.0, 0.0);
     let bonus_flags = WeaponBonus::default();
 
-    assert!(weapon
-        .deal_damage_internal(1, None, &pos, &bonus_flags, true)
-        .is_ok());
+    assert!(
+        weapon
+            .deal_damage_internal(1, None, &pos, &bonus_flags, true)
+            .is_ok()
+    );
     assert_eq!(weapon.template.historic_damage_len(), 1);
-    assert!(weapon
-        .deal_damage_internal(1, None, &pos, &bonus_flags, true)
-        .is_ok());
+    assert!(
+        weapon
+            .deal_damage_internal(1, None, &pos, &bonus_flags, true)
+            .is_ok()
+    );
     assert_eq!(weapon.template.historic_damage_len(), 0);
 }
-
 
 #[test]
 fn cpp_parity_weapon_bonus_append_adds_deltas_not_multiplies() {
@@ -1970,8 +1970,8 @@ fn cpp_parity_min_range_uses_contact_distance_without_fudge() {
     template.minimum_attack_range = 10.0;
     template.attack_range = 100.0;
     let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
-    let min_sqr = weapon.template.get_minimum_attack_range()
-        * weapon.template.get_minimum_attack_range();
+    let min_sqr =
+        weapon.template.get_minimum_attack_range() * weapon.template.get_minimum_attack_range();
     assert!(
         (min_sqr - 0.5) < min_sqr,
         "pre-fix fudge must not be the live comparison"
@@ -1979,5 +1979,3 @@ fn cpp_parity_min_range_uses_contact_distance_without_fudge() {
     assert!((9.9_f32 * 9.9) < min_sqr);
     assert!((10.0_f32 * 10.0) >= min_sqr);
 }
-
-

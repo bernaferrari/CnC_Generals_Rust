@@ -42,7 +42,6 @@ fn enable_or_disable_object_sound(object_name: &str, enable: bool) {
     }
 }
 
-
 impl ScriptActionDispatcher {
     // ============================================================================
     // ADDITIONAL AUDIO/VIDEO ACTION IMPLEMENTATIONS
@@ -59,7 +58,6 @@ impl ScriptActionDispatcher {
         // C++ doSoundPlayFromNamed: one TheAudio->addAudioEvent. Do not also
         // enqueue HostScriptObjectSoundRequest::PlayNamed — live drain would
         // play the same name a second time through TheAudio.
-
 
         if let Some(handler) = current_script_action_handler() {
             if let Err(err) = handler.sound_play_named(&sound_name, &unit_name) {

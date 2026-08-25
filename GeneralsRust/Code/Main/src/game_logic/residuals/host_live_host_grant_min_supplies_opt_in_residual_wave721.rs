@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostGrantMinSuppliesOptInAction) {
 pub fn residual_host_grant_min_supplies_opt_in_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_grant_min_supplies_opt_in_last_action(
-) -> ResidualHostGrantMinSuppliesOptInAction {
+pub fn residual_host_grant_min_supplies_opt_in_last_action()
+-> ResidualHostGrantMinSuppliesOptInAction {
     ResidualHostGrantMinSuppliesOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {

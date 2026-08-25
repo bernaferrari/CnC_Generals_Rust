@@ -1,7 +1,7 @@
 //! C++ `Radar::newMap` LeftHUD bind + `screenPixelToWorld` / `localPixelToRadar`.
 
 use super::{
-    radar_draw_positions, Coord3D, ICoord2D, RadarSystem, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
+    Coord3D, ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, RadarSystem, radar_draw_positions,
 };
 use crate::common::name_key_generator::NameKeyGenerator;
 use std::sync::{Arc, OnceLock};
@@ -55,13 +55,7 @@ impl RadarSystem {
         if window.width <= 0 || window.height <= 0 {
             return None;
         }
-        let (ul, lr) = radar_draw_positions(
-            0,
-            0,
-            window.width,
-            window.height,
-            self.map_extent,
-        );
+        let (ul, lr) = radar_draw_positions(0, 0, window.width, window.height, self.map_extent);
         if pixel.x < ul.x || pixel.x > lr.x || pixel.y < ul.y || pixel.y > lr.y {
             return None;
         }
@@ -69,8 +63,8 @@ impl RadarSystem {
         let scaled_height = (lr.y - ul.y).max(1);
         if scaled_width >= scaled_height {
             let x = (pixel.x - ul.x) * RADAR_CELL_WIDTH as i32 / scaled_width;
-            let mut y = (((pixel.y - ul.y) as f32 / scaled_height as f32) * window.height as f32)
-                as i32;
+            let mut y =
+                (((pixel.y - ul.y) as f32 / scaled_height as f32) * window.height as f32) as i32;
             y = (window.height - y) * RADAR_CELL_HEIGHT as i32 / window.height;
             Some(ICoord2D { x, y })
         } else {

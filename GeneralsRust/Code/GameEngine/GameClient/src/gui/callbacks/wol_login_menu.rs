@@ -7,18 +7,18 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::game_text::GameText;
+use crate::gamespy_overlay::{gs_message_box_ok, raise_gs_message_box};
 use crate::gui::callbacks::online_callback_support::{
     dispatch_esc_gadget_selected, packed_ui_color,
 };
-use crate::gamespy_overlay::{gs_message_box_ok, raise_gs_message_box};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
+    with_window_manager, write_input_focus_response,
 };
-use crate::shell_hooks::{signal_ui_interaction, SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN};
-use chrono::Datelike;
+use crate::shell_hooks::{SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN, signal_ui_interaction};
 use crate::w3d_web_browser::W3DWebBrowser;
+use chrono::Datelike;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
@@ -26,17 +26,17 @@ use game_engine::common::system::quoted_printable::{
     ascii_string_to_quoted_printable, quoted_printable_to_ascii_string,
 };
 use game_network::gamespy::buddy_thread::{
-    get_buddy_message_queue, BuddyRequest, BuddyRequestType,
+    BuddyRequest, BuddyRequestType, get_buddy_message_queue,
 };
 use game_network::gamespy::config::GameSpyConfig;
 use game_network::gamespy::peer_defs::{
-    default_gamespy_colors, get_gamespy_info, GameSpyColor, GameSpyGroupRoom,
+    GameSpyColor, GameSpyGroupRoom, default_gamespy_colors, get_gamespy_info,
 };
 use game_network::gamespy::peer_thread::{
-    get_peer_message_queue, DisconnectReason, PeerRequest, PeerRequestType, PeerResponseType,
+    DisconnectReason, PeerRequest, PeerRequestType, PeerResponseType, get_peer_message_queue,
 };
 use game_network::gamespy::persistent_storage_thread::GameSpyPSMessageQueue;
-use game_network::gamespy::ping_thread::{get_ping_queue, init_ping_queue, PingRequest};
+use game_network::gamespy::ping_thread::{PingRequest, get_ping_queue, init_ping_queue};
 
 const LOGIN_TIMEOUT: Duration = Duration::from_millis(10_000);
 const PREF_FILENAME: &str = "GameSpyLogin.ini";
@@ -592,7 +592,8 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         state.login_pref = Some(pref);
     }
 
-    let esrb_title_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:StaticTextESRBTop") as i32;
+    let esrb_title_id =
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:StaticTextESRBTop") as i32;
     let esrb_parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentESRB") as i32;
     let esrb_title = with_window_manager(|manager| manager.get_window_by_id(esrb_title_id));
     let esrb_parent = with_window_manager(|manager| manager.get_window_by_id(esrb_parent_id));
@@ -610,9 +611,12 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         }
     }
 
-    state.parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:WOLLoginMenuParent") as i32;
-    state.button_back_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonBack") as i32;
-    state.button_login_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonLogin") as i32;
+    state.parent_id =
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:WOLLoginMenuParent") as i32;
+    state.button_back_id =
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonBack") as i32;
+    state.button_login_id =
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonLogin") as i32;
     state.button_create_account_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonCreateAccount") as i32;
     state.button_use_account_id =
@@ -621,8 +625,10 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonDontUseAccount") as i32;
     state.button_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonTOS") as i32;
     state.parent_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentTOS") as i32;
-    state.button_tos_ok_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonTOSOK") as i32;
-    state.listbox_tos_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ListboxTOS") as i32;
+    state.button_tos_ok_id =
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ButtonTOSOK") as i32;
+    state.listbox_tos_id =
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ListboxTOS") as i32;
     state.combo_box_email_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ComboBoxEmail") as i32;
     state.combo_box_login_name_id =
@@ -635,7 +641,8 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:CheckBoxRememberInfo") as i32;
     state.text_entry_month_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryMonth") as i32;
-    state.text_entry_day_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryDay") as i32;
+    state.text_entry_day_id =
+        NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryDay") as i32;
     state.text_entry_year_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryYear") as i32;
 
@@ -889,7 +896,11 @@ pub fn wol_login_menu_input(
     let (button_pushed, parent, back_id) = {
         let slot = wol_login_state();
         let state = slot.borrow();
-        (state.button_pushed, state.parent.clone(), state.button_back_id)
+        (
+            state.button_pushed,
+            state.parent.clone(),
+            state.button_back_id,
+        )
     };
     if button_pushed {
         return WindowMsgHandled::Ignored;
@@ -992,7 +1003,7 @@ pub fn wol_login_menu_system(
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
             let state_slot = wol_login_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }
@@ -1009,7 +1020,7 @@ pub fn wol_login_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let state_slot = wol_login_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }

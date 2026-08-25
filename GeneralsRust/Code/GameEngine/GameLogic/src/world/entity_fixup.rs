@@ -7,9 +7,9 @@
 //! rebinds `m_containedBy`. Missing targets fail closed here (empty + warn)
 //! instead of C++ `DEBUG_CRASH`.
 
+use super::GameWorld;
 use super::entities::EntityId;
 use super::entity_generation::EntityHandle;
-use super::GameWorld;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContainFixup {

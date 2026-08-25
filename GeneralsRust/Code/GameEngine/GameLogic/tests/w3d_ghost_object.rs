@@ -1,11 +1,11 @@
 use game_engine::common::game_common::MAX_PLAYER_COUNT;
+use game_engine::common::system::Snapshotable;
 use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
-use game_engine::common::system::Snapshotable;
 use gamelogic::object::w3d_ghost_object::{
-    FrozenW3DGhostSceneEvent, GhostSceneEvent, Matrix3x4, ParentGeometrySnapshot,
-    RenderObjectClass, RenderObjectState, RenderSubObjectSnapshot, W3DDrawableInfo, W3DGhostObject,
-    W3DGhostObjectManager, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID, OBJECTSHROUD_FOGGED,
+    FrozenW3DGhostSceneEvent, GhostSceneEvent, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID, Matrix3x4,
+    OBJECTSHROUD_FOGGED, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
+    RenderSubObjectSnapshot, W3DDrawableInfo, W3DGhostObject, W3DGhostObjectManager,
 };
 use std::io::Cursor;
 
@@ -129,15 +129,19 @@ fn free_snapshot_removes_scene_snapshot_and_restores_parent() {
     ghost.free_snapshot(0, 0);
 
     assert!(ghost.snapshots(0).is_empty());
-    assert!(ghost
-        .scene_events()
-        .contains(&GhostSceneEvent::RemoveSnapshot {
-            player_index: 0,
-            snapshot: 0
-        }));
-    assert!(ghost
-        .scene_events()
-        .contains(&GhostSceneEvent::RestoreParentObject(7)));
+    assert!(
+        ghost
+            .scene_events()
+            .contains(&GhostSceneEvent::RemoveSnapshot {
+                player_index: 0,
+                snapshot: 0
+            })
+    );
+    assert!(
+        ghost
+            .scene_events()
+            .contains(&GhostSceneEvent::RestoreParentObject(7))
+    );
 }
 
 #[test]
@@ -166,15 +170,19 @@ fn local_player_switch_replaces_scene_objects_like_cpp() {
     manager.set_local_player_index(1);
 
     let ghost = &manager.used()[0];
-    assert!(ghost
-        .scene_events()
-        .contains(&GhostSceneEvent::RemoveParentObject(9)));
-    assert!(ghost
-        .scene_events()
-        .contains(&GhostSceneEvent::AddSnapshot {
-            player_index: 1,
-            snapshot: 0
-        }));
+    assert!(
+        ghost
+            .scene_events()
+            .contains(&GhostSceneEvent::RemoveParentObject(9))
+    );
+    assert!(
+        ghost
+            .scene_events()
+            .contains(&GhostSceneEvent::AddSnapshot {
+                player_index: 1,
+                snapshot: 0
+            })
+    );
     assert_eq!(manager.local_player_index(), 1);
 }
 
@@ -297,7 +305,9 @@ fn w3d_ghost_xfer_round_trips_snapshot_transform_vis_color_and_shroud() {
     );
     assert!(!snapshot.render_object.sub_objects[1].visible);
     assert!(snapshot.uv_animations_disabled);
-    assert!(ghost
-        .scene_events()
-        .contains(&GhostSceneEvent::RemoveParentObject(42)));
+    assert!(
+        ghost
+            .scene_events()
+            .contains(&GhostSceneEvent::RemoveParentObject(42))
+    );
 }

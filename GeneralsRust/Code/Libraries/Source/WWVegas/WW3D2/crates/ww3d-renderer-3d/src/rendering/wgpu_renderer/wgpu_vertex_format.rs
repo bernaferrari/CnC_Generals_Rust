@@ -282,7 +282,7 @@ impl VertexFormatInfo {
                     return Err(Error::InvalidVertexFormat(format!(
                         "Unsupported vertex element size: {}",
                         coord_size
-                    )))
+                    )));
                 }
             };
 

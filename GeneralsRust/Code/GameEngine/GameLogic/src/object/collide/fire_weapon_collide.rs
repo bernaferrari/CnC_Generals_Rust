@@ -7,8 +7,8 @@
 use super::*;
 use crate::common::types::WeaponBonusConditionFlags;
 use crate::helpers::TheGameLogic;
-use crate::weapon::{with_weapon_store, Weapon, WeaponSlotType, WeaponTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::weapon::{Weapon, WeaponSlotType, WeaponTemplate, with_weapon_store};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ModuleData, NameKeyType};
 use std::sync::Arc;

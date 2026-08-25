@@ -1138,35 +1138,37 @@ mod tests {
 
         let mut properties = HashMap::new();
         properties.insert("WeaponSpeed".to_string(), "fast".to_string());
-        assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("BadWeaponSpeed"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniWeapon::parse_weapon_template_block(AsciiString::from("BadWeaponSpeed"), properties)
+                .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("RequestAssistRange".to_string(), "far".to_string());
-        assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("BadRequestAssistRange"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniWeapon::parse_weapon_template_block(
+                AsciiString::from("BadRequestAssistRange"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("ScaleWeaponSpeed".to_string(), "sometimes".to_string());
-        assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("BadScaleWeaponSpeed"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniWeapon::parse_weapon_template_block(
+                AsciiString::from("BadScaleWeaponSpeed"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("ClipSize".to_string(), "many".to_string());
-        assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("BadClipSize"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniWeapon::parse_weapon_template_block(AsciiString::from("BadClipSize"), properties)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1180,19 +1182,23 @@ mod tests {
 
         let mut properties = HashMap::new();
         properties.insert("CanTargetAir".to_string(), "false".to_string());
-        assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("RustCanTargetAir"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniWeapon::parse_weapon_template_block(
+                AsciiString::from("RustCanTargetAir"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("TotallyUnknown".to_string(), "value".to_string());
-        assert!(IniWeapon::parse_weapon_template_block(
-            AsciiString::from("UnknownWeaponField"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniWeapon::parse_weapon_template_block(
+                AsciiString::from("UnknownWeaponField"),
+                properties
+            )
+            .is_err()
+        );
     }
 
     #[test]

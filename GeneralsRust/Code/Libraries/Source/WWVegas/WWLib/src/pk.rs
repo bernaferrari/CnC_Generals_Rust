@@ -1,4 +1,4 @@
-use crate::int::{generate_prime, BigInt};
+use crate::int::{BigInt, generate_prime};
 use crate::straw::Straw;
 
 #[derive(Clone, Debug)]

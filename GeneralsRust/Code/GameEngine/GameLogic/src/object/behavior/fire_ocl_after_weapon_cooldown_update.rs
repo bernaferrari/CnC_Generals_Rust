@@ -3,17 +3,17 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, ModuleData, ObjectID, UnsignedInt, LOGICFRAMES_PER_SECOND,
-    SECONDS_PER_LOGICFRAME_REAL,
+    AsciiString, LOGICFRAMES_PER_SECOND, ModuleData, ObjectID, SECONDS_PER_LOGICFRAME_REAL,
+    UnsignedInt,
 };
 use crate::effects::ObjectCreationList;
 use crate::helpers::{TheGameLogic, TheObjectCreationListStore};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::upgrade::{UpgradeMask, UpgradeMux, UpgradeMuxData};
 use crate::weapon::WeaponSlotType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

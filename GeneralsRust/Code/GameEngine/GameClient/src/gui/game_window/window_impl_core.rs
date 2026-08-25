@@ -1440,7 +1440,6 @@ impl GameWindow {
             let (width, _) = self.get_size();
             let _ = self.set_size(width, base_height);
         }
-
     }
 
     pub(crate) fn play_gui_click() {
@@ -1488,7 +1487,6 @@ impl GameWindow {
             self.hide_combobox_list();
         }
     }
-
 
     pub(crate) fn set_combobox_editable(&mut self, editable: bool) {
         if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
@@ -1936,4 +1934,3 @@ mod send_input_gate_tests {
         assert_eq!(*seen.borrow(), 2);
     }
 }
-

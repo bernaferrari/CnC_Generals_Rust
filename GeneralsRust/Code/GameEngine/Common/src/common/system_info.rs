@@ -410,25 +410,38 @@ impl SystemInfo {
         #[cfg(feature = "graphics")]
         {
             use winit::event_loop::EventLoopBuilder;
+            use winit::window::Window;
 
             if let Ok(event_loop) = EventLoopBuilder::new().build() {
-                let primary = event_loop
-                    .primary_monitor()
-                    .or_else(|| event_loop.available_monitors().next());
+                // Winit 0.30 exposes monitor enumeration on an active event
+                // loop or Window, not on EventLoop itself.  A hidden window
+                // gives this startup probe the same monitor data without
+                // changing the visible game startup path.
+                let window = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    event_loop.create_window(Window::default_attributes().with_visible(false))
+                }))
+                .ok()
+                .and_then(Result::ok);
 
-                if let Some(primary) = primary {
-                    let size = primary.size();
-                    display.width = size.width.max(1);
-                    display.height = size.height.max(1);
-                    display.refresh_rate = primary
-                        .refresh_rate_millihertz()
-                        .map(|mhz| (mhz / 1000).max(1))
-                        .unwrap_or(60);
-                }
+                if let Some(window) = window {
+                    let primary = window
+                        .primary_monitor()
+                        .or_else(|| window.available_monitors().next());
 
-                let monitor_count = event_loop.available_monitors().count();
-                if monitor_count > 0 {
-                    display.display_count = monitor_count;
+                    if let Some(primary) = primary {
+                        let size = primary.size();
+                        display.width = size.width.max(1);
+                        display.height = size.height.max(1);
+                        display.refresh_rate = primary
+                            .refresh_rate_millihertz()
+                            .map(|mhz| (mhz / 1000).max(1))
+                            .unwrap_or(60);
+                    }
+
+                    let monitor_count = window.available_monitors().count();
+                    if monitor_count > 0 {
+                        display.display_count = monitor_count;
+                    }
                 }
             }
         }

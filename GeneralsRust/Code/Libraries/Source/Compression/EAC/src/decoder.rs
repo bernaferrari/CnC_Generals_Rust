@@ -405,7 +405,7 @@ impl BatchDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{compress, CompressionType};
+    use crate::{CompressionType, compress};
 
     #[test]
     fn test_decoder_config_default() {

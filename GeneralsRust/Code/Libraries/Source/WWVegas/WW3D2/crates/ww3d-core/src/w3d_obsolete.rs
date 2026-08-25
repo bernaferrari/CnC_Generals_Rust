@@ -1,6 +1,6 @@
 //! Obsolete W3D chunk IDs and legacy structs (ported from w3d_obsolete.h).
 
-use crate::w3d_format::{W3dRGBStruct, W3dTexCoordStruct, W3dVectorStruct, W3D_NAME_LEN};
+use crate::w3d_format::{W3D_NAME_LEN, W3dRGBStruct, W3dTexCoordStruct, W3dVectorStruct};
 
 pub const W3D_CHUNK_MESH_HEADER: u32 = 0x00000001;
 pub const W3D_CHUNK_SURRENDER_NORMALS: u32 = 0x00000004;

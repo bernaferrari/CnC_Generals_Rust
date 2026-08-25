@@ -386,7 +386,6 @@ pub fn resolve_data_ini_file(virtual_path: &str) -> Option<PathBuf> {
     None
 }
 
-
 /// Locate `genseczh.big` / `GensecZH.big` on CD roots or a discovered install.
 pub fn find_genseczh_big() -> Option<PathBuf> {
     for root in zh_install_roots() {
@@ -429,7 +428,6 @@ mod tests {
             "install discovery must locate a directory that contains INIZH.big"
         );
     }
-
 
     #[test]
     fn resolve_data_ini_file_finds_sound_effects_from_extracted_tree() {

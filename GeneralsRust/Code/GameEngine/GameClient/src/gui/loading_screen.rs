@@ -654,11 +654,7 @@ pub fn residual_loading_screen_map_name() -> Option<String> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// Residual: show loading screen without full asset pipeline.

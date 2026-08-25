@@ -40,7 +40,6 @@ pub struct ExperienceTracker {
     trainable_override: Option<bool>,
     /// Test / host-wiring ExperienceValue table when the owner template is absent.
     experience_value_table: Option<[i32; 4]>,
-
 }
 
 impl ExperienceTracker {
@@ -105,7 +104,6 @@ impl ExperienceTracker {
     pub fn set_experience_value_table(&mut self, values: [i32; 4]) {
         self.experience_value_table = Some(values);
     }
-
 
     /// Get the experience sink ID
     pub fn get_experience_sink(&self) -> ObjectID {
@@ -495,7 +493,6 @@ mod tests {
         tracker.set_trainable_override(true);
         tracker
     }
-
 
     #[test]
     fn test_tracker_creation() {

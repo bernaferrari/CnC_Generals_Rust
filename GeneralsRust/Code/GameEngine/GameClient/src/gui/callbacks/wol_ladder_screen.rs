@@ -7,8 +7,8 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
+    with_window_manager, write_input_focus_response,
 };
 use crate::w3d_web_browser::W3DWebBrowser;
 use game_engine::common::ascii_string::AsciiString;
@@ -124,10 +124,7 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
     state.window_ladder = window_ladder;
 }
 
-pub fn wol_ladder_screen_shutdown(
-    layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_ladder_screen_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     {
         let state_slot = wol_ladder_state();
         let state = state_slot.borrow();
@@ -141,11 +138,7 @@ pub fn wol_ladder_screen_shutdown(
     let _ = get_shell().shutdown_complete(None, false);
 }
 
-pub fn wol_ladder_screen_update(
-    _layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
-}
+pub fn wol_ladder_screen_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {}
 
 pub fn wol_ladder_screen_input(
     _window: &GameWindow,
@@ -183,7 +176,7 @@ pub fn wol_ladder_screen_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let state_slot = wol_ladder_state();
-    let state = state_slot.borrow_mut();
+            let state = state_slot.borrow_mut();
             if control_id == state.button_back_id {
                 let _ = get_shell().pop();
                 return WindowMsgHandled::Handled;

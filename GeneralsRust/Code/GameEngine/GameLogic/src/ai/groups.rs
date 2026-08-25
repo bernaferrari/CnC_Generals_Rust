@@ -14,9 +14,9 @@ use std::time::{Duration, Instant};
 
 use super::states::{AIStateMachine, AIStateType};
 use super::{AiCommandParams, AiCommandType, AiError, AttitudeType, CommandSourceType};
-use crate::common::types::{Coord2D, Coord3D, Real};
 use crate::common::ObjectID;
-use crate::helpers::{get_game_logic_random_value_real, TheGameLogic};
+use crate::common::types::{Coord2D, Coord3D, Real};
+use crate::helpers::{TheGameLogic, get_game_logic_random_value_real};
 use crate::object::registry::OBJECT_REGISTRY;
 
 /// Wave 398: host-only path has no dual-world factory objects.

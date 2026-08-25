@@ -9,13 +9,13 @@
 //! travel through water and clear cells.
 
 use super::{
-    PathfindCell, PathfindCellType, PathfindLayer, PathfindLayerEnum, ZoneBlock, ZONE_BLOCK_SIZE,
+    PathfindCell, PathfindCellType, PathfindLayer, PathfindLayerEnum, ZONE_BLOCK_SIZE, ZoneBlock,
 };
 use crate::common::{ICoord2D, IRegion2D};
 use crate::locomotor::SURFACE_AIR;
 use crate::path::{
-    LocomotorSurfaceTypeMask, ZoneStorageType, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE,
-    SURFACE_WATER,
+    LocomotorSurfaceTypeMask, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
+    ZoneStorageType,
 };
 /// Zone manager constants
 pub const INITIAL_ZONES: usize = 256;

@@ -28,9 +28,10 @@ impl GameLogic {
         table_offset: Option<glam::Vec2>,
     ) -> (bool, glam::Vec3, f32) {
         use crate::game_logic::weapon_bootstrap::{
-            host_effective_scatter_radius, host_primary_damage_radius_for_weapon_name,
+            DEFAULT_SCATTER_HIT_RADIUS, host_effective_scatter_radius,
+            host_primary_damage_radius_for_weapon_name,
             host_secondary_damage_radius_for_weapon_name, scatter_impact_offset,
-            scatter_misses_intended_target, scatter_seed_for_shot, DEFAULT_SCATTER_HIT_RADIUS,
+            scatter_misses_intended_target, scatter_seed_for_shot,
         };
         let (wname, tgt_inf, hit_r, weapon_splash, radius_mult) = {
             let attacker = match self.objects.get(&attacker_id) {
@@ -173,7 +174,6 @@ impl GameLogic {
         }
         0
     }
-
 
     pub(crate) fn sample_stun_surface_at(&self, pos: glam::Vec3) -> (bool, bool) {
         if let Some(t) = self.terrain.as_ref() {
@@ -322,7 +322,11 @@ impl GameLogic {
                 let para = a.is_parachuting();
                 let projectile = a.is_kind_of(crate::game_logic::KindOf::Projectile)
                     || a.object_type == crate::game_logic::ObjectType::Projectile;
-                (a.is_mobile() || projectile, dead || para, a.allow_collide_force)
+                (
+                    a.is_mobile() || projectile,
+                    dead || para,
+                    a.allow_collide_force,
+                )
             };
             if has_ai && !dead_or_para {
                 let frame = self.frame;
@@ -634,7 +638,9 @@ impl GameLogic {
         }
         // C++ PhysicsUpdate.cpp:1353-1365 — fall-into-structure destroyObject
         // (weapon only if vehicle) before stiffness bounce.
-        if self.apply_vehicle_crash_into_immobile(mover_id, immobile_id).is_some()
+        if self
+            .apply_vehicle_crash_into_immobile(mover_id, immobile_id)
+            .is_some()
             && self
                 .objects
                 .get(&mover_id)
@@ -662,7 +668,7 @@ impl GameLogic {
         other_id: ObjectId,
     ) -> Option<&'static str> {
         use crate::game_logic::host_partition_collision_physics_residual::{
-            vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name, VehicleCrashImmobileOutcome,
+            VehicleCrashImmobileOutcome, vehicle_crash_destroys_vehicle, vehicle_crash_weapon_name,
         };
         let outcome = {
             let Some(v) = self.objects.get(&vehicle_id) else {
@@ -770,7 +776,6 @@ impl GameLogic {
     /// Partition cell broadphase (cell size 40) + selection_radius XZ spheres.
     /// Advances overlap frame after pairs. Fail-closed vs full ghost/shroud cells.
     /// Returns number of pairs that invoked try_physics_collide successfully.
-
 
     /// C++ AIUpdateInterface::privateFaceObject residual.
     ///
@@ -981,7 +986,6 @@ impl GameLogic {
         transferred
     }
 
-
     /// C++ `Locomotor::handleBehaviorZ` live pose (Locomotor.cpp:2196-2323).
     ///
     /// `Z_SURFACE_RELATIVE_HEIGHT` / `Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER` apply
@@ -1073,8 +1077,8 @@ impl GameLogic {
             };
             o.pending_ground_collide = false;
             o.last_collidee = None;
-            let chute = o.is_parachuting()
-                || o.template_name.to_ascii_lowercase().contains("parachute");
+            let chute =
+                o.is_parachuting() || o.template_name.to_ascii_lowercase().contains("parachute");
             (o.contained_by, chute)
         };
         let chute_id = if is_chute {
@@ -1082,8 +1086,7 @@ impl GameLogic {
         } else {
             container.filter(|cid| {
                 self.objects.get(cid).is_some_and(|c| {
-                    c.is_parachuting()
-                        || c.template_name.to_ascii_lowercase().contains("parachute")
+                    c.is_parachuting() || c.template_name.to_ascii_lowercase().contains("parachute")
                 })
             })
         };

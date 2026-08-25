@@ -342,7 +342,8 @@ impl MessageStream {
             }
         }
 
-        let completed_messages: Vec<GameMessage> = self.base.take_all_messages().into_iter().collect();
+        let completed_messages: Vec<GameMessage> =
+            self.base.take_all_messages().into_iter().collect();
         deliver_surviving_messages_to_command_list(&completed_messages);
 
         debug!(

@@ -4,12 +4,12 @@
 
 // Re-export key types for backward compatibility.
 pub use crate::special_power_module::{
-    get_player_powers, get_power, get_power_registry, register_power, ActivationResult,
-    ActivationState, BaikonurLaunchPower, CashBountyPower, CashHackSpecialPower, CleanupAreaPower,
-    CooldownManager, CooldownState, DefectorSpecialPower, DemoralizeSpecialPower, FireWeaponPower,
-    OCLSpecialPower, SpecialPowerFlags, SpecialPowerID, SpecialPowerKind, SpecialPowerModule,
-    SpecialPowerModuleData, SpecialPowerModuleInterface, SpecialPowerRegistry, SpecialPowerStats,
-    SpyVisionSpecialPower, TargetValidator, TargetingInfo,
+    ActivationResult, ActivationState, BaikonurLaunchPower, CashBountyPower, CashHackSpecialPower,
+    CleanupAreaPower, CooldownManager, CooldownState, DefectorSpecialPower, DemoralizeSpecialPower,
+    FireWeaponPower, OCLSpecialPower, SpecialPowerFlags, SpecialPowerID, SpecialPowerKind,
+    SpecialPowerModule, SpecialPowerModuleData, SpecialPowerModuleInterface, SpecialPowerRegistry,
+    SpecialPowerStats, SpyVisionSpecialPower, TargetValidator, TargetingInfo, get_player_powers,
+    get_power, get_power_registry, register_power,
 };
 
 use crate::common::*;

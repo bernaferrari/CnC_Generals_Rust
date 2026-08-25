@@ -79,8 +79,8 @@ pub fn residual_ui_selection_seed_presentation_fail_closed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_ui_selection_seed_presentation_fail_closed_last_action(
-) -> ResidualUiSelectionSeedPresentationFailClosedAction {
+pub fn residual_ui_selection_seed_presentation_fail_closed_last_action()
+-> ResidualUiSelectionSeedPresentationFailClosedAction {
     ResidualUiSelectionSeedPresentationFailClosedAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -137,8 +137,8 @@ pub fn honesty_ui_selection_seed_presentation_fail_closed_source_markers_residua
         && body.contains("last_presentation_frame")
         && body.contains("return None;");
     // 2026-08-15: comments name the peeled dual-read; live code must not call it.
-    let boot = !body.contains("player_selected_objects(")
-        && !body.contains(".player_selected_objects");
+    let boot =
+        !body.contains("player_selected_objects(") && !body.contains(".player_selected_objects");
     let pres_arm_ok = body.contains("selected_objects.first()");
     let ok = pres_return && boot && pres_arm_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualUiSelectionSeedPresentationFailClosedAction::SourceMarkers);

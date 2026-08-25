@@ -483,9 +483,9 @@ impl CommandSystem {
                         };
                     }
                     if !salvage
-                        && selected_units.iter().any(|&unit_id| {
-                            gl.unit_is_alive(unit_id) && gl.unit_can_move(unit_id)
-                        })
+                        && selected_units
+                            .iter()
+                            .any(|&unit_id| gl.unit_is_alive(unit_id) && gl.unit_can_move(unit_id))
                     {
                         return CommandType::MoveTo {
                             destination: context.world_position,
@@ -501,8 +501,7 @@ impl CommandSystem {
             && !selected_units.is_empty()
             && game_logic.is_some_and(|gl| {
                 selected_units.iter().all(|&id| {
-                    gl.unit_is_alive(id)
-                        && gl.unit_is_kind_of(id, KindOf::AutoRallypoint)
+                    gl.unit_is_alive(id) && gl.unit_is_kind_of(id, KindOf::AutoRallypoint)
                 })
             })
         {
@@ -1389,9 +1388,10 @@ impl CommandSystem {
                 })
             } else {
                 game_logic.is_some_and(|gl| {
-                    units.iter().copied().any(|id| {
-                        gl.can_execute_infantry_unmanned_recrew(id, target_id)
-                    })
+                    units
+                        .iter()
+                        .copied()
+                        .any(|id| gl.can_execute_infantry_unmanned_recrew(id, target_id))
                 })
             };
             if any_recrew {
@@ -1481,12 +1481,8 @@ impl CommandSystem {
             return Some(CommandType::CaptureBuilding { target_id });
         }
         // C++ CommandXlat.cpp:2050-2156 — Lotus/Hacker auto-hack after capture.
-        if selection_can_disable_vehicle_hack_target(
-            selected_presentation,
-            units,
-            hint,
-            game_logic,
-        ) {
+        if selection_can_disable_vehicle_hack_target(selected_presentation, units, hint, game_logic)
+        {
             return Some(CommandType::DisableVehicleHack { target_id });
         }
         if selection_can_steal_cash_hack_target(selected_presentation, units, hint, game_logic) {
@@ -1971,7 +1967,9 @@ fn selection_can_steal_cash_hack_target(
         || !hint.is_enemy_of_local
         || !hint.is_structure
         || hint.under_construction
-        || !crate::game_logic::host_hero_abilities::is_cash_hack_target_template(&hint.template_name)
+        || !crate::game_logic::host_hero_abilities::is_cash_hack_target_template(
+            &hint.template_name,
+        )
     {
         return false;
     }

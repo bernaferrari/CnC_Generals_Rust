@@ -4,9 +4,9 @@ use eac_compression::{
     compress_btree, compress_huffman, compress_refpack, decompress_btree, decompress_huffman,
     decompress_refpack,
 };
-use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression as FlateCompression};
+use flate2::{Compression as FlateCompression, read::ZlibDecoder, write::ZlibEncoder};
 use lzh_compression::{
-    calc_max_compressed_size_raw, compress_raw, decompress_raw, CompressionLevel,
+    CompressionLevel, calc_max_compressed_size_raw, compress_raw, decompress_raw,
 };
 
 pub type Int = i32;

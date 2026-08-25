@@ -133,7 +133,11 @@ fn aflame_bits_come_from_host_not_death_type_name() {
     u.death_type_name.clear();
     u.destroyed = false;
     let bits = u.model_condition_bits_with_combat_flags();
-    assert_ne!(bits & flame, 0, "live AFLAME must survive empty death_type_name");
+    assert_ne!(
+        bits & flame,
+        0,
+        "live AFLAME must survive empty death_type_name"
+    );
     assert_eq!(bits & burn, 0, "death name must not invent BURNED");
 
     u.model_condition_bits = 0;
@@ -448,9 +452,7 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     logic.add_player(Player::new(0, Team::USA, "Local", true));
     let mut template = ThingTemplate::new("PulseStealthUnit");
     template.set_health(100.0);
-    logic
-        .templates
-        .insert("PulseStealthUnit".into(), template);
+    logic.templates.insert("PulseStealthUnit".into(), template);
     let id = logic
         .create_object(
             "PulseStealthUnit",
@@ -753,9 +755,11 @@ fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records()
         PresentationDrawableShroudFacts::default(),
         "GameWorld scalar FOW cannot manufacture direct drawable facts"
     );
-    assert!(!gameworld_object
-        .drawable_shroud
-        .requires_scene_shroud_material());
+    assert!(
+        !gameworld_object
+            .drawable_shroud
+            .requires_scene_shroud_material()
+    );
 
     assert!(gameworld_only.overlay_host_fx_residual(&logic) >= 1);
     let host_stamped = gameworld_only
@@ -909,9 +913,9 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-});
+        });
         obj.force_attack = true;
         obj.show_health_bar = false;
     }
@@ -1067,10 +1071,12 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
     assert_eq!(frame.local_rank_level, 3);
     assert_eq!(frame.local_skill_points, 400);
     assert_eq!(frame.local_science_purchase_points, 2);
-    assert!(frame
-        .local_unlocked_sciences
-        .iter()
-        .any(|s| s == "SCIENCE_TestRank"));
+    assert!(
+        frame
+            .local_unlocked_sciences
+            .iter()
+            .any(|s| s == "SCIENCE_TestRank")
+    );
     // Superweapon timers get remaining from shadow shared cooldowns by power_key.
     frame.superweapon_timers.push(PresentationSuperweaponTimer {
         name: "PUC".into(),
@@ -1521,10 +1527,7 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
     let mut radar_hud = crate::ui::GameHUD::new();
     frame.apply_events_to_game_hud(&mut radar_hud);
     let after_radar = radar_hud.message_count_for_test();
-    assert!(
-        after_radar > 0,
-        "RadarMessage must still reach the HUD"
-    );
+    assert!(after_radar > 0, "RadarMessage must still reach the HUD");
     frame.apply_events_to_game_hud(&mut radar_hud);
     assert_eq!(
         radar_hud.message_count_for_test(),
@@ -1595,8 +1598,8 @@ fn economy_changed_freezes_from_last_drain() {
 #[test]
 fn supply_and_model_keys_freeze_from_host() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Resources, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     let mut logic = crate::game_logic::GameLogic::new();
     let mut ts = ThingTemplate::new("SupplyCenter");
@@ -1642,8 +1645,8 @@ fn supply_and_model_keys_freeze_from_host() {
 #[test]
 fn building_type_freeze_from_host() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tb = ThingTemplate::new("WarFact");
@@ -1854,19 +1857,22 @@ fn presentation_freezes_can_make_cameos_residual() {
         .unwrap_or_else(|| panic!("Burton cameo2 missing in {:?}", frame2.can_make_cameos));
     assert!(!burton2.available, "burton2={burton2:?}");
     assert_eq!(burton2.can_make, CANMAKE_MAXED_OUT_FOR_PLAYER);
-    assert!(burton2
-        .help_status
-        .as_deref()
-        .is_some_and(|s| s.contains("maximum")));
+    assert!(
+        burton2
+            .help_status
+            .as_deref()
+            .is_some_and(|s| s.contains("maximum"))
+    );
 
     // apply_to_ui_state residual feed.
     let mut ui = crate::ui::GameUIState::default();
     frame2.apply_to_ui_state(&mut ui);
     assert_eq!(ui.can_make_producer_id, Some(bid.0));
-    assert!(ui
-        .can_make_cameos
-        .iter()
-        .any(|c| !c.available && c.template_name.contains("Burton")));
+    assert!(
+        ui.can_make_cameos
+            .iter()
+            .any(|c| !c.available && c.template_name.contains("Burton"))
+    );
 }
 
 #[test]
@@ -1948,7 +1954,6 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
     );
 }
 
-
 fn presentation_freezes_public_timer_superweapons() {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::host_superweapon_kindof::AMERICA_PARTICLE_CANNON_UPLINK;
@@ -2023,8 +2028,8 @@ fn presentation_freezes_local_rank_skill_residual() {
     p.rank_level = 1;
     // Recompute rank via add_skill_points path residual.
     let _ = p.add_skill_points(0); // no-op if 0
-                                   // Force rank apply by setting skill then calling add with 0 won't promote;
-                                   // set rank manually for freeze honesty.
+    // Force rank apply by setting skill then calling add with 0 won't promote;
+    // set rank manually for freeze honesty.
     p.rank_level = 2;
     p.science_purchase_points = 3;
     logic.add_player(p);

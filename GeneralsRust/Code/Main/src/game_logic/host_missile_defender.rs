@@ -205,9 +205,9 @@ pub fn missile_defender_primary_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual secondary MissileDefenderLaserGuidedMissileWeapon.
@@ -227,9 +227,9 @@ pub fn missile_defender_laser_guided_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// (damage, range, delay_frames, splash_radius, projectile_speed) for slot.

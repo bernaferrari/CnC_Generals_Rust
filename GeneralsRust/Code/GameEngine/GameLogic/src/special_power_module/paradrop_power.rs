@@ -12,8 +12,8 @@ use super::types::OclCreateLocType;
 use super::types::*;
 use crate::common::*;
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheAudio, TheGameLogic,
-    ThePartitionManager, TheTerrainLogic,
+    TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, get_game_logic_random_value,
+    get_game_logic_random_value_real,
 };
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::player_list;
@@ -573,8 +573,8 @@ mod tests {
     use super::*;
     use crate::effects::ObjectCreationList;
     use crate::helpers::TheObjectCreationListStore;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::{Arc, RwLock};
 
     fn register_test_owner(owner_id: ObjectID) -> Arc<RwLock<Object>> {

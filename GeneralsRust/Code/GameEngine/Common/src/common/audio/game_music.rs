@@ -118,9 +118,7 @@ impl MusicManagerImpl {
     /// C++ `MusicManager::stopTrack` (GameMusic.cpp:79-85):
     /// allocate AR_Stop and append to TheAudio — do not hit the hook here.
     pub fn stop_track(&mut self, event_to_remove: AudioHandle) {
-        if Some(event_to_remove) == self.current_handle
-            || event_to_remove == AHSV_STOP_THE_MUSIC
-        {
+        if Some(event_to_remove) == self.current_handle || event_to_remove == AHSV_STOP_THE_MUSIC {
             self.current_handle = None;
             self.is_playing = false;
         }

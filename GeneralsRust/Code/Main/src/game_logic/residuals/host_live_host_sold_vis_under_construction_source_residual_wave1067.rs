@@ -59,8 +59,8 @@ fn tr_source() -> &'static str {
     game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
-pub fn honesty_host_sold_vis_under_construction_source_residual_method_names_residual_wave1067(
-) -> bool {
+pub fn honesty_host_sold_vis_under_construction_source_residual_method_names_residual_wave1067()
+-> bool {
     let names = LIVE_HOST_SOLD_VIS_UNDER_CONSTRUCTION_SOURCE_RESIDUAL_METHOD_NAMES_WAVE1067;
     let ok = residual_name_index(names, "entry.sold").is_some()
         && residual_name_index(names, "Wave 1067").is_some();
@@ -69,8 +69,8 @@ pub fn honesty_host_sold_vis_under_construction_source_residual_method_names_res
     ok
 }
 
-pub fn honesty_host_sold_vis_under_construction_source_residual_nav_commands_residual_wave1067(
-) -> bool {
+pub fn honesty_host_sold_vis_under_construction_source_residual_nav_commands_residual_wave1067()
+-> bool {
     let steps = LIVE_HOST_SOLD_VIS_UNDER_CONSTRUCTION_SOURCE_RESIDUAL_NAV_STEPS_WAVE1067;
     let ok = residual_name_index(
         steps,

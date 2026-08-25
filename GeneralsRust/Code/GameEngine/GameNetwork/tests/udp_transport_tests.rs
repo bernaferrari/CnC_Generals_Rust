@@ -5,10 +5,10 @@
 //! These tests verify that the UDP transport implementation correctly matches
 //! the C++ original implementation in packet format, encryption, and CRC validation.
 
-use game_network::observability::{initialize_telemetry, ObservabilityConfig};
+use game_network::observability::{ObservabilityConfig, initialize_telemetry};
 use game_network::transport_udp::{
-    calculate_crc32, xor_decrypt, xor_encrypt, GENERALS_MAGIC_NUMBER, IDLE_TIMEOUT_SECS,
-    KEEP_ALIVE_INTERVAL_MS, MAX_PACKET_SIZE,
+    GENERALS_MAGIC_NUMBER, IDLE_TIMEOUT_SECS, KEEP_ALIVE_INTERVAL_MS, MAX_PACKET_SIZE,
+    calculate_crc32, xor_decrypt, xor_encrypt,
 };
 use game_network::{TransportMessage, TransportProtocol, UdpTransport};
 use std::net::SocketAddr;

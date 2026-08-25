@@ -2,11 +2,11 @@ use crate::dazzle::{DazzleEntry, DazzleLibrary};
 use crate::loaders::AnimationData;
 use crate::prototypes::{AnimationPrototype, HierarchyPrototype};
 use crate::sound::SoundRenderObject;
-use crate::{loaders, W3DError, W3DResult};
+use crate::{W3DError, W3DResult, loaders};
 use glam::Mat4;
 use std::any::Any;
 use std::cmp::Ordering;
-use std::collections::{btree_set, hash_map, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, btree_set, hash_map};
 use std::io::{Cursor, Read};
 use std::path::Path;
 use ww3d_core::RenderObjClassId;
@@ -120,7 +120,7 @@ impl AssetManager {
                 _ => {
                     return Err(W3DError::InvalidParameter(
                         "Unsupported file format".to_string(),
-                    ))
+                    ));
                 }
             }
         } else {

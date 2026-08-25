@@ -10,8 +10,8 @@ use crate::{
     formats::{AudioFormat, SampleWidth},
 };
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Device, SampleFormat, Stream, StreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use log::{debug, error, info};
 

@@ -3,9 +3,9 @@
 //! This module provides regular 2D texture functionality,
 //! equivalent to the original TextureClass.
 
+use crate::core::WW3DFormat;
 use crate::core::error::RendererResult;
 use crate::core::ww3dformat::FormatDecision;
-use crate::core::WW3DFormat;
 use crate::rendering::texture_decode::TextureData;
 use crate::rendering::texture_system::texture_base::{
     PoolType, TexAssetType, TextureBaseClass, TextureUsagePolicy,

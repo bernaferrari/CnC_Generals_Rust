@@ -1,7 +1,7 @@
 //! C++ `W3DRadar::buildTerrainTexture` (W3DRadar.cpp:997-1228).
 
 use super::{
-    interpolate_color_for_height, Coord3D, RadarSystem, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
+    Coord3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, RadarSystem, interpolate_color_for_height,
 };
 use crate::common::ini::ini_water::get_water_transparency;
 use std::sync::{Arc, OnceLock};
@@ -118,7 +118,8 @@ impl RadarSystem {
                                     as usize,
                             );
                             if sample_cell.is_some_and(|c| c.is_water) || sample_cell.is_none() {
-                                let underwater_z = sample_cell.map(|c| c.height).unwrap_or(sample.z);
+                                let underwater_z =
+                                    sample_cell.map(|c| c.height).unwrap_or(sample.z);
                                 neighborhood.push(interpolate_color_for_height(
                                     water,
                                     underwater_z,

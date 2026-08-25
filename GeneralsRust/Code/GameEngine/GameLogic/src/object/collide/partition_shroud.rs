@@ -3,7 +3,7 @@
 //! Shroud/looker/shrouder circles share the object partition cell size
 //! (`GameData.ini PartitionCellSize = 40`). Missing cells are shrouded.
 
-use super::partition_manager::{CellCoord, PartitionManager, PARTITION_CELL_SIZE};
+use super::partition_manager::{CellCoord, PARTITION_CELL_SIZE, PartitionManager};
 use crate::common::{Coord3D, ObjectShroudStatus};
 use game_engine::common::system::radar::CellShroudStatus;
 use std::collections::HashMap;
@@ -47,7 +47,6 @@ impl PartitionShroudGrid {
     pub fn has_known_cell(&self, x: i32, y: i32) -> bool {
         self.levels.contains_key(&(x, y))
     }
-
 
     /// C++ `worldToCell` — floor(wx / cellSize). Extents origin is 0 on host maps.
     pub fn world_to_cell(&self, wx: f32, wy: f32) -> (i32, i32) {

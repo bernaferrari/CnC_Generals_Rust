@@ -22,14 +22,14 @@ fn resolve_crate_object(
 use super::format_cash_template;
 use crate::ai::*;
 use crate::common::*;
+use crate::object::collide::Coord3D as CollideCoord3D;
+use crate::object::collide::LegacyCollideAdapter;
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as LegacyCrateCollide, CrateCollideModuleData as LegacyCrateCollideModuleData,
 };
 use crate::object::collide::crate_collide::*;
-use crate::object::collide::Coord3D as CollideCoord3D;
-use crate::object::collide::LegacyCollideAdapter;
 use crate::object::*;
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 
 /// Module data for sabotage supply dropzone crate collide behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]

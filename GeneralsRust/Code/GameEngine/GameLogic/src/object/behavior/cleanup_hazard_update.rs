@@ -7,18 +7,18 @@
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, KindOf, ModuleData, ObjectID, Real, UnsignedInt, FROM_CENTER_2D,
-    INVALID_ID,
+    AsciiString, Coord3D, FROM_CENTER_2D, INVALID_ID, KindOf, ModuleData, ObjectID, Real,
+    UnsignedInt,
 };
-use crate::helpers::{game_logic_random_value, ThePartitionManager};
+use crate::helpers::{ThePartitionManager, game_logic_random_value};
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, CleanupHazardUpdateInterface,
-    UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    AIUpdateInterfaceExt, BehaviorModuleInterface, CleanupHazardUpdateInterface, UPDATE_SLEEP_NONE,
+    UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::{Object as GameObject, OBJECT_REGISTRY};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::{OBJECT_REGISTRY, Object as GameObject};
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType, WeaponTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{
@@ -390,8 +390,12 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
         if let Some(ref template) = self.weapon_template {
             let attack_range = template.get_attack_range(&Default::default());
             if self.module_data.scan_range <= attack_range {
-                error!("CleanupHazardUpdate for {} requires the scan range ({:.1}) being larger than the firing range ({:.1})",
-                    me.get_template().get_name(), self.module_data.scan_range, attack_range);
+                error!(
+                    "CleanupHazardUpdate for {} requires the scan range ({:.1}) being larger than the firing range ({:.1})",
+                    me.get_template().get_name(),
+                    self.module_data.scan_range,
+                    attack_range
+                );
             }
         }
 

@@ -117,10 +117,10 @@ pub fn honesty_economy_movement_authority_default_on_source() -> bool {
 
 /// Live residual: economy writeback + movement log apply.
 pub fn simulate_live_gameworld_economy_movement_honesty() -> bool {
-    use crate::game_logic::{host_movement_log, GameLogic, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, host_movement_log};
     use crate::gameworld_shadow::{
-        ensure_gate_damage_authority, gameworld_economy_authority_enabled,
-        gameworld_movement_authority_enabled, GameWorldShadow,
+        GameWorldShadow, ensure_gate_damage_authority, gameworld_economy_authority_enabled,
+        gameworld_movement_authority_enabled,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

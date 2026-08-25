@@ -3,8 +3,8 @@
 use crate::{
     math::Vector3,
     mixer::{VoiceSpatialMode, VoiceSpatialParams},
-    sound3d::Sound3D,
     sound_types::SoundClassId,
+    sound3d::Sound3D,
 };
 
 #[derive(Clone)]

@@ -122,10 +122,10 @@ pub fn simulate_live_gameworld_fire_special_power_honesty() -> bool {
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick, ensure_gate_damage_authority,
-        gameworld_fire_spawn_authority_enabled, gameworld_shadow_enabled,
-        gameworld_special_power_authority_enabled, gameworld_special_power_sole_tick_enabled,
-        GameWorldShadow,
+        GameWorldShadow, begin_shadow_coupled_tick, end_shadow_coupled_tick,
+        ensure_gate_damage_authority, gameworld_fire_spawn_authority_enabled,
+        gameworld_shadow_enabled, gameworld_special_power_authority_enabled,
+        gameworld_special_power_sole_tick_enabled,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

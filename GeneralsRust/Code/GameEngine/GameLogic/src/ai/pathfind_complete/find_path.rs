@@ -57,9 +57,10 @@ impl PathfindingSystem {
             .filter(|b| !b.destroyed)
             .flat_map(|b| {
                 let mut pairs = vec![(b.start_cell, b.end_cell)];
-                if let (Some(&a), Some(&z)) =
-                    (b.ground_connect_cells.first(), b.ground_connect_cells.last())
-                {
+                if let (Some(&a), Some(&z)) = (
+                    b.ground_connect_cells.first(),
+                    b.ground_connect_cells.last(),
+                ) {
                     if a != z {
                         pairs.push((a, z));
                     }
@@ -86,7 +87,6 @@ impl PathfindingSystem {
         }
 
         let _ = zone_join;
-
 
         let result = self.find_path_internal(request);
 
@@ -334,47 +334,11 @@ impl PathfindingSystem {
                 blocked_by_ally: result.blocked_by_ally,
             };
         }
-        // Fallback manual conversion if build_actual_path failed.
-        let mut waypoints = Vec::new();
-        let mut layers = Vec::new();
-
-        for (idx, coord) in grid_path.iter().enumerate() {
-            let layer = self.get_layer_for_coord(*coord);
-            let mut pos = if idx == 0 {
-                request.from
-            } else if idx + 1 == grid_path.len() {
-                request.to
-            } else {
-                let mut p = Coord3D::new(0.0, 0.0, 0.0);
-                self.adjust_coord_to_cell(coord.x, coord.y, center_in_cell, &mut p, layer);
-                p
-            };
-            if let Some(terrain) = TheTerrainLogic::get() {
-                let common_layer = match layer {
-                    PathfindLayerEnum::Invalid => CommonPathfindLayerEnum::Invalid,
-                    PathfindLayerEnum::Ground => CommonPathfindLayerEnum::Ground,
-                    PathfindLayerEnum::Wall => CommonPathfindLayerEnum::Wall,
-                    _ => CommonPathfindLayerEnum::Top,
-                };
-                pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
-            }
-            waypoints.push(pos);
-            layers.push(layer);
-        }
-
-        // Optimize the path
-        // Matches C++ Path::optimize() call at AIPathfind.cpp:6619
-        let optimized = self.optimize_path(&waypoints, &layers, &request);
-
-        let opt_len = optimized.0.len();
-        PathResult {
-            success: true,
-            waypoints: optimized.0,
-            layers: optimized.1,
-            can_optimize: vec![true; opt_len],
-            total_cost: self.calculate_path_cost(&grid_path),
-            blocked_by_ally: false,
-        }
+        // C++ internalFindPath returns NULL when buildActualPath fails. Do not
+        // reconstruct a path from raw grid coordinates: that bypasses the
+        // layer/terrain/occupancy validation performed by buildActualPath and
+        // can turn an A* failure into a straight march through an invalid cell.
+        PathResult::none()
     }
 
     /// Find closest reachable path (for blocked destinations)

@@ -13,13 +13,13 @@ pub use entity_fixup::{ContainFixup, ProducerFixup};
 pub use entity_generation::EntityHandle;
 pub use entity_inventory_audit::{ENTITY_ONLY_GROUPS, KNOWN_GAPS};
 pub use entity_modules::{
-    ctor_helper_tags, EntityModuleInstallSpec, GameWorldEntityModules, HELPER_TAG_DEFECTION,
+    EntityModuleInstallSpec, GameWorldEntityModules, HELPER_TAG_DEFECTION,
     HELPER_TAG_FIRING_TRACKER, HELPER_TAG_REPULSOR, HELPER_TAG_SMC, HELPER_TAG_STATUS,
-    HELPER_TAG_SUBDUAL, HELPER_TAG_TEMP_WEAPON_BONUS, HELPER_TAG_WEAPON_STATUS,
+    HELPER_TAG_SUBDUAL, HELPER_TAG_TEMP_WEAPON_BONUS, HELPER_TAG_WEAPON_STATUS, ctor_helper_tags,
 };
 pub use weapon_slots::{
-    GameWorldWeaponSlots, WeaponSlotFacts, WEAPON_SLOT_COUNT, WEAPON_SLOT_MINE_CLEAR,
-    WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
+    GameWorldWeaponSlots, WEAPON_SLOT_COUNT, WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY,
+    WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY, WeaponSlotFacts,
 };
 
 use self::entities::{EntityId, EntityProductionItem, EntityStore, TemplateRef, Transform};
@@ -261,8 +261,7 @@ impl World {
             let Some(e) = self.entities.get_mut(id) else {
                 continue;
             };
-            if e.is_disabled() || (!e.is_eligible_for_targeting() && !e.locomotor_works_when_dead)
-            {
+            if e.is_disabled() || (!e.is_eligible_for_targeting() && !e.locomotor_works_when_dead) {
                 e.move_target = None;
                 e.velocity = [0.0, 0.0, 0.0];
                 e.moving = false;
@@ -282,7 +281,6 @@ impl World {
                     continue;
                 }
             }
-
 
             let horiz = |ax: f32, az: f32, bx: f32, bz: f32| -> f32 {
                 let dx = ax - bx;

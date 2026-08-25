@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::game_logic::host_strategy_center::{
-    is_strategy_center_template, HostBattlePlan, HostBattlePlanTransition,
+    HostBattlePlan, HostBattlePlanTransition, is_strategy_center_template,
 };
 use crate::game_logic::{GameLogic, KindOf};
 use crate::ui::UnitCommandButton;
@@ -23,12 +23,18 @@ pub struct PresentationRestrictA {
 
 impl PresentationRestrictA {
     pub fn from_logic(logic: &GameLogic, objects: &[RenderableObject]) -> Self {
-        let Some(primary) = objects.iter().find(|o| {
-            o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked
-        }) else {
+        let Some(primary) = objects
+            .iter()
+            .find(|o| o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked)
+        else {
             return Self::default();
         };
-        Self::from_logic_object(logic, primary.id, &primary.template_name, primary.kind_of.iter())
+        Self::from_logic_object(
+            logic,
+            primary.id,
+            &primary.template_name,
+            primary.kind_of.iter(),
+        )
     }
 
     fn from_logic_object<'a>(
@@ -138,8 +144,7 @@ fn host_restrict_a_command_state(
             HostRestrictAState::Available
         };
     }
-    if n.contains("initiatebattleplansearchanddestroy")
-        || n.contains("battleplansearchanddestroy")
+    if n.contains("initiatebattleplansearchanddestroy") || n.contains("battleplansearchanddestroy")
     {
         return if restrict.desired_search_and_destroy {
             HostRestrictAState::Active

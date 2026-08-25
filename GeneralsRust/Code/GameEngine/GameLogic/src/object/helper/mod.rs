@@ -78,11 +78,7 @@ impl UpdateSleepTime {
 
     /// Get the maximum of two sleep times
     pub fn max(self, other: Self) -> Self {
-        if self > other {
-            self
-        } else {
-            other
-        }
+        if self > other { self } else { other }
     }
 }
 

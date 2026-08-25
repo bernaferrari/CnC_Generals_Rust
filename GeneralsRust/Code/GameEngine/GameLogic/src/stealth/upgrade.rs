@@ -5,7 +5,7 @@
 use crate::common::*;
 use crate::object::behavior::spawn_behavior::SpawnBehaviorInterface;
 use crate::object::registry::OBJECT_REGISTRY;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::{debug, warn};

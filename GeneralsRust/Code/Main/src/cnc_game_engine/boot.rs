@@ -155,7 +155,9 @@ impl CnCGameEngine {
         let asset_duration = asset_timer.elapsed();
 
         if let Err(err) = crate::assets::archive::init_big_archive_file_reader() {
-            warn!("BIG archive texture reader init failed: {err}. Continuing without archive texture reader.");
+            warn!(
+                "BIG archive texture reader init failed: {err}. Continuing without archive texture reader."
+            );
         }
         info!(
             "BIG archive texture reader wired ({:.2}s total asset setup)",
@@ -957,8 +959,7 @@ impl CnCGameEngine {
         if let Ok(mut ai) = gamelogic::ai::THE_AI.write() {
             ai.init();
         }
-        let enabled =
-            crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();
+        let enabled = crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();
         info!(
             "AIData EnableRepulsors={} (C++ TAiData::m_enableRepulsors)",
             enabled
@@ -978,9 +979,7 @@ impl CnCGameEngine {
         let sounds_3d_on = global.sounds_3d_on;
         drop(global);
 
-        if let Some(manager) =
-            game_engine::common::audio::game_audio::get_global_audio_manager()
-        {
+        if let Some(manager) = game_engine::common::audio::game_audio::get_global_audio_manager() {
             if let Ok(mut audio) = manager.lock() {
                 // C++ GameEngine.cpp:537-540 TheAudio->setOn per affect.
                 audio.set_on(
@@ -1049,7 +1048,6 @@ impl CnCGameEngine {
             self.game_hud.toggle_visibility();
         }
     }
-
 
     pub(super) fn load_mods_best_effort() {
         let (mod_dir, mod_big) = {
@@ -1458,7 +1456,8 @@ impl CnCGameEngine {
                         // Try to load the W3D model using the correct filename
                         match asset_manager.load_w3d_model_async(model_name).await {
                             Ok(model) => {
-                                println!("✅ Successfully loaded W3D model: '{}' for template '{}' ({} meshes, {} total vertices)",
+                                println!(
+                                    "✅ Successfully loaded W3D model: '{}' for template '{}' ({} meshes, {} total vertices)",
                                     model_name,
                                     unit_type,
                                     model.meshes.len(),
@@ -1470,7 +1469,10 @@ impl CnCGameEngine {
                                 loaded_count += 1;
                             }
                             Err(e) => {
-                                println!("❌ CRITICAL: Failed to load W3D model '{}' for template '{}': {}", model_name, unit_type, e);
+                                println!(
+                                    "❌ CRITICAL: Failed to load W3D model '{}' for template '{}': {}",
+                                    model_name, unit_type, e
+                                );
                                 println!(
                                     "❌ This means '{}' units will not be visible in game!",
                                     unit_type
@@ -1479,7 +1481,10 @@ impl CnCGameEngine {
                             }
                         }
                     } else {
-                        println!("⚠️ CRITICAL: Template '{}' has no model_name defined - units will be invisible!", unit_type);
+                        println!(
+                            "⚠️ CRITICAL: Template '{}' has no model_name defined - units will be invisible!",
+                            unit_type
+                        );
                     }
                 } else {
                     println!(
@@ -1561,7 +1566,8 @@ impl CnCGameEngine {
                         // Try to load the W3D model using the correct filename
                         match asset_manager.load_w3d_model_async(model_name).await {
                             Ok(model) => {
-                                println!("✅ Successfully loaded W3D model: '{}' for template '{}' ({} meshes, {} total vertices)",
+                                println!(
+                                    "✅ Successfully loaded W3D model: '{}' for template '{}' ({} meshes, {} total vertices)",
                                     model_name,
                                     unit_type,
                                     model.meshes.len(),
@@ -1575,7 +1581,10 @@ impl CnCGameEngine {
                                 loaded_count += 1;
                             }
                             Err(e) => {
-                                println!("❌ CRITICAL: Failed to load W3D model '{}' for template '{}': {}", model_name, unit_type, e);
+                                println!(
+                                    "❌ CRITICAL: Failed to load W3D model '{}' for template '{}': {}",
+                                    model_name, unit_type, e
+                                );
                                 println!(
                                     "❌ This means '{}' units will not be visible in game!",
                                     unit_type
@@ -1584,7 +1593,10 @@ impl CnCGameEngine {
                             }
                         }
                     } else {
-                        println!("⚠️ CRITICAL: Template '{}' has no model_name defined - units will be invisible!", unit_type);
+                        println!(
+                            "⚠️ CRITICAL: Template '{}' has no model_name defined - units will be invisible!",
+                            unit_type
+                        );
                     }
                 } else {
                     println!(
@@ -1702,10 +1714,7 @@ mod tests {
     #[test]
     fn live_boot_inits_game_lod_manager_after_command_line() {
         let src = include_str!("boot.rs");
-        let live = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("boot live path");
+        let live = src.split("#[cfg(test)]").next().expect("boot live path");
         let cmdline = live
             .find("Self::apply_command_line_overrides(&command_line);")
             .expect("parseCommandLine analog");
@@ -1724,10 +1733,7 @@ mod tests {
     #[test]
     fn preload_aidata_applies_enable_repulsors_to_host_gate() {
         let src = include_str!("boot.rs");
-        let live = src
-            .split("#[cfg(test)]")
-            .next()
-            .expect("boot live path");
+        let live = src.split("#[cfg(test)]").next().expect("boot live path");
         let preload = live
             .find("fn preload_startup_ai_data_inis")
             .expect("AIData preload");
@@ -1744,4 +1750,3 @@ mod tests {
         );
     }
 }
-

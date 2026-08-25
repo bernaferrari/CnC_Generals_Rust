@@ -6,13 +6,13 @@
 //! requested parameters so a future backend can render them deterministically.
 
 use crate::{
-    math::{Matrix3D, Vector3},
     AudioSample, AudioSource,
+    math::{Matrix3D, Vector3},
 };
-use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
+use crossbeam_channel::{Receiver, Sender, TryRecvError, unbounded};
 use log::{debug, trace, warn};
 use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::Entry},
     f32::EPSILON,
     fmt,
     sync::{Arc, Mutex},

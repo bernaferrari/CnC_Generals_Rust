@@ -216,9 +216,7 @@ impl<R: Read> Xfer for XferLoad<R> {
     fn xfer_snapshot(&mut self, snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
         // C++ XferLoad.cpp:161-166 — run snapshot->xfer(this), then register
         // post-process. Do not replace `*snapshot` from a self-describing blob.
-        snapshot
-            .xfer(self)
-            .map_err(|_| XferStatus::ReadError)?;
+        snapshot.xfer(self).map_err(|_| XferStatus::ReadError)?;
         if (self.options & super::xfer::XferOptions::NO_POST_PROCESSING) == 0 {
             if let Some(callback) = self.post_process_snapshot_callback.as_mut() {
                 callback();
@@ -271,8 +269,8 @@ impl<R: Read> Xfer for XferLoad<R> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::snapshot::Snapshot;
+    use super::*;
     use std::io::Cursor;
 
     #[test]
