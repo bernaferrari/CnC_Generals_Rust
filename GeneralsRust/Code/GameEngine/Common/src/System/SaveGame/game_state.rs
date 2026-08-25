@@ -12,7 +12,7 @@ use super::{
 };
 use crate::common::game_engine::get_game_engine;
 use crate::common::ini::ini_game_data::get_global_data;
-use crate::common::message_stream::{get_message_stream, GameMessageType};
+use crate::common::message_stream::{GameMessageType, get_message_stream};
 use crate::common::random_value::init_random_with_seed;
 use chrono::{Datelike, Local, Timelike};
 use std::fs;
@@ -86,7 +86,9 @@ pub fn register_partition_manager_update(update_fn: impl Fn() + Send + Sync + 's
 }
 
 /// Register `MapObject::getWorldDict()->getAsciiString(TheKey_mapName)` (GameState.cpp:1588-1590).
-pub fn register_world_dict_map_name(lookup_fn: impl Fn() -> Option<String> + Send + Sync + 'static) {
+pub fn register_world_dict_map_name(
+    lookup_fn: impl Fn() -> Option<String> + Send + Sync + 'static,
+) {
     if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
         hooks.world_dict_map_name = Some(Box::new(lookup_fn));
     }
@@ -96,7 +98,12 @@ fn world_dict_map_label() -> Option<String> {
     POST_LOAD_HOOKS
         .lock()
         .ok()
-        .and_then(|hooks| hooks.world_dict_map_name.as_ref().and_then(|lookup| lookup()))
+        .and_then(|hooks| {
+            hooks
+                .world_dict_map_name
+                .as_ref()
+                .and_then(|lookup| lookup())
+        })
         .filter(|label| !label.is_empty())
 }
 
@@ -291,7 +298,6 @@ pub fn format_mission_save_description(
     }
     out
 }
-
 
 // ------------------------------------------------------------------------------------------------
 // Save Game Info
@@ -664,8 +670,8 @@ impl GameState {
         // UserData\Maps was stolen by the official Maps branch.
         let normalized = Self::normalize_portable_path(path);
         let lower = normalized.to_lowercase();
-        let save_dir = Self::normalize_portable_path(&self.save_directory.to_string_lossy())
-            .to_lowercase();
+        let save_dir =
+            Self::normalize_portable_path(&self.save_directory.to_string_lossy()).to_lowercase();
         let save_dir = save_dir.trim_end_matches('\\').to_string();
 
         if !save_dir.is_empty()
@@ -939,13 +945,14 @@ impl GameState {
     /// `GUI:MissionSave` and formats it with the campaign name label plus
     /// `currentMissionNumber+1`.
     pub fn mission_save(&mut self) -> Result<SaveCode, XferStatus> {
-        let (campaign_side, mission_number, _) = notify_get_campaign_snapshot().unwrap_or_else(|| {
-            (
-                self.game_info.campaign_side.clone(),
-                self.game_info.mission_number,
-                String::new(),
-            )
-        });
+        let (campaign_side, mission_number, _) =
+            notify_get_campaign_snapshot().unwrap_or_else(|| {
+                (
+                    self.game_info.campaign_side.clone(),
+                    self.game_info.mission_number,
+                    String::new(),
+                )
+            });
         let mission_number = mission_number.saturating_add(1);
         let campaign_label = if campaign_side.is_empty() {
             self.game_info.campaign_side.clone()
@@ -1305,8 +1312,8 @@ impl GameState {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::register_save_load_mission_hooks;
+    use super::*;
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1634,8 +1641,7 @@ mod tests {
         let save_dir = unique_temp_save_dir("seventeen_blocks");
         let mut writer_state = GameState::new(save_dir.clone());
         writer_state.init();
-        let names: Vec<String> = writer_state.snapshot_block_lists
-            [SnapshotType::SaveLoad as usize]
+        let names: Vec<String> = writer_state.snapshot_block_lists[SnapshotType::SaveLoad as usize]
             .iter()
             .map(|block| block.block_name.clone())
             .collect();
@@ -1660,9 +1666,7 @@ mod tests {
 
         let save_dir = unique_temp_save_dir("partition_update");
         let mut state = GameState::new(save_dir.clone());
-        state
-            .game_state_post_process_load()
-            .expect("post process");
+        state.game_state_post_process_load().expect("post process");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         register_partition_manager_update(|| {});
@@ -1707,9 +1711,7 @@ mod tests {
         let state = GameState::new(save_dir.clone());
 
         assert_eq!(
-            state.real_map_path_to_portable_map_path(
-                r"C:\Users\me\UserData\Maps\MyMap\MyMap.map"
-            ),
+            state.real_map_path_to_portable_map_path(r"C:\Users\me\UserData\Maps\MyMap\MyMap.map"),
             r"userdata\maps\mymap\mymap.map"
         );
         assert_eq!(
@@ -1721,9 +1723,7 @@ mod tests {
             r"maps\alpine\alpine.map"
         );
         assert_eq!(
-            state.real_map_path_to_portable_map_path(
-                r"C:\Games\Generals\Maps\Alpine\Alpine.map"
-            ),
+            state.real_map_path_to_portable_map_path(r"C:\Games\Generals\Maps\Alpine\Alpine.map"),
             r"maps\alpine\alpine.map"
         );
 
@@ -1776,6 +1776,4 @@ mod tests {
             "GUI:AutoSave China 1"
         );
     }
-
-
 }

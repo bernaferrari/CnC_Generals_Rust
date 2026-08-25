@@ -24,7 +24,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let Some(team_arc) = self.get_team_by_name(&team_name).ok() else {
             return Ok(ScriptActionResult::Success);
         };

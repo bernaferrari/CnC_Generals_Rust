@@ -52,11 +52,7 @@ impl Ray {
             let t1 = (-b - discriminant.sqrt()) / (2.0 * a);
             let t2 = (-b + discriminant.sqrt()) / (2.0 * a);
             let t = if t1 > 0.0 { t1 } else { t2 };
-            if t > 0.0 {
-                Some(t)
-            } else {
-                None
-            }
+            if t > 0.0 { Some(t) } else { None }
         }
     }
 
@@ -339,8 +335,7 @@ impl UnitControlSystem {
 
     /// Packed `always_selectable` bool (32-bit KindOf bank is full) or kind vec.
     pub fn presentation_is_always_selectable(o: &RenderableObject) -> bool {
-        o.always_selectable
-            || PresentationFrame::object_has_kind(o, KindOf::AlwaysSelectable)
+        o.always_selectable || PresentationFrame::object_has_kind(o, KindOf::AlwaysSelectable)
     }
 
     /// C++ `CanSelectDrawable` (`SelectionXlat.cpp:113-116`): drop dead objects
@@ -1384,7 +1379,6 @@ mod tests {
         assert_eq!(firebase_box, vec![firebase_id]);
     }
 
-
     #[test]
     fn presentation_attackable_residual() {
         let (logic, id) = logic_with_selectable_unit();
@@ -1536,7 +1530,6 @@ mod tests {
             shroud.clear_all();
         }
 
-
         let mut logic = GameLogic::new();
         let local = Player::new(0, Team::USA, "USA", true);
         let ally = {
@@ -1598,11 +1591,7 @@ mod tests {
         // C++ Object.cpp:3001-3020 / SelectionXlat.cpp:104-189 — no disabled gate.
         let (logic, id) = logic_with_selectable_unit();
         let mut frame = PresentationFrame::build_from_logic(&logic, 0);
-        let obj = frame
-            .objects
-            .iter_mut()
-            .find(|o| o.id == id)
-            .expect("unit");
+        let obj = frame.objects.iter_mut().find(|o| o.id == id).expect("unit");
         obj.disabled = true;
         obj.disabled_emp = true;
         assert!(
@@ -1679,11 +1668,7 @@ mod tests {
         let (logic, id) = logic_with_selectable_unit();
         let mut frame = PresentationFrame::build_from_logic(&logic, 0);
         {
-            let obj = frame
-                .objects
-                .iter_mut()
-                .find(|o| o.id == id)
-                .expect("unit");
+            let obj = frame.objects.iter_mut().find(|o| o.id == id).expect("unit");
             obj.destroyed = true;
             assert!(!UnitControlSystem::presentation_is_selectable(obj));
             assert!(UnitControlSystem::presentation_pick_skips_dead(obj));
@@ -1794,6 +1779,4 @@ mod tests {
             "detected stealthed enemy is pickable"
         );
     }
-
-
 }

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use super::{
-    prerequisites::get_tech_tree, UpgradeError, UpgradeResult, UpgradeTemplate, UpgradeType,
+    UpgradeError, UpgradeResult, UpgradeTemplate, UpgradeType, prerequisites::get_tech_tree,
 };
 use crate::common::*;
 use game_engine::common::ini::INI;
@@ -322,7 +322,6 @@ mod tests {
             assert!(center.find_veterancy_upgrade("HEROIC").is_some());
         });
     }
-
 
     #[test]
     fn test_create_upgrade() {

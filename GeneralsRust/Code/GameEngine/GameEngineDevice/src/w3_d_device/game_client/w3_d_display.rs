@@ -3,15 +3,15 @@
 //! C++ `W3DDisplay::createLightPulse` is invoked by FXList LightPulse nuggets.
 
 pub use game_client::fx_list::{
-    create_display_light_pulse, do_the_dynamic_light, do_the_dynamic_light_from_scene,
-    drain_display_light_pulses, far_atten_factor, light_pulse_too_small, scene_dynamic_lights,
-    DisplayDynamicLight, DisplayLightPulse,
+    DisplayDynamicLight, DisplayLightPulse, create_display_light_pulse, do_the_dynamic_light,
+    do_the_dynamic_light_from_scene, drain_display_light_pulses, far_atten_factor,
+    light_pulse_too_small, scene_dynamic_lights,
 };
 
 /// C++ `W3DShaderManager::startRenderToTexture` / `endRenderToTexture` /
 /// `filterPostRender` — live GameClient wgpu analog.
 pub use game_client::display::shader_filter::{
-    end_render_to_texture, filter_post_render, start_render_to_texture, MOTION_BLUR_MAX_COUNT,
+    MOTION_BLUR_MAX_COUNT, end_render_to_texture, filter_post_render, start_render_to_texture,
 };
 
 /// C++ `TheDisplay->createLightPulse`.
@@ -29,8 +29,8 @@ pub fn do_the_dynamic_light_wgpu(
 }
 
 /// C++ RTS2DScene `W3DStatusCircle::Render` after the 3D scene.
-pub fn draw_status_circle_overlay() -> Option<crate::w3_d_device::game_client::w3_d_status_circle::CameraFadeOverlay>
-{
+pub fn draw_status_circle_overlay()
+-> Option<crate::w3_d_device::game_client::w3_d_status_circle::CameraFadeOverlay> {
     crate::w3_d_device::game_client::w3_d_status_circle::render_camera_fade()
 }
 

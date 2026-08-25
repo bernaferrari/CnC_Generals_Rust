@@ -6,8 +6,8 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, ModuleData, ObjectID, Real, UnsignedInt,
-    LOGICFRAMES_PER_SECOND, MODELCONDITION_SPECIAL_DAMAGED,
+    AsciiString, Bool, Coord3D, Int, LOGICFRAMES_PER_SECOND, MODELCONDITION_SPECIAL_DAMAGED,
+    ModuleData, ObjectID, Real, UnsignedInt,
 };
 use crate::damage::DamageInfo;
 use crate::effects::{FXList, ObjectCreationList};
@@ -16,15 +16,15 @@ use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::slow_death_behavior::{
-    self, parse_death_types, parse_destruction_altitude, parse_destruction_delay,
-    parse_destruction_delay_variance, parse_exempt_status, parse_fling_force,
-    parse_fling_force_variance, parse_fling_pitch, parse_fling_pitch_variance, parse_fx, parse_ocl,
-    parse_probability_modifier, parse_required_status, parse_sink_delay, parse_sink_delay_variance,
-    parse_sink_rate, parse_veterancy_levels, parse_weapon, SlowDeathBehaviorModuleData,
-};
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::slow_death_behavior::{
+    self, SlowDeathBehaviorModuleData, parse_death_types, parse_destruction_altitude,
+    parse_destruction_delay, parse_destruction_delay_variance, parse_exempt_status,
+    parse_fling_force, parse_fling_force_variance, parse_fling_pitch, parse_fling_pitch_variance,
+    parse_fx, parse_ocl, parse_probability_modifier, parse_required_status, parse_sink_delay,
+    parse_sink_delay_variance, parse_sink_rate, parse_veterancy_levels, parse_weapon,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -849,11 +849,7 @@ impl SlowDeathBehaviorInterface for HelicopterSlowDeathBehavior {
     }
 
     fn get_slow_death_phase(&self) -> u32 {
-        if self.hit_ground_frame == 0 {
-            0
-        } else {
-            2
-        }
+        if self.hit_ground_frame == 0 { 0 } else { 2 }
     }
 }
 

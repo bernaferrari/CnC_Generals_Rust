@@ -332,9 +332,7 @@ impl Object {
         }
 
         // Don't count kills that I do on my own buildings or units, cause that's just silly.
-        if let (Some(controller_player), Some(victim_player)) =
-            (&controller, &victim_controller)
-        {
+        if let (Some(controller_player), Some(victim_player)) = (&controller, &victim_controller) {
             let controller_idx = controller_player.read().ok().map(|g| g.get_player_index());
             let victim_idx = victim_player.read().ok().map(|g| g.get_player_index());
             if controller_idx.is_some() && victim_idx.is_some() && controller_idx == victim_idx {
@@ -363,8 +361,8 @@ impl Object {
                             if let Ok(victim_guard) = victim_tracker.lock() {
                                 let victim_cost = victim.get_build_cost();
                                 let killer_is_ally = relationship != Relationship::Enemies;
-                                let experience_value = victim_guard
-                                    .get_experience_value(victim_cost, killer_is_ally);
+                                let experience_value =
+                                    victim_guard.get_experience_value(victim_cost, killer_is_ally);
                                 tracker_guard
                                     .add_experience_points(experience_value, true, &[])
                                     .map(|old_level| {
@@ -501,7 +499,6 @@ impl Object {
                 audio.add_audio_event(&sound);
             }
         }
-
 
         // Fire veterancy event
         self.fire_veterancy_event(old_level, new_level);
@@ -1425,7 +1422,8 @@ impl Object {
                                 &crate::system::game_logic::RadarUpdate {
                                     player_id: player_guard.get_player_index() as Int,
                                     position: (pos.x, pos.y),
-                                    event_type: crate::system::game_logic::RadarEventType::BaseAttacked,
+                                    event_type:
+                                        crate::system::game_logic::RadarEventType::BaseAttacked,
                                 },
                             );
                         }
@@ -1433,7 +1431,6 @@ impl Object {
                 }
             }
         }
-
 
         // Check if object died from damage
         let died = self.check_health_and_die(Some(damage_info));

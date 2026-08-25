@@ -1,7 +1,7 @@
 //! LAN preference storage (Network.ini).
 
 use std::collections::HashMap;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 

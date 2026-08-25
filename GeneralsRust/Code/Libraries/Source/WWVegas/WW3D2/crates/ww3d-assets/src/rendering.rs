@@ -1035,9 +1035,11 @@ mod tests {
         let mut renderer = Renderer::new(backend);
 
         let mesh = MeshData::new();
-        assert!(renderer
-            .upload_mesh("test".to_string(), &mesh, None)
-            .is_ok());
+        assert!(
+            renderer
+                .upload_mesh("test".to_string(), &mesh, None)
+                .is_ok()
+        );
         assert_eq!(renderer.mesh_count(), 1);
 
         renderer.remove_mesh("test");

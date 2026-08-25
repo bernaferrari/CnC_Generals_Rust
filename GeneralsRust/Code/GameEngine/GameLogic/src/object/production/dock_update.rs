@@ -5,17 +5,18 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::helpers::{FindPositionOptions, TheGameText, TheInGameUI, ThePartitionManager, TheTerrainLogic};
+use crate::helpers::{
+    FindPositionOptions, TheGameText, TheInGameUI, ThePartitionManager, TheTerrainLogic,
+};
 
 use crate::modules::{BehaviorModule, BehaviorModuleInterface, DockUpdateInterface};
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::{Object, ObjectLockExt};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};
-
 
 const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
 const DYNAMIC_APPROACH_VECTOR_FLAG: i32 = -1;
@@ -156,7 +157,6 @@ impl DockUpdate {
     }
 
     fn load_dock_positions(&mut self) {
-
         let Some((ignore_bones, drawable)) =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 (
@@ -218,7 +218,6 @@ impl DockUpdate {
     }
 
     fn compute_approach_position(&mut self, position_index: usize, docker: &Object) -> Coord3D {
-
         if !self.positions_loaded {
             self.load_dock_positions();
         }
@@ -324,7 +323,6 @@ impl DockUpdate {
 
 impl BehaviorModuleInterface for DockUpdate {
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         if self.active_docker == INVALID_ID && !self.dock_crippled {
             for (index, reached) in self.approach_position_reached.iter().enumerate() {
                 if *reached {
@@ -388,7 +386,6 @@ impl BehaviorModule for DockUpdate {
 }
 
 fn resolve_dock_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-
     if id == INVALID_ID {
         return None;
     }
@@ -409,7 +406,6 @@ fn peek_pristine_dock_bone(owner_id: ObjectID, bone: &str) -> Option<Coord3D> {
             .copied()
     })?
 }
-
 
 impl DockUpdateInterface for DockUpdate {
     fn is_dock_open(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -441,7 +437,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -651,7 +646,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -708,7 +702,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -764,7 +757,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
         };
@@ -1015,10 +1007,7 @@ impl RepairDockUpdate {
         }
 
         let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
-        let _ = unit_guard.attempt_healing(
-            self.health_to_add_per_frame,
-            source_guard.as_deref(),
-        );
+        let _ = unit_guard.attempt_healing(self.health_to_add_per_frame, source_guard.as_deref());
         Ok(true)
     }
 }
@@ -1159,9 +1148,8 @@ impl DockUpdateInterface for RepairDockUpdate {
                 if let Some(drone) = resolve_dock_object(drone_id) {
                     if let Ok(mut drone_guard) = drone.write() {
                         let max_health = drone_guard.get_max_health();
-                        let source = crate::helpers::TheGameLogic::find_object_by_id(
-                            self.base.owner_id,
-                        );
+                        let source =
+                            crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id);
                         let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
                         let _ = drone_guard.attempt_healing(max_health, source_guard.as_deref());
                     }
@@ -1441,7 +1429,6 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(false);
         };
@@ -1792,9 +1779,10 @@ mod tests {
         let docker_id = docker.read().unwrap().get_id();
         let drone_id = drone.read().unwrap().get_id();
 
-        assert!(dock
-            .action(docker_id, Some(drone_id))
-            .expect("repair action"));
+        assert!(
+            dock.action(docker_id, Some(drone_id))
+                .expect("repair action")
+        );
         assert_eq!(docker.read().unwrap().get_health(), 55.0);
         assert_eq!(drone.read().unwrap().get_health(), 25.0);
     }
@@ -1807,9 +1795,11 @@ mod tests {
         let docker_id = docker.read().unwrap().get_id();
         let drone_id = drone.read().unwrap().get_id();
 
-        assert!(!dock
-            .action(docker_id, Some(drone_id))
-            .expect("repair action"));
+        assert!(
+            !dock
+                .action(docker_id, Some(drone_id))
+                .expect("repair action")
+        );
         assert_eq!(drone.read().unwrap().get_health(), 10.0);
     }
 }

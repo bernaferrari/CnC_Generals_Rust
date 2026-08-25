@@ -7,15 +7,16 @@
 use crate::common::{AsciiString, ModuleData, ObjectID, Real};
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
+use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::drawable::DrawableArcExt;
-use crate::object::Object as GameObject;
 use crate::prelude::Coord3D;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData as EngineModuleData, NameKeyType,
+    ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData as EngineModuleData,
+    NameKeyType,
 };
 use std::sync::{Arc, RwLock};
 

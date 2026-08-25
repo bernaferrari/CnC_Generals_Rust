@@ -74,8 +74,8 @@ impl GameWorldShadow {
         // Wave 783: FloatUpdate residual (boat sway / optional water snap).
         if e.float_update_active {
             use crate::game_logic::host_float_update::{
-                leftover_water_surface_y, publish_sway, FLOAT_PITCH_PHASE, FLOAT_SWAY_AMP,
-                FLOAT_YAW_PHASE,
+                FLOAT_PITCH_PHASE, FLOAT_SWAY_AMP, FLOAT_YAW_PHASE, leftover_water_surface_y,
+                publish_sway,
             };
             let angle = frame as f32;
             e.float_yaw = (angle * FLOAT_YAW_PHASE).sin() * FLOAT_SWAY_AMP;

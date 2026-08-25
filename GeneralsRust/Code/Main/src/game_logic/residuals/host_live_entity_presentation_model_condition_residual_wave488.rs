@@ -78,8 +78,8 @@ pub fn residual_entity_presentation_model_condition_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_entity_presentation_model_condition_last_action(
-) -> ResidualEntityPresentationModelConditionAction {
+pub fn residual_entity_presentation_model_condition_last_action()
+-> ResidualEntityPresentationModelConditionAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualEntityPresentationModelConditionAction::MethodNames,
         2 => ResidualEntityPresentationModelConditionAction::SourceMarkers,

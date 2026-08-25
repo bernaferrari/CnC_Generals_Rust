@@ -146,10 +146,10 @@ mod tests {
     #[test]
     fn simulate_keyboard_prepare_assign_residual_live() {
         use game_client::gui::callbacks::{
-            residual_keyboard_options_category_index, residual_keyboard_options_command_index,
-            residual_keyboard_options_last_action,
+            ResidualKeyboardOptionsAction, residual_keyboard_options_category_index,
+            residual_keyboard_options_command_index, residual_keyboard_options_last_action,
             simulate_keyboard_options_back_button_gadget_selected,
-            simulate_keyboard_options_prepare_assign, ResidualKeyboardOptionsAction,
+            simulate_keyboard_options_prepare_assign,
         };
         assert!(
             simulate_keyboard_options_prepare_assign(1, 2),

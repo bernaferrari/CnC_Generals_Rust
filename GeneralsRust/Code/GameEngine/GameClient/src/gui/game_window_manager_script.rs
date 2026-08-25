@@ -29,7 +29,7 @@ use crate::gui::game_window::{
 use crate::gui::shell::main_menu::get_main_menu;
 use crate::gui::window_manager::WindowLayout;
 use crate::gui::window_script::{
-    parse_window_script, WindowDefinition, WindowLayoutDefinition, WindowScriptError,
+    WindowDefinition, WindowLayoutDefinition, WindowScriptError, parse_window_script,
 };
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
 use std::any::Any;
@@ -2871,12 +2871,16 @@ mod tests {
 
         assert!(registry.get_win_draw("IMECandidateMainDraw").is_some());
         assert!(registry.get_win_draw("IMECandidateTextAreaDraw").is_some());
-        assert!(registry
-            .create_draw_callback("IMECandidateMainDraw")
-            .is_some());
-        assert!(registry
-            .create_draw_callback("IMECandidateTextAreaDraw")
-            .is_some());
+        assert!(
+            registry
+                .create_draw_callback("IMECandidateMainDraw")
+                .is_some()
+        );
+        assert!(
+            registry
+                .create_draw_callback("IMECandidateTextAreaDraw")
+                .is_some()
+        );
     }
 
     #[test]
@@ -2894,12 +2898,16 @@ mod tests {
             assert!(registry.get_win_system(&format!("{name}System")).is_some());
             assert!(registry.get_win_input(&format!("{name}Input")).is_some());
             assert!(registry.get_layout_init(&format!("{name}Init")).is_some());
-            assert!(registry
-                .get_layout_update(&format!("{name}Update"))
-                .is_some());
-            assert!(registry
-                .get_layout_shutdown(&format!("{name}Shutdown"))
-                .is_some());
+            assert!(
+                registry
+                    .get_layout_update(&format!("{name}Update"))
+                    .is_some()
+            );
+            assert!(
+                registry
+                    .get_layout_shutdown(&format!("{name}Shutdown"))
+                    .is_some()
+            );
         }
     }
 

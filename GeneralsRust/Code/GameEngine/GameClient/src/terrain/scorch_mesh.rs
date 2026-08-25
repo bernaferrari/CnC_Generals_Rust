@@ -398,7 +398,8 @@ mod tests {
 
         let mut blend = crate::terrain::textures::BlendTileInfo::new();
         blend.inverted = FLIPPED_MASK;
-        map.blended_tiles.push(crate::terrain::textures::BlendTileInfo::new());
+        map.blended_tiles
+            .push(crate::terrain::textures::BlendTileInfo::new());
         map.blended_tiles.push(blend);
         map.blend_tile_ndxes[2] = 1;
         assert!(height_map_cell_flip(&map, 2, 0));

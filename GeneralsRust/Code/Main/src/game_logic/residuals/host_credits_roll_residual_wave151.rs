@@ -121,9 +121,8 @@ mod tests {
     #[test]
     fn simulate_credits_prepare_short_roll_residual_live() {
         use game_client::credits::{
-            residual_credits_is_finished, residual_credits_last_action,
+            ResidualCreditsAction, residual_credits_is_finished, residual_credits_last_action,
             residual_credits_line_count, simulate_credits_prepare_short_roll,
-            ResidualCreditsAction,
         };
         assert!(
             simulate_credits_prepare_short_roll(),

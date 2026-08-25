@@ -5,7 +5,7 @@
 //! written against the old API keeps working.
 
 use crate::{
-    wgpu_backend::create_wgpu_shader_interface, ShdDefClass, ShdError, ShdInterface, ShdResult,
+    ShdDefClass, ShdError, ShdInterface, ShdResult, wgpu_backend::create_wgpu_shader_interface,
 };
 use std::sync::{Arc, OnceLock};
 
@@ -53,9 +53,7 @@ async fn initialize_wgpu() -> ShdResult<WgpuContext> {
         },
     )
     .await
-    .map_err(|e| {
-        ShdError::HardwareUnsupported(format!("Failed to create WGPU device: {}", e))
-    })?;
+    .map_err(|e| ShdError::HardwareUnsupported(format!("Failed to create WGPU device: {}", e)))?;
 
     Ok(WgpuContext {
         device: Arc::new(device),

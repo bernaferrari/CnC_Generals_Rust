@@ -13,21 +13,21 @@ use std::ffi::{CStr, CString};
 use std::mem;
 use std::ptr;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     Arc, Condvar, Mutex,
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
 use windows::{
-    core::*,
     Win32::{
         Foundation::*,
         Media::Audio::*,
         System::{Memory::*, SystemServices::*, Threading::*},
         UI::WindowsAndMessaging::*,
     },
+    core::*,
 };
 
 use crate::{

@@ -721,8 +721,8 @@ mod tests {
         // Create test vertex data
         let mut vertex_data = vec![0u8; 4 + 32]; // 1 vertex
         vertex_data[0] = 1; // vertex count = 1
-                            // Position (0, 0, 0)
-                            // Normal (0, 1, 0)
+        // Position (0, 0, 0)
+        // Normal (0, 1, 0)
         vertex_data[16] = 0;
         vertex_data[17] = 0;
         vertex_data[18] = 128;
@@ -731,7 +731,7 @@ mod tests {
         // Create test triangle data
         let mut triangle_data = vec![0u8; 4 + 6]; // 1 triangle
         triangle_data[0] = 1; // triangle count = 1
-                              // Indices (0, 0, 0)
+        // Indices (0, 0, 0)
 
         loader
             .load_chunk(chunk_types::W3D_CHUNK_VERTICES, &vertex_data)

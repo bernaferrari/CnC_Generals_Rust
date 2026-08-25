@@ -4,8 +4,8 @@
 use game_engine::common::{
     system::subsystem_interface::{SubsystemInterface, SubsystemResult},
     thing::{
-        module::{ModuleInterfaceType, ModuleType},
         ModuleFactory,
+        module::{ModuleInterfaceType, ModuleType},
     },
 };
 

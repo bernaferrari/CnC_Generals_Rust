@@ -5,9 +5,9 @@
 
 use crate::core::error::RendererResult;
 use crate::rendering::texture_system::{
-    asset_texture_loader::ArchiveFileReader, AssetTextureLoader, TextureBaseClass,
-    TextureCacheConfig, TextureFileCache, TextureFilteringUtils, TextureSamplerManager,
-    TextureSamplingConfig, TextureUsage,
+    AssetTextureLoader, TextureBaseClass, TextureCacheConfig, TextureFileCache,
+    TextureFilteringUtils, TextureSamplerManager, TextureSamplingConfig, TextureUsage,
+    asset_texture_loader::ArchiveFileReader,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

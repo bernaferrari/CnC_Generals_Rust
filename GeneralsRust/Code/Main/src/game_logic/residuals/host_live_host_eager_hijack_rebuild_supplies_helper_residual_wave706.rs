@@ -64,8 +64,8 @@ fn residual_action_store(a: ResidualHostEagerHijackRebuildSuppliesHelperAction) 
 pub fn residual_host_eager_hijack_rebuild_supplies_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_eager_hijack_rebuild_supplies_helper_last_action(
-) -> ResidualHostEagerHijackRebuildSuppliesHelperAction {
+pub fn residual_host_eager_hijack_rebuild_supplies_helper_last_action()
+-> ResidualHostEagerHijackRebuildSuppliesHelperAction {
     ResidualHostEagerHijackRebuildSuppliesHelperAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -166,11 +166,11 @@ mod tests {
     use crate::game_logic::host_stored_supplies_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_apply_host_hijacker_after_logic, eager_apply_host_rebuild_producer_after_logic,
         eager_apply_host_stored_supplies_after_logic, eager_map_host_spawn_if_coupled,
         end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
-        shadow_session_after_host_tick, GameWorldShadow,
+        shadow_session_after_host_tick,
     };
     use glam::Vec3;
 

@@ -18,7 +18,7 @@ use crate::display::cinematic_camera::{
 };
 use crate::drawable::drawable_manager::{with_drawable_manager, with_drawable_manager_ref};
 use crate::drawable::{DrawableType, Vector3 as DrawVec3};
-use crate::gui::{with_window_manager_ref, HintType, WindowStatus};
+use crate::gui::{HintType, WindowStatus, with_window_manager_ref};
 use crate::helpers::TheInGameUI;
 use crate::terrain::terrain_visual::get_terrain_visual;
 use gamelogic::helpers::{TheGameLogic, TheTerrainLogic};
@@ -125,11 +125,7 @@ fn camera_offset_from_global(ground_level: f32) -> Point3 {
             };
             (height, pitch, global.camera_yaw)
         })
-        .unwrap_or((
-            DEFAULT_CAMERA_HEIGHT,
-            DEFAULT_CAMERA_PITCH_DEG,
-            0.0,
-        ));
+        .unwrap_or((DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_PITCH_DEG, 0.0));
     let z = ground_level + height;
     let pitch = pitch_deg * PI / 180.0;
     let yaw = yaw_deg * PI / 180.0;
@@ -153,11 +149,12 @@ fn rotate_vec_around_z(v: Vec3, angle: f32) -> Vec3 {
 }
 
 fn intersect_terrain_ray(start: Vec3, end: Vec3) -> Option<Vec3> {
-    get_terrain_visual()
-        .ok()
-        .and_then(|guard| guard.as_ref().and_then(|visual| visual.intersect_terrain(start, end)))
+    get_terrain_visual().ok().and_then(|guard| {
+        guard
+            .as_ref()
+            .and_then(|visual| visual.intersect_terrain(start, end))
+    })
 }
-
 
 fn ray_sphere_t(origin: Vec3, dir: Vec3, center: Vec3, radius: f32) -> Option<f32> {
     let oc = origin - center;
@@ -1107,10 +1104,10 @@ impl View {
         self.camera_rotate = None;
     }
 
-
     /// C++ `W3DView::initHeightForMap`.
     pub fn init_height_for_map(&mut self) {
-        self.ground_level = ground_height_at(self.position.x, self.position.y).min(MAX_GROUND_LEVEL);
+        self.ground_level =
+            ground_height_at(self.position.x, self.position.y).min(MAX_GROUND_LEVEL);
         self.camera_offset = camera_offset_from_global(self.ground_level);
         self.camera_constraint_valid = false;
         self.camera_has_moved_since_request = true;
@@ -1391,8 +1388,12 @@ impl View {
         pos.x += self.shake_offset.x;
         pos.y += self.shake_offset.y;
         if self.camera_constraint_valid {
-            pos.x = pos.x.clamp(self.camera_constraint_lo.x, self.camera_constraint_hi.x);
-            pos.y = pos.y.clamp(self.camera_constraint_lo.y, self.camera_constraint_hi.y);
+            pos.x = pos
+                .x
+                .clamp(self.camera_constraint_lo.x, self.camera_constraint_hi.x);
+            pos.y = pos
+                .y
+                .clamp(self.camera_constraint_lo.y, self.camera_constraint_hi.y);
         }
 
         let mut source = if self.use_real_zoom_cam {
@@ -1753,12 +1754,9 @@ impl View {
     /// CPU fade + type used by Display to composite viewport filters.
     pub fn filter_composite(&self) -> ViewFilterComposite {
         let fade = if self.fade_total_frames > 0 {
-            let t = (self.fade_progress_frames as f32 / self.fade_total_frames as f32).clamp(0.0, 1.0);
-            if self.fade_direction < 0 {
-                1.0 - t
-            } else {
-                t
-            }
+            let t =
+                (self.fade_progress_frames as f32 / self.fade_total_frames as f32).clamp(0.0, 1.0);
+            if self.fade_direction < 0 { 1.0 - t } else { t }
         } else if self.view_filter_type == FilterType::Null {
             0.0
         } else {
@@ -1769,9 +1767,7 @@ impl View {
             mode: self.view_filter_mode,
             fade,
             scroll_delta: self.scroll_amount,
-            zoom_to: self
-                .view_filter_pos_valid
-                .then_some(self.view_filter_pos),
+            zoom_to: self.view_filter_pos_valid.then_some(self.view_filter_pos),
         }
     }
 
@@ -2041,12 +2037,10 @@ impl View {
         self.apply_camera_lock_one_frame();
         self.settle_zoom_toward_height_above_ground();
 
-
         // Process camera shake (position offsets)
         self.tick_impulse_shake();
 
         self.tick_filter_fade();
-
 
         if self.wireframe_pending_frames > 0 {
             self.wireframe_pending_frames -= 1;
@@ -2127,8 +2121,7 @@ fn draw_move_hint_and_locater_models(view: &View) {
     let live: Vec<Point3> = TheInGameUI::get_hints()
         .into_iter()
         .filter(|hint| {
-            hint.hint_type == HintType::Move
-                && frame.saturating_sub(hint.creation_frame) <= 40
+            hint.hint_type == HintType::Move && frame.saturating_sub(hint.creation_frame) <= 40
         })
         .map(|hint| Point3::new(hint.end.x, hint.end.y, hint.end.z))
         .collect();
@@ -2173,14 +2166,7 @@ fn draw_move_hint_and_locater_models(view: &View) {
                     hide_or_move_model(id, if show_arrow { None } else { Some(start_world) });
                 }
                 if let Some(id) = cache.locater_arrow {
-                    hide_or_move_model(
-                        id,
-                        if show_arrow {
-                            Some(start_world)
-                        } else {
-                            None
-                        },
-                    );
+                    hide_or_move_model(id, if show_arrow { Some(start_world) } else { None });
                     if show_arrow {
                         with_drawable_manager(|manager| {
                             if let Some(drawable) = manager.get_drawable_mut(id) {
@@ -3484,9 +3470,10 @@ mod tests {
     #[test]
     fn pick_drawable_skips_when_view_uninitialized() {
         let view = View::new();
-        assert!(view
-            .pick_drawable(&IPoint2::new(10, 10), false, PickType::Selectable)
-            .is_none());
+        assert!(
+            view.pick_drawable(&IPoint2::new(10, 10), false, PickType::Selectable)
+                .is_none()
+        );
     }
 }
 
@@ -3504,7 +3491,6 @@ pub trait ViewTrait: Send + Sync {
 
     /// Draw this view (called by the Display system)
     fn draw_view(&self) -> Result<(), ViewError>;
-
 
     /// Update view state (called once per frame)
     fn update_view(&mut self) -> Result<(), ViewError>;

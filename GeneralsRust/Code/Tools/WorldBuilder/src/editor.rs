@@ -6,23 +6,21 @@ use crate::scripting::ScriptEditor;
 use crate::terrain::TerrainEditor;
 use crate::tools::ToolManager;
 use crate::ui::{
-    apply_chrome_view_command, world_to_cell, ChromeCommand, EditorChrome, WbToolId, WorldBuilderUI,
+    ChromeCommand, EditorChrome, WbToolId, WorldBuilderUI, apply_chrome_view_command, world_to_cell,
 };
 
 use anyhow::Result;
 use eframe::egui;
-use game_engine::map_object::{Coord3D, MapObject, MAP_XY_FACTOR};
+use game_engine::map_object::{Coord3D, MAP_XY_FACTOR, MapObject};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use ui_framework::{
-    dialogs::{DialogManager, FileDialog, FileDialogAction, FileDialogType},
     GameTool, ThemeType, ToolConfig, Viewport3D,
+    dialogs::{DialogManager, FileDialog, FileDialogAction, FileDialogType},
 };
 use uuid::Uuid;
-use world_builder::scorch_tool::{
-    mouse_down_scorch, DEFAULT_SCORCHMARK_RADIUS, SCORCH_1,
-};
+use world_builder::scorch_tool::{DEFAULT_SCORCHMARK_RADIUS, SCORCH_1, mouse_down_scorch};
 
 /// Main World Builder tool implementation
 pub struct WorldBuilderTool {
@@ -584,18 +582,16 @@ mod tests {
         assert_eq!(tool.current_tool_id(), "scorch");
         assert_eq!(tool.current_tool_name(), "Scorch");
         assert_eq!(tool.tool_manager.active_tool_id(), Some("scorch"));
-        assert_eq!(
-            tool.tool_manager.get_tool_name("scorch"),
-            Some("Scorch")
-        );
+        assert_eq!(tool.tool_manager.get_tool_name("scorch"), Some("Scorch"));
     }
 
     #[test]
     fn scorch_mouse_down_only_when_scorch_is_current() {
         let mut tool = WorldBuilderTool::new().expect("WorldBuilderTool::new");
-        assert!(tool
-            .scorch_mouse_down(Coord3D::new(14.0, 26.0, 3.0))
-            .is_none());
+        assert!(
+            tool.scorch_mouse_down(Coord3D::new(14.0, 26.0, 3.0))
+                .is_none()
+        );
         assert!(tool.scorch_objects().is_empty());
 
         assert!(tool.set_current_tool("scorch"));

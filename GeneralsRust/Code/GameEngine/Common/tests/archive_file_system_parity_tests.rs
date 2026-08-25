@@ -95,8 +95,8 @@ fn close_all_files_does_not_unmount_archives() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
-fn archive_directory_listing_recurses_like_cpp_even_when_flag_is_false(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn archive_directory_listing_recurses_like_cpp_even_when_flag_is_false()
+-> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let archive_path = dir.path().join("Data.big");
     create_test_big_file(

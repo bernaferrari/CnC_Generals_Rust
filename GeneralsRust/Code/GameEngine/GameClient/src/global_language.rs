@@ -8,10 +8,10 @@ use std::sync::{LazyLock, RwLock};
 
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::ini::ini_language::{
-    get_global_language_read, init_global_language, FontDesc as CommonFontDesc,
+    FontDesc as CommonFontDesc, get_global_language_read, init_global_language,
 };
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
-use game_engine::common::ini::{INILoadType, INI};
+use game_engine::common::ini::{INI, INILoadType};
 
 use crate::gui::font::FontDesc;
 

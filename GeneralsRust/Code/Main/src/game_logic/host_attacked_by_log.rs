@@ -22,7 +22,8 @@ pub fn record(victim: ObjectId, source: ObjectId) {
         return;
     }
     LOG.with(|log| {
-        log.borrow_mut().push(HostAttackedByEvent { victim, source });
+        log.borrow_mut()
+            .push(HostAttackedByEvent { victim, source });
     });
 }
 

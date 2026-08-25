@@ -26,10 +26,7 @@ pub fn set_lighting_lod_cutoff(cutoff: f32) {
 
 /// C++ `Get_Lighting_LOD_Cutoff` (default 0.5, cutoff² = 0.25).
 pub fn get_lighting_lod_cutoff() -> f32 {
-    lod_cutoff_cell()
-        .lock()
-        .map(|cell| *cell)
-        .unwrap_or(0.5)
+    lod_cutoff_cell().lock().map(|cell| *cell).unwrap_or(0.5)
 }
 
 fn lighting_lod_cutoff2() -> f32 {
@@ -177,8 +174,7 @@ impl LightEnvironmentClass {
         self.calculate_fill_light();
         self.output_lights.clear();
         for input in &self.input_lights {
-            self.output_lights
-                .push(output_from_input(input, camera_tm));
+            self.output_lights.push(output_from_input(input, camera_tm));
         }
         self.ambient.x = self.ambient.x.clamp(0.0, 1.0);
         self.ambient.y = self.ambient.y.clamp(0.0, 1.0);
@@ -224,9 +220,7 @@ impl LightEnvironmentClass {
     }
 
     fn add_fill_light_internal(&mut self, fill: InputLight) {
-        if fill.diffuse.x < NEAR_BLACK
-            && fill.diffuse.y < NEAR_BLACK
-            && fill.diffuse.z < NEAR_BLACK
+        if fill.diffuse.x < NEAR_BLACK && fill.diffuse.y < NEAR_BLACK && fill.diffuse.z < NEAR_BLACK
         {
             self.ambient += fill.ambient;
             return;
@@ -570,7 +564,6 @@ impl LightClass {
     pub fn spot_angle_cos(&self) -> f32 {
         self.outer_cone_angle.cos()
     }
-
 
     /// Calculate light contribution at a point
     pub fn calculate_contribution(&self, point: Vec3, normal: Vec3, view_dir: Vec3) -> Vec3 {

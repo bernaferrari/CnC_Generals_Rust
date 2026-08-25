@@ -26,7 +26,7 @@ impl Object {
 
     pub fn weapon_has_ammo_for_shot(weapon: &Weapon, weapon_name: Option<&str>) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_reload_type_for_weapon_name, HostReloadType,
+            HostReloadType, host_reload_type_for_weapon_name,
         };
         let rt = weapon_name
             .map(host_reload_type_for_weapon_name)
@@ -52,7 +52,7 @@ impl Object {
         weapon_name: Option<&str>,
     ) {
         use crate::game_logic::weapon_bootstrap::{
-            host_reload_type_for_weapon_name, HostReloadType,
+            HostReloadType, host_reload_type_for_weapon_name,
         };
         weapon.last_fire_time = current_time;
         let rt = weapon_name
@@ -106,7 +106,7 @@ impl Object {
     /// clips intentionally do not report this edge.
     pub fn auto_reloaded_clip_after_firing(weapon: &Weapon, weapon_name: Option<&str>) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_reload_type_for_weapon_name, HostReloadType,
+            HostReloadType, host_reload_type_for_weapon_name,
         };
 
         if weapon.clip_size == 0 || weapon.ammo != Some(0) {
@@ -188,11 +188,7 @@ impl Object {
 
     /// C++ `Weapon::setClipPercentFull` (Weapon.cpp:1845) — floor, no reduce
     /// unless `allow_reduction`.
-    pub fn set_weapon_clip_percent_full(
-        weapon: &mut Weapon,
-        percent: f32,
-        allow_reduction: bool,
-    ) {
+    pub fn set_weapon_clip_percent_full(weapon: &mut Weapon, percent: f32, allow_reduction: bool) {
         if weapon.clip_size == 0 {
             return;
         }
@@ -205,7 +201,8 @@ impl Object {
     }
 
     fn weapons_need_clip_fill(&self) -> bool {
-        let short = |w: &Weapon| w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false);
+        let short =
+            |w: &Weapon| w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false);
         self.weapon.as_ref().is_some_and(short)
             || self.secondary_weapon.as_ref().is_some_and(short)
             || self.tertiary_weapon.as_ref().is_some_and(short)
@@ -258,7 +255,7 @@ impl Object {
 
     pub fn needs_return_to_base_rearm(&self) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_reload_type_for_weapon_name, HostReloadType,
+            HostReloadType, host_reload_type_for_weapon_name,
         };
         let empty_rtb = |w: &Weapon, name: Option<&str>| {
             let rt = name
@@ -311,9 +308,6 @@ impl Object {
         any
     }
 
-
-
-
     /// Attack orders keep flying; only idle / guard-hunt interrupt auto-RTB.
     pub fn jet_empty_clip_should_auto_rtb(&self) -> bool {
         if !self.needs_return_to_base_rearm() {
@@ -332,10 +326,9 @@ impl Object {
             && self.guard_target.is_none()
     }
 
-
     pub fn rearm_return_to_base_weapons(&mut self) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_reload_type_for_weapon_name, HostReloadType,
+            HostReloadType, host_reload_type_for_weapon_name,
         };
         let mut any = false;
         let pri = self.primary_weapon_name().map(|s| s.to_string());
@@ -551,7 +544,7 @@ impl Object {
     fn contact_weapon_touches_structure(&self, other: &Object) -> bool {
         use crate::game_logic::host_squish_collide::authored_crusher_geometry;
         use gamelogic::object::collide::{
-            collide_test_dispatch, CollideInfo, CollideLocAndNormal, Coord3D,
+            CollideInfo, CollideLocAndNormal, Coord3D, collide_test_dispatch,
         };
         let src_info = &self.thing.template.geometry_info;
         let tgt_info = &other.thing.template.geometry_info;
@@ -567,19 +560,10 @@ impl Object {
         );
         let p1 = self.get_position();
         let p2 = other.get_position();
-        let info_a = CollideInfo::new(
-            Coord3D::new(p1.x, p1.z, p1.y),
-            g1,
-            self.get_orientation(),
-        );
-        let info_b = CollideInfo::new(
-            Coord3D::new(p2.x, p2.z, p2.y),
-            g2,
-            other.get_orientation(),
-        );
+        let info_a = CollideInfo::new(Coord3D::new(p1.x, p1.z, p1.y), g1, self.get_orientation());
+        let info_b = CollideInfo::new(Coord3D::new(p2.x, p2.z, p2.y), g2, other.get_orientation());
         if info_a.position.z + info_a.geom.get_max_height_above_position() < info_b.position.z
-            || info_a.position.z
-                > info_b.position.z + info_b.geom.get_max_height_above_position()
+            || info_a.position.z > info_b.position.z + info_b.geom.get_max_height_above_position()
         {
             return false;
         }
@@ -596,11 +580,7 @@ impl Object {
 
     /// C++ `WeaponSet::isAnyWithinTargetPitch` (WeaponSet.cpp:406-419).
     /// Unlimited peels pass; if any candidate is loft-limited, one must fit.
-    pub fn is_any_within_target_pitch_for_slots(
-        &self,
-        victim: &Object,
-        slots: &[u8],
-    ) -> bool {
+    pub fn is_any_within_target_pitch_for_slots(&self, victim: &Object, slots: &[u8]) -> bool {
         use crate::game_logic::weapon_bootstrap::{
             host_target_pitch_limits_for_weapon_name, is_pitch_within_limits_geom,
         };
@@ -624,14 +604,7 @@ impl Object {
                 continue;
             }
             any_limited = true;
-            if is_pitch_within_limits_geom(
-                src,
-                tgt,
-                &limits,
-                src_half,
-                tgt_above,
-                tgt_below,
-            ) {
+            if is_pitch_within_limits_geom(src, tgt, &limits, src_half, tgt_above, tgt_below) {
                 return true;
             }
         }
@@ -665,7 +638,6 @@ impl Object {
         }
         best.map(|(_, p)| p)
     }
-
 
     /// C++ Weapon::isWithinAttackRange residual across all concrete slots.
     /// When LeechRange is active for a slot, max range is waived (C++ hasLeechRange).
@@ -809,7 +781,7 @@ impl Object {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::weapon_bootstrap::{host_reload_type_for_weapon_name, HostReloadType};
+    use crate::game_logic::weapon_bootstrap::{HostReloadType, host_reload_type_for_weapon_name};
 
     #[test]
     fn empty_return_to_base_clip_is_out_of_special_reload_ammo() {
@@ -945,7 +917,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn goal_position_range_uses_firepoint_not_container_origin() {
         use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
@@ -1038,5 +1009,4 @@ mod tests {
         assert!(!o.face_active);
         assert!(o.relative_angle_2d_to(goal).abs() < FACE_REL_THRESH_RAD);
     }
-
 }

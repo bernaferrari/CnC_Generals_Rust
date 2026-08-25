@@ -279,7 +279,9 @@ impl CnCGameEngine {
                         self.runtime_host_last_gameplay_cmd = start_cmd.into();
                     } else if gamelogic::helpers::TheGameLogic::is_start_new_game_requested() {
                         gamelogic::helpers::TheGameLogic::clear_start_new_game_request();
-                        if let Some(mut request) = self.build_start_request_from_pending_globals(None) {
+                        if let Some(mut request) =
+                            self.build_start_request_from_pending_globals(None)
+                        {
                             let map = control_map
                                 .clone()
                                 .filter(|m| !Self::map_name_is_shell_residual(m))
@@ -546,7 +548,7 @@ impl CnCGameEngine {
     // (take_pending_new_game_start_request) is exercised on the live engine.
 
     pub(super) fn runtime_host_cmd_queue_new_game(&mut self, args: &HashMap<String, String>) {
-        use game_engine::common::message_stream::{get_message_stream, GameMessageType};
+        use game_engine::common::message_stream::{GameMessageType, get_message_stream};
         let mode_code = args
             .get("mode")
             .and_then(|m| match m.trim().to_ascii_lowercase().as_str() {

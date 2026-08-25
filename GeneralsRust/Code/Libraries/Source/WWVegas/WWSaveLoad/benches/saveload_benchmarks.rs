@@ -1,6 +1,6 @@
 //! Benchmarks for the WWSaveLoad system
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::sync::{Arc, Weak};
 use ww_save_load::saveload::*;
 

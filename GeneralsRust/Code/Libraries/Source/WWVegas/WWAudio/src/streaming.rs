@@ -4,21 +4,21 @@
 //! Provides double-buffered streaming with async I/O to avoid audio glitches.
 
 use crate::{
+    AudioSource, Priority,
     aud_source::{AudioSample, AudioSourceLoader, EnhancedAudioFormat},
     error::{Error, Result},
     formats::AudioFormat,
     mixer::{AudioMixer, VoiceDescriptor, VoiceHandle, VoiceParams},
     source::convert_enhanced_to_basic,
-    AudioSource, Priority,
 };
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{debug, error, warn};
 use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     thread,
     time::Duration,

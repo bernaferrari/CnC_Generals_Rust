@@ -232,7 +232,7 @@ impl GameWorldShadow {
     /// host can apply unlock/EVA/radar side effects after writeback (GW decides
     /// completion; host still owns residual apply).
     pub fn writeback_completed_upgrades_to_host(&self, logic: &mut GameLogic) -> usize {
-        use crate::game_logic::host_upgrades::{normalize_upgrade_identity, HostUpgradePhase};
+        use crate::game_logic::host_upgrades::{HostUpgradePhase, normalize_upgrade_identity};
         let mut updated = 0usize;
         let frame = logic.get_frame();
         let mut ready: Vec<(u32, String)> = Vec::new();
@@ -468,8 +468,8 @@ impl GameWorldShadow {
         if !gameworld_production_authority_enabled() {
             return 0;
         }
-        use gamelogic::world::entities::{EntityId, EntityProductionItem};
         use gamelogic::world::WorldMutation;
+        use gamelogic::world::entities::{EntityId, EntityProductionItem};
         let mut n = 0usize;
         let mut updates: Vec<(EntityId, Vec<EntityProductionItem>)> = Vec::new();
         let mut exit_updates: Vec<(EntityId, f32)> = Vec::new();
@@ -487,7 +487,10 @@ impl GameWorldShadow {
             // C++ GameLogic.cpp:3677 — ProductionUpdate process mask is HELD;
             // DISABLED_UNDERPOWERED skips the module (no 50-80% power-factor).
             let production_frozen = ent.disabled_underpowered && !ent.disabled_held;
-            if !ent.production_queue_items.is_empty() && !ent.production_paused && !production_frozen {
+            if !ent.production_queue_items.is_empty()
+                && !ent.production_paused
+                && !production_frozen
+            {
                 let mut items = ent.production_queue_items.clone();
                 if let Some(head) = items.first_mut() {
                     let pf = self

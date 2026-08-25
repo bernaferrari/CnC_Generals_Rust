@@ -4,7 +4,7 @@
 //! equivalent to the original WW3D Font3D subsystem while targeting the
 //! modern wgpu-based renderer.
 
-use crate::rendering::render2d::{frgba_to_u32, Rect, Render2D, Render2DGpuContext};
+use crate::rendering::render2d::{Rect, Render2D, Render2DGpuContext, frgba_to_u32};
 use crate::texture_system::{SurfaceClass, TextureClass};
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;

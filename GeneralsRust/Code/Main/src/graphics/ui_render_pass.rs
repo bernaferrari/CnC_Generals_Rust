@@ -22,7 +22,6 @@ static UI_FLUSH_POISON_RECOVERY_COUNT: AtomicU32 = AtomicU32::new(0);
 static CONTROL_BAR_RETRY_COUNT: AtomicU32 = AtomicU32::new(0);
 static CONTROL_BAR_LAST_RETRY_FLUSH: AtomicU32 = AtomicU32::new(0);
 
-
 /// Acquire the UI lock without permanently bricking presentation after a
 /// caught callback panic.  The caller must reset/discard any open UI frame
 /// before rendering again; the recovery is logged and counted rather than
@@ -125,7 +124,6 @@ fn unhide_control_bar_parent_while_ingame(
     }
 }
 
-
 /// C++ `winRepaint` always has the ControlBar tree (`InGameUI::createControlBar`
 /// + `ShowControlBar`). The Rust InGame enter load can miss; retry on the live
 /// `TheWindowManager` with backoff so a later flush can emit draw commands.
@@ -167,14 +165,11 @@ fn retry_missing_control_bar_parent_while_ingame() {
     }
 }
 
-
-
 pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
     let call = UI_FLUSH_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
     if call < 8 {
         warn!("flush_ui_to_frame #{call} entered");
     }
-
 
     let renderer_arc = match game_client::gui::ui_globals::with_ui_renderer(|r| r.clone()) {
         Some(arc) => arc,
@@ -220,8 +215,6 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
             let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
         }
     }
-
-
 
     let mut frame_cleanup = UiFrameCleanup::new(renderer_arc.clone());
 

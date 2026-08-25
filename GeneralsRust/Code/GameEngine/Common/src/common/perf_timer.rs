@@ -24,7 +24,7 @@ use tracing::span::EnteredSpan;
 
 use crate::common::time;
 #[cfg(feature = "perf_timers")]
-use tracing::{event, Level};
+use tracing::{Level, event};
 
 /// Performance timer configuration
 #[cfg(any(feature = "debug", feature = "internal"))]

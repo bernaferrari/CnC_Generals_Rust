@@ -24,8 +24,8 @@ use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, ExitDoorType as ModuleExitDoorType,
     ExitInterface as ModuleExitInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing as ModuleThing};

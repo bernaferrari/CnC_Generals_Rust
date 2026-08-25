@@ -88,8 +88,6 @@ pub struct HostSpecialPowerStrikeRegistry {
     /// C++ ParticleUplinkCannonUpdate::setClientStatus loop cues this frame
     /// (PoweringUp / UnpackToIdle / FiringToPack). Drained by GameLogic.
     pub(crate) puc_loop_audio_this_frame: Vec<(ObjectId, Vec3, &'static str)>,
-
-
 }
 
 impl HostSpecialPowerStrikeRegistry {
@@ -105,12 +103,14 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Mark the next ParticleCannon queue from this source as script-fired (swath).
     pub fn note_script_fired_special_power(&mut self, source_object: ObjectId) {
-        self.script_fired_special_power_sources.insert(source_object);
+        self.script_fired_special_power_sources
+            .insert(source_object);
     }
 
     /// Consume the script-fire latch for `source_object`.
     pub fn take_script_fired_special_power(&mut self, source_object: ObjectId) -> bool {
-        self.script_fired_special_power_sources.remove(&source_object)
+        self.script_fired_special_power_sources
+            .remove(&source_object)
     }
 
     /// Mark the next ParticleCannon queue from this source as leftover
@@ -125,14 +125,10 @@ impl HostSpecialPowerStrikeRegistry {
     }
 
     /// Consume the scripted-waypoint latch for `source_object`.
-    pub fn take_scripted_waypoint_special_power(
-        &mut self,
-        source_object: ObjectId,
-    ) -> Option<u32> {
+    pub fn take_scripted_waypoint_special_power(&mut self, source_object: ObjectId) -> Option<u32> {
         self.scripted_waypoint_special_power_sources
             .remove(&source_object)
     }
-
 
     /// SabotageSuperweapon residual: drop pending strike timers for a structure.
     ///
@@ -198,7 +194,6 @@ impl HostSpecialPowerStrikeRegistry {
             script_fired_special_power_sources: std::collections::HashSet::new(),
             scripted_waypoint_special_power_sources: std::collections::HashMap::new(),
         }
-
     }
 
     pub fn clear(&mut self) {
@@ -249,7 +244,6 @@ impl HostSpecialPowerStrikeRegistry {
         self.spectre_ai_controllers.clear();
         self.script_fired_special_power_sources.clear();
         self.scripted_waypoint_special_power_sources.clear();
-
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -351,12 +345,7 @@ impl HostSpecialPowerStrikeRegistry {
         std::mem::take(&mut self.puc_loop_audio_this_frame)
     }
 
-    pub(crate) fn note_puc_loop_audio(
-        &mut self,
-        source: ObjectId,
-        pos: Vec3,
-        cue: &'static str,
-    ) {
+    pub(crate) fn note_puc_loop_audio(&mut self, source: ObjectId, pos: Vec3, cue: &'static str) {
         self.puc_loop_audio_this_frame.push((source, pos, cue));
     }
 
@@ -1053,5 +1042,4 @@ impl HostSpecialPowerStrikeRegistry {
     pub fn prune_expired_view_objects(&mut self, frame: u32) {
         self.view_objects.retain(|v| v.expires_frame > frame);
     }
-
 }

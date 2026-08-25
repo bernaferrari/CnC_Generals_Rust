@@ -110,9 +110,11 @@ impl GameLogic {
         if state_to_apply.is_some() {
             if let Some(obj) = self.objects.get(&object_id) {
                 let path = obj.movement.path.clone();
-                nudge_allies = self
-                    .pathfinding_system
-                    .allies_to_nudge_off_path(object_id, &path, &self.objects);
+                nudge_allies = self.pathfinding_system.allies_to_nudge_off_path(
+                    object_id,
+                    &path,
+                    &self.objects,
+                );
             }
         }
         if let Some(state) = state_to_apply {
@@ -175,7 +177,6 @@ impl GameLogic {
                 }
             }
         }
-
     }
 
     /// Update movement for all objects
@@ -230,13 +231,7 @@ impl GameLogic {
                         .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()))
                         .unwrap_or(rep_pos);
                     if let Some(path) = self.pathfinding_system.find_safe_path_from(
-                        from,
-                        rep_pos,
-                        rep2_pos,
-                        vision,
-                        surfaces,
-                        is_crusher,
-                        is_human,
+                        from, rep_pos, rep2_pos, vision, surfaces, is_crusher, is_human,
                     ) {
                         repaths.push((id, path));
                     }
@@ -253,8 +248,7 @@ impl GameLogic {
                     is_crusher,
                     &self.objects,
                     Some(id),
-                )
-                {
+                ) {
                     repaths.push((id, path));
                 }
             }
@@ -293,8 +287,7 @@ impl GameLogic {
                 } else {
                     sy
                 };
-                let ahead_y = if matches!(obj.loco_appearance, LocomotorAppearance::Climber)
-                {
+                let ahead_y = if matches!(obj.loco_appearance, LocomotorAppearance::Climber) {
                     if let Some(tgt) = obj.movement.target_position {
                         let dx = tgt.x - pos.x;
                         let dz = tgt.z - pos.z;
@@ -321,322 +314,324 @@ impl GameLogic {
             };
             let mut plant_snap = false;
             'unit: {
-            if let Some(obj) = self.objects.get_mut(&id) {
-                // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
-                // movement) are skipped while any disabled flag is set and does not
-                // intersect getDisabledTypesToProcess (AIUpdate default is NONE).
-                // EMP / hack / unmanned / paralyzed / subdued / held-as-is_disabled.
-                if obj.is_disabled() {
-                    obj.movement.velocity = Vec3::ZERO;
-                    obj.record_host_movement();
-                    break 'unit;
-                }
-                // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
-                // Leave velocity for PhysicsBehavior tumble / shock tick.
-                if obj.is_shock_stunned() {
-                    Self::stamp_object_airborne_target(obj, ground_y);
-                    break 'unit;
-                }
-                // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
-                // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
-                if obj.locomotor_goal_type == LocoGoalType::Angle {
-                    // C++ doLocomotor ANGLE: locoUpdate_moveTowardsAngle, not path.
-                    obj.do_final_position = false;
-                    if obj.face_loco_frame != self.frame || self.frame == 0 {
-                        obj.loco_update_move_towards_angle(obj.locomotor_goal_angle, dt);
-                        obj.face_loco_frame = self.frame;
-                    }
-                    // Leftover unused `handle_behavior_z_for` via leftover
-                    // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
-                    let sy = obj.leftover_surface_ht(surface_y);
-                    Self::apply_live_handle_behavior_z(obj, sy, None);
-                    Self::stamp_object_airborne_target(obj, ground_y);
-                    break 'unit;
-                }
-
-                let has_move_goal = obj.movement.target_position.is_some()
-                    || !obj.movement.path.is_empty();
-                // C++ POSITION/ANGLE goals clear m_doFinalPosition (AIUpdate.cpp:2151).
-                if has_move_goal {
-                    obj.do_final_position = false;
-                }
-                let skip_loco_move = obj.waiting_for_path;
-                if has_move_goal && !skip_loco_move {
-                    obj.apply_motive_force(glam::Vec3::ZERO);
-                }
-                // C++ Locomotor.cpp:1055 — treatAsAirborne skips appearance
-                // 2D motive only. handleBehaviorZ, IS_BRAKING, braking cheat,
-                // path advance, hover OVER_WATER, and arrival still run
-                // (hq-hq4t8).
-                let allow_2d_motive = obj.allow_motive_force_while_airborne
-                    || !Object::height_treats_as_airborne(obj.get_position().y - ground_y);
-                if obj.is_rappelling() {
-                    // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
-                    Self::stamp_object_airborne_target(obj, ground_y);
-                    break 'unit;
-                }
-                if obj.waiting_for_path {
-                    // C++ queueForPath: locomotor does not integrate until Path is installed.
-                    obj.movement.velocity = Vec3::ZERO;
-                    obj.record_host_movement();
-                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                    Self::stamp_object_airborne_target(obj, ground_y);
-                    break 'unit;
-                }
-                if matches!(obj.ai_state, AIState::AttackMoving) && obj.target.is_some() {
-                    // C++ AIAttackMoveToState::update: setLocomotorGoalNone while
-                    // the nested attack machine is not idle. A replaced chase
-                    // path (findAttackPath) is the nested locomotor goal.
-                    let dest_walk = obj.requested_destination.map(|dest| {
-                        let near = |p: Vec3| {
-                            let dx = p.x - dest.x;
-                            let dz = p.z - dest.z;
-                            dx * dx + dz * dz < 16.0
-                        };
-                        obj.movement.path.last().copied().is_some_and(near)
-                            || obj.movement.target_position.is_some_and(near)
-                    });
-                    if dest_walk.unwrap_or(true) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
+                    // movement) are skipped while any disabled flag is set and does not
+                    // intersect getDisabledTypesToProcess (AIUpdate default is NONE).
+                    // EMP / hack / unmanned / paralyzed / subdued / held-as-is_disabled.
+                    if obj.is_disabled() {
                         obj.movement.velocity = Vec3::ZERO;
-                        obj.set_status_moving(false);
+                        obj.record_host_movement();
+                        break 'unit;
+                    }
+                    // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
+                    // Leave velocity for PhysicsBehavior tumble / shock tick.
+                    if obj.is_shock_stunned() {
+                        Self::stamp_object_airborne_target(obj, ground_y);
+                        break 'unit;
+                    }
+                    // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
+                    // so collide/friction treat the unit as driven (Locomotor.cpp:1010-1014).
+                    if obj.locomotor_goal_type == LocoGoalType::Angle {
+                        // C++ doLocomotor ANGLE: locoUpdate_moveTowardsAngle, not path.
+                        obj.do_final_position = false;
+                        if obj.face_loco_frame != self.frame || self.frame == 0 {
+                            obj.loco_update_move_towards_angle(obj.locomotor_goal_angle, dt);
+                            obj.face_loco_frame = self.frame;
+                        }
+                        // Leftover unused `handle_behavior_z_for` via leftover
+                        // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
+                        let sy = obj.leftover_surface_ht(surface_y);
+                        Self::apply_live_handle_behavior_z(obj, sy, None);
+                        Self::stamp_object_airborne_target(obj, ground_y);
+                        break 'unit;
+                    }
+
+                    let has_move_goal =
+                        obj.movement.target_position.is_some() || !obj.movement.path.is_empty();
+                    // C++ POSITION/ANGLE goals clear m_doFinalPosition (AIUpdate.cpp:2151).
+                    if has_move_goal {
+                        obj.do_final_position = false;
+                    }
+                    let skip_loco_move = obj.waiting_for_path;
+                    if has_move_goal && !skip_loco_move {
+                        obj.apply_motive_force(glam::Vec3::ZERO);
+                    }
+                    // C++ Locomotor.cpp:1055 — treatAsAirborne skips appearance
+                    // 2D motive only. handleBehaviorZ, IS_BRAKING, braking cheat,
+                    // path advance, hover OVER_WATER, and arrival still run
+                    // (hq-hq4t8).
+                    let allow_2d_motive = obj.allow_motive_force_while_airborne
+                        || !Object::height_treats_as_airborne(obj.get_position().y - ground_y);
+                    if obj.is_rappelling() {
+                        // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
+                        Self::stamp_object_airborne_target(obj, ground_y);
+                        break 'unit;
+                    }
+                    if obj.waiting_for_path {
+                        // C++ queueForPath: locomotor does not integrate until Path is installed.
+                        obj.movement.velocity = Vec3::ZERO;
+                        obj.record_host_movement();
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
                         Self::stamp_object_airborne_target(obj, ground_y);
                         break 'unit;
                     }
-                }
+                    if matches!(obj.ai_state, AIState::AttackMoving) && obj.target.is_some() {
+                        // C++ AIAttackMoveToState::update: setLocomotorGoalNone while
+                        // the nested attack machine is not idle. A replaced chase
+                        // path (findAttackPath) is the nested locomotor goal.
+                        let dest_walk = obj.requested_destination.map(|dest| {
+                            let near = |p: Vec3| {
+                                let dx = p.x - dest.x;
+                                let dz = p.z - dest.z;
+                                dx * dx + dz * dz < 16.0
+                            };
+                            obj.movement.path.last().copied().is_some_and(near)
+                                || obj.movement.target_position.is_some_and(near)
+                        });
+                        if dest_walk.unwrap_or(true) {
+                            obj.movement.velocity = Vec3::ZERO;
+                            obj.set_status_moving(false);
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            Self::stamp_object_airborne_target(obj, ground_y);
+                            break 'unit;
+                        }
+                    }
 
-                // C++ doLocomotor: chooseGoodLocomotorFromCurrentSet then blocked bookkeeping.
-                obj.choose_good_locomotor_from_current_set(cell_type);
-                obj.tick_do_locomotor_blocked_frames();
-                if obj.num_frames_blocked > 7 {
-                    // AIInternalMoveToState: > 1/4 s blocked clears MODELCONDITION_MOVING.
-                    obj.set_status_moving(false);
-                }
-                obj.apply_hover_over_water(underwater);
-                // C++ locoUpdate_moveTowardsPosition:968-977 — non-air invalid
-                // terrain runs fixInvalidPosition and returns (no 2D motive).
-                if has_move_goal && !skip_loco_move {
-                    let surfaces = if obj.locomotor_surfaces != 0 {
-                        obj.locomotor_surfaces
-                    } else {
-                        gamelogic::ai::pathfind_complete::SURFACE_GROUND
-                    };
-                    let air = (surfaces & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
-                    if !air && !obj.allow_invalid_position {
-                        let pos = obj.get_position();
-                        if !valid_movement_terrain_at(&self.pathfinding_system.grid, surfaces, pos)
-                            && try_fix_invalid_position_3x3(
+                    // C++ doLocomotor: chooseGoodLocomotorFromCurrentSet then blocked bookkeeping.
+                    obj.choose_good_locomotor_from_current_set(cell_type);
+                    obj.tick_do_locomotor_blocked_frames();
+                    if obj.num_frames_blocked > 7 {
+                        // AIInternalMoveToState: > 1/4 s blocked clears MODELCONDITION_MOVING.
+                        obj.set_status_moving(false);
+                    }
+                    obj.apply_hover_over_water(underwater);
+                    // C++ locoUpdate_moveTowardsPosition:968-977 — non-air invalid
+                    // terrain runs fixInvalidPosition and returns (no 2D motive).
+                    if has_move_goal && !skip_loco_move {
+                        let surfaces = if obj.locomotor_surfaces != 0 {
+                            obj.locomotor_surfaces
+                        } else {
+                            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                        };
+                        let air = (surfaces & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
+                        if !air && !obj.allow_invalid_position {
+                            let pos = obj.get_position();
+                            if !valid_movement_terrain_at(
+                                &self.pathfinding_system.grid,
+                                surfaces,
+                                pos,
+                            ) && try_fix_invalid_position_3x3(
                                 obj,
                                 &self.pathfinding_system.grid,
                                 surfaces,
-                            )
-                        {
-                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                            Self::stamp_object_airborne_target(obj, ground_y);
-                            break 'unit;
-                        }
-                    }
-                }
-
-
-
-                // Horizontal (XZ) distance — path grid / terrain height use Y separately,
-                // and 3D distance falsely stalls waypoint advance when |ΔY| is large.
-                let horiz = |a: Vec3, b: Vec3| {
-                    let dx = a.x - b.x;
-                    let dz = a.z - b.z;
-                    (dx * dx + dz * dz).sqrt()
-                };
-                let z_motive = matches!(
-                    obj.loco_behavior_z,
-                    LocomotorBehaviorZ::SurfaceRelativeHeight
-                        | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-                        | LocomotorBehaviorZ::AbsoluteHeight
-                        | LocomotorBehaviorZ::FixedSurfaceRelativeHeight
-                        | LocomotorBehaviorZ::FixedAbsoluteHeight
-                        | LocomotorBehaviorZ::RelativeToGroundAndBuildings
-                ) || matches!(
-                    obj.loco_appearance,
-                    LocomotorAppearance::Hover | LocomotorAppearance::Wings
-                );
-                // C++ moveTowardsPositionClimb latches FLAG_CLIMBING on real
-                // goal Z (host Y). Flattening that Y made dz==0 so CLIMBER
-                // never slowed or reversed (Locomotor.cpp:1711-1739).
-                let keep_goal_y = z_motive
-                    || matches!(obj.loco_appearance, LocomotorAppearance::Climber)
-                    || obj.host_uses_close_enough_dist_3d();
-                let close_enough = host_close_enough_dist(obj);
-                let close_enough_sanity =
-                    4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-
-
-                if !obj.movement.path.is_empty()
-                    && obj.movement.current_path_index < obj.movement.path.len()
-                {
-                    let current_pos = obj.get_position();
-                    let waypoint = obj.movement.path[obj.movement.current_path_index];
-                    if obj.host_locomotor_distance_to_goal(current_pos, waypoint) < close_enough {
-                        let finishing =
-                            obj.movement.current_path_index + 1 >= obj.movement.path.len();
-                        let last = *obj.movement.path.last().unwrap_or(&waypoint);
-                        // C++ AIStates.cpp:1889-1904 — ground sanity refuses to
-                        // plant if 2D to last node > 4*PATHFIND_CELL_SIZE.
-                        if finishing
-                            && !z_motive
-                            && horiz(current_pos, last) > close_enough_sanity
-                        {
-                            // Keep marching toward the last node.
-                        } else {
-                        obj.movement.current_path_index += 1;
-                        if obj.movement.current_path_index >= obj.movement.path.len() {
-                            let do_evac = obj.pending_evacuate_on_stop;
-                            let and_exit = obj.pending_exit_after_evacuate;
-                            if obj.holds_air_position_when_idle() {
-                                obj.movement.path.clear();
-                                obj.movement.current_path_index = 0;
-                                obj.movement.target_position = None;
-                                obj.maintain_pos_valid = false;
-                                obj.can_path_through_units = false;
-                                let _ = obj.loco_maintain_current_position(surface_y, dt);
-                            } else {
-                                obj.stop_moving();
-                                plant_snap = true;
+                            ) {
+                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::stamp_object_airborne_target(obj, ground_y);
+                                break 'unit;
                             }
-                            if do_evac {
-                                obj.pending_evacuate_on_stop = true;
-                                obj.pending_exit_after_evacuate = and_exit;
-                            }
-                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                            Self::stamp_object_airborne_target(obj, ground_y);
-                            break 'unit;
-                        }
                         }
                     }
 
-                    // C++ computePointOnPath: always try lead; take it only
-                    // when isLinePassable (AIPathfind.cpp:910-950).
-                    let surfaces = if obj.locomotor_surfaces != 0 {
-                        obj.locomotor_surfaces
-                    } else {
-                        gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                    // Horizontal (XZ) distance — path grid / terrain height use Y separately,
+                    // and 3D distance falsely stalls waypoint advance when |ΔY| is large.
+                    let horiz = |a: Vec3, b: Vec3| {
+                        let dx = a.x - b.x;
+                        let dz = a.z - b.z;
+                        (dx * dx + dz * dz).sqrt()
                     };
-                    let is_crusher = obj.crusher_level > 0;
-                    let path_tail = obj.movement.path
-                        [obj.movement.current_path_index.saturating_sub(1)..]
-                        .to_vec();
-                    let lead = crate::game_logic::PathfindingSystem::compute_point_on_path_for(
-                        current_pos,
-                        &path_tail,
-                        Some(&self.pathfinding_system.grid),
-                        surfaces,
-                        is_crusher,
-                        obj.owner_player_id,
-                        obj.crusher_level,
+                    let z_motive = matches!(
+                        obj.loco_behavior_z,
+                        LocomotorBehaviorZ::SurfaceRelativeHeight
+                            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                            | LocomotorBehaviorZ::AbsoluteHeight
+                            | LocomotorBehaviorZ::FixedSurfaceRelativeHeight
+                            | LocomotorBehaviorZ::FixedAbsoluteHeight
+                            | LocomotorBehaviorZ::RelativeToGroundAndBuildings
+                    ) || matches!(
+                        obj.loco_appearance,
+                        LocomotorAppearance::Hover | LocomotorAppearance::Wings
                     );
-                    let mut target = lead;
-                    // Ground locos keep XZ march; Z-motive / Climber keep lead Y
-                    // so preferredHeight can rise and climb can latch on dz.
-                    if !keep_goal_y {
-                        target.y = current_pos.y;
-                    }
-                    obj.movement.target_position = Some(target);
-                }
+                    // C++ moveTowardsPositionClimb latches FLAG_CLIMBING on real
+                    // goal Z (host Y). Flattening that Y made dz==0 so CLIMBER
+                    // never slowed or reversed (Locomotor.cpp:1711-1739).
+                    let keep_goal_y = z_motive
+                        || matches!(obj.loco_appearance, LocomotorAppearance::Climber)
+                        || obj.host_uses_close_enough_dist_3d();
+                    let close_enough = host_close_enough_dist(obj);
+                    let close_enough_sanity =
+                        4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
 
-                if let Some(target_pos) = obj.movement.target_position {
-                    let current_pos = obj.get_position();
-                    // XZ heading only — do not dive to Y=0 path cells. Height is
-                    // handleBehaviorZ (preferredHeight + surface), not path Y.
-                    let mut flat_target = target_pos;
-                    flat_target.y = current_pos.y;
-                    let direction = (flat_target - current_pos).normalize_or_zero();
-
-                    if direction.length() > 0.0 {
-                        let mut desired_angle = (-direction.z).atan2(direction.x);
-                        // C++ Locomotor.cpp:1618-1637 legs wander weave.
-                        let wander_enabled = obj.wander_width_factor != 0.0
-                            || matches!(
-                                obj.loco_appearance,
-                                LocomotorAppearance::LegsTwo | LocomotorAppearance::Climber
-                            );
-                        if wander_enabled {
-                            let actual = obj.movement.velocity.length();
-                            desired_angle += obj.tick_wander_angle_offset(actual);
-                        }
-                        // C++ moveTowardsPositionClimb (Locomotor.cpp:1690-1739).
-                        let mut speed = obj.effective_max_speed();
-                        if matches!(obj.loco_appearance, LocomotorAppearance::Climber) {
-                            let backwards = obj.update_climber_flags(
-                                current_pos,
-                                target_pos,
-                                climber_ahead_y,
-                            );
-                            speed *= obj.climber_slope_speed_scale(current_pos.y, climber_ahead_y);
-                            if backwards {
-                                desired_angle += std::f32::consts::PI;
-                            }
-                        }
-                        speed = obj.apply_do_locomotor_blocked_speed(speed);
-                        // C++ Locomotor.cpp:1016-1040 — blocked frame scrubs 2D
-                        // motive and only rotates / handleBehaviorZ.
-                        let mut loco_blocked = obj.num_frames_blocked > 0;
-                        if loco_blocked {
-                            if speed > obj.movement.velocity.length() {
-                                loco_blocked = false;
-                            }
-                            let air = (obj.locomotor_surfaces
-                                & gamelogic::ai::pathfind_complete::SURFACE_AIR)
-                                != 0;
-                            if air
-                                && Object::height_treats_as_airborne(current_pos.y - ground_y)
+                    if !obj.movement.path.is_empty()
+                        && obj.movement.current_path_index < obj.movement.path.len()
+                    {
+                        let current_pos = obj.get_position();
+                        let waypoint = obj.movement.path[obj.movement.current_path_index];
+                        if obj.host_locomotor_distance_to_goal(current_pos, waypoint) < close_enough
+                        {
+                            let finishing =
+                                obj.movement.current_path_index + 1 >= obj.movement.path.len();
+                            let last = *obj.movement.path.last().unwrap_or(&waypoint);
+                            // C++ AIStates.cpp:1889-1904 — ground sanity refuses to
+                            // plant if 2D to last node > 4*PATHFIND_CELL_SIZE.
+                            if finishing
+                                && !z_motive
+                                && horiz(current_pos, last) > close_enough_sanity
                             {
-                                loco_blocked = false;
+                                // Keep marching toward the last node.
+                            } else {
+                                obj.movement.current_path_index += 1;
+                                if obj.movement.current_path_index >= obj.movement.path.len() {
+                                    let do_evac = obj.pending_evacuate_on_stop;
+                                    let and_exit = obj.pending_exit_after_evacuate;
+                                    if obj.holds_air_position_when_idle() {
+                                        obj.movement.path.clear();
+                                        obj.movement.current_path_index = 0;
+                                        obj.movement.target_position = None;
+                                        obj.maintain_pos_valid = false;
+                                        obj.can_path_through_units = false;
+                                        let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                    } else {
+                                        obj.stop_moving();
+                                        plant_snap = true;
+                                    }
+                                    if do_evac {
+                                        obj.pending_evacuate_on_stop = true;
+                                        obj.pending_exit_after_evacuate = and_exit;
+                                    }
+                                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                    Self::stamp_object_airborne_target(obj, ground_y);
+                                    break 'unit;
+                                }
                             }
-                        }
-                        if loco_blocked {
-                            obj.scrub_velocity_2d(speed);
-                            if obj.wander_width_factor == 0.0 {
-                                let _ = obj.rotate_obj_around_loco_pivot(
-                                    flat_target,
-                                    obj.effective_turn_rate() * dt,
-                                );
-                            }
-                            obj.record_host_movement();
-                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                            Self::stamp_object_airborne_target(obj, ground_y);
-                            break 'unit;
                         }
 
-                        let current_angle = obj.get_orientation();
-                        let mut delta = desired_angle - current_angle;
-                        while delta > std::f32::consts::PI {
-                            delta -= std::f32::consts::TAU;
-                        }
-                        while delta < -std::f32::consts::PI {
-                            delta += std::f32::consts::TAU;
-                        }
-                        let dist = horiz(current_pos, flat_target);
-                        // C++ Path::computePointOnPath distAlongPath (AIPathfind.cpp:997)
-                        // then locoUpdate_moveTowardsPosition raise (Locomotor.cpp:980-992).
-                        // Hover / !ground / aircraft use computeFlightDistToGoal
-                        // (AIUpdate.cpp:2412-2466) so dogleg winding does not
-                        // brake Comanche/Chinook/Helix early.
-                        let path_for_dist = if obj.movement.path.is_empty() {
-                            None
+                        // C++ computePointOnPath: always try lead; take it only
+                        // when isLinePassable (AIPathfind.cpp:910-950).
+                        let surfaces = if obj.locomotor_surfaces != 0 {
+                            obj.locomotor_surfaces
                         } else {
-                            Some(
-                                &obj.movement.path
-                                    [obj.movement.current_path_index.saturating_sub(1)..],
-                            )
+                            gamelogic::ai::pathfind_complete::SURFACE_GROUND
                         };
-                        let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement(obj)
-                            || matches!(obj.loco_appearance, LocomotorAppearance::Hover);
-                        let mut on_path_dist = if obj.host_uses_close_enough_dist_3d() {
-                            // Leftover unused `get_locomotor_distance_to_goal`
-                            // FROM_CENTER_3D to last node (AIUpdate.cpp:2448-2456).
-                            let dest = obj.movement.path.last().copied().unwrap_or(target_pos);
-                            obj.host_locomotor_distance_to_goal(current_pos, dest)
-                        } else {
-                            path_for_dist
+                        let is_crusher = obj.crusher_level > 0;
+                        let path_tail = obj.movement.path
+                            [obj.movement.current_path_index.saturating_sub(1)..]
+                            .to_vec();
+                        let lead = crate::game_logic::PathfindingSystem::compute_point_on_path_for(
+                            current_pos,
+                            &path_tail,
+                            Some(&self.pathfinding_system.grid),
+                            surfaces,
+                            is_crusher,
+                            obj.owner_player_id,
+                            obj.crusher_level,
+                        );
+                        let mut target = lead;
+                        // Ground locos keep XZ march; Z-motive / Climber keep lead Y
+                        // so preferredHeight can rise and climb can latch on dz.
+                        if !keep_goal_y {
+                            target.y = current_pos.y;
+                        }
+                        obj.movement.target_position = Some(target);
+                    }
+
+                    if let Some(target_pos) = obj.movement.target_position {
+                        let current_pos = obj.get_position();
+                        // XZ heading only — do not dive to Y=0 path cells. Height is
+                        // handleBehaviorZ (preferredHeight + surface), not path Y.
+                        let mut flat_target = target_pos;
+                        flat_target.y = current_pos.y;
+                        let direction = (flat_target - current_pos).normalize_or_zero();
+
+                        if direction.length() > 0.0 {
+                            let mut desired_angle = (-direction.z).atan2(direction.x);
+                            // C++ Locomotor.cpp:1618-1637 legs wander weave.
+                            let wander_enabled = obj.wander_width_factor != 0.0
+                                || matches!(
+                                    obj.loco_appearance,
+                                    LocomotorAppearance::LegsTwo | LocomotorAppearance::Climber
+                                );
+                            if wander_enabled {
+                                let actual = obj.movement.velocity.length();
+                                desired_angle += obj.tick_wander_angle_offset(actual);
+                            }
+                            // C++ moveTowardsPositionClimb (Locomotor.cpp:1690-1739).
+                            let mut speed = obj.effective_max_speed();
+                            if matches!(obj.loco_appearance, LocomotorAppearance::Climber) {
+                                let backwards = obj.update_climber_flags(
+                                    current_pos,
+                                    target_pos,
+                                    climber_ahead_y,
+                                );
+                                speed *=
+                                    obj.climber_slope_speed_scale(current_pos.y, climber_ahead_y);
+                                if backwards {
+                                    desired_angle += std::f32::consts::PI;
+                                }
+                            }
+                            speed = obj.apply_do_locomotor_blocked_speed(speed);
+                            // C++ Locomotor.cpp:1016-1040 — blocked frame scrubs 2D
+                            // motive and only rotates / handleBehaviorZ.
+                            let mut loco_blocked = obj.num_frames_blocked > 0;
+                            if loco_blocked {
+                                if speed > obj.movement.velocity.length() {
+                                    loco_blocked = false;
+                                }
+                                let air = (obj.locomotor_surfaces
+                                    & gamelogic::ai::pathfind_complete::SURFACE_AIR)
+                                    != 0;
+                                if air
+                                    && Object::height_treats_as_airborne(current_pos.y - ground_y)
+                                {
+                                    loco_blocked = false;
+                                }
+                            }
+                            if loco_blocked {
+                                obj.scrub_velocity_2d(speed);
+                                if obj.wander_width_factor == 0.0 {
+                                    let _ = obj.rotate_obj_around_loco_pivot(
+                                        flat_target,
+                                        obj.effective_turn_rate() * dt,
+                                    );
+                                }
+                                obj.record_host_movement();
+                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::stamp_object_airborne_target(obj, ground_y);
+                                break 'unit;
+                            }
+
+                            let current_angle = obj.get_orientation();
+                            let mut delta = desired_angle - current_angle;
+                            while delta > std::f32::consts::PI {
+                                delta -= std::f32::consts::TAU;
+                            }
+                            while delta < -std::f32::consts::PI {
+                                delta += std::f32::consts::TAU;
+                            }
+                            let dist = horiz(current_pos, flat_target);
+                            // C++ Path::computePointOnPath distAlongPath (AIPathfind.cpp:997)
+                            // then locoUpdate_moveTowardsPosition raise (Locomotor.cpp:980-992).
+                            // Hover / !ground / aircraft use computeFlightDistToGoal
+                            // (AIUpdate.cpp:2412-2466) so dogleg winding does not
+                            // brake Comanche/Chinook/Helix early.
+                            let path_for_dist = if obj.movement.path.is_empty() {
+                                None
+                            } else {
+                                Some(
+                                    &obj.movement.path
+                                        [obj.movement.current_path_index.saturating_sub(1)..],
+                                )
+                            };
+                            let treat_as_aircraft =
+                                !crate::game_logic::PathfindingGrid::is_doing_ground_movement(obj)
+                                    || matches!(obj.loco_appearance, LocomotorAppearance::Hover);
+                            let mut on_path_dist = if obj.host_uses_close_enough_dist_3d() {
+                                // Leftover unused `get_locomotor_distance_to_goal`
+                                // FROM_CENTER_3D to last node (AIUpdate.cpp:2448-2456).
+                                let dest = obj.movement.path.last().copied().unwrap_or(target_pos);
+                                obj.host_locomotor_distance_to_goal(current_pos, dest)
+                            } else {
+                                path_for_dist
                                 .map(|wps| {
                                     if treat_as_aircraft {
                                         crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
@@ -651,41 +646,288 @@ impl GameLogic {
                                     }
                                 })
                                 .unwrap_or(dist)
-                        };
-                        // C++ Locomotor.cpp:941-946 — far-from-goal IS_BRAKING
-                        // clear is unconditional (NO_SLOW_DOWN only skips the
-                        // appearance approach-brake, not this un-latch).
-                        let braking = obj.braking;
-                        if braking > 0.0 {
-                            let max_speed = obj.effective_max_speed();
-                            let dist_to_stop = (max_speed / braking) * max_speed / 2.0;
-                            let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-                            if on_path_dist > cell && on_path_dist > dist_to_stop {
-                                obj.is_braking = false;
-                                obj.braking_factor = 1.0;
+                            };
+                            // C++ Locomotor.cpp:941-946 — far-from-goal IS_BRAKING
+                            // clear is unconditional (NO_SLOW_DOWN only skips the
+                            // appearance approach-brake, not this un-latch).
+                            let braking = obj.braking;
+                            if braking > 0.0 {
+                                let max_speed = obj.effective_max_speed();
+                                let dist_to_stop = (max_speed / braking) * max_speed / 2.0;
+                                let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                                if on_path_dist > cell && on_path_dist > dist_to_stop {
+                                    obj.is_braking = false;
+                                    obj.braking_factor = 1.0;
+                                }
                             }
-                        }
-                        on_path_dist = obj.raise_on_path_dist_to_goal(dist, on_path_dist);
-                        // C++ getIsDownhillOnly: refuse uphill goals (Locomotor.cpp:1596-1598).
-                        if obj.downhill_only_blocks_goal(current_pos.y, target_pos.y) {
-                            obj.movement.velocity = Vec3::ZERO;
-                            obj.record_host_movement();
-                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                            Self::stamp_object_airborne_target(obj, ground_y);
-                            break 'unit;
-                        }
-                        // C++ locoUpdate_moveTowardsPosition LOCO_THRUST
-                        // → moveTowardsPositionThrust (Locomotor.cpp:1104-1107).
-                        // Live `move_towards_thrust` already ports the 3D mover
-                        // (hq-sw06m); production march must dispatch it (hq-zx7lx).
-                        if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
-                            obj.move_towards_thrust(target_pos, on_path_dist, speed, dt);
-                            obj.notify_terrain_trees_on_unit_move();
-                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                            Self::stamp_object_airborne_target(obj, ground_y);
-                            let mut reached_target =
-                                obj.host_locomotor_distance_to_goal(current_pos, target_pos)
+                            on_path_dist = obj.raise_on_path_dist_to_goal(dist, on_path_dist);
+                            // C++ getIsDownhillOnly: refuse uphill goals (Locomotor.cpp:1596-1598).
+                            if obj.downhill_only_blocks_goal(current_pos.y, target_pos.y) {
+                                obj.movement.velocity = Vec3::ZERO;
+                                obj.record_host_movement();
+                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::stamp_object_airborne_target(obj, ground_y);
+                                break 'unit;
+                            }
+                            // C++ locoUpdate_moveTowardsPosition LOCO_THRUST
+                            // → moveTowardsPositionThrust (Locomotor.cpp:1104-1107).
+                            // Live `move_towards_thrust` already ports the 3D mover
+                            // (hq-sw06m); production march must dispatch it (hq-zx7lx).
+                            if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
+                                obj.move_towards_thrust(target_pos, on_path_dist, speed, dt);
+                                obj.notify_terrain_trees_on_unit_move();
+                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::stamp_object_airborne_target(obj, ground_y);
+                                let mut reached_target = obj
+                                    .host_locomotor_distance_to_goal(current_pos, target_pos)
                                     < close_enough;
+                                if reached_target {
+                                    let finishing = obj.movement.path.is_empty()
+                                        || obj.movement.current_path_index + 1
+                                            >= obj.movement.path.len();
+                                    if finishing {
+                                        if let Some(last) = obj.movement.path.last().copied() {
+                                            if !z_motive
+                                                && horiz(current_pos, last) > close_enough_sanity
+                                            {
+                                                reached_target = false;
+                                            }
+                                        }
+                                    }
+                                }
+                                if reached_target {
+                                    if obj.movement.path.is_empty()
+                                        || obj.movement.current_path_index + 1
+                                            >= obj.movement.path.len()
+                                    {
+                                        if obj.holds_air_position_when_idle() {
+                                            obj.movement.path.clear();
+                                            obj.movement.current_path_index = 0;
+                                            obj.movement.target_position = None;
+                                            obj.maintain_pos_valid = false;
+                                            let _ =
+                                                obj.loco_maintain_current_position(surface_y, dt);
+                                        } else {
+                                            obj.stop_moving();
+                                            plant_snap = true;
+                                        }
+                                    } else {
+                                        obj.movement.current_path_index += 1;
+                                        let mut next =
+                                            obj.movement.path[obj.movement.current_path_index];
+                                        if !keep_goal_y {
+                                            next.y = obj.get_position().y;
+                                        }
+                                        obj.movement.target_position = Some(next);
+                                    }
+                                }
+                                break 'unit;
+                            }
+                            // C++ moveTowardsPositionTreads/Legs/Climb angleCoeff
+                            // (Locomotor.cpp:1170-1180, 1638-1646, 1760-1767).
+                            if matches!(
+                                obj.loco_appearance,
+                                LocomotorAppearance::Treads
+                                    | LocomotorAppearance::LegsTwo
+                                    | LocomotorAppearance::Climber
+                            ) {
+                                let mut angle_coeff = delta.abs() / std::f32::consts::FRAC_PI_4;
+                                if angle_coeff > 1.0 {
+                                    angle_coeff = 1.0;
+                                }
+                                speed = (1.0 - angle_coeff) * speed;
+                                // Treads-only near-goal tight pivot (Locomotor.cpp:1190-1192).
+                                if matches!(obj.loco_appearance, LocomotorAppearance::Treads) {
+                                    let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                                    if dist < 2.0 * cell && angle_coeff > 0.05 {
+                                        speed = obj.movement.velocity.length() * 0.6;
+                                    }
+                                }
+                            }
+                            let wheeled = matches!(
+                                obj.loco_appearance,
+                                LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
+                            );
+                            // Climber descent already set obj.moving_backwards
+                            // (update_climber_flags). Leftover dir_sign=-1: face
+                            // away and drive reverse toward the goal.
+                            let mut move_backwards =
+                                matches!(obj.loco_appearance, LocomotorAppearance::Climber)
+                                    && obj.moving_backwards;
+                            if wheeled {
+                                // C++ Locomotor.cpp:1292-1323 reverse / 3pt + turn-speed cap.
+                                let actual_stopped = obj.movement.velocity.x.abs() < 1e-4
+                                    && obj.movement.velocity.z.abs() < 1e-4;
+                                let major = if obj.thing.template.geometry_info.authored {
+                                    obj.thing.template.geometry_info.major_radius
+                                } else {
+                                    obj.selection_radius.max(1.0)
+                                };
+                                let on_path = on_path_dist;
+                                if actual_stopped {
+                                    obj.moving_backwards = false;
+                                    if obj.can_move_backward
+                                        && delta.abs() > std::f32::consts::FRAC_PI_2
+                                    {
+                                        obj.moving_backwards = true;
+                                        obj.record_host_locomotor();
+                                    }
+                                }
+                                if obj.moving_backwards {
+                                    if delta.abs() < std::f32::consts::FRAC_PI_2 {
+                                        obj.moving_backwards = false;
+                                        obj.record_host_locomotor();
+                                    } else {
+                                        move_backwards = true;
+                                        // Far goals keep facing the dest (3-point); nearby
+                                        // reverse mirrors desiredAngle (Locomotor.cpp:1307-1310).
+                                        if on_path <= 5.0 * major {
+                                            desired_angle += std::f32::consts::PI;
+                                            delta = desired_angle - current_angle;
+                                            while delta > std::f32::consts::PI {
+                                                delta -= std::f32::consts::TAU;
+                                            }
+                                            while delta < -std::f32::consts::PI {
+                                                delta += std::f32::consts::TAU;
+                                            }
+                                        }
+                                    }
+                                }
+                                // C++ Locomotor.cpp:1316-1323 SMALL_TURN cap on
+                                // desiredSpeed BEFORE approach-brake (:1393-1430).
+                                // Once IS_BRAKING latches, goalSpeed is actual-braking
+                                // and must not recap to turnSpeed (hq-7soel).
+                                let turn_speed = obj.wheeled_turn_speed_floor();
+                                if delta.abs() > std::f32::consts::PI / 20.0 && speed > turn_speed {
+                                    speed = turn_speed;
+                                }
+                                // C++ Locomotor.cpp:1340-1389 — 15° half-second
+                                // validMovementTerrain probe. Rotate-only + zero
+                                // motive when the projected arc is impassable.
+                                let frames =
+                                    game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+                                let mut actual = obj.movement.velocity.length();
+                                if move_backwards {
+                                    actual = -actual;
+                                }
+                                let loco_pos =
+                                    Vec3::new(current_pos.x, -current_pos.z, current_pos.y);
+                                let surfaces = if obj.locomotor_surfaces != 0 {
+                                    obj.locomotor_surfaces
+                                } else {
+                                    gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                                };
+                                let grid = &self.pathfinding_system.grid;
+                                if gamelogic::locomotor::Locomotor::wheels_look_ahead_blocked(
+                                    loco_pos,
+                                    current_angle,
+                                    delta,
+                                    speed / frames,
+                                    actual / frames,
+                                    turn_speed / frames,
+                                    obj.effective_turn_rate() / frames,
+                                    |pos| {
+                                        let host = Vec3::new(pos.x, pos.z, -pos.y);
+                                        valid_movement_terrain_at(grid, surfaces, host)
+                                    },
+                                ) {
+                                    // C++ rotateTowardsPosition (full maxTurnRate,
+                                    // no wheeled turnFactor) + applyMotiveForce(0).
+                                    let _ = obj.rotate_obj_around_loco_pivot(
+                                        flat_target,
+                                        obj.effective_turn_rate() * dt,
+                                    );
+                                    obj.record_host_movement();
+                                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                    Self::stamp_object_airborne_target(obj, ground_y);
+                                    break 'unit;
+                                }
+                            }
+                            if !obj.no_slow_down_as_approaching_dest {
+                                speed = obj.apply_cpp_approach_brake(
+                                    on_path_dist,
+                                    obj.movement.velocity.length(),
+                                    speed,
+                                    self.frame,
+                                );
+                            }
+                            // C++ Locomotor.cpp:2344-2361 ULTRA_ACCURATE slide-into-place.
+                            // Appearance 2D (rotate + motive Euler) is skipped when
+                            // treatAsAirborne && !AllowAirborneMotiveForce (hq-hq4t8).
+                            let march_from = obj.get_position();
+                            let mut new_position = march_from;
+                            if allow_2d_motive {
+                                // Leftover Other/Hover (move_ground.rs:511-531):
+                                // threshold = per-frame goalSpeed * parse_duration_real.
+                                let slide_other_or_hover = matches!(
+                                    obj.loco_appearance,
+                                    LocomotorAppearance::Other | LocomotorAppearance::Hover
+                                );
+                                let frames =
+                                    game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+                                let slide_thresh =
+                                    (speed / frames) * obj.ultra_accurate_slide_factor;
+                                let sliding = slide_other_or_hover
+                                    && obj.ultra_accurate
+                                    && obj.ultra_accurate_slide_factor > 0.0
+                                    && (flat_target.x - current_pos.x).abs() <= slide_thresh
+                                    && (flat_target.z - current_pos.z).abs() <= slide_thresh;
+                                let new_angle = if sliding {
+                                    current_angle
+                                } else {
+                                    // C++ rotateTowardsPosition always calls
+                                    // rotateObjAroundLocoPivot (Locomotor.cpp:901-907,
+                                    // 2113-2187). TurnPivotOffset != 0 (combat bikes
+                                    // seed -0.60) yaws around the rear axle so the
+                                    // hull center translates. Aim at a far point on
+                                    // the already-biased desired heading so wander /
+                                    // climber reverse / nearby reverse survive.
+                                    let rotate_goal = glam::Vec3::new(
+                                        current_pos.x + desired_angle.cos() * 1000.0,
+                                        current_pos.y,
+                                        current_pos.z + (-desired_angle.sin()) * 1000.0,
+                                    );
+                                    let (_turning, _rel) =
+                                        obj.rotate_towards_position(rotate_goal, dt);
+                                    obj.get_orientation()
+                                };
+
+                                let heading = if sliding {
+                                    glam::Vec3::new(direction.x, 0.0, direction.z)
+                                } else {
+                                    glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin())
+                                };
+                                let signed_speed = if move_backwards { -speed } else { speed };
+                                let target_velocity = heading * signed_speed;
+                                let velocity_diff = target_velocity - obj.movement.velocity;
+                                let accel = obj.effective_acceleration();
+                                let max_accel = if obj.is_braking {
+                                    obj.braking_factor.max(1.0) * obj.braking.max(accel) * dt
+                                } else {
+                                    accel * dt
+                                };
+
+                                let new_velocity = if velocity_diff.length() <= max_accel {
+                                    target_velocity
+                                } else {
+                                    obj.movement.velocity
+                                        + velocity_diff.normalize_or_zero() * max_accel
+                                };
+
+                                obj.movement.velocity = new_velocity;
+                                obj.record_host_movement();
+
+                                // Pivot rotate already translated the hull; integrate
+                                // from that pose (C++ setTransformMatrix then physics).
+                                new_position = march_from + new_velocity * dt;
+                            }
+                            if obj.is_braking {
+                                // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
+                                new_position = obj.braking_cheat_step(march_from, flat_target, dt);
+                            }
+                            let mut reached_target = obj
+                                .host_locomotor_distance_to_goal(current_pos, target_pos)
+                                < close_enough;
                             if reached_target {
                                 let finishing = obj.movement.path.is_empty()
                                     || obj.movement.current_path_index + 1
@@ -700,7 +942,16 @@ impl GameLogic {
                                     }
                                 }
                             }
+
+                            obj.set_position(new_position);
+                            // C++ Object.cpp:2580-2583 notifyTerrainObjectMoved →
+                            // W3DTreeBuffer::unitMoved (topple/push). set_position
+                            // also notifies on integer XY change for GameWorld writeback.
+                            obj.notify_terrain_trees_on_unit_move();
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             if reached_target {
+                                // Only stop when there is no further path waypoint.
+                                // Mid-path "reached" is handled by index advance above.
                                 if obj.movement.path.is_empty()
                                     || obj.movement.current_path_index + 1
                                         >= obj.movement.path.len()
@@ -725,241 +976,36 @@ impl GameLogic {
                                     obj.movement.target_position = Some(next);
                                 }
                             }
-                            break 'unit;
-                        }
-                        // C++ moveTowardsPositionTreads/Legs/Climb angleCoeff
-                        // (Locomotor.cpp:1170-1180, 1638-1646, 1760-1767).
-                        if matches!(
-                            obj.loco_appearance,
-                            LocomotorAppearance::Treads
-                                | LocomotorAppearance::LegsTwo
-                                | LocomotorAppearance::Climber
-                        ) {
-                            let mut angle_coeff = delta.abs() / std::f32::consts::FRAC_PI_4;
-                            if angle_coeff > 1.0 {
-                                angle_coeff = 1.0;
-                            }
-                            speed = (1.0 - angle_coeff) * speed;
-                            // Treads-only near-goal tight pivot (Locomotor.cpp:1190-1192).
-                            if matches!(obj.loco_appearance, LocomotorAppearance::Treads) {
-                                let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-                                if dist < 2.0 * cell && angle_coeff > 0.05 {
-                                    speed = obj.movement.velocity.length() * 0.6;
+                        } else {
+                            // Already on target (zero horizontal delta) — still hold height.
+                            // C++ locoUpdate_maintainCurrentPosition: appearance
+                            // then handleBehaviorZ (Locomotor.cpp:2433-2474).
+                            if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
+                                if obj.holds_air_position_when_idle() {
+                                    obj.maintain_pos_valid = false;
                                 }
-                            }
-                        }
-                        let wheeled = matches!(
-                            obj.loco_appearance,
-                            LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle
-                        );
-                        // Climber descent already set obj.moving_backwards
-                        // (update_climber_flags). Leftover dir_sign=-1: face
-                        // away and drive reverse toward the goal.
-                        let mut move_backwards = matches!(
-                            obj.loco_appearance,
-                            LocomotorAppearance::Climber
-                        ) && obj.moving_backwards;
-                        if wheeled {
-                            // C++ Locomotor.cpp:1292-1323 reverse / 3pt + turn-speed cap.
-                            let actual_stopped = obj.movement.velocity.x.abs() < 1e-4
-                                && obj.movement.velocity.z.abs() < 1e-4;
-                            let major = if obj.thing.template.geometry_info.authored {
-                                obj.thing.template.geometry_info.major_radius
-                            } else {
-                                obj.selection_radius.max(1.0)
-                            };
-                            let on_path = on_path_dist;
-                            if actual_stopped {
-                                obj.moving_backwards = false;
-                                if obj.can_move_backward
-                                    && delta.abs() > std::f32::consts::FRAC_PI_2
-                                {
-                                    obj.moving_backwards = true;
-                                    obj.record_host_locomotor();
-                                }
-                            }
-                            if obj.moving_backwards {
-                                if delta.abs() < std::f32::consts::FRAC_PI_2 {
-                                    obj.moving_backwards = false;
-                                    obj.record_host_locomotor();
-                                } else {
-                                    move_backwards = true;
-                                    // Far goals keep facing the dest (3-point); nearby
-                                    // reverse mirrors desiredAngle (Locomotor.cpp:1307-1310).
-                                    if on_path <= 5.0 * major {
-                                        desired_angle += std::f32::consts::PI;
-                                        delta = desired_angle - current_angle;
-                                        while delta > std::f32::consts::PI {
-                                            delta -= std::f32::consts::TAU;
-                                        }
-                                        while delta < -std::f32::consts::PI {
-                                            delta += std::f32::consts::TAU;
-                                        }
-                                    }
-                                }
-                            }
-                            // C++ Locomotor.cpp:1316-1323 SMALL_TURN cap on
-                            // desiredSpeed BEFORE approach-brake (:1393-1430).
-                            // Once IS_BRAKING latches, goalSpeed is actual-braking
-                            // and must not recap to turnSpeed (hq-7soel).
-                            let turn_speed = obj.wheeled_turn_speed_floor();
-                            if delta.abs() > std::f32::consts::PI / 20.0 && speed > turn_speed {
-                                speed = turn_speed;
-                            }
-                            // C++ Locomotor.cpp:1340-1389 — 15° half-second
-                            // validMovementTerrain probe. Rotate-only + zero
-                            // motive when the projected arc is impassable.
-                            let frames =
-                                game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
-                            let mut actual = obj.movement.velocity.length();
-                            if move_backwards {
-                                actual = -actual;
-                            }
-                            let loco_pos = Vec3::new(
-                                current_pos.x,
-                                -current_pos.z,
-                                current_pos.y,
-                            );
-                            let surfaces = if obj.locomotor_surfaces != 0 {
-                                obj.locomotor_surfaces
-                            } else {
-                                gamelogic::ai::pathfind_complete::SURFACE_GROUND
-                            };
-                            let grid = &self.pathfinding_system.grid;
-                            if gamelogic::locomotor::Locomotor::wheels_look_ahead_blocked(
-                                loco_pos,
-                                current_angle,
-                                delta,
-                                speed / frames,
-                                actual / frames,
-                                turn_speed / frames,
-                                obj.effective_turn_rate() / frames,
-                                |pos| {
-                                    let host = Vec3::new(pos.x, pos.z, -pos.y);
-                                    valid_movement_terrain_at(grid, surfaces, host)
-                                },
-                            ) {
-                                // C++ rotateTowardsPosition (full maxTurnRate,
-                                // no wheeled turnFactor) + applyMotiveForce(0).
-                                let _ = obj.rotate_obj_around_loco_pivot(
-                                    flat_target,
-                                    obj.effective_turn_rate() * dt,
+                                let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                let sy = obj.leftover_surface_ht(surface_y);
+                                Self::apply_live_handle_behavior_z(
+                                    obj,
+                                    sy,
+                                    obj.maintain_pos.map(|p| p.y),
                                 );
-                                obj.record_host_movement();
+                            } else {
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                Self::stamp_object_airborne_target(obj, ground_y);
-                                break 'unit;
-                            }
-                        }
-                        if !obj.no_slow_down_as_approaching_dest {
-                            speed = obj.apply_cpp_approach_brake(
-                                on_path_dist,
-                                obj.movement.velocity.length(),
-                                speed,
-                                self.frame,
-                            );
-                        }
-                        // C++ Locomotor.cpp:2344-2361 ULTRA_ACCURATE slide-into-place.
-                        // Appearance 2D (rotate + motive Euler) is skipped when
-                        // treatAsAirborne && !AllowAirborneMotiveForce (hq-hq4t8).
-                        let march_from = obj.get_position();
-                        let mut new_position = march_from;
-                        if allow_2d_motive {
-                            // Leftover Other/Hover (move_ground.rs:511-531):
-                            // threshold = per-frame goalSpeed * parse_duration_real.
-                            let slide_other_or_hover = matches!(
-                                obj.loco_appearance,
-                                LocomotorAppearance::Other | LocomotorAppearance::Hover
-                            );
-                            let frames = game_engine::common::game_common::LOGICFRAMES_PER_SECOND
-                                as f32;
-                            let slide_thresh =
-                                (speed / frames) * obj.ultra_accurate_slide_factor;
-                            let sliding = slide_other_or_hover
-                                && obj.ultra_accurate
-                                && obj.ultra_accurate_slide_factor > 0.0
-                                && (flat_target.x - current_pos.x).abs() <= slide_thresh
-                                && (flat_target.z - current_pos.z).abs() <= slide_thresh;
-                            let new_angle = if sliding {
-                                current_angle
-                            } else {
-                                // C++ rotateTowardsPosition always calls
-                                // rotateObjAroundLocoPivot (Locomotor.cpp:901-907,
-                                // 2113-2187). TurnPivotOffset != 0 (combat bikes
-                                // seed -0.60) yaws around the rear axle so the
-                                // hull center translates. Aim at a far point on
-                                // the already-biased desired heading so wander /
-                                // climber reverse / nearby reverse survive.
-                                let rotate_goal = glam::Vec3::new(
-                                    current_pos.x + desired_angle.cos() * 1000.0,
-                                    current_pos.y,
-                                    current_pos.z + (-desired_angle.sin()) * 1000.0,
-                                );
-                                let (_turning, _rel) =
-                                    obj.rotate_towards_position(rotate_goal, dt);
-                                obj.get_orientation()
-                            };
-
-                            let heading = if sliding {
-                                glam::Vec3::new(direction.x, 0.0, direction.z)
-                            } else {
-                                glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin())
-                            };
-                            let signed_speed = if move_backwards { -speed } else { speed };
-                            let target_velocity = heading * signed_speed;
-                            let velocity_diff = target_velocity - obj.movement.velocity;
-                            let accel = obj.effective_acceleration();
-                            let max_accel = if obj.is_braking {
-                                obj.braking_factor.max(1.0) * obj.braking.max(accel) * dt
-                            } else {
-                                accel * dt
-                            };
-
-                            let new_velocity = if velocity_diff.length() <= max_accel {
-                                target_velocity
-                            } else {
-                                obj.movement.velocity
-                                    + velocity_diff.normalize_or_zero() * max_accel
-                            };
-
-                            obj.movement.velocity = new_velocity;
-                            obj.record_host_movement();
-
-                            // Pivot rotate already translated the hull; integrate
-                            // from that pose (C++ setTransformMatrix then physics).
-                            new_position = march_from + new_velocity * dt;
-                        }
-                        if obj.is_braking {
-                            // C++ OBJECT_STATUS_BRAKING pose cheat (Locomotor.cpp:1092-1138).
-                            new_position = obj.braking_cheat_step(march_from, flat_target, dt);
-                        }
-                        let mut reached_target =
-                            obj.host_locomotor_distance_to_goal(current_pos, target_pos)
-                                < close_enough;
-                        if reached_target {
-                            let finishing = obj.movement.path.is_empty()
-                                || obj.movement.current_path_index + 1
-                                    >= obj.movement.path.len();
-                            if finishing {
-                                if let Some(last) = obj.movement.path.last().copied() {
-                                    if !z_motive
-                                        && horiz(current_pos, last) > close_enough_sanity
-                                    {
-                                        reached_target = false;
+                                if matches!(
+                                    obj.loco_appearance,
+                                    LocomotorAppearance::Hover | LocomotorAppearance::Thrust
+                                ) {
+                                    if obj.holds_air_position_when_idle() {
+                                        obj.maintain_pos_valid = false;
                                     }
+                                    let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                } else {
+                                    obj.movement.velocity = Vec3::ZERO;
+                                    obj.record_host_movement();
                                 }
                             }
-                        }
-
-                        obj.set_position(new_position);
-                        // C++ Object.cpp:2580-2583 notifyTerrainObjectMoved →
-                        // W3DTreeBuffer::unitMoved (topple/push). set_position
-                        // also notifies on integer XY change for GameWorld writeback.
-                        obj.notify_terrain_trees_on_unit_move();
-                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                        if reached_target {
-                            // Only stop when there is no further path waypoint.
-                            // Mid-path "reached" is handled by index advance above.
                             if obj.movement.path.is_empty()
                                 || obj.movement.current_path_index + 1 >= obj.movement.path.len()
                             {
@@ -967,29 +1013,16 @@ impl GameLogic {
                                     obj.movement.path.clear();
                                     obj.movement.current_path_index = 0;
                                     obj.movement.target_position = None;
-                                    obj.maintain_pos_valid = false;
-                                    let _ = obj.loco_maintain_current_position(surface_y, dt);
                                 } else {
                                     obj.stop_moving();
                                     plant_snap = true;
                                 }
-                            } else {
-                                obj.movement.current_path_index += 1;
-                                let mut next = obj.movement.path[obj.movement.current_path_index];
-                                if !keep_goal_y {
-                                    next.y = obj.get_position().y;
-                                }
-                                obj.movement.target_position = Some(next);
                             }
                         }
                     } else {
-                        // Already on target (zero horizontal delta) — still hold height.
-                        // C++ locoUpdate_maintainCurrentPosition: appearance
-                        // then handleBehaviorZ (Locomotor.cpp:2433-2474).
+                        leftover_settle_final_position_on_object(obj);
+                        // Idle hover / wings: C++ appearance then handleBehaviorZ.
                         if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
-                            if obj.holds_air_position_when_idle() {
-                                obj.maintain_pos_valid = false;
-                            }
                             let _ = obj.loco_maintain_current_position(surface_y, dt);
                             let sy = obj.leftover_surface_ht(surface_y);
                             Self::apply_live_handle_behavior_z(
@@ -1003,51 +1036,12 @@ impl GameLogic {
                                 obj.loco_appearance,
                                 LocomotorAppearance::Hover | LocomotorAppearance::Thrust
                             ) {
-                                if obj.holds_air_position_when_idle() {
-                                    obj.maintain_pos_valid = false;
-                                }
                                 let _ = obj.loco_maintain_current_position(surface_y, dt);
-                            } else {
-                                obj.movement.velocity = Vec3::ZERO;
-                                obj.record_host_movement();
-                            }
-                        }
-                        if obj.movement.path.is_empty()
-                            || obj.movement.current_path_index + 1 >= obj.movement.path.len()
-                        {
-                            if obj.holds_air_position_when_idle() {
-                                obj.movement.path.clear();
-                                obj.movement.current_path_index = 0;
-                                obj.movement.target_position = None;
-                            } else {
-                                obj.stop_moving();
-                                plant_snap = true;
                             }
                         }
                     }
-                } else {
-                    leftover_settle_final_position_on_object(obj);
-                    // Idle hover / wings: C++ appearance then handleBehaviorZ.
-                    if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
-                        let _ = obj.loco_maintain_current_position(surface_y, dt);
-                        let sy = obj.leftover_surface_ht(surface_y);
-                        Self::apply_live_handle_behavior_z(
-                            obj,
-                            sy,
-                            obj.maintain_pos.map(|p| p.y),
-                        );
-                    } else {
-                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                        if matches!(
-                            obj.loco_appearance,
-                            LocomotorAppearance::Hover | LocomotorAppearance::Thrust
-                        ) {
-                            let _ = obj.loco_maintain_current_position(surface_y, dt);
-                        }
-                    }
+                    Self::stamp_object_airborne_target(obj, ground_y);
                 }
-                Self::stamp_object_airborne_target(obj, ground_y);
-            }
             }
             if plant_snap {
                 self.apply_arrival_goal_snap(id);
@@ -1157,7 +1151,6 @@ impl GameLogic {
         }
     }
 
-
     #[cfg(test)]
     pub fn update_movement_for_test(&mut self, object_ids: &[ObjectId], dt: f32) {
         self.update_movement(object_ids, dt);
@@ -1191,7 +1184,6 @@ impl GameLogic {
         );
         self.execute_pending_weapon_fire_ocls();
     }
-
 
     /// Hit-only projectile pass after GameWorld flight integrate writeback.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
@@ -1256,11 +1248,7 @@ fn try_fix_invalid_position_3x3(
     let mut dz_acc = 0.0f32;
     for j in -1i32..=1 {
         for i in -1i32..=1 {
-            let check = Vec3::new(
-                pos.x + (i as f32) * cell,
-                pos.y,
-                pos.z + (j as f32) * cell,
-            );
+            let check = Vec3::new(pos.x + (i as f32) * cell, pos.y, pos.z + (j as f32) * cell);
             if !valid_movement_terrain_at(grid, surfaces, check) {
                 if i < 0 {
                     dx_acc += 1.0;
@@ -1326,8 +1314,6 @@ fn leftover_settle_final_position_on_object(obj: &mut Object) {
     obj.do_final_position = still;
     obj.set_position(leftover_cpp_to_host(pos));
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -1572,7 +1558,10 @@ mod tests {
             GridPos::new(1, 0),
             "19.9/10=1.99 and 5/10=0.5 must truncate, not round"
         );
-        assert_eq!(g.world_to_grid(Vec3::new(20.0, 0.0, 0.0)), GridPos::new(2, 0));
+        assert_eq!(
+            g.world_to_grid(Vec3::new(20.0, 0.0, 0.0)),
+            GridPos::new(2, 0)
+        );
         assert_eq!(
             g.world_to_grid(Vec3::new(-19.9, 0.0, -5.1)),
             GridPos::new(-1, 0)
@@ -1648,8 +1637,16 @@ mod tests {
         logic.objects.insert(ObjectId(9021), make(9021, 0.2, true));
         logic.objects.insert(ObjectId(9022), make(9022, 0.2, false));
         logic.update_movement_for_test(&[ObjectId(9021), ObjectId(9022)], 1.0 / 30.0);
-        let a = logic.objects.get(&ObjectId(9021)).unwrap().get_orientation();
-        let b = logic.objects.get(&ObjectId(9022)).unwrap().get_orientation();
+        let a = logic
+            .objects
+            .get(&ObjectId(9021))
+            .unwrap()
+            .get_orientation();
+        let b = logic
+            .objects
+            .get(&ObjectId(9022))
+            .unwrap()
+            .get_orientation();
         assert!(
             (a - b).abs() > 1e-3,
             "wander phase must split heading, {a} vs {b}"
@@ -1676,12 +1673,12 @@ mod tests {
                 .expect("terrain visual lock");
             let visual = guard.as_mut().expect("terrain visual");
             visual.tree_buffer_mut().clear_all_trees();
-            visual.tree_buffer_mut().set_bounds(
-                game_client::terrain::TreeRegion2D::new(
+            visual
+                .tree_buffer_mut()
+                .set_bounds(game_client::terrain::TreeRegion2D::new(
                     glam::Vec2::ZERO,
                     glam::Vec2::new(100.0, 100.0),
-                ),
-            );
+                ));
             let mut data = game_client::terrain::TreeModuleData::default();
             data.model_name = "Oak".into();
             data.do_topple = true;
@@ -2070,7 +2067,10 @@ mod tests {
         truck.braking = 10.0;
         truck.donut_timer = 0;
         let _ = truck.apply_cpp_approach_brake(5.0, 10.0, 20.0, 80);
-        assert!(truck.is_braking, "donut timer expired must force IS_BRAKING");
+        assert!(
+            truck.is_braking,
+            "donut timer expired must force IS_BRAKING"
+        );
         assert!(
             (truck.braking_factor - 1.0).abs() < 1e-5,
             "wheels overwrite braking_factor to 1.0"
@@ -2286,16 +2286,12 @@ mod tests {
             obj.movement.velocity.length()
         );
         let moved = obj.get_position().distance(start);
-        assert!(
-            moved > 0.05,
-            "wings idle must circle, moved={moved}"
-        );
+        assert!(moved > 0.05, "wings idle must circle, moved={moved}");
         assert!(
             obj.movement.target_position.is_none(),
             "hold must not keep a grounded move order"
         );
     }
-
 
     /// hq-66eos: SET_NORMAL cliff member activates on CELL_CLIFF.
     #[test]
@@ -2312,9 +2308,8 @@ mod tests {
             crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_GROUND_LOCOMOTOR.to_string(),
             crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_CLIFF_LOCOMOTOR.to_string(),
         ];
-        bike.cur_locomotor_name = Some(
-            crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_GROUND_LOCOMOTOR.to_string(),
-        );
+        bike.cur_locomotor_name =
+            Some(crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_GROUND_LOCOMOTOR.to_string());
         bike.locomotor_surfaces = crate::game_logic::LOCO_SURFACE_GROUND;
         let cell = logic
             .pathfinding_system
@@ -2375,7 +2370,6 @@ mod tests {
             crate::game_logic::LOCO_SURFACE_CLIFF
         );
     }
-
 
     /// hq-ene6j: Hover OVER_WATER is sampled from the water table.
     #[test]
@@ -2609,10 +2603,8 @@ mod tests {
         ];
         let corner_cut = Vec3::new(50.0, 0.0, 50.0);
         let winding = crate::game_logic::PathfindingSystem::dist_along_path(corner_cut, &path);
-        let flight = crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
-            corner_cut,
-            &path,
-        );
+        let flight =
+            crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(corner_cut, &path);
         assert!(
             (winding - 150.0).abs() < 0.5,
             "closest-point winding must stay 150, got {winding}"
@@ -2645,8 +2637,6 @@ mod tests {
             "treads unlatch when on_path > 2*slowDownDist (Locomotor.cpp:1200-1203)"
         );
     }
-
-
 
     /// hq-xg2ym: arrival leftover-marches to the plant cell (no teleport).
     #[test]
@@ -2682,7 +2672,11 @@ mod tests {
         for _ in 0..20 {
             logic.update_movement_for_test(&[parked_id, arriver_id], 1.0 / 30.0);
         }
-        let pos = logic.objects.get(&arriver_id).expect("arriver").get_position();
+        let pos = logic
+            .objects
+            .get(&arriver_id)
+            .expect("arriver")
+            .get_position();
         let dx = pos.x - pad.x;
         let dz = pos.z - pad.z;
         let dist = (dx * dx + dz * dz).sqrt();
@@ -3029,7 +3023,6 @@ mod tests {
         );
     }
 
-
     /// hq-hq4t8: treatAsAirborne must not freeze path advance / arrival plant.
     #[test]
     fn treat_as_airborne_still_plants_near_goal() {
@@ -3171,7 +3164,6 @@ mod tests {
             heli.movement.velocity.y
         );
     }
-
 
     /// hq-si460: leftover Other/Hover slide keeps yaw when ULTRA_ACCURATE
     /// and inside parse_duration_real(SlideIntoPlaceTime) * per-frame speed.
@@ -3353,10 +3345,7 @@ mod tests {
             y < 50.0,
             "idle Wings must descend toward PreferredHeight+terrain=20, not climb via own_y, y={y}"
         );
-        assert!(
-            y > 5.0,
-            "must not slam to ground; y={y}"
-        );
+        assert!(y > 5.0, "must not slam to ground; y={y}");
     }
 
     /// hq-jg55x: FACE leftover handleBehaviorZ is leftover-terrain, not pose-Y.
@@ -3425,11 +3414,8 @@ mod tests {
             "CloseEnoughDist3D leftover unused must not plant on 2D when 3D > arrive"
         );
         assert!(
-            obj.host_locomotor_distance_to_goal(obj.get_position(), Vec3::new(1.0, 0.0, 0.0))
-                > 9.0,
+            obj.host_locomotor_distance_to_goal(obj.get_position(), Vec3::new(1.0, 0.0, 0.0)) > 9.0,
             "3D remaining must stay large while high"
         );
     }
-
-    }
-
+}

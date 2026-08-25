@@ -78,8 +78,8 @@ pub fn residual_sell_finish_skips_topple_destroy_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_sell_finish_skips_topple_destroy_last_action(
-) -> ResidualSellFinishSkipsToppleDestroyAction {
+pub fn residual_sell_finish_skips_topple_destroy_last_action()
+-> ResidualSellFinishSkipsToppleDestroyAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualSellFinishSkipsToppleDestroyAction::MethodNames,
         2 => ResidualSellFinishSkipsToppleDestroyAction::SourceMarkers,

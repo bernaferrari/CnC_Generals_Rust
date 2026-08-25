@@ -160,9 +160,9 @@ mod tests {
     #[test]
     fn simulate_main_menu_layout_prepare_default_residual_live() {
         use crate::ui::{
+            MAIN_MENU_LAYOUT_BUTTON_NAMES, ResidualMainMenuLayoutAction,
             residual_main_menu_layout_button_count, residual_main_menu_layout_last_action,
-            simulate_main_menu_layout_prepare_default, ResidualMainMenuLayoutAction,
-            MAIN_MENU_LAYOUT_BUTTON_NAMES,
+            simulate_main_menu_layout_prepare_default,
         };
         assert_eq!(
             MAIN_MENU_LAYOUT_BUTTON_NAMES,

@@ -1,4 +1,3 @@
-
 use super::*;
 use game_engine::common::rts::score_keeper::{KindOf, KindOfMaskType, ScoreableObject};
 use game_engine::common::system::xfer_crc::XferCRC;
@@ -419,30 +418,30 @@ fn add_object_built_template_counts_score_vehicle_into_objects_built() {
     assert_eq!(keeper.get_total_units_built(), 1);
 }
 
-    struct TestBountyVictim {
-        cost: Int,
-        under_construction: Bool,
-    }
+struct TestBountyVictim {
+    cost: Int,
+    under_construction: Bool,
+}
 
-    impl game_engine::common::rts::player::BountyObject for TestBountyVictim {
-        fn calc_cost_to_build(&self) -> i32 {
-            self.cost
-        }
-        fn is_under_construction(&self) -> bool {
-            self.under_construction
-        }
+impl game_engine::common::rts::player::BountyObject for TestBountyVictim {
+    fn calc_cost_to_build(&self) -> i32 {
+        self.cost
     }
+    fn is_under_construction(&self) -> bool {
+        self.under_construction
+    }
+}
 
-    #[test]
-    fn do_bounty_for_kill_obj_uses_calc_cost_to_build_and_score_keeper() {
-        let mut player = Player::new(0);
-        player.set_cash_bounty(0.20);
-        let victim = TestBountyVictim {
-            cost: 1000,
-            under_construction: false,
-        };
-        let bounty = player.do_bounty_for_kill_obj(&victim, &victim);
-        assert_eq!(bounty, 200);
-        assert_eq!(player.get_score_keeper().get_total_money_earned(), 200);
-        assert_eq!(player.get_money().count_money(), 200);
-    }
+#[test]
+fn do_bounty_for_kill_obj_uses_calc_cost_to_build_and_score_keeper() {
+    let mut player = Player::new(0);
+    player.set_cash_bounty(0.20);
+    let victim = TestBountyVictim {
+        cost: 1000,
+        under_construction: false,
+    };
+    let bounty = player.do_bounty_for_kill_obj(&victim, &victim);
+    assert_eq!(bounty, 200);
+    assert_eq!(player.get_score_keeper().get_total_money_earned(), 200);
+    assert_eq!(player.get_money().count_money(), 200);
+}

@@ -12,7 +12,7 @@
 ** - Model arguments can be `avhummer` or `avhummer.w3d` or full virtual paths.
 */
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use generals_main::assets::{
     archive::ArchiveFileSystem, models::W3DLoader, texture_candidate_paths,
 };

@@ -10,8 +10,8 @@ use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, IsDialogMessageW, PeekMessageW, TranslateAcceleratorW,
-    TranslateMessage, MSG, PM_NOREMOVE,
+    DispatchMessageW, GetMessageW, IsDialogMessageW, MSG, PM_NOREMOVE, PeekMessageW,
+    TranslateAcceleratorW, TranslateMessage,
 };
 
 #[cfg(target_os = "windows")]

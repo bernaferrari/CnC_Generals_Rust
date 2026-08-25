@@ -8,8 +8,8 @@ use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
-use tokio::time::{timeout, Duration};
+use tokio::sync::{RwLock, broadcast};
+use tokio::time::{Duration, timeout};
 use tracing::{debug, info, warn};
 
 /// Frame synchronization state

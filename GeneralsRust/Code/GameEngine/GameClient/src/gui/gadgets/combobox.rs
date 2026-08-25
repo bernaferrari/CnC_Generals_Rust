@@ -866,7 +866,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn combobox_render_commands_cover_main_edit_and_dropdown_button() {
         let theme = GadgetTheme::default();
@@ -1015,5 +1014,4 @@ mod tests {
             [GadgetMessage::Custom { gadget_id: 1, data }] if data == "forward_to_edit"
         ));
     }
-
 }

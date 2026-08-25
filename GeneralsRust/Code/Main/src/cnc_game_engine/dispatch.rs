@@ -219,7 +219,10 @@ impl CnCGameEngine {
         if let Some(dispatch) = startup_new_game {
             debug!(
                 "Startup NewGame dispatch: mode_code={} difficulty_code={} rank_points={} max_fps={:?}",
-                dispatch.game_mode_code, dispatch.difficulty_code, dispatch.rank_points, dispatch.max_fps
+                dispatch.game_mode_code,
+                dispatch.difficulty_code,
+                dispatch.rank_points,
+                dispatch.max_fps
             );
             let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
             if map_to_load.is_none() {
@@ -485,11 +488,8 @@ impl CnCGameEngine {
         );
         // MSG_CLEAR_GAME_DATA uses the default showScoreScreen=TRUE
         // (GameLogicDispatch.cpp:439).
-        let show_score = Self::clear_game_data_should_push_score_screen(
-            in_shell_game,
-            in_game,
-            true,
-        );
+        let show_score =
+            Self::clear_game_data_should_push_score_screen(in_shell_game, in_game, true);
 
         // C++ pushes ScoreScreen then TheGameEngine->reset(). Rust Shell::reset
         // (if it runs via resetAll) pops the stack, so reset first then push
@@ -520,10 +520,7 @@ impl CnCGameEngine {
 
     /// C++ `restartMissionMenu` (QuitMenu.cpp:175-226): re-apply MSG_NEW_GAME
     /// mode/difficulty/rank and keep the last Challenge PlayerTemplate.
-    pub(super) fn host_restart_mission_from_dispatch(
-        &mut self,
-        dispatch: StartupNewGameDispatch,
-    ) {
+    pub(super) fn host_restart_mission_from_dispatch(&mut self, dispatch: StartupNewGameDispatch) {
         update_last_new_game_dispatch(dispatch);
         let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
         let identity = last_new_game_identity();
@@ -549,12 +546,9 @@ impl CnCGameEngine {
                 None,
                 player_template,
             ),
-            None => HostStartRequest::without_player_template(
-                dispatch.game_mode,
-                faction,
-                map,
-                None,
-            ),
+            None => {
+                HostStartRequest::without_player_template(dispatch.game_mode, faction, map, None)
+            }
         };
         record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
@@ -564,7 +558,6 @@ impl CnCGameEngine {
         });
         self.start_game_from_ui(request);
     }
-
 
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
     pub(super) fn build_start_request_from_pending_globals(
@@ -602,21 +595,21 @@ impl CnCGameEngine {
         };
         #[cfg(feature = "game_client")]
         let campaign_launch_overrides = match Self::campaign_launch_start_overrides(
-                dispatch.game_mode,
-                campaign_launch.as_ref(),
-            ) {
-                Ok(overrides) => overrides,
-                Err(reason) => {
-                    // A Challenge descriptor carries a selected General slot,
-                    // not an arbitrary team label.  Starting from a stale HUD
-                    // faction here would silently launch the wrong General.
-                    warn!(
-                        "Rejecting Challenge MSG_NEW_GAME without a validated selected General: {reason}"
-                    );
-                    Self::clear_pending_campaign_start_map();
-                    return None;
-                }
-            };
+            dispatch.game_mode,
+            campaign_launch.as_ref(),
+        ) {
+            Ok(overrides) => overrides,
+            Err(reason) => {
+                // A Challenge descriptor carries a selected General slot,
+                // not an arbitrary team label.  Starting from a stale HUD
+                // faction here would silently launch the wrong General.
+                warn!(
+                    "Rejecting Challenge MSG_NEW_GAME without a validated selected General: {reason}"
+                );
+                Self::clear_pending_campaign_start_map();
+                return None;
+            }
+        };
         #[cfg(not(feature = "game_client"))]
         let campaign_launch_overrides = CampaignLaunchStartOverrides::default();
 
@@ -669,9 +662,13 @@ impl CnCGameEngine {
             .unwrap_or_else(|| "USA".to_string());
 
         let request = match player_template {
-            Some(player_template) => {
-                HostStartRequest::with_player_template(mode, faction, map, skirmish, player_template)
-            }
+            Some(player_template) => HostStartRequest::with_player_template(
+                mode,
+                faction,
+                map,
+                skirmish,
+                player_template,
+            ),
             None => HostStartRequest::without_player_template(mode, faction, map, skirmish),
         };
         record_last_new_game_identity(LastNewGameIdentity {
@@ -710,7 +707,9 @@ impl CnCGameEngine {
                 .player_template_name
                 .as_deref()
                 .zip(descriptor.player_template_index)
-                .and_then(|(name, index)| PlayerTemplateIdentity::from_exact_indexed_name(name, index))
+                .and_then(|(name, index)| {
+                    PlayerTemplateIdentity::from_exact_indexed_name(name, index)
+                })
                 .ok_or("the selected Challenge PlayerTemplate slot is missing or stale")?;
             let faction = Self::base_faction_from_player_template_identity(&player_template)
                 .ok_or("the selected Challenge PlayerTemplate has no supported Main base side")?;
@@ -730,9 +729,7 @@ impl CnCGameEngine {
             .as_deref()
             .and_then(PlayerTemplateIdentity::from_exact_name)
             .or_else(|| {
-                PlayerTemplateIdentity::from_exact_name(
-                    descriptor.campaign_player_faction.as_str(),
-                )
+                PlayerTemplateIdentity::from_exact_name(descriptor.campaign_player_faction.as_str())
             });
         let faction = player_template
             .as_ref()
@@ -870,7 +867,6 @@ impl CnCGameEngine {
         hits
     }
 
-
     pub(super) fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
         let projected = match state {
             UISystemState::MainMenu => "MainMenu",
@@ -970,7 +966,6 @@ impl CnCGameEngine {
         let (window_outer_x, window_outer_y, window_outer_w, window_outer_h) =
             self.runtime_host_window_outer_rect();
         let gadget_hits = self.runtime_host_hittable_gadget_hits();
-
 
         RuntimeHostSnapshot {
             state: format!("{:?}", self.current_state),

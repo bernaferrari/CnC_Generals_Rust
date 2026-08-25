@@ -3,9 +3,9 @@
 //! Cardinal splines are a special case of Hermite splines where tangents are automatically
 //! calculated based on neighboring points and a tightness parameter.
 
+use crate::Vector3;
 use crate::curve::{Curve1D, Curve3D};
 use crate::hermite_spline::{HermiteSpline1D, HermiteSpline3D};
-use crate::Vector3;
 
 /// 3D Cardinal spline
 #[derive(Debug, Clone)]

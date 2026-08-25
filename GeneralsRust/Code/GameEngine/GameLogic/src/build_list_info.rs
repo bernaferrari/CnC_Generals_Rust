@@ -2,8 +2,8 @@
 
 use crate::common::xfer::{Xfer, XferExt};
 use crate::common::{
-    AsciiString, Bool, Coord2D, Coord3D, CoordOrigin, Int, ObjectID, Real, Snapshot, UnsignedInt,
-    INVALID_ID,
+    AsciiString, Bool, Coord2D, Coord3D, CoordOrigin, INVALID_ID, Int, ObjectID, Real, Snapshot,
+    UnsignedInt,
 };
 
 #[derive(Debug, Clone)]

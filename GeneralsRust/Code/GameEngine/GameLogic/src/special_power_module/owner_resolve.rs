@@ -3,7 +3,7 @@
 //! Prefer `resolve_special_power_owner_id` and only materialize an Arc for the
 //! duration of a call site that still needs a handle.
 
-use crate::common::types::{Int, ObjectID, INVALID_ID};
+use crate::common::types::{INVALID_ID, Int, ObjectID};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::player_list;
 use std::sync::{Arc, RwLock};

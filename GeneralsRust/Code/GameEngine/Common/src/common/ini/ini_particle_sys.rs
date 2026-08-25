@@ -769,35 +769,40 @@ mod tests {
     fn particle_block_rejects_invalid_parsed_field_values() {
         let mut properties = HashMap::new();
         properties.insert("Priority".to_string(), "urgent".to_string());
-        assert!(IniParticleSys::parse_particle_system_block(
-            AsciiString::from("BadPriority"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniParticleSys::parse_particle_system_block(
+                AsciiString::from("BadPriority"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("Lifetime".to_string(), "many".to_string());
-        assert!(IniParticleSys::parse_particle_system_block(
-            AsciiString::from("BadLifetime"),
-            properties,
-        )
-        .is_err());
+        assert!(
+            IniParticleSys::parse_particle_system_block(
+                AsciiString::from("BadLifetime"),
+                properties,
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("Alpha1".to_string(), "0.0 1.0".to_string());
-        assert!(IniParticleSys::parse_particle_system_block(
-            AsciiString::from("BadAlpha"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniParticleSys::parse_particle_system_block(AsciiString::from("BadAlpha"), properties)
+                .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("IsOneShot".to_string(), "maybe".to_string());
-        assert!(IniParticleSys::parse_particle_system_block(
-            AsciiString::from("BadIsOneShot"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniParticleSys::parse_particle_system_block(
+                AsciiString::from("BadIsOneShot"),
+                properties
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -120,7 +120,7 @@ pub fn honesty_golden_playable_claim_false_source() -> bool {
 
 /// Live residual: policy + env honesty without running full golden combat.
 pub fn simulate_single_authority_combat_honesty() -> bool {
-    use crate::authoritative_world::{dual_tick_policy, DualTickPolicy};
+    use crate::authoritative_world::{DualTickPolicy, dual_tick_policy};
 
     if !honesty_single_authority_combat_residual_pack_wave173() {
         return false;

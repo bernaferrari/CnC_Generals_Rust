@@ -11,7 +11,7 @@ use crate::common::*;
 use crate::helpers::TheGameLogic;
 use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
 use crate::object::drawable::DrawableArcExt;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::any::Any;
@@ -517,10 +517,9 @@ impl W3DLaserDraw {
 
     fn init_lines(&mut self) {
         self.has_texture = !self.data.texture_name.is_empty();
-        self.texture_aspect_ratio = crate::object::draw::texture_aspect_ratio(
-            self.data.texture_name.as_str(),
-        )
-        .unwrap_or(1.0);
+        self.texture_aspect_ratio =
+            crate::object::draw::texture_aspect_ratio(self.data.texture_name.as_str())
+                .unwrap_or(1.0);
         let (inner_r, inner_g, inner_b, inner_a) = color_components_real(self.data.inner_color);
         let (outer_r, outer_g, outer_b, outer_a) = color_components_real(self.data.outer_color);
 

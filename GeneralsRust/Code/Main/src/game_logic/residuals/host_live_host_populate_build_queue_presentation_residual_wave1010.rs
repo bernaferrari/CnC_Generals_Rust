@@ -56,8 +56,8 @@ fn cb_source() -> &'static str {
 }
 
 // 2026-08-15: widen post-split scan window to the rest of the concat.
-pub fn honesty_host_populate_build_queue_presentation_residual_method_names_residual_wave1010(
-) -> bool {
+pub fn honesty_host_populate_build_queue_presentation_residual_method_names_residual_wave1010()
+-> bool {
     let names = LIVE_HOST_POPULATE_BUILD_QUEUE_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE1010;
     let ok = residual_name_index(names, "populate_build_queue").is_some()
         && residual_name_index(names, "Wave 1010").is_some();
@@ -66,8 +66,8 @@ pub fn honesty_host_populate_build_queue_presentation_residual_method_names_resi
     ok
 }
 
-pub fn honesty_host_populate_build_queue_presentation_residual_nav_commands_residual_wave1010(
-) -> bool {
+pub fn honesty_host_populate_build_queue_presentation_residual_nav_commands_residual_wave1010()
+-> bool {
     let steps = LIVE_HOST_POPULATE_BUILD_QUEUE_PRESENTATION_RESIDUAL_NAV_STEPS_WAVE1010;
     let ok = residual_name_index(
         steps,

@@ -13,7 +13,7 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     fn host_publish_popup_save_load_inventory(&mut self) {
         use game_client::gui::callbacks::{
-            publish_host_popup_save_load_entries, PopupSaveLoadEntry,
+            PopupSaveLoadEntry, publish_host_popup_save_load_entries,
         };
 
         let entries = match self.save_file_manager.list_saves() {
@@ -65,7 +65,7 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     pub(crate) fn host_tick_popup_save_load_bridge(&mut self) {
         use game_client::gui::callbacks::{
-            take_host_popup_save_load_published_requests, PopupSaveLoadRequest,
+            PopupSaveLoadRequest, take_host_popup_save_load_published_requests,
         };
 
         if !self.popup_save_load_bridge_initialized {
@@ -105,10 +105,8 @@ impl CnCGameEngine {
                         .unwrap_or_else(|| {
                             if !description.trim().is_empty() {
                                 description.clone()
-                            } else if matches!(
-                                save_file_type,
-                                ::game_engine::SaveFileType::Mission
-                            ) {
+                            } else if matches!(save_file_type, ::game_engine::SaveFileType::Mission)
+                            {
                                 crate::save_load::current_mission_save_description()
                             } else {
                                 crate::save_load::default_save_edit_description(
@@ -373,8 +371,8 @@ impl CnCGameEngine {
             .cloned()
             .unwrap_or_else(|| "latest".to_string());
         warn!(
-                    "Runtime host replay command requested for slot '{slot}', replay startup path is not wired yet"
-                );
+            "Runtime host replay command requested for slot '{slot}', replay startup path is not wired yet"
+        );
         self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
     }
 

@@ -46,11 +46,7 @@ pub fn host_effective_scatter_radius(name: &str, target_is_infantry: bool) -> f3
         return base;
     }
     let vs = host_scatter_radius_vs_infantry_for_weapon_name(name);
-    if vs > 0.0 {
-        base + vs
-    } else {
-        base
-    }
+    if vs > 0.0 { base + vs } else { base }
 }
 
 /// Authored `ScatterTarget` XY pairs from the live WeaponStore.
@@ -84,7 +80,6 @@ pub fn host_scatter_target_scalar_for_weapon_name(name: &str) -> f32 {
     .flatten()
     .unwrap_or(0.0)
 }
-
 
 pub(super) fn seed_scatter_radius_for(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();

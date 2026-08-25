@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::archive_file::{open_big_archive, ArchiveFile, ArchiveFileTrait, FilenameList};
+use crate::archive_file::{ArchiveFile, ArchiveFileTrait, FilenameList, open_big_archive};
 use crate::directory_info::ArchivedDirectoryInfo;
 use crate::file_info::FileInfo;
 

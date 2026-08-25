@@ -71,10 +71,9 @@ impl super::super::GameLogic {
         if damage <= 0.0 {
             return;
         }
-        let damage_type =
-            crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
-                &spec.weapon_name,
-            );
+        let damage_type = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+            &spec.weapon_name,
+        );
         let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
             Some(&spec.weapon_name),
             damage_type,
@@ -83,12 +82,8 @@ impl super::super::GameLogic {
             if !other.is_alive() {
                 return;
             }
-            let _ = other.take_damage_from_typed_death(
-                damage,
-                Some(self_id),
-                damage_type,
-                death_type,
-            );
+            let _ =
+                other.take_damage_from_typed_death(damage, Some(self_id), damage_type, death_type);
         }
     }
 }

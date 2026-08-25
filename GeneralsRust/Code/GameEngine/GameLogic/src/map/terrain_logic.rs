@@ -1,1 +1,1 @@
-pub use crate::terrain::{get_terrain_logic, TerrainLogic, Waypoint};
+pub use crate::terrain::{TerrainLogic, Waypoint, get_terrain_logic};

@@ -122,10 +122,10 @@ mod tests {
     #[test]
     fn simulate_chat_prepare_submit_residual_live() {
         use game_client::gui::callbacks::{
-            residual_in_game_chat_is_active, residual_in_game_chat_last_action,
-            residual_in_game_chat_text, residual_in_game_chat_type_ordinal,
-            simulate_in_game_chat_clear_button_gadget_selected,
-            simulate_in_game_chat_prepare_submit, ResidualInGameChatAction,
+            ResidualInGameChatAction, residual_in_game_chat_is_active,
+            residual_in_game_chat_last_action, residual_in_game_chat_text,
+            residual_in_game_chat_type_ordinal, simulate_in_game_chat_clear_button_gadget_selected,
+            simulate_in_game_chat_prepare_submit,
         };
         assert!(
             simulate_in_game_chat_prepare_submit("hello"),

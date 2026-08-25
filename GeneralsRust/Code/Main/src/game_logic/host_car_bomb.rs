@@ -214,9 +214,9 @@ pub fn suicide_car_bomb_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Residual AOE damage at distance (primary + secondary SuicideCarBomb rings).
@@ -314,7 +314,8 @@ pub fn hijack_target_rejected(target: &crate::game_logic::Object) -> bool {
     {
         return true;
     }
-    if target.is_kind_of(KindOf::Drone) || object_definition_has_kind(&target.template_name, "DRONE")
+    if target.is_kind_of(KindOf::Drone)
+        || object_definition_has_kind(&target.template_name, "DRONE")
     {
         return true;
     }

@@ -13,14 +13,14 @@ use crate::helpers::{
     TheTerrainLogic,
 };
 use crate::modules::{
-    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
-};
-use crate::object::behavior::dynamic_geometry_info_update::{
-    xfer_dynamic_geometry_info_update_logic, DynamicGeometryInfoUpdateLogic,
-    DynamicGeometryInfoUpdateModuleData,
+    BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::dynamic_geometry_info_update::{
+    DynamicGeometryInfoUpdateLogic, DynamicGeometryInfoUpdateModuleData,
+    xfer_dynamic_geometry_info_update_logic,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::mem::size_of;
 use std::sync::{Arc, RwLock, Weak};

@@ -87,24 +87,31 @@ impl HeightMapEdit {
         }
         let mut cur = Cursor::new(&bytes[4..]);
         let mut i32buf = [0u8; 4];
-        cur.read_exact(&mut i32buf).map_err(|_| SaveMapError::InvalidInput)?;
+        cur.read_exact(&mut i32buf)
+            .map_err(|_| SaveMapError::InvalidInput)?;
         let mut len_buf = [0u8; 1];
-        cur.read_exact(&mut len_buf).map_err(|_| SaveMapError::InvalidInput)?;
+        cur.read_exact(&mut len_buf)
+            .map_err(|_| SaveMapError::InvalidInput)?;
         let label_len = len_buf[0] as usize;
         let mut label = vec![0u8; label_len];
-        cur.read_exact(&mut label).map_err(|_| SaveMapError::InvalidInput)?;
+        cur.read_exact(&mut label)
+            .map_err(|_| SaveMapError::InvalidInput)?;
         if label != b"HeightMapData" {
             return Err(SaveMapError::InvalidInput);
         }
-        cur.read_exact(&mut i32buf).map_err(|_| SaveMapError::InvalidInput)?; // data_size unused
-        cur.read_exact(&mut i32buf).map_err(|_| SaveMapError::InvalidInput)?; // chunk_count
+        cur.read_exact(&mut i32buf)
+            .map_err(|_| SaveMapError::InvalidInput)?; // data_size unused
+        cur.read_exact(&mut i32buf)
+            .map_err(|_| SaveMapError::InvalidInput)?; // chunk_count
         let mut ver = [0u8; 2];
-        cur.read_exact(&mut ver).map_err(|_| SaveMapError::InvalidInput)?;
+        cur.read_exact(&mut ver)
+            .map_err(|_| SaveMapError::InvalidInput)?;
         let version = u16::from_le_bytes(ver);
         if version != K_HEIGHT_MAP_VERSION_4 {
             return Err(SaveMapError::InvalidInput);
         }
-        cur.read_exact(&mut i32buf).map_err(|_| SaveMapError::InvalidInput)?;
+        cur.read_exact(&mut i32buf)
+            .map_err(|_| SaveMapError::InvalidInput)?;
         let payload_len = i32::from_le_bytes(i32buf) as usize;
         let pos = cur.position() as usize;
         let payload = bytes
@@ -132,8 +139,11 @@ fn parse_heightmap_payload(payload: &[u8]) -> Result<HeightMapEdit, SaveMapError
     if payload.len() < data_size_off + 4 {
         return Err(SaveMapError::InvalidInput);
     }
-    let data_size =
-        i32::from_le_bytes(payload[data_size_off..data_size_off + 4].try_into().unwrap());
+    let data_size = i32::from_le_bytes(
+        payload[data_size_off..data_size_off + 4]
+            .try_into()
+            .unwrap(),
+    );
     let samples = &payload[data_size_off + 4..];
     if data_size < 0 || samples.len() != data_size as usize {
         return Err(SaveMapError::InvalidInput);
@@ -612,8 +622,10 @@ impl MapDocument {
             if let Some(wp) = &obj.waypoint_name {
                 let id_key = NameKeyGenerator::name_to_key("waypointID");
                 let name_key = NameKeyGenerator::name_to_key("waypointName");
-                if !matches!(dict.get_type(id_key), Some(game_engine::common::dict::DictType::Int))
-                {
+                if !matches!(
+                    dict.get_type(id_key),
+                    Some(game_engine::common::dict::DictType::Int)
+                ) {
                     dict.set_int(id_key, 1);
                 }
                 dict.set_ascii_string(name_key, wp.clone());
@@ -708,10 +720,7 @@ impl MapDocument {
     }
 }
 
-fn write_script_chunk(
-    out: &mut game_engine::common::system::DataChunkOutput,
-    script: &ScriptEdit,
-) {
+fn write_script_chunk(out: &mut game_engine::common::system::DataChunkOutput, script: &ScriptEdit) {
     out.open_data_chunk("Script", K_SCRIPT_DATA_VERSION_2);
     out.write_ascii_string(&script.name);
     out.write_ascii_string(&script.comment);
@@ -1306,7 +1315,11 @@ mod tests {
         map.set_height(0, 0, 7).unwrap();
         let bytes = SaveMap::save_heightmap(&map);
         assert!(bytes.starts_with(b"CkMp"));
-        assert!(bytes.windows(b"HeightMapData".len()).any(|w| w == b"HeightMapData"));
+        assert!(
+            bytes
+                .windows(b"HeightMapData".len())
+                .any(|w| w == b"HeightMapData")
+        );
         let loaded = SaveMap::load_heightmap(&bytes).expect("load");
         assert_eq!(loaded.width, 16);
         assert_eq!(loaded.height, 12);
@@ -1347,8 +1360,16 @@ mod tests {
         });
         let bytes = doc.write_ckmp();
         assert!(bytes.starts_with(b"CkMp"));
-        assert!(bytes.windows(b"ObjectsList".len()).any(|w| w == b"ObjectsList"));
-        assert!(bytes.windows(b"HeightMapData".len()).any(|w| w == b"HeightMapData"));
+        assert!(
+            bytes
+                .windows(b"ObjectsList".len())
+                .any(|w| w == b"ObjectsList")
+        );
+        assert!(
+            bytes
+                .windows(b"HeightMapData".len())
+                .any(|w| w == b"HeightMapData")
+        );
         let loaded = MapDocument::read_ckmp(&bytes).expect("load ckmp");
         assert_eq!(loaded.heightmap.get_height(1, 1), Some(90));
         assert_eq!(loaded.objects.len(), 1);
@@ -1399,10 +1420,18 @@ mod tests {
         });
 
         let bytes = doc.write_ckmp();
-        assert!(bytes.windows(b"BlendTileData".len()).any(|w| w == b"BlendTileData"));
+        assert!(
+            bytes
+                .windows(b"BlendTileData".len())
+                .any(|w| w == b"BlendTileData")
+        );
         assert!(bytes.windows(b"WorldInfo".len()).any(|w| w == b"WorldInfo"));
         assert!(bytes.windows(b"SidesList".len()).any(|w| w == b"SidesList"));
-        assert!(bytes.windows(b"PlayerScriptsList".len()).any(|w| w == b"PlayerScriptsList"));
+        assert!(
+            bytes
+                .windows(b"PlayerScriptsList".len())
+                .any(|w| w == b"PlayerScriptsList")
+        );
 
         let loaded = MapDocument::read_ckmp(&bytes).expect("load");
         assert_eq!(loaded.world_dict.get_ascii_string(map_key), "Test Map");
@@ -1415,7 +1444,10 @@ mod tests {
             "PlyrCivilian"
         );
         assert_eq!(loaded.sides[0].build_list.len(), 1);
-        assert_eq!(loaded.sides[0].build_list[0].template_name, "AmericaBarracks");
+        assert_eq!(
+            loaded.sides[0].build_list[0].template_name,
+            "AmericaBarracks"
+        );
         assert_eq!(loaded.texture_classes.len(), 1);
         assert_eq!(loaded.texture_classes[0].name, "Dirt");
         assert_eq!(loaded.blend_tiles.tile_ndxes.len(), 64);
@@ -1511,8 +1543,16 @@ mod tests {
         doc.lighting.shadow_color = 0x112233;
 
         let bytes = doc.write_ckmp();
-        assert!(bytes.windows(b"PolygonTriggers".len()).any(|w| w == b"PolygonTriggers"));
-        assert!(bytes.windows(b"GlobalLighting".len()).any(|w| w == b"GlobalLighting"));
+        assert!(
+            bytes
+                .windows(b"PolygonTriggers".len())
+                .any(|w| w == b"PolygonTriggers")
+        );
+        assert!(
+            bytes
+                .windows(b"GlobalLighting".len())
+                .any(|w| w == b"GlobalLighting")
+        );
         let loaded = MapDocument::read_ckmp(&bytes).expect("load");
         assert_eq!(loaded.polygons.len(), 1);
         assert_eq!(loaded.polygons[0].name, "WaterArea");
@@ -1543,7 +1583,10 @@ mod tests {
         let path = dir.path().join("Test Map.map");
         doc.save_to_path(&path).expect("save ckmp map");
         let bytes = std::fs::read(&path).unwrap();
-        assert!(bytes.starts_with(b"CkMp"), "live save must be C++ CkMp .map");
+        assert!(
+            bytes.starts_with(b"CkMp"),
+            "live save must be C++ CkMp .map"
+        );
         assert!(!bytes.starts_with(b"{"), "must not write editor JSON");
         let loaded = MapDocument::load_from_path(&path).expect("load saved map");
         assert_eq!(loaded.heightmap.get_height(2, 3), Some(44));
@@ -1612,8 +1655,16 @@ mod tests {
         });
 
         let bytes = doc.write_ckmp();
-        assert!(bytes.windows(b"ScriptList".len()).any(|w| w == b"ScriptList"));
-        assert!(bytes.windows(b"ScriptGroup".len()).any(|w| w == b"ScriptGroup"));
+        assert!(
+            bytes
+                .windows(b"ScriptList".len())
+                .any(|w| w == b"ScriptList")
+        );
+        assert!(
+            bytes
+                .windows(b"ScriptGroup".len())
+                .any(|w| w == b"ScriptGroup")
+        );
         let loaded = MapDocument::read_ckmp(&bytes).expect("load scripts+object");
         assert_eq!(loaded.objects.len(), 1);
         assert!((loaded.objects[0].angle - 1.5708).abs() < 0.0001);
@@ -1625,7 +1676,10 @@ mod tests {
         assert_eq!(loaded.script_lists.len(), 1);
         assert_eq!(loaded.script_lists[0].scripts.len(), 1);
         assert_eq!(loaded.script_lists[0].scripts[0].name, "Victory");
-        assert_eq!(loaded.script_lists[0].scripts[0].delay_evaluation_seconds, 2);
+        assert_eq!(
+            loaded.script_lists[0].scripts[0].delay_evaluation_seconds,
+            2
+        );
         assert!(!loaded.script_lists[0].scripts[0].hard);
         assert_eq!(loaded.script_lists[0].groups.len(), 1);
         assert_eq!(loaded.script_lists[0].groups[0].name, "Group A");

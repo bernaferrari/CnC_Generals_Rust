@@ -64,8 +64,8 @@ fn residual_action_store(a: ResidualHostEagerAttitudeOverchargeStealthHelperActi
 pub fn residual_host_eager_attitude_overcharge_stealth_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_eager_attitude_overcharge_stealth_helper_last_action(
-) -> ResidualHostEagerAttitudeOverchargeStealthHelperAction {
+pub fn residual_host_eager_attitude_overcharge_stealth_helper_last_action()
+-> ResidualHostEagerAttitudeOverchargeStealthHelperAction {
     ResidualHostEagerAttitudeOverchargeStealthHelperAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -92,8 +92,8 @@ pub fn honesty_host_eager_attitude_overcharge_stealth_helper_method_names_residu
     residual_action_store(ResidualHostEagerAttitudeOverchargeStealthHelperAction::MethodNames);
     ok
 }
-pub fn honesty_host_eager_attitude_overcharge_stealth_helper_source_markers_residual_wave694(
-) -> bool {
+pub fn honesty_host_eager_attitude_overcharge_stealth_helper_source_markers_residual_wave694()
+-> bool {
     let eng = eng_source();
     let sh = shadow_source();
     let api_ok = sh.contains("pub fn eager_apply_host_ai_attitude_after_logic")
@@ -170,11 +170,11 @@ mod tests {
     use crate::game_logic::host_stealth_flags_log::{self, HostStealthFlagsEvent};
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_apply_host_ai_attitude_after_logic, eager_apply_host_overcharge_after_logic,
         eager_apply_host_stealth_flags_after_logic, eager_map_host_spawn_if_coupled,
         end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
-        shadow_session_after_host_tick, GameWorldShadow,
+        shadow_session_after_host_tick,
     };
     use glam::Vec3;
 

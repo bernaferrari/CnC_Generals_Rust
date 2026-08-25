@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -19,7 +19,6 @@ use crate::common::{ObjectID, Real};
 use crate::helpers::TheGameLogic;
 use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::SpecialPowerModuleData;
-
 
 /// Module data for CashBountyPower.
 /// Matches C++ CashBountyPowerModuleData.
@@ -191,7 +190,6 @@ impl CashBountyPower {
     }
 }
 
-
 impl Module for CashBountyPower {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -236,7 +234,6 @@ impl BehaviorModuleInterface for CashBountyPower {
 }
 super::interface::impl_special_power_subclass!(CashBountyPower);
 
-
 impl Snapshotable for CashBountyPower {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -257,7 +254,6 @@ impl Snapshotable for CashBountyPower {
         super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
-
 
 // INI field parsers
 

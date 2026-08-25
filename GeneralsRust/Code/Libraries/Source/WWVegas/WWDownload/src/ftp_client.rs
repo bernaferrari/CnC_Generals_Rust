@@ -324,7 +324,7 @@ impl FtpClient {
                 Ok(Ok(0)) => break, // EOF
                 Ok(Ok(n)) => n,
                 Ok(Err(e)) => {
-                    return Err(DownloadError::NetworkError(format!("Read error: {}", e)))
+                    return Err(DownloadError::NetworkError(format!("Read error: {}", e)));
                 }
                 Err(_) => return Err(DownloadError::Timeout),
             };

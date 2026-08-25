@@ -9,7 +9,7 @@
 
 use crate::game_logic::{GameLogic, Team};
 use crate::input_system::{ButtonState, RtsCommand, RtsInputSystem};
-use crate::unit_control::{UnitControlSystem, DOUBLE_CLICK_THRESHOLD_SECS};
+use crate::unit_control::{DOUBLE_CLICK_THRESHOLD_SECS, UnitControlSystem};
 use glam::Vec2;
 use std::sync::Arc;
 use std::sync::Mutex as AsyncMutex;

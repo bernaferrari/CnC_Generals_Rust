@@ -14,20 +14,21 @@ use crate::gui::options_host_bridge::{
     publish_host_alternate_mouse, publish_host_draw_rmb_scroll_anchor,
     publish_host_move_rmb_scroll_anchor,
 };
-use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
+use crate::gui::shell::main_menu::{DisplaySettings, get_main_menu};
 use crate::gui::{
-    queue_shell_operation, queue_shell_pop, queue_shell_push, queue_shell_reverse_animate_window,
-    queue_shell_shutdown_complete, queue_shell_window_animation, show_shell_map_if_available,
-    try_with_shell_mut, with_window_manager, write_input_focus_response, AnimationType, GameWindow,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget, GLM_DOUBLE_CLICKED,
+    AnimationType, GLM_DOUBLE_CLICKED, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowWidget, queue_shell_operation, queue_shell_pop, queue_shell_push,
+    queue_shell_reverse_animate_window, queue_shell_shutdown_complete,
+    queue_shell_window_animation, show_shell_map_if_available, try_with_shell_mut,
+    with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
+use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::audio::game_audio::{
     get_global_audio_manager, initialize_global_audio_manager,
 };
-use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
@@ -41,7 +42,7 @@ use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "online_ui")]
-use crate::gamespy_overlay::{close_overlay, is_overlay_open, GameSpyOverlayType};
+use crate::gamespy_overlay::{GameSpyOverlayType, close_overlay, is_overlay_open};
 
 #[cfg(feature = "online_ui")]
 fn options_overlay_is_open() -> bool {
@@ -732,11 +733,13 @@ impl OptionsMenu {
         let save_camera = pref.get_bool_or("SaveCameraInReplays", true);
         let use_camera = pref.get_bool_or("UseCameraInReplays", true);
         let draw_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
-            pref.get_string("DrawScrollAnchor").map(|value| value.as_str()),
+            pref.get_string("DrawScrollAnchor")
+                .map(|value| value.as_str()),
             TheInGameUI::get_draw_rmb_scroll_anchor(),
         );
         let move_anchor = game_engine::common::user_preferences::scroll_anchor_pref_enabled(
-            pref.get_string("MoveScrollAnchor").map(|value| value.as_str()),
+            pref.get_string("MoveScrollAnchor")
+                .map(|value| value.as_str()),
             TheInGameUI::get_move_rmb_scroll_anchor(),
         );
 
@@ -772,7 +775,6 @@ impl OptionsMenu {
         };
         let detail_index = Self::detail_index_from_name(&detail_name);
         self.initial_detail_index = detail_index;
-
 
         let texture_reduction = pref
             .get_int("TextureReduction")
@@ -925,7 +927,10 @@ impl OptionsMenu {
         Self::set_checkbox(self.check_props_id, true);
         // C++ setDefaults: comboBoxDetail = findStaticLODLevel()
         let recommended = game_engine::common::game_lod::find_static_lod_level();
-        Self::set_combo_selected(self.combo_detail_id, Self::detail_index_from_name(&recommended));
+        Self::set_combo_selected(
+            self.combo_detail_id,
+            Self::detail_index_from_name(&recommended),
+        );
 
         if Self::should_reset_resolution_on_defaults() {
             Self::set_combo_selected(self.combo_resolution_id, self.default_resolution_index());
@@ -990,9 +995,10 @@ impl OptionsMenu {
             .as_ref()
             .map(|h| h.retaliation)
             .unwrap_or_else(|| Self::checkbox_value(self.check_retaliation_id));
-        let double_click_attack_move = host.as_ref().map(|h| h.double_click_attack_move).unwrap_or_else(|| {
-            Self::checkbox_value(self.check_double_click_attack_move_id)
-        });
+        let double_click_attack_move = host
+            .as_ref()
+            .map(|h| h.double_click_attack_move)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_double_click_attack_move_id));
         let language_filter = host
             .as_ref()
             .map(|h| h.language_filter)
@@ -1212,11 +1218,8 @@ impl OptionsMenu {
             }
         }
         crate::display::display_fx::set_gamma_state(display_gamma, 0.0, 1.0);
-        let _ = crate::core::script_action_handler::set_script_display_gamma(
-            display_gamma,
-            0.0,
-            1.0,
-        );
+        let _ =
+            crate::core::script_action_handler::set_script_display_gamma(display_gamma, 0.0, 1.0);
 
         if detail_index == CUSTOMDETAIL {
             let _ = apply_lod_texture_reduction(texture_reduction);
@@ -2361,11 +2364,7 @@ fn parse_resolution_pref(raw: Option<&str>) -> Option<(i32, i32)> {
     let mut parts = raw.split(|c: char| c.is_ascii_whitespace() || c == 'x' || c == 'X');
     let w = parts.next()?.parse::<i32>().ok()?;
     let h = parts.next()?.parse::<i32>().ok()?;
-    if w > 0 && h > 0 {
-        Some((w, h))
-    } else {
-        None
-    }
+    if w > 0 && h > 0 { Some((w, h)) } else { None }
 }
 
 /// C++ Accept: `TheDisplay->setGamma` + flat Options.ini + live volumes.
@@ -2532,10 +2531,7 @@ fn drive_os_wnd_options_named(name: &str, latch: impl FnOnce() -> bool) -> bool 
 }
 
 pub fn drive_os_wnd_options_menu_accept_like_cpp() -> bool {
-    drive_os_wnd_options_named(
-        "OptionsMenu.wnd:ButtonAccept",
-        apply_options_menu_like_cpp,
-    )
+    drive_os_wnd_options_named("OptionsMenu.wnd:ButtonAccept", apply_options_menu_like_cpp)
 }
 
 pub fn drive_os_wnd_options_menu_back_like_cpp() -> bool {
@@ -2681,8 +2677,8 @@ mod options_os_wnd_tests {
     #[test]
     fn apply_options_from_host_publishes_scroll_anchors() {
         use crate::gui::options_host_bridge::{
-            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
-            take_host_options_requests, HostOptionsRequest,
+            HostOptionsRequest, acquire_host_options_bridge_test_guard,
+            set_host_options_bridge_enabled, take_host_options_requests,
         };
 
         let _bridge_guard = acquire_host_options_bridge_test_guard();
@@ -3122,11 +3118,7 @@ pub fn residual_map_select_menu_selected_map() -> Option<String> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 fn with_map_select_menu_mut<R>(f: impl FnOnce(&mut MapSelectMenu) -> R) -> R {
@@ -3466,8 +3458,8 @@ mod tests {
     #[test]
     fn options_move_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
         use crate::gui::options_host_bridge::{
-            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
-            take_host_options_requests, HostOptionsRequest,
+            HostOptionsRequest, acquire_host_options_bridge_test_guard,
+            set_host_options_bridge_enabled, take_host_options_requests,
         };
 
         let _bridge_guard = acquire_host_options_bridge_test_guard();
@@ -3497,8 +3489,8 @@ mod tests {
     #[test]
     fn options_draw_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
         use crate::gui::options_host_bridge::{
-            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
-            take_host_options_requests, HostOptionsRequest,
+            HostOptionsRequest, acquire_host_options_bridge_test_guard,
+            set_host_options_bridge_enabled, take_host_options_requests,
         };
 
         let _bridge_guard = acquire_host_options_bridge_test_guard();
@@ -3528,8 +3520,8 @@ mod tests {
     #[test]
     fn options_accept_converges_alternate_mouse_residences_and_publishes_to_main() {
         use crate::gui::options_host_bridge::{
-            acquire_host_options_bridge_test_guard, set_host_options_bridge_enabled,
-            take_host_options_requests, HostOptionsRequest,
+            HostOptionsRequest, acquire_host_options_bridge_test_guard,
+            set_host_options_bridge_enabled, take_host_options_requests,
         };
 
         let _bridge_guard = acquire_host_options_bridge_test_guard();

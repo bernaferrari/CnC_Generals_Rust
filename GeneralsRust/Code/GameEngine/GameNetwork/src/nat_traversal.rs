@@ -9,8 +9,8 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::nat::NatService;
 use crate::time::NetworkInstant;
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;

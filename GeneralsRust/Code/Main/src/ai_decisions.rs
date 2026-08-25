@@ -789,7 +789,7 @@ mod tests {
                 can_target_air: true,
                 can_target_ground: false,
                 ..Default::default()
-});
+            });
             attacker
         });
 

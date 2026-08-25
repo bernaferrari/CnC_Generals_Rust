@@ -168,11 +168,14 @@ impl Object {
         self.weapon_bonus_fields_with(None)
     }
 
-
     /// C++ Weapon::computeBonus (Weapon.cpp:1797-1816): source flags OR
     /// container `getWeaponBonusPassedToPassengers` when the contain module
     /// authors `WeaponBonusPassedToPassengers`.
-    pub fn weapon_bonus_fields_with(&self, container: Option<&Object>) -> (f32, f32, f32, f32, f32) {
+    pub fn weapon_bonus_fields_with(
+        &self,
+        container: Option<&Object>,
+    ) -> (f32, f32, f32, f32, f32) {
+        use crate::game_logic::VeterancyLevel;
         use crate::game_logic::host_propaganda::{
             ENTHUSIASTIC_RATE_OF_FIRE_MULT, SUBLIMINAL_RATE_OF_FIRE_MULT,
         };
@@ -187,25 +190,26 @@ impl Object {
             VETERANCY_DAMAGE_BONUS_VETERAN, VETERANCY_ROF_BONUS_ELITE, VETERANCY_ROF_BONUS_HEROIC,
             VETERANCY_ROF_BONUS_VETERAN,
         };
-        use crate::game_logic::VeterancyLevel;
 
         let inherit = container.filter(|c| c.passes_weapon_bonus_to_passengers());
         let flag = |own: bool, get: fn(&Object) -> bool| own || inherit.is_some_and(get);
 
-        let enthusiastic = flag(self.weapon_bonus_enthusiastic, |c| c.weapon_bonus_enthusiastic);
+        let enthusiastic = flag(self.weapon_bonus_enthusiastic, |c| {
+            c.weapon_bonus_enthusiastic
+        });
         let subliminal = flag(self.weapon_bonus_subliminal, |c| c.weapon_bonus_subliminal);
         let horde = flag(self.weapon_bonus_horde, |c| c.weapon_bonus_horde);
-        let nationalism = flag(self.weapon_bonus_nationalism, |c| c.weapon_bonus_nationalism);
+        let nationalism = flag(self.weapon_bonus_nationalism, |c| {
+            c.weapon_bonus_nationalism
+        });
         let fanaticism = flag(self.weapon_bonus_fanaticism, |c| c.weapon_bonus_fanaticism);
         let player_upgrade = flag(self.weapon_bonus_player_upgrade, |c| {
             c.weapon_bonus_player_upgrade
         });
         let frenzy = flag(self.weapon_bonus_frenzy, |c| c.weapon_bonus_frenzy);
-        let frenzy_level = self.weapon_bonus_frenzy_level.max(
-            inherit
-                .map(|c| c.weapon_bonus_frenzy_level)
-                .unwrap_or(0),
-        );
+        let frenzy_level = self
+            .weapon_bonus_frenzy_level
+            .max(inherit.map(|c| c.weapon_bonus_frenzy_level).unwrap_or(0));
         let bombardment = flag(self.weapon_bonus_battle_plan_bombardment, |c| {
             c.weapon_bonus_battle_plan_bombardment
         });
@@ -218,17 +222,15 @@ impl Object {
         let hero = flag(self.weapon_bonus_hero, |c| c.weapon_bonus_hero);
         let elite = flag(self.weapon_bonus_elite, |c| c.weapon_bonus_elite);
         let veteran = flag(self.weapon_bonus_veteran, |c| c.weapon_bonus_veteran);
-        let continuous_fire_level = self.continuous_fire_level.max(
-            inherit
-                .map(|c| c.continuous_fire_level)
-                .unwrap_or(0),
-        );
+        let continuous_fire_level = self
+            .continuous_fire_level
+            .max(inherit.map(|c| c.continuous_fire_level).unwrap_or(0));
 
         // C++ Weapon::computeBonus + WeaponBonus::appendBonuses (Weapon.cpp:1797-1816,
         // 3463-3468): start at 1.0 and add (other - 1) per active condition.
         // Leftover WeaponBonus::append_bonuses already matches; do not multiply.
-        use gamelogic::weapon::WeaponBonusField::{self, Damage, Range, RateOfFire};
         use gamelogic::WeaponBonus;
+        use gamelogic::weapon::WeaponBonusField::{self, Damage, Range, RateOfFire};
 
         fn append_field(bonus: &mut WeaponBonus, field: WeaponBonusField, value: f32) {
             let mut other = WeaponBonus::new();
@@ -305,9 +307,15 @@ impl Object {
         // experience.level when a test assigns rank without going through
         // apply_veterancy_bonuses.
         let (vet_damage, vet_rof) = if hero {
-            (Some(VETERANCY_DAMAGE_BONUS_HEROIC), Some(VETERANCY_ROF_BONUS_HEROIC))
+            (
+                Some(VETERANCY_DAMAGE_BONUS_HEROIC),
+                Some(VETERANCY_ROF_BONUS_HEROIC),
+            )
         } else if elite {
-            (Some(VETERANCY_DAMAGE_BONUS_ELITE), Some(VETERANCY_ROF_BONUS_ELITE))
+            (
+                Some(VETERANCY_DAMAGE_BONUS_ELITE),
+                Some(VETERANCY_ROF_BONUS_ELITE),
+            )
         } else if veteran {
             (
                 Some(VETERANCY_DAMAGE_BONUS_VETERAN),
@@ -342,11 +350,7 @@ impl Object {
         let solo = {
             let own = self.weapon_bonus_solo;
             let inherited = inherit.map(|c| c.weapon_bonus_solo).unwrap_or(0);
-            if own != 0 {
-                own
-            } else {
-                inherited
-            }
+            if own != 0 { own } else { inherited }
         };
         leftover_append_solo_weapon_bonus(&mut bonus, solo);
 
@@ -359,13 +363,29 @@ impl Object {
                     flags.set(cond);
                 }
             };
-            set(&mut flags, WeaponBonusConditionType::Enthusiastic, enthusiastic);
+            set(
+                &mut flags,
+                WeaponBonusConditionType::Enthusiastic,
+                enthusiastic,
+            );
             set(&mut flags, WeaponBonusConditionType::Subliminal, subliminal);
             set(&mut flags, WeaponBonusConditionType::Horde, horde);
-            set(&mut flags, WeaponBonusConditionType::Nationalism, nationalism);
+            set(
+                &mut flags,
+                WeaponBonusConditionType::Nationalism,
+                nationalism,
+            );
             set(&mut flags, WeaponBonusConditionType::Fanaticism, fanaticism);
-            set(&mut flags, WeaponBonusConditionType::PlayerUpgrade, player_upgrade);
-            set(&mut flags, WeaponBonusConditionType::DroneSpotting, drone_spotting);
+            set(
+                &mut flags,
+                WeaponBonusConditionType::PlayerUpgrade,
+                player_upgrade,
+            );
+            set(
+                &mut flags,
+                WeaponBonusConditionType::DroneSpotting,
+                drone_spotting,
+            );
             set(
                 &mut flags,
                 WeaponBonusConditionType::BattleplanBombardment,
@@ -452,7 +472,6 @@ impl Object {
     pub fn effective_weapon_damage(&self, base_damage: f32) -> f32 {
         base_damage * self.weapon_bonus_fields().0
     }
-
 
     /// C++ WeaponBonus::RADIUS (Weapon.cpp:515-527).
     pub fn weapon_bonus_radius(&self) -> f32 {
@@ -758,7 +777,6 @@ impl Object {
                 self.experience.current = need.max(vehicle_xp);
             }
             self.apply_veterancy_bonuses_with_feedback(prev, highest, false);
-
         }
     }
 
@@ -834,7 +852,6 @@ impl Object {
                     self.experience.current = need;
                 }
                 self.apply_veterancy_bonuses_with_feedback(prev, highest, false);
-
             }
         }
     }
@@ -864,9 +881,10 @@ impl Object {
         self.set_precise_z_and_ultra_accurate(true);
         self.set_ai_state(AIState::Idle);
         self.status.airborne_target = true;
-        let helipad = crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
-            &self.template_name,
-        );
+        let helipad =
+            crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
+                &self.template_name,
+            );
         if !helipad {
             // Retail AmericaAirfield ApproachHeight residual (jets only).
             use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
@@ -985,4 +1003,3 @@ fn leftover_append_solo_weapon_bonus(bonus: &mut gamelogic::WeaponBonus, disc: u
         bonus.append_bonuses(&other);
     }
 }
-

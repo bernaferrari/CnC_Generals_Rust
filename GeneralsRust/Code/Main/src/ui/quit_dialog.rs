@@ -4,8 +4,8 @@
 //! matching the C&C Generals message box system.
 
 use super::{
-    layout, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent,
-    UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext, layout,
+    utils,
 };
 use crate::localization;
 

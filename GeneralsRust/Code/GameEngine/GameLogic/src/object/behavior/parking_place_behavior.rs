@@ -12,7 +12,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock, Weak};
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use glam::EulerRot;
@@ -20,22 +20,22 @@ use glam::EulerRot;
 use crate::ai::THE_AI;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, CoordOrigin, Int, KindOf, ModuleData, NameKeyGenerator, ObjectID,
-    ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt, LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, Coord3D, CoordOrigin, Int, KindOf, LOGICFRAMES_PER_SECOND, ModuleData,
+    NameKeyGenerator, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, ExitDoorType as ModuleExitDoorType,
-    ExitInterface as ModuleExitInterface, UpdateModuleInterface, UpdateSleepTime,
-    UPDATE_SLEEP_NONE,
+    ExitInterface as ModuleExitInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::behavior::behavior_module::{
     ObjectTemplate, PPInfo as BehaviorPPInfo,
     ParkingPlaceBehaviorInterface as ParkingPlaceBehaviorInterfaceTrait,
     RunwayReservationType as BehaviorRunwayReservationType, Team,
 };
-use crate::object::{Object as GameObject, Object, INVALID_ID as OBJECT_INVALID_ID};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, Object};
 
 /// Wave 310: host-only path has no dual-world factory objects.
 #[inline]
@@ -1337,7 +1337,6 @@ impl ParkingPlaceBehavior {
             .map(|guard| Self::object_template_is_produced_at_helipad(&guard))
             .unwrap_or(false)
     }
-
 }
 
 impl ModuleExitInterface for ParkingPlaceBehavior {

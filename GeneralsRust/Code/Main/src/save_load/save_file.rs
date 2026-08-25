@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Mutex;
-
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Save file format header
 #[derive(Debug, Serialize, Deserialize)]
@@ -138,8 +137,6 @@ pub fn store_loaded_game_state_map_mode_for_test(mode: Option<i32>) {
     store_loaded_game_state_map_mode(mode);
 }
 
-
-
 /// C++ `GameState::xfer` writes `GetLocalTime` fields (`GameState.cpp:1562-1582`).
 /// Leftover `SaveDate::from_local_time` already matches that calendar.
 fn local_date_fields(time: SystemTime) -> [u16; 8] {
@@ -161,19 +158,13 @@ fn cpp_save_file_type(save_type: SaveFileType) -> i32 {
     }
 }
 
-fn write_ascii<W: Write + Seek>(
-    xfer: &mut CommonXferSave<W>,
-    value: &str,
-) -> SaveLoadResult<()> {
+fn write_ascii<W: Write + Seek>(xfer: &mut CommonXferSave<W>, value: &str) -> SaveLoadResult<()> {
     let mut owned = value.to_string();
     xfer.xfer_ascii_string(&mut owned)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))
 }
 
-fn write_unicode<W: Write + Seek>(
-    xfer: &mut CommonXferSave<W>,
-    value: &str,
-) -> SaveLoadResult<()> {
+fn write_unicode<W: Write + Seek>(xfer: &mut CommonXferSave<W>, value: &str) -> SaveLoadResult<()> {
     let mut owned = value.to_string();
     xfer.xfer_unicode_string(&mut owned)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))
@@ -214,9 +205,7 @@ fn write_cpp_game_state_header<W: Write + Seek>(
 }
 
 /// C++ `CampaignManager::xfer` v5 (`CampaignManager.cpp`) for CHUNK_Campaign.
-fn write_campaign_block<W: Write + Seek>(
-    xfer: &mut CommonXferSave<W>,
-) -> SaveLoadResult<()> {
+fn write_campaign_block<W: Write + Seek>(xfer: &mut CommonXferSave<W>) -> SaveLoadResult<()> {
     let mut version = 5u8;
     xfer.xfer_version(&mut version, 5)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
@@ -238,7 +227,9 @@ fn write_campaign_block<W: Write + Seek>(
     Ok(())
 }
 
-fn parse_campaign_block(payload: &[u8]) -> SaveLoadResult<game_engine::System::CampaignManagerXferState> {
+fn parse_campaign_block(
+    payload: &[u8],
+) -> SaveLoadResult<game_engine::System::CampaignManagerXferState> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
     let mut version = 0u8;
     xfer.xfer_version(&mut version, 5)
@@ -359,8 +350,7 @@ fn xfer_challenge_game_info<X: CommonXfer>(
 
 fn apply_campaign_manager_state(state: game_engine::System::CampaignManagerXferState) {
     game_engine::System::apply_campaign_manager_runtime(state.clone());
-    game_client::gui::campaign_manager::get_campaign_manager()
-        .apply_logic_chunk_state(state);
+    game_client::gui::campaign_manager::get_campaign_manager().apply_logic_chunk_state(state);
 }
 
 /// Stash CHUNK_Campaign until the staged restore commits. Applying during
@@ -376,9 +366,12 @@ fn stash_loaded_campaign_state(state: game_engine::System::CampaignManagerXferSt
     }
 }
 
-pub(crate) fn take_stashed_campaign_state()
--> Option<game_engine::System::CampaignManagerXferState> {
-    PENDING_CAMPAIGN.lock().ok().and_then(|mut slot| slot.take())
+pub(crate) fn take_stashed_campaign_state() -> Option<game_engine::System::CampaignManagerXferState>
+{
+    PENDING_CAMPAIGN
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
 }
 
 pub(crate) fn discard_stashed_campaign_state() {
@@ -607,7 +600,8 @@ fn apply_persist_chunks(
     }
     if let Some(payload) = radar {
         if payload.len() > 1 {
-            if let Ok((hidden, forced, events, next, last)) = persist_v18::parse_radar_block(payload)
+            if let Ok((hidden, forced, events, next, last)) =
+                persist_v18::parse_radar_block(payload)
             {
                 snapshot.persist_v18.radar_hidden = hidden;
                 snapshot.persist_v18.radar_forced = forced;
@@ -899,7 +893,6 @@ impl SaveFileManager {
         world_snapshot.client_drawables = client_drawables;
         set_pending_save_game_mode(Some(cpp_game_mode_from_live(game_logic.game_mode())));
         crate::save_load::stamp_player_team_chunks(game_logic);
-
 
         // Save to temporary file first
         let write_result = self.save_to_file(&temp_path, &world_snapshot, save_info);
@@ -1408,7 +1401,6 @@ impl SaveFileManager {
             "CHUNK_Campaign not found in named-chunk save".to_string(),
         ))
     }
-
 
     fn read_common_sav_chunks(
         data: &[u8],
@@ -2095,9 +2087,11 @@ mod tests {
 
         let save_path = manager.get_save_path("test_save");
         assert!(save_path.to_string_lossy().contains("test_save"));
-        assert!(save_path
-            .to_string_lossy()
-            .ends_with(&format!(".{}", SAVE_EXTENSION)));
+        assert!(
+            save_path
+                .to_string_lossy()
+                .ends_with(&format!(".{}", SAVE_EXTENSION))
+        );
 
         let temp_path = manager.get_temp_path("test_temp");
         assert!(temp_path.to_string_lossy().contains("test_temp"));
@@ -2343,7 +2337,7 @@ mod tests {
         .expect("encode Common fixture");
         let (common_snapshot, _) =
             SaveFileManager::read_common_sav_chunks(&common_chunks, Path::new(""))
-            .expect("Common fixture should migrate legacy payload");
+                .expect("Common fixture should migrate legacy payload");
         assert_legacy_production_migrated(&common_snapshot, barracks_id);
 
         // V3 must choose the same exact migration path through the native
@@ -2356,7 +2350,7 @@ mod tests {
         .expect("encode Common v3 fixture");
         let (v3_common_snapshot, _) =
             SaveFileManager::read_common_sav_chunks(&v3_common_chunks, Path::new(""))
-            .expect("Common fixture should migrate v3 payload");
+                .expect("Common fixture should migrate v3 payload");
         assert_pre_v4_v3_migrated(&v3_common_snapshot, barracks_id);
 
         // The GZHS wrapper can contain a Common GameState body or the original
@@ -2606,7 +2600,8 @@ mod tests {
             let mut cursor = Cursor::new(&mut payload);
             let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
             let mut version = 10u8;
-            xfer.xfer_version(&mut version, 10).expect("C++ GameLogic version");
+            xfer.xfer_version(&mut version, 10)
+                .expect("C++ GameLogic version");
             let mut frame = 42u32;
             xfer.xfer_unsigned_int(&mut frame).expect("frame");
             let mut toc_version = 1u8;
@@ -2617,8 +2612,10 @@ mod tests {
             let mut toc_id = 1u16;
             xfer.xfer_unsigned_short(&mut toc_id).expect("TOC id");
             let mut object_count = 1u32;
-            xfer.xfer_unsigned_int(&mut object_count).expect("objectCount");
-            xfer.xfer_unsigned_short(&mut toc_id).expect("object TOC id");
+            xfer.xfer_unsigned_int(&mut object_count)
+                .expect("objectCount");
+            xfer.xfer_unsigned_short(&mut toc_id)
+                .expect("object TOC id");
             xfer.begin_block().expect("object block");
             let mut dummy = [0u8, 1, 2, 3];
             unsafe {
@@ -2640,23 +2637,30 @@ mod tests {
         {
             let mut cursor = Cursor::new(&mut header);
             let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-            write_cpp_game_state_header(&mut xfer, &SaveGameInfo {
-                filename: "retail".into(),
-                display_name: "Retail Save".into(),
-                description: "C++ listed".into(),
-                map_name: "Maps\\Alpine Assault.map".into(),
-                campaign_side: Some("America".into()),
-                mission_number: Some(3),
-                save_date: UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
-                game_version: "1.04".into(),
-                play_time: std::time::Duration::from_secs(0),
-                difficulty: GameDifficulty::Medium,
-                save_type: SaveFileType::Mission,
-            })
+            write_cpp_game_state_header(
+                &mut xfer,
+                &SaveGameInfo {
+                    filename: "retail".into(),
+                    display_name: "Retail Save".into(),
+                    description: "C++ listed".into(),
+                    map_name: "Maps\\Alpine Assault.map".into(),
+                    campaign_side: Some("America".into()),
+                    mission_number: Some(3),
+                    save_date: UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000),
+                    game_version: "1.04".into(),
+                    play_time: std::time::Duration::from_secs(0),
+                    difficulty: GameDifficulty::Medium,
+                    save_type: SaveFileType::Mission,
+                },
+            )
             .expect("encode v2 header");
         }
         let logic = cpp_game_logic_xfer_with_objects();
-        assert_eq!(logic.first().copied(), Some(10), "C++ GameLogic currentVersion is 10");
+        assert_eq!(
+            logic.first().copied(),
+            Some(10),
+            "C++ GameLogic currentVersion is 10"
+        );
 
         let mut bytes = Vec::new();
         bytes.push(CHUNK_GAME_STATE.len() as u8);
@@ -2744,8 +2748,8 @@ mod tests {
         let mut save_info = fixture_save_info();
         save_info.save_type = SaveFileType::Mission;
         save_info.map_name = "Maps\\GLA02.map".into();
-        let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
-            .expect("write mission");
+        let bytes =
+            SaveFileManager::write_common_sav_chunks(&snapshot, &save_info).expect("write mission");
         let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
         assert_eq!(listed.difficulty, GameDifficulty::Hard);
         let blocks = walk_named_chunks(&bytes).expect("walk");
@@ -2812,7 +2816,8 @@ mod tests {
             let mut object_id = 1u32;
             let mut drawable_id = 1u32;
             xfer.xfer_unsigned_int(&mut object_id).expect("object id");
-            xfer.xfer_unsigned_int(&mut drawable_id).expect("drawable id");
+            xfer.xfer_unsigned_int(&mut drawable_id)
+                .expect("drawable id");
         }
 
         let mut bytes = Vec::new();
@@ -2960,7 +2965,8 @@ mod tests {
             .expect_err("C++ GameLogic must fail closed");
         let decode_err = decode_err.to_string();
         assert!(
-            decode_err.contains("GameLogic::xfer") || decode_err.contains("not a host WorldSnapshot"),
+            decode_err.contains("GameLogic::xfer")
+                || decode_err.contains("not a host WorldSnapshot"),
             "unexpected decode error: {decode_err}"
         );
         let after_decode = capture_live_campaign_state();
@@ -2977,8 +2983,14 @@ mod tests {
             .load_game("bad_campaign", &mut world)
             .expect_err("failed load must not succeed");
         let after_load = capture_live_campaign_state();
-        assert_eq!(after_load.rank_points, 11, "failed load must not keep save rank");
-        assert_eq!(after_load.difficulty, 0, "failed load must not keep save difficulty");
+        assert_eq!(
+            after_load.rank_points, 11,
+            "failed load must not keep save rank"
+        );
+        assert_eq!(
+            after_load.difficulty, 0,
+            "failed load must not keep save difficulty"
+        );
 
         let snapshot = WorldSnapshot::default();
         let mut save_info = fixture_save_info();
@@ -3001,7 +3013,4 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_dir(fixture_directory);
     }
-
-
-
 }

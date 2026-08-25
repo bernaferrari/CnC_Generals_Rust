@@ -3,10 +3,10 @@
 
 use glam::{Mat4, Vec3, Vec4};
 use wwshade::{
+    ShdResult,
     modern_shaders::{
         CameraUniform, HybridShaderSystem, LightUniform, MaterialUniform, ModernShaderSystem,
     },
-    ShdResult,
 };
 
 #[tokio::main]

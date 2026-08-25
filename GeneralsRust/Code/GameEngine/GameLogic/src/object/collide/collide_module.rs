@@ -228,9 +228,7 @@ impl CollideModuleFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::common::system::{
-        Snapshotable, XferBlockSize, XferMode, XferStatus,
-    };
+    use game_engine::common::system::{Snapshotable, XferBlockSize, XferMode, XferStatus};
 
     #[derive(Default)]
     struct CountingXfer {

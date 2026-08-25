@@ -8,15 +8,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use chrono::{DateTime, Datelike, Local, Timelike};
 use crate::game_text::GameText;
+use crate::gui::gadgets::{KeyModifiers, ListBox, ListBoxItemData};
 use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
+use crate::map_util::get_map_cache_manager;
+use chrono::{DateTime, Datelike, Local, Timelike};
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::recorder::{self, ReplayHeader as CommonReplayHeader};
 use game_engine::common::version::get_version;
-use crate::gui::gadgets::{ListBox, ListBoxItemData, KeyModifiers};
-use crate::map_util::get_map_cache_manager;
-
 
 /// Maximum number of player slots in a game
 pub const MAX_SLOTS: usize = 8;
@@ -438,8 +437,9 @@ pub struct ReplayMenu {
 impl ReplayMenu {
     pub fn new(replay_dir: PathBuf, replay_ext: String) -> Self {
         recorder::init_recorder();
-        let last_replay_filename = recorder::with_recorder(|rec| rec.last_replay_filename().to_string())
-            .unwrap_or_else(|| "00000000".to_string());
+        let last_replay_filename =
+            recorder::with_recorder(|rec| rec.last_replay_filename().to_string())
+                .unwrap_or_else(|| "00000000".to_string());
         let version = get_version();
         let (current_exe_crc, current_ini_crc) = get_global_data()
             .map(|data| {
@@ -576,7 +576,6 @@ impl ReplayMenu {
         leaf.to_string()
     }
 
-
     /// Populate the listbox with replay files
     ///
     /// Matches C++ ReplayMenu.cpp:85-242
@@ -660,25 +659,16 @@ impl ReplayMenu {
         }
         list_box.clear();
         for entry in &self.replay_list {
-            let color = super::Color::new(entry.color.r, entry.color.g, entry.color.b, entry.color.a);
+            let color =
+                super::Color::new(entry.color.r, entry.color.g, entry.color.b, entry.color.a);
             let row = list_box.add_item_with_data_and_color(0, &entry.name, None, Some(color));
-            let _ = list_box.set_item_column_data(
-                row,
-                1,
-                ListBoxItemData::Text(entry.date.clone()),
-            );
+            let _ =
+                list_box.set_item_column_data(row, 1, ListBoxItemData::Text(entry.date.clone()));
             let _ = list_box.set_item_column_color(row, 1, Some(color));
-            let _ = list_box.set_item_column_data(
-                row,
-                2,
-                ListBoxItemData::Text(entry.version.clone()),
-            );
+            let _ =
+                list_box.set_item_column_data(row, 2, ListBoxItemData::Text(entry.version.clone()));
             let _ = list_box.set_item_column_color(row, 2, Some(color));
-            let _ = list_box.set_item_column_data(
-                row,
-                3,
-                ListBoxItemData::Text(entry.map.clone()),
-            );
+            let _ = list_box.set_item_column_data(row, 3, ListBoxItemData::Text(entry.map.clone()));
             let _ = list_box.set_item_column_color(row, 3, Some(color));
         }
         if !self.replay_list.is_empty() {
@@ -962,10 +952,9 @@ impl ReplayMenu {
 /// Shared by ReplayMenu and PopupReplay: name/date/version/map, compat grey, skip unparseable.
 pub fn populate_replay_file_listbox(list_box: &mut ListBox) {
     recorder::init_recorder();
-    let (dir, ext) = recorder::with_recorder(|rec| {
-        (rec.replay_dir(), rec.replay_extension().to_string())
-    })
-    .unwrap_or_else(|| (PathBuf::from("Replays"), ".rep".to_string()));
+    let (dir, ext) =
+        recorder::with_recorder(|rec| (rec.replay_dir(), rec.replay_extension().to_string()))
+            .unwrap_or_else(|| (PathBuf::from("Replays"), ".rep".to_string()));
     let mut menu = ReplayMenu::new(dir, ext);
     menu.populate_replay_listbox();
     menu.write_entries_to_listbox(list_box);
@@ -1264,5 +1253,4 @@ mod tests {
         );
         assert_eq!(ReplayMenu::replay_map_display_name("", &cache), "");
     }
-
 }

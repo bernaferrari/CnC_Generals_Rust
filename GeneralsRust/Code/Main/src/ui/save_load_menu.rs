@@ -4,11 +4,13 @@
 //! C&C Generals save/load system from PopupSaveLoad.wnd.
 
 use super::{
-    layout, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen,
-    UIEvent, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
+    layout, sound_files, utils,
 };
 use crate::localization;
-use crate::save_load::{get_save_load_manager, init_save_load_system, SaveFileType, SaveLoadManager};
+use crate::save_load::{
+    SaveFileType, SaveLoadManager, get_save_load_manager, init_save_load_system,
+};
 use log::info;
 use std::time::SystemTime;
 
@@ -30,7 +32,6 @@ pub enum SaveLoadDialogState {
     SaveDescription,
     DeleteConfirm,
 }
-
 
 /// Save game entry
 #[derive(Debug, Clone)]
@@ -143,7 +144,6 @@ impl SaveLoadMenu {
     pub fn dialog_state(&self) -> SaveLoadDialogState {
         self.dialog_state
     }
-
 
     pub fn handle_mouse_move(&mut self, x: i32, y: i32) -> bool {
         let is_over_button = if self.dialog_state == SaveLoadDialogState::None {
@@ -352,7 +352,11 @@ impl SaveLoadMenu {
     /// `SaveDescParent`. Name collisions from `sanitize_slot_name` also
     /// require overwrite confirmation.
     fn request_save(&mut self) {
-        if self.selected_entry.and_then(|i| self.save_files.get(i)).is_some() {
+        if self
+            .selected_entry
+            .and_then(|i| self.save_files.get(i))
+            .is_some()
+        {
             self.dialog_state = SaveLoadDialogState::OverwriteConfirm;
             return;
         }
@@ -376,7 +380,11 @@ impl SaveLoadMenu {
     }
 
     fn request_delete(&mut self) {
-        if self.selected_entry.and_then(|i| self.save_files.get(i)).is_some() {
+        if self
+            .selected_entry
+            .and_then(|i| self.save_files.get(i))
+            .is_some()
+        {
             self.dialog_state = SaveLoadDialogState::DeleteConfirm;
         }
     }
@@ -460,7 +468,11 @@ impl SaveLoadMenu {
         let Some(index) = self.selected_entry else {
             return;
         };
-        let Some(filename) = self.save_files.get(index).map(|entry| entry.filename.clone()) else {
+        let Some(filename) = self
+            .save_files
+            .get(index)
+            .map(|entry| entry.filename.clone())
+        else {
             return;
         };
         self.remove_save_file(&filename);
@@ -743,10 +755,7 @@ impl SaveLoadMenu {
         let (title, prompt, confirm_label) = match self.dialog_state {
             SaveLoadDialogState::OverwriteConfirm => (
                 Self::text("save_load.overwrite_title", "=== OVERWRITE SAVE ==="),
-                Self::text(
-                    "save_load.overwrite_prompt",
-                    "Overwrite this save game?",
-                ),
+                Self::text("save_load.overwrite_prompt", "Overwrite this save game?"),
                 Self::text("save_load.button_overwrite", "Overwrite"),
             ),
             SaveLoadDialogState::LoadConfirm => (
@@ -797,7 +806,8 @@ impl SaveLoadMenu {
         let (yes_rect, no_rect) = self.dialog_button_rects();
         let (yes_x, yes_y, _, _) =
             utils::scale_rect_center(yes_rect, self.dialog_confirm_click.scale());
-        let (no_x, no_y, _, _) = utils::scale_rect_center(no_rect, self.dialog_cancel_click.scale());
+        let (no_x, no_y, _, _) =
+            utils::scale_rect_center(no_rect, self.dialog_cancel_click.scale());
         println!("\n[{}] @ ({:.1},{:.1})", confirm_label, yes_x, yes_y);
         println!(
             "{} @ ({:.1},{:.1})",
@@ -920,7 +930,6 @@ impl Renderable for SaveLoadMenu {
         println!("  {}", Self::text("save_load.esc_cancel", "ESC - Cancel"));
     }
 
-
     fn get_bounds(&self) -> (i32, i32, u32, u32) {
         (0, 0, self.screen_size.0, self.screen_size.1)
     }
@@ -965,7 +974,6 @@ impl SaveLoadMenu {
         });
         self.entry_clicks.push(ClickSpring::new());
     }
-
 }
 
 #[cfg(test)]
@@ -981,9 +989,11 @@ mod tests {
         let (x, y) = SaveLoadMenu::click_rect(confirm);
         assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
         assert_eq!(menu.dialog_state(), SaveLoadDialogState::OverwriteConfirm);
-        assert!(menu.drain_pending_events().iter().all(|event| {
-            !matches!(event, UIEvent::SaveGame { .. })
-        }));
+        assert!(
+            menu.drain_pending_events()
+                .iter()
+                .all(|event| { !matches!(event, UIEvent::SaveGame { .. }) })
+        );
     }
 
     #[test]
@@ -1096,11 +1106,7 @@ mod tests {
         {
             use std::io::Write;
             // Render prints to stdout; assert the same tokens the renderer uses.
-            let _ = write!(
-                &mut sink,
-                "{} {} rgb(200,255,200)",
-                time, date
-            );
+            let _ = write!(&mut sink, "{} {} rgb(200,255,200)", time, date);
         }
         let rendered = String::from_utf8(sink).expect("utf8");
         assert!(rendered.contains(&time));
@@ -1139,5 +1145,4 @@ mod tests {
             "non-campaign header must not invent a faction label"
         );
     }
-
 }

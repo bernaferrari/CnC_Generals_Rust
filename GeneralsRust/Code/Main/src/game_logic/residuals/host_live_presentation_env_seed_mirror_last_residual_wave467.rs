@@ -76,8 +76,8 @@ pub fn residual_presentation_env_seed_mirror_last_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_env_seed_mirror_last_last_action(
-) -> ResidualPresentationEnvSeedMirrorLastAction {
+pub fn residual_presentation_env_seed_mirror_last_last_action()
+-> ResidualPresentationEnvSeedMirrorLastAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationEnvSeedMirrorLastAction::MethodNames,
         2 => ResidualPresentationEnvSeedMirrorLastAction::SourceMarkers,

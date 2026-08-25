@@ -77,8 +77,8 @@ pub fn residual_presentation_weaponset_enemy_near_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_weaponset_enemy_near_last_action(
-) -> ResidualPresentationWeaponsetEnemyNearAction {
+pub fn residual_presentation_weaponset_enemy_near_last_action()
+-> ResidualPresentationWeaponsetEnemyNearAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationWeaponsetEnemyNearAction::MethodNames,
         2 => ResidualPresentationWeaponsetEnemyNearAction::SourceMarkers,

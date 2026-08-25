@@ -5,10 +5,10 @@
 use crate::effects::decals::DecalRenderItem;
 use game_engine::common::game_lod;
 
-use game_engine::common::ini::{FieldParse, INIError, INIResult, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError, INIResult};
 use game_engine::common::system::{Coord3D, Xfer, XferMode, XferVersion};
 use gamelogic::common::{
-    AsciiString, Bool, Real, UnsignedInt, LOGICFRAMES_PER_SECOND, SHADOW_ALPHA_DECAL, SHADOW_NAMES,
+    AsciiString, Bool, LOGICFRAMES_PER_SECOND, Real, SHADOW_ALPHA_DECAL, SHADOW_NAMES, UnsignedInt,
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{Player, ThePlayerList};
@@ -25,10 +25,7 @@ fn real_to_int(value: Real) -> i32 {
 
 /// C++ `GameMakeColor` (`Color.h:37-39`): `(A << 24) | (R << 16) | (G << 8) | B`.
 fn game_make_color(color: gamelogic::common::Color) -> u32 {
-    ((color.a as u32) << 24)
-        | ((color.r as u32) << 16)
-        | ((color.g as u32) << 8)
-        | (color.b as u32)
+    ((color.a as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
 }
 
 fn player_color_argb(player: &Player) -> u32 {
@@ -40,7 +37,11 @@ fn player_color_argb(player: &Player) -> u32 {
         .read()
         .ok()
         .and_then(|list| list.get_player(player.get_player_index()).cloned())
-        .and_then(|real| real.read().ok().map(|p| game_make_color(p.get_player_color())))
+        .and_then(|real| {
+            real.read()
+                .ok()
+                .map(|p| game_make_color(p.get_player_color()))
+        })
         .unwrap_or(0)
 }
 
@@ -87,7 +88,6 @@ impl ShadowDecal {
             is_unit_blob: false,
         }
     }
-
 
     fn set_angle(&mut self, angle: Real) {
         self.angle = angle;
@@ -220,7 +220,6 @@ impl ProjectedShadowManager {
         }
         items
     }
-
 }
 
 static PROJECTED_SHADOW_MANAGER: OnceCell<RwLock<ProjectedShadowManager>> = OnceCell::new();
@@ -302,9 +301,8 @@ pub fn enqueue_delivery_decal(
     color_rgb: [u8; 3],
     opacity: Real,
 ) -> Option<ShadowHandle> {
-    let color = ((color_rgb[0] as u32) << 16)
-        | ((color_rgb[1] as u32) << 8)
-        | (color_rgb[2] as u32);
+    let color =
+        ((color_rgb[0] as u32) << 16) | ((color_rgb[1] as u32) << 8) | (color_rgb[2] as u32);
     enqueue_delivery_decal_argb(texture, radius, x, y, z, color, opacity)
 }
 
@@ -915,7 +913,6 @@ mod tests {
         ring.release();
         restore();
     }
-
 
     /// C++ RadiusDecal.cpp:61 addDecal — global manager must expose the ring
     /// to Display/forward_render collect_render_items.

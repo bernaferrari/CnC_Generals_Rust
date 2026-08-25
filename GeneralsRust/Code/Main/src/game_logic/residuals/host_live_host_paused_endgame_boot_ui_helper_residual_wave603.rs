@@ -80,8 +80,8 @@ pub fn residual_host_paused_endgame_boot_ui_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_paused_endgame_boot_ui_helper_last_action(
-) -> ResidualHostPausedEndgameBootUiHelperAction {
+pub fn residual_host_paused_endgame_boot_ui_helper_last_action()
+-> ResidualHostPausedEndgameBootUiHelperAction {
     ResidualHostPausedEndgameBootUiHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 
@@ -157,8 +157,7 @@ pub fn honesty_host_paused_endgame_boot_ui_helper_source_markers_residual_wave60
     let boot_ok = boot.contains("Wave 603")
         && (boot.contains("queue_radar_message")
             || boot.contains("host_notify_presentation_ui_message"))
-        && (boot.contains("play_ui_sound")
-            || boot.contains("host_notify_presentation_ui_message"));
+        && (boot.contains("play_ui_sound") || boot.contains("host_notify_presentation_ui_message"));
     let call_ok = eng.contains("self.host_tick_paused_client_residuals(visual_dt, dt)")
         && eng.contains("self.host_tick_endgame_client_residuals(visual_dt, dt)")
         && eng.contains("self.host_notify_boot_ui_message(message, team)");

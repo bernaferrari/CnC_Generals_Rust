@@ -464,15 +464,12 @@ impl AIPlayer {
             return true;
         };
 
-        let aidata_r = THE_AI
-            .read()
-            .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|d| d.supply_center_safe_radius)
-            });
+        let aidata_r = THE_AI.read().ok().and_then(|ai| {
+            ai.get_ai_data()
+                .read()
+                .ok()
+                .map(|d| d.supply_center_safe_radius)
+        });
         let radius = leftover_is_location_safe_radius(
             aidata_r,
             thing
@@ -484,12 +481,14 @@ impl AIPlayer {
         for obj_id in partition.get_objects_in_range(pos, radius) {
             if let Some(c) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
                 // PartitionFilterAlive / harvester / dozer / stealth / enemies
-                let is_enemy = obj_guard.get_team().and_then(|team_arc| {
-                    team_arc.read().ok().map(|team| {
-                        player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                let is_enemy = obj_guard
+                    .get_team()
+                    .and_then(|team_arc| {
+                        team_arc.read().ok().map(|team| {
+                            player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                        })
                     })
-                })
-                .unwrap_or(false);
+                    .unwrap_or(false);
                 let p = obj_guard.get_position();
                 LeftoverLocationSafeCandidate {
                     x: p.x,

@@ -11,8 +11,6 @@
 
 #![cfg(test)]
 
-use std::io::{Cursor, Read, Write};
-
 /// Command types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -188,8 +186,10 @@ mod stress_tests {
         let elapsed = start.elapsed();
         let msgs_per_sec = NUM_MESSAGES as f64 / elapsed.as_secs_f64();
 
-        println!("Serialized {} messages in {:?} ({:.0} msg/sec)",
-            NUM_MESSAGES, elapsed, msgs_per_sec);
+        println!(
+            "Serialized {} messages in {:?} ({:.0} msg/sec)",
+            NUM_MESSAGES, elapsed, msgs_per_sec
+        );
 
         assert!(msgs_per_sec > 100000.0);
 

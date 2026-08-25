@@ -3,7 +3,7 @@
 //! Tight hit 0.5 * MAP_XY_FACTOR, then loose 1.5 * MAP_XY_FACTOR. Miss creates
 //! a `Scorch` MapObject with `originalOwner=team`, `objectRadius`, `scorchType`.
 
-use game_engine::map_object::{Coord3D, MapObject, MAP_XY_FACTOR};
+use game_engine::map_object::{Coord3D, MAP_XY_FACTOR, MapObject};
 
 /// C++ `DEFAULT_SCORCHMARK_RADIUS`.
 pub const DEFAULT_SCORCHMARK_RADIUS: f32 = 20.0;
@@ -96,10 +96,7 @@ mod tests {
             Some(1),
             "within 1.5*MAP_XY_FACTOR (15wu) loose pass"
         );
-        assert_eq!(
-            pick_scorch(&objects, Coord3D::new(200.0, 200.0, 0.0)),
-            None
-        );
+        assert_eq!(pick_scorch(&objects, Coord3D::new(200.0, 200.0, 0.0)), None);
     }
 
     #[test]
@@ -119,15 +116,24 @@ mod tests {
         assert_eq!(objects[0].get_location().x, 10.0);
         assert_eq!(objects[0].get_location().y, 30.0);
         assert_eq!(
-            objects[0].get_properties().get("originalOwner").map(String::as_str),
+            objects[0]
+                .get_properties()
+                .get("originalOwner")
+                .map(String::as_str),
             Some(NEUTRAL_TEAM_INTERNAL_STR)
         );
         assert_eq!(
-            objects[0].get_properties().get("objectRadius").map(String::as_str),
+            objects[0]
+                .get_properties()
+                .get("objectRadius")
+                .map(String::as_str),
             Some("20")
         );
         assert_eq!(
-            objects[0].get_properties().get("scorchType").map(String::as_str),
+            objects[0]
+                .get_properties()
+                .get("scorchType")
+                .map(String::as_str),
             Some("0")
         );
     }
@@ -141,12 +147,7 @@ mod tests {
             DEFAULT_SCORCHMARK_RADIUS,
             SCORCH_1,
         );
-        let again = mouse_down_scorch(
-            &mut objects,
-            Coord3D::new(52.0, 50.0, 0.0),
-            40.0,
-            2,
-        );
+        let again = mouse_down_scorch(&mut objects, Coord3D::new(52.0, 50.0, 0.0), 40.0, 2);
         assert_eq!(first, 0);
         assert_eq!(again, 0);
         assert_eq!(objects.len(), 1);

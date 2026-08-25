@@ -5,7 +5,7 @@
 //! ray against visible render-object geometry.
 
 use crate::game_logic::host_residual_acquire::{
-    pick_best_priority_residual_target, PriorityAcquireCandidate,
+    PriorityAcquireCandidate, pick_best_priority_residual_target,
 };
 use crate::game_logic::{ObjectId, Team};
 use crate::presentation_frame::{PresentationFrame, RenderableObject};
@@ -50,11 +50,7 @@ pub fn ray_sphere_hit_t(ray_start: Vec3, ray_dir: Vec3, center: Vec3, radius: f3
     }
 }
 
-fn object_hit_along_ray(
-    object: &RenderableObject,
-    ray_start: Vec3,
-    ray_dir: Vec3,
-) -> Option<f32> {
+fn object_hit_along_ray(object: &RenderableObject, ray_start: Vec3, ray_dir: Vec3) -> Option<f32> {
     let radius = presentation_mesh_pick_radius(object.selection_radius, object.health_box_width);
     let t = ray_sphere_hit_t(ray_start, ray_dir, object.position, radius)?;
     (t <= 1.0).then_some(t)
@@ -190,7 +186,10 @@ mod tests {
     #[test]
     fn pick_radius_never_inflates_to_twenty_world_units() {
         assert_eq!(presentation_mesh_pick_radius(5.0, 0.0), 5.0);
-        assert_eq!(presentation_mesh_pick_radius(0.0, 0.0), MIN_PICK_SPHERE_RADIUS);
+        assert_eq!(
+            presentation_mesh_pick_radius(0.0, 0.0),
+            MIN_PICK_SPHERE_RADIUS
+        );
         assert!(presentation_mesh_pick_radius(5.0, 0.0) < 20.0);
     }
 
@@ -204,9 +203,27 @@ mod tests {
 
     #[test]
     fn double_click_uses_screen_pixels_not_world_units() {
-        assert!(is_os_style_double_click(200, 3.0, 0.0, 500, OS_DOUBLE_CLICK_SLOP_PX));
-        assert!(!is_os_style_double_click(200, 6.0, 0.0, 500, OS_DOUBLE_CLICK_SLOP_PX));
-        assert!(!is_os_style_double_click(600, 0.0, 0.0, 500, OS_DOUBLE_CLICK_SLOP_PX));
+        assert!(is_os_style_double_click(
+            200,
+            3.0,
+            0.0,
+            500,
+            OS_DOUBLE_CLICK_SLOP_PX
+        ));
+        assert!(!is_os_style_double_click(
+            200,
+            6.0,
+            0.0,
+            500,
+            OS_DOUBLE_CLICK_SLOP_PX
+        ));
+        assert!(!is_os_style_double_click(
+            600,
+            0.0,
+            0.0,
+            500,
+            OS_DOUBLE_CLICK_SLOP_PX
+        ));
     }
 
     #[test]

@@ -18,13 +18,13 @@ impl GameLogic {
         source_id: Option<ObjectId>,
     ) -> Vec3 {
         use crate::game_logic::host_repair::{
-            find_good_build_or_repair_position as snap, DozerFindPositionQuery,
-            DOZER_FIND_POSITION_OVERLAP_SPHERE,
+            DOZER_FIND_POSITION_OVERLAP_SPHERE, DozerFindPositionQuery,
+            find_good_build_or_repair_position as snap,
         };
         use gamelogic::ai::pathfind_astar::PathfindCellType;
 
-        let grid_live = self.pathfinding_system.grid.width() > 0
-            && self.pathfinding_system.grid.height() > 0;
+        let grid_live =
+            self.pathfinding_system.grid.width() > 0 && self.pathfinding_system.grid.height() > 0;
         let height_at = |p: Vec3| self.terrain_height_at(p);
         let is_cliff = |p: Vec3| {
             if let Some(t) = self.terrain.as_ref() {
@@ -201,11 +201,9 @@ impl GameLogic {
             }
             // `set_team` without owner flip (tests / stale writeback): still
             // rematch onto the new faction's controlling player.
-            new_key = self
-                .unique_player_id_for_team(new_team)
-                .unwrap_or_else(|| {
-                    crate::game_logic::host_tunnel_network::tunnel_system_key(None, new_team)
-                });
+            new_key = self.unique_player_id_for_team(new_team).unwrap_or_else(|| {
+                crate::game_logic::host_tunnel_network::tunnel_system_key(None, new_team)
+            });
             if old_key == new_key {
                 return;
             }
@@ -227,9 +225,9 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
 
-        let outcome =
-            self.tunnel_network
-                .on_tunnel_destroyed(old_key, tunnel_id, &remaining_old);
+        let outcome = self
+            .tunnel_network
+            .on_tunnel_destroyed(old_key, tunnel_id, &remaining_old);
         if outcome.cave_in {
             for uid in outcome.cave_in_units {
                 if let Some(unit) = self.objects.get_mut(&uid) {
@@ -242,8 +240,7 @@ impl GameLogic {
                     unit.health.current = 0.0;
                 }
                 self.mark_object_for_destruction(uid, Some(new_team));
-                self.capture_tunnel_last_ejects =
-                    self.capture_tunnel_last_ejects.saturating_add(1);
+                self.capture_tunnel_last_ejects = self.capture_tunnel_last_ejects.saturating_add(1);
             }
         } else if let Some(valid) = outcome.remapped_to {
             let pool = self.tunnel_network.contained_for_player(old_key);
@@ -268,7 +265,6 @@ impl GameLogic {
         self.tunnel_network.on_tunnel_created(new_key, tunnel_id);
         self.capture_tunnel_transfers = self.capture_tunnel_transfers.saturating_add(1);
     }
-
 
     /// C++ Object::onCapture residual (after ownership flip).
     ///
@@ -305,7 +301,6 @@ impl GameLogic {
         // C++ Object::defect → ParkingPlaceBehavior::defectAllParkedUnits
         // (SpecialAbilityUpdate.cpp:1442). Only on capture, not a per-tick walk.
         self.defect_all_parked_units(object_id);
-
 
         // Deselect from all players (C++ TheGameLogic->deselectObject residual).
         for player in self.players.values_mut() {
@@ -357,7 +352,10 @@ impl GameLogic {
                 self.oil_derricks.mark_neutral_owner(object_id);
             } else {
                 let owner_key = captured_owner_player_id.unwrap_or(u32::MAX);
-                if self.oil_derricks.note_non_neutral_gain(object_id, owner_key) {
+                if self
+                    .oil_derricks
+                    .note_non_neutral_gain(object_id, owner_key)
+                {
                     self.oil_derricks
                         .reschedule_after_capture(object_id, self.frame);
                 }
@@ -467,17 +465,15 @@ impl GameLogic {
         let walk_exit = !is_overlord_helix
             && !unmanned
             && !is_garrison
-            && (uses_exit_busy
-                || can_contain
-                || {
-                    template_lc.contains("humvee")
-                        || template_lc.contains("chinook")
-                        || template_lc.contains("crawler")
-                        || template_lc.contains("battlebus")
-                        || template_lc.contains("technical")
-                        || template_lc.contains("outpost")
-                        || template_lc.contains("helix")
-                });
+            && (uses_exit_busy || can_contain || {
+                template_lc.contains("humvee")
+                    || template_lc.contains("chinook")
+                    || template_lc.contains("crawler")
+                    || template_lc.contains("battlebus")
+                    || template_lc.contains("technical")
+                    || template_lc.contains("outpost")
+                    || template_lc.contains("helix")
+            });
         let portable_id = portable_id.or(container.overlord_portable_occupant);
         let mut occupants: Vec<ObjectId> = container
             .contained_units()
@@ -1784,13 +1780,8 @@ impl GameLogic {
         } else {
             None
         };
-        let hole_id = self.host_spawn_rebuild_bound_object(
-            &hole_name,
-            team,
-            owner_player_id,
-            pos,
-            gw_raw,
-        )?;
+        let hole_id =
+            self.host_spawn_rebuild_bound_object(&hole_name, team, owner_player_id, pos, gw_raw)?;
         if let Some(h) = self.objects.get_mut(&hole_id) {
             // A rebuild hole is a continuation of the destroyed building, not
             // a new team-level object.  Preserve exact ownership for the
@@ -2116,7 +2107,6 @@ impl GameLogic {
                 // C++ setProducer(hole) residual.
                 o.producer_id = Some(hole_id);
                 o.builder_id = Some(worker_id);
-
             }
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 // Construction target association stays host (not combat AttackTarget).

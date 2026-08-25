@@ -1029,10 +1029,10 @@ impl Snapshot for Object {
         }
 
         if version >= 4 {
-            let mut cur_weapon_set_flags = weapon_set_flags_to_bits(self.cur_weapon_set_flags) as u128;
+            let mut cur_weapon_set_flags =
+                weapon_set_flags_to_bits(self.cur_weapon_set_flags) as u128;
             xfer_named_bits(xfer, &mut cur_weapon_set_flags, WEAPON_SET_XFER_NAMES);
-            self.cur_weapon_set_flags =
-                weapon_set_flags_from_bits(cur_weapon_set_flags as u32);
+            self.cur_weapon_set_flags = weapon_set_flags_from_bits(cur_weapon_set_flags as u32);
 
             let mut weapon_bonus_condition = self.weapon_bonus_condition.bits();
             let _ = xfer.xfer_unsigned_int(&mut weapon_bonus_condition);

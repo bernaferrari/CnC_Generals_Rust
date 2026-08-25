@@ -78,8 +78,8 @@ pub fn residual_minimap_reinit_instance_presentation_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_minimap_reinit_instance_presentation_last_action(
-) -> ResidualMinimapReinitInstancePresentationAction {
+pub fn residual_minimap_reinit_instance_presentation_last_action()
+-> ResidualMinimapReinitInstancePresentationAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualMinimapReinitInstancePresentationAction::MethodNames,
         2 => ResidualMinimapReinitInstancePresentationAction::SourceMarkers,

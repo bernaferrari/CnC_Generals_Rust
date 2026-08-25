@@ -23,7 +23,34 @@ pub mod in_game_popup_message;
 pub mod ingame_callbacks;
 pub mod keyboard_options_menu;
 pub mod lan_game_options_menu;
+#[cfg(feature = "online_ui")]
 pub mod lan_lobby_menu;
+#[cfg(not(feature = "online_ui"))]
+pub mod lan_lobby_menu {
+    use crate::gui::{GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled};
+
+    pub fn lan_lobby_init(_layout: &WindowLayout) {}
+    pub fn lan_lobby_update(_layout: &WindowLayout) {}
+    pub fn lan_lobby_shutdown(_layout: &WindowLayout, _immediate: bool) {}
+
+    pub fn lan_lobby_input(
+        _window: &GameWindow,
+        _msg: WindowMessage,
+        _data1: WindowMsgData,
+        _data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        WindowMsgHandled::Ignored
+    }
+
+    pub fn lan_lobby_system(
+        _window: &GameWindow,
+        _msg: WindowMessage,
+        _data1: WindowMsgData,
+        _data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        WindowMsgHandled::Ignored
+    }
+}
 pub mod lan_map_select_menu;
 pub mod menu_callbacks;
 pub mod message_box;

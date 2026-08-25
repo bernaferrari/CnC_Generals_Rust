@@ -176,7 +176,6 @@ pub fn is_legal_neutron_blast_target(
     true
 }
 
-
 /// Classify residual neutron effect for one target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NeutronEffect {

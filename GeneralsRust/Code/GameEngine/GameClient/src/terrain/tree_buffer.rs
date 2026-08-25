@@ -1572,9 +1572,7 @@ impl W3DTreeBuffer {
         is_visible: impl FnMut(&TreeSphere) -> bool,
     ) -> (&[TreeVertexXyznduv1], &[u16]) {
         self.cull_trees(camera_look_at, is_visible);
-        if self.cpu_vertices.is_empty()
-            && self.trees.iter().any(|tree| tree.tree_type >= 0)
-        {
+        if self.cpu_vertices.is_empty() && self.trees.iter().any(|tree| tree.tree_type >= 0) {
             self.anything_changed = true;
         }
         self.load_trees_in_vertex_and_index_buffers(object_lighting);

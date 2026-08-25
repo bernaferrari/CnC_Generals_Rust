@@ -8,11 +8,11 @@ use std::sync::{Arc, RwLock};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::language::Language;
 
-use crate::color::{game_get_color_components, game_make_color, Color};
+use crate::color::{Color, game_get_color_components, game_make_color};
 use crate::global_language::get_global_language_data;
-use crate::gui::display_string::get_display_string_manager;
 use crate::gui::display_string::DisplayStringHandle;
-use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::display_string::get_display_string_manager;
+use crate::gui::font::{FontDesc, get_font_library};
 use crate::gui::ui_globals::with_ui_renderer;
 
 const CREDIT_SPACE_OFFSET: i32 = 2;

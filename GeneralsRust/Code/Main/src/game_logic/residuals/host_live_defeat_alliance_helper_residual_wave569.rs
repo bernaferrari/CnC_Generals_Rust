@@ -148,11 +148,7 @@ pub fn honesty_defeat_alliance_helper_source_markers_residual_wave569() -> bool 
         && !all.contains("take_alliance_events()");
     let call_ok = eng.contains("self.take_presentation_or_boot_defeat_events()")
         && eng.contains("self.take_presentation_or_boot_alliance_events()");
-    let ok = field_ok
-        && def_ok
-        && all_ok
-        && call_ok
-        && !eng.contains("playable_claim = true");
+    let ok = field_ok && def_ok && all_ok && call_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualDefeatAllianceHelperAction::SourceMarkers);
     ok
 }

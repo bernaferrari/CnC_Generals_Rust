@@ -2,6 +2,11 @@
 //!
 //! Split from `w3d_c_api.rs`. Public names stay identical for C ABI / parity.
 
+use super::constants::*;
+use super::leftover::*;
+use super::math::*;
+use super::transforms::*;
+use super::types::*;
 use crate::w3d::renderer::{batch_material_params, batch_priority};
 use crate::w3d::w3d_device::RenderObject;
 use crate::w3d::{
@@ -10,19 +15,14 @@ use crate::w3d::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
-use super::constants::*;
-use super::leftover::*;
-use super::math::*;
-use super::transforms::*;
-use super::types::*;
 
 /// Load texture - matches original W3DDevice::LoadTexture(filename)
 #[no_mangle]
@@ -181,7 +181,10 @@ pub(super) async fn load_texture_internal(
     Ok(Box::into_raw(texture_c))
 }
 
-pub(super) async fn set_texture_internal(device: &Arc<RwLock<W3DDevice>>, texture: Texture) -> Result<()> {
+pub(super) async fn set_texture_internal(
+    device: &Arc<RwLock<W3DDevice>>,
+    texture: Texture,
+) -> Result<()> {
     let device_lock = device.read().await;
     device_lock.add_texture(texture).await?;
     Ok(())
@@ -195,7 +198,10 @@ pub(super) async fn get_texture_internal(
     device_lock.get_texture(texture_id).await
 }
 
-pub(super) unsafe fn intern_texture_handle(device: &W3DDeviceC, texture_handle: W3D_TEXTURE) -> W3D_TEXTURE {
+pub(super) unsafe fn intern_texture_handle(
+    device: &W3DDeviceC,
+    texture_handle: W3D_TEXTURE,
+) -> W3D_TEXTURE {
     if texture_handle.is_null() {
         return std::ptr::null_mut();
     }
@@ -236,7 +242,10 @@ pub(super) fn active_draw_texture_stage(device: &W3DDeviceC) -> u32 {
     })
 }
 
-pub(super) fn resolve_active_draw_texture_stage<F>(bound_stages: &[u32], mut stage_state_lookup: F) -> u32
+pub(super) fn resolve_active_draw_texture_stage<F>(
+    bound_stages: &[u32],
+    mut stage_state_lookup: F,
+) -> u32
 where
     F: FnMut(u32, u32) -> u32,
 {
@@ -308,7 +317,10 @@ where
     color_op != D3DTOP_DISABLE || alpha_op != D3DTOP_DISABLE
 }
 
-pub(super) fn texture_stage_uses_texture_input_with<F>(stage_state_lookup: &mut F, stage: u32) -> bool
+pub(super) fn texture_stage_uses_texture_input_with<F>(
+    stage_state_lookup: &mut F,
+    stage: u32,
+) -> bool
 where
     F: FnMut(u32, u32) -> u32,
 {
@@ -316,7 +328,10 @@ where
         || texture_stage_uses_texture_alpha_input_with(stage_state_lookup, stage)
 }
 
-pub(super) fn texture_stage_uses_texture_color_input_with<F>(stage_state_lookup: &mut F, stage: u32) -> bool
+pub(super) fn texture_stage_uses_texture_color_input_with<F>(
+    stage_state_lookup: &mut F,
+    stage: u32,
+) -> bool
 where
     F: FnMut(u32, u32) -> u32,
 {
@@ -327,7 +342,10 @@ where
     op_uses_texture_arg(color_op, color_arg0, color_arg1, color_arg2)
 }
 
-pub(super) fn texture_stage_uses_texture_alpha_input_with<F>(stage_state_lookup: &mut F, stage: u32) -> bool
+pub(super) fn texture_stage_uses_texture_alpha_input_with<F>(
+    stage_state_lookup: &mut F,
+    stage: u32,
+) -> bool
 where
     F: FnMut(u32, u32) -> u32,
 {
@@ -473,7 +491,10 @@ pub(super) fn stage_texture_transform_flags(device: &W3DDeviceC, stage: u32) -> 
     stage_texture_state_value(device, stage, D3DTSS_TEXTURETRANSFORMFLAGS)
 }
 
-pub(super) fn current_texture_transform_matrix(device: &W3DDeviceC, stage: u32) -> Option<W3D_MATRIX> {
+pub(super) fn current_texture_transform_matrix(
+    device: &W3DDeviceC,
+    stage: u32,
+) -> Option<W3D_MATRIX> {
     let state = texture_transform_state(stage)?;
     let Ok(states) = device.transform_states.lock() else {
         return Some(default_transform_state_value(state));
@@ -486,7 +507,11 @@ pub(super) fn current_texture_transform_matrix(device: &W3DDeviceC, stage: u32) 
     )
 }
 
-pub(super) fn apply_stage_texture_transform(device: &W3DDeviceC, stage: u32, vertices: &mut [W3D_VERTEX]) {
+pub(super) fn apply_stage_texture_transform(
+    device: &W3DDeviceC,
+    stage: u32,
+    vertices: &mut [W3D_VERTEX],
+) {
     if vertices.is_empty() {
         return;
     }

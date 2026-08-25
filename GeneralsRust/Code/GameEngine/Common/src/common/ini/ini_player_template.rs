@@ -1,10 +1,10 @@
 //! PlayerTemplate INI parsing and store population.
 
-use crate::common::game_common::{VeterancyLevel, VETERANCY_NAMES};
-use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
+use crate::common::game_common::{VETERANCY_NAMES, VeterancyLevel};
+use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::name_key_generator::NameKeyGenerator;
 use crate::common::rts::money::Money;
-use crate::common::rts::player_template::{get_player_template_store_mut, PlayerTemplate};
+use crate::common::rts::player_template::{PlayerTemplate, get_player_template_store_mut};
 
 const MAX_STARTING_UNITS: usize = 10;
 

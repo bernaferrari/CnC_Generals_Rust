@@ -9,6 +9,7 @@ use crate::ai::THE_AI;
 use crate::common::{AsciiString, Bool, ObjectStatusTypes, Real};
 use crate::damage::DamageInfo;
 use crate::helpers::TheThingFactory;
+use crate::object::Object;
 use crate::object::behavior::behavior_module::RebuildHoleBehaviorInterface;
 use crate::object::body::body_module::MaxHealthChangeType;
 use crate::object::die::{
@@ -16,10 +17,9 @@ use crate::object::die::{
     parse_die_mux_veterancy_levels,
 };
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
 use crate::system::game_logic::get_game_logic;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 

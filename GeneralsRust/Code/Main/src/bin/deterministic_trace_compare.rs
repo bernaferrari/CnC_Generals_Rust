@@ -1,5 +1,9 @@
-use anyhow::{bail, Context, Result};
-use generals_main::deterministic_trace::{compare_frame_traces, FrameTrace, TraceDifference};
+use anyhow::{Context, Result, bail};
+#[cfg(test)]
+use generals_main::deterministic_trace::TraceDifference;
+use generals_main::deterministic_trace::{
+    FrameTrace, TraceFieldDifference, first_trace_field_difference,
+};
 use serde::Deserialize;
 use std::env;
 use std::fs;
@@ -23,13 +27,24 @@ fn main() -> Result<()> {
     let left = read_trace(&args.left)?;
     let right = read_trace(&args.right)?;
 
-    match compare_frame_traces(&left, &right) {
-        Ok(()) => {
-            println!("traces match: {} frames", left.len());
-            Ok(())
-        }
-        Err(difference) => bail!("{}", format_difference(&difference)),
+    if let Some(difference) = first_trace_field_difference(&left, &right) {
+        bail!("{}", format_field_difference(&difference));
     }
+    println!("traces match: {} frames", left.len());
+    Ok(())
+}
+
+fn format_field_difference(difference: &TraceFieldDifference) -> String {
+    format!(
+        "trace mismatch at index {} (left frame {}, right frame {}): {} at {}: left={}, right={}",
+        difference.index,
+        difference.left_frame,
+        difference.right_frame,
+        difference.category,
+        difference.path,
+        difference.left,
+        difference.right,
+    )
 }
 
 impl Args {
@@ -72,6 +87,7 @@ fn read_trace(path: &Path) -> Result<Vec<FrameTrace>> {
     })
 }
 
+#[cfg(test)]
 fn format_difference(difference: &TraceDifference) -> String {
     match difference {
         TraceDifference::FrameCrc {
@@ -147,5 +163,21 @@ mod tests {
         assert!(message.contains("frame 100"));
         assert!(message.contains("0x00001234"));
         assert!(message.contains("0x0000abcd"));
+    }
+
+    #[test]
+    fn field_difference_message_names_category_and_path() {
+        let message = format_field_difference(&TraceFieldDifference {
+            index: 2,
+            left_frame: 3,
+            right_frame: 3,
+            category: "xfer".to_string(),
+            path: "xfer[7]".to_string(),
+            left: serde_json::json!(12),
+            right: serde_json::json!(13),
+        });
+        assert!(message.contains("xfer at xfer[7]"));
+        assert!(message.contains("left=12"));
+        assert!(message.contains("right=13"));
     }
 }

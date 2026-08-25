@@ -236,7 +236,9 @@ impl RenderPipeline {
             #[cfg(feature = "game_client")]
             if draw_models.is_empty() {
                 if let Some(spec) =
-                    game_client::core::game_client::presentation_specialized_draw_snapshot(object_id.0)
+                    game_client::core::game_client::presentation_specialized_draw_snapshot(
+                        object_id.0,
+                    )
                 {
                     if spec.is_debris() && !spec.model_name.trim().is_empty() {
                         draw_models.push(crate::assets::AuthoredDrawModel {
@@ -253,7 +255,6 @@ impl RenderPipeline {
             {
                 continue;
             }
-
 
             alive_objects += 1;
 
@@ -273,8 +274,7 @@ impl RenderPipeline {
                     fow_filtered += 1;
                     trace!(
                         "Skipping object {} - never explored (presentation FOW) by player {}",
-                        object_id,
-                        self.current_player_id
+                        object_id, self.current_player_id
                     );
                     continue;
                 }
@@ -417,29 +417,28 @@ impl RenderPipeline {
                                                     material.texture_name =
                                                         Some(texture_from_ini.to_string());
                                                     trace!(
-                                                    "WW3D material fallback: object {} ('{}') -> texture {}",
-                                                    object_id,
-                                                    template_name_owned,
-                                                    texture_from_ini
-                                                );
+                                                        "WW3D material fallback: object {} ('{}') -> texture {}",
+                                                        object_id,
+                                                        template_name_owned,
+                                                        texture_from_ini
+                                                    );
                                                 } else if self.missing_ini_objects.insert(format!(
                                                     "{}::texture",
                                                     template_name_owned
                                                 )) {
                                                     debug!(
-                                                    "WW3D assets: INI definition for '{}' defines no textures",
-                                                    template_name_owned
-                                                );
+                                                        "WW3D assets: INI definition for '{}' defines no textures",
+                                                        template_name_owned
+                                                    );
                                                 }
                                             } else if self
                                                 .missing_ini_objects
                                                 .insert(template_name_owned.clone())
                                             {
                                                 debug!(
-                                                "WW3D assets: no INI definition for '{}' (model hint: {:?})",
-                                                template_name_owned,
-                                                model_hint
-                                            );
+                                                    "WW3D assets: no INI definition for '{}' (model hint: {:?})",
+                                                    template_name_owned, model_hint
+                                                );
                                             }
                                         }
                                     }
@@ -504,9 +503,9 @@ impl RenderPipeline {
                                     );
                                     if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
                                         warn!(
-                                        "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; skipping (C++ does not identity-draw failed HLOD binds)",
-                                        key, template_name_owned, model_name, mesh.name
-                                    );
+                                            "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; skipping (C++ does not identity-draw failed HLOD binds)",
+                                            key, template_name_owned, model_name, mesh.name
+                                        );
                                     }
                                     continue;
                                 }
@@ -532,7 +531,8 @@ impl RenderPipeline {
 
                                 render_item.apply_status_tint(u.status_tint);
                                 render_item.set_presentation_opacity(u.presentation_opacity);
-                                render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
+                                render_item
+                                    .apply_heat_vision_second_pass(u.second_material_pass_opacity);
                                 render_item.apply_house_color_livery(&mesh.name);
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
@@ -549,7 +549,6 @@ impl RenderPipeline {
                                 }
 
                                 self.render_items.push(render_item);
-
                             }
 
                             // `HLodClass` renders each AdditionalModel after
@@ -633,9 +632,7 @@ impl RenderPipeline {
                             if self.render_items.len() > render_item_count_before_model {
                                 trace!(
                                     "Object {} will render with FOW alpha={}, explored={}",
-                                    object_id,
-                                    visibility.visibility_alpha,
-                                    visibility.is_explored
+                                    object_id, visibility.visibility_alpha, visibility.is_explored
                                 );
                                 render_item_build_elapsed += render_item_build_started.elapsed();
                                 continue; // Skip the fallback path
@@ -686,7 +683,9 @@ impl RenderPipeline {
 
                                     render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
-                                    render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
+                                    render_item.apply_heat_vision_second_pass(
+                                        u.second_material_pass_opacity,
+                                    );
 
                                     self.render_items.push(render_item);
                                 }
@@ -746,7 +745,9 @@ impl RenderPipeline {
 
                                     render_item.apply_status_tint(u.status_tint);
                                     render_item.set_presentation_opacity(u.presentation_opacity);
-                                    render_item.apply_heat_vision_second_pass(u.second_material_pass_opacity);
+                                    render_item.apply_heat_vision_second_pass(
+                                        u.second_material_pass_opacity,
+                                    );
 
                                     self.render_items.push(render_item);
                                 }
@@ -1042,8 +1043,8 @@ impl RenderPipeline {
         deferred_model_load_budget: &mut usize,
     ) -> RenderModelLoadResult {
         use crate::assets::mesh_asset_resolve::{
-            canonical_model_key, resolve_mesh_for_model_key, MeshResolveResult,
-            PLACEHOLDER_MODEL_KEY,
+            MeshResolveResult, PLACEHOLDER_MODEL_KEY, canonical_model_key,
+            resolve_mesh_for_model_key,
         };
 
         static STARTUP_MODEL_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -1299,8 +1300,8 @@ impl RenderPipeline {
                     }
                     child.local_transform
                 } else {
-                    let Some(transform) = model
-                        .mesh_local_transform_for_animation(mesh_index, usize::MAX, 0.0)
+                    let Some(transform) =
+                        model.mesh_local_transform_for_animation(mesh_index, usize::MAX, 0.0)
                     else {
                         continue;
                     };
@@ -1476,7 +1477,6 @@ impl RenderPipeline {
                         let bridge_house_color = submission
                             .legacy_render_object_color
                             .and_then(house_color_from_argb);
-
 
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let Some((mesh_local_transform, mesh_visible)) = w3d_model
@@ -1903,7 +1903,6 @@ fn stamp_skinned_hierarchy_bind_pose(item: &mut RenderItem, mesh: &crate::assets
     }
 }
 
-
 #[cfg(test)]
 mod w3d_live_path_tests {
     use super::*;
@@ -2142,7 +2141,6 @@ mod w3d_live_path_tests {
         assert!(item.material.diffuse_color.x > item.material.diffuse_color.y);
         assert!(item.material.diffuse_color.y.abs() < 1e-5);
     }
-
 
     #[test]
     fn real_w3d_name_does_not_count_as_fallback_cube() {

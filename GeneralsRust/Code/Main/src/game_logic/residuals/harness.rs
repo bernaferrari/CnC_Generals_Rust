@@ -15,6 +15,12 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../game_logic/mod.rs"),
     include_str!("../buildings.rs"),
     include_str!("../world_save.rs"),
+    include_str!("../world_save/world_subsystems.rs"),
+    include_str!("../world_save/world_paths.rs"),
+    include_str!("../world_save/world_runtime.rs"),
+    include_str!("../world_save/world_players.rs"),
+    include_str!("../world_save/world_load.rs"),
+    include_str!("../world_save/world_tests.rs"),
     include_str!("../host_usa_pilot.rs"),
     include_str!("../host_ranger.rs"),
     include_str!("../world_combat/ocl_and_scud.rs"),
@@ -22,12 +28,26 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../world_combat/strategy_center.rs"),
     include_str!("../world_combat/infantry_weapons.rs"),
     include_str!("../world_combat/missile_defenders.rs"),
-    include_str!("../world_combat/drones_and_garrison.rs"),
+    include_str!("../world_combat/drones_and_garrison/mod.rs"),
+    include_str!("../world_combat/drones_and_garrison/firepoints.rs"),
+    include_str!("../world_combat/drones_and_garrison/neutron.rs"),
+    include_str!("../world_combat/drones_and_garrison/transport.rs"),
+    include_str!("../world_combat/drones_and_garrison/garrison.rs"),
+    include_str!("../world_combat/drones_and_garrison/support_residuals.rs"),
+    include_str!("../world_combat/drones_and_garrison/defector.rs"),
+    include_str!("../world_combat/drones_and_garrison/production_and_power.rs"),
+    include_str!("../world_combat/drones_and_garrison/special_powers.rs"),
+    include_str!("../world_combat/drones_and_garrison/tests.rs"),
     include_str!("../world_combat/special_power_flights.rs"),
     include_str!("../world_combat/air_and_mig.rs"),
     include_str!("../world_combat/heroes_and_plans.rs"),
     include_str!("../resources.rs"),
-    include_str!("../combat.rs"),
+    include_str!("../combat/mod.rs"),
+    include_str!("../combat/damage.rs"),
+    include_str!("../combat/projectile.rs"),
+    include_str!("../combat/weapon_fire.rs"),
+    include_str!("../combat/resolution.rs"),
+    include_str!("../combat/tests.rs"),
     include_str!("../world_tick/step.rs"),
     include_str!("../world_objects/destroy_list_bounty.rs"),
     include_str!("../world_scripts/ambush_leaflet.rs"),
@@ -35,11 +55,23 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../world_objects/create_destroy_die.rs"),
     include_str!("../world_objects/host_ops_writeback.rs"),
     include_str!("../world_objects/ai_authority.rs"),
-    include_str!("../world_objects/support_states.rs"),
+    include_str!("../world_objects/support_states/mod.rs"),
+    include_str!("../world_objects/support_states/contain_states.rs"),
+    include_str!("../world_objects/support_states/guard_states.rs"),
+    include_str!("../world_objects/support_states/heal_contain_tunnel.rs"),
+    include_str!("../world_objects/support_states/special_abilities.rs"),
+    include_str!("../world_objects/support_states/supply_repair_docks.rs"),
+    include_str!("../world_objects/support_states/update.rs"),
     include_str!("../world_objects/weapon_upgrades.rs"),
     include_str!("../world_objects/crates_radar_power.rs"),
     include_str!("../world_objects/ready_completions.rs"),
-    include_str!("../world_objects/spawn_templates.rs"),
+    include_str!("../world_objects/spawn_templates/mod.rs"),
+    include_str!("../world_objects/spawn_templates/definition.rs"),
+    include_str!("../world_objects/spawn_templates/metadata.rs"),
+    include_str!("../world_objects/spawn_templates/seeding.rs"),
+    include_str!("../world_objects/spawn_templates/vision.rs"),
+    include_str!("../world_objects/spawn_templates/setup.rs"),
+    include_str!("../world_objects/spawn_templates/tests.rs"),
     include_str!("../world_objects/resources_income.rs"),
     include_str!("../world_objects/object_ai_combat.rs"),
     include_str!("../world_tick/production.rs"),
@@ -69,8 +101,7 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
 
 /// Live unit-command split (2026-08-15). Kept out of `GAME_LOGIC_HOST_SRC`
 /// so exact `.matches().count()` honesty packs do not shift.
-pub const GAME_LOGIC_UNIT_COMMANDS_SRC: &str =
-    include_str!("../world_scripts/unit_commands.rs");
+pub const GAME_LOGIC_UNIT_COMMANDS_SRC: &str = include_str!("../world_scripts/unit_commands.rs");
 
 /// Object order / construct splits scanned by command-authority residuals.
 pub const GAME_LOGIC_OBJECT_ORDERS_SRC: &str = include_str!("../object/orders.rs");
@@ -80,7 +111,13 @@ pub const GAME_LOGIC_OBJECT_CONSTRUCT_SRC: &str = include_str!("../object/constr
 /// `.matches().count()` honesty packs do not shift (2026-08-15).
 pub const GAME_LOGIC_EVA_CAMERA_SRC: &str = include_str!("../world_scripts/eva_camera.rs");
 pub const GAME_LOGIC_UI_PRODUCTION_SRC: &str = include_str!("../world_scripts/ui_production.rs");
-pub const GAME_LOGIC_SCRIPTS_CAMERA_SRC: &str = include_str!("../world_scripts/scripts_camera.rs");
+pub const GAME_LOGIC_SCRIPTS_CAMERA_SRC: &str = concat!(
+    include_str!("../world_scripts/scripts_camera/mod.rs"),
+    include_str!("../world_scripts/scripts_camera/script_state.rs"),
+    include_str!("../world_scripts/scripts_camera/script_unit_actions.rs"),
+    include_str!("../world_scripts/scripts_camera/script_team_actions.rs"),
+    include_str!("../world_scripts/scripts_camera/script_runtime_camera.rs"),
+);
 pub const GAME_LOGIC_OBJECT_WEAPONS_SRC: &str = include_str!("../object/weapons.rs");
 pub const GAME_LOGIC_TANKS_SRC: &str = include_str!("../world_combat/tanks_and_upgrades.rs");
 

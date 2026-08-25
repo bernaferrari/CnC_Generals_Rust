@@ -2,11 +2,11 @@
 // Ported adapter for C++ W3DDevice/Common/System/W3DRadar.cpp.
 
 pub use game_engine::common::system::radar::{
+    CellShroudStatus, Coord3D, ICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, RadarEvent,
+    RadarEventMarker, RadarEventMarkerKind, RadarHeroReticleRect, RadarObject, RadarPriorityType,
+    RadarSystem, RadarViewBoxLine, Region3D, W3D_RADAR_OVERLAY_REFRESH_RATE,
     interpolate_color_for_height, legal_radar_point, radar_draw_positions, radar_event_marker,
-    radar_to_pixel, should_refresh_w3d_object_overlay, CellShroudStatus, Coord3D, ICoord2D,
-    RadarEvent, RadarEventMarker, RadarEventMarkerKind, RadarHeroReticleRect, RadarObject,
-    RadarPriorityType, RadarSystem, RadarViewBoxLine, Region3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
-    W3D_RADAR_OVERLAY_REFRESH_RATE,
+    radar_to_pixel, should_refresh_w3d_object_overlay,
 };
 
 /// Minimal WW3D texture-format identity used by the W3D radar adapter.
@@ -384,19 +384,23 @@ mod tests {
 
         assert!(radar.resources_allocated());
         assert!(radar.should_reconstruct_view_box());
-        assert!(radar
-            .radar()
-            .get_terrain_texture()
-            .chunks_exact(4)
-            .any(|pixel| pixel[3] != 0));
+        assert!(
+            radar
+                .radar()
+                .get_terrain_texture()
+                .chunks_exact(4)
+                .any(|pixel| pixel[3] != 0)
+        );
 
         radar.reset();
         assert!(radar.resources_allocated());
-        assert!(radar
-            .radar()
-            .get_terrain_texture()
-            .iter()
-            .all(|byte| *byte == 0));
+        assert!(
+            radar
+                .radar()
+                .get_terrain_texture()
+                .iter()
+                .all(|byte| *byte == 0)
+        );
 
         radar.delete_resources();
         assert!(!radar.resources_allocated());

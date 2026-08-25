@@ -182,11 +182,7 @@ impl PlaneClass {
 
         let t = -(self.normal.dot(origin) + self.distance) / denom;
 
-        if t >= 0.0 {
-            Some(t)
-        } else {
-            None
-        }
+        if t >= 0.0 { Some(t) } else { None }
     }
 
     /// Flip the plane (reverse normal and distance)
@@ -341,14 +337,18 @@ mod tests {
         assert_eq!(t, 5.0);
 
         // Ray parallel to plane
-        assert!(plane
-            .intersect_ray(Vec3::new(0.0, 5.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
-            .is_none());
+        assert!(
+            plane
+                .intersect_ray(Vec3::new(0.0, 5.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+                .is_none()
+        );
 
         // Ray away from plane
-        assert!(plane
-            .intersect_ray(Vec3::new(0.0, 5.0, 0.0), Vec3::new(0.0, 1.0, 0.0))
-            .is_none());
+        assert!(
+            plane
+                .intersect_ray(Vec3::new(0.0, 5.0, 0.0), Vec3::new(0.0, 1.0, 0.0))
+                .is_none()
+        );
     }
 
     #[test]

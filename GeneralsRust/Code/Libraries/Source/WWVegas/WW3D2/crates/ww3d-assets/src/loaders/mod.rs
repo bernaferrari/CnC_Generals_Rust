@@ -35,7 +35,6 @@ use ww3d_core::{
     W3dTextureInfoStruct, W3dTextureStruct, W3dTriangleStruct, W3dVectorStruct, W3dVertInfStruct,
 };
 
-
 // Compatibility re-exports from old loaders module
 // These are stub types to maintain compatibility with existing code
 
@@ -73,7 +72,7 @@ pub fn parse_w3d_file_with_asset_name<R: Read + Seek>(
 }
 
 fn register_extra_prototypes(data: &[u8], asset_manager: &mut AssetManager) {
-    use crate::prototype_loader::{find_loader, DefaultLoaders};
+    use crate::prototype_loader::{DefaultLoaders, find_loader};
     use ww3d_core::{
         W3D_CHUNK_ANIMATION, W3D_CHUNK_COMPRESSED_ANIMATION, W3D_CHUNK_HIERARCHY, W3D_CHUNK_HLOD,
         W3D_CHUNK_HMODEL, W3D_CHUNK_MESH,
@@ -114,7 +113,6 @@ fn register_extra_prototypes(data: &[u8], asset_manager: &mut AssetManager) {
         }
     }
 }
-
 
 fn register_loaded_model(
     asset_manager: &mut AssetManager,

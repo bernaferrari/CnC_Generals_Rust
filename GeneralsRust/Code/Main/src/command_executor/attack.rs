@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -82,7 +82,11 @@ impl<'a> CommandExecutor<'a> {
             2 => Team::China,
             _ => return CommandResult::InvalidTarget,
         };
-        let tag = attack_team_persist_tag(enemy_team);
+        // The command wire value only carries the faction. Resolve it once to
+        // the concrete live Team instance and retain that identity for the
+        // AttackSquad re-acquire path. C++ stores the `Team*`, never a faction.
+        let enemy_team_name = self.game_logic.attack_team_identity_for_faction(enemy_team);
+        let tag = attack_team_persist_tag(&enemy_team_name);
         let mut any = false;
         for &unit_id in units {
             let (alive, skip_struct, my_team) = match self.game_logic.host_object(unit_id) {
@@ -98,7 +102,7 @@ impl<'a> CommandExecutor<'a> {
             }
             let victim = self
                 .game_logic
-                .choose_attack_team_victim(unit_id, enemy_team, true);
+                .choose_attack_team_victim(unit_id, &enemy_team_name, true);
             if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
                 unit.set_max_shots_to_fire(max_shots);
                 unit.auto_acquire_when_idle = true;
@@ -241,7 +245,8 @@ impl<'a> CommandExecutor<'a> {
             // C++/leftover issue aiAttackObject to every member with AI.
             // No isAbleToAttack / can_attack gate (AIGroup.cpp:2164-2171).
             let ok = if forced {
-                self.game_logic.unit_command_force_attack(unit_id, target_id)
+                self.game_logic
+                    .unit_command_force_attack(unit_id, target_id)
             } else {
                 self.game_logic.unit_command_attack(unit_id, target_id)
             };
@@ -293,7 +298,8 @@ impl<'a> CommandExecutor<'a> {
         polygon_name: Option<&str>,
     ) -> CommandResult {
         let (center, radius) = if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
-            if let Some((c, r, _)) = crate::game_logic::GameLogic::host_named_guard_area_polygon(name)
+            if let Some((c, r, _)) =
+                crate::game_logic::GameLogic::host_named_guard_area_polygon(name)
             {
                 (c, if r > 0.0 { r } else { radius })
             } else {
@@ -389,10 +395,11 @@ impl<'a> CommandExecutor<'a> {
             // before aiAttackPosition (hq-ykxeg).
             if hive_ids.contains(&unit_id) {
                 if let Some(site) = self.game_logic.host_object_mut(unit_id) {
-                    let n = crate::game_logic::host_base_defense::order_hive_slaves_to_attack_position(
-                        &mut site.hive_slaves,
-                        attack_pos,
-                    );
+                    let n =
+                        crate::game_logic::host_base_defense::order_hive_slaves_to_attack_position(
+                            &mut site.hive_slaves,
+                            attack_pos,
+                        );
                     if n > 0 {
                         any = true;
                     }
@@ -523,7 +530,6 @@ impl<'a> CommandExecutor<'a> {
             {
                 continue;
             }
-
 
             let target_pos = match target {
                 GuardTarget::Position(pos) => Some(*pos),
@@ -762,29 +768,41 @@ fn resolve_attack_area(
     )
 }
 
-
-fn attack_team_persist_tag(team: crate::game_logic::Team) -> String {
-    format!("{ATTACK_TEAM_PERSIST_PREFIX}{}", team.get_name())
+fn attack_team_persist_tag(team_name: &str) -> String {
+    format!("{ATTACK_TEAM_PERSIST_PREFIX}{}", team_name.trim())
 }
 
-fn parse_attack_team_persist(tag: Option<&str>) -> Option<crate::game_logic::Team> {
+fn parse_attack_team_persist(tag: Option<&str>) -> Option<&str> {
     let tag = tag?;
     let name = tag.strip_prefix(ATTACK_TEAM_PERSIST_PREFIX)?;
-    match name {
-        "GLA" => Some(crate::game_logic::Team::GLA),
-        "USA" => Some(crate::game_logic::Team::USA),
-        "China" => Some(crate::game_logic::Team::China),
-        _ => None,
-    }
+    (!name.trim().is_empty()).then_some(name)
 }
 
 impl crate::game_logic::GameLogic {
+    /// Resolve a faction-only command operand to one concrete C++ Team
+    /// instance. Stable ObjectID order mirrors the hard-difficulty squad pick.
+    fn attack_team_identity_for_faction(&self, faction: crate::game_logic::Team) -> String {
+        self.host_objects()
+            .iter()
+            .filter(|(_, candidate)| candidate.team == faction && candidate.is_alive())
+            .min_by_key(|(id, _)| **id)
+            .map(|(_, candidate)| {
+                let name = candidate.team_instance_name.trim();
+                if name.is_empty() {
+                    self.default_host_team_instance_name(candidate.owner_player_id, candidate.team)
+                } else {
+                    name.to_string()
+                }
+            })
+            .unwrap_or_else(|| format!("team{}", faction.get_name()))
+    }
+
     /// C++ `AIAttackSquadState::chooseVictim` (`AIStates.cpp:5904-5988`) on live
     /// host objects. Does not consult leftover `OBJECT_REGISTRY`.
     pub(crate) fn choose_attack_team_victim(
         &self,
         unit_id: ObjectId,
-        enemy_team: crate::game_logic::Team,
+        enemy_team_name: &str,
         from_player: bool,
     ) -> Option<ObjectId> {
         use crate::ai::AIDifficulty;
@@ -829,9 +847,14 @@ impl crate::game_logic::GameLogic {
             difficulty = AIDifficulty::Medium;
         }
 
+        let team_members: HashSet<ObjectId> = self
+            .host_script_team_census_member_ids(enemy_team_name)
+            .into_iter()
+            .map(ObjectId)
+            .collect();
         let mut live: Vec<(ObjectId, Vec3, bool)> = Vec::new();
         for (cid, cand) in self.host_objects().iter() {
-            if cand.team != enemy_team || !cand.is_alive() {
+            if !team_members.contains(cid) || !cand.is_alive() {
                 continue;
             }
             let pos = cand.get_position();
@@ -886,16 +909,22 @@ impl crate::game_logic::GameLogic {
             if !o.is_alive() {
                 continue;
             }
-            let Some(team) = parse_attack_team_persist(o.attack_priority_set.as_deref()) else {
+            let Some(team_name) = parse_attack_team_persist(o.attack_priority_set.as_deref())
+            else {
                 continue;
             };
             if !matches!(o.ai_state, AIState::Attacking | AIState::Idle) {
                 continue;
             }
+            let team_members: HashSet<ObjectId> = self
+                .host_script_team_census_member_ids(team_name)
+                .into_iter()
+                .map(ObjectId)
+                .collect();
             let current_ok = o
                 .target
                 .and_then(|t| self.host_object(t))
-                .map(|t| t.is_alive() && t.team == team)
+                .map(|t| t.is_alive() && team_members.contains(&t.id))
                 .unwrap_or(false);
             if current_ok {
                 continue;
@@ -903,7 +932,7 @@ impl crate::game_logic::GameLogic {
             let shots = o.max_shots_to_fire;
             let tag = o.attack_priority_set.clone().unwrap_or_default();
             let from_player = self.attack_team_cmd_from_player(id);
-            if let Some(tid) = self.choose_attack_team_victim(id, team, from_player) {
+            if let Some(tid) = self.choose_attack_team_victim(id, team_name, from_player) {
                 jobs.push((id, tid, shots, tag));
             }
         }
@@ -931,14 +960,12 @@ impl crate::game_logic::GameLogic {
             return None;
         }
         let team = me.team;
-        let polygon = polygon_name
-            .filter(|n| !n.is_empty())
-            .and_then(|name| {
-                gamelogic::terrain::get_terrain_logic()
-                    .read()
-                    .ok()
-                    .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())
-            });
+        let polygon = polygon_name.filter(|n| !n.is_empty()).and_then(|name| {
+            gamelogic::terrain::get_terrain_logic()
+                .read()
+                .ok()
+                .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())
+        });
         let prio = self.attack_priority_info_for(unit_id);
         let mut best_dist: Option<(ObjectId, f32)> = None;
         let mut best_prio: Option<(ObjectId, i32)> = None;
@@ -1011,9 +1038,7 @@ impl crate::game_logic::GameLogic {
                 continue;
             }
             let tag = o.attack_priority_set.clone().unwrap_or_default();
-            if let Some(tid) =
-                self.find_attack_area_victim(id, center, radius, poly.as_deref())
-            {
+            if let Some(tid) = self.find_attack_area_victim(id, center, radius, poly.as_deref()) {
                 jobs.push((id, tid, tag));
             }
         }

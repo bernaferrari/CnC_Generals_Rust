@@ -48,8 +48,8 @@
 
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 
 pub mod cmd;
@@ -539,8 +539,8 @@ pub fn init() {
 
 // Re-export main types
 pub use cmd::{
-    execute_command_to_string, execute_command_with_stdout, CommandMode, ProfileCommandExecutor,
-    ProfileCommandParser,
+    CommandMode, ProfileCommandExecutor, ProfileCommandParser, execute_command_to_string,
+    execute_command_with_stdout,
 };
 #[cfg(feature = "function-level")]
 pub use func_level::ProfileFuncId;

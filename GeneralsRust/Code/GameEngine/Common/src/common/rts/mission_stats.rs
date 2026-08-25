@@ -139,11 +139,7 @@ impl MissionStats {
         let total_lost = self.units_lost + self.buildings_lost;
 
         if total_lost == 0 {
-            if total_killed > 0 {
-                f32::INFINITY
-            } else {
-                0.0
-            }
+            if total_killed > 0 { f32::INFINITY } else { 0.0 }
         } else {
             total_killed as f32 / total_lost as f32
         }

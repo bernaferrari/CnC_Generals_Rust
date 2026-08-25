@@ -503,7 +503,7 @@ pub mod field_parsers {
                 return Err(IniError::ParseError {
                     line: 0,
                     message: format!("Invalid boolean: {}", value),
-                })
+                });
             }
         };
         Ok(())

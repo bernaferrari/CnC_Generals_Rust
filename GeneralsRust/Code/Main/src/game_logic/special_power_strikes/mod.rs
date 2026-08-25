@@ -249,7 +249,7 @@ pub use strike::*;
 pub use superweapon_kind::*;
 pub use toxin::*;
 pub(crate) use types::horizontal_distance;
-pub use types::{duration_ms_to_logic_frames, lifetime_update_fixed_frames, SP_LOGIC_FPS};
+pub use types::{SP_LOGIC_FPS, duration_ms_to_logic_frames, lifetime_update_fixed_frames};
 
 #[cfg(test)]
 mod tests_core;

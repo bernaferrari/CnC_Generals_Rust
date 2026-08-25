@@ -78,8 +78,8 @@ pub fn residual_ui_selected_presentation_fail_closed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_ui_selected_presentation_fail_closed_last_action(
-) -> ResidualUiSelectedPresentationFailClosedAction {
+pub fn residual_ui_selected_presentation_fail_closed_last_action()
+-> ResidualUiSelectedPresentationFailClosedAction {
     ResidualUiSelectedPresentationFailClosedAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

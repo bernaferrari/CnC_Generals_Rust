@@ -414,9 +414,10 @@ mod tests {
         assert_eq!(body.get_damage_scalar(), 1.5);
 
         // Max health operations
-        assert!(body
-            .set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
-            .is_ok());
+        assert!(
+            body.set_max_health(200.0, MaxHealthChangeType::PreserveRatio)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 200.0);
 
         // Indestructible operations

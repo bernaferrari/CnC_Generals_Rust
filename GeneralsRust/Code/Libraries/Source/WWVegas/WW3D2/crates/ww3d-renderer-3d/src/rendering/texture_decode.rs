@@ -5,10 +5,10 @@
 //! loaders.  The intent is to keep all disk-format logic in one place so the
 //! CPU-only loader and the WGPU-backed loader stay in sync.
 
+use crate::core::WW3DFormat;
 use crate::core::error::{Error, Result};
 use crate::core::ww3dformat::FormatDecision;
-use crate::core::WW3DFormat;
-use crate::rendering::texture_system::dds_loader::{load_dds_file, DdsTextureType};
+use crate::rendering::texture_system::dds_loader::{DdsTextureType, load_dds_file};
 use crate::rendering::texture_system::tga_loader::load_tga_file;
 use bcdec_rs::{bc1, bc2, bc3};
 use std::path::Path;

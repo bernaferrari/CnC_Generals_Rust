@@ -77,8 +77,8 @@ pub fn residual_host_enqueue_shell_cmd_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_enqueue_shell_cmd_helper_last_action(
-) -> ResidualHostEnqueueShellCmdHelperAction {
+pub fn residual_host_enqueue_shell_cmd_helper_last_action()
+-> ResidualHostEnqueueShellCmdHelperAction {
     ResidualHostEnqueueShellCmdHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 
@@ -130,9 +130,9 @@ pub fn honesty_host_enqueue_shell_cmd_helper_source_markers_residual_wave582() -
         residual_action_store(ResidualHostEnqueueShellCmdHelperAction::SourceMarkers);
         return false;
     };
-    let enq_ok =
-        enq.contains("Wave 582") && enq.contains("ObjectLifecycleOp::EnqueueProduction");
-    let shell_ok = shell.contains("Wave 582") && shell.contains("CommandPipelineOp::ProcessIfNeeded");
+    let enq_ok = enq.contains("Wave 582") && enq.contains("ObjectLifecycleOp::EnqueueProduction");
+    let shell_ok =
+        shell.contains("Wave 582") && shell.contains("CommandPipelineOp::ProcessIfNeeded");
     let call_ok = eng.contains("self.host_enqueue_production(")
         && eng.contains("self.host_process_shell_menu_commands()");
     let raw_enq = eng.matches("self.game_logic.enqueue_production").count();

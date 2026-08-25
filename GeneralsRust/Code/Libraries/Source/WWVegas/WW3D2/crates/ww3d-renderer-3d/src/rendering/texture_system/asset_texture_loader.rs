@@ -5,7 +5,7 @@
 //! asset sources.
 
 use crate::core::error::{Error, RendererResult};
-use crate::rendering::texture_system::dds_loader::{load_dds_from_memory, DdsTextureType};
+use crate::rendering::texture_system::dds_loader::{DdsTextureType, load_dds_from_memory};
 use crate::rendering::texture_system::texture_base::{PoolType, TexAssetType, TextureBaseClass};
 use crate::rendering::texture_system::texture_loader::TextureLoader;
 use crate::rendering::texture_system::tga_loader::load_tga_from_memory;

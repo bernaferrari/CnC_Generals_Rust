@@ -79,8 +79,8 @@ pub fn residual_production_upgrade_complete_queue_refresh_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_production_upgrade_complete_queue_refresh_last_action(
-) -> ResidualProductionUpgradeCompleteQueueRefreshAction {
+pub fn residual_production_upgrade_complete_queue_refresh_last_action()
+-> ResidualProductionUpgradeCompleteQueueRefreshAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualProductionUpgradeCompleteQueueRefreshAction::MethodNames,
         2 => ResidualProductionUpgradeCompleteQueueRefreshAction::SourceMarkers,

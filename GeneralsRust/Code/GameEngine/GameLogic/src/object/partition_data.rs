@@ -4,10 +4,10 @@
 //! SHROUDED / FOGGED / CLEAR into object shroud, including fogged-enemy,
 //! mine, neutral-mobile, and PARTIAL_CLEAR rules.
 
-use crate::common::{Coord3D, KindOf, ObjectShroudStatus, Relationship, MAX_PLAYER_COUNT};
+use crate::common::{Coord3D, KindOf, MAX_PLAYER_COUNT, ObjectShroudStatus, Relationship};
+use crate::object::Object;
 use crate::object::collide::partition_coi::{do_circle_fill, do_rect_fill, do_small_fill};
 use crate::object::collide::partition_manager::{CellCoord, PARTITION_MANAGER};
-use crate::object::Object;
 use crate::player::player_list;
 use game_engine::common::system::radar::CellShroudStatus;
 

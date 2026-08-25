@@ -36,11 +36,7 @@ pub struct HostInstantDeathBurst {
 }
 
 impl HostInstantDeathIni {
-    pub fn is_applicable(
-        &self,
-        under_construction: bool,
-        death_type: HostDeathType,
-    ) -> bool {
+    pub fn is_applicable(&self, under_construction: bool, death_type: HostDeathType) -> bool {
         if self.required_under_construction && !under_construction {
             return false;
         }
@@ -50,12 +46,10 @@ impl HostInstantDeathIni {
                 matches!(death_type, HostDeathType::Detonated)
             }
             HostInstantDeathTypes::LaseredOnly => matches!(death_type, HostDeathType::Lasered),
-            HostInstantDeathTypes::GenericNotLaseredDetonated => {
-                !matches!(
-                    death_type,
-                    HostDeathType::Lasered | HostDeathType::Detonated
-                )
-            }
+            HostInstantDeathTypes::GenericNotLaseredDetonated => !matches!(
+                death_type,
+                HostDeathType::Lasered | HostDeathType::Detonated
+            ),
         }
     }
 
@@ -242,7 +236,6 @@ pub fn first_applicable_instant_death(
         .find(|ini| ini.is_applicable(under_construction, death_type))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,7 +261,10 @@ mod tests {
             .iter()
             .find(|m| m.is_applicable(false, HostDeathType::Normal))
             .unwrap();
-        assert_eq!(generic.pick(0).fx.as_deref(), Some("FX_GenericMissileDeath"));
+        assert_eq!(
+            generic.pick(0).fx.as_deref(),
+            Some("FX_GenericMissileDeath")
+        );
     }
 
     #[test]

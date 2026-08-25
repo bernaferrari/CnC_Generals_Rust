@@ -88,7 +88,8 @@ impl Object {
             if let Some(contain) = &self.contain {
                 if let Ok(contain_guard) = contain.lock() {
                     if let Some(rider_id) = contain_guard.get_rider_id() {
-                        if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+                        if let Some(rider) =
+                            crate::helpers::TheGameLogic::find_object_by_id(rider_id)
                         {
                             if let Ok(mut rider_guard) = rider.write() {
                                 rider_guard.set_disabled_until(disabled_type, frame);
@@ -133,7 +134,11 @@ impl Object {
         audio.add_audio_event(&event);
     }
 
-    fn order_spawn_slaves_disabled_until(&mut self, disabled_type: DisabledType, frame: UnsignedInt) {
+    fn order_spawn_slaves_disabled_until(
+        &mut self,
+        disabled_type: DisabledType,
+        frame: UnsignedInt,
+    ) {
         for behavior in &self.behaviors {
             if let Ok(mut guard) = behavior.lock() {
                 if let Some(spawn) = guard.get_spawn_behavior_interface() {

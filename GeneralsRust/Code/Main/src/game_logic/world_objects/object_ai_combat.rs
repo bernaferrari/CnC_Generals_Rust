@@ -38,7 +38,9 @@ impl GameLogic {
                                         || (tgt_faerie
                                             && attacker.weapon.as_ref().is_some_and(|w| {
                                                 Object::weapon_ready_vs_target(
-                                                    w, current_time, true,
+                                                    w,
+                                                    current_time,
+                                                    true,
                                                 )
                                             }))
                                     {
@@ -432,7 +434,6 @@ impl GameLogic {
         true
     }
 
-
     pub(in super::super) fn apply_active_shroud_upgrade_to_team(
         &mut self,
         team: Team,
@@ -538,8 +539,7 @@ impl GameLogic {
             for (set, clear) in &pairs {
                 let set_refs: Vec<&str> = set.iter().map(String::as_str).collect();
                 let clear_refs: Vec<&str> = clear.iter().map(String::as_str).collect();
-                let (set_c, clear_c) =
-                    obj.apply_status_bits_upgrade_masks(&set_refs, &clear_refs);
+                let (set_c, clear_c) = obj.apply_status_bits_upgrade_masks(&set_refs, &clear_refs);
                 self.status_bits_upgrade_reg.record_apply(set_c, clear_c);
                 any = true;
             }
@@ -550,7 +550,6 @@ impl GameLogic {
         touched
     }
 
-
     pub(crate) fn apply_host_upgrade_complete(
         &mut self,
         team: Team,
@@ -558,7 +557,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) {
         use crate::game_logic::host_upgrades::{
-            is_object_scoped_upgrade, upgrade_mux_target_ids, HostUpgradeKind,
+            HostUpgradeKind, is_object_scoped_upgrade, upgrade_mux_target_ids,
         };
 
         // All fan-out routines retain a `*_to_team` compatibility API, but a
@@ -644,16 +643,10 @@ impl GameLogic {
                 HostUpgradeKind::UraniumShells => {
                     self.apply_uranium_shells_to_team(team, upgrade_name)
                 }
-                HostUpgradeKind::BlackNapalm => {
-                    self.apply_black_napalm_to_team(team, upgrade_name)
-                }
+                HostUpgradeKind::BlackNapalm => self.apply_black_napalm_to_team(team, upgrade_name),
                 HostUpgradeKind::ApBullets => self.apply_ap_bullets_to_team(team, upgrade_name),
-                HostUpgradeKind::AnthraxBeta => {
-                    self.apply_anthrax_beta_to_team(team, upgrade_name)
-                }
-                HostUpgradeKind::ToxinShells => {
-                    self.apply_toxin_shells_to_team(team, upgrade_name)
-                }
+                HostUpgradeKind::AnthraxBeta => self.apply_anthrax_beta_to_team(team, upgrade_name),
+                HostUpgradeKind::ToxinShells => self.apply_toxin_shells_to_team(team, upgrade_name),
                 HostUpgradeKind::AdvancedTraining => {
                     self.apply_advanced_training_to_team(team, upgrade_name)
                 }
@@ -758,22 +751,53 @@ impl GameLogic {
             units_affected
         );
 
-        // C++ ProductionUpdate.cpp:900-912: authored ResearchSound XOR generic
-        // EVA_UpgradeComplete. Leftover UpgradeTemplate::get_research_sound is
-        // the INI source; skip EVA when that event is set.
-        let has_research_sound = gamelogic::upgrade::center::with_upgrade_center(|center| {
-            center
-                .find_upgrade(upgrade_name)
-                .is_some_and(|template| template.get_research_sound().is_valid())
-        });
-        if !has_research_sound {
-            self.try_eva_upgrade_complete(player_id);
+        // C++ ProductionUpdate.cpp:888-917: only the local producer presents
+        // completion audio. A valid authored ResearchSound is positional on
+        // that producer and replaces EVA; UnitSpecificSound is independent
+        // and is submitted after either branch.
+        if self.is_local_player(player_id) {
+            let completion_sounds = gamelogic::upgrade::center::with_upgrade_center(|center| {
+                center
+                    .find_upgrade(upgrade_name)
+                    .filter(|template| !template.get_display_name().is_empty())
+                    .map(|template| {
+                        let research = template.get_research_sound();
+                        let unit_specific = template.get_unit_specific_sound();
+                        (
+                            research
+                                .is_valid()
+                                .then(|| research.playable_event_name().to_string()),
+                            unit_specific
+                                .is_valid()
+                                .then(|| unit_specific.playable_event_name().to_string()),
+                        )
+                    })
+            });
+
+            if let Some((research_sound, unit_specific_sound)) = completion_sounds {
+                if let Some(event_name) = research_sound {
+                    let mut request = AudioEventRequest::new(&event_name);
+                    if let Some(producer) = source {
+                        request = request.with_object(producer);
+                    }
+                    self.queue_audio_event(request);
+                } else {
+                    self.try_eva_upgrade_complete(player_id);
+                }
+
+                if let Some(event_name) = unit_specific_sound {
+                    let mut request = AudioEventRequest::new(&event_name);
+                    if let Some(producer) = source {
+                        request = request.with_object(producer);
+                    }
+                    self.queue_audio_event(request);
+                }
+            }
         }
 
         // C++ TheRadar->createEvent(pos, RADAR_EVENT_UPGRADE) residual.
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
     }
-
 }
 
 #[cfg(test)]
@@ -789,6 +813,114 @@ mod live_upgrade_mux_tests {
             player.resources.supplies = 100_000;
             logic.add_player(player);
         }
+    }
+
+    fn register_upgrade_completion_sounds(
+        name: &str,
+        research_sound: Option<&str>,
+        unit_specific_sound: Option<&str>,
+    ) {
+        let mut source = format!("{name}\nDisplayName = CONTROLBAR:{name}\n");
+        if let Some(sound) = research_sound {
+            source.push_str(&format!("ResearchSound = {sound}\n"));
+        }
+        if let Some(sound) = unit_specific_sound {
+            source.push_str(&format!("UnitSpecificSound = {sound}\n"));
+        }
+        source.push_str("End\n");
+        gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
+            let mut ini = game_engine::common::ini::INI::new();
+            ini.with_inline_source(&source, |ini| {
+                ini.read_line()?;
+                center
+                    .parse_upgrade_definition(ini)
+                    .map_err(|_| game_engine::common::ini::INIError::InvalidData)
+            })
+            .expect("register upgrade completion sounds");
+        });
+    }
+
+    fn upgrade_audio_fixture(upgrade_name: &str) -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut logic = GameLogic::new();
+        add_player(&mut logic, 0, Team::USA);
+        let mut producer = ThingTemplate::new("UpgradeAudioProducer");
+        producer.set_health(1000.0);
+        producer.add_kind_of(KindOf::Structure);
+        logic
+            .templates
+            .insert("UpgradeAudioProducer".into(), producer);
+        let producer_id = logic
+            .create_object_for_player("UpgradeAudioProducer", 0, Vec3::ZERO)
+            .expect("upgrade producer");
+        logic.record_host_upgrade_queued(0, Team::USA, upgrade_name, Some(producer_id));
+        // Object creation may enqueue unrelated lifecycle audio; this fixture
+        // measures only the subsequent upgrade-completion branch.
+        logic.queued_audio_events.clear();
+        (logic, producer_id)
+    }
+
+    #[test]
+    fn authored_upgrade_sounds_queue_on_producer_and_suppress_eva() {
+        const UPGRADE: &str = "Upgrade_TestAuthoredCompletionSounds_hq_ib5c9";
+        const RESEARCH: &str = "TestResearchComplete_hq_ib5c9";
+        const UNIT: &str = "TestUnitSpecificComplete_hq_ib5c9";
+        register_upgrade_completion_sounds(UPGRADE, Some(RESEARCH), Some(UNIT));
+        let (mut logic, producer) = upgrade_audio_fixture(UPGRADE);
+
+        logic.apply_host_upgrade_complete(Team::USA, 0, UPGRADE);
+
+        assert_eq!(
+            logic
+                .queued_audio_events
+                .iter()
+                .filter(|event| event.event_type == RESEARCH || event.event_type == UNIT)
+                .count(),
+            2
+        );
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|event| event.event_type == RESEARCH && event.object_id == Some(producer))
+        );
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|event| event.event_type == UNIT && event.object_id == Some(producer))
+        );
+        assert!(!logic.honesty_eva_upgrade_complete_ok());
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|event| event.event_type != "UpgradeComplete")
+        );
+    }
+
+    #[test]
+    fn absent_research_sound_uses_eva_but_keeps_authored_unit_sound() {
+        const UPGRADE: &str = "Upgrade_TestUnitOnlyCompletionSound_hq_ib5c9";
+        const UNIT: &str = "TestUnitOnlyComplete_hq_ib5c9";
+        register_upgrade_completion_sounds(UPGRADE, None, Some(UNIT));
+        let (mut logic, producer) = upgrade_audio_fixture(UPGRADE);
+
+        logic.apply_host_upgrade_complete(Team::USA, 0, UPGRADE);
+
+        assert!(logic.honesty_eva_upgrade_complete_ok());
+        let unit_events: Vec<_> = logic
+            .queued_audio_events
+            .iter()
+            .filter(|event| event.event_type == UNIT)
+            .collect();
+        assert_eq!(unit_events.len(), 1);
+        assert_eq!(unit_events[0].object_id, Some(producer));
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .all(|event| event.event_type != "UpgradeComplete")
+        );
     }
 
     #[test]
@@ -1016,16 +1148,13 @@ mod live_upgrade_mux_tests {
         let a = logic
             .create_object_for_player("ChinaTankOverlord", 1, Vec3::ZERO)
             .expect("overlord");
-        logic
-            .get_player_mut(1)
-            .expect("player")
-            .queue_upgrade(
-                UPGRADE_OVERLORD_BUNKER,
-                &crate::game_logic::Resources {
-                    supplies: 0,
-                    power: 0,
-                },
-            );
+        logic.get_player_mut(1).expect("player").queue_upgrade(
+            UPGRADE_OVERLORD_BUNKER,
+            &crate::game_logic::Resources {
+                supplies: 0,
+                power: 0,
+            },
+        );
         logic.record_host_upgrade_queued(1, Team::China, UPGRADE_OVERLORD_BUNKER, Some(a));
         logic.apply_host_upgrade_complete(Team::China, 1, UPGRADE_OVERLORD_BUNKER);
         logic
@@ -1053,22 +1182,14 @@ mod live_upgrade_mux_tests {
         let id = logic
             .create_object_for_player("AmericaWarFactory", 0, Vec3::ZERO)
             .expect("factory");
-        logic
-            .get_player_mut(0)
-            .expect("player")
-            .queue_upgrade(
-                "Upgrade_AmericaCompositeArmor",
-                &crate::game_logic::Resources {
-                    supplies: 0,
-                    power: 0,
-                },
-            );
-        logic.record_host_upgrade_queued(
-            0,
-            Team::USA,
+        logic.get_player_mut(0).expect("player").queue_upgrade(
             "Upgrade_AmericaCompositeArmor",
-            Some(id),
+            &crate::game_logic::Resources {
+                supplies: 0,
+                power: 0,
+            },
         );
+        logic.record_host_upgrade_queued(0, Team::USA, "Upgrade_AmericaCompositeArmor", Some(id));
         logic.objects.remove(&id);
         logic.update_player_upgrades();
         let player = logic.get_player(0).expect("player");
@@ -1078,12 +1199,10 @@ mod live_upgrade_mux_tests {
         );
         assert!(!player.has_queued_upgrade("Upgrade_AmericaCompositeArmor"));
         assert!(
-            logic
-                .host_upgrades()
-                .entries_snapshot()
-                .iter()
-                .any(|e| e.name.eq_ignore_ascii_case("Upgrade_AmericaCompositeArmor")
-                    && e.phase == HostUpgradePhase::Cancelled),
+            logic.host_upgrades().entries_snapshot().iter().any(|e| e
+                .name
+                .eq_ignore_ascii_case("Upgrade_AmericaCompositeArmor")
+                && e.phase == HostUpgradePhase::Cancelled),
             "host residual must record cancel, not complete"
         );
     }
@@ -1107,22 +1226,14 @@ mod live_upgrade_mux_tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.building_data = Some(BuildingData::new(BuildingType::WarFactory));
         }
-        logic
-            .get_player_mut(0)
-            .expect("player")
-            .queue_upgrade(
-                "Upgrade_AmericaCompositeArmor",
-                &crate::game_logic::Resources {
-                    supplies: 0,
-                    power: 0,
-                },
-            );
-        logic.record_host_upgrade_queued(
-            0,
-            Team::USA,
+        logic.get_player_mut(0).expect("player").queue_upgrade(
             "Upgrade_AmericaCompositeArmor",
-            Some(id),
+            &crate::game_logic::Resources {
+                supplies: 0,
+                power: 0,
+            },
         );
+        logic.record_host_upgrade_queued(0, Team::USA, "Upgrade_AmericaCompositeArmor", Some(id));
         logic.update_player_upgrades();
         let player = logic.get_player(0).expect("player");
         assert!(
@@ -1131,12 +1242,10 @@ mod live_upgrade_mux_tests {
         );
         assert!(!player.has_queued_upgrade("Upgrade_AmericaCompositeArmor"));
         assert!(
-            logic
-                .host_upgrades()
-                .entries_snapshot()
-                .iter()
-                .any(|e| e.name.eq_ignore_ascii_case("Upgrade_AmericaCompositeArmor")
-                    && e.phase == HostUpgradePhase::Cancelled),
+            logic.host_upgrades().entries_snapshot().iter().any(|e| e
+                .name
+                .eq_ignore_ascii_case("Upgrade_AmericaCompositeArmor")
+                && e.phase == HostUpgradePhase::Cancelled),
             "host residual must record cancel, not complete"
         );
         assert!(
@@ -1144,7 +1253,4 @@ mod live_upgrade_mux_tests {
             "producer is still alive — only the queue vanished"
         );
     }
-
-
 }
-

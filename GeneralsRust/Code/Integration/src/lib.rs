@@ -635,7 +635,7 @@ pub mod hardware {
     fn get_memory_info() -> MemoryInfo {
         #[cfg(target_os = "linux")]
         {
-            use libc::{sysconf, _SC_AVPHYS_PAGES, _SC_PAGESIZE, _SC_PHYS_PAGES};
+            use libc::{_SC_AVPHYS_PAGES, _SC_PAGESIZE, _SC_PHYS_PAGES, sysconf};
 
             let page_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
             let total_pages = unsafe { sysconf(_SC_PHYS_PAGES) } as u64;

@@ -2,19 +2,21 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use crate::common::{
-    Bool, CommandSourceType, DisabledMaskType, Int, KindOf, ObjectID, ObjectStatusMaskType,
-    ObjectStatusTypes, Real, Relationship, UnsignedInt, FROM_CENTER_2D,
+    Bool, CommandSourceType, DisabledMaskType, FROM_CENTER_2D, Int, KindOf, ObjectID,
+    ObjectStatusMaskType, ObjectStatusTypes, Real, Relationship, UnsignedInt,
 };
 use crate::helpers::{
-    game_client_random_value_real, game_logic_random_value, TheAudio, TheGameLogic,
-    ThePartitionManager,
+    TheAudio, TheGameLogic, ThePartitionManager, game_client_random_value_real,
+    game_logic_random_value,
 };
-use crate::modules::{StealthUpdate as StealthUpdateTrait, UpdateModuleInterface, UPDATE_SLEEP_NONE};
-use crate::player::{player_list, PlayerArcExt};
+use crate::modules::{
+    StealthUpdate as StealthUpdateTrait, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::player::{PlayerArcExt, player_list};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -68,7 +70,11 @@ pub fn leftover_stealth_move_threshold_speed(template_name: &str) -> Option<Real
         if !entry.name.as_str().eq_ignore_ascii_case("StealthUpdate") {
             continue;
         }
-        if let Some(data) = entry.data.as_any().downcast_ref::<StealthUpdateModuleData>() {
+        if let Some(data) = entry
+            .data
+            .as_any()
+            .downcast_ref::<StealthUpdateModuleData>()
+        {
             return Some(data.stealth_speed());
         }
         if let Some(data) = entry
@@ -81,8 +87,8 @@ pub fn leftover_stealth_move_threshold_speed(template_name: &str) -> Option<Real
         if let Some(data) = entry
             .data
             .as_any()
-            .downcast_ref::<crate::object::update::stealth_update::StealthUpdateModuleData>()
-        {
+            .downcast_ref::<crate::object::update::stealth_update::StealthUpdateModuleData>(
+        ) {
             return Some(data.stealth_speed());
         }
         if let Some(speed) = entry.data.get_ini_real("MoveThresholdSpeed") {
@@ -91,7 +97,6 @@ pub fn leftover_stealth_move_threshold_speed(template_name: &str) -> Option<Real
     }
     None
 }
-
 
 fn play_object_stealth_sound(object_id: ObjectID, stealth_on: bool) {
     let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
@@ -111,7 +116,9 @@ fn play_object_stealth_sound(object_id: ObjectID, stealth_on: bool) {
 
 fn play_per_unit_sound(object_id: ObjectID, sound_name: &str) {
     let Some(mut event) = OBJECT_REGISTRY
-        .with_object(object_id, |obj| obj.get_template().get_per_unit_sound(sound_name))
+        .with_object(object_id, |obj| {
+            obj.get_template().get_per_unit_sound(sound_name)
+        })
         .flatten()
     else {
         return;
@@ -133,7 +140,7 @@ fn play_fx_at_object(object_id: ObjectID, fx_name: &str) {
 
 fn refresh_radar_for_object(object_id: ObjectID) {
     use game_engine::common::system::radar::{
-        get_radar_system, Coord3D as RadarCoord3D, RadarObject, RadarPriorityType,
+        Coord3D as RadarCoord3D, RadarObject, RadarPriorityType, get_radar_system,
     };
     let Some(pos) = OBJECT_REGISTRY.with_object(object_id, |obj| *obj.get_position()) else {
         return;
@@ -146,7 +153,6 @@ fn refresh_radar_for_object(object_id: ObjectID) {
         radar.add_object(radar_obj);
     }
 }
-
 
 /// Stealth configuration ported from the legacy StealthUpdateModuleData.
 #[derive(Debug, Clone)]
@@ -662,16 +668,8 @@ impl StealthController {
                 own_night,
             )
         });
-        let Some((
-            selected,
-            flags,
-            old_id,
-            pos,
-            orientation,
-            true_template,
-            own_color,
-            own_night,
-        )) = snapshot
+        let Some((selected, flags, old_id, pos, orientation, true_template, own_color, own_night)) =
+            snapshot
         else {
             self.xfer_restore_disguise = false;
             return;
@@ -747,20 +745,18 @@ impl StealthController {
                         None => true,
                     };
                     if allied_or_inactive {
-                        if night {
-                            own_night
-                        } else {
-                            own_color
-                        }
+                        if night { own_night } else { own_color }
                     } else {
                         disguise_player
-                            .and_then(|p| p.read().ok().map(|g| {
-                                if night {
-                                    g.get_player_night_color()
-                                } else {
-                                    g.get_player_color()
-                                }
-                            }))
+                            .and_then(|p| {
+                                p.read().ok().map(|g| {
+                                    if night {
+                                        g.get_player_night_color()
+                                    } else {
+                                        g.get_player_color()
+                                    }
+                                })
+                            })
                             .unwrap_or(own_color)
                     }
                 } else if night {
@@ -824,7 +820,6 @@ impl StealthController {
         refresh_radar_for_object(self.object_id);
         self.xfer_restore_disguise = false;
     }
-
 
     pub fn is_stealthed(&self) -> bool {
         self.is_stealthed
@@ -1038,10 +1033,7 @@ impl StealthController {
                         let vision = enemy_guard.get_vision_range();
                         let delta = *enemy_guard.get_position() - self_pos;
                         if delta.length() <= vision {
-                            TheGameLogic::set_wake_frame(
-                                enemy_guard.get_id(),
-                                UPDATE_SLEEP_NONE,
-                            );
+                            TheGameLogic::set_wake_frame(enemy_guard.get_id(), UPDATE_SLEEP_NONE);
                         }
                     }
                 }
@@ -2088,18 +2080,22 @@ mod tests {
         data.set_forbidden_status_from_tokens(&["MASKED"])
             .expect("forbidden");
 
-        assert!(data
-            .hint_detectable_states()
-            .contains(ObjectStatusMaskType::STEALTHED));
-        assert!(data
-            .hint_detectable_states()
-            .contains(ObjectStatusMaskType::DETECTED));
-        assert!(data
-            .required_status()
-            .contains(ObjectStatusMaskType::CAN_STEALTH));
-        assert!(data
-            .forbidden_status()
-            .contains(ObjectStatusMaskType::MASKED));
+        assert!(
+            data.hint_detectable_states()
+                .contains(ObjectStatusMaskType::STEALTHED)
+        );
+        assert!(
+            data.hint_detectable_states()
+                .contains(ObjectStatusMaskType::DETECTED)
+        );
+        assert!(
+            data.required_status()
+                .contains(ObjectStatusMaskType::CAN_STEALTH)
+        );
+        assert!(
+            data.forbidden_status()
+                .contains(ObjectStatusMaskType::MASKED)
+        );
     }
 
     #[test]
@@ -2126,9 +2122,11 @@ mod tests {
 
         {
             let guard = object.read().unwrap();
-            assert!(guard
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::STEALTHED));
+            assert!(
+                guard
+                    .get_status_bits()
+                    .contains(ObjectStatusMaskType::STEALTHED)
+            );
         }
 
         {
@@ -2139,9 +2137,11 @@ mod tests {
 
         {
             let guard = object.read().unwrap();
-            assert!(!guard
-                .get_status_bits()
-                .contains(ObjectStatusMaskType::STEALTHED));
+            assert!(
+                !guard
+                    .get_status_bits()
+                    .contains(ObjectStatusMaskType::STEALTHED)
+            );
         }
 
         OBJECT_REGISTRY.unregister_object(object_id);

@@ -3,8 +3,8 @@
 //! This example demonstrates how to use the pointer remapping system
 //! for save/load operations in a safe Rust environment.
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use ww_save_load::pointerremap::{PointerRemapClass, RefCountable};
 
 /// Example object that might exist in a game world

@@ -16,12 +16,12 @@ pub mod disabled_types;
 pub mod encrypt;
 pub mod file;
 pub mod file_system;
-pub mod install_layout;
 pub mod function_lexicon;
 pub mod game_common;
 pub mod game_memory;
 pub mod game_type;
 pub mod geometry;
+pub mod install_layout;
 pub mod kind_of;
 pub mod linked_list;
 pub mod list;
@@ -61,6 +61,19 @@ pub use geometry::{
     BoundingBox, Coord3D, GeometryInfo, GeometryRegion2D, GeometryType, Matrix3D, Point2D, Point3D,
     Rectangle,
 };
+pub use radar::{
+    RadarBridgeSample, RadarDataSink, RadarEventFeedback, RadarMapSource, RadarObjectInsert,
+    RadarObjectProvider, RadarTerrainPaintSource, RadarVictimInfo, RadarWindowGeom,
+    RadarWindowSource, ensure_the_radar_snapshot_block, register_radar_data_sink,
+    register_radar_event_feedback, register_radar_map_source, register_radar_object_provider,
+    register_radar_terrain_paint_source, register_radar_window_source,
+    register_the_radar_snapshot_block, resolve_radar_object_color,
+};
+pub use registry::{
+    get_registry_game_name, get_registry_language, get_registry_map_pack_version,
+    get_registry_user_data, get_registry_version, get_string_from_registry,
+    get_unsigned_int_from_registry, zh_registry,
+};
 pub use scene_submission::{SceneLineDesc, SceneLineId, SceneSubmission};
 pub use snapshot::Snapshotable;
 #[cfg(test)]
@@ -71,20 +84,6 @@ pub use xfer::{
     RealRange, Region2D, Region3D, Xfer, XferBlockSize, XferMode, XferOptions, XferStatus,
     XferVersion, Xferable,
 };
-pub use radar::{
-    ensure_the_radar_snapshot_block, register_radar_data_sink, register_radar_event_feedback,
-    register_radar_map_source, register_radar_object_provider, register_radar_terrain_paint_source,
-    register_radar_window_source, register_the_radar_snapshot_block, resolve_radar_object_color,
-    RadarBridgeSample, RadarDataSink, RadarEventFeedback, RadarMapSource, RadarObjectInsert,
-    RadarObjectProvider, RadarTerrainPaintSource, RadarVictimInfo, RadarWindowGeom,
-    RadarWindowSource,
-};
-pub use registry::{
-    get_registry_game_name, get_registry_language, get_registry_map_pack_version,
-    get_registry_user_data, get_registry_version, get_string_from_registry,
-    get_unsigned_int_from_registry, zh_registry,
-};
-
 
 // Trait for overridable objects
 pub trait Overridable {

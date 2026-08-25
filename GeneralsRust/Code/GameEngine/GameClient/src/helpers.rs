@@ -10,33 +10,33 @@
 **  pipeline.
 */
 
-use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
+use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_view_ref};
 
 use crate::game_text::GameText;
-use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
+use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::control_bar::{
-    host_control_bar_input_provenance_for_current_dispatch, CommandOption,
-    HostControlBarInputProvenance,
+    CommandOption, HostControlBarInputProvenance,
+    host_control_bar_input_provenance_for_current_dispatch,
 };
 
 use crate::gui::load_screen::{
-    init_load_screen, pump_load_screen_presentation, reset_load_screen, run_load_screen_prelude,
-    select_load_screen, update_load_screen as update_game_load_screen, LoadScreenGameMode,
-    LoadScreenInitContext, LoadScreenKind, LoadScreenRequest,
+    LoadScreenGameMode, LoadScreenInitContext, LoadScreenKind, LoadScreenRequest, init_load_screen,
+    pump_load_screen_presentation, reset_load_screen, run_load_screen_prelude, select_load_screen,
+    update_load_screen as update_game_load_screen,
 };
 use crate::gui::{
-    hide_control_bar, queue_shell_hide, queue_shell_operation, queue_window_manager_op,
-    show_shell_map_if_available, with_window_manager, HintData, HintType, MouseCursor, MouseMode,
-    WindowLayout, WindowStatus,
+    HintData, HintType, MouseCursor, MouseMode, WindowLayout, WindowStatus, hide_control_bar,
+    queue_shell_hide, queue_shell_operation, queue_window_manager_op, show_shell_map_if_available,
+    with_window_manager,
 };
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
-use gamelogic::helpers::{
-    register_game_pause_hooks, register_load_screen_hooks as register_logic_load_screen_hooks,
-    GamePauseHooks, TheGameLogic, TheScriptEngine,
-};
 use game_engine::common::recorder::with_recorder;
+use gamelogic::helpers::{
+    GamePauseHooks, TheGameLogic, TheScriptEngine, register_game_pause_hooks,
+    register_load_screen_hooks as register_logic_load_screen_hooks,
+};
 
 use log::info;
 use std::cell::RefCell;
@@ -426,7 +426,7 @@ pub fn register_live_control_bar_hooks() {
 mod live_control_bar_click_provenance_tests {
     use super::LiveControlBarClick;
     use crate::gui::control_bar::{
-        with_host_control_bar_input_provenance, HostControlBarInputProvenance,
+        HostControlBarInputProvenance, with_host_control_bar_input_provenance,
     };
 
     #[test]
@@ -1030,7 +1030,6 @@ struct InGameUIStatusState {
     max_select_count: i32,
     double_click_attack_move_guard_timer: u32,
     guard_hint_stashed_position: (f32, f32, f32),
-
 }
 
 impl Default for InGameUIStatusState {
@@ -1055,7 +1054,6 @@ impl Default for InGameUIStatusState {
             max_select_count: -1,
             double_click_attack_move_guard_timer: 0,
             guard_hint_stashed_position: (0.0, 0.0, 0.0),
-
         }
     }
 }
@@ -1271,7 +1269,6 @@ impl TheInGameUI {
         }
         gamelogic::helpers::TheGameLogic::set_input_enabled(enabled);
     }
-
 
     pub fn is_selecting() -> bool {
         let guard = in_game_ui_status_state()
@@ -1595,8 +1592,7 @@ impl TheInGameUI {
     fn arm_gui_command_mouse_mode(pending: &PendingCommand) {
         Self::set_mouse_mode(MouseMode::GuiCommand);
         Self::set_mouse_cursor(MouseCursor::Arrow);
-        let is_context =
-            pending.options & (CommandOption::ContextmodeCommand as u32) != 0;
+        let is_context = pending.options & (CommandOption::ContextmodeCommand as u32) != 0;
         if !is_context
             && !pending.radius_cursor_type.is_empty()
             && !pending.radius_cursor_type.eq_ignore_ascii_case("NONE")
@@ -1687,7 +1683,6 @@ impl TheInGameUI {
         }
         Self::restore_default_mouse_mode_after_gui_command();
     }
-
 
     pub fn is_placement_anchored() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_placement_anchored()) {
@@ -2004,7 +1999,6 @@ impl TheInGameUI {
         Self::clear_popup_message_data();
         // C++ InGameUI::popupMessage (InGameUI.cpp:5150)
         update_diplomacy_briefing_text(identifier, false);
-
 
         let message = GameText::fetch(identifier);
         let x_percent = x.clamp(0, 100);
@@ -2403,7 +2397,6 @@ impl TheInGameUI {
             .unwrap_or_else(|e| e.into_inner());
         guard.guard_hint_stashed_position
     }
-
 }
 
 /// Minimal stand-in for classic `TheControlBar` singleton.
@@ -2708,7 +2701,10 @@ mod in_game_ui_input_and_guard_hint_tests {
         );
         assert!(TheInGameUI::consume_double_click_attack_move_guard_hint());
         assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 10);
-        assert_eq!(TheInGameUI::guard_hint_stashed_position(), (12.0, 24.0, 3.0));
+        assert_eq!(
+            TheInGameUI::guard_hint_stashed_position(),
+            (12.0, 24.0, 3.0)
+        );
 
         while TheInGameUI::double_click_attack_move_guard_timer() > 0 {
             let _ = TheInGameUI::consume_double_click_attack_move_guard_hint();

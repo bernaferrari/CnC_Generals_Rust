@@ -16,14 +16,14 @@ use crate::prototypes::{
 };
 use glam::{Mat4, Vec4};
 use ww3d_core::{
-    w3d_string_from_bytes, W3dAggregateMiscInfo, W3dRGBAStruct, W3dVectorStruct, W3DError,
     W3D_CHUNK_AGGREGATE, W3D_CHUNK_AGGREGATE_CLASS_INFO, W3D_CHUNK_AGGREGATE_HEADER,
     W3D_CHUNK_AGGREGATE_INFO, W3D_CHUNK_BOX, W3D_CHUNK_COLLECTION, W3D_CHUNK_COLLECTION_HEADER,
     W3D_CHUNK_COLLECTION_OBJ_NAME, W3D_CHUNK_DAZZLE, W3D_CHUNK_DAZZLE_NAME,
     W3D_CHUNK_DAZZLE_TYPENAME, W3D_CHUNK_EMITTER, W3D_CHUNK_EMITTER_HEADER, W3D_CHUNK_EMITTER_INFO,
     W3D_CHUNK_EMITTER_INFOV2, W3D_CHUNK_HLOD, W3D_CHUNK_LOD, W3D_CHUNK_LODMODEL,
     W3D_CHUNK_LODMODEL_HEADER, W3D_CHUNK_NULL_OBJECT, W3D_CHUNK_PLACEHOLDER, W3D_CHUNK_POINTS,
-    W3D_CHUNK_RING, W3D_CHUNK_SPHERE, W3D_CHUNK_TRANSFORM_NODE,
+    W3D_CHUNK_RING, W3D_CHUNK_SPHERE, W3D_CHUNK_TRANSFORM_NODE, W3DError, W3dAggregateMiscInfo,
+    W3dRGBAStruct, W3dVectorStruct, w3d_string_from_bytes,
 };
 
 fn chunk_err(err: crate::chunk_reader::ChunkError) -> W3DError {
@@ -219,7 +219,6 @@ impl PrototypeLoader for BoxLoader {
         }))
     }
 }
-
 
 const CHUNKID_DEF: u32 = 1;
 
@@ -632,4 +631,3 @@ impl PrototypeLoader for ParticleEmitterLoader {
         Ok(Box::new(proto))
     }
 }
-

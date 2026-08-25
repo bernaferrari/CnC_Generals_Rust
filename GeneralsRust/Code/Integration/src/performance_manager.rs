@@ -1168,7 +1168,9 @@ impl PerformanceManager {
         }
 
         // Set thread priorities
-        info!("Setting thread priorities: Main=High, Audio=Realtime, Render=AboveNormal, Others=Normal");
+        info!(
+            "Setting thread priorities: Main=High, Audio=Realtime, Render=AboveNormal, Others=Normal"
+        );
 
         Ok(())
     }

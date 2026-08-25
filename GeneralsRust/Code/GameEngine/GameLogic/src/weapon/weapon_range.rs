@@ -5,7 +5,7 @@ use crate::helpers::ThePartitionManager;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::terrain::BridgeAttackInfo;
 
-use super::helpers::{dual_world_registry_unavailable, ObjectId};
+use super::helpers::{ObjectId, dual_world_registry_unavailable};
 use super::masks_enums::WeaponBonusConditionFlags;
 use super::weapon_instance::Weapon;
 
@@ -51,8 +51,8 @@ impl Weapon {
             return false;
         };
 
-        let Some((target_pos, target_radius, is_bridge, is_structure)) =
-            OBJECT_REGISTRY.with_object(target_id, |guard| {
+        let Some((target_pos, target_radius, is_bridge, is_structure)) = OBJECT_REGISTRY
+            .with_object(target_id, |guard| {
                 (
                     *guard.get_position(),
                     guard.get_geometry_info().get_bounding_circle_radius(),

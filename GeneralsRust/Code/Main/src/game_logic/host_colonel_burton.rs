@@ -254,9 +254,9 @@ pub fn burton_sniper_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Residual knife Weapon (close-range one-shot).
@@ -276,9 +276,9 @@ pub fn burton_knife_weapon() -> Weapon {
         pre_attack_delay: delay_frames_to_reload_secs(BURTON_KNIFE_PRE_ATTACK_FRAMES),
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Whether knife residual should apply for this shot.
@@ -577,7 +577,10 @@ mod tests {
 
     #[test]
     fn unpack_variation_and_flee_after_charge() {
-        assert_eq!(burton_charge_unpack_frames(0.0), BURTON_CHARGE_UNPACK_TIME_FRAMES);
+        assert_eq!(
+            burton_charge_unpack_frames(0.0),
+            BURTON_CHARGE_UNPACK_TIME_FRAMES
+        );
         let pos = Vec3::new(10.0, 0.0, 0.0);
         let away = flee_point_after_charge(pos, 1.0, 0.0, BURTON_FLEE_RANGE_AFTER_CHARGE, false);
         assert!((away.x - (10.0 - 100.0)).abs() < 0.01);

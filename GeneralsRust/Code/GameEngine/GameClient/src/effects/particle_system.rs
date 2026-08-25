@@ -199,7 +199,6 @@ impl Particle {
         // C++ ParticleSys.cpp:453 — `if (m_lifetimeLeft && --m_lifetimeLeft == 0)`.
         // Lifetime 0 is infinite and is never decremented.
 
-
         // Integrate acceleration into velocity (C++ lines 316-318)
         self.velocity += self.acceleration;
 
@@ -302,7 +301,6 @@ impl Particle {
                 return false;
             }
         }
-
 
         // Check if invisible (C++ lines 454-455)
         if self.is_invisible(shader_type) {
@@ -1031,10 +1029,8 @@ fn drawable_state_is_shrouded(
     };
     use gamelogic::common::types::ObjectShroudStatus;
     // Fallback when the drawable flag is unavailable: full black shroud only.
-    (guard.get_shrouded_status(local_player_index) as u8)
-        >= (ObjectShroudStatus::Shrouded as u8)
+    (guard.get_shrouded_status(local_player_index) as u8) >= (ObjectShroudStatus::Shrouded as u8)
 }
-
 
 fn xfer_random_variable(
     xfer: &mut dyn Xfer,
@@ -1779,9 +1775,8 @@ impl ParticleSystem {
                     self.last_position = self.position;
                     if let Some(draw) = state.drawable.as_ref() {
                         if let Ok(guard) = draw.read() {
-                            let (rot, trans) = affine_from_glam_cols(
-                                guard.get_transform_matrix().to_cols_array(),
-                            );
+                            let (rot, trans) =
+                                affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
                             self.parent_transform = Some(rot);
                             self.position = Point3::from(trans);
                         } else {
@@ -1800,8 +1795,7 @@ impl ParticleSystem {
                             state.orientation,
                         );
                     }
-                    self.is_shrouded =
-                        drawable_state_is_shrouded(&state, local_player_index);
+                    self.is_shrouded = drawable_state_is_shrouded(&state, local_player_index);
                     return;
                 }
             }
@@ -1839,9 +1833,8 @@ impl ParticleSystem {
                             self.parent_transform = Some(rot);
                             self.position = Point3::from(trans);
                         } else {
-                            let (rot, trans) = affine_from_glam_cols(
-                                guard.get_transform_matrix().to_cols_array(),
-                            );
+                            let (rot, trans) =
+                                affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
                             self.parent_transform = Some(rot);
                             self.position = Point3::from(trans);
                         }
@@ -1900,7 +1893,6 @@ impl ParticleSystem {
     pub fn set_size_multiplier(&mut self, multiplier: f32) {
         self.size_coeff = multiplier;
     }
-
 
     /// Get burst count multiplier
     pub fn burst_count_multiplier(&self) -> f32 {
@@ -2368,9 +2360,7 @@ impl ParticleSystem {
                             Vector3::new(0.0, 0.0, other_speed_val)
                         }
                     }
-                    EmissionVolumeType::Point => {
-                        speed_val * compute_point_on_unit_sphere(&mut rng)
-                    }
+                    EmissionVolumeType::Point => speed_val * compute_point_on_unit_sphere(&mut rng),
                 }
             }
         }
@@ -2592,7 +2582,6 @@ mod tests {
         let info = system.generate_particle_info(0, 1).unwrap();
         assert_eq!(info.position, Point3::new(0.0, 0.0, 10.0));
     }
-
 
     #[test]
     fn generate_spreads_burst_along_parent_motion() {
@@ -3012,8 +3001,7 @@ mod tests {
             id: 4242,
             position: gamelogic::common::Coord3D::new(10.0, 20.0, 30.0),
             transform: gamelogic::common::Matrix3D::from_cols_array(&[
-                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 10.0, 20.0, 30.0,
-                1.0,
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 10.0, 20.0, 30.0, 1.0,
             ]),
             player_index: 0,
             bounding_circle_radius: 0.0,
@@ -3059,6 +3047,4 @@ mod tests {
         assert!(system.is_destroyed());
         assert_eq!(system.attached_object_id(), 0);
     }
-
-
 }

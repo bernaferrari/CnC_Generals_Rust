@@ -282,8 +282,7 @@ impl StealthSpecialPowerManager {
         self.active_grants.insert(to_id, grant);
         trace!(
             "Granted stealth to unit {} for {} frames",
-            to_id,
-            duration_frames
+            to_id, duration_frames
         );
         Ok(())
     }
@@ -331,8 +330,7 @@ impl StealthSpecialPowerManager {
         self.area_effects.push(area);
         trace!(
             "Created area stealth effect {} at radius {}",
-            area_id,
-            final_radius
+            area_id, final_radius
         );
         Ok(area_id)
     }
@@ -368,8 +366,7 @@ impl StealthSpecialPowerManager {
         area.affected_units.remove(&unit_id);
         trace!(
             "Removed unit {} from area stealth effect {}",
-            unit_id,
-            area_id
+            unit_id, area_id
         );
         Ok(())
     }
@@ -390,8 +387,7 @@ impl StealthSpecialPowerManager {
         self.spy_vision_grants.insert(to_player, grant);
         trace!(
             "Granted spy vision to player {} for {} frames",
-            to_player,
-            duration_frames
+            to_player, duration_frames
         );
         Ok(())
     }
@@ -411,8 +407,7 @@ impl StealthSpecialPowerManager {
             grant.shared_from_players.push(from_player);
             trace!(
                 "Added player {} as spy vision source for player {}",
-                from_player,
-                to_player
+                from_player, to_player
             );
         }
         Ok(())

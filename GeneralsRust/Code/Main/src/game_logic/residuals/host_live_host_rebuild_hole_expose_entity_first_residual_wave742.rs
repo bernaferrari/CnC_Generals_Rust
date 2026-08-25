@@ -58,8 +58,8 @@ fn residual_action_store(a: ResidualHostRebuildHoleExposeEntityFirstAction) {
 pub fn residual_host_rebuild_hole_expose_entity_first_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_rebuild_hole_expose_entity_first_last_action(
-) -> ResidualHostRebuildHoleExposeEntityFirstAction {
+pub fn residual_host_rebuild_hole_expose_entity_first_last_action()
+-> ResidualHostRebuildHoleExposeEntityFirstAction {
     ResidualHostRebuildHoleExposeEntityFirstAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

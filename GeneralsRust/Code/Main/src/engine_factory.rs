@@ -14,7 +14,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 //! Wave 958: host_object dual-read seal (tests + residual).
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use log::info;
 use std::any::Any;

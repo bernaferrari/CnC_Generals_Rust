@@ -7,9 +7,9 @@
 use glam::Mat4;
 use std::sync::Arc;
 use ww3d_core::errors::W3DResult;
+use ww3d_renderer_3d::Renderer;
 use ww3d_renderer_3d::render_object_system::RenderInfoClass as RendererRenderInfoClass;
 use ww3d_renderer_3d::rendering::mesh_system::MeshClass;
-use ww3d_renderer_3d::Renderer;
 use ww3d_scene::RenderInfoClass as SceneRenderInfoClass;
 
 /// Bridge between ww3d-scene RenderObj and ww3d-renderer-3d rendering.

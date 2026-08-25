@@ -79,8 +79,8 @@ pub fn residual_presentation_fire_prone_turret_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_fire_prone_turret_last_action(
-) -> ResidualPresentationFireProneTurretAction {
+pub fn residual_presentation_fire_prone_turret_last_action()
+-> ResidualPresentationFireProneTurretAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationFireProneTurretAction::MethodNames,
         2 => ResidualPresentationFireProneTurretAction::SourceMarkers,

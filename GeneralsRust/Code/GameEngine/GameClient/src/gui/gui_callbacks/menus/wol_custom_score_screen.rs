@@ -11,17 +11,11 @@ pub fn WOLCustomScoreScreenInit(layout: &WindowLayout, user_data: Option<&dyn st
     wol_custom_score_screen_init(layout, user_data);
 }
 
-pub fn WOLCustomScoreScreenUpdate(
-    layout: &WindowLayout,
-    user_data: Option<&dyn std::any::Any>,
-) {
+pub fn WOLCustomScoreScreenUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_custom_score_screen_update(layout, user_data);
 }
 
-pub fn WOLCustomScoreScreenShutdown(
-    layout: &WindowLayout,
-    user_data: Option<&dyn std::any::Any>,
-) {
+pub fn WOLCustomScoreScreenShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     wol_custom_score_screen_shutdown(layout, user_data);
 }
 

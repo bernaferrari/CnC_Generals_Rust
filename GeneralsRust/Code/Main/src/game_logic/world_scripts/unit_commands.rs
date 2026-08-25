@@ -37,10 +37,8 @@ fn end_hunt_on_player_parent_order(unit: &mut Object) {
 /// C++ AIUpdateInterface last command source. Player/script orders are not
 /// CMD_FROM_AI, so CommandButtonHuntUpdate quits on the next scan.
 fn stamp_last_command_from_player(unit: &mut Object) {
-    unit.last_command_source =
-        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER;
+    unit.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER;
 }
-
 
 impl GameLogic {
     fn stamp_player_command_source(&mut self, id: ObjectId) {
@@ -62,7 +60,7 @@ impl GameLogic {
         base_selection_radius: f32,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_residual_acquire::{
-            pick_best_priority_residual_target, PriorityAcquireCandidate,
+            PriorityAcquireCandidate, pick_best_priority_residual_target,
         };
 
         let cands: Vec<_> = self
@@ -145,9 +143,6 @@ impl GameLogic {
         }
     }
 
-
-
-
     #[inline]
     pub fn unit_is_dead_or_missing(&self, id: ObjectId) -> bool {
         match self.objects.get(&id) {
@@ -193,7 +188,6 @@ impl GameLogic {
             unit.stop_attack();
         }
     }
-
 
     /// Prepare move: stop attack then assign path (fallback set_destination).
     /// Wave 230/232: stop attack residual then path or set destination + Moving.
@@ -333,8 +327,6 @@ impl GameLogic {
         }
         self.assault_transport_on_player_attack(id);
         true
-
-
     }
 
     /// Wave 230/232: force-attack target (records host attack log).
@@ -391,7 +383,6 @@ impl GameLogic {
             tgt.add_jet_targeter(id, true, self.frame);
         }
         true
-
     }
 
     /// Wave 230/232: full player stop (idle + clear guard/target/force + logs).
@@ -472,9 +463,7 @@ impl GameLogic {
         unit.hunting = false;
         // C++ SupplyTruckAIUpdate::privateIdle(CMD_FROM_PLAYER) setForceBusyState.
         // Workers omit the latch (WorkerAIUpdate.cpp:516-526).
-        if unit.thing.template.supply_truck_metadata.is_some()
-            && !unit.is_kind_of(KindOf::Worker)
-        {
+        if unit.thing.template.supply_truck_metadata.is_some() && !unit.is_kind_of(KindOf::Worker) {
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Idle;
             unit.supply_truck_force_pending = false;
         }
@@ -584,10 +573,7 @@ impl GameLogic {
         // C++ AIGroup::groupAttackMoveToPosition: no locomotor/can-move gate.
         // Deployed artillery and turret structures still enter attack-move.
         let (alive, can_attack) = match self.objects.get(&id) {
-            Some(unit) => (
-                unit.is_alive(),
-                unit.can_attack() || unit.weapon.is_some(),
-            ),
+            Some(unit) => (unit.is_alive(), unit.can_attack() || unit.weapon.is_some()),
             None => return false,
         };
         if !alive {
@@ -808,7 +794,6 @@ impl GameLogic {
         true
     }
 
-
     /// Wave 232: path after stop_attack; optionally clear formation id (free move).
     pub fn unit_command_move_clear_formation(
         &mut self,
@@ -891,11 +876,7 @@ impl GameLogic {
         mode: GuardMode,
     ) -> bool {
         self.stamp_player_command_source(id);
-        let movable = self
-            .objects
-            .get(&id)
-            .map(|u| u.can_move())
-            .unwrap_or(false);
+        let movable = self.objects.get(&id).map(|u| u.can_move()).unwrap_or(false);
         if !self.host_unit_can_guard(id) {
             return false;
         }
@@ -1017,11 +998,7 @@ impl GameLogic {
         self.stamp_player_command_source(id);
         // C++ AIGroup::groupHunt: AI present → aiHunt. No can_move / Immobile /
         // Structure gate (attack-move is the path that branches on isAbleToAttack).
-        let can = self
-            .objects
-            .get(&id)
-            .map(|u| u.is_alive())
-            .unwrap_or(false);
+        let can = self.objects.get(&id).map(|u| u.is_alive()).unwrap_or(false);
         if !can {
             return false;
         }
@@ -1119,13 +1096,14 @@ impl GameLogic {
                 )
             );
             let has_turret = unit.turret_enabled || unit.turret_turn_rate_rad > 0.0;
-            let turret_natural = crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
-                unit.status.under_construction,
-                unit.turret_angle_deg,
-                unit.turret_pitch_deg,
-                unit.turret_natural_angle_deg,
-                unit.turret_natural_pitch_deg,
-            );
+            let turret_natural =
+                crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
+                    unit.status.under_construction,
+                    unit.turret_angle_deg,
+                    unit.turret_pitch_deg,
+                    unit.turret_natural_angle_deg,
+                    unit.turret_natural_pitch_deg,
+                );
             let transitioned = {
                 let Some(style) = unit.deploy_style.as_mut() else {
                     return false;
@@ -1147,8 +1125,7 @@ impl GameLogic {
                         .as_ref()
                         .is_some_and(|ds| ds.is_aligning_turrets());
                     if aligning {
-                        unit.turret_substate =
-                            crate::game_logic::object::TurretSubState::Recenter;
+                        unit.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
                         unit.turret_idle_recentering = true;
                         unit.turret_target_id = None;
                         unit.turret_holding = false;
@@ -1625,9 +1602,7 @@ impl GameLogic {
         };
         let Some(bike_fire) = self.objects.get(&container_id).and_then(|c| {
             if !c.is_combat_cycle_style_container()
-                && !crate::game_logic::host_combat_cycle::is_combat_cycle_template(
-                    &c.template_name,
-                )
+                && !crate::game_logic::host_combat_cycle::is_combat_cycle_template(&c.template_name)
             {
                 return None;
             }
@@ -1655,7 +1630,6 @@ impl GameLogic {
         }
     }
 
-
     /// Wave 233: exit-unit drop residual (position/contain/target/ai).
     /// C++ OpenContain::exitObjectViaDoor walks ExitStart/End; TransportContain
     /// onRemoving applies GoAggressiveOnExit. Garrison keeps drop_position.
@@ -1665,9 +1639,9 @@ impl GameLogic {
     pub fn unit_command_exit_drop(&mut self, id: ObjectId, drop_position: glam::Vec3) -> bool {
         let container_id = self.objects.get(&id).and_then(|u| u.contained_by);
         let walk = container_id.is_some_and(|cid| {
-            self.objects.get(&cid).is_some_and(|c| {
-                !c.is_garrison_contain() && !c.is_tunnel_network_style_container()
-            })
+            self.objects
+                .get(&cid)
+                .is_some_and(|c| !c.is_garrison_contain() && !c.is_tunnel_network_style_container())
         });
         if let (true, Some(cid)) = (walk, container_id) {
             return self.unit_command_exit_via_open_contain(id, cid);
@@ -1719,7 +1693,6 @@ impl GameLogic {
         self.walk_unit_via_open_contain_exit(id, container_id);
         true
     }
-
 
     /// Wave 233: mine-clearing weapon-set detail residual.
     pub fn unit_command_set_mine_clearing_detail(&mut self, id: ObjectId, enabled: bool) -> bool {
@@ -1920,8 +1893,10 @@ impl GameLogic {
             .get(&id)
             .and_then(|unit| unit.mine_data.as_ref())
             .is_some_and(|md| {
-                matches!(md.kind, crate::game_logic::host_mines::HostMineKind::DemoTrap)
-                    && !md.detonated
+                matches!(
+                    md.kind,
+                    crate::game_logic::host_mines::HostMineKind::DemoTrap
+                ) && !md.detonated
             });
         let locked = {
             let Some(unit) = self.objects.get_mut(&id) else {
@@ -2250,17 +2225,17 @@ mod tests {
             damage: 1.0,
             range: 100.0,
             ..Weapon::default()
-});
+        });
         object.secondary_weapon = Some(Weapon {
             damage: 2.0,
             range: 100.0,
             ..Weapon::default()
-});
+        });
         object.tertiary_weapon = Some(Weapon {
             damage: 3.0,
             range: 100.0,
             ..Weapon::default()
-});
+        });
         (logic, id)
     }
 
@@ -2329,14 +2304,11 @@ mod tests {
     /// hq-65aus: path fail must not set_destination (straight-line through obstacles).
     #[test]
     fn attack_move_path_fail_does_not_set_destination() {
-        use crate::game_logic::host_deploy_style::{
-            HostDeployStyleData, HostDeployStyleState,
-        };
+        use crate::game_logic::host_deploy_style::{HostDeployStyleData, HostDeployStyleState};
         let mut logic = GameLogic::new();
-        logic.templates.insert(
-            "AtkMvBlock".to_string(),
-            ThingTemplate::new("AtkMvBlock"),
-        );
+        logic
+            .templates
+            .insert("AtkMvBlock".to_string(), ThingTemplate::new("AtkMvBlock"));
         let id = logic
             .create_object("AtkMvBlock", Team::USA, glam::Vec3::ZERO)
             .expect("unit");
@@ -2415,10 +2387,9 @@ mod tests {
     #[test]
     fn set_rally_point_rejects_non_auto_rallypoint() {
         let mut logic = GameLogic::new();
-        logic.templates.insert(
-            "PowerPlant".to_string(),
-            ThingTemplate::new("PowerPlant"),
-        );
+        logic
+            .templates
+            .insert("PowerPlant".to_string(), ThingTemplate::new("PowerPlant"));
         let id = logic
             .create_object("PowerPlant", Team::USA, glam::Vec3::ZERO)
             .expect("plant");
@@ -2547,8 +2518,9 @@ mod tests {
         assert!(logic.unit_command_exit_drop(ranger, glam::Vec3::new(4.0, 0.0, 0.0)));
         let u = logic.host_object(ranger).unwrap();
         assert_eq!(u.next_mood_check_time, 55);
-        let audio = gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
-            .expect("capture kick onRemoving audio");
+        let audio =
+            gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
+                .expect("capture kick onRemoving audio");
         assert_eq!(audio.container_template, "KICK_BUNKER");
         assert_eq!(audio.rider_template, "KICK_RANGER");
         assert_eq!(audio.rider_id, ranger.0);
@@ -2577,6 +2549,4 @@ mod tests {
             "C++ canProduceUpgrade refuses SupplyLines at Barracks"
         );
     }
-
-
 }

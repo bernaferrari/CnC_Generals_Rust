@@ -202,7 +202,11 @@ pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
 }
 
 /// C++ HeightDieUpdate.cpp:132-152: terrain + INI TargetHeight (+ structures).
-pub fn height_die_target_world_y(terrain_height: f32, ini: &HeightDieIni, structure_height: f32) -> f32 {
+pub fn height_die_target_world_y(
+    terrain_height: f32,
+    ini: &HeightDieIni,
+    structure_height: f32,
+) -> f32 {
     let mut extra = ini.target_height;
     if ini.includes_structures && structure_height > extra {
         extra = structure_height;

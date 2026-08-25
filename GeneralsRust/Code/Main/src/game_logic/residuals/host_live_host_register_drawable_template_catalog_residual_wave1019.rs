@@ -56,8 +56,8 @@ fn gc_source() -> &'static str {
     game_client::core::game_client::GAME_CLIENT_SRC
 }
 
-pub fn honesty_host_register_drawable_template_catalog_residual_method_names_residual_wave1019(
-) -> bool {
+pub fn honesty_host_register_drawable_template_catalog_residual_method_names_residual_wave1019()
+-> bool {
     let names = LIVE_HOST_REGISTER_DRAWABLE_TEMPLATE_CATALOG_RESIDUAL_METHOD_NAMES_WAVE1019;
     let ok = residual_name_index(names, "register_drawable_with_template").is_some()
         && residual_name_index(names, "Wave 1019").is_some();
@@ -66,8 +66,8 @@ pub fn honesty_host_register_drawable_template_catalog_residual_method_names_res
     ok
 }
 
-pub fn honesty_host_register_drawable_template_catalog_residual_nav_commands_residual_wave1019(
-) -> bool {
+pub fn honesty_host_register_drawable_template_catalog_residual_nav_commands_residual_wave1019()
+-> bool {
     let steps = LIVE_HOST_REGISTER_DRAWABLE_TEMPLATE_CATALOG_RESIDUAL_NAV_STEPS_WAVE1019;
     let ok = residual_name_index(
         steps,

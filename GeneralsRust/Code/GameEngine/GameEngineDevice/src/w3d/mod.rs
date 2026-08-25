@@ -3,6 +3,7 @@
 //! This module provides the Westwood 3D graphics system integration, converting the original
 //! C++ W3D device layer to modern Rust with enhanced performance and cross-platform support.
 
+pub mod buffer_manager;
 #[cfg(feature = "w3d")]
 pub mod fow_terrain_overlay;
 pub mod graphics_context;
@@ -11,12 +12,11 @@ pub mod model_loader;
 pub mod performance_optimizer;
 pub mod renderer;
 pub mod scene;
+#[cfg(feature = "w3d")]
+pub mod shadow_overlay;
 pub mod shadow_system;
 pub mod texture_manager;
 pub mod volumetric_shadow;
-pub mod buffer_manager;
-#[cfg(feature = "w3d")]
-pub mod shadow_overlay;
 #[cfg(feature = "w3d-c-abi")]
 #[path = "w3d_c_api/mod.rs"]
 pub mod w3d_c_api;
@@ -30,11 +30,11 @@ pub use w3d_device::{W3DConfig, W3DDevice};
 
 // Texture manager re-exports for parity with C++ W3DAssetManager
 pub use texture_manager::{
+    CompressionQuality, CompressionSettings, DEFAULT_INACTIVATION_TIME_MS, HOUSE_COLOR_SCALE,
+    MipCountType, StreamRequest, TEAM_COLOR_PALETTE_SIZE, TextureInactivationState,
+    TextureManagerStats, TextureSource, W3DTextureGpu, W3DTextureManager, WW3DFormat,
     generate_team_color_palette_16bit, generate_team_color_palette_32bit, hsv_to_rgb,
     recolor_texture_16bit_hue_shift, recolor_texture_32bit_hue_shift, rgb_to_hsv,
-    CompressionQuality, CompressionSettings, MipCountType, StreamRequest, TextureInactivationState,
-    TextureManagerStats, TextureSource, W3DTextureGpu, W3DTextureManager, WW3DFormat,
-    DEFAULT_INACTIVATION_TIME_MS, HOUSE_COLOR_SCALE, TEAM_COLOR_PALETTE_SIZE,
 };
 
 use serde::{Deserialize, Serialize};

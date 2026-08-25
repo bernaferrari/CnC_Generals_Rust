@@ -31,7 +31,7 @@ impl DebugIOInterface for DebugIONet {
             use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
             use windows_sys::Win32::Storage::FileSystem::ReadFile;
             use windows_sys::Win32::System::Pipes::{
-                SetNamedPipeHandleState, PIPE_NOWAIT, PIPE_READMODE_MESSAGE, PIPE_WAIT,
+                PIPE_NOWAIT, PIPE_READMODE_MESSAGE, PIPE_WAIT, SetNamedPipeHandleState,
             };
 
             let Some(pipe) = self.pipe else {
@@ -193,7 +193,7 @@ impl DebugIOInterface for DebugIONet {
                 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
                 use windows_sys::Win32::Storage::FileSystem::{CreateFileA, OPEN_EXISTING};
                 use windows_sys::Win32::System::Pipes::{
-                    SetNamedPipeHandleState, PIPE_READMODE_MESSAGE,
+                    PIPE_READMODE_MESSAGE, SetNamedPipeHandleState,
                 };
                 use windows_sys::Win32::System::SystemServices::{GENERIC_READ, GENERIC_WRITE};
 

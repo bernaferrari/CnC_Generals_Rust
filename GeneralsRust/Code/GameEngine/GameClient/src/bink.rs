@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use self::bink_decoder::BinkVideoDecoder;
 use crate::video_buffer::{VideoBuffer, VideoBufferType};
-use crate::video_player::{register_video_stream_provider, VideoStreamProvider};
+use crate::video_player::{VideoStreamProvider, register_video_stream_provider};
 use crate::video_stream::{PlaybackState, VideoStreamInterface};
 
 #[path = "bink_decoder.rs"]
@@ -51,7 +51,7 @@ impl BinkHeader {
                 return Err(format!(
                     "Unsupported Bink magic {:?}",
                     String::from_utf8_lossy(&magic)
-                ))
+                ));
             }
         };
 
@@ -96,12 +96,12 @@ impl BinkHeader {
 pub use crate::bink_audio::{
     apply_speech_slider_volume as bink_volume_from_speech_slider, get_handle_for_bink,
     has_bink_audio_bitstream_parser, initialize_bink_with_miles,
-    notify_video_player_of_new_provider as notify_bink_of_new_provider, play_bink_pcm_through_miles,
-    release_handle_for_bink, soundtrack_is_bound,
+    notify_video_player_of_new_provider as notify_bink_of_new_provider,
+    play_bink_pcm_through_miles, release_handle_for_bink, soundtrack_is_bound,
 };
 
 use crate::bink_audio::{
-    parse_audio_layout, split_frame_audio_and_video, BinkAudioDecoder, BinkAudioLayout,
+    BinkAudioDecoder, BinkAudioLayout, parse_audio_layout, split_frame_audio_and_video,
 };
 
 fn speech_slider_volume() -> f32 {
@@ -114,7 +114,6 @@ fn speech_slider_volume() -> f32 {
         })
         .unwrap_or(1.0)
 }
-
 
 #[derive(Debug, Clone)]
 pub struct BinkFramePacket {
@@ -785,5 +784,4 @@ mod tests {
         assert!((bink_volume_from_speech_slider(0.0) - expected(0.0)).abs() < 1e-6);
         assert!((bink_volume_from_speech_slider(0.5) - expected(0.5)).abs() < 1e-6);
     }
-
 }

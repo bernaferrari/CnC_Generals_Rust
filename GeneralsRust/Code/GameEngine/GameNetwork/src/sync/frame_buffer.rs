@@ -12,7 +12,7 @@
 //!   to verify that clients are producing consistent state.
 
 use crate::error::{NetworkError, NetworkResult};
-use crate::network_defs::{FRAMES_TO_KEEP, FRAME_DATA_LENGTH, MAX_FRAMES_AHEAD};
+use crate::network_defs::{FRAME_DATA_LENGTH, FRAMES_TO_KEEP, MAX_FRAMES_AHEAD};
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;

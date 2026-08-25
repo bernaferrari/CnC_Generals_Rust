@@ -8,7 +8,7 @@
 //! `GameClient/gui/callbacks/diplomacy.rs`.
 
 use super::{
-    layout, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIRenderContext, layout, utils,
 };
 use crate::localization;
 use std::collections::HashMap;

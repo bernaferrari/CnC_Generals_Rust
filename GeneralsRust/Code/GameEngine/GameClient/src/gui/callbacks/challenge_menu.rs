@@ -3,26 +3,26 @@
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::campaign_launch_host_bridge::{
-    publish_host_campaign_launch, HostCampaignLaunchDescriptor,
+    HostCampaignLaunchDescriptor, publish_host_campaign_launch,
 };
-use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
+use crate::gui::campaign_manager::{GameDifficulty as CampaignDifficulty, get_campaign_manager};
 use crate::gui::challenge_game_info::{
     clear_challenge_game_info, init_challenge_game_info, set_challenge_slot0_and_map,
 };
-use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
+use crate::gui::challenge_generals::{GameDifficulty, NUM_GENERALS, get_challenge_generals_mut};
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
     get_shell, queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
-    try_with_shell_mut, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    try_with_shell_mut, with_window_manager, write_input_focus_response,
 };
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::ini::{ensure_player_templates_loaded, get_global_data};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
-use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
+use game_engine::common::rts::player_template::{PlayerTemplate, get_player_template_store};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
@@ -763,11 +763,7 @@ pub fn simulate_challenge_menu_select_general(index: usize) -> bool {
 /// Residual: currently selected challenge general index.
 pub fn residual_challenge_selected_general() -> Option<usize> {
     let idx = RESIDUAL_CHALLENGE_SELECTED_INDEX.load(std::sync::atomic::Ordering::Relaxed);
-    if idx >= NUM_GENERALS {
-        None
-    } else {
-        Some(idx)
-    }
+    if idx >= NUM_GENERALS { None } else { Some(idx) }
 }
 
 /// Residual: ButtonPlay was requested after a general selection.
@@ -844,9 +840,9 @@ pub fn drive_os_wnd_challenge_start_like_cpp(index: usize) -> bool {
 mod tests {
     use super::*;
     use crate::display::image::{ICoord2D, Image as MappedImage};
+    use crate::gui::WindowWidget;
     use crate::gui::challenge_generals::init_challenge_generals;
     use crate::gui::gadgets::CheckBox;
-    use crate::gui::WindowWidget;
     use game_engine::common::language::Language;
 
     fn add_test_mapped_image(name: &str, width: i32, height: i32) {

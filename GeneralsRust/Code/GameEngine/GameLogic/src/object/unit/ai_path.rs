@@ -9,7 +9,6 @@ use super::imports::*;
 use super::registry::{dual_world_registry_unavailable, get_unit_arc};
 use super::types::*;
 
-
 /// C++ `Region3D::isInRegionNoZ` used by leftover `computePath` off-map gate.
 pub fn leftover_is_in_region_no_z(region: &Region3D, position: &Coord3D) -> bool {
     position.x >= region.lo.x
@@ -213,13 +212,16 @@ impl UnitAIUpdate {
         let result = pf_guard.find_closest_path_result(request);
         if result.success && !result.waypoints.is_empty() {
             self.set_path_from_coords(&result.waypoints)?;
+            Ok(true)
         } else {
             self.path_timestamp = TheGameLogic::get_frame();
             self.blocked_frames = 0;
             self.blocked_and_stuck = false;
+            // C++ computePath returns failure when findClosestPath also
+            // returns NULL. Do not turn an unreachable destination into a
+            // successful no-op merely because its cell was invalid.
+            Ok(false)
         }
-
-        Ok(true)
     }
     pub(super) fn stop_stuck_old_path_after_failed_path(&mut self) -> Result<(), String> {
         let unit =

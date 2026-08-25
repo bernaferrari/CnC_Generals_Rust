@@ -393,7 +393,6 @@ pub fn get_water_setting(time_of_day: TimeOfDay) -> Option<Arc<RwLock<WaterSetti
     settings.get(time_of_day.as_index()).cloned()
 }
 
-
 /// Get the water transparency setting
 pub fn get_water_transparency() -> Option<Arc<RwLock<WaterTransparencySetting>>> {
     WATER_TRANSPARENCY.get().cloned()
@@ -515,7 +514,6 @@ pub fn apply_parsed_water_transparency(
 
     apply_transparency_properties(&mut transparency, &properties)
 }
-
 
 /// Parse RGBA color from string (format: R G B A or R,G,B,A)
 pub fn parse_color_rgba(value: &str) -> Result<(f32, f32, f32, f32), String> {
@@ -866,7 +864,6 @@ mod tests {
         assert_eq!(setting.water_repeat_count, 12);
     }
 
-
     #[test]
     fn water_setting_accepts_cpp_field_table_fields() {
         let mut properties = HashMap::new();
@@ -976,7 +973,10 @@ mod tests {
         assert_eq!(setting.standing_water_color, (0.2, 0.3, 0.4));
         assert_eq!(setting.standing_water_texture.as_str(), "Standing.tga");
         assert!(setting.additive_blending);
-        assert_eq!(setting.radar_water_color, (10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0));
+        assert_eq!(
+            setting.radar_water_color,
+            (10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0)
+        );
         assert_eq!(setting.skybox_texture_n.as_str(), "North.tga");
         assert_eq!(setting.skybox_texture_e.as_str(), "East.tga");
         assert_eq!(setting.skybox_texture_s.as_str(), "South.tga");
@@ -1065,7 +1065,10 @@ mod tests {
     #[test]
     fn test_time_of_day_names() {
         let names = IniWater::get_time_of_day_names();
-        assert_eq!(names, vec!["NONE", "MORNING", "AFTERNOON", "EVENING", "NIGHT"]);
+        assert_eq!(
+            names,
+            vec!["NONE", "MORNING", "AFTERNOON", "EVENING", "NIGHT"]
+        );
     }
 
     #[test]

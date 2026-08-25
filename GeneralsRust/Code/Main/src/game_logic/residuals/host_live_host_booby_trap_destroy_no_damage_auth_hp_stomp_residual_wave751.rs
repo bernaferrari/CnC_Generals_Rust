@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostBoobyTrapDestroyNoDamageAuthHpStompActio
 pub fn residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostBoobyTrapDestroyNoDamageAuthHpStompAction {
+pub fn residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostBoobyTrapDestroyNoDamageAuthHpStompAction {
     ResidualHostBoobyTrapDestroyNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -69,8 +69,8 @@ pub fn residual_host_booby_trap_destroy_no_damage_auth_hp_stomp_last_action(
 fn gl_source() -> &'static str {
     super::GAME_LOGIC_HOST_SRC
 }
-pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_method_names_residual_wave751(
-) -> bool {
+pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_method_names_residual_wave751()
+-> bool {
     let names = LIVE_HOST_BOOBY_TRAP_DESTROY_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE751;
     let ok = residual_name_index(names, "destroy_booby_trap_special_object").is_some()
         && residual_name_index(names, "booby_trap_special").is_some()
@@ -80,8 +80,8 @@ pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_method_names_resi
     residual_action_store(ResidualHostBoobyTrapDestroyNoDamageAuthHpStompAction::MethodNames);
     ok
 }
-pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_source_markers_residual_wave751(
-) -> bool {
+pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_source_markers_residual_wave751()
+-> bool {
     let gl = gl_source();
     let ok = gl.contains("Wave 751")
         && gl.contains("fn destroy_booby_trap_special_object")
@@ -92,8 +92,8 @@ pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_source_markers_re
     residual_action_store(ResidualHostBoobyTrapDestroyNoDamageAuthHpStompAction::SourceMarkers);
     ok
 }
-pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_nav_commands_residual_wave751(
-) -> bool {
+pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_nav_commands_residual_wave751()
+-> bool {
     let steps = LIVE_HOST_BOOBY_TRAP_DESTROY_NO_DAMAGE_AUTH_HP_STOMP_NAV_STEPS_WAVE751;
     let cmds = RUNTIME_HOST_LIVE_HOST_BOOBY_TRAP_DESTROY_NO_DAMAGE_AUTH_HP_STOMP_CMD_NAMES_WAVE751;
     let ok = residual_name_index(steps, "REQUIRE_DAMAGE_AUTH_SKIP_HP_STOMP").is_some()

@@ -6,11 +6,11 @@
 
 #![allow(unused_imports)]
 
-use super::combat;
 use super::ObjectId;
 use super::Team;
 use super::VeterancyLevel;
 use super::Weapon;
+use super::combat;
 
 use super::host_gamedata_lobby_residual;
 use super::host_money_crate;

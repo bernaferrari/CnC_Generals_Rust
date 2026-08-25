@@ -3,9 +3,9 @@
 // Author: Rust Port
 // Desc: Special power module interface and base implementation
 
-use crate::common::science::{ScienceType, SCIENCE_INVALID};
 use crate::common::AsciiString;
 pub use crate::common::ObjectID as ObjectId;
+use crate::common::science::{SCIENCE_INVALID, ScienceType};
 use crate::common::{Coord3D, KindOf, ObjectStatusMaskType, Relationship};
 use crate::helpers::{TheAudio, TheEva, TheGameLogic, TheGlobalData, TheInGameUI, TheThingFactory};
 use crate::modules::{
@@ -20,7 +20,7 @@ use crate::object::special_power_types::SpecialPowerType;
 use crate::object::update::special_power_update::SpecialPowerCommandOption;
 use crate::player::player_list;
 pub use crate::waypoint::Waypoint;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::rts::academy_stats::AcademyClassificationType;
 use std::fmt;
 use std::sync::Arc;

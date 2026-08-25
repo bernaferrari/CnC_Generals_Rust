@@ -29,19 +29,26 @@ struct Rect {
 
 impl Rect {
     fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     fn contains(&self, point: Point) -> bool {
-        point.x >= self.x && point.x <= self.x + self.width &&
-        point.y >= self.y && point.y <= self.y + self.height
+        point.x >= self.x
+            && point.x <= self.x + self.width
+            && point.y >= self.y
+            && point.y <= self.y + self.height
     }
 
     fn intersects(&self, other: &Rect) -> bool {
-        !(self.x + self.width < other.x ||
-          other.x + other.width < self.x ||
-          self.y + self.height < other.y ||
-          other.y + other.height < self.y)
+        !(self.x + self.width < other.x
+            || other.x + other.width < self.x
+            || self.y + self.height < other.y
+            || other.y + other.height < self.y)
     }
 }
 
@@ -87,9 +94,21 @@ fn test_ui_hierarchy() {
     }
 
     let mut elements = vec![
-        UIElement { rect: Rect::new(0.0, 0.0, 100.0, 100.0), z_order: 1, visible: true },
-        UIElement { rect: Rect::new(50.0, 50.0, 100.0, 100.0), z_order: 2, visible: true },
-        UIElement { rect: Rect::new(25.0, 25.0, 50.0, 50.0), z_order: 0, visible: true },
+        UIElement {
+            rect: Rect::new(0.0, 0.0, 100.0, 100.0),
+            z_order: 1,
+            visible: true,
+        },
+        UIElement {
+            rect: Rect::new(50.0, 50.0, 100.0, 100.0),
+            z_order: 2,
+            visible: true,
+        },
+        UIElement {
+            rect: Rect::new(25.0, 25.0, 50.0, 50.0),
+            z_order: 0,
+            visible: true,
+        },
     ];
 
     // Sort by z-order
@@ -148,8 +167,10 @@ mod performance_tests {
         let elapsed = start.elapsed();
         let tests_per_sec = NUM_TESTS as f64 / elapsed.as_secs_f64();
 
-        println!("Performed {} hit tests in {:?} ({:.0} tests/sec)",
-            NUM_TESTS, elapsed, tests_per_sec);
+        println!(
+            "Performed {} hit tests in {:?} ({:.0} tests/sec)",
+            NUM_TESTS, elapsed, tests_per_sec
+        );
 
         assert!(tests_per_sec > 1000000.0);
 

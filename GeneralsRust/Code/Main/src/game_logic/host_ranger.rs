@@ -248,9 +248,9 @@ pub fn ranger_rifle_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual SECONDARY flashbang Weapon.
@@ -270,9 +270,9 @@ pub fn ranger_flashbang_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// (damage, range, delay_frames) for rifle residual.

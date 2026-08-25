@@ -97,7 +97,7 @@ impl GameLogic {
             // only while Bombardment plan is active (C++ enableTurret residual).
             {
                 use crate::game_logic::host_strategy_center::{
-                    is_strategy_center_template, HostBattlePlan,
+                    HostBattlePlan, is_strategy_center_template,
                 };
                 let is_sc = is_strategy_center_template(&attacker.template_name)
                     || attacker.is_kind_of(KindOf::FSStrategyCenter);
@@ -206,7 +206,8 @@ impl GameLogic {
                     && attacker.weapon_lock_slot == 2);
             let any_ready = attacker.weapon_slot(0).is_some_and(|w| {
                 Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
-            }) || ((secondary_explicit || attacker.thing.template.slot_allows_auto_choose(1))
+            }) || ((secondary_explicit
+                || attacker.thing.template.slot_allows_auto_choose(1))
                 && attacker.secondary_weapon.as_ref().is_some_and(|w| {
                     Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
                 }))
@@ -255,7 +256,6 @@ impl GameLogic {
                     tgt.add_jet_targeter(attacker_id, true, self.frame);
                 }
 
-
                 // Choose a legal explicit/automatic combat slot, then fire.
                 // Stealthed + undetected: drop the engagement (C++ AIStates residual).
                 let (selected_slot, enemy_or_forced, target_stealthed_hidden) = {
@@ -299,9 +299,9 @@ impl GameLogic {
                         let ready = attacker.weapon_slot(slot).is_some_and(|w| {
                             attacker.weapon_ready_vs_target_bonused(w, current_time, faerie)
                         });
-                        let in_range = attacker.weapon_slot(slot).is_some_and(|w| {
-                            attacker.can_target_with_slot(target, w, Some(slot))
-                        });
+                        let in_range = attacker
+                            .weapon_slot(slot)
+                            .is_some_and(|w| attacker.can_target_with_slot(target, w, Some(slot)));
                         (ready, in_range)
                     } else {
                         (false, false)
@@ -567,8 +567,8 @@ impl GameLogic {
                         // Avenger Target Designator residual: paint FAERIE_FIRE (no HP damage).
                         let avenger_paint = {
                             use crate::game_logic::host_avenger::{
-                                is_avenger_template, should_apply_faerie_fire_paint,
                                 AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO,
+                                is_avenger_template, should_apply_faerie_fire_paint,
                             };
                             self.objects
                                 .get(&attacker_id)
@@ -607,7 +607,7 @@ impl GameLogic {
                         // Humvee air TOW residual damage boost vs aircraft.
                         let humvee_air_tow = {
                             use crate::game_logic::host_humvee::{
-                                humvee_prefer_air_tow, is_humvee_template, HUMVEE_AIR_TOW_DAMAGE,
+                                HUMVEE_AIR_TOW_DAMAGE, humvee_prefer_air_tow, is_humvee_template,
                             };
                             let target_is_air = self
                                 .objects
@@ -712,8 +712,8 @@ impl GameLogic {
                             // (kill infantry / unman vehicles) instead of HP take_damage.
                             let neutron_blast = {
                                 use crate::game_logic::host_neutron_shell::{
-                                    is_nuke_cannon_template, should_apply_neutron_blast,
-                                    UPGRADE_CHINA_NEUTRON_SHELLS,
+                                    UPGRADE_CHINA_NEUTRON_SHELLS, is_nuke_cannon_template,
+                                    should_apply_neutron_blast,
                                 };
                                 self.objects
                                     .get(&attacker_id)
@@ -809,10 +809,10 @@ impl GameLogic {
                                 // Comanche residual: 20mm primary / anti-tank secondary /
                                 // manual rocket pods tertiary.
                                 use crate::game_logic::host_comanche_rocket_pods::{
-                                    is_comanche_template, should_apply_comanche_antitank_residual,
+                                    UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
+                                    should_apply_comanche_antitank_residual,
                                     should_apply_comanche_cannon_residual,
                                     should_apply_rocket_pod_area_attack,
-                                    UPGRADE_COMANCHE_ROCKET_PODS,
                                 };
                                 self.objects
                                     .get(&attacker_id)
@@ -820,10 +820,10 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 use crate::game_logic::host_comanche_rocket_pods::{
-                                    is_comanche_template, should_apply_comanche_antitank_residual,
+                                    UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
+                                    should_apply_comanche_antitank_residual,
                                     should_apply_comanche_cannon_residual,
                                     should_apply_rocket_pod_area_attack,
-                                    UPGRADE_COMANCHE_ROCKET_PODS,
                                 };
                                 let impact = target_position;
                                 let (has_pods, is_comanche) = self
@@ -844,7 +844,7 @@ impl GameLogic {
                                 ) {
                                     {
                                         use crate::game_logic::host_comanche_rocket_pods::{
-                                            rocket_pod_scatter_impact, ROCKET_POD_CLIP_SIZE,
+                                            ROCKET_POD_CLIP_SIZE, rocket_pod_scatter_impact,
                                         };
                                         let idx = {
                                             let shot = self
@@ -987,8 +987,8 @@ impl GameLogic {
                             } else if {
                                 // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
                                 use crate::game_logic::host_technical::{
-                                    is_technical_template, should_apply_technical_splash,
-                                    TechnicalWeaponTier,
+                                    TechnicalWeaponTier, is_technical_template,
+                                    should_apply_technical_splash,
                                 };
                                 self.objects
                                     .get(&attacker_id)
@@ -1004,9 +1004,9 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 use crate::game_logic::host_technical::{
+                                    TechnicalWeaponTier as TechTier,
                                     should_apply_technical_cannon_shell,
                                     should_apply_technical_rpg_missile,
-                                    TechnicalWeaponTier as TechTier,
                                 };
                                 let impact = target_position;
                                 let tier = self
@@ -1082,8 +1082,8 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 use crate::game_logic::host_marauder::{
-                                    MarauderWeaponTier, MARAUDER_SPEED_TIER0, MARAUDER_SPEED_TIER1,
-                                    MARAUDER_SPEED_TIER2,
+                                    MARAUDER_SPEED_TIER0, MARAUDER_SPEED_TIER1,
+                                    MARAUDER_SPEED_TIER2, MarauderWeaponTier,
                                 };
                                 let impact = target_position;
                                 let from = self
@@ -1450,8 +1450,8 @@ impl GameLogic {
                             } else if {
                                 // USA Crusader/Paladin residual: GenericTankShell Bezier + splash.
                                 use crate::game_logic::host_usa_tanks::{
-                                    is_paladin_template, should_apply_usa_tank_gun_residual,
                                     CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED,
+                                    is_paladin_template, should_apply_usa_tank_gun_residual,
                                 };
                                 self.objects
                                     .get(&attacker_id)
@@ -1459,8 +1459,8 @@ impl GameLogic {
                                     .unwrap_or(false)
                             } {
                                 use crate::game_logic::host_usa_tanks::{
-                                    is_paladin_template, CRUSADER_WEAPON_SPEED,
-                                    PALADIN_WEAPON_SPEED,
+                                    CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED,
+                                    is_paladin_template,
                                 };
                                 let impact = target_position;
                                 let from = self
@@ -1808,8 +1808,8 @@ impl GameLogic {
                                 should_apply_humvee_tow_residual(is_hv, has_tow, slot == 1)
                             } {
                                 use crate::game_logic::host_humvee::{
-                                    humvee_prefer_air_tow as hv_air_tow,
                                     HUMVEE_TOW_FIRE_AUDIO as HV_TOW_AUDIO,
+                                    humvee_prefer_air_tow as hv_air_tow,
                                 };
                                 let impact = target_position;
                                 let target_is_air = self
@@ -2036,9 +2036,8 @@ impl GameLogic {
                                 // estimate-only and must not skip structure HP.
                                 let (bunker_buster_hit, kill_garrisoned_hit) = {
                                     use crate::game_logic::host_bunker_buster::{
-                                        is_bunker_buster_carrier, should_apply_bunker_buster,
-                                        should_apply_kill_garrisoned,
-                                        UPGRADE_AMERICA_BUNKER_BUSTERS,
+                                        UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier,
+                                        should_apply_bunker_buster, should_apply_kill_garrisoned,
                                     };
                                     let target_is_structure = self
                                         .objects
@@ -2093,17 +2092,14 @@ impl GameLogic {
                                         Some(attacker_id),
                                     );
                                 } else if {
-                                    let table_offset = self.objects.get_mut(&attacker_id).and_then(
-                                        |attacker| {
+                                    let table_offset =
+                                        self.objects.get_mut(&attacker_id).and_then(|attacker| {
                                             let name = attacker
                                                 .weapon_name_for_slot(slot)
                                                 .map(str::to_owned);
-                                            attacker.take_scatter_table_offset(
-                                                slot,
-                                                name.as_deref(),
-                                            )
-                                        },
-                                    );
+                                            attacker
+                                                .take_scatter_table_offset(slot, name.as_deref())
+                                        });
                                     let (sc_miss, sc_impact, sc_splash) = self
                                         .resolve_instant_scatter_shot(
                                             attacker_id,
@@ -2145,13 +2141,9 @@ impl GameLogic {
                                     // take_damage_from is UNRESISTABLE (script kill /
                                     // empty-hulk); live object-vs-object fire must use
                                     // the firing Weapon.ini type so Armor.ini applies.
-                                    let fire_wname = self
-                                        .objects
-                                        .get(&attacker_id)
-                                        .and_then(|attacker| {
-                                            attacker
-                                                .weapon_name_for_slot(slot)
-                                                .map(str::to_owned)
+                                    let fire_wname =
+                                        self.objects.get(&attacker_id).and_then(|attacker| {
+                                            attacker.weapon_name_for_slot(slot).map(str::to_owned)
                                         });
                                     let damage_type = fire_wname.as_deref().map(
                                         crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
@@ -2176,37 +2168,41 @@ impl GameLogic {
                                         .map(|a| a.get_position())
                                         .unwrap_or(target_position);
                                     if !at_self {
-                                    if let Some(target) = self.objects.get_mut(&target_id) {
-                                        if target.get_sneaky_targeting_offset(self.frame).is_some() {
-                                            // C++ fireWeaponTemplate clears victimObj; the shot
-                                            // flies at the offset point and does not connect.
-                                        } else {
-                                        let destroyed = target.take_damage_from_typed_death(
-                                            weapon_damage,
-                                            Some(attacker_id),
-                                            damage_type,
-                                            death_type,
-                                        );
-                                        if destroyed {
-                                            // C++ parity: XP is victim ExperienceValue at current level.
-                                            let kill_xp = target.kill_experience_value();
-                                            let victim_pos = target.get_position();
-                                            let victim_team = target.team;
-                                            self.mark_object_for_destruction(
-                                                target_id,
-                                                Some(attacker_team),
-                                            );
-                                            self.continue_or_stop_after_kill(
-                                                attacker_id,
-                                                target_id,
-                                                victim_pos,
-                                                victim_team,
-                                                fire_wname.as_deref(),
-                                                kill_xp,
-                                            );
+                                        if let Some(target) = self.objects.get_mut(&target_id) {
+                                            if target
+                                                .get_sneaky_targeting_offset(self.frame)
+                                                .is_some()
+                                            {
+                                                // C++ fireWeaponTemplate clears victimObj; the shot
+                                                // flies at the offset point and does not connect.
+                                            } else {
+                                                let destroyed = target
+                                                    .take_damage_from_typed_death(
+                                                        weapon_damage,
+                                                        Some(attacker_id),
+                                                        damage_type,
+                                                        death_type,
+                                                    );
+                                                if destroyed {
+                                                    // C++ parity: XP is victim ExperienceValue at current level.
+                                                    let kill_xp = target.kill_experience_value();
+                                                    let victim_pos = target.get_position();
+                                                    let victim_team = target.team;
+                                                    self.mark_object_for_destruction(
+                                                        target_id,
+                                                        Some(attacker_team),
+                                                    );
+                                                    self.continue_or_stop_after_kill(
+                                                        attacker_id,
+                                                        target_id,
+                                                        victim_pos,
+                                                        victim_team,
+                                                        fire_wname.as_deref(),
+                                                        kill_xp,
+                                                    );
+                                                }
+                                            }
                                         }
-                                        }
-                                    }
                                     }
                                     // C++ dual-radius splash residual after direct hit.
                                     // DamageDealtAtSelfPosition recenters on the shooter and
@@ -2255,11 +2251,8 @@ impl GameLogic {
                                             } else {
                                                 target_position
                                             };
-                                            let splash_intended = if at_self {
-                                                ObjectId(0)
-                                            } else {
-                                                target_id
-                                            };
+                                            let splash_intended =
+                                                if at_self { ObjectId(0) } else { target_id };
                                             let hits = self.apply_instant_hit_splash_at(
                                                 splash_pos,
                                                 weapon_damage,
@@ -2435,8 +2428,8 @@ impl GameLogic {
                 });
                 let rocket_pod_ground = {
                     use crate::game_logic::host_comanche_rocket_pods::{
-                        is_comanche_template, rocket_pod_ground_fire_active,
-                        UPGRADE_COMANCHE_ROCKET_PODS,
+                        UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
+                        rocket_pod_ground_fire_active,
                     };
                     self.objects
                         .get(&attacker_id)
@@ -2600,7 +2593,7 @@ impl GameLogic {
                         if rocket_pod_ground {
                             // Retail FIRE_WEAPON tertiary at position → scatter projectile + area.
                             use crate::game_logic::host_comanche_rocket_pods::{
-                                rocket_pod_scatter_impact, ROCKET_POD_CLIP_SIZE,
+                                ROCKET_POD_CLIP_SIZE, rocket_pod_scatter_impact,
                             };
                             let idx = {
                                 let shot = self
@@ -2726,11 +2719,11 @@ impl GameLogic {
                         } else if let Some(ground_target_id) =
                             self.find_ground_attack_victim(attacker_id, target_location)
                         {
-                            let ground_wname = self
-                                .objects
-                                .get(&attacker_id)
-                                .and_then(|attacker| {
-                                    attacker.weapon_name_for_slot(ground_slot).map(str::to_owned)
+                            let ground_wname =
+                                self.objects.get(&attacker_id).and_then(|attacker| {
+                                    attacker
+                                        .weapon_name_for_slot(ground_slot)
+                                        .map(str::to_owned)
                                 });
                             let damage_type = ground_wname
                                 .as_deref()
@@ -2754,7 +2747,10 @@ impl GameLogic {
                                         ground_target_id,
                                         Some(attacker_team),
                                     );
-                                    self.award_score_the_kill_experience(attacker_id, ground_target_id);
+                                    self.award_score_the_kill_experience(
+                                        attacker_id,
+                                        ground_target_id,
+                                    );
                                 }
                             }
                         }

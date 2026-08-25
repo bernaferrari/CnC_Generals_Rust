@@ -46,7 +46,7 @@ pub const SECONDS_PER_LOGICFRAME_REAL: f32 = 1.0f32 / LOGICFRAMES_PER_SECONDS_RE
 /// Special time values
 pub const NEVER: u32 = 0;
 pub const FOREVER: u32 = 0x3fffffff; // (we use 0x3fffffff so that we can add offsets and not overflow...
-                                     //  at 30fps we're still pretty safe!)
+//  at 30fps we're still pretty safe!)
 
 /// Maximum player count
 pub const MAX_PLAYER_COUNT: usize = 16;

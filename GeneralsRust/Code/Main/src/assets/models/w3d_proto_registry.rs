@@ -3,11 +3,11 @@
 //! `WW3DAssetManager` registers Collection / Box / Ring / Sphere / Aggregate /
 //! Null / DistLOD / Dazzle / ParticleEmitter in addition to Mesh/HLod/HModel.
 
+use super::W3DModel;
 use super::w3d_collection_aggregate::{W3dAggregateProto, W3dCollectionProto, W3dDistLodProto};
 use super::w3d_dazzle_loader::W3dDazzleProto;
 use super::w3d_emitter_loader::W3dEmitterProto;
 use super::w3d_primitive_protos::{W3dBoxProto, W3dNullProto, W3dRingProto, W3dSphereProto};
-use super::W3DModel;
 
 /// Extra prototype kinds stored on [`W3DModel`] after the live loader parse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,9 +64,7 @@ pub fn extra_prototypes(model: &W3DModel) -> Vec<(String, W3dExtraPrototypeKind)
     push_named(
         &mut out,
         model.aggregates.iter().map(|p| p.name.as_str()),
-        |i| W3dExtraPrototypeKind::Aggregate {
-            aggregate_index: i,
-        },
+        |i| W3dExtraPrototypeKind::Aggregate { aggregate_index: i },
     );
     push_named(
         &mut out,

@@ -154,9 +154,9 @@ mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_map_host_spawn_if_coupled, end_shadow_coupled_tick,
-        install_active_shadow_for_coupled_tick, GameWorldShadow,
+        install_active_shadow_for_coupled_tick,
     };
     use glam::Vec3;
 

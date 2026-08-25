@@ -36,7 +36,10 @@ pub fn is_passengers_fire_upgrade(name: &str) -> bool {
 /// Templates that receive the flag when the upgrade completes.
 pub fn is_passengers_fire_upgrade_host(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
-    if n.contains("helix") && !n.contains("bunker") && !n.contains("gattling") && !n.contains("propaganda")
+    if n.contains("helix")
+        && !n.contains("bunker")
+        && !n.contains("gattling")
+        && !n.contains("propaganda")
     {
         return true;
     }

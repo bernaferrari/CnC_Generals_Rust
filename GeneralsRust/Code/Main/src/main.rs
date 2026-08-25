@@ -38,7 +38,7 @@ use game_engine::common::game_engine::clear_game_engine;
 use game_engine::common::system::game_memory::init_memory_manager;
 use generals_main::command_line::{self, CommandLineArgs};
 use generals_main::subsystem_manager;
-use log::{debug, error, info, warn, LevelFilter};
+use log::{LevelFilter, debug, error, info, warn};
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -532,7 +532,7 @@ fn resolve_startup_resolution(cmd_args: &CommandLineArgs) -> (u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_window_mode, CommandLineArgs};
+    use super::{CommandLineArgs, resolve_window_mode};
 
     #[test]
     fn last_explicit_window_mode_wins_for_startup_mode() {

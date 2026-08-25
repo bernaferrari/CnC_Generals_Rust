@@ -952,10 +952,12 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert!(snapshot_from_visual_state(1, 0, &bind_state)
-            .expect("explicit source bind pose is durable")
-            .animation
-            .is_none());
+        assert!(
+            snapshot_from_visual_state(1, 0, &bind_state)
+                .expect("explicit source bind pose is durable")
+                .animation
+                .is_none()
+        );
 
         let unresolved = ObjectVisualState {
             identity: Some(FrozenVisualDrawIdentity {
@@ -1042,5 +1044,4 @@ mod tests {
             false, false
         ));
     }
-
 }

@@ -16,7 +16,7 @@
 //! - Shell `playable_claim` stays false; network deferred
 
 use game_engine::common::message_stream::{
-    get_message_stream, GameMessage, GameMessageArgumentType, GameMessageType, MessageStream,
+    GameMessage, GameMessageArgumentType, GameMessageType, MessageStream, get_message_stream,
 };
 
 /// Lookup residual name index (exact match).

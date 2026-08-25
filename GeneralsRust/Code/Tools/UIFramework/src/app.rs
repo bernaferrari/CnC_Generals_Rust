@@ -169,14 +169,12 @@ impl ToolApp {
         self.chrome
             .menu_bar
             .set_item_checked("view.hot_reload", self.config.hot_reload_enabled);
-        self.chrome.menu_bar.set_item_checked(
-            "view.palette",
-            self.chrome.layout.show_left_palette,
-        );
-        self.chrome.menu_bar.set_item_checked(
-            "view.properties",
-            self.chrome.layout.show_right_properties,
-        );
+        self.chrome
+            .menu_bar
+            .set_item_checked("view.palette", self.chrome.layout.show_left_palette);
+        self.chrome
+            .menu_bar
+            .set_item_checked("view.properties", self.chrome.layout.show_right_properties);
     }
 
     fn handle_chrome_command(&mut self, ctx: &egui::Context, cmd: &str) {
@@ -210,10 +208,9 @@ impl ToolApp {
                 self.chrome.status_bar.set_zoom(1.0);
             }
             "help.about" => {
-                self.chrome.status_bar.set_message(format!(
-                    "{} v{}",
-                    self.config.name, self.config.version
-                ));
+                self.chrome
+                    .status_bar
+                    .set_message(format!("{} v{}", self.config.name, self.config.version));
             }
             _ => {}
         }

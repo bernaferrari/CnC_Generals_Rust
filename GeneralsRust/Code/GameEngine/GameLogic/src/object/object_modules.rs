@@ -844,7 +844,9 @@ impl Object {
                         if let Some(factory) = factory_guard.as_ref() {
                             install_behavior_modules(factory);
                         } else {
-                            warn!("ModuleFactory still not initialised after retry while creating modules");
+                            warn!(
+                                "ModuleFactory still not initialised after retry while creating modules"
+                            );
                         }
                     }
                     Err(_) => {
@@ -929,12 +931,9 @@ impl Object {
                 guard
                     .get_controlling_player()
                     .and_then(|player| {
-                        player
-                            .read()
-                            .ok()
-                            .map(|player_guard| {
-                                player_guard.get_production_veterancy_level(&template_name)
-                            })
+                        player.read().ok().map(|player_guard| {
+                            player_guard.get_production_veterancy_level(&template_name)
+                        })
                     })
                     .unwrap_or(crate::common::types::VeterancyLevel::Regular)
             };
@@ -1250,9 +1249,9 @@ impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
             >() {
                 return auto_heal.behavior_mut().on_damage(damage_info);
             }
-            if let Some(bridge) = (module as &mut dyn Any).downcast_mut::<
-                crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
-            >() {
+            if let Some(bridge) = (module as &mut dyn Any)
+                .downcast_mut::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>(
+            ) {
                 return bridge.behavior_mut().on_damage(damage_info);
             }
             if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
@@ -1269,9 +1268,9 @@ impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.entry.with_module(|module| {
-            if let Some(bridge) = (module as &mut dyn Any).downcast_mut::<
-                crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
-            >() {
+            if let Some(bridge) = (module as &mut dyn Any)
+                .downcast_mut::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>(
+            ) {
                 return bridge.behavior_mut().on_healing(damage_info);
             }
             if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
@@ -1290,9 +1289,9 @@ impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
         new_state: crate::damage::BodyDamageType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.entry.with_module(|module| {
-            if let Some(bridge) = (module as &mut dyn Any).downcast_mut::<
-                crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
-            >() {
+            if let Some(bridge) = (module as &mut dyn Any)
+                .downcast_mut::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>(
+            ) {
                 return bridge.behavior_mut().on_body_damage_state_change(
                     damage_info,
                     old_state,
@@ -1312,4 +1311,3 @@ impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
         })
     }
 }
-

@@ -17,7 +17,7 @@ use ww3d_core::{
 
 use crate::hanim::{BitChannel, HAnimClass, MotionChannel, MotionChannelType};
 use crate::hcompressed_anim::{
-    HCompressedAnimClass, ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED,
+    ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED, HCompressedAnimClass,
 };
 use crate::htree::HTreeClass;
 use crate::motion_channels::{

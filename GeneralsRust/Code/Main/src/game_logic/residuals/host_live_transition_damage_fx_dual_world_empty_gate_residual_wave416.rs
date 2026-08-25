@@ -42,8 +42,8 @@ pub const RUNTIME_HOST_LIVE_TRANSITION_DAMAGE_FX_DUAL_WORLD_EMPTY_GATE_CMD_NAMES
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_transition_damage_fx_dual_world_empty_gate_method_names_residual_wave416(
-) -> bool {
+pub fn honesty_live_transition_damage_fx_dual_world_empty_gate_method_names_residual_wave416()
+-> bool {
     LIVE_TRANSITION_DAMAGE_FX_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE416.len() == 4
         && residual_name_index(
             LIVE_TRANSITION_DAMAGE_FX_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE416,
@@ -60,8 +60,8 @@ pub fn honesty_live_transition_damage_fx_dual_world_empty_gate_method_names_resi
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_transition_damage_fx_dual_world_empty_gate_nav_commands_residual_wave416(
-) -> bool {
+pub fn honesty_live_transition_damage_fx_dual_world_empty_gate_nav_commands_residual_wave416()
+-> bool {
     LIVE_TRANSITION_DAMAGE_FX_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE416.len() == 4
         && residual_name_index(
             LIVE_TRANSITION_DAMAGE_FX_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE416,

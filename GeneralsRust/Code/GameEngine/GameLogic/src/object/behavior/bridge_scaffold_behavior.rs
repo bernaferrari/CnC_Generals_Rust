@@ -16,9 +16,9 @@ use crate::common::{
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::{
-    registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
+    INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, registry::OBJECT_REGISTRY,
 };
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{
@@ -27,7 +27,7 @@ use game_engine::common::thing::module::{
 use game_engine::system::Xfer as EngineXfer;
 
 use super::behavior_module::{
-    xfer_update_module_base_state, BridgeScaffoldBehaviorInterface, ScaffoldTargetMotion,
+    BridgeScaffoldBehaviorInterface, ScaffoldTargetMotion, xfer_update_module_base_state,
 };
 
 /// Wave 335: host-only path has no dual-world factory objects.

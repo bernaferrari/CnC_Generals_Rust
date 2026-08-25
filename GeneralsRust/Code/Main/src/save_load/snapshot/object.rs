@@ -142,7 +142,6 @@ pub struct ObjectSnapshot {
     pub weapon_bonus_frenzy_until_frame: u32,
 }
 
-
 /// Object status snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectStatusSnapshot {
@@ -744,7 +743,7 @@ impl XferData for CollectorRuntimeSnapshot {
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid SupplyTruckState value in snapshot: {other}"
-                )))
+                )));
             }
         };
 
@@ -1027,8 +1026,6 @@ impl XferData for crate::game_logic::host_cia_intelligence::HostCiaIntelligenceR
         Ok(())
     }
 }
-
-
 
 impl XferData for WeaponBarrelStateSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
@@ -1404,7 +1401,7 @@ impl XferData for FiringState {
             _ => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid FiringState: {disc}"
-                )))
+                )));
             }
         };
         Ok(())
@@ -1474,7 +1471,7 @@ impl XferData for MovementState {
             _ => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid MovementState: {disc}"
-                )))
+                )));
             }
         };
         Ok(())
@@ -1671,7 +1668,7 @@ impl XferData for ModuleSnapshot {
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(
                         "Invalid ModuleSnapshot: {disc}"
-                    )))
+                    )));
                 }
             };
         }
@@ -1816,7 +1813,7 @@ impl XferData for ObjectTypeSnapshot {
                 _ => {
                     return Err(SaveLoadError::Corrupted(format!(
                         "Invalid ObjectTypeSnapshot: {disc}"
-                    )))
+                    )));
                 }
             };
         }

@@ -1,7 +1,7 @@
-use game_engine::common::ini::ini::{INILoadType, INI};
+use game_engine::common::ini::ini::{INI, INILoadType};
 use game_engine::common::ini::ini_mapped_image::{
-    ensure_mapped_image_collection, init_global_mapped_image_collection, parse_image_coords,
-    ICoord2D, Image,
+    ICoord2D, Image, ensure_mapped_image_collection, init_global_mapped_image_collection,
+    parse_image_coords,
 };
 use game_engine::common::system::big_file_system::BigArchiveBackend;
 use game_engine::common::system::file::FileAccess;
@@ -164,7 +164,6 @@ fn load_global_finishes_quickly_and_imports_images() {
         "expected at least one imported mapped image after load_global"
     );
 }
-
 
 #[test]
 fn shell_menu_mapped_images_report_raw_texture_state() {

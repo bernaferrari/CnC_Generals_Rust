@@ -61,8 +61,8 @@ fn residual_action_store(a: ResidualHostAutoSelectMobileOptInAction) {
 pub fn residual_host_auto_select_mobile_opt_in_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_auto_select_mobile_opt_in_last_action(
-) -> ResidualHostAutoSelectMobileOptInAction {
+pub fn residual_host_auto_select_mobile_opt_in_last_action()
+-> ResidualHostAutoSelectMobileOptInAction {
     ResidualHostAutoSelectMobileOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {

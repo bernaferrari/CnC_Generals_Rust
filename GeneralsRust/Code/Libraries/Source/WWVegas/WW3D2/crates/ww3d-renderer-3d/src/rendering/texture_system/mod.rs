@@ -27,8 +27,8 @@ pub use texture_loader::*;
 // Re-export new texture functionality
 pub use asset_texture_loader::{ArchiveFileReader, AssetTextureCacheStats, AssetTextureLoader};
 pub use dds_loader::{
-    decode_dxt1, decode_dxt3, decode_dxt5, load_dds_file, load_dds_from_memory, DdsCompression,
-    DdsData, DdsTextureType,
+    DdsCompression, DdsData, DdsTextureType, decode_dxt1, decode_dxt3, decode_dxt5, load_dds_file,
+    load_dds_from_memory,
 };
 pub use mipmap_generator::{MipmapConfig, MipmapFilter, MipmapGenerator, MipmapLevel};
 pub use texfcach::{TextureCacheConfig, TextureCacheStats, TextureFileCache};
@@ -39,4 +39,4 @@ pub use texture_sampling::{
     TextureAddressMode, TextureFilterQuality, TextureFilteringUtils, TextureSamplerManager,
     TextureSamplingConfig, TextureUsage,
 };
-pub use tga_loader::{load_tga_file, load_tga_from_memory, TgaData};
+pub use tga_loader::{TgaData, load_tga_file, load_tga_from_memory};

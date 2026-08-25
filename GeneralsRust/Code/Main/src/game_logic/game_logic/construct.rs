@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::prelude::*;
-use super::*;
 use super::authority::*;
 use super::crate_tick::*;
 use super::host::*;
 use super::player::*;
+use super::prelude::*;
 use super::script_camera::*;
+use super::*;
 
 impl GameLogic {
     /// Leftover ScriptingEngine handle. Always None on the live host (hq-8ta4n).
@@ -797,7 +797,6 @@ impl GameLogic {
         self.heli_takeoff_or_landing.clear();
         self.airfield_healing.clear();
         self.airfield_next_heal_frame.clear();
-
 
         self.flight_decks.clear();
         self.emp_pulses.clear();

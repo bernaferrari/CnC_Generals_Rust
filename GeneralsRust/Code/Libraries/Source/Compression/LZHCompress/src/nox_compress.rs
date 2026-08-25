@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::{calc_max_compressed_size_raw, compress_raw, decompress_raw, CompressionLevel};
+use crate::{CompressionLevel, calc_max_compressed_size_raw, compress_raw, decompress_raw};
 
 pub type Bool = bool;
 pub type Int = i32;

@@ -5,9 +5,9 @@
 //!
 //! Rust port: 2025
 
-use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
 use crate::common::audio::AudioEventRts as EngineAudioEventRts;
-use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
+use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
+use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -51,8 +51,6 @@ impl From<String> for AudioEventRTS {
     }
 }
 impl AudioEventRTS {
-
-
     pub fn new() -> Self {
         Self {
             event_name: String::new(),
@@ -600,8 +598,6 @@ fn parse_audio_event_from_args(args: &[&str]) -> INIResult<AudioEventRTS> {
     Ok(AudioEventRTS::from_event_name(event_name))
 }
 
-
-
 macro_rules! audio_event_parser {
     ($fn_name:ident, $field:ident) => {
         pub fn $fn_name(
@@ -791,10 +787,12 @@ mod tests {
         let misc_audio = MiscAudio::new();
 
         // Test that all audio events are initialized
-        assert!(misc_audio
-            .radar_unit_under_attack_sound
-            .sound_file
-            .is_empty());
+        assert!(
+            misc_audio
+                .radar_unit_under_attack_sound
+                .sound_file
+                .is_empty()
+        );
         assert!(misc_audio.gui_click_sound.sound_file.is_empty());
         assert!(misc_audio.money_deposit_sound.sound_file.is_empty());
     }
@@ -804,9 +802,11 @@ mod tests {
         let mut misc_audio = MiscAudio::new();
 
         // Test getting audio event by name
-        assert!(misc_audio
-            .get_audio_event("RadarNotifyUnitUnderAttackSound")
-            .is_some());
+        assert!(
+            misc_audio
+                .get_audio_event("RadarNotifyUnitUnderAttackSound")
+                .is_some()
+        );
         assert!(misc_audio.get_audio_event("NonexistentSound").is_none());
 
         // Test mutable access

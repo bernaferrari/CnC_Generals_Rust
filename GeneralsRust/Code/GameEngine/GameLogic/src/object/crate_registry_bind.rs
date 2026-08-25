@@ -4,7 +4,7 @@
 //! crate-created objects only after a crate `object_manager` path binds them.
 
 use super::registry::OBJECT_REGISTRY;
-use crate::common::{ObjectID, INVALID_ID};
+use crate::common::{INVALID_ID, ObjectID};
 use crate::object::Object;
 use std::sync::{Arc, RwLock};
 

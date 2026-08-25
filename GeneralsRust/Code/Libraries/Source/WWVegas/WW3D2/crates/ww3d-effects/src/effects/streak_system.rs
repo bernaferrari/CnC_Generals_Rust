@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_core::w3d_format::{W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct};
 use ww3d_renderer_3d::{
+    Renderer,
     bounding_volumes::{aabox::AABoxClass, sphere::SphereClass},
     core::error::Error as RendererError,
     material_system::{MaterialPassClass, VertexMaterialClass},
@@ -21,7 +22,6 @@ use ww3d_renderer_3d::{
     rendering::mesh_system::{MeshClass, MeshModelClass},
     rendering::shader_system::shader::ShaderClass,
     texture_system::TextureClass,
-    Renderer,
 };
 
 type Result<T> = W3DResult<T>;

@@ -831,8 +831,8 @@ mod tests {
     use crate::common::{Coord3D, ICoord2D, IRegion2D};
     use crate::locomotor::SURFACE_AIR;
     use crate::path::{
-        grid_to_world, world_to_grid, LocomotorSet, NavigationMap, PathHandle, PathfindCellType,
-        PATHFIND_CELL_SIZE_F, SURFACE_GROUND,
+        LocomotorSet, NavigationMap, PATHFIND_CELL_SIZE_F, PathHandle, PathfindCellType,
+        SURFACE_GROUND, grid_to_world, world_to_grid,
     };
 
     fn clear_grid(pathfinder: &mut Pathfinder, width: i32, height: i32) {

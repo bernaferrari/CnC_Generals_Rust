@@ -347,7 +347,6 @@ fn hlod_threshold_visible(max_screen_size: f32, screen_size: f32) -> bool {
     max_screen_size >= f32::MAX * 0.5 || screen_size <= max_screen_size
 }
 
-
 /// Collection of models forming a single LOD level.
 #[derive(Clone)]
 pub struct HlodLodLevel {
@@ -738,7 +737,6 @@ impl Prototype for LodModelPrototype {
         self
     }
 }
-
 
 impl Prototype for CollectionPrototype {
     fn create_instance(&self, assets: &AssetManager) -> Option<Box<dyn RenderObj>> {
@@ -2107,4 +2105,3 @@ impl RenderObj for DazzleInstance {
         Box::new(self.clone())
     }
 }
-

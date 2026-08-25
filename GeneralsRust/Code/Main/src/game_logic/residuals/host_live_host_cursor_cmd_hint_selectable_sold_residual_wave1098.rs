@@ -97,7 +97,10 @@ pub fn honesty_host_cursor_cmd_hint_selectable_sold_residual_pack_wave1098() -> 
             return false;
         }
     };
-    let cl = match super::harness::last_rust_fn_body(cs, "classify_right_click_target_from_presentation") {
+    let cl = match super::harness::last_rust_fn_body(
+        cs,
+        "classify_right_click_target_from_presentation",
+    ) {
         Some(b) => b,
         None => {
             residual_action_store(ResidualHostCursorCmdHintSelectableSoldAction::SourceMarkers);

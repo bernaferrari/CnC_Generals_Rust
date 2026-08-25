@@ -1064,7 +1064,6 @@ pub const WEAPON_BONUS_SOLO_AI_NORMAL_ORDINAL: u32 = 20;
 /// C++ WEAPONBONUSCONDITION_SOLO_AI_HARD residual ordinal.
 pub const WEAPON_BONUS_SOLO_AI_HARD_ORDINAL: u32 = 21;
 
-
 /// Lookup WeaponBonus condition name index residual.
 pub fn weapon_bonus_condition_name_index(name: &str) -> Option<usize> {
     WEAPON_BONUS_CONDITION_NAME_LIST
@@ -1841,7 +1840,6 @@ pub fn parse_shadow_type_bits(s: &str) -> u32 {
     }
     bits
 }
-
 
 /// Wave 84 honesty: Shadow residual type table pack.
 pub fn honesty_shadow_type_enum_table_wave84() -> bool {

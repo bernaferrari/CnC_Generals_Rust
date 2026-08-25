@@ -42,9 +42,7 @@ fn live_numeric_stack_is_glam_not_wwmath_crate() {
     // C++ WWMath / Vector3 live in WWMath.lib.
     // Accepted backend: glam is the allowed math analog of wgpu.
     // WWMath crate Vector3 is a glam alias (vector3.rs); Main does not depend on wwmath.
-    let vector3 = include_str!(
-        "../../../Libraries/Source/WWVegas/WWMath/src/vector3.rs"
-    );
+    let vector3 = include_str!("../../../Libraries/Source/WWVegas/WWMath/src/vector3.rs");
     assert!(
         vector3.contains("use glam::Vec3") && vector3.contains("pub type Vector3 = Vec3"),
         "WWMath Vector3 must remain a glam::Vec3 alias, not a second numeric stack"
@@ -66,9 +64,7 @@ fn live_the_audio_is_common_audio_manager_rodio_not_wwaudio() {
     // C++ TheAudio is AudioManager (Miles backend).
     // Live Rust TheAudio is Common game_audio::THE_AUDIO + register_rodio_playback_hook.
     // WWAudio crate is a library leftover (not a Main/Common/GameClient/GameLogic dep).
-    let game_audio = include_str!(
-        "../../../GameEngine/Common/src/common/audio/game_audio.rs"
-    );
+    let game_audio = include_str!("../../../GameEngine/Common/src/common/audio/game_audio.rs");
     assert!(
         game_audio.contains("static THE_AUDIO: OnceLock<Arc<Mutex<AudioManager>>>")
             && game_audio.contains("pub fn initialize_global_audio_manager()")
@@ -125,19 +121,15 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
         "live SFX drain must keep pose+object_id and not rodio leftover-muted"
     );
     assert!(
-        boot.contains("initialize_global_audio_manager()")
-            && boot.contains("createAudioManager"),
+        boot.contains("initialize_global_audio_manager()") && boot.contains("createAudioManager"),
         "live boot must construct Common THE_AUDIO like GameEngine::init"
     );
     assert!(
-        boot.contains("initialize_eva_system()")
-            && boot.contains("Eva.cpp:43-57"),
+        boot.contains("initialize_eva_system()") && boot.contains("Eva.cpp:43-57"),
         "live boot must load Eva.ini into TheEva like GameClient::init"
     );
 
-    let game_audio = include_str!(
-        "../../../GameEngine/Common/src/common/audio/game_audio.rs"
-    );
+    let game_audio = include_str!("../../../GameEngine/Common/src/common/audio/game_audio.rs");
     assert!(
         game_audio.contains("fn load_audio_event_inis()")
             && game_audio.contains("Data/INI/SoundEffects.ini")
@@ -147,7 +139,6 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
         "THE_AUDIO init must load Music/SoundEffects/Speech/Voice INIs"
     );
 }
-
 
 #[test]
 fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
@@ -160,7 +151,7 @@ fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
     // Live host is the sole command authority (no dual-own through
     // THE_MESSAGE_STREAM). These functions are the live translator equivalent.
     let input = include_str!("input.rs");
-    let mouse = include_str!("mouse.rs");
+    let mouse = super::ENGINE_SRC;
 
     let roles = input
         .find("fn world_mouse_action(")
@@ -176,7 +167,7 @@ fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
     );
 
     let left = mouse
-        .find("pub(super) fn handle_left_click(")
+        .find("fn handle_left_click(")
         .expect("handle_left_click");
     let left_end = mouse[left + 1..]
         .find("\n    fn ")
@@ -203,10 +194,10 @@ fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
     );
 
     let release = mouse
-        .find("pub(super) fn handle_left_release(")
+        .find("fn handle_left_release(")
         .expect("handle_left_release");
     let release_end = mouse[release..]
-        .find("pub(super) fn handle_right_click(")
+        .find("fn handle_right_click(")
         .map(|i| release + i)
         .unwrap_or(release + 12_000);
     let release_body = &mouse[release..release_end];
@@ -221,10 +212,10 @@ fn live_world_clicks_follow_cpp_place_gui_selection_command_precedence() {
     );
 
     let cancel = mouse
-        .find("pub(super) fn cancel_world_mouse_targeting(")
+        .find("fn cancel_world_mouse_targeting(")
         .expect("cancel_world_mouse_targeting");
     let cancel_end = mouse[cancel + 1..]
-        .find("\n    pub(super) fn ")
+        .find("\n    fn ")
         .map(|i| cancel + 1 + i)
         .unwrap_or(cancel + 800);
     let cancel_body = &mouse[cancel..cancel_end];

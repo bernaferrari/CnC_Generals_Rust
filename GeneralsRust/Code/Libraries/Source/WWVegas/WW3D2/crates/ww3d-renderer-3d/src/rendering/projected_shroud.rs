@@ -236,21 +236,19 @@ mod tests {
 
     #[test]
     fn projection_rejects_malformed_frozen_geometry() {
-        assert!(ProjectedShroudProjection::from_cpp_grid(
-            [0.0, 0.0],
-            [0.0, 10.0],
-            (8, 8),
-            [255; 3],
-            1,
-        )
-        .is_none());
-        assert!(ProjectedShroudProjection::from_cpp_grid(
-            [f32::NAN, 0.0],
-            [10.0, 10.0],
-            (8, 8),
-            [255; 3],
-            1,
-        )
-        .is_none());
+        assert!(
+            ProjectedShroudProjection::from_cpp_grid([0.0, 0.0], [0.0, 10.0], (8, 8), [255; 3], 1,)
+                .is_none()
+        );
+        assert!(
+            ProjectedShroudProjection::from_cpp_grid(
+                [f32::NAN, 0.0],
+                [10.0, 10.0],
+                (8, 8),
+                [255; 3],
+                1,
+            )
+            .is_none()
+        );
     }
 }

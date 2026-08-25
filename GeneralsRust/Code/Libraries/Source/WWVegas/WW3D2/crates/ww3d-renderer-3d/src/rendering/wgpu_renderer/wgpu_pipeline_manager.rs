@@ -570,8 +570,8 @@ impl WgpuPipelineManager {
 mod tests {
     use super::*;
     use crate::rendering::projected_shroud::ProjectedShroudMaterialPassContract;
-    use std::sync::mpsc;
     use std::sync::Arc;
+    use std::sync::mpsc;
     use wgpu::util::DeviceExt;
 
     /// Exercise the real WGPU shader/pipeline validator when a software or

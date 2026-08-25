@@ -49,8 +49,8 @@ fn collect_object_directory_files() -> (Vec<String>, Vec<String>) {
 }
 
 fn collect_from_file_system(current: &mut BTreeSet<String>, nested: &mut BTreeSet<String>) {
-    use game_engine::common::system::file_system::{get_file_system, FilenameList};
     use game_engine::common::ascii_string::AsciiString;
+    use game_engine::common::system::file_system::{FilenameList, get_file_system};
 
     let fs_lock = get_file_system();
     let Ok(fs) = fs_lock.lock() else {

@@ -177,8 +177,7 @@ impl MinimapFowManager {
 
         trace!(
             "Regenerated minimap texture for player {} ({} pixels)",
-            player_id,
-            pixel_count
+            player_id, pixel_count
         );
 
         Ok(())

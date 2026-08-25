@@ -14,13 +14,15 @@ pub(super) use super::super::mission_scripts::{
 pub(super) use super::super::partition_manager::PartitionManager;
 pub(super) use super::super::radar_notifications::{self, RadarEntry, RadarNotifications};
 pub(super) use super::super::script_events::{self, ScriptEvent};
-pub(super) use super::super::victory::{PlayerOutcome, PlayerResult, VictoryCondition, VictorySummary};
+pub(super) use super::super::victory::{
+    PlayerOutcome, PlayerResult, VictoryCondition, VictorySummary,
+};
 pub(super) use super::super::victory_conditions::{
-    victory_rules_for_map, AllianceNotification, VictoryConditions,
+    AllianceNotification, VictoryConditions, victory_rules_for_map,
 };
 pub(super) use super::super::*;
 pub(super) use crate::ai::*;
-pub(super) use crate::assets::{get_asset_manager, ObjectDefinition};
+pub(super) use crate::assets::{ObjectDefinition, get_asset_manager};
 pub(super) use crate::localization;
 pub(super) use crate::save_load::campaign::CampaignManager;
 pub(super) use crate::save_load::campaign::MissionObjective;
@@ -40,8 +42,8 @@ pub(super) use game_engine::common::well_known_keys::{
     key_player_name, key_player_night_color, key_player_start_money, key_team_is_singleton,
     key_team_name, key_team_owner,
 };
-pub(super) use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 pub(super) use gamelogic::ai::THE_AI;
+pub(super) use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 pub(super) use gamelogic::common::CommandSourceType;
 pub(super) use gamelogic::modules::AIUpdateInterfaceExt;
 pub(super) use gamelogic::player::{

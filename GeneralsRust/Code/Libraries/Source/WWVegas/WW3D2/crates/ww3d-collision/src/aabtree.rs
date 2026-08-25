@@ -3,8 +3,6 @@ use crate::collision_tests::{AABoxCollisionTest, CollisionTest};
 use crate::intersection::{RayCollisionTest, Triangle};
 use glam::Vec3;
 
-
-
 /// Axis-Aligned Bounding Box Tree for spatial partitioning (ported from aabtree.cpp)
 #[derive(Debug)]
 pub struct AABTree {
@@ -343,7 +341,6 @@ impl AABTree {
             &mut box_test.result,
         )
     }
-
 
     /// Update bounding boxes after mesh modification
     pub fn update_bounding_boxes(&mut self, mesh: &dyn MeshGeometry) {

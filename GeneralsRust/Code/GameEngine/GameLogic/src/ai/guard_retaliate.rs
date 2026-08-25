@@ -1,13 +1,13 @@
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::states::{AIEnterState, AttackExitConditionsInterface, AttackStateMachine};
 use crate::ai::vision_factors;
-use crate::ai::{object_registry::get_legacy_object, THE_AI};
+use crate::ai::{THE_AI, object_registry::get_legacy_object};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
 use crate::common::*;
-use crate::helpers::{game_logic_random_value, TheGameLogic, ThePartitionManager};
+use crate::helpers::{TheGameLogic, ThePartitionManager, game_logic_random_value};
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::*;
 use crate::state_machine::*;

@@ -56,7 +56,6 @@ pub fn leftover_horde_draw_icon_ui() -> bool {
     gamelogic::helpers::TheGameLogic::get_draw_icon_ui()
 }
 
-
 /// Retail Upgrade_ChinaNuclearTanks residual.
 pub const UPGRADE_CHINA_NUCLEAR_TANKS: &str = "Upgrade_ChinaNuclearTanks";
 /// Retail NuclearTankDeathWeapon residual.
@@ -259,10 +258,12 @@ pub fn has_fanaticism_upgrade(applied_upgrades: &std::collections::HashSet<Strin
 }
 
 /// C++ `evaluateMoraleBonus` nesting: FANATICISM only while NATIONALISM is set.
-pub fn leftover_horde_fanaticism_bonus(has_nationalism: bool, has_fanaticism_upgrade: bool) -> bool {
+pub fn leftover_horde_fanaticism_bonus(
+    has_nationalism: bool,
+    has_fanaticism_upgrade: bool,
+) -> bool {
     has_nationalism && has_fanaticism_upgrade
 }
-
 
 /// Apply Uranium residual damage mult when upgrade present.
 pub fn battlemaster_damage_with_uranium(base_damage: f32, has_uranium: bool) -> f32 {
@@ -335,9 +336,9 @@ pub fn battlemaster_weapon(has_uranium: bool, in_horde: bool, has_nationalism: b
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Splash residual damage at distance from impact.
@@ -791,13 +792,8 @@ pub fn leftover_infantry_horde_decal_size_or_bbox(
     } else {
         0.0
     };
-    if sx > 0.0 {
-        sx
-    } else {
-        sy
-    }
+    if sx > 0.0 { sx } else { sy }
 }
-
 
 /// C++ `HordeUpdate.cpp:253` vehicle membership gate.
 pub fn leftover_vehicle_horde_membership_due(
@@ -844,16 +840,18 @@ pub fn leftover_horde_take_wake(
     }
 }
 
-
 /// C++ `HordeUpdate.cpp:146-147` constructor first-wake delay.
 pub fn leftover_horde_first_wake_delay(update_rate: u32) -> u32 {
     let delay = update_rate.max(1) as i32;
     gamelogic::helpers::get_game_logic_random_value(1, delay).max(1) as u32
 }
 
-
 /// Resolve Object INI ShadowSize without inventing a 40wu fallback.
-pub fn leftover_template_shadow_size(template_name: &str, authored_x: f32, authored_y: f32) -> (f32, f32) {
+pub fn leftover_template_shadow_size(
+    template_name: &str,
+    authored_x: f32,
+    authored_y: f32,
+) -> (f32, f32) {
     if authored_x > 0.0 || authored_y > 0.0 {
         return (authored_x.max(0.0), authored_y.max(0.0));
     }
@@ -872,12 +870,14 @@ pub fn leftover_template_shadow_size(template_name: &str, authored_x: f32, autho
         if let Ok(m) = mgr.lock() {
             if let Some(def) = m.get_object_definition(template_name) {
                 let parse = |key: &str| {
-                    def.attributes.iter().find_map(|(k, v)| {
-                        k.eq_ignore_ascii_case(key)
-                            .then(|| v.parse::<f32>().ok())
-                            .flatten()
-                    })
-                    .unwrap_or(0.0)
+                    def.attributes
+                        .iter()
+                        .find_map(|(k, v)| {
+                            k.eq_ignore_ascii_case(key)
+                                .then(|| v.parse::<f32>().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0.0)
                 };
                 let sx = parse("ShadowSizeX");
                 let sy = parse("ShadowSizeY");
@@ -908,10 +908,14 @@ pub fn leftover_template_shadow_type(template_name: &str, authored: u32) -> u32 
     if let Some(mgr) = crate::assets::get_asset_manager() {
         if let Ok(m) = mgr.lock() {
             if let Some(def) = m.get_object_definition(template_name) {
-                if let Some(raw) = def.attributes.iter().find_map(|(k, v)| {
-                    k.eq_ignore_ascii_case("Shadow").then_some(v.as_str())
-                }) {
-                    return crate::game_logic::host_enum_table_residual::parse_shadow_type_bits(raw);
+                if let Some(raw) = def
+                    .attributes
+                    .iter()
+                    .find_map(|(k, v)| k.eq_ignore_ascii_case("Shadow").then_some(v.as_str()))
+                {
+                    return crate::game_logic::host_enum_table_residual::parse_shadow_type_bits(
+                        raw,
+                    );
                 }
             }
         }
@@ -958,8 +962,6 @@ pub fn leftover_template_shadow_offset(
     }
     (0.0, 0.0)
 }
-
-
 
 /// C++ join/leave fade. `None` when membership did not change.
 pub fn leftover_horde_decal_fade(was_in_horde: bool, now_in_horde: bool) -> Option<(f32, f32)> {
@@ -1011,7 +1013,6 @@ pub fn leftover_horde_flag_visibility_for_template(
     }
     vis
 }
-
 
 // --- Wave 67 residual honesty packs ---
 
@@ -1080,7 +1081,6 @@ pub fn honesty_battlemaster_horde_residual_ok() -> bool {
         && (leftover_infantry_horde_decal_size_or_bbox(0.0, 0.0, 4.0, 3.0) - 8.0).abs() < 0.01
         && leftover_vehicle_horde_membership_due(31, 0, 30)
         && (leftover_vehicle_horde_decal_size(13.0) - 45.5).abs() < 0.01
-
         && same_vehicle_horde_family("ChinaTankBattleMaster", "ChinaTankBattleMaster")
         && !same_vehicle_horde_family("ChinaTankOverlord", "ChinaTankEmperor")
         && !same_vehicle_horde_family("ChinaTankBattleMaster", "Infa_ChinaTankBattleMaster")
@@ -1265,7 +1265,6 @@ mod tests {
         assert_eq!(leftover_horde_decal_fade(true, true), None);
     }
 
-
     #[test]
     fn horde_count_includes_self() {
         // 4 others + self = 5 → in horde
@@ -1365,7 +1364,7 @@ mod tests {
     }
 
     #[test]
-    fn horde_decal_matrix() {
+    fn horde_decal_matrix_core_transitions() {
         assert_eq!(
             leftover_horde_decal_type(true, false, false),
             TERRAIN_DECAL_HORDE
@@ -1396,26 +1395,16 @@ mod tests {
                 alive: true,
             })
             .collect();
-        let with_sphere = evaluate_leftover_horde_blob_scan(
-            &line,
-            5,
-            75.0,
-            20.0,
-            |_, _, dist| dist <= 75.0,
-        );
+        let with_sphere =
+            evaluate_leftover_horde_blob_scan(&line, 5, 75.0, 20.0, |_, _, dist| dist <= 75.0);
         assert!(with_sphere.iter().all(|m| m.true_member));
 
         let no_slack: Vec<LeftoverHordeScanUnit> = [0.0, 20.0, 40.0, 60.0, 80.0]
             .into_iter()
             .map(|x| LeftoverHordeScanUnit::xz(x, 0.0, true))
             .collect();
-        let without = evaluate_leftover_horde_blob_scan(
-            &no_slack,
-            5,
-            75.0,
-            20.0,
-            |_, _, dist| dist <= 75.0,
-        );
+        let without =
+            evaluate_leftover_horde_blob_scan(&no_slack, 5, 75.0, 20.0, |_, _, dist| dist <= 75.0);
         assert!(!without[0].true_member);
         assert!((leftover_from_bounding_sphere_3d(&line[0], &line[4]) - 54.0).abs() < 0.01);
     }
@@ -1430,7 +1419,6 @@ mod tests {
         assert!((leftover_horde_major_radius(true, 13.0, 15.81) - 13.0).abs() < 0.01);
         assert!((leftover_vehicle_horde_decal_size(13.0) - 45.5).abs() < 0.01);
     }
-
 
     #[test]
     fn battlemaster_residual_pack_honesty_wave67() {

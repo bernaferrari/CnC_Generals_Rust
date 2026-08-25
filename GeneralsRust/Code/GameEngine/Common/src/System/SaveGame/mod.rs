@@ -7,22 +7,20 @@ use crate::common::ini::ini_game_data::get_global_data;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
+pub mod campaign_xfer;
 pub mod game_state;
 pub mod game_state_map;
-pub mod campaign_xfer;
-
 
 pub use game_state::{
-    format_mission_save_description, register_partition_manager_update, register_world_dict_map_name,
-    AvailableGameInfo, GameState, SaveCode, SaveDate, SaveFileType, SaveGameInfo,
-    SaveLoadLayoutType, SnapshotType, SAVELOAD_BLOCK_NAMES,
+    AvailableGameInfo, GameState, SAVELOAD_BLOCK_NAMES, SaveCode, SaveDate, SaveFileType,
+    SaveGameInfo, SaveLoadLayoutType, SnapshotType, format_mission_save_description,
+    register_partition_manager_update, register_world_dict_map_name,
 };
 
-pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};
 pub use campaign_xfer::{
-    CampaignManagerXferState, ChallengeGameInfoXfer, ChallengeSlotXfer, CHALLENGE_MAX_SLOTS,
+    CHALLENGE_MAX_SLOTS, CampaignManagerXferState, ChallengeGameInfoXfer, ChallengeSlotXfer,
 };
-
+pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};
 
 static THE_GAME_STATE: OnceLock<Mutex<GameState>> = OnceLock::new();
 type ObjectIdCounterGetter = Arc<dyn Fn() -> ObjectID + Send + Sync>;
@@ -45,8 +43,6 @@ type SaveLockGhostObjectsHook = Arc<dyn Fn(bool) + Send + Sync>;
 type CampaignSnapshotHook = Arc<dyn Fn() -> Option<(String, i32, String)> + Send + Sync>;
 type CampaignManagerCaptureHook = campaign_xfer::CampaignManagerCaptureHook;
 type CampaignManagerApplyHook = campaign_xfer::CampaignManagerApplyHook;
-
-
 
 #[derive(Default)]
 struct RuntimeIdCounterHooks {
@@ -75,7 +71,6 @@ struct SaveLoadLifecycleHooks {
     get_campaign_snapshot: Option<CampaignSnapshotHook>,
     capture_campaign_manager: Option<CampaignManagerCaptureHook>,
     apply_campaign_manager: Option<CampaignManagerApplyHook>,
-
 }
 
 static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
@@ -219,7 +214,6 @@ pub fn apply_campaign_manager_runtime(state: CampaignManagerXferState) {
     }
 }
 
-
 pub(crate) fn notify_get_campaign_snapshot() -> Option<(String, i32, String)> {
     let hooks = save_load_hooks().lock().ok()?;
     hooks
@@ -227,7 +221,6 @@ pub(crate) fn notify_get_campaign_snapshot() -> Option<(String, i32, String)> {
         .as_ref()
         .and_then(|callback| callback())
 }
-
 
 pub(crate) fn notify_begin_load() {
     if let Ok(hooks) = save_load_hooks().lock() {

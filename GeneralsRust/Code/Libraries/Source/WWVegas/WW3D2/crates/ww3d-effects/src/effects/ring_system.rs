@@ -16,6 +16,7 @@ use ww3d_core::{
     wwstring::StringClass,
 };
 use ww3d_renderer_3d::{
+    Renderer,
     core::error::{Error as RendererError, RendererResult},
     material_system::{MaterialPassClass, VertexMaterialClass},
     render_object_system::{
@@ -29,7 +30,6 @@ use ww3d_renderer_3d::{
         shader_system::shader::ShaderClass,
     },
     texture_system::TextureClass,
-    Renderer,
 };
 
 type Result<T> = std::result::Result<T, W3DError>;

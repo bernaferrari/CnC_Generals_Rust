@@ -3,7 +3,7 @@
 //! Calculates formation positions, layouts, and transformations.
 
 use super::formation_types::{FormationShape, FormationSlot, FormationType, ScatterPattern};
-use super::{FormationError, FormationResult, DEFAULT_SPACING};
+use super::{DEFAULT_SPACING, FormationError, FormationResult};
 use crate::common::{Coord3D, ObjectID, Real};
 use std::collections::HashMap;
 

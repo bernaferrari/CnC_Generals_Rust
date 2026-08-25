@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::game_logic::{
-    host_construction_progress_log, host_production_progress_log, BuildingData, BuildingType,
-    KindOf, Team, ThingTemplate,
+    BuildingData, BuildingType, KindOf, Team, ThingTemplate, host_construction_progress_log,
+    host_production_progress_log,
 };
 use gamelogic::world::WorldMutation;
 
@@ -48,7 +48,10 @@ fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() 
     const TICKS: u32 = 5;
     for _ in 0..TICKS {
         let n = shadow.tick_production_queues(1.0 / 30.0);
-        assert!(n >= 1, "C++ ProductionUpdate.cpp:687 increments once per update");
+        assert!(
+            n >= 1,
+            "C++ ProductionUpdate.cpp:687 increments once per update"
+        );
     }
     let eid = shadow.entity_for_host(oid).expect("map");
     let head = shadow
@@ -135,7 +138,8 @@ fn construction_percent_completes_same_frame_and_writeback_matches() {
     shadow.sync_from_host(&logic);
     assert!(shadow.queue_set_construction_for_host(oid, 0.99, true));
     let _ = shadow.apply_pending();
-    let _ = shadow.apply_host_construction_progress_events(&host_construction_progress_log::drain());
+    let _ =
+        shadow.apply_host_construction_progress_events(&host_construction_progress_log::drain());
     let n = shadow.tick_construction_progress(1.0 / 30.0);
     assert!(n >= 1);
     let eid = shadow.entity_for_host(oid).expect("map");
@@ -196,10 +200,7 @@ fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
             occupant: eid_i,
         });
     assert!(shadow.apply_pending() >= 1);
-    assert_eq!(
-        shadow.world().contain_roster().occupants(eid_b),
-        &[eid_i]
-    );
+    assert_eq!(shadow.world().contain_roster().occupants(eid_b), &[eid_i]);
     assert_eq!(
         shadow.world().contain_roster().contained_by(eid_i),
         Some(eid_b)
@@ -207,15 +208,27 @@ fn contain_enter_exit_roster_and_container_destroy_ejects_before_remove() {
     let probe = shadow.probe(&mut logic);
     assert!(probe.contain_match, "{}", probe.format_report());
 
-    shadow.world_mut().queue_mutation(WorldMutation::Destroy(eid_b));
+    shadow
+        .world_mut()
+        .queue_mutation(WorldMutation::Destroy(eid_b));
     let _ = shadow.apply_pending();
     assert!(shadow.world().entity(eid_b).expect("marked").destroyed);
     assert_eq!(shadow.world_mut().process_destroy_list(), 1);
     assert!(shadow.world().entity(eid_b).is_none());
     assert!(shadow.world().entity(eid_i).is_some());
-    assert!(shadow.world().contain_roster().contained_by(eid_i).is_none());
+    assert!(
+        shadow
+            .world()
+            .contain_roster()
+            .contained_by(eid_i)
+            .is_none()
+    );
     assert_eq!(
-        shadow.world().entity(eid_i).expect("rider").contained_by_host,
+        shadow
+            .world()
+            .entity(eid_i)
+            .expect("rider")
+            .contained_by_host,
         0
     );
 }

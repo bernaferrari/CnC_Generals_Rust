@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use game_engine::common::rts::AsciiString;
 use game_engine::common::thing::module::{ModuleInterfaceType, ModuleType};
 use game_engine::common::thing::module_factory::ModuleFactory;

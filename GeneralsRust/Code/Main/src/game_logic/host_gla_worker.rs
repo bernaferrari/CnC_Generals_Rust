@@ -174,7 +174,6 @@ pub fn worker_shoes_voice_upgrade_complete(
             .any(|n| is_worker_shoes_upgrade_name(n.as_ref()))
 }
 
-
 /// Host residual honesty counters for GLA Worker residual.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostGlaWorkerRegistry {
@@ -321,9 +320,11 @@ mod tests {
             false,
             ["Upgrade_GLAWorkerShoes"]
         ));
-        assert!(!worker_shoes_voice_upgrade_complete(false, ["Upgrade_Radar"]));
+        assert!(!worker_shoes_voice_upgrade_complete(
+            false,
+            ["Upgrade_Radar"]
+        ));
         assert_eq!(WORKER_VOICE_MOVE_UPGRADED, "VoiceMoveUpgraded");
-
     }
 
     #[test]

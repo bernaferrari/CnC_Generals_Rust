@@ -3,7 +3,7 @@
 //! The real benchmark will mirror the C++ renderer micro-benchmarks once the
 //! wgpu backend reaches feature parity.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn placeholder_benchmark(c: &mut Criterion) {
     c.bench_function("rendering_stub", |b| b.iter(|| ()));

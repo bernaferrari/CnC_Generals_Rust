@@ -100,11 +100,7 @@ impl SegLineRenderer {
     }
 
     pub fn sort_hint(&self) -> u32 {
-        if self.opacity() < 1.0 {
-            0x8000_0000
-        } else {
-            0
-        }
+        if self.opacity() < 1.0 { 0x8000_0000 } else { 0 }
     }
 
     pub fn opacity(&self) -> f32 {

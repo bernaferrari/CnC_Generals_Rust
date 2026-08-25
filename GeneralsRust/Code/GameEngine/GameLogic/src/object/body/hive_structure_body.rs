@@ -13,7 +13,7 @@ use crate::common::{Coord3DExt, DamageTypeFlags, INVALID_ID};
 use crate::damage::DamageType as CommonDamageType;
 use crate::helpers::TheGameLogic;
 use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::Module;
 use std::str::FromStr;
@@ -498,9 +498,9 @@ impl BodyModuleInterface for HiveStructureBody {
 mod tests {
     use super::super::active_body::ActiveBodyModuleData;
     use super::*;
+    use crate::object::Object;
     use crate::object::body::body_module::DamageType;
     use crate::object::registry::OBJECT_REGISTRY;
-    use crate::object::Object;
     use std::sync::{Arc, RwLock};
 
     fn make_damage_info(damage_type: DamageType, amount: f32) -> DamageInfo {
@@ -594,9 +594,10 @@ mod tests {
         assert_eq!(body.get_previous_health(), 500.0);
 
         // Max health operations
-        assert!(body
-            .set_max_health(600.0, MaxHealthChangeType::PreserveRatio)
-            .is_ok());
+        assert!(
+            body.set_max_health(600.0, MaxHealthChangeType::PreserveRatio)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 600.0);
         assert_eq!(body.get_health(), 480.0); // Should preserve ratio (80%)
 

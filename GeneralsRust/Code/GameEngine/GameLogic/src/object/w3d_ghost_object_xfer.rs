@@ -1,9 +1,9 @@
 //! C++ `W3DGhostObject.cpp` Snapshotable xfer. Field order is the wire format.
 
 use super::w3d_ghost_object::{
-    Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
-    RenderSubObjectSnapshot, W3DDrawableInfo, W3DGhostObject, W3DGhostObjectManager,
-    W3DRenderObjectSnapshot, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID,
+    INVALID_DRAWABLE_ID, INVALID_OBJECT_ID, Matrix3x4, ParentGeometrySnapshot, RenderObjectClass,
+    RenderObjectState, RenderSubObjectSnapshot, W3DDrawableInfo, W3DGhostObject,
+    W3DGhostObjectManager, W3DRenderObjectSnapshot,
 };
 use game_engine::common::game_common::MAX_PLAYER_COUNT;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};

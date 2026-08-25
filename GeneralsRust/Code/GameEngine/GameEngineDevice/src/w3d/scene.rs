@@ -919,7 +919,6 @@ impl W3DScene {
         self.visibility_checked = false;
         self.flag_occluded_objects(&rinfo.camera);
 
-
         let object_ids: Vec<_> = self.render_objects.iter().map(|obj| obj.id).collect();
         let mut terrain_id = None;
 

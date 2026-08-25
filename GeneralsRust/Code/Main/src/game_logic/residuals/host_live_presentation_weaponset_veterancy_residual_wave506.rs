@@ -77,8 +77,8 @@ pub fn residual_presentation_weaponset_veterancy_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_weaponset_veterancy_last_action(
-) -> ResidualPresentationWeaponsetVeterancyAction {
+pub fn residual_presentation_weaponset_veterancy_last_action()
+-> ResidualPresentationWeaponsetVeterancyAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationWeaponsetVeterancyAction::MethodNames,
         2 => ResidualPresentationWeaponsetVeterancyAction::SourceMarkers,

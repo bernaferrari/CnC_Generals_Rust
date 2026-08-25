@@ -63,8 +63,8 @@ pub mod tabcontrol;
 pub mod text;
 
 pub use button::{
-    register_button_audio_hook, ButtonAudioHook, ButtonCallback, ButtonStyle, ClockMode,
-    PushButton, PushButtonBuilder, PushButtonRenderCommand,
+    ButtonAudioHook, ButtonCallback, ButtonStyle, ClockMode, PushButton, PushButtonBuilder,
+    PushButtonRenderCommand, register_button_audio_hook,
 };
 pub use checkbox::{
     CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxRenderCommand,
@@ -644,7 +644,6 @@ impl GadgetManager {
         }
         self.apply_click_focus(&messages);
 
-
         messages
     }
 
@@ -687,7 +686,6 @@ impl GadgetManager {
             let _ = self.set_focus(Some(gadget_id));
         }
     }
-
 
     /// Set focus to a specific gadget
     pub fn set_focus(&mut self, id: Option<GadgetId>) -> bool {
@@ -799,7 +797,8 @@ impl Default for GadgetManager {
 
 /// C++ `GetDoubleClickTime()` (`GadgetListBox.cpp:43`). Cached like the retail static.
 pub fn os_double_click_time_ms() -> u64 {
-    static CACHED: std::sync::LazyLock<u64> = std::sync::LazyLock::new(query_os_double_click_time_ms);
+    static CACHED: std::sync::LazyLock<u64> =
+        std::sync::LazyLock::new(query_os_double_click_time_ms);
     *CACHED
 }
 

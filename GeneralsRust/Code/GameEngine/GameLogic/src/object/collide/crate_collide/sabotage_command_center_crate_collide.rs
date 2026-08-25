@@ -20,14 +20,14 @@ fn resolve_crate_object(
 }
 
 use crate::common::*;
+use crate::object::collide::Coord3D as CollideCoord3D;
+use crate::object::collide::LegacyCollideAdapter;
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as LegacyCrateCollide, CrateCollideModuleData as LegacyCrateCollideModuleData,
 };
 use crate::object::collide::crate_collide::*;
-use crate::object::collide::Coord3D as CollideCoord3D;
-use crate::object::collide::LegacyCollideAdapter;
 use crate::object::*;
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 
 /// Module data for sabotage command center crate collide behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,10 +430,7 @@ mod tests {
             data.base.required_kind_of & (KindOf::CommandCenter.cpp_mask()),
             0
         );
-        assert_ne!(
-            data.base.forbidden_kind_of & (KindOf::Drone.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.forbidden_kind_of & (KindOf::Drone.cpp_mask()), 0);
         assert!((data.base.execute_animation_display_time_seconds - 1.5).abs() < f32::EPSILON);
         assert!(!data.base.execute_animation_fades);
     }

@@ -5,14 +5,14 @@
 //!
 //! Matches C++ PartitionManager.cpp spatial partitioning system
 
-use game_engine::common::discrete_circle::DiscreteCircle;
 use super::collision_geometry::{
-    collide_test_dispatch, CollideInfo, CollideLocAndNormal, GeometryInfo,
+    CollideInfo, CollideLocAndNormal, GeometryInfo, collide_test_dispatch,
 };
 use super::{CollisionError, Coord3D, GameObject, ObjectId};
 use crate::common::{PlayerMaskType, Relationship};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::terrain::get_terrain_logic;
+use game_engine::common::discrete_circle::DiscreteCircle;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
@@ -347,7 +347,6 @@ impl PartitionManager {
         self.shroud.has_known_cell(x, y)
     }
 
-
     pub fn shutdown(&mut self) {
         self.clear();
         self.fogged_cells.clear();
@@ -382,17 +381,17 @@ impl PartitionManager {
         angle: f32,
     ) -> Result<(), CollisionError> {
         let cells = super::partition_coi::cells_touched_for_geometry(
-            position.x,
-            position.y,
-            &geometry,
-            angle,
+            position.x, position.y, &geometry, angle,
         );
         let cell = cells
             .first()
             .copied()
             .unwrap_or_else(|| CellCoord::from_world_pos(&position));
         for &c in &cells {
-            self.cells.entry(c).or_insert_with(PartitionCell::new).add(id);
+            self.cells
+                .entry(c)
+                .or_insert_with(PartitionCell::new)
+                .add(id);
         }
         self.objects.insert(
             id,
@@ -814,8 +813,8 @@ impl PartitionManager {
         }
         // Impassable / CLEAR_CELLS_ONLY: C++ floors to PATHFIND_CELL_SIZE.
         {
-            use crate::ai::pathfind_astar::PathfindCellType;
             use crate::ai::THE_AI;
+            use crate::ai::pathfind_astar::PathfindCellType;
             let cell_size = crate::path::PATHFIND_CELL_SIZE_F;
             let snapped = Coord3D::new(
                 (pos.x / cell_size).floor() * cell_size,
@@ -824,10 +823,16 @@ impl PartitionManager {
             );
             let snapped_pf = crate::common::Coord3D::new(snapped.x, snapped.y, snapped.z);
             let cell_type = THE_AI.read().ok().and_then(|ai| {
-                ai.pathfinder()
-                    .and_then(|pf| pf.read().ok().and_then(|pf| pf.get_cell_type_at(&snapped_pf)))
+                ai.pathfinder().and_then(|pf| {
+                    pf.read()
+                        .ok()
+                        .and_then(|pf| pf.get_cell_type_at(&snapped_pf))
+                })
             });
-            if cell_type == Some(PathfindCellType::Impassable) || cell_type.is_none() && options.flags.contains(FindPositionFlags::CLEAR_CELLS_ONLY) {
+            if cell_type == Some(PathfindCellType::Impassable)
+                || cell_type.is_none()
+                    && options.flags.contains(FindPositionFlags::CLEAR_CELLS_ONLY)
+            {
                 if cell_type == Some(PathfindCellType::Impassable) {
                     return None;
                 }
@@ -948,9 +953,7 @@ impl PartitionManager {
                                 };
                                 pf.client_safe_quick_does_path_exist(
                                     &loco,
-                                    &crate::common::Coord3D::new(
-                                        src_pos.x, src_pos.y, src_pos.z,
-                                    ),
+                                    &crate::common::Coord3D::new(src_pos.x, src_pos.y, src_pos.z),
                                     &crate::common::Coord3D::new(pos.x, pos.y, pos.z),
                                 )
                             })
@@ -1292,9 +1295,7 @@ impl PartitionManager {
                     if (mask & query.allowed_player_mask) != 0 {
                         let contrib = match query.value_type {
                             ValueOrThreat::CashValue => cell.get_cash_value(player_idx) as i32,
-                            ValueOrThreat::ThreatValue => {
-                                cell.get_threat_value(player_idx) as i32
-                            }
+                            ValueOrThreat::ThreatValue => cell.get_threat_value(player_idx) as i32,
                         };
                         value += contrib;
                     }
@@ -1727,14 +1728,10 @@ impl PartitionManager {
         let mut cells = HashSet::new();
         for (x, y) in self.shroud.iter_known_cells() {
             match self.shroud.cell_status(player, x, y) {
-                game_engine::common::system::radar::CellShroudStatus::Fogged
-                    if store_to_fog =>
-                {
+                game_engine::common::system::radar::CellShroudStatus::Fogged if store_to_fog => {
                     cells.insert(CellCoord { x, y });
                 }
-                game_engine::common::system::radar::CellShroudStatus::Clear
-                    if !store_to_fog =>
-                {
+                game_engine::common::system::radar::CellShroudStatus::Clear if !store_to_fog => {
                     cells.insert(CellCoord { x, y });
                 }
                 _ => {}
@@ -1745,7 +1742,11 @@ impl PartitionManager {
     }
 
     pub fn restore_fogged_cells(&mut self, player_index: usize, restore_to_fog: bool) {
-        let Some(cells) = self.fogged_cells.get(&(player_index, restore_to_fog)).cloned() else {
+        let Some(cells) = self
+            .fogged_cells
+            .get(&(player_index, restore_to_fog))
+            .cloned()
+        else {
             return;
         };
         let player = player_index as i32;
@@ -1756,7 +1757,6 @@ impl PartitionManager {
             }
         }
     }
-
 
     /// Clear all data
     pub fn clear(&mut self) {
@@ -1970,10 +1970,18 @@ mod tests {
                 .map(|c| c.get_cash_value(0))
                 .unwrap_or(0)
         };
-        assert_eq!(cash_at(&pm, 0, 0), 100, "center cell-index dist 0 → full value");
+        assert_eq!(
+            cash_at(&pm, 0, 0),
+            100,
+            "center cell-index dist 0 → full value"
+        );
         assert_eq!(cash_at(&pm, 1, 0), 66, "axis neighbor 1 - 1/3");
         assert_eq!(cash_at(&pm, 0, 1), 66);
-        assert_eq!(cash_at(&pm, 2, 2), 0, "square corner is outside DiscreteCircle r=2");
+        assert_eq!(
+            cash_at(&pm, 2, 2),
+            0,
+            "square corner is outside DiscreteCircle r=2"
+        );
         pm.remove_value_affect(0.0, 0.0, 80.0, 0, 100);
         assert_eq!(cash_at(&pm, 0, 0), 0);
         assert_eq!(cash_at(&pm, 1, 0), 0);
@@ -2017,6 +2025,9 @@ mod tests {
             &[],
             super::super::partition_distance::DistanceCalculationType::FromBoundingSphere2D,
         );
-        assert!(found.contains(&1), "iterate must see hull-in-range structure");
+        assert!(
+            found.contains(&1),
+            "iterate must see hull-in-range structure"
+        );
     }
 }

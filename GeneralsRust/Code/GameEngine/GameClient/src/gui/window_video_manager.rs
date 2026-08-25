@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBufferHandle, VideoBufferType};
-use crate::video_player::{get_video_player, VideoPlayerInterface};
+use crate::video_player::{VideoPlayerInterface, get_video_player};
 use crate::video_stream::VideoStreamInterface;
 
 use super::game_window::GameWindow;

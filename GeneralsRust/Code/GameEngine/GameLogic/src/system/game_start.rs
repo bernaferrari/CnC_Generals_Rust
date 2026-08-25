@@ -511,7 +511,7 @@ impl GameStartSequence {
 
 #[cfg(test)]
 mod tests {
-    use super::super::player_init::{make_player_template, Player};
+    use super::super::player_init::{Player, make_player_template};
     use super::*;
     use crate::scripting::core::{Condition, ConditionType, OrCondition, Script, ScriptList};
     use crate::scripting::engine::{get_script_engine, initialize_script_engine};

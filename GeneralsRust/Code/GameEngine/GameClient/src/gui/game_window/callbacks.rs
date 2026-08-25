@@ -5,16 +5,16 @@ use std::sync::Arc;
 
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::game_text::GameText;
+use crate::gui::UIRect;
 use crate::gui::gadgets::{InputEvent, KeyCode, KeyModifiers};
 use crate::gui::with_ui_renderer_mut;
-use crate::gui::UIRect;
 use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 
 use super::font::{Color, WindowInstanceData, WindowState};
-use super::messages::{WindowMessage, WindowMsgHandled, WindowStatus, WIN_COLOR_UNDEFINED};
+use super::messages::{WIN_COLOR_UNDEFINED, WindowMessage, WindowMsgHandled, WindowStatus};
 use super::payload::{
-    WindowMsgData, KEY_STATE_DOWN, KEY_STATE_LALT, KEY_STATE_LCONTROL, KEY_STATE_LSHIFT,
-    KEY_STATE_RALT, KEY_STATE_RCONTROL, KEY_STATE_RSHIFT, KEY_STATE_UP,
+    KEY_STATE_DOWN, KEY_STATE_LALT, KEY_STATE_LCONTROL, KEY_STATE_LSHIFT, KEY_STATE_RALT,
+    KEY_STATE_RCONTROL, KEY_STATE_RSHIFT, KEY_STATE_UP, WindowMsgData,
 };
 use super::window_struct::GameWindow;
 

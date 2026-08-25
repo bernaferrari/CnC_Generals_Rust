@@ -252,9 +252,11 @@ async fn test_multi_player_scenario() {
     }
 
     // Verify all players are tracked
-    assert!(players
-        .iter()
-        .all(|p| p.idle_time() < Duration::from_secs(1)));
+    assert!(
+        players
+            .iter()
+            .all(|p| p.idle_time() < Duration::from_secs(1))
+    );
 
     // Simulate one player timing out
     players[3].state = UserState::Disconnected;

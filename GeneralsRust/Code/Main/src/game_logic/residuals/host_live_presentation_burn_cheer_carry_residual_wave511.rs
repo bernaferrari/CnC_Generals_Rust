@@ -78,8 +78,8 @@ pub fn residual_presentation_burn_cheer_carry_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_burn_cheer_carry_last_action(
-) -> ResidualPresentationBurnCheerCarryAction {
+pub fn residual_presentation_burn_cheer_carry_last_action()
+-> ResidualPresentationBurnCheerCarryAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationBurnCheerCarryAction::MethodNames,
         2 => ResidualPresentationBurnCheerCarryAction::SourceMarkers,

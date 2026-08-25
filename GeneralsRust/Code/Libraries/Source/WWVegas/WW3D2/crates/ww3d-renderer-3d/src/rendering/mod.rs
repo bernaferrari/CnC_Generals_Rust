@@ -63,15 +63,15 @@ pub use shader_core::ShaderManager;
 // Re-export mesh model types for convenience
 pub use mesh_geometry::{GeometryFlags, MeshGeometry, ShareBuffer, TriIndex};
 pub use mesh_mat_desc::{
-    ColorSourceType, MatBuffer, MeshMatDesc, TexBuffer, UVBuffer, MAX_COLOR_ARRAYS, MAX_PASSES,
-    MAX_TEX_STAGES, MAX_UV_ARRAYS,
+    ColorSourceType, MAX_COLOR_ARRAYS, MAX_PASSES, MAX_TEX_STAGES, MAX_UV_ARRAYS, MatBuffer,
+    MeshMatDesc, TexBuffer, UVBuffer,
 };
 pub use mesh_model::{GapFiller, MaterialInfo, MeshModel};
 
 // Re-export procedural render objects
 pub use ring_render_obj::RingRenderObj;
 pub use segment_line_renderer::{
-    SegLineRenderer, SegLineVertex, TextureMapMode, TriIndex as SegLineTriIndex,
     MAX_SEGLINE_POINT_BUFFER_SIZE, MAX_SEGLINE_POLY_BUFFER_SIZE, MAX_SEGLINE_SUBDIV_LEVELS,
-    SEGLINE_CHUNK_SIZE,
+    SEGLINE_CHUNK_SIZE, SegLineRenderer, SegLineVertex, TextureMapMode,
+    TriIndex as SegLineTriIndex,
 };

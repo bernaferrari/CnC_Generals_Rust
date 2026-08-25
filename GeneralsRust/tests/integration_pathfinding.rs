@@ -12,8 +12,8 @@
 
 #![cfg(test)]
 
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 /// Position in 2D grid
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -108,7 +108,10 @@ impl GridMap {
     }
 
     fn is_walkable(&self, pos: &GridPos) -> bool {
-        pos.x >= 0 && pos.x < self.width && pos.y >= 0 && pos.y < self.height
+        pos.x >= 0
+            && pos.x < self.width
+            && pos.y >= 0
+            && pos.y < self.height
             && !self.obstacles.contains(pos)
     }
 
@@ -390,8 +393,10 @@ fn test_pathfinding_performance() {
     assert!(path.is_some());
     println!("Pathfinding took: {:?}", elapsed);
 
-    assert!(elapsed < std::time::Duration::from_millis(100),
-        "Pathfinding should complete quickly");
+    assert!(
+        elapsed < std::time::Duration::from_millis(100),
+        "Pathfinding should complete quickly"
+    );
 
     log::info!("Pathfinding performance test passed");
 }
@@ -435,8 +440,10 @@ mod stress_tests {
         let elapsed = start_time.elapsed();
         let paths_per_sec = NUM_REQUESTS as f64 / elapsed.as_secs_f64();
 
-        println!("Computed {} paths in {:?} ({:.0} paths/sec)",
-            NUM_REQUESTS, elapsed, paths_per_sec);
+        println!(
+            "Computed {} paths in {:?} ({:.0} paths/sec)",
+            NUM_REQUESTS, elapsed, paths_per_sec
+        );
         println!("Successful paths: {}/{}", successful_paths, NUM_REQUESTS);
 
         assert!(paths_per_sec > 100.0, "Should compute >100 paths/second");
@@ -464,8 +471,10 @@ mod stress_tests {
         println!("Large map pathfinding took: {:?}", elapsed);
         println!("Path length: {}", path.unwrap().len());
 
-        assert!(elapsed < std::time::Duration::from_secs(1),
-            "Should find path in large map within 1 second");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "Should find path in large map within 1 second"
+        );
 
         log::info!("Large map pathfinding stress test passed");
     }

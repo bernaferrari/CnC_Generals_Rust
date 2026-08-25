@@ -12,8 +12,8 @@ use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
 use super::{
-    decrypt_buffer, encrypt_buffer, TransportMessage, TransportMessageHeader,
-    GENERALS_MAGIC_NUMBER, KEEPALIVE_INTERVAL_SECS, MAX_MESSAGES, MAX_MESSAGE_LEN, RETRY_TIME_MS,
+    GENERALS_MAGIC_NUMBER, KEEPALIVE_INTERVAL_SECS, MAX_MESSAGE_LEN, MAX_MESSAGES, RETRY_TIME_MS,
+    TransportMessage, TransportMessageHeader, decrypt_buffer, encrypt_buffer,
 };
 
 /// Result type for network operations

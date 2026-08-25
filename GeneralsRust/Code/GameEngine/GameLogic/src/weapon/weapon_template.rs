@@ -8,22 +8,22 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::KindOf;
 use crate::common::{
-    Coord2D, Coord3D, DamageType, DeathType, ObjectID, ObjectStatusTypes, PathfindLayerEnum,
-    PlayerMaskType, Relationship, VeterancyLevel, LOGICFRAMES_PER_SECOND,
+    Coord2D, Coord3D, DamageType, DeathType, LOGICFRAMES_PER_SECOND, ObjectID, ObjectStatusTypes,
+    PathfindLayerEnum, PlayerMaskType, Relationship, VeterancyLevel,
 };
 use crate::damage::{DamageInfo, DamageInfoInput};
 use crate::effects::{FXList, ObjectCreationList};
-use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheThingFactory,
-};
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
+use crate::helpers::{
+    TheThingFactory, get_game_logic_random_value, get_game_logic_random_value_real,
+};
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::{
-    projectile_launch_cast::{module_projectile_launch_kind, ProjectileLaunchKindMut},
-    AudioEventRts, HistoricWeaponDamageInfo, WeaponAffectsMask, WeaponAntiMask, WeaponBonus,
-    WeaponBonusConditionFlags, WeaponBonusField, WeaponBonusSet, WeaponCollideMask,
-    WeaponPrefireType, WeaponReloadType, WeaponSlotType, INVALID_OBJECT_ID,
+    AudioEventRts, HistoricWeaponDamageInfo, INVALID_OBJECT_ID, WeaponAffectsMask, WeaponAntiMask,
+    WeaponBonus, WeaponBonusConditionFlags, WeaponBonusField, WeaponBonusSet, WeaponCollideMask,
+    WeaponPrefireType, WeaponReloadType, WeaponSlotType,
+    projectile_launch_cast::{ProjectileLaunchKindMut, module_projectile_launch_kind},
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
@@ -2660,7 +2660,8 @@ impl WeaponTemplate {
                             _ => {
                                 log::warn!(
                                     "WeaponTemplate '{}': unrecognized ProjectileCollidesWith token '{}', skipping",
-                                    self.name, t
+                                    self.name,
+                                    t
                                 );
                             }
                         }
@@ -2744,9 +2745,7 @@ fn parse_radius_damage_affects_bits(existing: u32, value: &str) -> u32 {
             "NEUTRALS" => WeaponAffectsMask::NEUTRALS,
             "SUICIDE" | "KILLS_SELF" => WeaponAffectsMask::KILLS_SELF,
             "NOT_SIMILAR" | "DOESNT_AFFECT_SIMILAR" => WeaponAffectsMask::DOESNT_AFFECT_SIMILAR,
-            "NOT_AIRBORNE" | "DOESNT_AFFECT_AIRBORNE" => {
-                WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE
-            }
+            "NOT_AIRBORNE" | "DOESNT_AFFECT_AIRBORNE" => WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE,
             _ => continue,
         };
         if set {
@@ -3113,7 +3112,10 @@ mod tests {
         )]);
         template.parse_weapon_fields_from_ini(&properties);
         assert_eq!(template.affects_mask.bits() & WeaponAffectsMask::ALLIES, 0);
-        assert_eq!(template.affects_mask.bits() & WeaponAffectsMask::NEUTRALS, 0);
+        assert_eq!(
+            template.affects_mask.bits() & WeaponAffectsMask::NEUTRALS,
+            0
+        );
         assert_ne!(template.affects_mask.bits() & WeaponAffectsMask::ENEMIES, 0);
         assert_ne!(
             template.affects_mask.bits() & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE,

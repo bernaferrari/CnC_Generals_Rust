@@ -666,7 +666,9 @@ impl Tool for WbNamedTool {
         use world_builder::chrome::WbToolId::*;
         match self.id {
             Brush | BrushAdd | BrushSubtract | Feather | Tile | BigTile | Eyedropper
-            | FloodFill | AutoEdgeOut | BlendEdge | MeshMold | Ramp | Border => ToolCategory::Terrain,
+            | FloodFill | AutoEdgeOut | BlendEdge | MeshMold | Ramp | Border => {
+                ToolCategory::Terrain
+            }
             Pointer | Object | Grove | Fence | BuildList | Road | Waypoint | Polygon | Water
             | Scorch => ToolCategory::Objects,
             Ruler | HandScroll => ToolCategory::Camera,

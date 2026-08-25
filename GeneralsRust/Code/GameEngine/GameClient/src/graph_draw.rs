@@ -1,6 +1,6 @@
 //! Graph draw helper (ported from `GraphDraw.cpp`).
 
-use crate::gui::display_string::{get_display_string_manager, DisplayStringHandle};
+use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 use crate::gui::font::get_font_library;
 use crate::gui::ui_globals::with_ui_renderer;
 use crate::gui::ui_renderer::UIRect;

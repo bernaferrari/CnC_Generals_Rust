@@ -13,12 +13,12 @@ use thiserror::Error;
 use crate::core::DrawableId;
 use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
+use game_engine::System::XferVersion;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::Snapshotable;
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
-use game_engine::common::system::Snapshotable;
-use game_engine::System::XferVersion;
 use game_engine::{Xfer, XferMode, XferStatus};
 use std::io::Cursor;
 
@@ -475,7 +475,7 @@ impl ParticleSystemInfo {
             color_key.color[2] *= tint_color[2];
         }
     }
-    }
+}
 
 /// Particle system template (matches C++ ParticleSystemTemplate)
 #[derive(Debug, Clone)]
@@ -941,7 +941,9 @@ impl ParticleSystemManager {
             for info in infos {
                 if emit_above_ground {
                     let ground = gamelogic::helpers::TheTerrainLogic::get()
-                        .map(|terrain| terrain.get_ground_height(info.position.x, info.position.y, None))
+                        .map(|terrain| {
+                            terrain.get_ground_height(info.position.x, info.position.y, None)
+                        })
                         .unwrap_or(0.0);
                     if info.position.z < ground {
                         continue;
@@ -1143,7 +1145,9 @@ impl ParticleSystemManager {
             .unwrap_or(self.max_field_particle_count)
     }
 
-    fn live_lod_priority(priority: game_engine::common::ini::ParticlePriorityType) -> ParticlePriorityType {
+    fn live_lod_priority(
+        priority: game_engine::common::ini::ParticlePriorityType,
+    ) -> ParticlePriorityType {
         ParticlePriorityType::from_index(priority as usize)
             .unwrap_or(ParticlePriorityType::WeaponExplosion)
     }
@@ -1346,15 +1350,9 @@ impl ParticleSystemManager {
                 s.priority() == ParticlePriorityType::AreaEffect
                     && s.template().info().is_ground_aligned
             })
-            .map(|s| {
-                s.particles()
-                    .iter()
-                    .filter(|p| p.is_draw_alive())
-                    .count()
-            })
+            .map(|s| s.particles().iter().filter(|p| p.is_draw_alive()).count())
             .sum();
     }
-
 
     /// Get statistics
     pub fn particle_count(&self) -> usize {
@@ -2093,17 +2091,16 @@ pub fn register_particle_system_manager_bridge() {
 }
 
 /// Get reference to the global particle system manager
-pub fn get_particle_system_manager(
-) -> Result<std::sync::RwLockReadGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError>
-{
+pub fn get_particle_system_manager()
+-> Result<std::sync::RwLockReadGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError> {
     PARTICLE_SYSTEM_MANAGER.read().map_err(|_| {
         ParticleSystemError::InitializationFailed("Failed to acquire read lock".to_string())
     })
 }
 
 /// Get mutable reference to the global particle system manager
-pub fn get_particle_system_manager_mut(
-) -> Result<std::sync::RwLockWriteGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError>
+pub fn get_particle_system_manager_mut()
+-> Result<std::sync::RwLockWriteGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError>
 {
     PARTICLE_SYSTEM_MANAGER.write().map_err(|_| {
         ParticleSystemError::InitializationFailed("Failed to acquire write lock".to_string())
@@ -2348,9 +2345,11 @@ mod tests {
         assert!(!death.is_stopped(), "preset system should be started");
 
         // Unknown preset still fails closed (no silent empty placeholder success).
-        assert!(manager
-            .create_preset_system_at("TotallyUnknownCombatFx", Point3::origin())
-            .is_err());
+        assert!(
+            manager
+                .create_preset_system_at("TotallyUnknownCombatFx", Point3::origin())
+                .is_err()
+        );
     }
 
     /// C++ ParticleSys.cpp:1255 `ParticleSystem::destroy` only sets
@@ -2532,7 +2531,6 @@ mod tests {
             "C++ m_fieldParticleCount counts only on-screen AREA_EFFECT ground-aligned particles"
         );
     }
-
 
     /// Empty destroyed systems are still removed on the next manager update
     /// (C++ ParticleSys.cpp:2059 `m_isDestroyed && !m_systemParticlesHead`).

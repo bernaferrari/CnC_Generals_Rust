@@ -377,7 +377,9 @@ impl BitFlags {
     pub fn test_for_all(&self, other: &Self) -> bool {
         // All argument bits must be set in our bits too in order to return true
         if !other.any() {
-            panic!("BitFlags::test_for_all is always true if you ask about zero flags. Did you mean that?");
+            panic!(
+                "BitFlags::test_for_all is always true if you ask about zero flags. Did you mean that?"
+            );
         }
 
         other

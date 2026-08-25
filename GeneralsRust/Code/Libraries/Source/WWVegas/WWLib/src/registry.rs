@@ -21,10 +21,10 @@ use windows::Win32::Foundation::ERROR_SUCCESS;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExA, RegDeleteKeyA, RegDeleteValueA, RegEnumKeyExA, RegEnumValueA,
-    RegOpenKeyExA, RegOpenKeyExW, RegQueryInfoKeyA, RegQueryValueExA, RegQueryValueExW,
-    RegSetValueExA, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, KEY_READ, REG_BINARY,
-    REG_DWORD, REG_SZ,
+    HKEY, HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, KEY_READ, REG_BINARY, REG_DWORD, REG_SZ, RegCloseKey,
+    RegCreateKeyExA, RegDeleteKeyA, RegDeleteValueA, RegEnumKeyExA, RegEnumValueA, RegOpenKeyExA,
+    RegOpenKeyExW, RegQueryInfoKeyA, RegQueryValueExA, RegQueryValueExW, RegSetValueExA,
+    RegSetValueExW,
 };
 
 static IS_LOCKED: AtomicBool = AtomicBool::new(false);

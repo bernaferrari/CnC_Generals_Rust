@@ -39,9 +39,7 @@ impl Object {
 
     /// C++ shockwave eligibility: physics, not airborne, not projectile.
     pub(super) fn shockwave_applies(&self) -> bool {
-        self.physics.is_some()
-            && !self.is_airborne_target()
-            && !self.is_kind_of(KindOf::Projectile)
+        self.physics.is_some() && !self.is_airborne_target() && !self.is_kind_of(KindOf::Projectile)
     }
 
     /// C++ `setModelConditionState(MODELCONDITION_STUNNED_FLAILING)`.

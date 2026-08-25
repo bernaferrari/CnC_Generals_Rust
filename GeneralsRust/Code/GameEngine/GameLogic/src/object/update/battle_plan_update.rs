@@ -2,9 +2,9 @@
 // Author: Kris Morness, September 2002
 // Ported to Rust
 
+use crate::object::ObjectArcExt;
 use crate::object::behavior::battle_plan_update::BattlePlanBonuses;
 use crate::object::body::body_module::MaxHealthChangeType;
-use crate::object::ObjectArcExt;
 use crate::player::{BattlePlanType, PlayerArcExt};
 use crate::prelude::*;
 

@@ -674,7 +674,6 @@ impl TextEntry {
         self.max_length.saturating_sub(1)
     }
 
-
     /// Set input validation mode
     pub fn with_validation(mut self, mode: ValidationMode) -> Self {
         self.validation_mode = mode;
@@ -1000,7 +999,6 @@ impl TextEntry {
     /// Insert a single character
     fn insert_char(&mut self, ch: char) {
         if self.text.len() >= self.max_typed_len() {
-
             return;
         }
 
@@ -1798,7 +1796,6 @@ mod tests {
         entry.set_text("12345");
         entry.insert_text("more");
         assert_eq!(entry.text(), "12345");
-
     }
 
     #[test]
@@ -1949,5 +1946,4 @@ mod tests {
             } if text == "A"
         )));
     }
-
 }

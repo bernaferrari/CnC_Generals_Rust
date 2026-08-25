@@ -5,8 +5,9 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    xfer::XferExt, AsciiString, Bool, KindOf, ModuleData, ObjectID, ObjectStatusMaskType,
-    ObjectStatusTypes, PathfindLayerEnum, Real, TheGameLogic, UnsignedInt, XferVersion, INVALID_ID,
+    AsciiString, Bool, INVALID_ID, KindOf, ModuleData, ObjectID, ObjectStatusMaskType,
+    ObjectStatusTypes, PathfindLayerEnum, Real, TheGameLogic, UnsignedInt, XferVersion,
+    xfer::XferExt,
 };
 use crate::damage::DamageInfo;
 use crate::effects::{FXList, ObjectCreationList};
@@ -15,9 +16,9 @@ use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{

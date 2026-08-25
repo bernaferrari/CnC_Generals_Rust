@@ -81,8 +81,8 @@ pub fn residual_presentation_mesh_condition_resolve_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_mesh_condition_resolve_last_action(
-) -> ResidualPresentationMeshConditionResolveAction {
+pub fn residual_presentation_mesh_condition_resolve_last_action()
+-> ResidualPresentationMeshConditionResolveAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationMeshConditionResolveAction::MethodNames,
         2 => ResidualPresentationMeshConditionResolveAction::SourceMarkers,
@@ -95,7 +95,13 @@ pub fn residual_presentation_mesh_condition_resolve_last_action(
 }
 
 fn ini_source() -> &'static str {
-    include_str!("../../assets/ini_parser.rs")
+    concat!(
+        include_str!("../../assets/ini_parser/mod.rs"),
+        include_str!("../../assets/ini_parser/types.rs"),
+        include_str!("../../assets/ini_parser/objects.rs"),
+        include_str!("../../assets/ini_parser/parser.rs"),
+        include_str!("../../assets/ini_parser/tests.rs"),
+    )
 }
 
 fn manager_source() -> &'static str {

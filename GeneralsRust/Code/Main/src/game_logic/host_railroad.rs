@@ -164,7 +164,10 @@ fn leftover_railroad_faction_structure(obj: &crate::game_logic::Object) -> bool 
         || obj.is_kind_of(KindOf::FSAirfield)
         || obj.is_kind_of(KindOf::FSBaseDefense)
         || obj.is_kind_of(KindOf::FSTechnology)
-        || obj.template_name.to_ascii_lowercase().contains("rebuildhole")
+        || obj
+            .template_name
+            .to_ascii_lowercase()
+            .contains("rebuildhole")
 }
 
 fn leftover_railroad_demo_trap(obj: &crate::game_logic::Object) -> bool {
@@ -199,8 +202,7 @@ fn leftover_railroad_should_play_impact(
         return false;
     }
     if conductor == HostConductorState::WaitAtStation
-        || (conductor == HostConductorState::Coast
-            && speed < RAILROAD_RUNNING_GARRISON_SPEED_MAX)
+        || (conductor == HostConductorState::Coast && speed < RAILROAD_RUNNING_GARRISON_SPEED_MAX)
         || !is_locomotive
     {
         return false;
@@ -211,7 +213,6 @@ fn leftover_railroad_should_play_impact(
     // Leftover kill-speed path kills without play_impact_sound.
     speed < RAILROAD_KILL_SPEED_MIN
 }
-
 
 const FACADE_HANDLE: u32 = 0x00_FACADE;
 
@@ -248,7 +249,8 @@ pub fn is_railroad_carriage_template(template_name: &str) -> bool {
         || n.contains("traintanker")
         || n.contains("traincaboose")
         || n.contains("carriage")
-        || (n.contains("train") && (n.contains("car") || n.contains("coal") || n.contains("tanker")))
+        || (n.contains("train")
+            && (n.contains("car") || n.contains("coal") || n.contains("tanker")))
 }
 
 pub fn is_railroad_template(template_name: &str) -> bool {
@@ -287,7 +289,10 @@ pub struct HostTrainTrack {
 
 impl HostTrainTrack {
     /// C++ `RailroadBehavior::loadTrackData` walk of `getLink(0)`.
-    pub fn from_linked_waypoints(waypoints: &[HostWaypointSnap], anchor_index: usize) -> Option<Self> {
+    pub fn from_linked_waypoints(
+        waypoints: &[HostWaypointSnap],
+        anchor_index: usize,
+    ) -> Option<Self> {
         if waypoints.is_empty() || anchor_index >= waypoints.len() {
             return None;
         }
@@ -393,7 +398,12 @@ pub fn find_pos_by_path_distance(
         actual = dist.clamp(0.0, track.length);
     }
     if actual <= track.points[0].distance_from_first {
-        return (track.points[0].position, waiting_in_wings, end_of_line, Some(track.points[0].handle));
+        return (
+            track.points[0].position,
+            waiting_in_wings,
+            end_of_line,
+            Some(track.points[0].handle),
+        );
     }
     for pair in track.points.windows(2) {
         let this_pt = &pair[0];
@@ -414,7 +424,12 @@ pub fn find_pos_by_path_distance(
         }
     }
     let last = track.points.last().unwrap();
-    (last.position, waiting_in_wings, end_of_line, Some(last.handle))
+    (
+        last.position,
+        waiting_in_wings,
+        end_of_line,
+        Some(last.handle),
+    )
 }
 
 /// Per-car C++ `RailroadBehavior` runtime.
@@ -737,7 +752,6 @@ impl HostRailroadRegistry {
         }
         out
     }
-
 }
 
 thread_local! {
@@ -768,7 +782,6 @@ pub fn railroad_car(id: ObjectId) -> Option<HostRailroadCar> {
 pub fn restore_railroad_car(car: HostRailroadCar) {
     with_railroad_registry_mut(|reg| reg.restore_car(car));
 }
-
 
 /// Snapshot TerrainLogic waypoints (C++ `TheTerrainLogic->getFirstWaypoint`).
 pub fn snapshot_terrain_waypoints() -> Vec<HostWaypointSnap> {
@@ -882,9 +895,7 @@ impl GameLogic {
                     if !*is_loco {
                         return None;
                     }
-                    reg.get(*id)
-                        .and_then(|c| c.track.clone())
-                        .map(|t| (*id, t))
+                    reg.get(*id).and_then(|c| c.track.clone()).map(|t| (*id, t))
                 })
                 .collect()
         });
@@ -923,7 +934,9 @@ impl GameLogic {
                         continue;
                     }
                     if !is_railroad_carriage_template(name)
-                        && with_railroad_registry(|r| r.get(*oid).map(|c| c.is_locomotive).unwrap_or(true))
+                        && with_railroad_registry(|r| {
+                            r.get(*oid).map(|c| c.is_locomotive).unwrap_or(true)
+                        })
                     {
                         continue;
                     }
@@ -972,7 +985,8 @@ impl GameLogic {
                         .get(&parent)
                         .map(|o| o.get_position())
                         .unwrap_or(loco_pos);
-                    let spawn_pos = Vec3::new(parent_pos.x - hitch_r * 2.0, parent_pos.y, parent_pos.z);
+                    let spawn_pos =
+                        Vec3::new(parent_pos.x - hitch_r * 2.0, parent_pos.y, parent_pos.z);
                     let Some(cid) = self.create_object(extra, team, spawn_pos) else {
                         break;
                     };
@@ -1018,7 +1032,17 @@ impl GameLogic {
                         }
                     }
                 }
-                let (pos, heading, mut pull_dist, pull_speed, pull_dir, mut next, track, before, after) = {
+                let (
+                    pos,
+                    heading,
+                    mut pull_dist,
+                    pull_speed,
+                    pull_dir,
+                    mut next,
+                    track,
+                    before,
+                    after,
+                ) = {
                     let Some(loco) = reg.get_mut(loco_id) else {
                         return;
                     };
@@ -1118,9 +1142,9 @@ impl GameLogic {
         // C++ TheAudio add/remove on the locomotive / car pose.
         let audio = with_railroad_registry_mut(|reg| reg.drain_audio());
         for (id, cue) in audio {
-            let pos = cue.position.or_else(|| {
-                self.objects.get(&id).map(|o| o.get_position())
-            });
+            let pos = cue
+                .position
+                .or_else(|| self.objects.get(&id).map(|o| o.get_position()));
             let priority = cue
                 .volume
                 .map(|vol| (64.0 + vol * 136.0).clamp(0.0, 255.0) as u8)
@@ -1217,11 +1241,8 @@ impl GameLogic {
                 let has_physics = !victim.is_kind_of(KindOf::Structure);
                 let vel = victim.movement.velocity;
                 let vel_len = (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z).sqrt();
-                let volume = leftover_railroad_impact_volume(
-                    vel_len,
-                    victim.physics_mass,
-                    has_physics,
-                );
+                let volume =
+                    leftover_railroad_impact_volume(vel_len, victim.physics_mass, has_physics);
                 jobs.push((
                     snap.id,
                     event,
@@ -1269,7 +1290,6 @@ impl GameLogic {
             }
         }
     }
-
 }
 
 /// Honesty: C++ defaults and live tick symbol exist.
@@ -1312,7 +1332,9 @@ mod tests {
                 distance_from_prev: len * 0.5,
                 distance_from_first: len * 0.5,
                 handle: 2,
-                is_station: station_at.map(|s| (s - len * 0.5).abs() < 1.0).unwrap_or(false),
+                is_station: station_at
+                    .map(|s| (s - len * 0.5).abs() < 1.0)
+                    .unwrap_or(false),
                 is_disembark: false,
                 is_ping_pong: false,
                 is_tunnel_or_bridge: false,
@@ -1364,8 +1386,6 @@ mod tests {
             .world_to_grid(obj.get_position());
         logic.pathfinding_system.grid.is_static_blocked(cell)
     }
-
-
 
     /// C++ RailroadBehavior::update: locomotive advances trackDistance by speed.
     #[test]
@@ -1422,7 +1442,8 @@ mod tests {
         railroad_registry_reset();
         assert!(railroad_car(id).is_none());
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.entity_apply_lifecycle_envelope(&envelope).expect("apply");
+            obj.entity_apply_lifecycle_envelope(&envelope)
+                .expect("apply");
         }
         let after = railroad_car(id).expect("restored loco");
         assert_eq!(after.conductor_state, saved_state);
@@ -1431,7 +1452,6 @@ mod tests {
         assert!(after.track_data_loaded);
         railroad_registry_reset();
     }
-
 
     /// C++ FindPosByPathDistance station edge → APPLY_BRAKES → WAIT_AT_STATION.
     #[test]
@@ -1515,17 +1535,13 @@ mod tests {
             railroad_car(loco).unwrap().conductor_state,
             HostConductorState::Accelerate
         );
-        assert!(
-            !wall_blocked(&logic, loco),
-            "removeWall on station depart"
-        );
+        assert!(!wall_blocked(&logic, loco), "removeWall on station depart");
         assert!(
             !wall_blocked(&logic, car),
             "carriage wall must clear on depart"
         );
         railroad_registry_reset();
     }
-
 
     #[test]
     fn script_set_train_held_blocks_station_departure() {
@@ -1572,14 +1588,17 @@ mod tests {
         railroad_registry_reset();
     }
 
-
     /// C++ getPulled: carriage trackDistance = puller - 2*hitchRadius.
     #[test]
     fn hitch_pulls_carriage_behind_locomotive() {
         railroad_registry_reset();
         let mut logic = GameLogic::new();
         let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::new(0.0, 0.0, 0.0));
-        let car = spawn_train(&mut logic, "CivilianTrainCoalCar", Vec3::new(-10.0, 0.0, 0.0));
+        let car = spawn_train(
+            &mut logic,
+            "CivilianTrainCoalCar",
+            Vec3::new(-10.0, 0.0, 0.0),
+        );
         inject_railroad_track(loco, straight_track(400.0, None));
         for _ in 0..40 {
             logic.update_railroads();
@@ -1682,9 +1701,8 @@ mod tests {
         let pos = car.advance_along_track().expect("pos");
         let cues = car.take_pending_audio();
         assert!(
-            cues.iter().any(|c| {
-                c.event_name == RAILROAD_CLICKETY_SOUND && c.position == Some(pos)
-            }),
+            cues.iter()
+                .any(|c| { c.event_name == RAILROAD_CLICKETY_SOUND && c.position == Some(pos) }),
             "clickety at pose: {cues:?}"
         );
     }
@@ -1765,12 +1783,7 @@ mod tests {
         railroad_registry_reset();
     }
 
-    fn spawn_victim(
-        logic: &mut GameLogic,
-        name: &str,
-        pos: Vec3,
-        kinds: &[KindOf],
-    ) -> ObjectId {
+    fn spawn_victim(logic: &mut GameLogic, name: &str, pos: Vec3, kinds: &[KindOf]) -> ObjectId {
         let mut tmpl = ThingTemplate::new(name);
         for kind in kinds {
             tmpl.add_kind_of(*kind);
@@ -1829,12 +1842,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
         inject_railroad_track(loco, straight_track(400.0, None));
-        let victim = spawn_victim(
-            &mut logic,
-            "AmericaRanger",
-            Vec3::ZERO,
-            &[KindOf::Infantry],
-        );
+        let victim = spawn_victim(&mut logic, "AmericaRanger", Vec3::ZERO, &[KindOf::Infantry]);
         logic.update_railroads();
         assert!(
             logic.queued_audio_events.iter().any(|e| {
@@ -1888,9 +1896,10 @@ mod tests {
         );
         logic.update_railroads();
         assert!(
-            logic.queued_audio_events.iter().any(|e| {
-                e.event_type == RAILROAD_BIG_METAL_SOUND && e.object_id == Some(loco)
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| { e.event_type == RAILROAD_BIG_METAL_SOUND && e.object_id == Some(loco) }),
             "huge-vehicle collide must queue TrainBigMetalHit: {:?}",
             logic.queued_audio_events
         );
@@ -1917,9 +1926,10 @@ mod tests {
         });
         logic.update_railroads();
         assert!(
-            logic.queued_audio_events.iter().any(|e| {
-                e.event_type == RAILROAD_BIG_METAL_SOUND && e.object_id == Some(loco)
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| { e.event_type == RAILROAD_BIG_METAL_SOUND && e.object_id == Some(loco) }),
             "faction structure collide must queue TrainBigMetalHit: {:?}",
             logic.queued_audio_events
         );
@@ -1932,20 +1942,16 @@ mod tests {
         let mut logic = GameLogic::new();
         let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
         inject_railroad_track(loco, straight_track(400.0, None));
-        let victim = spawn_victim(
-            &mut logic,
-            "BounceRanger",
-            Vec3::ZERO,
-            &[KindOf::Infantry],
-        );
+        let victim = spawn_victim(&mut logic, "BounceRanger", Vec3::ZERO, &[KindOf::Infantry]);
         if let Some(o) = logic.objects.get_mut(&victim) {
             o.bounce_sound_name = "VictimBounce".into();
         }
         logic.update_railroads();
         assert!(
-            logic.queued_audio_events.iter().any(|e| {
-                e.event_type == "VictimBounce" && e.object_id == Some(loco)
-            }),
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| { e.event_type == "VictimBounce" && e.object_id == Some(loco) }),
             "leftover bounce sound must win: {:?}",
             logic.queued_audio_events
         );
@@ -1975,12 +1981,7 @@ mod tests {
             }
         });
         let loco_pos = logic.host_object(loco).unwrap().get_position();
-        let _victim = spawn_victim(
-            &mut logic,
-            "KillSpeedRanger",
-            loco_pos,
-            &[KindOf::Infantry],
-        );
+        let _victim = spawn_victim(&mut logic, "KillSpeedRanger", loco_pos, &[KindOf::Infantry]);
         logic.update_railroads();
         assert!(
             logic

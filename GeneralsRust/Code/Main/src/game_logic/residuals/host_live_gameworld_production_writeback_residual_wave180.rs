@@ -103,9 +103,9 @@ pub fn simulate_live_gameworld_production_writeback_honesty() -> bool {
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick, ensure_gate_damage_authority,
-        gameworld_production_authority_enabled, gameworld_production_sole_tick_enabled,
-        gameworld_shadow_enabled, GameWorldShadow,
+        GameWorldShadow, begin_shadow_coupled_tick, end_shadow_coupled_tick,
+        ensure_gate_damage_authority, gameworld_production_authority_enabled,
+        gameworld_production_sole_tick_enabled, gameworld_shadow_enabled,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 

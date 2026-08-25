@@ -5,7 +5,7 @@
 
 use glam::{Vec2, Vec3, Vec4};
 use std::sync::Arc;
-use wgpu::{util::DeviceExt, BindGroup, Buffer, Device, Queue, RenderPass, RenderPipeline};
+use wgpu::{BindGroup, Buffer, Device, Queue, RenderPass, RenderPipeline, util::DeviceExt};
 
 /// Streak line class for rendering thick segmented lines
 #[derive(Debug)]

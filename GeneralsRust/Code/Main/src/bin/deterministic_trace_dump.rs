@@ -1,6 +1,6 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
-use generals_main::deterministic_trace::{run_trace_scenario, FrameTrace, TraceScenario};
+use generals_main::deterministic_trace::{FrameTrace, TraceScenario, run_trace_scenario};
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
 use glam::Vec3;
 use serde::Serialize;
@@ -57,7 +57,7 @@ fn run_named_scenario(scenario: &str, final_frame: u32) -> Result<TraceDump> {
             );
             let frames = run_trace_scenario(&mut game_logic, &scenario);
             Ok(TraceDump {
-                schema: "generalsrust.frame_trace.v1",
+                schema: "generals.frame_trace.v2",
                 scenario: "smoke_attack".to_string(),
                 final_frame,
                 frames,
@@ -128,7 +128,9 @@ fn smoke_attack_game_logic() -> (GameLogic, ObjectId, ObjectId) {
         .create_object("TraceHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("trace attacker template is registered");
     let target = game_logic
-        .create_object("TraceTechnical", Team::GLA, Vec3::new(35.0, 0.0, 0.0))
+        // Keep the canonical smoke scenario independent of ambient terrain/
+        // path-grid state while still exercising a real attack command.
+        .create_object("TraceTechnical", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
         .expect("trace target template is registered");
 
     let weapon = Some(Weapon {
@@ -137,7 +139,7 @@ fn smoke_attack_game_logic() -> (GameLogic, ObjectId, ObjectId) {
         reload_time: 0.0,
         projectile_speed: 0.0,
         ..Weapon::default()
-});
+    });
     game_logic
         .host_object_mut(attacker)
         .expect("trace attacker was just inserted")
@@ -180,7 +182,7 @@ mod tests {
         let dump = run_named_scenario("smoke_attack", 3).expect("scenario should run");
         let json = serde_json::to_string(&dump).expect("dump should serialize");
 
-        assert!(json.contains("\"schema\":\"generalsrust.frame_trace.v1\""));
+        assert!(json.contains("\"schema\":\"generals.frame_trace.v2\""));
         assert_eq!(dump.frames.len(), 3);
         assert_eq!(dump.frames[0].commands[0].command_id, 1);
         assert_ne!(dump.frames[0].crc, dump.frames[2].crc);

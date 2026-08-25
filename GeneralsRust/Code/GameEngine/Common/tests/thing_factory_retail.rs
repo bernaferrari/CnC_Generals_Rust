@@ -86,7 +86,9 @@ fn retail_object_ini_set_populates_gameplay_templates() {
         .filter(|name| gla_factory.find_template(name, false).is_some())
         .collect();
     assert!(
-        gla_factory.find_template("GLAInfantryWorker", false).is_some(),
+        gla_factory
+            .find_template("GLAInfantryWorker", false)
+            .is_some(),
         "GLAInfantryWorker missing after loading {gla_loaded} GLA infantry templates; present {present:?}; missing {missing:?}"
     );
 }

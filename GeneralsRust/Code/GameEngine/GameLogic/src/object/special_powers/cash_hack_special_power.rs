@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -325,7 +325,6 @@ impl CashHackSpecialPower {
     fn dispatch_on_special_power_creation(&mut self) {}
 }
 
-
 impl Module for CashHackSpecialPower {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -501,9 +500,11 @@ mod tests {
         let arc_data = Arc::new(data);
         let power = CashHackSpecialPower::new(0, 0, arc_data);
         // Should return Ok (does nothing - only objects allowed)
-        assert!(power
-            .do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0))
-            .is_ok());
+        assert!(
+            power
+                .do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0))
+                .is_ok()
+        );
     }
 
     #[test]

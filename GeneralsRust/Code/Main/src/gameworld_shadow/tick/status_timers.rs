@@ -6,7 +6,12 @@ use gamelogic::world::entities::EntityId;
 /// Pre-loop borrow-safe snapshots shared by per-entity timer helpers.
 pub(super) struct StatusTimerSnapshots {
     pub eids: Vec<EntityId>,
-    pub infantry_snapshot: Vec<(u32, Option<u32>, u8, crate::game_logic::host_battlemaster::LeftoverHordeScanUnit)>,
+    pub infantry_snapshot: Vec<(
+        u32,
+        Option<u32>,
+        u8,
+        crate::game_logic::host_battlemaster::LeftoverHordeScanUnit,
+    )>,
     pub battlemaster_snapshot: Vec<(
         u32,
         Option<u32>,
@@ -106,18 +111,17 @@ impl GameWorldShadow {
         }
 
         use crate::game_logic::host_battlemaster::{
-            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob_scan,
-            same_vehicle_horde_family, BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
-            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
+            BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
+            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS, counts_toward_battlemaster_horde,
+            evaluate_leftover_horde_blob_scan, same_vehicle_horde_family,
         };
         use crate::game_logic::host_red_guard::{
-            counts_toward_infantry_horde, INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS,
-            INFANTRY_HORDE_RUB_OFF_RADIUS,
+            INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS, INFANTRY_HORDE_RUB_OFF_RADIUS,
+            counts_toward_infantry_horde,
         };
-        let gw_horde_allies =
-            |a: Option<u32>, a_team: u8, b: Option<u32>, b_team: u8| -> bool {
-                self.horde_allies_only(a, a_team, b, b_team)
-            };
+        let gw_horde_allies = |a: Option<u32>, a_team: u8, b: Option<u32>, b_team: u8| -> bool {
+            self.horde_allies_only(a, a_team, b, b_team)
+        };
 
         let inf_units: Vec<_> = infantry_snapshot.iter().map(|u| u.3).collect();
         let inf_mem = evaluate_leftover_horde_blob_scan(
@@ -174,7 +178,6 @@ impl GameWorldShadow {
         for (idx, (hid, _, _, _, _)) in battlemaster_snapshot.iter().enumerate() {
             vehicle_horde_now.insert(*hid, veh_mem[idx].in_horde);
         }
-
 
         // Wave 811: underpowered teams from shadow player economy (borrow-safe).
         let mut underpowered_team_ords: std::collections::HashSet<u8> =
@@ -263,7 +266,6 @@ impl GameWorldShadow {
             scorpion_retarget,
             fire_spread_candidates,
         }
-
     }
 
     /// Wave 761: expire faerie/repulsor/disable/frenzy/continuous-fire/selection flash.

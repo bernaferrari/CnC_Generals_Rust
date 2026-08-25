@@ -42,8 +42,8 @@ pub const RUNTIME_HOST_LIVE_NUCLEAR_MISSILE_POWER_DUAL_WORLD_EMPTY_GATE_CMD_NAME
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_nuclear_missile_power_dual_world_empty_gate_method_names_residual_wave441(
-) -> bool {
+pub fn honesty_live_nuclear_missile_power_dual_world_empty_gate_method_names_residual_wave441()
+-> bool {
     LIVE_NUCLEAR_MISSILE_POWER_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE441.len() == 4
         && residual_name_index(
             LIVE_NUCLEAR_MISSILE_POWER_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE441,
@@ -60,8 +60,8 @@ pub fn honesty_live_nuclear_missile_power_dual_world_empty_gate_method_names_res
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_nuclear_missile_power_dual_world_empty_gate_nav_commands_residual_wave441(
-) -> bool {
+pub fn honesty_live_nuclear_missile_power_dual_world_empty_gate_nav_commands_residual_wave441()
+-> bool {
     LIVE_NUCLEAR_MISSILE_POWER_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE441.len() == 4
         && residual_name_index(
             LIVE_NUCLEAR_MISSILE_POWER_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE441,

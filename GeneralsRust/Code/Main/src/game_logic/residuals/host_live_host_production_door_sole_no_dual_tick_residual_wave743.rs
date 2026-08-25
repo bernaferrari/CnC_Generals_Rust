@@ -57,8 +57,8 @@ fn residual_action_store(a: ResidualHostProductionDoorSoleNoDualTickAction) {
 pub fn residual_host_production_door_sole_no_dual_tick_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_production_door_sole_no_dual_tick_last_action(
-) -> ResidualHostProductionDoorSoleNoDualTickAction {
+pub fn residual_host_production_door_sole_no_dual_tick_last_action()
+-> ResidualHostProductionDoorSoleNoDualTickAction {
     ResidualHostProductionDoorSoleNoDualTickAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

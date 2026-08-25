@@ -11,17 +11,11 @@ pub fn NetworkDirectConnectInit(layout: &WindowLayout, user_data: Option<&dyn st
     network_direct_connect_init(layout, user_data);
 }
 
-pub fn NetworkDirectConnectUpdate(
-    layout: &WindowLayout,
-    user_data: Option<&dyn std::any::Any>,
-) {
+pub fn NetworkDirectConnectUpdate(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     network_direct_connect_update(layout, user_data);
 }
 
-pub fn NetworkDirectConnectShutdown(
-    layout: &WindowLayout,
-    user_data: Option<&dyn std::any::Any>,
-) {
+pub fn NetworkDirectConnectShutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     network_direct_connect_shutdown(layout, user_data);
 }
 

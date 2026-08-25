@@ -15,7 +15,7 @@
 //! Exit 1 otherwise.
 
 use generals_main::golden_campaign::{
-    format_campaign_report, run_golden_campaign, DEFAULT_CAMPAIGN_FRAME_ADVANCE,
+    DEFAULT_CAMPAIGN_FRAME_ADVANCE, format_campaign_report, run_golden_campaign,
 };
 
 fn main() {

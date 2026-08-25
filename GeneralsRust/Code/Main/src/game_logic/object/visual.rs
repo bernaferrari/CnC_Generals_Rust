@@ -77,7 +77,6 @@ impl Object {
         }
     }
 
-
     /// Update team color (useful for changing allegiance)
     pub fn set_team(&mut self, team: Team) {
         let changed = self.team != team;

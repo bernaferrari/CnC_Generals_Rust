@@ -298,9 +298,10 @@ fn particle_uplink_scorch_reveal_residual_honesty() {
 
     // Not due again until scheduled scorch frame.
     let next = reg.beam_fields()[0].next_scorch_frame;
-    assert!(reg
-        .apply_due_beam_scorch_reveals(next.saturating_sub(1))
-        .is_empty());
+    assert!(
+        reg.apply_due_beam_scorch_reveals(next.saturating_sub(1))
+            .is_empty()
+    );
 
     // Catch-up: jump past several scorch slots → multiple residual events.
     let late = spawn + PARTICLE_BEAM_DURATION_FRAMES;
@@ -539,7 +540,7 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
     assert!(!particle_is_fast_drive(100, 0)); // first click after zero init
     assert!(particle_is_fast_drive(110, 100)); // 10 < 15
     assert!(!particle_is_fast_drive(120, 100)); // 20 >= 15
-                                                // Outer-node residual retail honesty.
+    // Outer-node residual retail honesty.
     assert_eq!(PARTICLE_OUTER_EFFECT_NUM_BONES, 5);
     assert_eq!(PARTICLE_OUTER_EFFECT_BONE_NAME, "FX");
     assert_eq!(PARTICLE_CONNECTOR_BONE_NAME, "FXConnector");

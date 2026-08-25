@@ -918,9 +918,10 @@ mod tests {
         assert!(!obj.is_effectively_dead());
 
         // Kill the object
-        assert!(obj
-            .kill_with_type(Some(DamageType::Unresistable), Some(DeathType::Normal))
-            .is_ok());
+        assert!(
+            obj.kill_with_type(Some(DamageType::Unresistable), Some(DeathType::Normal))
+                .is_ok()
+        );
         assert!(obj.is_effectively_dead());
     }
 
@@ -932,18 +933,20 @@ mod tests {
 
         assert!(obj.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne));
         let body = obj.get_body_module().expect("test object has active body");
-        assert!(body
-            .lock()
-            .expect("body lock")
-            .test_armor_set_flag(crate::object::body::body_module::ArmorSetType::CrateUpgradeOne));
+        assert!(
+            body.lock().expect("body lock").test_armor_set_flag(
+                crate::object::body::body_module::ArmorSetType::CrateUpgradeOne
+            )
+        );
 
         obj.clear_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
 
         assert!(!obj.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne));
-        assert!(!body
-            .lock()
-            .expect("body lock")
-            .test_armor_set_flag(crate::object::body::body_module::ArmorSetType::CrateUpgradeOne));
+        assert!(
+            !body.lock().expect("body lock").test_armor_set_flag(
+                crate::object::body::body_module::ArmorSetType::CrateUpgradeOne
+            )
+        );
     }
 
     #[test]
@@ -1325,12 +1328,8 @@ mod tests {
         victim.set_team(Some(team)).unwrap();
         victim.set_radar_data_for_test(Some(Arc::new(Mutex::new(RadarObject::new(808)))));
 
-        let mut friendly = DamageInfo::with_simple(
-            10.0,
-            INVALID_ID,
-            DamageType::Explosion,
-            DeathType::Normal,
-        );
+        let mut friendly =
+            DamageInfo::with_simple(10.0, INVALID_ID, DamageType::Explosion, DeathType::Normal);
         friendly.input.source_player_mask = PlayerMaskType::PLAYER_1;
         let _ = victim.attempt_damage_with_return(&mut friendly);
         assert!(
@@ -1338,12 +1337,8 @@ mod tests {
             "same-player sourcePlayerMask must not fire tryUnderAttackEvent"
         );
 
-        let mut enemy = DamageInfo::with_simple(
-            10.0,
-            INVALID_ID,
-            DamageType::Explosion,
-            DeathType::Normal,
-        );
+        let mut enemy =
+            DamageInfo::with_simple(10.0, INVALID_ID, DamageType::Explosion, DeathType::Normal);
         enemy.input.source_player_mask = PlayerMaskType::PLAYER_2;
         let _ = victim.attempt_damage_with_return(&mut enemy);
         let events = crate::system::radar_notifier::drain();
@@ -1354,12 +1349,8 @@ mod tests {
         ));
 
         victim.set_radar_data_for_test(None);
-        let mut no_radar = DamageInfo::with_simple(
-            10.0,
-            INVALID_ID,
-            DamageType::Explosion,
-            DeathType::Normal,
-        );
+        let mut no_radar =
+            DamageInfo::with_simple(10.0, INVALID_ID, DamageType::Explosion, DeathType::Normal);
         no_radar.input.source_player_mask = PlayerMaskType::PLAYER_2;
         let _ = victim.attempt_damage_with_return(&mut no_radar);
         assert!(
@@ -1370,7 +1361,6 @@ mod tests {
         player_list().write().unwrap().clear();
         OBJECT_REGISTRY.clear();
     }
-
 }
 
 //=============================================================================
@@ -2390,8 +2380,8 @@ mod visibility_tests {
     fn ambient_loop_count_override_uses_ac_loop_0x1_like_cpp() {
         use crate::object::drawable::{Drawable, DrawableType};
         use game_engine::common::audio::{
-            game_audio::{get_global_audio_manager, initialize_global_audio_manager},
             AC_LOOP,
+            game_audio::{get_global_audio_manager, initialize_global_audio_manager},
         };
         use game_engine::common::dict::Dict;
         use game_engine::common::well_known_keys;

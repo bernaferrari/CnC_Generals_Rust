@@ -8,9 +8,9 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, Coord3D, DisabledMaskType, GameLogicRandomValue, Int, KindOf, KindOfMaskType,
-    NameKeyGenerator, ObjectID, ParticleSystemID, ParticleSystemTemplate, Real, UnsignedInt,
-    UpgradeMaskType, XferVersion, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE,
+    AsciiString, Bool, Coord3D, DisabledMaskType, GameLogicRandomValue, Int, KIND_OF_MASK_ALL,
+    KIND_OF_MASK_NONE, KindOf, KindOfMaskType, NameKeyGenerator, ObjectID, ParticleSystemID,
+    ParticleSystemTemplate, Real, UnsignedInt, UpgradeMaskType, XferVersion,
 };
 
 use crate::damage::{BodyDamageType, DamageInfo};
@@ -21,14 +21,12 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{
-    registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
+    INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, registry::OBJECT_REGISTRY,
 };
 use crate::upgrade::upgrade_mask_for_ascii;
-use game_engine::common::ini::ini_particle_sys::IniParticleSys;
-use game_engine::common::ini::{
-    get_anim2d_collection, get_global_data, FieldParse, INIError, INI,
-};
 use game_engine::common::ini::ini_game_data::ensure_global_data;
+use game_engine::common::ini::ini_particle_sys::IniParticleSys;
+use game_engine::common::ini::{FieldParse, INI, INIError, get_anim2d_collection, get_global_data};
 use game_engine::common::rts::NameKeyType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode};
 use game_engine::common::thing::module::{
@@ -470,7 +468,6 @@ fn parse_fx_list_upgrade_field(
     Ok(())
 }
 
-
 const AUTO_HEAL_BEHAVIOR_FIELDS: &[FieldParse<AutoHealBehaviorModuleData>] = &[
     FieldParse {
         token: "StartsActive",
@@ -540,7 +537,6 @@ const AUTO_HEAL_BEHAVIOR_FIELDS: &[FieldParse<AutoHealBehaviorModuleData>] = &[
         token: "FXListUpgrade",
         parse: parse_fx_list_upgrade_field,
     },
-
 ];
 
 /// Minimal Update module data carrier until the shared implementation lands.
@@ -769,7 +765,6 @@ impl AutoHealBehavior {
         object_id: ObjectID,
         module_data: Arc<AutoHealBehaviorModuleData>,
     ) -> Self {
-
         let mut behavior = Self {
             module_data,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
@@ -1046,7 +1041,6 @@ impl UpdateModuleInterface for AutoHealBehavior {
         // C++ AutoHealBehavior::getDisabledTypesToProcess = DISABLED_HELD
         DisabledMaskType::HELD
     }
-
 }
 
 // Implement DamageModuleInterface for handling damage events
@@ -1494,7 +1488,6 @@ impl AutoHealBehavior {
                     mask | upgrade_mask_for_ascii(name)
                 });
 
-
             let conflicting = self
                 .module_data
                 .upgrade_mux_data
@@ -1629,5 +1622,4 @@ mod tests {
     fn test_upgrade_integration() {
         // Test upgrade system integration
     }
-
 }

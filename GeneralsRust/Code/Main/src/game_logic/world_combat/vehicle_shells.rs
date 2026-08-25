@@ -120,12 +120,12 @@ impl GameLogic {
         slot: u8,
     ) -> (u32, bool) {
         use crate::game_logic::host_scorpion::{
-            has_ap_rockets_upgrade, is_legal_scorpion_splash_target, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_gun_splash_damage_at, scorpion_missile_damage_at,
-            scorpion_scatter_aim, scorpion_scatter_misses_infantry, SCORPION_GUN_DAMAGE_TYPE,
-            SCORPION_GUN_DEATH_TYPE, SCORPION_GUN_FIRE_AUDIO, SCORPION_GUN_SPLASH_RADIUS,
-            SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE, SCORPION_MISSILE_FIRE_AUDIO,
-            SCORPION_MISSILE_SECONDARY_RADIUS,
+            SCORPION_GUN_DAMAGE_TYPE, SCORPION_GUN_DEATH_TYPE, SCORPION_GUN_FIRE_AUDIO,
+            SCORPION_GUN_SPLASH_RADIUS, SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE,
+            SCORPION_MISSILE_FIRE_AUDIO, SCORPION_MISSILE_SECONDARY_RADIUS, has_ap_rockets_upgrade,
+            is_legal_scorpion_splash_target, is_scorpion_template, salvage_tier_from_upgrades,
+            scorpion_gun_splash_damage_at, scorpion_missile_damage_at, scorpion_scatter_aim,
+            scorpion_scatter_misses_infantry,
         };
 
         let (source_team, gun_damage, has_ap, is_missile) = {
@@ -573,9 +573,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_tomahawk::{
-            is_legal_tomahawk_splash_target, is_tomahawk_template, tomahawk_damage_at,
-            tomahawk_scatter_aim, tomahawk_scatter_misses_infantry, TOMAHAWK_DAMAGE_TYPE,
-            TOMAHAWK_DEATH_TYPE, TOMAHAWK_FIRE_AUDIO, TOMAHAWK_SECONDARY_RADIUS,
+            TOMAHAWK_DAMAGE_TYPE, TOMAHAWK_DEATH_TYPE, TOMAHAWK_FIRE_AUDIO,
+            TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target, is_tomahawk_template,
+            tomahawk_damage_at, tomahawk_scatter_aim, tomahawk_scatter_misses_infantry,
         };
 
         let source_team = source
@@ -730,8 +730,8 @@ impl GameLogic {
     /// Apply Laser Missiles residual tag + rebind Raptor jet missile damage.
     pub fn apply_raptor_laser_missiles_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_raptor::{
-            has_laser_missiles_upgrade, is_king_raptor_template, is_raptor_template, raptor_weapon,
-            UPGRADE_AMERICA_LASER_MISSILES,
+            UPGRADE_AMERICA_LASER_MISSILES, has_laser_missiles_upgrade, is_king_raptor_template,
+            is_raptor_template, raptor_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -971,10 +971,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_raptor::{
+            RAPTOR_DAMAGE_TYPE, RAPTOR_DEATH_TYPE, RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
             has_laser_missiles_upgrade, is_king_raptor_template, is_legal_raptor_target,
             is_raptor_template, raptor_damage_at, raptor_scatter_aim,
-            raptor_scatter_misses_infantry, RAPTOR_DAMAGE_TYPE, RAPTOR_DEATH_TYPE,
-            RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
+            raptor_scatter_misses_infantry,
         };
 
         let (source_team, is_king, has_laser) = {
@@ -1140,8 +1140,8 @@ impl GameLogic {
     /// Apply BlackNapalm residual to a China MiG (PLAYER_UPGRADE fire-field residual).
     pub fn apply_mig_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
-            is_mig_template, is_nuke_mig_template, mig_loadout, mig_weapon,
-            UPGRADE_CHINA_BLACK_NAPALM,
+            UPGRADE_CHINA_BLACK_NAPALM, is_mig_template, is_nuke_mig_template, mig_loadout,
+            mig_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1165,7 +1165,7 @@ impl GameLogic {
     /// Apply Tactical Nuke MiG residual to a Nuke General MiG.
     pub fn apply_mig_tactical_nuke_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
-            is_nuke_mig_template, mig_loadout, mig_weapon, UPGRADE_CHINA_TACTICAL_NUKE_MIG,
+            UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template, mig_loadout, mig_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1392,11 +1392,11 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_mig::{
-            is_legal_mig_target, is_mig_template, is_nuke_mig_template, mig_damage_at,
-            mig_fire_field_upgraded, mig_loadout, mig_scatter_aim, mig_scatter_misses_infantry,
-            mig_secondary_radius, mig_spawns_fire_field, mig_spawns_radiation, MigLoadout,
             MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE, MIG_DAMAGE_TYPE, MIG_DEATH_TYPE,
-            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS,
+            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, is_legal_mig_target, is_mig_template,
+            is_nuke_mig_template, mig_damage_at, mig_fire_field_upgraded, mig_loadout,
+            mig_scatter_aim, mig_scatter_misses_infantry, mig_secondary_radius,
+            mig_spawns_fire_field, mig_spawns_radiation,
         };
 
         let (source_team, loadout) = {
@@ -1598,7 +1598,7 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_fire_base::{
-            fire_base_shell_flight_frames, FIRE_BASE_PROJECTILE, FIRE_BASE_SHELL_MAX_HEALTH,
+            FIRE_BASE_PROJECTILE, FIRE_BASE_SHELL_MAX_HEALTH, fire_base_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1769,9 +1769,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_fire_base::{
-            fire_base_damage_at, fire_base_scatter_aim, fire_base_scatter_misses_infantry,
-            is_fire_base_template, is_legal_fire_base_target, FIRE_BASE_DAMAGE_TYPE,
-            FIRE_BASE_DEATH_TYPE, FIRE_BASE_FIRE_AUDIO, FIRE_BASE_PRIMARY_RADIUS,
+            FIRE_BASE_DAMAGE_TYPE, FIRE_BASE_DEATH_TYPE, FIRE_BASE_FIRE_AUDIO,
+            FIRE_BASE_PRIMARY_RADIUS, fire_base_damage_at, fire_base_scatter_aim,
+            fire_base_scatter_misses_infantry, is_fire_base_template, is_legal_fire_base_target,
         };
 
         let source_team = source

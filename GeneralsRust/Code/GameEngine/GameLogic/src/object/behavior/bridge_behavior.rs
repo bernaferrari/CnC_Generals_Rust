@@ -12,7 +12,7 @@ use std::f32::consts::TAU;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::ai::{pathfinding_system::PathfindLayerEnum as AiPathfindLayerEnum, THE_AI};
+use crate::ai::{THE_AI, pathfinding_system::PathfindLayerEnum as AiPathfindLayerEnum};
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, AudioEventRTS, BehaviorModuleData, Bool, Bridge, Coord3D, FXList, Int, KindOf,
@@ -21,21 +21,22 @@ use crate::common::{
 };
 use crate::damage::{BodyDamageType, DamageInfo};
 use crate::helpers::{
-    get_game_logic_random_value_real, TheAudio, TheFXListStore, TheGameLogic,
-    TheObjectCreationListStore, ThePartitionManager, TheRadar, TheThingFactory,
+    TheAudio, TheFXListStore, TheGameLogic, TheObjectCreationListStore, ThePartitionManager,
+    TheRadar, TheThingFactory, get_game_logic_random_value_real,
 };
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, DieModuleInterface, PhysicsBehaviorExt,
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::{
+    INVALID_ID as OBJECT_INVALID_ID, Object as GameObject,
     behavior::behavior_module::xfer_update_module_base_state, drawable::DrawableExt,
-    registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
+    registry::OBJECT_REGISTRY,
 };
 use crate::terrain::THE_TERRAIN_LOGIC;
 use game_engine::ascii_string::AsciiString as EngineAsciiString;
 use game_engine::common::ini::ini_terrain_bridge::IniTerrainBridge;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, XferMode};
 use game_engine::common::thing::module::{
@@ -933,7 +934,8 @@ impl BridgeBehavior {
             // Damage sounds — C++ parseAudioEventRTS stores the token as the event name.
             if let Some(name) = bridge_template.get_damage_to_sound_string(state_index) {
                 let trimmed = name.as_str().trim();
-                self.damage_to_sound[state_index] = AudioEventRTS::from_event_name(trimmed.to_string());
+                self.damage_to_sound[state_index] =
+                    AudioEventRTS::from_event_name(trimmed.to_string());
             } else {
                 self.damage_to_sound[state_index] = AudioEventRTS::new();
             }
@@ -941,7 +943,8 @@ impl BridgeBehavior {
             // Repair sounds
             if let Some(name) = bridge_template.get_repaired_to_sound_string(state_index) {
                 let trimmed = name.as_str().trim();
-                self.repair_to_sound[state_index] = AudioEventRTS::from_event_name(trimmed.to_string());
+                self.repair_to_sound[state_index] =
+                    AudioEventRTS::from_event_name(trimmed.to_string());
             } else {
                 self.repair_to_sound[state_index] = AudioEventRTS::new();
             }
@@ -1637,7 +1640,6 @@ impl DamageModuleInterface for BridgeBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         self.resolve_fx()?;
 
         let me_id = self.owner_object_id();
@@ -1712,7 +1714,6 @@ impl DamageModuleInterface for BridgeBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
         self.resolve_fx()?;
 
         let max_health = self.with_object(
@@ -2234,8 +2235,7 @@ mod tests {
     #[test]
     fn destroy_remaining_towers_clears_tower_ids() {
         let data = Arc::new(BridgeBehaviorModuleData::default());
-        let mut behavior =
-            BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data, None);
+        let mut behavior = BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data, None);
         behavior.tower_id = [7, 8, 9, 10];
         behavior.destroy_remaining_towers();
         assert!(behavior.tower_id.iter().all(|&id| id == OBJECT_INVALID_ID));
@@ -2248,17 +2248,16 @@ mod tests {
             BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data.clone(), None);
         behavior.tower_id = [1, 2, 3, 4];
         behavior.scaffold_object_id_list.push(99);
-        let mut module = BridgeBehaviorModule::new(
-            behavior,
-            &AsciiString::from("BridgeBehavior"),
-            data,
-        );
+        let mut module =
+            BridgeBehaviorModule::new(behavior, &AsciiString::from("BridgeBehavior"), data);
         EngineModule::on_delete(&mut module);
         assert!(module.behavior().scaffold_object_id_list.is_empty());
-        assert!(module
-            .behavior()
-            .tower_id
-            .iter()
-            .all(|&id| id == OBJECT_INVALID_ID));
+        assert!(
+            module
+                .behavior()
+                .tower_id
+                .iter()
+                .all(|&id| id == OBJECT_INVALID_ID)
+        );
     }
 }

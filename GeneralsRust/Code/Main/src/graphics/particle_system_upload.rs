@@ -144,8 +144,8 @@ fn finalize_honesty(upload: &mut ParticleSystemUpload) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::combat_particles::CombatParticleKind;
     use crate::game_logic::GameLogic;
+    use crate::game_logic::combat_particles::CombatParticleKind;
     use crate::presentation_frame::{PresentationFrame, PresentationParticleSystem};
     use glam::Vec3;
 

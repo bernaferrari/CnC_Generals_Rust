@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostHiveStructDamageNoDamageAuthHpStompActio
 pub fn residual_host_hive_struct_damage_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_hive_struct_damage_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostHiveStructDamageNoDamageAuthHpStompAction {
+pub fn residual_host_hive_struct_damage_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostHiveStructDamageNoDamageAuthHpStompAction {
     ResidualHostHiveStructDamageNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -69,8 +69,8 @@ pub fn residual_host_hive_struct_damage_no_damage_auth_hp_stomp_last_action(
 fn gl_source() -> &'static str {
     super::GAME_LOGIC_HOST_SRC
 }
-pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_residual_wave748(
-) -> bool {
+pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_residual_wave748()
+-> bool {
     let names = LIVE_HOST_HIVE_STRUCT_DAMAGE_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE748;
     let ok = residual_name_index(names, "apply_host_hive_damage_from").is_some()
         && residual_name_index(names, "structure_damage_applied").is_some()
@@ -80,8 +80,8 @@ pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_method_names_resi
     residual_action_store(ResidualHostHiveStructDamageNoDamageAuthHpStompAction::MethodNames);
     ok
 }
-pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_source_markers_residual_wave748(
-) -> bool {
+pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_source_markers_residual_wave748()
+-> bool {
     let gl = gl_source();
     let ok = gl.contains("Wave 748")
         && gl.contains("fn apply_host_hive_damage_from")
@@ -92,8 +92,8 @@ pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_source_markers_re
     residual_action_store(ResidualHostHiveStructDamageNoDamageAuthHpStompAction::SourceMarkers);
     ok
 }
-pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_residual_wave748(
-) -> bool {
+pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_nav_commands_residual_wave748()
+-> bool {
     let steps = LIVE_HOST_HIVE_STRUCT_DAMAGE_NO_DAMAGE_AUTH_HP_STOMP_NAV_STEPS_WAVE748;
     let cmds = RUNTIME_HOST_LIVE_HOST_HIVE_STRUCT_DAMAGE_NO_DAMAGE_AUTH_HP_STOMP_CMD_NAMES_WAVE748;
     let ok = residual_name_index(steps, "REQUIRE_DAMAGE_AUTH_SKIP_HP_MUTATE").is_some()

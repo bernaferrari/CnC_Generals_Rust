@@ -8,7 +8,7 @@
 
 use crate::fow_rendering::PresentationFowGrid;
 use crate::ui::UiTextureId;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use gamelogic::common::Coord3D as LogicCoord3D;
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use glam::{Vec2, Vec3};
@@ -503,7 +503,8 @@ impl MinimapCoordinates {
         let local_y = (screen_pos.y - self.screen_pos.y) as i32;
         let extent_w = (self.world_max.x - self.world_min.x).abs();
         let extent_h = (self.world_max.z - self.world_min.z).abs();
-        let cell = letterboxed_local_pixel_to_radar(local_x, local_y, width, height, extent_w, extent_h)?;
+        let cell =
+            letterboxed_local_pixel_to_radar(local_x, local_y, width, height, extent_w, extent_h)?;
         let nx = cell.0 as f32 / RADAR_CELL_W;
         let ny = cell.1 as f32 / RADAR_CELL_H;
         Some(Vec3::new(
@@ -640,8 +641,7 @@ impl MinimapTextureRenderer {
 
         trace!(
             "Created minimap texture {}x{}",
-            self.dimensions.width,
-            self.dimensions.height
+            self.dimensions.width, self.dimensions.height
         );
         Ok(())
     }
@@ -971,8 +971,16 @@ mod tests {
             world_max: Vec3::new(100.0, 0.0, 400.0),
             screen_pos: Vec2::new(0.0, 0.0),
         };
-        assert!(coords.letterboxed_click_to_world(Vec2::new(10.0, 50.0)).is_none());
-        assert!(coords.letterboxed_click_to_world(Vec2::new(190.0, 50.0)).is_none());
+        assert!(
+            coords
+                .letterboxed_click_to_world(Vec2::new(10.0, 50.0))
+                .is_none()
+        );
+        assert!(
+            coords
+                .letterboxed_click_to_world(Vec2::new(190.0, 50.0))
+                .is_none()
+        );
 
         let square = MinimapCoordinates {
             minimap_width: 128.0,

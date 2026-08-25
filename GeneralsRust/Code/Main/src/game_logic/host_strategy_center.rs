@@ -229,9 +229,10 @@ pub fn stealth_detector_ctor_next_scan_frame(update_rate: u32, frame: u32) -> u3
 /// (0 is live legacy "scan every frame" and would ignore ctor stagger).
 pub fn stealth_detector_rate_frames_for_template(template_name: &str) -> u32 {
     use crate::game_logic::{
-        host_listening_outpost, host_pathfinder, host_sentry_drone, host_slave_drones,
-        host_spy_drone, host_troop_crawler, host_tunnel_network,
+        host_listening_outpost, host_pathfinder,
         host_radar_stealth_vision_residual::DETECTOR_RATE_COMMON_FRAMES_RESIDUAL,
+        host_sentry_drone, host_slave_drones, host_spy_drone, host_troop_crawler,
+        host_tunnel_network,
     };
     if host_listening_outpost::is_listening_outpost_template(template_name) {
         host_listening_outpost::LISTENING_OUTPOST_DETECTION_RATE_FRAMES
@@ -336,8 +337,7 @@ pub fn idle_scan_interval_frames(_scan_index: u32) -> u32 {
 /// `minA + GameLogicRandomValueReal(0, maxA-minA)` then random sign.
 /// `scan_index` is unused (C++ does not pick mid-span by index).
 pub fn idle_scan_desired_offset_deg(_scan_index: u32) -> f32 {
-    let span = (STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG
-        - STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG)
+    let span = (STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG - STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG)
         .max(0.0);
     let mut off = STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG
         + gamelogic::helpers::get_game_logic_random_value_real(0.0, span);
@@ -815,9 +815,9 @@ pub fn strategy_center_gun_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Residual damage at distance from impact (intended / primary ring).
@@ -1513,7 +1513,6 @@ impl HostBattlePlanRegistry {
             || !self.selections.is_empty()
     }
 
-
     /// Drop door residual for a destroyed Strategy Center.
     pub fn clear_door_for_center(&mut self, center_id: ObjectId) {
         self.door_states.retain(|s| s.center_id != center_id);
@@ -2156,9 +2155,8 @@ mod tests {
         let off = idle_scan_desired_offset_deg(0);
         assert!((off - expected_off).abs() < 0.001);
         init_random_with_seed(0xBEEF);
-        let expected_abs = normalize_angle_deg(
-            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + expected_off,
-        );
+        let expected_abs =
+            normalize_angle_deg(STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + expected_off);
         init_random_with_seed(0xBEEF);
         assert!((idle_scan_desired_angle_deg(0) - expected_abs).abs() < 0.001);
         // Idle-scan step toward desired: from natural toward -60 at 2 deg/frame.
@@ -2300,8 +2298,7 @@ mod tests {
         assert!((STRATEGY_CENTER_BASE_VISION_RANGE - 400.0).abs() < 0.001);
         assert!((strategy_center_mood_vision_range(false) - 400.0).abs() < 0.001);
         assert!((strategy_center_mood_vision_range(true) - 800.0).abs() < 0.001);
-        let (vision, shroud) =
-            apply_strategy_center_search_and_destroy_sight(400.0, 400.0);
+        let (vision, shroud) = apply_strategy_center_search_and_destroy_sight(400.0, 400.0);
         assert!((vision - 800.0).abs() < 0.001);
         assert!((shroud - 800.0).abs() < 0.001);
         let (vision, shroud) = remove_strategy_center_search_and_destroy_sight(vision, shroud);
@@ -2402,9 +2399,11 @@ mod tests {
             true,
             BATTLE_PLAN_TURRET_RECENTER_FRAMES,
         );
-        assert!(pack_events
-            .iter()
-            .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. })));
+        assert!(
+            pack_events
+                .iter()
+                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. }))
+        );
         assert!(pack_events.iter().any(|e| matches!(
             e,
             HostBattlePlanDoorEvent::Audio {
@@ -2451,9 +2450,11 @@ mod tests {
             false,
             BATTLE_PLAN_TURRET_RECENTER_FRAMES,
         );
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganRecenter { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganRecenter { .. }))
+        );
         assert!(reg.honesty_turret_recenter_ok());
         let state = reg.door_state_for_center(cid).unwrap();
         assert!(state.centering_turret);
@@ -2464,9 +2465,11 @@ mod tests {
         );
         // Recenter complete → PACKING.
         let events = reg.tick_door_residuals(300 + BATTLE_PLAN_TURRET_RECENTER_FRAMES);
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, HostBattlePlanDoorEvent::BeganPacking { .. }))
+        );
         let state = reg.door_state_for_center(cid).unwrap();
         assert_eq!(state.status, HostBattlePlanTransition::Packing);
         assert!(!state.centering_turret);

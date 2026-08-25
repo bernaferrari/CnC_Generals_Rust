@@ -4,16 +4,16 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::Coord3D;
-use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
+use crate::common::Relationship;
+use crate::common::{INVALID_ID, ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion};
 use crate::common::{KindOf, PathfindLayerEnum};
 use crate::common::{Matrix3D, TurretType};
-use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
 use crate::damage::{DamageType, DeathType};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
-    TheThingFactory,
+    TheGameLogic, TheTerrainLogic, TheThingFactory, get_game_logic_random_value,
+    get_game_logic_random_value_real,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::collide::GameObject;
@@ -21,7 +21,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::update::MissileAIUpdateModuleData;
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::projectile_launch_cast::{
-    module_projectile_launch_kind, ProjectileLaunchKindMut,
+    ProjectileLaunchKindMut, module_projectile_launch_kind,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
@@ -29,8 +29,8 @@ use game_engine::common::system::Snapshotable;
 
 use super::audio_event::AudioEventRts;
 use super::helpers::{
-    ammo_count_for_clip_size, dual_world_registry_unavailable, map_common_bonus_flags,
-    map_weapon_slot_to_common, ObjectId, INVALID_OBJECT_ID, NO_MAX_SHOTS_LIMIT,
+    INVALID_OBJECT_ID, NO_MAX_SHOTS_LIMIT, ObjectId, ammo_count_for_clip_size,
+    dual_world_registry_unavailable, map_common_bonus_flags, map_weapon_slot_to_common,
 };
 use super::masks_enums::*;
 use super::template::WeaponTemplate;
@@ -299,7 +299,15 @@ impl Weapon {
         let internal_flags = map_common_bonus_flags(combined_flags);
 
         let bonus = self.compute_bonus(source_id, internal_flags);
-        if !self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)? {
+        if !self.private_fire_weapon(
+            source_id,
+            Some(target_id),
+            None,
+            &bonus,
+            false,
+            false,
+            true,
+        )? {
             return Ok(self.apply_post_fire_state(source_id, current_frame, &bonus));
         }
         Ok(self.status == WeaponStatus::ReloadingClip)
@@ -349,7 +357,11 @@ impl Weapon {
         self.when_last_reload_started = current_frame;
         self.when_we_can_fire_again = current_frame + (delay as u32);
         self.status = WeaponStatus::BetweenFiringShots;
-        self.propagate_shared_timing(source, self.when_we_can_fire_again, WeaponStatus::BetweenFiringShots);
+        self.propagate_shared_timing(
+            source,
+            self.when_we_can_fire_again,
+            WeaponStatus::BetweenFiringShots,
+        );
         false
     }
 
@@ -453,15 +465,14 @@ impl Weapon {
         };
 
         let (target_pos, target_radius) = if let Some(target_id) = target_obj {
-            let Some(pair) = crate::object::registry::OBJECT_REGISTRY.with_object(
-                target_id,
-                |guard| {
+            let Some(pair) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |guard| {
                     (
                         *guard.get_position(),
                         guard.get_geometry_info().get_bounding_circle_radius(),
                     )
-                },
-            ) else {
+                })
+            else {
                 return false;
             };
             pair
@@ -598,11 +609,7 @@ impl Weapon {
         // C++ Weapon::reloadWithBonus (Weapon.cpp:1877-1912).
         let clip_size = self.template.clip_size;
         let shared_reload = TheGameLogic::find_object_by_id(source)
-            .and_then(|arc| {
-                arc.try_read()
-                    .ok()
-                    .map(|obj| obj.is_reload_time_shared())
-            })
+            .and_then(|arc| arc.try_read().ok().map(|obj| obj.is_reload_time_shared()))
             .unwrap_or(false);
         if clip_size > 0 && self.ammo_in_clip == clip_size as u32 && !shared_reload {
             return Ok(());
@@ -1360,8 +1367,7 @@ impl Weapon {
         };
 
         let skip_max_range = self.template.leech_range_weapon || self.has_leech_range();
-        if !skip_max_range
-            && !self.is_within_attack_range(source_obj_id, target_obj_id, target_pos)
+        if !skip_max_range && !self.is_within_attack_range(source_obj_id, target_obj_id, target_pos)
         {
             let distance = source_pos.distance(target_position);
             let bonus = self.compute_bonus(source_obj_id, WeaponBonusConditionFlags::new());

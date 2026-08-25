@@ -364,9 +364,9 @@ pub fn mig_weapon(loadout: MigLoadout) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Dual-radius residual damage at distance from impact.

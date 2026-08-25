@@ -15,10 +15,10 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
+    CARPET_BOMB_DAMAGE, CARPET_BOMB_DROP_VARIANCE_X, CARPET_BOMB_PAYLOAD_OBJECT,
+    CARPET_BOMB_RADIUS, CARPET_BOMB_TRANSPORT, CarpetBombFactionTier,
     carpet_bomb_impact_frame_for_tier, carpet_bomb_points_for_tier,
-    carpet_bomb_points_for_tier_along, CarpetBombFactionTier, CARPET_BOMB_DAMAGE,
-    CARPET_BOMB_DROP_VARIANCE_X, CARPET_BOMB_PAYLOAD_OBJECT, CARPET_BOMB_RADIUS,
-    CARPET_BOMB_TRANSPORT,
+    carpet_bomb_points_for_tier_along,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,8 +73,8 @@ impl HostCarpetBombFlightData {
     /// Returns (new_pos, vel, off_map / CLEAN_UP).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
         use crate::game_logic::host_deliver_payload::{
-            head_off_map_exit_point_residual, is_off_map_residual, RESIDUAL_MAP_EXTENT_MAX_X,
-            RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+            RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
+            RESIDUAL_MAP_EXTENT_MIN_Z, head_off_map_exit_point_residual, is_off_map_residual,
         };
         let hx = self.target.x - self.launch.x;
         let hz = self.target.z - self.launch.z;
@@ -82,7 +82,12 @@ impl HostCarpetBombFlightData {
             self.passed_target = true;
         }
         let (min_x, min_z, max_x, max_z) = if self.map_extent_ok() {
-            (self.map_min.x, self.map_min.z, self.map_max.x, self.map_max.z)
+            (
+                self.map_min.x,
+                self.map_min.z,
+                self.map_max.x,
+                self.map_max.z,
+            )
         } else {
             (
                 RESIDUAL_MAP_EXTENT_MIN_X,
@@ -110,8 +115,8 @@ impl HostCarpetBombFlightData {
         } else {
             Vec3::ZERO
         };
-        let at_exit = self.delivery_complete
-            && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
+        let at_exit =
+            self.delivery_complete && is_off_map_residual(new_pos, min_x, min_z, max_x, max_z);
         (new_pos, vel, at_exit)
     }
 }
@@ -157,7 +162,11 @@ impl HostCarpetBombFlightRegistry {
         }
     }
     /// C++ payload is contained on the transport. Dead bomber cancels remaining drops.
-    pub fn take_due_drops(&mut self, frame: u32, alive_transports: &[u32]) -> Vec<PendingCarpetBombDrop> {
+    pub fn take_due_drops(
+        &mut self,
+        frame: u32,
+        alive_transports: &[u32],
+    ) -> Vec<PendingCarpetBombDrop> {
         let mut due = Vec::new();
         let mut keep = Vec::new();
         for p in self.pending_drops.drain(..) {
@@ -298,6 +307,9 @@ mod tests {
                 break;
             }
         }
-        assert!(left && destroyed, "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}");
+        assert!(
+            left && destroyed,
+            "C++ HeadOffMap+CleanUp after delivery, pos={pos:?}"
+        );
     }
 }

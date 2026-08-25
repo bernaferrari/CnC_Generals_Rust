@@ -5,9 +5,9 @@
 //!
 //! Original C++ Author: Colin Day, March 2002
 
-use super::{upgrade_mask_for_name, UpgradeError, UpgradeMask, UpgradeResult};
+use super::{UpgradeError, UpgradeMask, UpgradeResult, upgrade_mask_for_name};
 use crate::common::*;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 
 /// Type of upgrade
@@ -371,7 +371,6 @@ fn parse_academy_classify(
     Ok(())
 }
 
-
 const UPGRADE_TEMPLATE_FIELDS: &[FieldParse<UpgradeTemplate>] = &[
     FieldParse {
         token: "DisplayName",
@@ -436,9 +435,7 @@ mod tests {
             "RadarVanVoiceUpgrade"
         );
         assert_eq!(template.get_academy_classification(), 1);
-
     }
 }
-
 
 // Mock-based tests removed to avoid mocks in fidelity-critical code.

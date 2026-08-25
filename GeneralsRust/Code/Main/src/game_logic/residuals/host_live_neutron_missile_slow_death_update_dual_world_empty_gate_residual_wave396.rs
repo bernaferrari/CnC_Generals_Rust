@@ -45,8 +45,8 @@ pub const RUNTIME_HOST_LIVE_NEUTRON_MISSILE_SLOW_DEATH_UPDATE_DUAL_WORLD_EMPTY_G
     ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_method_names_residual_wave396(
-) -> bool {
+pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_method_names_residual_wave396()
+-> bool {
     LIVE_NEUTRON_MISSILE_SLOW_DEATH_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE396.len() == 5
         && residual_name_index(
             LIVE_NEUTRON_MISSILE_SLOW_DEATH_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE396,
@@ -63,8 +63,8 @@ pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_meth
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_nav_commands_residual_wave396(
-) -> bool {
+pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_nav_commands_residual_wave396()
+-> bool {
     LIVE_NEUTRON_MISSILE_SLOW_DEATH_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE396.len() == 4
         && residual_name_index(
             LIVE_NEUTRON_MISSILE_SLOW_DEATH_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE396,
@@ -80,8 +80,8 @@ pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_nav_
 }
 
 /// Wave 396 composite residual honesty pack.
-pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_residual_pack_wave396(
-) -> bool {
+pub fn honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_residual_pack_wave396()
+-> bool {
     honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_method_names_residual_wave396()
         && honesty_live_neutron_missile_slow_death_update_dual_world_empty_gate_nav_commands_residual_wave396()
 }

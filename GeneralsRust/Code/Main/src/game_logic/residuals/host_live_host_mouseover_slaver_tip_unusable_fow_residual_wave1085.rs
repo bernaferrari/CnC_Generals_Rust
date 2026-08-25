@@ -52,8 +52,8 @@ fn ui_source() -> &'static str {
     game_client::gui::ingame_ui::INGAME_UI_SRC
 }
 
-pub fn honesty_host_mouseover_slaver_tip_unusable_fow_residual_method_names_residual_wave1085(
-) -> bool {
+pub fn honesty_host_mouseover_slaver_tip_unusable_fow_residual_method_names_residual_wave1085()
+-> bool {
     let names = LIVE_HOST_MOUSEOVER_SLAVER_TIP_UNUSABLE_FOW_RESIDUAL_METHOD_NAMES_WAVE1085;
     let ok = residual_name_index(names, "slaver_object_id").is_some()
         && residual_name_index(names, "Wave 1085").is_some();
@@ -62,8 +62,8 @@ pub fn honesty_host_mouseover_slaver_tip_unusable_fow_residual_method_names_resi
     ok
 }
 
-pub fn honesty_host_mouseover_slaver_tip_unusable_fow_residual_nav_commands_residual_wave1085(
-) -> bool {
+pub fn honesty_host_mouseover_slaver_tip_unusable_fow_residual_nav_commands_residual_wave1085()
+-> bool {
     let steps = LIVE_HOST_MOUSEOVER_SLAVER_TIP_UNUSABLE_FOW_RESIDUAL_NAV_STEPS_WAVE1085;
     let ok = residual_name_index(
         steps,

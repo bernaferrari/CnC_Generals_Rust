@@ -46,8 +46,8 @@ pub const RUNTIME_HOST_LIVE_SABOTAGE_INTERNET_CENTER_CRATE_COLLIDE_DUAL_WORLD_EM
     ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_method_names_residual_wave391(
-) -> bool {
+pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_method_names_residual_wave391()
+-> bool {
     LIVE_SABOTAGE_INTERNET_CENTER_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE391.len()
         == 6
         && residual_name_index(
@@ -65,8 +65,8 @@ pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_nav_commands_residual_wave391(
-) -> bool {
+pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_nav_commands_residual_wave391()
+-> bool {
     LIVE_SABOTAGE_INTERNET_CENTER_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE391.len() == 4
         && residual_name_index(
             LIVE_SABOTAGE_INTERNET_CENTER_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE391,
@@ -82,8 +82,8 @@ pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate
 }
 
 /// Wave 391 composite residual honesty pack.
-pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_residual_pack_wave391(
-) -> bool {
+pub fn honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_residual_pack_wave391()
+-> bool {
     honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_method_names_residual_wave391()
         && honesty_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_nav_commands_residual_wave391()
 }
@@ -190,8 +190,8 @@ mod tests {
     }
 
     #[test]
-    fn simulate_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_honesty_residual_live(
-    ) {
+    fn simulate_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_honesty_residual_live()
+     {
         assert!(
             simulate_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_honesty(),
             "sabotage internet center crate collide dual-world empty gate residual must latch"

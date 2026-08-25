@@ -5,7 +5,7 @@
 
 use super::rally_point::{RallyPoint, RallyPointType};
 use crate::common::*;
-use crate::helpers::{FindPositionOptions, ThePartitionManager, FPF_CLEAR_CELLS_ONLY};
+use crate::helpers::{FPF_CLEAR_CELLS_ONLY, FindPositionOptions, ThePartitionManager};
 
 /// Wave 432: host-only path has no dual-world factory objects.
 #[inline]

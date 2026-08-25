@@ -58,7 +58,6 @@ pub struct PlayerEnergySnapshot {
     pub power_sabotaged_till_frame: u32,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PopulationInfo {
     pub current: u32,

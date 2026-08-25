@@ -6,8 +6,8 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// Hot reload manager for automatically reloading changed assets

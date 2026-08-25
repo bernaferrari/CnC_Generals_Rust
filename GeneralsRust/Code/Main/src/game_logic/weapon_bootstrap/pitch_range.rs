@@ -229,7 +229,6 @@ pub fn is_goal_pos_within_attack_range(
     dist * dist <= max_r * max_r
 }
 
-
 pub fn host_continue_attack_range_for_weapon_name(name: &str) -> f32 {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();

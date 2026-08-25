@@ -355,8 +355,7 @@ mod tests {
             "live OS path must consume WindowXlat mouse-lock pass-through rather than leave it unused"
         );
         assert!(
-            body.find("os_mouse_blocked_by_mouse_lock")
-                < body.find("process_mouse_event"),
+            body.find("os_mouse_blocked_by_mouse_lock") < body.find("process_mouse_event"),
             "lock gate must run before winProcessMouseEvent"
         );
     }

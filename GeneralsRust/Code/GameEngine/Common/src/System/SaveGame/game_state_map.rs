@@ -3,6 +3,8 @@
 // Desc: Chunk in the save game file that will hold a pristine version of the map file
 
 use super::super::xfer::*;
+use super::super::xfer_load::XferLoad;
+use super::super::xfer_save::XferSave;
 use super::game_state::SaveCode;
 use super::{
     get_game_state, get_runtime_drawable_id_counter, get_runtime_object_id_counter,
@@ -11,8 +13,6 @@ use super::{
     notify_set_skirmish_payload, notify_start_new_game_from_save, set_runtime_drawable_id_counter,
     set_runtime_object_id_counter,
 };
-use super::super::xfer_load::XferLoad;
-use super::super::xfer_save::XferSave;
 use crate::common::ini::ini_game_data::get_global_data;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -168,10 +168,7 @@ fn encode_skirmish_snapshot(info: &SkirmishGameInfoSnapshot) -> Vec<u8> {
     let mut copy = info.clone();
     {
         let mut xfer = XferSave::new();
-        if xfer
-            .open(path.to_string_lossy().into_owned())
-            .is_err()
-        {
+        if xfer.open(path.to_string_lossy().into_owned()).is_err() {
             return Vec::new();
         }
         if copy.xfer(&mut xfer).is_err() {
@@ -582,12 +579,12 @@ impl Drop for GameStateMap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ini::ini_game_data::{get_global_data, init_global_data};
     use crate::System::SaveGame::{
         init_game_state, register_drawable_id_counter_hooks, register_object_id_counter_hooks,
         register_save_load_lifecycle_hooks, register_save_load_skirmish_hooks,
     };
     use crate::System::{XferLoad, XferSave};
+    use crate::common::ini::ini_game_data::{get_global_data, init_global_data};
     use std::fs;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -773,7 +770,10 @@ mod tests {
         live.slots[0].name = "Host".to_string();
         live.slots[0].state = 5;
         let hook_bytes = live.encode_xfer_bytes();
-        assert_eq!(hook_bytes.first().copied(), Some(SKIRMISH_GAME_INFO_VERSION));
+        assert_eq!(
+            hook_bytes.first().copied(),
+            Some(SKIRMISH_GAME_INFO_VERSION)
+        );
         let decoded = try_decode_skirmish_snapshot(&hook_bytes)
             .expect("GameStateMap must accept the same v4 bytes the live hook emits");
         assert_eq!(decoded.seed, 0x5EED);
@@ -793,7 +793,6 @@ mod tests {
         vec![0x00, 0x01, 0x02, 0x03, 0x10, 0x00, 0x00, 0x00]
     }
 }
-
 
 // ------------------------------------------------------------------------------------------------
 // Helper functions for map path manipulation

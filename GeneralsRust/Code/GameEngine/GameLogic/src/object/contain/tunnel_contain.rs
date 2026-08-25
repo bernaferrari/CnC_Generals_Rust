@@ -7,24 +7,24 @@
 //!
 //! Matches C++ TunnelContain.cpp from GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Contain/
 
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::sync::{Arc, Mutex, RwLock, Weak};
-use std::cell::UnsafeCell;
 
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::{Coord3D, GameResult, PlayerMaskType};
 use crate::damage::{DamageInfo, DamageType, DeathType};
-use crate::helpers::get_game_logic_random_value_real;
 use crate::helpers::TheGameLogic;
+use crate::helpers::get_game_logic_random_value_real;
 use crate::modules::{
-    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, UpdateSleepTime, DISABLED_HELD,
+    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, DISABLED_HELD, UpdateSleepTime,
 };
-use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::contain::OpenContain;
-use crate::object::{Object, ObjectID, INVALID_ID};
+use crate::object::contain::open_contain::ObjectRelationship;
+use crate::object::{INVALID_ID, Object, ObjectID};
 use crate::terrain::THE_TERRAIN_LOGIC;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Wave 280 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -255,7 +255,6 @@ impl TunnelContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
@@ -895,7 +894,6 @@ impl ContainModuleInterface for TunnelContain {
         self.remove_from_contain(obj_id, false)?;
         OpenContain::exit_object_in_a_hurry(&mut self.base, obj_id)
     }
-
 
     fn get_contained_objects(&self) -> &[ObjectID] {
         // C++ TunnelContain::getContainedItemsList redirects to the player tracker.

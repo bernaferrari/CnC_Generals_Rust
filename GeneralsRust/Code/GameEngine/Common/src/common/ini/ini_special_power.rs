@@ -805,54 +805,63 @@ mod tests {
     fn special_power_block_rejects_fields_outside_cpp_parse_table() {
         let mut properties = HashMap::new();
         properties.insert("Type".to_string(), "Nuke".to_string());
-        assert!(IniSpecialPower::parse_special_power_block(
-            AsciiString::from("RustType"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniSpecialPower::parse_special_power_block(AsciiString::from("RustType"), properties)
+                .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("RechargeTime".to_string(), "120".to_string());
-        assert!(IniSpecialPower::parse_special_power_block(
-            AsciiString::from("RustRechargeTime"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniSpecialPower::parse_special_power_block(
+                AsciiString::from("RustRechargeTime"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("TotallyUnknown".to_string(), "value".to_string());
-        assert!(IniSpecialPower::parse_special_power_block(
-            AsciiString::from("UnknownSpecialPowerField"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniSpecialPower::parse_special_power_block(
+                AsciiString::from("UnknownSpecialPowerField"),
+                properties
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn special_power_block_rejects_malformed_cpp_values() {
         let mut properties = HashMap::new();
         properties.insert("ReloadTime".to_string(), "later".to_string());
-        assert!(IniSpecialPower::parse_special_power_block(
-            AsciiString::from("BadReloadTime"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniSpecialPower::parse_special_power_block(
+                AsciiString::from("BadReloadTime"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("ViewObjectRange".to_string(), "far".to_string());
-        assert!(IniSpecialPower::parse_special_power_block(
-            AsciiString::from("BadViewObjectRange"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniSpecialPower::parse_special_power_block(
+                AsciiString::from("BadViewObjectRange"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("SharedSyncedTimer".to_string(), "sometimes".to_string());
-        assert!(IniSpecialPower::parse_special_power_block(
-            AsciiString::from("BadSharedSyncedTimer"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniSpecialPower::parse_special_power_block(
+                AsciiString::from("BadSharedSyncedTimer"),
+                properties
+            )
+            .is_err()
+        );
     }
 
     #[test]

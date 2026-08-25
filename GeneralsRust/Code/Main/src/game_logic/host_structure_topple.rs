@@ -19,9 +19,8 @@
 //! Fail-closed:
 //! - Not full OCL rubble / BoneFX / DieMux death-type filters
 
-use serde::{Deserialize, Serialize};
 use glam::Vec3;
-
+use serde::{Deserialize, Serialize};
 
 /// C++ TOPPLE_ACCELERATION_FACTOR
 pub const STRUCTURE_TOPPLE_ACCEL_FACTOR: f32 = 0.02;
@@ -170,7 +169,6 @@ pub struct HostStructureToppleData {
     pub last_polled_angle: f32,
     #[serde(default)]
     pub pending_fx: Vec<StructureToppleFxEvent>,
-
 }
 
 impl Default for HostStructureToppleData {
@@ -213,7 +211,6 @@ impl Default for HostStructureToppleData {
             done_fx_played: false,
             last_polled_angle: 0.0,
             pending_fx: Vec::new(),
-
         }
     }
 }
@@ -281,9 +278,8 @@ impl HostStructureToppleData {
             }
             HostStructureToppleState::Toppling => {
                 let integrity_term = (1.0 - self.structural_integrity).max(0.0);
-                let topple_acceleration = STRUCTURE_TOPPLE_ACCEL_FACTOR
-                    * self.accumulated_angle.sin()
-                    * integrity_term;
+                let topple_acceleration =
+                    STRUCTURE_TOPPLE_ACCEL_FACTOR * self.accumulated_angle.sin() * integrity_term;
                 // C++ also accelerates from rest: give a small kick if still zero.
                 let accel = if self.topple_velocity <= 1e-6 && self.accumulated_angle <= 1e-6 {
                     STRUCTURE_TOPPLE_ACCEL_FACTOR * 0.05
@@ -366,10 +362,7 @@ fn parse_ini_u32_field(raw: &str) -> u32 {
 }
 
 fn parse_ini_angle_fx_field(raw: &str) -> Vec<(f32, String)> {
-    let toks: Vec<&str> = raw
-        .split_whitespace()
-        .filter(|t| *t != "=")
-        .collect();
+    let toks: Vec<&str> = raw.split_whitespace().filter(|t| *t != "=").collect();
     let mut out = Vec::new();
     let mut i = 0;
     while i + 1 < toks.len() {
@@ -413,8 +406,7 @@ pub fn leftover_structure_topple_module_peel(
         }
         if let Some(data) = entry
             .data
-            .downcast_ref::<gamelogic::object::behavior::StructureToppleUpdateModuleData>(
-            )
+            .downcast_ref::<gamelogic::object::behavior::StructureToppleUpdateModuleData>()
         {
             let peel = AuthoredStructureTopplePeel {
                 weapon: data.crushing_weapon_name.as_str().trim().to_string(),
@@ -473,14 +465,18 @@ pub fn leftover_structure_topple_module_peel(
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            angle_fx: parse_ini_angle_fx_field(
-                entry.data.get_ini_field("AngleFX").unwrap_or(""),
-            ),
+            angle_fx: parse_ini_angle_fx_field(entry.data.get_ini_field("AngleFX").unwrap_or("")),
             min_burst_delay: parse_ini_u32_field(
-                entry.data.get_ini_field("MinToppleBurstDelay").unwrap_or(""),
+                entry
+                    .data
+                    .get_ini_field("MinToppleBurstDelay")
+                    .unwrap_or(""),
             ),
             max_burst_delay: parse_ini_u32_field(
-                entry.data.get_ini_field("MaxToppleBurstDelay").unwrap_or(""),
+                entry
+                    .data
+                    .get_ini_field("MaxToppleBurstDelay")
+                    .unwrap_or(""),
             ),
         };
         if !peel.has_any() {
@@ -490,8 +486,6 @@ pub fn leftover_structure_topple_module_peel(
     }
     None
 }
-
-
 
 /// World-space crush sample from structure topple sweep.
 #[derive(Debug, Clone, Copy)]
@@ -671,7 +665,8 @@ impl HostStructureToppleData {
                 self.building_z,
             );
             self.start_fx_played = true;
-            self.next_burst_frame = current_frame.saturating_add(self.burst_delay_frames(current_frame));
+            self.next_burst_frame =
+                current_frame.saturating_add(self.burst_delay_frames(current_frame));
             self.last_polled_angle = self.accumulated_angle;
         }
         if !just_started
@@ -741,7 +736,6 @@ impl HostStructureToppleData {
         }
     }
 
-
     /// C++ applyCrushingDamage / doDamageLine via leftover 25/25 sweep.
     /// Updates `last_crushed_location`. Empty if theta above ceiling or no weapon.
     pub fn take_crush_sweep_samples(
@@ -772,10 +766,11 @@ impl HostStructureToppleData {
             return Vec::new();
         }
 
-        let max_distance = gamelogic::object::behavior::leftover_structure_topple_max_crush_distance(
-            self.building_height,
-            theta,
-        );
+        let max_distance =
+            gamelogic::object::behavior::leftover_structure_topple_max_crush_distance(
+                self.building_height,
+                theta,
+            );
         let topple_angle = self.dir_y.atan2(self.dir_x);
         let facing = self.crush_facing_width();
         let (pts, new_last) = gamelogic::object::behavior::leftover_structure_topple_crush_points(
@@ -835,18 +830,17 @@ mod tests {
         t.facing_width = 60.0;
         t.last_crushed_location = 0.0;
         let s = t.take_crush_sweep_samples(0.0, 0.0);
-        let first_line: Vec<_> = s
-            .iter()
-            .filter(|p| p.x.abs() < 1e-2)
-            .map(|p| p.z)
-            .collect();
+        let first_line: Vec<_> = s.iter().filter(|p| p.x.abs() < 1e-2).map(|p| p.z).collect();
         assert!(
             first_line.len() >= 4,
             "25-parallel across facing=60 must exceed 3-point line, got {:?}",
             first_line
         );
         assert!(s.iter().all(|p| p.damage < 99999.0));
-        assert_eq!(t.crushing_weapon_name, STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME);
+        assert_eq!(
+            t.crushing_weapon_name,
+            STRUCTURE_TOPPLE_CRUSHING_WEAPON_NAME
+        );
     }
 
     #[test]
@@ -888,7 +882,9 @@ mod tests {
         t.begin(0, 1.0, 0.0, 0);
         let start = t.take_pending_fx();
         assert!(
-            start.iter().any(|e| e.name == "FX_ToppleStart" && !e.at_object),
+            start
+                .iter()
+                .any(|e| e.name == "FX_ToppleStart" && !e.at_object),
             "leftover do_topple_start_fx is doFXPos: {start:?}"
         );
         assert!(
@@ -899,7 +895,9 @@ mod tests {
         t.poll_fx(0);
         let delay = t.take_pending_fx();
         assert!(
-            delay.iter().any(|e| e.name == "FX_ToppleDelay" && !e.at_object),
+            delay
+                .iter()
+                .any(|e| e.name == "FX_ToppleDelay" && !e.at_object),
             "leftover do_topple_delay_burst_fx is doFXPos: {delay:?}"
         );
         t.state = HostStructureToppleState::Toppling;
@@ -907,7 +905,9 @@ mod tests {
         t.poll_fx(1);
         let angle = t.take_pending_fx();
         assert!(
-            angle.iter().any(|e| e.name == "FX_ToppleAngle" && e.at_object),
+            angle
+                .iter()
+                .any(|e| e.name == "FX_ToppleAngle" && e.at_object),
             "leftover do_angle_fx is doFXObj: {angle:?}"
         );
         t.state = HostStructureToppleState::WaitingForDone;
@@ -915,7 +915,8 @@ mod tests {
         t.poll_fx(2);
         let done = t.take_pending_fx();
         assert!(
-            done.iter().any(|e| e.name == "FX_ToppleDone" && e.at_object),
+            done.iter()
+                .any(|e| e.name == "FX_ToppleDone" && e.at_object),
             "leftover ToppleDoneFX is doFXObj: {done:?}"
         );
     }
@@ -940,7 +941,5 @@ mod tests {
             tick.contains("poll_structure_topple_fx"),
             "world tick must drain leftover topple FX under dual-peel"
         );
-
     }
-
 }

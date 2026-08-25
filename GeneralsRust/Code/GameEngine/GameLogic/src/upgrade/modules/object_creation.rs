@@ -10,11 +10,11 @@ use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
 use crate::common::UpgradeMaskType;
 use crate::common::*;
 use crate::modules::UpgradeModuleInterface as RuntimeUpgradeModuleInterface;
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_creation_list::live_creation_context;
-use crate::object_creation_list::store::{get_object_creation_list_store, ObjectCreationList};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object_creation_list::store::{ObjectCreationList, get_object_creation_list_store};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use std::sync::Arc;
@@ -334,7 +334,8 @@ fn parse_requires_all_triggers(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_requires_all_triggers_tokens(tokens)
+    data.upgrade_mux_data
+        .parse_requires_all_triggers_tokens(tokens)
 }
 
 fn parse_fx_list_upgrade(
@@ -371,7 +372,6 @@ const OBJECT_CREATION_UPGRADE_FIELDS: &[FieldParse<ObjectCreationUpgradeModuleDa
         parse: parse_upgrade_object,
     },
 ];
-
 
 #[cfg(test)]
 mod tests {

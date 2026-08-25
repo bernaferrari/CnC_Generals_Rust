@@ -120,12 +120,12 @@ mod tests {
     #[test]
     fn simulate_multi_select_prepare_same_and_divergent_residual_live() {
         use game_client::gui::control_bar::{
-            residual_multi_select_attack_move_kept, residual_multi_select_common_command_count,
-            residual_multi_select_last_action, residual_multi_select_portrait_agrees,
-            residual_multi_select_selected_count, simulate_multi_select_clear,
-            simulate_multi_select_prepare_divergent, simulate_multi_select_prepare_same_commands,
-            ResidualMultiSelectAction, MULTI_SELECT_MAX_COMMANDS_PER_SET,
-            MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT,
+            MULTI_SELECT_MAX_COMMANDS_PER_SET, MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT,
+            ResidualMultiSelectAction, residual_multi_select_attack_move_kept,
+            residual_multi_select_common_command_count, residual_multi_select_last_action,
+            residual_multi_select_portrait_agrees, residual_multi_select_selected_count,
+            simulate_multi_select_clear, simulate_multi_select_prepare_divergent,
+            simulate_multi_select_prepare_same_commands,
         };
         assert_eq!(
             MULTI_SELECT_MAX_COMMANDS_PER_SET,

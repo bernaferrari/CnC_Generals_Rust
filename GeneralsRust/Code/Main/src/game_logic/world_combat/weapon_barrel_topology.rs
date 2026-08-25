@@ -79,7 +79,7 @@ mod tests {
             damage: 1.0,
             range: 100.0,
             ..Weapon::default()
-});
+        });
         object.weapon_barrel_states[0] =
             crate::game_logic::object::WeaponBarrelState::new(3, 4, None);
         object.weapon_barrel_states[0].current_barrel = 3;

@@ -1,14 +1,14 @@
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::states::{AIAttackObjectState, AIEnterState, AIPickUpCrateState};
-use crate::ai::{object_registry::get_legacy_object, vision_factors, GuardMode, THE_AI};
+use crate::ai::{GuardMode, THE_AI, object_registry::get_legacy_object, vision_factors};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::game_logic::ai_internal_move_to_state::AIInternalMoveToState;
-use crate::helpers::{game_logic_random_value, TheGameLogic, ThePartitionManager};
+use crate::helpers::{TheGameLogic, ThePartitionManager, game_logic_random_value};
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::Object;
 use crate::path::PATHFIND_CELL_SIZE_F;
@@ -86,8 +86,6 @@ fn last_damage_overrides_nemesis(
         existing_nemesis
     }
 }
-
-
 
 fn get_guard_enemy_scan_rate() -> u32 {
     let Ok(ai_guard) = THE_AI.read() else {
@@ -421,11 +419,8 @@ mod tests {
             guardee_moved_beyond_return_threshold(&post, &x_only),
             "2.5 cells on X alone must return-to-post"
         );
-        let diagonal_under = Coord3D::new(
-            PATHFIND_CELL_SIZE_F * 1.5,
-            PATHFIND_CELL_SIZE_F * 1.5,
-            0.0,
-        );
+        let diagonal_under =
+            Coord3D::new(PATHFIND_CELL_SIZE_F * 1.5, PATHFIND_CELL_SIZE_F * 1.5, 0.0);
         assert!(
             !guardee_moved_beyond_return_threshold(&post, &diagonal_under),
             "1.5 cells on both axes stays idle (each axis < 2 cells)"
@@ -443,10 +438,7 @@ mod tests {
         // even when a machine goal / prior inner nemesis is already set.
         let prior = 11;
         let attacker = 22;
-        assert_eq!(
-            last_damage_overrides_nemesis(attacker, prior),
-            attacker
-        );
+        assert_eq!(last_damage_overrides_nemesis(attacker, prior), attacker);
         assert_eq!(
             last_damage_overrides_nemesis(crate::common::INVALID_ID, prior),
             prior
@@ -565,7 +557,6 @@ impl ExitConditions {
         self.attack_give_up_frame = frame;
     }
 }
-
 
 /// Main guard state machine
 #[derive(Debug)]
@@ -1130,7 +1121,11 @@ impl ClassicState for AIGuardInnerState {
             return Ok(StateReturnType::Success);
         }
 
-        let nemesis_id = nemesis.read().ok().map(|g| g.get_id()).unwrap_or(nemesis_id);
+        let nemesis_id = nemesis
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(nemesis_id);
         let (attack_state, result) =
             start_guard_attack_object(self.base.state(), nemesis_id, false, false)?;
         self.is_attacking = matches!(result, StateReturnType::Continue);
@@ -1494,7 +1489,11 @@ impl ClassicState for AIGuardOuterState {
             return Ok(StateReturnType::Success);
         }
 
-        let nemesis_id = nemesis.read().ok().map(|g| g.get_id()).unwrap_or(nemesis_id);
+        let nemesis_id = nemesis
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(nemesis_id);
         let (attack_state, result) =
             start_guard_attack_object(self.base.state(), nemesis_id, false, false)?;
         self.is_attacking = matches!(result, StateReturnType::Continue);
@@ -1815,7 +1814,6 @@ impl ClassicState for AIGuardPickUpCrateState {
     }
 }
 
-
 /// Attack aggressor state - attack something that attacked us
 #[derive(Debug)]
 pub struct AIGuardAttackAggressorState {
@@ -1938,7 +1936,11 @@ impl ClassicState for AIGuardAttackAggressorState {
             return Ok(StateReturnType::Success);
         }
 
-        let nemesis_id = nemesis.read().ok().map(|g| g.get_id()).unwrap_or(nemesis_id);
+        let nemesis_id = nemesis
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(nemesis_id);
         // C++ AIGuard.cpp:815 — AIAttackState(machine, follow=true, attackingObject, !force)
         let (attack_state, result) =
             start_guard_attack_object(self.base.state(), nemesis_id, true, false)?;

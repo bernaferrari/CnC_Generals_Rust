@@ -7,14 +7,14 @@ use crate::aud_stream_buffering::{
     StreamAccessType, StreamBuffer, StreamBuffering, StreamDataBlock,
 };
 use crate::aud_streamer::{
-    get_stream_manager, AudioStreamer as AdvancedAudioStreamer,
-    StreamConfig as AdvancedStreamConfig, StreamManager, StreamState as AdvancedStreamState,
+    AudioStreamer as AdvancedAudioStreamer, StreamConfig as AdvancedStreamConfig, StreamManager,
+    StreamState as AdvancedStreamState, get_stream_manager,
 };
 use crate::error::Result;
 use crate::{AudioDevice, AudioFormat, AudioSystem, ChannelLayout, SampleRate, SampleWidth};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// Example: Basic streaming playback
 pub async fn example_basic_streaming<P: AsRef<Path>>(audio_file: P) -> Result<()> {

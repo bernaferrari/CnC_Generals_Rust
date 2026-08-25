@@ -82,8 +82,8 @@ pub fn residual_map_lighting_presentation_only_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_map_lighting_presentation_only_last_action(
-) -> ResidualMapLightingPresentationOnlyAction {
+pub fn residual_map_lighting_presentation_only_last_action()
+-> ResidualMapLightingPresentationOnlyAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualMapLightingPresentationOnlyAction::MethodNames,
         2 => ResidualMapLightingPresentationOnlyAction::SourceMarkers,

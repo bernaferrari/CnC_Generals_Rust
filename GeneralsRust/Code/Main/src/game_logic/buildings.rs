@@ -1183,10 +1183,7 @@ impl BuildingBehavior {
                 continue;
             }
             for occ in container.contained_units() {
-                let gone = objects
-                    .get(&occ)
-                    .map(|o| !o.is_alive())
-                    .unwrap_or(true);
+                let gone = objects.get(&occ).map(|o| !o.is_alive()).unwrap_or(true);
                 if gone {
                     dead.push((cid, occ));
                 }
@@ -1457,7 +1454,8 @@ mod tests {
         let live = Object::new(ranger_t, ObjectId(11), Team::USA);
         let mut bd = BuildingData::new(BuildingType::Bunker);
         bd.garrisoned_units = vec![ObjectId(10), ObjectId(11), ObjectId(99)];
-        bd.garrison_point_occupant = vec![Some(ObjectId(10)), Some(ObjectId(11)), Some(ObjectId(99))];
+        bd.garrison_point_occupant =
+            vec![Some(ObjectId(10)), Some(ObjectId(11)), Some(ObjectId(99))];
         bunker.building_data = Some(bd);
         let mut objects = HashMap::new();
         objects.insert(bunker.id, bunker);
@@ -1480,6 +1478,5 @@ mod tests {
             30_000,
             "dead garrison occupant must stamp HUGE_FRAME_IN_FUTURE"
         );
-
     }
 }

@@ -163,10 +163,7 @@ fn try_dozer_find_position(
     {
         return None;
     }
-    if query
-        .overlaps_object
-        .is_some_and(|overlaps| overlaps(pos))
-    {
+    if query.overlaps_object.is_some_and(|overlaps| overlaps(pos)) {
         return None;
     }
     if let Some(path_exists) = query.path_exists {
@@ -237,7 +234,6 @@ pub fn resolve_dozer_action_dock(
     })
 }
 
-
 /// C++ arrival window: `max(MIN_ACTION_TOLERANCE, boundingSphere + 15)`.
 #[inline]
 pub fn repair_action_range(target_selection_radius: f32) -> f32 {
@@ -280,7 +276,6 @@ pub fn dozer_complete_end_dock(
         None => dozer_position,
     }
 }
-
 
 /// Retail DozerAIUpdate / WorkerAIUpdate RepairHealthPercentPerSecond residual (= 2%).
 pub const DOZER_REPAIR_HEALTH_PERCENT_PER_SEC: f32 = 0.02;
@@ -350,7 +345,6 @@ pub fn repair_dock_hp_per_sec_from_missing(max_health: f32, current_health: f32)
     }
     (max_health - current_health).max(0.0) / seconds
 }
-
 
 /// Whether a building type can service vehicle GetRepaired residual.
 ///
@@ -455,7 +449,6 @@ mod tests {
         assert!((dozer_repair_hp_per_sec(200.0) - 4.0).abs() < 0.01);
     }
 
-
     #[test]
     fn find_good_keeps_seed_when_search_fails() {
         // C++ DozerAIUpdate.cpp:1892: failure keeps workingPosition.
@@ -534,8 +527,6 @@ mod tests {
         );
     }
 
-
-
     #[test]
     fn dozer_end_dock_is_five_cells_away_from_building() {
         // C++ DozerAIUpdate.cpp:1992-1998.
@@ -564,7 +555,6 @@ mod tests {
         let missing = dozer_complete_end_dock(None, current, building);
         assert_eq!(missing, current);
     }
-
 
     #[test]
     fn computer_dozer_bored_range_is_double() {
@@ -754,7 +744,10 @@ mod tests {
         }
         assert!(logic.try_claim_dock_for_test(dock, wid));
         let o = logic.host_object(wid).unwrap();
-        assert_ne!(o.model_condition_bits & (1u128 << docking_beginning_model_bit()), 0);
+        assert_ne!(
+            o.model_condition_bits & (1u128 << docking_beginning_model_bit()),
+            0
+        );
         assert_eq!(o.model_condition_bits & (1u128 << moving_model_bit()), 0);
         crate::game_logic::host_supply_gather::reset_live_dock_queues();
     }

@@ -1,13 +1,13 @@
 //! Mechanical split from `assets/models.rs`. No behavior change.
 #![allow(dead_code, unused_imports)]
 use super::prelude::*;
-use super::*;
 use super::w3d_anim::*;
 use super::w3d_format::*;
 use super::w3d_loader::*;
 use super::w3d_loader_parse::*;
 use super::w3d_mesh::*;
 use super::w3d_mesh_build::*;
+use super::*;
 
 impl W3DModel {
     pub fn new(name: String) -> Self {
@@ -371,7 +371,6 @@ impl W3DModel {
         }
     }
 
-
     /// Resolve only the HTree explicitly named by an HMODEL definition. The
     /// current source model can carry several HTree records; matching the
     /// convenience `hierarchy` field by position would change C++ ownership.
@@ -402,7 +401,10 @@ impl W3DModel {
     /// Produce the source-space local HTree bind pose for one valid HMODEL.
     /// Keep this shared by rigid placement and skin palette construction so a
     /// named/default hierarchy decision cannot drift between the two paths.
-    pub(super) fn hmodel_bind_pose_source_transforms(&self, hmodel: &W3dHmodel) -> Option<Vec<[f32; 16]>> {
+    pub(super) fn hmodel_bind_pose_source_transforms(
+        &self,
+        hmodel: &W3dHmodel,
+    ) -> Option<Vec<[f32; 16]>> {
         if hmodel.has_invalid_records
             || hmodel.name.is_empty()
             || hmodel.name.as_bytes().contains(&0)
@@ -539,7 +541,10 @@ impl W3DModel {
             return None;
         }
         if self.hlods.is_empty() {
-            return Some((Self::skin_render_local_transform(mesh, mesh.transform), true));
+            return Some((
+                Self::skin_render_local_transform(mesh, mesh.transform),
+                true,
+            ));
         }
 
         let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
@@ -563,7 +568,6 @@ impl W3DModel {
             Some((source_transform, visible))
         });
         let (source_transform, visible) = animated.or(bind_pose)?;
-
 
         Some((
             Self::skin_render_local_transform(
@@ -1204,7 +1208,10 @@ impl W3DModel {
     /// Resolve a C++ `NameKey` only against an exact HTree pivot. Pivot zero
     /// is C++'s "unresolved/no bone" sentinel in `validateTurretInfo`, so a
     /// root-name match may not turn into a whole-model rotation.
-    pub(super) fn primary_turret_pivot_index(hierarchy: &W3dHierarchy, bone_name: &str) -> Option<usize> {
+    pub(super) fn primary_turret_pivot_index(
+        hierarchy: &W3dHierarchy,
+        bone_name: &str,
+    ) -> Option<usize> {
         hierarchy
             .pivots
             .iter()
@@ -1212,7 +1219,10 @@ impl W3DModel {
             .filter(|bone_index| *bone_index != 0)
     }
 
-    pub(super) fn primary_turret_angle_radians(gameplay_degrees: f32, art_radians: f32) -> Option<f32> {
+    pub(super) fn primary_turret_angle_radians(
+        gameplay_degrees: f32,
+        art_radians: f32,
+    ) -> Option<f32> {
         let angle = gameplay_degrees.to_radians() + art_radians;
         (gameplay_degrees.is_finite() && art_radians.is_finite() && angle.is_finite())
             .then_some(angle)
@@ -1526,7 +1536,9 @@ impl W3DModel {
     /// the last hierarchy chunk parsed from the same file. Resolve through
     /// [`Self::source_hierarchy_for_hlod`] so a later unrelated tree cannot
     /// hard-fail every mesh to identity.
-    pub(super) fn static_hlod_parent_context(&self) -> Option<(&W3dHlod, &W3dHlodLod, &W3dHierarchy)> {
+    pub(super) fn static_hlod_parent_context(
+        &self,
+    ) -> Option<(&W3dHlod, &W3dHlodLod, &W3dHierarchy)> {
         if self.hlod_parse_failed || self.hlods.len() != 1 {
             return None;
         }
@@ -1553,7 +1565,9 @@ impl W3DModel {
     /// non-rendering application data.
     /// Every caller must preserve this gate rather than treating flattened
     /// mesh names as a substitute.
-    pub(super) fn rigid_hlod_static_lod_context(&self) -> Option<(&W3dHlod, &W3dHlodLod, &W3dHierarchy)> {
+    pub(super) fn rigid_hlod_static_lod_context(
+        &self,
+    ) -> Option<(&W3dHlod, &W3dHlodLod, &W3dHierarchy)> {
         self.static_hlod_parent_context()
     }
 
@@ -1760,7 +1774,11 @@ impl W3DModel {
         self.sample_animation_data(binding.animation(self)?, frame)
     }
 
-    pub(super) fn sample_animation_data(&self, anim: &W3dAnimation, frame: f32) -> Option<Vec<[f32; 16]>> {
+    pub(super) fn sample_animation_data(
+        &self,
+        anim: &W3dAnimation,
+        frame: f32,
+    ) -> Option<Vec<[f32; 16]>> {
         let hierarchy = self.hierarchy_for_sampled_hlod_or_legacy()?;
         let local_transforms = sample_animation_local_transforms(hierarchy, anim, frame)?;
         compute_htree_global_transforms_from_locals(hierarchy, &local_transforms)

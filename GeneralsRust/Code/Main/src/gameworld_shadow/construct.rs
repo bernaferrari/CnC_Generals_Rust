@@ -1,12 +1,11 @@
 //! Construct, ID maps, ordinal helpers, and host sync.
 
+use super::types::HordePlayerRel;
 use super::*;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Transform};
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
-use super::types::HordePlayerRel;
-
 
 impl GameWorldShadow {
     fn host_ready_structure_special_power_template(
@@ -395,8 +394,7 @@ impl GameWorldShadow {
                         .hacker_disable_building
                         .as_ref()
                         .is_some_and(|metadata| metadata.is_hacker_command());
-                    e.hacker_disable_building_ready =
-                        logic.is_hacker_disable_building_ready(oid);
+                    e.hacker_disable_building_ready = logic.is_hacker_disable_building_ready(oid);
                     if let Some((template_name, template_id)) =
                         Self::host_ready_structure_special_power_template(logic, obj)
                     {
@@ -2026,8 +2024,9 @@ impl GameWorldShadow {
                     e.exit_delay_remaining_frames = bd.exit_delay_remaining_frames;
                     e.exit_burst_remaining = bd.exit_burst_remaining;
                     e.queue_exit_state_initialized = bd.queue_exit_state_initialized;
-                    let skip_door = crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
-                        && e.production_door_phase != 0;
+                    let skip_door =
+                        crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+                            && e.production_door_phase != 0;
                     if !skip_door {
                         e.production_door_phase = obj.production_door_phase;
                         e.production_door_phase_end_frame = obj.production_door_phase_end_frame;
@@ -2732,7 +2731,6 @@ impl GameWorldShadow {
             }
         }
         self.sync_horde_player_rel(logic);
-
     }
 
     /// Reverse map GameWorld owner → host Team (for TransferOwner writeback).
@@ -2821,14 +2819,11 @@ impl GameWorldShadow {
     ) -> bool {
         use gamelogic::common::Relationship;
         match (a_owner, b_owner) {
-            (Some(a), Some(b)) => {
-                self.horde_player_relationship(a, b) == Relationship::Allies
-            }
+            (Some(a), Some(b)) => self.horde_player_relationship(a, b) == Relationship::Allies,
             (None, None) => a_team == b_team,
             _ => false,
         }
     }
-
 
     /// Resolve a host object through its explicit controlling player. Objects
     /// without a player remain neutral in GameWorld; choosing the first player
@@ -2859,7 +2854,9 @@ fn entity_module_spec_from_host(
         template_module_tags,
         inactive_body: false,
         shrubbery: false,
-        can_be_repulsed: obj.thing.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed),
+        can_be_repulsed: obj
+            .thing
+            .is_kind_of(crate::game_logic::KindOf::CanBeRepulsed),
         has_weapons: obj.weapon.is_some(),
     }
 }

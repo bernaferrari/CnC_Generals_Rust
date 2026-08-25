@@ -687,9 +687,10 @@ mod tests {
 
         // Not due again until interval elapses.
         assert!(reg.plan_due_ticks(1, &objects).is_empty());
-        assert!(!reg
-            .plan_due_ticks(INFERNO_FIRE_TICK_INTERVAL_FRAMES, &objects)
-            .is_empty());
+        assert!(
+            !reg.plan_due_ticks(INFERNO_FIRE_TICK_INTERVAL_FRAMES, &objects)
+                .is_empty()
+        );
     }
 
     #[test]

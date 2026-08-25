@@ -71,25 +71,14 @@ impl GameLogic {
             pos,
         );
         let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
-            pos,
-            None,
-            self.frame,
-            source_id,
-            None,
-            "",
-            "",
-            ocl,
-            "",
-            0.0,
-            0.0,
+            pos, None, self.frame, source_id, None, "", "", ocl, "", 0.0, 0.0,
         );
         if created.is_empty() {
             const EMBER_TEMPLATE: &str = "BurningEmbers";
             if !self.templates.contains_key(EMBER_TEMPLATE) {
                 let mut tpl = crate::game_logic::ThingTemplate::new(EMBER_TEMPLATE);
                 tpl.set_health(1.0);
-                self.templates
-                    .insert(EMBER_TEMPLATE.to_string(), tpl);
+                self.templates.insert(EMBER_TEMPLATE.to_string(), tpl);
             }
             if let Some(id) = self.create_object(EMBER_TEMPLATE, team, pos) {
                 if let Some(obj) = self.objects.get_mut(&id) {
@@ -156,12 +145,10 @@ impl GameLogic {
                 obj.get_orientation(),
             )
         };
-        let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(
-            &model, scale, yaw,
-        );
-        self.combat_particles.replace_body_auto_particles(
-            object_id, pos, self.frame, ordinal, true, pose,
-        );
+        let pose =
+            crate::game_logic::combat_particles::BodyAutoParticlePose::new(&model, scale, yaw);
+        self.combat_particles
+            .replace_body_auto_particles(object_id, pos, self.frame, ordinal, true, pose);
     }
 
     /// C++ `recalcBonesForClientParticleSystems` on create.
@@ -178,9 +165,8 @@ impl GameLogic {
         let scale = obj.thing.template.asset_scale;
         let yaw = obj.get_orientation();
         let frame = self.frame;
-        let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(
-            &model, scale, yaw,
-        );
+        let pose =
+            crate::game_logic::combat_particles::BodyAutoParticlePose::new(&model, scale, yaw);
         self.combat_particles
             .sync_particle_sys_bones(frame, object_id, pos, &bones, pose);
     }
@@ -212,19 +198,18 @@ impl GameLogic {
             ) {
                 gamelogic::object::update::tick_live_host_animated_particle_sys_bones(id.0);
             }
-            let bones =
-                crate::game_logic::combat_particles::particle_sys_bones_for_template(&template, bits);
-            let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(
-                &model, scale, yaw,
+            let bones = crate::game_logic::combat_particles::particle_sys_bones_for_template(
+                &template, bits,
             );
+            let pose =
+                crate::game_logic::combat_particles::BodyAutoParticlePose::new(&model, scale, yaw);
             self.combat_particles
                 .sync_particle_sys_bones(frame, id, pos, &bones, pose);
             let wants_body = ordinal > 0 || aflame;
             let has_body = self.combat_particles.has_body_particles(id);
             if wants_body && !has_body {
-                self.combat_particles.replace_body_auto_particles(
-                    id, pos, frame, ordinal, aflame, pose,
-                );
+                self.combat_particles
+                    .replace_body_auto_particles(id, pos, frame, ordinal, aflame, pose);
             } else if !wants_body && has_body {
                 self.combat_particles
                     .replace_body_auto_particles(id, pos, frame, 0, false, pose);

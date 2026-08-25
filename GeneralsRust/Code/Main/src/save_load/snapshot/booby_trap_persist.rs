@@ -46,10 +46,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_btry_suffix(bytes) else {
         return Ok(());
     };
@@ -140,10 +137,9 @@ mod tests {
     #[test]
     fn snapshot_round_trips_booby_registry_and_status() {
         let mut source = GameLogic::new();
-        source.templates.insert(
-            "GLABarracks".to_string(),
-            ThingTemplate::new("GLABarracks"),
-        );
+        source
+            .templates
+            .insert("GLABarracks".to_string(), ThingTemplate::new("GLABarracks"));
         source.add_player(Player::new(0, Team::GLA, "GLA", true));
         let structure_id = source
             .create_object("GLABarracks", Team::GLA, Vec3::new(40.0, 0.0, 12.0))
@@ -176,7 +172,9 @@ mod tests {
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
         assert!(
-            restored.booby_trap_residual().is_booby_trapped(structure_id),
+            restored
+                .booby_trap_residual()
+                .is_booby_trapped(structure_id),
             "planted booby registry must survive load"
         );
         let plant = restored
@@ -187,11 +185,12 @@ mod tests {
         assert_eq!(plant.planter_team, Team::GLA);
         assert_eq!(plant.charge_object_id, Some(ObjectId(99)));
         assert_eq!(restored.booby_trap_objects_spawned(), 1);
-        let loaded = restored.host_object(structure_id).expect("restored barracks");
+        let loaded = restored
+            .host_object(structure_id)
+            .expect("restored barracks");
         assert!(
             loaded.status.booby_trapped,
             "OBJECT_STATUS_BOOBY_TRAPPED must survive load"
         );
     }
 }
-

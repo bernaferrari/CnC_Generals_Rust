@@ -241,16 +241,10 @@ pub fn transfer_next_shot_last_fire_time(from: f32, to: &mut Weapon) {
 }
 
 /// C++ TransportContain Kell+bike: HERO+SALVAGER on CLIFF_JUMPER hull.
-pub fn is_kell_snipe_transfer_rider(
-    is_hero: bool,
-    is_salvager: bool,
-    template_name: &str,
-) -> bool {
+pub fn is_kell_snipe_transfer_rider(is_hero: bool, is_salvager: bool, template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     (is_hero && is_salvager) || n.contains("jarmen") || n.contains("kell")
 }
-
-
 
 /// Build residual Weapon for a rider class (None when empty / non-combat rider).
 pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> {
@@ -270,9 +264,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-}),
+        }),
         CombatCycleRider::TunnelDefender => Some(Weapon {
             damage: RPG_DAMAGE,
             range: RPG_RANGE,
@@ -288,9 +282,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-}),
+        }),
         CombatCycleRider::JarmenKell => Some(Weapon {
             damage: KELL_DAMAGE,
             range: KELL_RANGE,
@@ -306,9 +300,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-}),
+        }),
         CombatCycleRider::Terrorist => Some(Weapon {
             // Host residual: use suicide primary as attack damage flag;
             // real area is applied via SuicideBikeBomb residual path.
@@ -326,9 +320,9 @@ pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> 
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
-                    reloading_clip: false,
+            reloading_clip: false,
             last_bonus_rof: 0.0,
-}),
+        }),
         CombatCycleRider::None
         | CombatCycleRider::Worker
         | CombatCycleRider::Hijacker
@@ -720,9 +714,12 @@ mod tests {
             "GLAInfantryJarmenKell"
         ));
         assert!(is_kell_snipe_transfer_rider(false, false, "JarmenKell"));
-        assert!(!is_kell_snipe_transfer_rider(false, false, "GLAInfantryRebel"));
+        assert!(!is_kell_snipe_transfer_rider(
+            false,
+            false,
+            "GLAInfantryRebel"
+        ));
     }
-
 
     #[test]
     fn transport_slots() {

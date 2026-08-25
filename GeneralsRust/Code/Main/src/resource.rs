@@ -6,7 +6,7 @@
 //! - Memory management for assets
 //! - Cross-platform resource handling
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -415,7 +415,7 @@ pub fn get_file_system() -> Arc<Mutex<FileSystem>> {
 pub fn are_music_files_on_cd() -> bool {
     use crate::common::system::cd_manager::get_cd_manager;
     use crate::common::system::install_layout::{
-        find_file_case_insensitive, find_genseczh_big, GENSECZH_BIG,
+        GENSECZH_BIG, find_file_case_insensitive, find_genseczh_big,
     };
 
     if let Some(cd) = get_cd_manager() {

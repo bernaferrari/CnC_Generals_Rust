@@ -12,8 +12,8 @@
 use std::cell::Cell;
 use std::ptr::NonNull;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use crate::common::ObjectID;

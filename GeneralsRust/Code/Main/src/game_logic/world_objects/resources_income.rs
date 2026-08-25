@@ -114,8 +114,8 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_auto_deposit_log::AutoDepositKind;
         use crate::game_logic::host_oil_derrick::{
-            oil_derrick_deposit_amount, should_display_stealthed_floating_cash,
-            HostAutoDepositFloatingText,
+            HostAutoDepositFloatingText, oil_derrick_deposit_amount,
+            should_display_stealthed_floating_cash,
         };
 
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
@@ -131,7 +131,6 @@ impl GameLogic {
                 self.black_markets
                     .set_next_deposit(ev.id, ev.next_deposit_frame);
                 self.black_markets.force_record_deposit(ev.id, ev.amount)
-
             }
             AutoDepositKind::OilDerrick => {
                 let has_supply_lines = owner_player_id
@@ -150,7 +149,6 @@ impl GameLogic {
                         .saturating_add(boost);
                 }
                 d
-
             }
         };
         if deposited == 0 {
@@ -214,13 +212,12 @@ impl GameLogic {
             }
         }
         // Money::deposit audio is queued by credit_supplies (MoneyDepositSound).
-
     }
 
     pub(in super::super) fn update_black_market_deposits(&mut self) {
         use crate::game_logic::host_black_market::{
-            is_black_market_template, is_fake_black_market_template,
-            is_legal_black_market_income_source, BLACK_MARKET_DEPOSIT_AMOUNT,
+            BLACK_MARKET_DEPOSIT_AMOUNT, is_black_market_template, is_fake_black_market_template,
+            is_legal_black_market_income_source,
         };
 
         use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
@@ -262,8 +259,10 @@ impl GameLogic {
             .collect();
 
         // Forget destroyed markets so re-builds reschedule cleanly.
-        let live: std::collections::HashSet<ObjectId> =
-            markets.iter().map(|(id, _, _, _, _, _, _, _)| *id).collect();
+        let live: std::collections::HashSet<ObjectId> = markets
+            .iter()
+            .map(|(id, _, _, _, _, _, _, _)| *id)
+            .collect();
         let stale: Vec<ObjectId> = self
             .black_markets
             .next_deposit_keys()
@@ -308,8 +307,8 @@ impl GameLogic {
             // AutoDeposit floating text residual + STEALTHED local display gate.
             // Structure geometry scatter residual (±0.3 major/minor radius).
             use crate::game_logic::host_oil_derrick::{
-                should_display_stealthed_floating_cash, structure_floating_text_scatter,
-                OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+                OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, should_display_stealthed_floating_cash,
+                structure_floating_text_scatter,
             };
             if should_display_stealthed_floating_cash(stealthed, detected, is_local) {
                 let radius = self
@@ -336,7 +335,6 @@ impl GameLogic {
             } else {
                 self.black_markets.record_floating_text_suppressed();
             }
-
         }
     }
 
@@ -349,9 +347,9 @@ impl GameLogic {
     /// Fail-closed: not full InGameUI GPU draw (STEALTHED local display gate residual closed).
     pub(in super::super) fn update_oil_derrick_deposits(&mut self) {
         use crate::game_logic::host_oil_derrick::{
+            HostAutoDepositFloatingText, OIL_DERRICK_INITIAL_CAPTURE_BONUS,
             is_legal_oil_derrick_income_source, is_oil_derrick_template,
-            oil_derrick_deposit_amount, HostAutoDepositFloatingText,
-            OIL_DERRICK_INITIAL_CAPTURE_BONUS,
+            oil_derrick_deposit_amount,
         };
 
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
@@ -444,7 +442,7 @@ impl GameLogic {
                 // Capture bonus floating text is not STEALTH-gated in C++ (award path).
                 // Structure geometry scatter residual still applies (KINDOF_STRUCTURE).
                 use crate::game_logic::host_oil_derrick::{
-                    structure_floating_text_scatter, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+                    OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, structure_floating_text_scatter,
                 };
                 let radius = self
                     .objects
@@ -501,7 +499,7 @@ impl GameLogic {
             }
             if show_float {
                 use crate::game_logic::host_oil_derrick::{
-                    structure_floating_text_scatter, OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS,
+                    OIL_DERRICK_DEFAULT_STRUCTURE_RADIUS, structure_floating_text_scatter,
                 };
                 let radius = self
                     .objects
@@ -527,7 +525,6 @@ impl GameLogic {
             } else {
                 self.oil_derricks.record_floating_text_suppressed();
             }
-
         }
     }
 
@@ -543,10 +540,9 @@ impl GameLogic {
         ev: crate::game_logic::host_hacker_income_log::HackerIncomeEvent,
     ) {
         use crate::game_logic::host_hacker_income::{
-            internet_center_floating_text_scatter, should_display_hacker_floating_cash,
-            HostHackerFloatingText,
+            HostHackerFloatingText, internet_center_floating_text_scatter,
+            should_display_hacker_floating_cash,
         };
-
 
         if ev.amount == 0 {
             return;
@@ -609,7 +605,6 @@ impl GameLogic {
         } else {
             self.hacker_income.record_floating_text_suppressed();
         }
-
     }
 
     /// C++ `ActiveBody::onSubdualChange` passenger walk (leftover
@@ -688,12 +683,10 @@ impl GameLogic {
         }
     }
 
-
-    pub(in super::super) fn update_hacker_income(&mut self) {
+    pub(crate) fn update_hacker_income(&mut self) {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         self.flush_subdual_passenger_orders();
         self.tick_hacker_pack_phases();
-
 
         let frame = self.frame;
 
@@ -712,11 +705,7 @@ impl GameLogic {
                     && obj.is_constructed()
                     && !obj.status.under_construction
                     && !obj.status.sold;
-                if is_ic {
-                    Some(*id)
-                } else {
-                    None
-                }
+                if is_ic { Some(*id) } else { None }
             })
             .collect();
 
@@ -842,7 +831,11 @@ impl GameLogic {
             // C++ aiDoCommand PACKING: any new move/attack command leaves HACK_INTERNET.
             if !h.in_ic
                 && self.hacker_income.is_hacking(h.id)
-                && (h.moving || !matches!(h.ai_state, AIState::Idle | AIState::Docked | AIState::Garrisoned))
+                && (h.moving
+                    || !matches!(
+                        h.ai_state,
+                        AIState::Idle | AIState::Docked | AIState::Garrisoned
+                    ))
             {
                 self.hacker_income.stop_hacking(h.id);
                 continue;

@@ -6,13 +6,13 @@ const BASE_KEY: &str =
     "SOFTWARE\\Electronic Arts\\EA Games\\Command and Conquer Generals Zero Hour";
 
 #[cfg(target_os = "windows")]
-use windows::core::PCSTR;
-#[cfg(target_os = "windows")]
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExA, RegOpenKeyExA, RegQueryValueExA, RegSetValueExA, HKEY,
-    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE,
-    REG_SZ,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD,
+    REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey, RegCreateKeyExA, RegOpenKeyExA, RegQueryValueExA,
+    RegSetValueExA,
 };
+#[cfg(target_os = "windows")]
+use windows::core::PCSTR;
 
 #[cfg(target_os = "windows")]
 fn read_string(root: HKEY, path: &str, key: &str, val: &mut String) -> bool {

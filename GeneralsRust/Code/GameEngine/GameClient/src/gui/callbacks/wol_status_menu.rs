@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 

@@ -107,18 +107,22 @@ mod stealth_detection_integration_tests {
             .unwrap();
 
         // Base: 60.0 detection vs 50.0 stealth (should detect)
-        assert!(detection
-            .can_detect_stealth(1, 50.0, DetectionModifier::default())
-            .unwrap());
+        assert!(
+            detection
+                .can_detect_stealth(1, 50.0, DetectionModifier::default())
+                .unwrap()
+        );
 
         // With distance modifier 0.7: 60 * 0.7 = 42 vs 50 (should NOT detect)
         let distance_modifier = DetectionModifier {
             distance_factor: 0.7,
             ..Default::default()
         };
-        assert!(!detection
-            .can_detect_stealth(1, 50.0, distance_modifier)
-            .unwrap());
+        assert!(
+            !detection
+                .can_detect_stealth(1, 50.0, distance_modifier)
+                .unwrap()
+        );
 
         // With multiple modifiers: 60 * 0.5 * 0.5 = 15 vs 50 (should NOT detect)
         let weak_modifier = DetectionModifier {
@@ -127,9 +131,11 @@ mod stealth_detection_integration_tests {
             movement_factor: 1.0,
             special_factor: 1.0,
         };
-        assert!(!detection
-            .can_detect_stealth(1, 50.0, weak_modifier)
-            .unwrap());
+        assert!(
+            !detection
+                .can_detect_stealth(1, 50.0, weak_modifier)
+                .unwrap()
+        );
     }
 
     /// Test per-player stealth visibility: different players see different states
@@ -372,12 +378,16 @@ mod stealth_detection_integration_tests {
         );
 
         // Set properties
-        assert!(stealth
-            .set_stealth_strength(1, StealthStrength::standard_cloak())
-            .is_ok());
-        assert!(detection
-            .set_detection_strength(3, DetectionStrength::strong_detector())
-            .is_ok());
+        assert!(
+            stealth
+                .set_stealth_strength(1, StealthStrength::standard_cloak())
+                .is_ok()
+        );
+        assert!(
+            detection
+                .set_detection_strength(3, DetectionStrength::strong_detector())
+                .is_ok()
+        );
 
         // Unregister
         assert!(stealth.unregister_object(1).is_ok());
@@ -396,15 +406,19 @@ mod stealth_detection_integration_tests {
 
         // Valid player IDs (0-7)
         for player in 0..8 {
-            assert!(stealth
-                .set_stealth_status(1, player, StealthStatus::Invisible)
-                .is_ok());
+            assert!(
+                stealth
+                    .set_stealth_status(1, player, StealthStatus::Invisible)
+                    .is_ok()
+            );
         }
 
         // Invalid player IDs
-        assert!(stealth
-            .set_stealth_status(1, 8, StealthStatus::Invisible)
-            .is_err());
+        assert!(
+            stealth
+                .set_stealth_status(1, 8, StealthStatus::Invisible)
+                .is_err()
+        );
         assert!(stealth.get_stealth_status(1, 255).is_err());
         assert!(stealth.is_invisible_to_player(1, 9).is_err());
     }
@@ -444,9 +458,11 @@ mod stealth_detection_integration_tests {
             .unwrap(); // 60.0
 
         // Standard infantry CANNOT detect GLA stealth (60 < 90)
-        assert!(!detection
-            .can_detect_stealth(2, 90.0, DetectionModifier::default())
-            .unwrap());
+        assert!(
+            !detection
+                .can_detect_stealth(2, 90.0, DetectionModifier::default())
+                .unwrap()
+        );
 
         // Upgraded detector (with vision upgrade tech)
         detection.register_object(3).unwrap();
@@ -456,9 +472,11 @@ mod stealth_detection_integration_tests {
 
         // Strong detector CAN detect GLA stealth (90 > 90 is false, but 90 >= 90 needs reconsideration)
         // Actually: 90 is NOT > 90, so detection fails. Need 91+ to detect 90
-        assert!(!detection
-            .can_detect_stealth(3, 90.0, DetectionModifier::default())
-            .unwrap());
+        assert!(
+            !detection
+                .can_detect_stealth(3, 90.0, DetectionModifier::default())
+                .unwrap()
+        );
 
         // But with a slight detection boost (10+ bonus)
         detection.register_object(4).unwrap();
@@ -467,9 +485,11 @@ mod stealth_detection_integration_tests {
             .unwrap(); // 95.0
 
         // Now can detect GLA stealth
-        assert!(detection
-            .can_detect_stealth(4, 90.0, DetectionModifier::default())
-            .unwrap());
+        assert!(
+            detection
+                .can_detect_stealth(4, 90.0, DetectionModifier::default())
+                .unwrap()
+        );
     }
 
     /// Test practical scenario: Stealth unit visibility progression

@@ -1,10 +1,10 @@
 //! Main Object producer/applier and opt-in save/load block for the envelope.
 
+use super::Object;
 use super::entity_lifecycle_apply::apply_module_states;
 use super::entity_lifecycle_inventory::collect_module_states;
-use super::Object;
 use gamelogic::world::entities::{
-    EntityLifecycleCodecError, EntityLifecycleEnvelope, ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+    ENTITY_LIFECYCLE_ENVELOPE_VERSION, EntityLifecycleCodecError, EntityLifecycleEnvelope,
 };
 
 impl Object {
@@ -79,15 +79,15 @@ pub fn decode_lifecycle_snapshot_block(
 
 #[cfg(test)]
 mod tests {
+    use super::super::entity_lifecycle_tags::{
+        INVENTORY_TAGS, TAG_CAPTURE_CHANNEL, TAG_HACKER_DISABLE_CHANNEL, TAG_LIFETIME,
+        TAG_POISONED, TAG_SLOW_DEATH, TAG_TOPPLE,
+    };
     use super::*;
     use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
     use crate::game_logic::host_poisoned_behavior::HostPoisonedBehaviorData;
     use crate::game_logic::host_slow_death::{HostSlowDeathData, HostSlowDeathPhase};
     use crate::game_logic::host_topple::{HostToppleData, HostToppleState};
-    use super::super::entity_lifecycle_tags::{
-        INVENTORY_TAGS, TAG_CAPTURE_CHANNEL, TAG_HACKER_DISABLE_CHANNEL, TAG_LIFETIME,
-        TAG_POISONED, TAG_SLOW_DEATH, TAG_TOPPLE,
-    };
     use crate::game_logic::object::{
         CaptureChannelPhase, CaptureChannelState, HackerDisableChannelPhase,
         HackerDisableChannelState, Object,
@@ -115,6 +115,7 @@ mod tests {
             fling_vz: 0.0,
             fling_vy: 2.0,
             fling_applied: true,
+            ..HostSlowDeathData::default()
         });
         src.lifetime_update = Some(HostLifetimeUpdateData {
             expire_at_frame: 90,
@@ -143,7 +144,10 @@ mod tests {
             lean_radians: 0.3,
             ..Default::default()
         });
-        src.capture_channel = Some(CaptureChannelState::new(CaptureChannelPhase::Preparing, 1500));
+        src.capture_channel = Some(CaptureChannelState::new(
+            CaptureChannelPhase::Preparing,
+            1500,
+        ));
         src.hacker_disable_channel = Some(HackerDisableChannelState::new(
             ObjectId(99),
             HackerDisableChannelPhase::Approaching,
@@ -175,7 +179,10 @@ mod tests {
         let again = dst.entity_lifecycle_envelope();
         assert_eq!(again.module_states, envelope.module_states);
         assert!(dst.status.destroyed);
-        assert_eq!(dst.slow_death.as_ref().map(|s| s.destroy_at_frame), Some(20));
+        assert_eq!(
+            dst.slow_death.as_ref().map(|s| s.destroy_at_frame),
+            Some(20)
+        );
         assert_eq!(
             dst.lifetime_update.as_ref().map(|l| l.expire_at_frame),
             Some(90)
@@ -208,7 +215,11 @@ mod tests {
 
     #[test]
     fn save_absence_loads_empty_inventory() {
-        assert!(decode_lifecycle_snapshot_block(&[]).expect("absent").is_empty());
+        assert!(
+            decode_lifecycle_snapshot_block(&[])
+                .expect("absent")
+                .is_empty()
+        );
         let encoded = encode_lifecycle_snapshot_block(&[test_object().entity_lifecycle_envelope()]);
         let decoded = decode_lifecycle_snapshot_block(&encoded).expect("present");
         assert_eq!(decoded.len(), 1);

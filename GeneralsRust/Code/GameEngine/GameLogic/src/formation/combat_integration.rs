@@ -5,7 +5,7 @@
 
 use super::formation_types::{FormationSettings, FormationState};
 use super::{FormationError, FormationResult};
-use crate::common::{Coord3D, ObjectID, Real, LOGICFRAMES_PER_SECOND};
+use crate::common::{Coord3D, LOGICFRAMES_PER_SECOND, ObjectID, Real};
 use std::collections::{HashMap, HashSet};
 
 /// Combat state for formation

@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::common::ALL_KIND_OF;
 use crate::common::{KindOf, ObjectStatusMaskType};
 use crate::object::behavior::auto_heal_behavior::parse_kind_of;
-use crate::scripting::engine::get_script_engine;
 use crate::scripting::XferSnapshot;
+use crate::scripting::engine::get_script_engine;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 use game_engine::common::system::{Xfer, XferStatus, XferVersion};
@@ -2313,7 +2313,6 @@ impl ScriptList {
         cur.next_script = Some(script);
     }
 
-
     pub fn append_group(&mut self, group: Box<ScriptGroup>) {
         let mut current = self.first_group.as_mut();
         while let Some(node) = current {
@@ -2955,7 +2954,6 @@ mod tests {
         condition.add_parameter(param).unwrap();
         assert_eq!(condition.get_num_parameters(), 1);
     }
-
 
     #[test]
     fn test_script_creation() {

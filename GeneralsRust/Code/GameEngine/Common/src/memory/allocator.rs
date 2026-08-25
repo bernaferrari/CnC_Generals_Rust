@@ -6,7 +6,7 @@
 
 use super::config::PoolConfig;
 use super::generation::{FreeListEntry, Generation};
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{Layout, alloc, dealloc};
 use std::marker::PhantomData;
 use std::mem::{self, ManuallyDrop, MaybeUninit};
 use std::ptr::{self, NonNull};

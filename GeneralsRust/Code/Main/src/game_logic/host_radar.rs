@@ -26,11 +26,9 @@
 //! - Not full capture / sabotage / shared-allied radar edge cases
 //! - Fake / GLA command centers residual-skip (no RadarUpgrade on GLACommandCenter)
 
+use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use game_engine::common::system::radar::{
-    get_radar_system, Coord3D, RadarEventType,
-};
 
 /// Leftover `Object::on_disabled_edge` radar add/remove pending apply.
 #[derive(Debug, Clone, Copy)]
@@ -64,7 +62,6 @@ pub fn record_leftover_radar_disabled_edge(
 pub fn drain_leftover_radar_disabled_edges() -> Vec<LeftoverRadarDisabledEdge> {
     LEFTOVER_RADAR_DISABLED_EDGES.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
-
 
 /// Logic frames per second (host fixed step).
 pub const RADAR_LOGIC_FPS: f32 = 30.0;
@@ -151,12 +148,11 @@ pub fn pack_player_color_argb(rgb: (u8, u8, u8)) -> u32 {
 
 /// C++ `TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT`.
 pub fn host_time_of_day_is_night() -> bool {
-    use game_engine::common::ini::ini_game_data::{get_global_data, TimeOfDay};
+    use game_engine::common::ini::ini_game_data::{TimeOfDay, get_global_data};
     get_global_data()
         .map(|data| matches!(data.read().time_of_day, TimeOfDay::Night))
         .unwrap_or(false)
 }
-
 
 /// C++ `TheRadar->createEvent` — rotating triangle + last-event (not beacon).
 pub fn host_create_radar_event(pos: glam::Vec3, event_type: RadarEventType) {
@@ -466,7 +462,8 @@ mod tests {
     #[test]
     fn spacebar_last_event_uses_the_radar_not_hud_queue() {
         {
-            let mut radar = get_radar_system().write().expect("radar write");
+            let radar_system = get_radar_system();
+            let mut radar = radar_system.write().expect("radar write");
             radar.reset();
             radar.new_map(
                 Coord3D::new(0.0, 0.0, 0.0),

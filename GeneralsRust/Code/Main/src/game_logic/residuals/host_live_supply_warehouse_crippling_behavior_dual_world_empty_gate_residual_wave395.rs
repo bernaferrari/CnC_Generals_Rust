@@ -49,8 +49,8 @@ pub const RUNTIME_HOST_LIVE_SUPPLY_WAREHOUSE_CRIPPLING_BEHAVIOR_DUAL_WORLD_EMPTY
     ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_method_names_residual_wave395(
-) -> bool {
+pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_method_names_residual_wave395()
+-> bool {
     LIVE_SUPPLY_WAREHOUSE_CRIPPLING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE395.len() == 9
         && residual_name_index(
             LIVE_SUPPLY_WAREHOUSE_CRIPPLING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE395,
@@ -67,8 +67,8 @@ pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_me
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_nav_commands_residual_wave395(
-) -> bool {
+pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_nav_commands_residual_wave395()
+-> bool {
     LIVE_SUPPLY_WAREHOUSE_CRIPPLING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE395.len() == 4
         && residual_name_index(
             LIVE_SUPPLY_WAREHOUSE_CRIPPLING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE395,
@@ -84,8 +84,8 @@ pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_na
 }
 
 /// Wave 395 composite residual honesty pack.
-pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_residual_pack_wave395(
-) -> bool {
+pub fn honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_residual_pack_wave395()
+-> bool {
     honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_method_names_residual_wave395()
         && honesty_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_nav_commands_residual_wave395()
 }
@@ -191,8 +191,8 @@ mod tests {
     }
 
     #[test]
-    fn simulate_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_honesty_residual_live(
-    ) {
+    fn simulate_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_honesty_residual_live()
+     {
         assert!(
             simulate_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_honesty(),
             "supply warehouse crippling dual-world empty gate residual must latch"

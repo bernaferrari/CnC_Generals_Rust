@@ -233,10 +233,7 @@ pub(super) fn is_enemy_target(_local_player: i32, _target_id: ObjectID) -> bool 
     false
 }
 
-pub(super) fn selection_has_quick_path_to(
-    selection: &HashSet<ObjectID>,
-    world: &Coord3D,
-) -> bool {
+pub(super) fn selection_has_quick_path_to(selection: &HashSet<ObjectID>, world: &Coord3D) -> bool {
     let dest = LogicCoord3D::new(world.x, world.y, world.z);
     let local_player = get_local_player_id();
     if local_player >= 0 {

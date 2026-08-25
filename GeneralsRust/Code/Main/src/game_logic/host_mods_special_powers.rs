@@ -6,11 +6,11 @@
 
 #![allow(unused_imports)]
 
-use super::combat;
 use super::ObjectId;
 use super::Team;
 use super::VeterancyLevel;
 use super::Weapon;
+use super::combat;
 
 #[path = "host_a10_strike_flight.rs"]
 pub mod host_a10_strike_flight;

@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::{hanim_from_prototype, HAnimClass};
-use ww3d_assets::prototypes::AnimationPrototype;
+use crate::{HAnimClass, hanim_from_prototype};
 use ww3d_assets::AssetManager;
+use ww3d_assets::prototypes::AnimationPrototype;
 
 /// Runtime animation cache equivalent to the legacy HAnimManagerClass.
 #[derive(Default)]

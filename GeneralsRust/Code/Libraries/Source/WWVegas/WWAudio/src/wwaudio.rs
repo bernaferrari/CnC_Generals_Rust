@@ -5,6 +5,8 @@ use std::io::{Read, Seek, Write};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{
+    AudioResult, AudioSystem, AudioSystemConfig, Driver2DKind, MixerEvent, Priority,
+    VoiceStopReason,
     device::{
         AudioPreferences, EndOfStreamCallback, LogicalEvent, ProviderInfo, TextEventCallback,
     },
@@ -18,8 +20,6 @@ use crate::{
     sound_scene_obj::SoundObjectId,
     thread_pool::{global_thread_pool, queue_delayed_release},
     wwaudio_handles::WWHandle,
-    AudioResult, AudioSystem, AudioSystemConfig, Driver2DKind, MixerEvent, Priority,
-    VoiceStopReason,
 };
 
 const PLAYLIST_RELEASE_DELAY_MS: u64 = 2000;

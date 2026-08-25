@@ -14,16 +14,16 @@ use std::vec::Vec;
 
 use self::pathfind_astar::PathfindCellType;
 use self::pathfind_complete::{
-    PathRequest as ClassicPathRequest, PathResult as ClassicPathResult,
-    PathfindingSystem as ClassicPathfindingSystem, PATHFIND_QUEUE_LEN,
+    PATHFIND_QUEUE_LEN, PathRequest as ClassicPathRequest, PathResult as ClassicPathResult,
+    PathfindingSystem as ClassicPathfindingSystem,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::build_list_info::BuildListInfo;
-use crate::common::xfer::{Xfer, XferExt};
 use crate::common::Snapshot;
+use crate::common::xfer::{Xfer, XferExt};
 use crate::common::{
-    BodyDamageType, DisabledType, KindOf, ObjectID, ObjectStatusTypes, Relationship,
-    FROM_BOUNDING_SPHERE_2D, INVALID_ID,
+    BodyDamageType, DisabledType, FROM_BOUNDING_SPHERE_2D, INVALID_ID, KindOf, ObjectID,
+    ObjectStatusTypes, Relationship,
 };
 pub use crate::common::{
     CommandSourceType, Coord2D, Coord3D, ICoord2D, Real, SpecialPowerType, WeaponLockType,
@@ -31,18 +31,18 @@ pub use crate::common::{
 };
 use crate::helpers::ThePartitionManager;
 use crate::modules::AIAttitudeType;
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::physics::{SurfaceType, TerrainQuery};
 use crate::player::PlayerType;
 use crate::player::ThePlayerList;
-use crate::scripting::engine::get_script_engine;
 pub use crate::scripting::engine::AttackPriorityInfo;
+use crate::scripting::engine::get_script_engine;
 use crate::team::get_team_factory;
 use crate::terrain::TerrainLogic;
 use game_engine::common::ini::{
-    get_ai_data_store, AIData as IniAIData, AiSideBuildList as IniAiSideBuildList,
-    AiSideInfo as IniAiSideInfo, BuildListEntry as IniBuildListEntry, SkillSet as IniSkillSet,
+    AIData as IniAIData, AiSideBuildList as IniAiSideBuildList, AiSideInfo as IniAiSideInfo,
+    BuildListEntry as IniBuildListEntry, SkillSet as IniSkillSet, get_ai_data_store,
 };
 
 pub type ObjectId = ObjectID;
@@ -1584,11 +1584,7 @@ impl AI {
     }
 
     /// C++ `TheAI->pathfinder()->changeBridgeState(layer, repaired)`.
-    pub fn change_bridge_state(
-        &mut self,
-        layer: crate::path::PathfindLayerEnum,
-        repaired: bool,
-    ) {
+    pub fn change_bridge_state(&mut self, layer: crate::path::PathfindLayerEnum, repaired: bool) {
         if let Some(pathfinder) = &self.pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
                 pf.change_bridge_state(layer, repaired);
@@ -2027,8 +2023,8 @@ impl AI {
             return Ok(0.0);
         }
 
-        let Some((mut range, player_is_human, attitude, contained, weapon_range)) =
-            OBJECT_REGISTRY.with_object(object, |obj_guard| {
+        let Some((mut range, player_is_human, attitude, contained, weapon_range)) = OBJECT_REGISTRY
+            .with_object(object, |obj_guard| {
                 let range = obj_guard.get_vision_range();
                 let player_is_human = obj_guard
                     .get_controlling_player()
@@ -2796,7 +2792,6 @@ impl Pathfinder {
             in_range,
         )
     }
-
 
     /// C++ `Pathfinder::adjustToLandingDestination`.
     pub fn adjust_to_landing_destination(&self, obj: &Object, dest: &mut Coord3D) -> bool {
@@ -3661,10 +3656,10 @@ pub mod ai_core; // Complete AI system integration
 pub mod ai_update; // AI update interfaces and coordination
 
 // AI behavior modules
+pub mod ai_group;
 pub mod dock;
 pub mod formations; // Formation offset calculations for group movement
 pub mod group;
-pub mod ai_group;
 
 pub mod guard;
 pub mod guard_retaliate;

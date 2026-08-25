@@ -5,23 +5,23 @@
 
 use crate::game_text::GameText;
 use crate::gui::gadgets::{ListBox, ListBoxItemData};
+use crate::gui::with_window_manager;
 use crate::gui::{Color, GameWindow, WindowInstanceData, WindowWidget};
 use crate::input::mouse::with_mouse;
 use crate::map_util::get_map_cache_manager;
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::skirmish_battle_honors::{
-    SkirmishBattleHonors, BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK,
-    BATTLE_HONOR_BLITZ10, BATTLE_HONOR_BLITZ5, BATTLE_HONOR_CAMPAIGN_CHINA,
-    BATTLE_HONOR_CAMPAIGN_GLA, BATTLE_HONOR_CAMPAIGN_USA, BATTLE_HONOR_CHALLENGE,
-    BATTLE_HONOR_CHALLENGE_MODE, BATTLE_HONOR_DOMINATION, BATTLE_HONOR_DOMINATION_ONLINE,
-    BATTLE_HONOR_ENDURANCE, BATTLE_HONOR_FAIR_PLAY, BATTLE_HONOR_GLOBAL_GENERAL,
-    BATTLE_HONOR_LOYALTY_CHINA, BATTLE_HONOR_LOYALTY_GLA, BATTLE_HONOR_LOYALTY_USA,
-    BATTLE_HONOR_NOT_GAINED, BATTLE_HONOR_OFFICERSCLUB, BATTLE_HONOR_STREAK,
-    BATTLE_HONOR_STREAK_ONLINE, BATTLE_HONOR_ULTIMATE, MAX_BATTLE_HONOR_COLUMNS,
-    MAX_BATTLE_HONOR_IMAGE_HEIGHT, MAX_BATTLE_HONOR_IMAGE_WIDTH,
+    BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK, BATTLE_HONOR_BLITZ5,
+    BATTLE_HONOR_BLITZ10, BATTLE_HONOR_CAMPAIGN_CHINA, BATTLE_HONOR_CAMPAIGN_GLA,
+    BATTLE_HONOR_CAMPAIGN_USA, BATTLE_HONOR_CHALLENGE, BATTLE_HONOR_CHALLENGE_MODE,
+    BATTLE_HONOR_DOMINATION, BATTLE_HONOR_DOMINATION_ONLINE, BATTLE_HONOR_ENDURANCE,
+    BATTLE_HONOR_FAIR_PLAY, BATTLE_HONOR_GLOBAL_GENERAL, BATTLE_HONOR_LOYALTY_CHINA,
+    BATTLE_HONOR_LOYALTY_GLA, BATTLE_HONOR_LOYALTY_USA, BATTLE_HONOR_NOT_GAINED,
+    BATTLE_HONOR_OFFICERSCLUB, BATTLE_HONOR_STREAK, BATTLE_HONOR_STREAK_ONLINE,
+    BATTLE_HONOR_ULTIMATE, MAX_BATTLE_HONOR_COLUMNS, MAX_BATTLE_HONOR_IMAGE_HEIGHT,
+    MAX_BATTLE_HONOR_IMAGE_WIDTH, SkirmishBattleHonors,
 };
 use game_engine::common::system::get_unsigned_int_from_registry;
-use game_engine::common::name_key_generator::NameKeyGenerator;
-use crate::gui::with_window_manager;
 use game_network::SlotState;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -114,7 +114,12 @@ fn insert_battle_honor(
     }
 }
 
-fn campaign_image(side: &str, stats: &SkirmishBattleHonors, honors: u32, flag: u32) -> (&'static str, bool) {
+fn campaign_image(
+    side: &str,
+    stats: &SkirmishBattleHonors,
+    honors: u32,
+    flag: u32,
+) -> (&'static str, bool) {
     let (gold, silver, bronze) = match side {
         "China" => ("ChinaCampaign_G", "ChinaCampaign_S", "ChinaCampaign_B"),
         "GLA" => ("GLACampaign_G", "GLACampaign_S", "GLACampaign_B"),
@@ -384,7 +389,8 @@ pub fn populate(listbox_info: Option<&Rc<RefCell<GameWindow>>>) {
     let mut row = 1usize;
     let mut column = 0usize;
 
-    let (china_image, china_on) = campaign_image("China", &stats, honors, BATTLE_HONOR_CAMPAIGN_CHINA);
+    let (china_image, china_on) =
+        campaign_image("China", &stats, honors, BATTLE_HONOR_CAMPAIGN_CHINA);
     insert_battle_honor(
         listbox,
         china_image,

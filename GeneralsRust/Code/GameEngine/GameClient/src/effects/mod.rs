@@ -84,43 +84,43 @@ pub use particles::{
 
 // C++-parity particle system types (matches C++ ParticleSys.h/.cpp behavior exactly)
 // These are the authoritative types used by the game logic and rendering pipeline.
-pub use particle_manager::{
-    capture_live_particle_system_xfer_bytes, get_particle_system_manager,
-    get_particle_system_manager_mut, initialize_particle_system_manager,
-    register_particle_system_manager_bridge, restore_live_particle_system_from_xfer_bytes,
-    EmissionVelocity, EmissionVelocityType, EmissionVolume, EmissionVolumeType,
-    GameClientRandomVariable, Keyframe, ObjectId as ParticleObjectId, ParticlePriorityType,
-    ParticleShaderType, ParticleSystemId, ParticleSystemManager, ParticleSystemTemplate,
-    ParticleType as CppParticleTypeEnum, RGBColorKeyframe, RandomKeyframe, WindMotion,
-    INVALID_PARTICLE_SYSTEM_ID, MAX_KEYFRAMES,
-};
 pub use particle_ini_loader::ParticleSystemINIParser;
-
-pub use particle_presets::{destruction, environment, explosions, get_preset_by_name, weapons};
-pub use heat_haze::{
-    build_heat_haze_quad, heat_haze_triangle_indices, HeatHazeSmudge, HeatHazeVertex,
+pub use particle_manager::{
+    EmissionVelocity, EmissionVelocityType, EmissionVolume, EmissionVolumeType,
+    GameClientRandomVariable, INVALID_PARTICLE_SYSTEM_ID, Keyframe, MAX_KEYFRAMES,
+    ObjectId as ParticleObjectId, ParticlePriorityType, ParticleShaderType, ParticleSystemId,
+    ParticleSystemManager, ParticleSystemTemplate, ParticleType as CppParticleTypeEnum,
+    RGBColorKeyframe, RandomKeyframe, WindMotion, capture_live_particle_system_xfer_bytes,
+    get_particle_system_manager, get_particle_system_manager_mut,
+    initialize_particle_system_manager, register_particle_system_manager_bridge,
+    restore_live_particle_system_from_xfer_bytes,
 };
+
+pub use heat_haze::{
+    HeatHazeSmudge, HeatHazeVertex, build_heat_haze_quad, heat_haze_triangle_indices,
+};
+pub use particle_presets::{destruction, environment, explosions, get_preset_by_name, weapons};
 pub use particle_renderer::{
+    ParticleBatch, ParticleRenderStats, ParticleRenderer, ParticleUniforms, ParticleVertex,
     bake_particle_gpu_vertex, bake_particle_system_gpu_mesh, begin_particle_heat_smudge_frame,
-    feed_system_heat_smudges, particle_type_name_is_smud, system_is_heat_smudge, ParticleBatch,
-    ParticleRenderStats, ParticleRenderer, ParticleUniforms, ParticleVertex,
+    feed_system_heat_smudges, particle_type_name_is_smud, system_is_heat_smudge,
 };
 pub use particle_system::{Particle, ParticleInfo, ParticleSystem};
 
 pub use ray_effect_system::{
-    add_ray_effect, bake_ray_effect_gpu_endpoints, bake_ray_effect_gpu_mesh,
-    create_ray_effect_by_template, delete_ray_effect, get_ray_effect_data, live_ray_effects,
-    ray_effect_midpoint, reset_ray_effects, update_ray_effects, LiveRayEffect, RayEffectGpuMesh,
-    MAX_RAY_EFFECTS,
+    LiveRayEffect, MAX_RAY_EFFECTS, RayEffectGpuMesh, add_ray_effect,
+    bake_ray_effect_gpu_endpoints, bake_ray_effect_gpu_mesh, create_ray_effect_by_template,
+    delete_ray_effect, get_ray_effect_data, live_ray_effects, ray_effect_midpoint,
+    reset_ray_effects, update_ray_effects,
 };
 pub use ray_effects::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
 pub use tracer_fx::{
+    LiveTracerDrawable, TracerDrawableSpawn, TracerFxInstance, TracerGpuMesh, TracerGpuVertex,
     bake_all_tracer_gpu_meshes, bake_tracer_gpu_mesh, build_tracer_transform, clear_tracer_fx,
     create_tracer_fx, live_tracer_drawables, live_tracer_fx, lock_tracer_fx_tests,
     spawn_tracer_drawable_like_cpp, tracer_distance, tracer_expiration_frames,
     tracer_line3d_local_endpoints, tracer_opacity_after_frames, tracer_world_endpoints,
-    update_tracer_fx, LiveTracerDrawable, TracerDrawableSpawn, TracerFxInstance, TracerGpuMesh,
-    TracerGpuVertex,
+    update_tracer_fx,
 };
 
 /// C++ `System.ini` GenericTracer registration (no full Object INI scan).

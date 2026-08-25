@@ -1,15 +1,15 @@
 //! Translator for building placement input.
 
 use super::game_message::{Coord3D, GameMessage, GameMessageType, ICoord2D};
-use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
-use crate::display::view::{with_tactical_view_ref, IPoint2};
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator, emit_message};
+use crate::display::view::{IPoint2, with_tactical_view_ref};
 use crate::helpers::{PendingSpecialPower, TheInGameUI};
 use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::common::{Coord3D as LogicCoord3D, KindOf};
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::modules::{BehaviorModuleInterface, ProductionUpdateInterface};
-use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::Object;
+use gamelogic::object::production::construction::FoundationValidator;
 
 const PLACEMENT_DRAG_THRESHOLD_DIST: f32 = 5.0;
 

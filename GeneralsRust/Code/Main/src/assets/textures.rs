@@ -7,11 +7,11 @@
 // Texture loading system for real C&C assets
 
 use crate::assets::archive::ArchiveFileSystem;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
-    decode_dxt1, decode_dxt3, decode_dxt5, load_dds_from_memory, DdsCompression, DdsTextureType,
+    DdsCompression, DdsTextureType, decode_dxt1, decode_dxt3, decode_dxt5, load_dds_from_memory,
 };
 use ww3d_renderer_3d::rendering::texture_system::tga_loader::load_tga_from_memory;
 

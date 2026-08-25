@@ -20,7 +20,6 @@ use once_cell::sync::OnceCell;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-
 /// Construction completion constant
 pub const CONSTRUCTION_COMPLETE: i32 = -1;
 
@@ -81,7 +80,11 @@ pub trait BuildAssistantBackend: std::fmt::Debug + Send + Sync {
     fn destroy_object(&self, id: ObjectID) {
         let _ = id;
     }
-    fn special_power_construction_matches(&self, builder_id: ObjectID, template_name: &str) -> bool {
+    fn special_power_construction_matches(
+        &self,
+        builder_id: ObjectID,
+        template_name: &str,
+    ) -> bool {
         let _ = (builder_id, template_name);
         false
     }
@@ -118,7 +121,12 @@ pub trait BuildAssistantBackend: std::fmt::Debug + Send + Sync {
         let _ = id;
         false
     }
-    fn objects_in_footprint(&self, pos: &Coord3D, template_name: &str, angle: f32) -> Vec<ObjectID> {
+    fn objects_in_footprint(
+        &self,
+        pos: &Coord3D,
+        template_name: &str,
+        angle: f32,
+    ) -> Vec<ObjectID> {
         let _ = (pos, template_name, angle);
         Vec::new()
     }
@@ -147,7 +155,6 @@ pub struct SellObjectSnapshot {
     pub cost_to_build: u32,
     pub player_index: u32,
 }
-
 
 fn backend_cell() -> &'static Mutex<Option<Arc<dyn BuildAssistantBackend>>> {
     static BACKEND: OnceCell<Mutex<Option<Arc<dyn BuildAssistantBackend>>>> = OnceCell::new();
@@ -389,8 +396,6 @@ impl Object {
     }
 }
 
-
-
 /// C++ isPossibleToMakeUnit: CommandSet must contain a Construct* button for `want`.
 fn command_set_allows_construct(command_set: &str, want: &str) -> bool {
     command_set
@@ -402,7 +407,9 @@ fn command_set_allows_construct(command_set: &str, want: &str) -> bool {
                     .rsplit(|c| c == '_' || c == '/')
                     .next()
                     .is_some_and(|tail| tail.eq_ignore_ascii_case(want))
-                || tok.to_ascii_lowercase().contains(&want.to_ascii_lowercase())
+                || tok
+                    .to_ascii_lowercase()
+                    .contains(&want.to_ascii_lowercase())
         })
 }
 
@@ -498,7 +505,6 @@ impl BuildAssistant {
         }
     }
 
-
     /// Build an object immediately at the specified location
     pub fn build_object_now(
         &self,
@@ -523,7 +529,6 @@ impl BuildAssistant {
                     orientation: angle,
                     command_set: None,
                 });
-
             }
             return None;
         }
@@ -743,10 +748,9 @@ impl BuildAssistant {
             {
                 return CanMakeType::FactoryIsDisabled;
             }
-            if backend.special_power_construction_matches(
-                builder.id,
-                what_to_build.get_name().as_str(),
-            ) {
+            if backend
+                .special_power_construction_matches(builder.id, what_to_build.get_name().as_str())
+            {
                 return CanMakeType::Ok;
             }
             if !backend.can_build_more_of_type(None, what_to_build.get_name().as_str()) {
@@ -769,7 +773,6 @@ impl BuildAssistant {
                 return CanMakeType::NoMoney;
             }
         }
-
 
         CanMakeType::Ok
     }
@@ -853,9 +856,8 @@ impl BuildAssistant {
             return true;
         };
         let geom = what_to_build.get_template_geometry_info();
-        let mut radius = (geom.major_radius * geom.major_radius
-            + geom.minor_radius * geom.minor_radius)
-            .sqrt();
+        let mut radius =
+            (geom.major_radius * geom.major_radius + geom.minor_radius * geom.minor_radius).sqrt();
         radius *= 1.4;
         let player_id = player.map(|p| p.player_index);
         let mut any_unmovables = false;
@@ -885,8 +887,6 @@ impl BuildAssistant {
         }
         !any_unmovables
     }
-
-
 
     /// Get the build positions array
     pub fn get_build_locations(&self) -> &[Coord3D] {
@@ -944,7 +944,6 @@ mod tests {
     fn test_sell_object() {
         let mut assistant = BuildAssistant::new();
         let object = Object::new(123);
-
 
         assistant.sell_object(&object, 100);
         assert_eq!(assistant.sell_list.len(), 1);

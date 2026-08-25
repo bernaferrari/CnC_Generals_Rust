@@ -265,9 +265,7 @@ impl CnCGameEngine {
                             _ => {}
                         }
                         // C++ HotKeyTranslator: RAW_KEY_UP, no Ctrl/Shift/Alt.
-                        let mods_down = self
-                            .keys_pressed
-                            .contains(&Key::Named(NamedKey::Control))
+                        let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
                             || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
                             || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
                         if !os_repeat
@@ -275,10 +273,7 @@ impl CnCGameEngine {
                             && !chat_open
                             && input_enabled
                             && route_keyboard_to_legacy_ui
-                            && matches!(
-                                self.current_state,
-                                GameState::InGame | GameState::Paused
-                            )
+                            && matches!(self.current_state, GameState::InGame | GameState::Paused)
                         {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
                                 if self.game_hud.handle_letter_hotkey(ui_key) {
@@ -401,8 +396,8 @@ impl CnCGameEngine {
         // KEEP the stream message except LMB down/up when InGameUI is scrolling
         // so ControlBar still receives clicks during keyboard/RMB scroll.
         let lookat_locked = super::mouse::look_at_host_mouse_locked();
-        let scrolling_lmb = super::mouse::look_at_host_is_scrolling()
-            && matches!(button, MouseButton::Left);
+        let scrolling_lmb =
+            super::mouse::look_at_host_is_scrolling() && matches!(button, MouseButton::Left);
         let wnd_used_raw = if lookat_locked && !scrolling_lmb {
             false
         } else {
@@ -479,7 +474,8 @@ impl CnCGameEngine {
                         } else if name.contains("ButtonStart")
                             && name.contains("SkirmishGameOptionsMenu")
                         {
-                            let _ = game_client::gui::simulate_skirmish_start_button_gadget_selected();
+                            let _ =
+                                game_client::gui::simulate_skirmish_start_button_gadget_selected();
                         }
                     }
                 }
@@ -540,7 +536,6 @@ impl CnCGameEngine {
             }
         }
 
-
         if in_world && !wnd_used && !hud_cameo_consumed && self.lookat_input_enabled() {
             let targeting_active =
                 self.pending_map_command.is_some() || self.pending_structure_placement.is_some();
@@ -555,31 +550,31 @@ impl CnCGameEngine {
                     self.cancel_area_select_from_control_bar();
                 }
             } else {
-            match (button, pressed) {
-                (MouseButton::Left, true) => {
-                    self.lmb_context_started_physically =
-                        matches!(origin, MouseInputOrigin::Physical);
-                    self.handle_left_click();
-                }
-                (MouseButton::Left, false) => {
-                    let physical_lmb_gesture = matches!(origin, MouseInputOrigin::Physical)
-                        && self.lmb_context_started_physically;
-                    self.handle_left_release(origin, physical_lmb_gesture);
-                    self.lmb_context_started_physically = false;
-                }
-                (MouseButton::Right, true) => {
-                    // C++ LookAtXlat.cpp:197-207 setScrolling(SCROLL_RMB):
-                    // save cursor, InGameUI scrolling, tactical mouse lock.
-                    self.note_rmb_deselect_anchor();
-                    self.start_rmb_lookat_scroll();
-                    self.rmb_scroll_started_physically =
-                        matches!(origin, MouseInputOrigin::Physical);
-                }
-                (MouseButton::Right, false) => {
-                    let physical_rmb_gesture = matches!(origin, MouseInputOrigin::Physical)
-                        && self.rmb_scroll_started_physically;
-                    if self.is_rmb_scrolling || self.rmb_scroll_anchor.is_some() {
-                        if self.rmb_release_is_deselect_click() {
+                match (button, pressed) {
+                    (MouseButton::Left, true) => {
+                        self.lmb_context_started_physically =
+                            matches!(origin, MouseInputOrigin::Physical);
+                        self.handle_left_click();
+                    }
+                    (MouseButton::Left, false) => {
+                        let physical_lmb_gesture = matches!(origin, MouseInputOrigin::Physical)
+                            && self.lmb_context_started_physically;
+                        self.handle_left_release(origin, physical_lmb_gesture);
+                        self.lmb_context_started_physically = false;
+                    }
+                    (MouseButton::Right, true) => {
+                        // C++ LookAtXlat.cpp:197-207 setScrolling(SCROLL_RMB):
+                        // save cursor, InGameUI scrolling, tactical mouse lock.
+                        self.note_rmb_deselect_anchor();
+                        self.start_rmb_lookat_scroll();
+                        self.rmb_scroll_started_physically =
+                            matches!(origin, MouseInputOrigin::Physical);
+                    }
+                    (MouseButton::Right, false) => {
+                        let physical_rmb_gesture = matches!(origin, MouseInputOrigin::Physical)
+                            && self.rmb_scroll_started_physically;
+                        if self.is_rmb_scrolling || self.rmb_scroll_anchor.is_some() {
+                            if self.rmb_release_is_deselect_click() {
                                 let had_selection = !self.selected_objects.is_empty()
                                     || !self.ui_selected_ids(self.current_player_id).is_empty();
                                 // SelectionXlat cancels an armed GUI/build
@@ -593,7 +588,8 @@ impl CnCGameEngine {
                                             // Physical + inject share this order residual.
                                             log::info!(
                                                 "RMB context command: had_sel={had_selection} match={} headless={}",
-                                                self.interactive_playability.match_started_from_menu_wnd,
+                                                self.interactive_playability
+                                                    .match_started_from_menu_wnd,
                                                 self.runtime_host_headless
                                             );
                                             let issued = self
@@ -619,17 +615,17 @@ impl CnCGameEngine {
                                 }
                             }
                         }
-                    self.stop_rmb_lookat_scroll();
-                    self.rmb_scroll_started_physically = false;
+                        self.stop_rmb_lookat_scroll();
+                        self.rmb_scroll_started_physically = false;
+                    }
+                    (MouseButton::Middle, true) => {
+                        self.begin_mmb_lookat_rotate();
+                    }
+                    (MouseButton::Middle, false) => {
+                        self.end_mmb_lookat_rotate();
+                    }
+                    _ => {}
                 }
-                (MouseButton::Middle, true) => {
-                    self.begin_mmb_lookat_rotate();
-                }
-                (MouseButton::Middle, false) => {
-                    self.end_mmb_lookat_rotate();
-                }
-                _ => {}
-            }
             }
         }
     }
@@ -1125,7 +1121,6 @@ impl CnCGameEngine {
                         }
                     });
                     self.shell_menu_active = false;
-
                 }
                 self.ensure_gameplay_layouts();
                 self.ui_manager
@@ -1294,7 +1289,10 @@ impl CnCGameEngine {
 
         // Diagnostic: log first few Menu update_internal calls
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
-            debug!("update_internal: Menu state, about to call update_runtime_subsystems (menu_frame={})", self.menu_world_frames_rendered);
+            debug!(
+                "update_internal: Menu state, about to call update_runtime_subsystems (menu_frame={})",
+                self.menu_world_frames_rendered
+            );
         }
         // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
         self.update_runtime_subsystems(dt);
@@ -1397,7 +1395,10 @@ impl CnCGameEngine {
                 network_frame_data_ready,
                 dt,
                 self.game_logic.get_frame(),
-                self.last_presentation_frame.as_ref().map(|p| p.frame.0).unwrap_or(u32::MAX),
+                self.last_presentation_frame
+                    .as_ref()
+                    .map(|p| p.frame.0)
+                    .unwrap_or(u32::MAX),
             );
         }
 
@@ -1495,9 +1496,8 @@ impl CnCGameEngine {
                 });
                 self.apply_pending_display_mode();
                 // C++ W3DDisplay::draw: movie blit after InGameUI, then copyright, then letterbox.
-                let _ = game_client::display::display_fx::present_movie_overlay(
-                    logical_w, logical_h,
-                );
+                let _ =
+                    game_client::display::display_fx::present_movie_overlay(logical_w, logical_h);
                 let _ = game_client::display::display_fx::present_copyright_overlay(
                     logical_w, logical_h,
                 );
@@ -1710,7 +1710,8 @@ impl CnCGameEngine {
             );
             #[cfg(feature = "game_client")]
             {
-                let _ = game_client::display::shadow_pass::present_occluded_player_color_silhouette();
+                let _ =
+                    game_client::display::shadow_pass::present_occluded_player_color_silhouette();
             }
 
             crate::graphics::occlusion_bridge::enqueue_occluded_player_color_pass(
@@ -1720,7 +1721,6 @@ impl CnCGameEngine {
                 self.camera_position,
                 self.last_presentation_frame.as_ref(),
             );
-
         }
         // C++ only refreshes Drawable::m_shroudClearFrame after the current
         // W3D view accepted a direct RenderObj and it produced real source
@@ -1859,15 +1859,12 @@ impl CnCGameEngine {
     /// C++ W3DDisplay.cpp:1899-1928 — letterbox bars then cinematic caption.
     #[cfg(feature = "game_client")]
     fn queue_live_letterbox_and_cinematic_overlays(&mut self, width: f32, height: f32) {
-        use game_client::gui::ui_renderer::{
-            TextAlignment, TextLayout, UIRect, VerticalAlignment,
-        };
+        use game_client::gui::ui_renderer::{TextAlignment, TextLayout, UIRect, VerticalAlignment};
         let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
             let fade = self.game_client.letterbox_overlay_fade();
             let enabled = self.game_client.letterbox_overlay_enabled();
-            let plan = game_client::display::display_fx::letterbox_plan(
-                width, height, fade, enabled,
-            );
+            let plan =
+                game_client::display::display_fx::letterbox_plan(width, height, fade, enabled);
             if plan.draw_top {
                 renderer.draw_rect(
                     UIRect::new(0.0, 0.0, width, plan.bar_height),
@@ -1916,8 +1913,6 @@ impl CnCGameEngine {
         // C++ doDisplayCinematicText: parse Size:N, then adjustFontSize.
         game_client::core::GameClient::cinematic_caption_point_size(font) as f32
     }
-
-
 
     #[cfg(feature = "game_client")]
     fn apply_pending_display_mode(&mut self) {
@@ -2061,12 +2056,7 @@ impl CnCGameEngine {
             }
         };
         // C++ View.cpp:216-223: UL, UR, then "bottomLeft"=LR, "bottomRight"=LL.
-        let screens = [
-            (0.0, 0.0),
-            (view_w, 0.0),
-            (view_w, view_h),
-            (0.0, view_h),
-        ];
+        let screens = [(0.0, 0.0), (view_w, 0.0), (view_w, view_h), (0.0, view_h)];
         let mut corners = [glam::Vec3::ZERO; 4];
         for (index, screen) in screens.iter().copied().enumerate() {
             let (near, far) = super::mouse::unproject_mouse_ray(
@@ -2092,7 +2082,6 @@ impl CnCGameEngine {
         }
         Some(corners)
     }
-
 
     /// Process UI events emitted by UIManager and apply to engine/game state.
     pub(super) fn process_ui_events(&mut self) {
@@ -2199,11 +2188,7 @@ impl CnCGameEngine {
                     production_id,
                     queue_index,
                 } => {
-                    self.cancel_unit_production_from_ui(
-                        &template_name,
-                        production_id,
-                        queue_index,
-                    );
+                    self.cancel_unit_production_from_ui(&template_name, production_id, queue_index);
                 }
                 UIEvent::CancelUpgradeProduction {
                     upgrade_name,
@@ -2460,10 +2445,8 @@ impl CnCGameEngine {
             self.last_eva_low_power_count = self.last_eva_low_power_count.max(low_power);
             self.last_eva_insufficient_funds_count =
                 self.last_eva_insufficient_funds_count.max(funds);
-            self.last_eva_base_under_attack_count =
-                self.last_eva_base_under_attack_count.max(base);
-            self.last_eva_ally_under_attack_count =
-                self.last_eva_ally_under_attack_count.max(ally);
+            self.last_eva_base_under_attack_count = self.last_eva_base_under_attack_count.max(base);
+            self.last_eva_ally_under_attack_count = self.last_eva_ally_under_attack_count.max(ally);
             return;
         }
         let mut push = |msg: &str| {
@@ -2516,7 +2499,7 @@ impl CnCGameEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::{world_mouse_action, CnCGameEngine, WorldMouseAction};
+    use super::{CnCGameEngine, WorldMouseAction, world_mouse_action};
     use winit::event::MouseButton;
     use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -2592,8 +2575,7 @@ mod tests {
             .map(|i| &src[i..src.len().min(i + 520)])
             .expect("mouse wheel dispatch");
         assert!(
-            wheel.contains("lookat_input_enabled()")
-                && wheel.contains("handle_mouse_wheel(delta)"),
+            wheel.contains("lookat_input_enabled()") && wheel.contains("handle_mouse_wheel(delta)"),
             "wheel zoom must die under DISABLE_INPUT after WindowXlat"
         );
         assert!(
@@ -2636,7 +2618,6 @@ mod tests {
             "non-placement HUD LMB-up must still cancel the marquee"
         );
     }
-
 
     #[test]
     fn mouse_lock_passes_scrolling_lmb_to_window_manager() {

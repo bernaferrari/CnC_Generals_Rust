@@ -239,13 +239,9 @@ impl HostCountermeasuresRegistry {
         self.states.insert(aircraft_id.0, state);
     }
 
-    pub fn restore_pending_flare_spawns(
-        &mut self,
-        pending: Vec<PendingCountermeasureFlareSpawn>,
-    ) {
+    pub fn restore_pending_flare_spawns(&mut self, pending: Vec<PendingCountermeasureFlareSpawn>) {
         self.pending_flare_spawns = pending;
     }
-
 
     pub fn ensure(&mut self, aircraft_id: ObjectId) -> &mut HostCountermeasuresState {
         self.states
@@ -633,8 +629,12 @@ mod tests {
         assert_eq!(st.available, FULL_LOAD_COUNTERMEASURES - VOLLEY_SIZE);
         assert_eq!(st.volleys_fired, 1);
         assert_eq!(st.reaction_frame, 0);
-        assert_eq!(st.next_volley_frame, reaction + DELAY_BETWEEN_VOLLEYS_FRAMES);
-        update_countermeasures(&mut reg, air, st.next_volley_frame, true);
+        assert_eq!(
+            st.next_volley_frame,
+            reaction + DELAY_BETWEEN_VOLLEYS_FRAMES
+        );
+        let next_volley_frame = st.next_volley_frame;
+        update_countermeasures(&mut reg, air, next_volley_frame, true);
         let second = reg.take_pending_flare_spawns();
         assert_eq!(second.len(), VOLLEY_SIZE as usize);
         assert_eq!(

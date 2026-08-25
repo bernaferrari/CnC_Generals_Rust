@@ -841,7 +841,6 @@ impl PathfindingSystem {
         }
     }
 
-
     /// C++ `PathfindZoneManager::markZonesDirty` / force zone rebuild next processQueue.
     pub fn mark_zones_dirty(&self) {
         if let Ok(mut z) = self.zones.lock() {

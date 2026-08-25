@@ -144,9 +144,10 @@ mod tests {
     #[test]
     fn simulate_popup_replay_prepare_save_residual_live() {
         use game_client::gui::callbacks::{
-            residual_popup_replay_last_action, residual_popup_replay_name,
-            residual_popup_replay_selected_slot, simulate_popup_replay_back_button_gadget_selected,
-            simulate_popup_replay_prepare_save_from_slot, ResidualPopupReplayAction,
+            ResidualPopupReplayAction, residual_popup_replay_last_action,
+            residual_popup_replay_name, residual_popup_replay_selected_slot,
+            simulate_popup_replay_back_button_gadget_selected,
+            simulate_popup_replay_prepare_save_from_slot,
         };
         assert!(
             simulate_popup_replay_prepare_save_from_slot(0, "TestReplay"),

@@ -234,7 +234,7 @@ impl GpuProcessor {
             _ => {
                 return Err(AssetError::GpuProcessingError(
                     "Unsupported asset type for GPU processing".to_string(),
-                ))
+                ));
             }
         }
 

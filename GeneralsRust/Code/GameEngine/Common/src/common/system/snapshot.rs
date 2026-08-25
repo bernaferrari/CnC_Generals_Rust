@@ -185,8 +185,9 @@ impl Snapshot {
             let key_len = u32::from_le_bytes(buffer) as usize;
             let mut key_bytes = vec![0u8; key_len];
             reader.read_exact(&mut key_bytes)?;
-            let key = String::from_utf8(key_bytes)
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid UTF-8 in key"))?;
+            let key = String::from_utf8(key_bytes).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid UTF-8 in key")
+            })?;
 
             let mut buffer = [0u8; 4];
             reader.read_exact(&mut buffer)?;
@@ -269,10 +270,10 @@ impl SnapshotManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::xfer::Xfer;
     use super::super::xfer_load::XferLoad;
     use super::super::xfer_save::XferSave;
+    use super::*;
     use std::io::Cursor;
 
     #[test]

@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::upgrade::modules::upgrade_mux::{UpgradeMux, UpgradeMuxData};
 use crate::upgrade::UpgradeMask;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::upgrade::modules::upgrade_mux::{UpgradeMux, UpgradeMuxData};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -342,7 +342,6 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
         )
     }
 
-
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         // Wave 431: empty dual-world → false.
         if dual_world_registry_unavailable() {
@@ -511,7 +510,8 @@ fn parse_requires_all_triggers(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.upgrade_mux_data.parse_requires_all_triggers_tokens(tokens)
+    data.upgrade_mux_data
+        .parse_requires_all_triggers_tokens(tokens)
 }
 
 fn parse_fx_list_upgrade(
@@ -552,4 +552,3 @@ const SUBOBJECTS_UPGRADE_FIELDS: &[FieldParse<SubObjectsUpgradeModuleData>] = &[
         parse: parse_hide_sub_objects,
     },
 ];
-

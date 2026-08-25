@@ -10,7 +10,7 @@ use crate::helpers::{FindPositionOptions, TheAudio, ThePartitionManager, TheThin
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
 use crate::object::collide::*;
 use crate::player::player_list;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 
 /// Module data specific to unit crate collision
 #[derive(Debug, Clone)]
@@ -405,7 +405,7 @@ mod tests {
     use crate::common::KindOf;
     use crate::player::{Player, PlayerIndex};
     use game_engine::common::rts::science::{
-        get_science_store, get_science_store_mut, init_science_store, ScienceInfo, SCIENCE_INVALID,
+        SCIENCE_INVALID, ScienceInfo, get_science_store, get_science_store_mut, init_science_store,
     };
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
     use std::sync::{Arc, RwLock};
@@ -551,10 +551,7 @@ mod tests {
 
         assert_eq!(data.unit_count, 3);
         assert_eq!(data.unit_type, "AmericaTank");
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
         assert_ne!(
             data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0
@@ -583,10 +580,7 @@ mod tests {
         assert_eq!(data.base.pickup_science, expected_science);
         assert_eq!(data.unit_count, 2);
         assert_eq!(data.unit_type, "Infantry");
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
         assert_ne!(
             data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0

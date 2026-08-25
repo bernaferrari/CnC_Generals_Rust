@@ -63,11 +63,7 @@ impl Vec3 {
 
     fn normalize(self) -> Self {
         let len = self.length();
-        if len > f32::EPSILON {
-            self / len
-        } else {
-            self
-        }
+        if len > f32::EPSILON { self / len } else { self }
     }
 }
 

@@ -6,7 +6,7 @@ use super::helpers::*;
 #[test]
 fn barracks_command_set_allows_ranger_rejects_crusader() {
     use crate::game_logic::host_production_buildable_command_residual::{
-        command_set_allows_unit, CANMAKE_NO_PREREQ, CANMAKE_OK,
+        CANMAKE_NO_PREREQ, CANMAKE_OK, command_set_allows_unit,
     };
     assert_eq!(
         command_set_allows_unit("AmericaBarracks", "AmericaInfantryRanger"),
@@ -76,7 +76,7 @@ fn barracks_command_set_allows_ranger_rejects_crusader() {
 #[test]
 fn china_and_gla_barracks_command_sets_allow_retail_infantry() {
     use crate::game_logic::host_production_buildable_command_residual::{
-        command_set_allows_unit, CANMAKE_NO_PREREQ, CANMAKE_OK,
+        CANMAKE_NO_PREREQ, CANMAKE_OK, command_set_allows_unit,
     };
     assert_eq!(
         command_set_allows_unit("ChinaBarracks", "ChinaInfantryRedguard"),
@@ -182,8 +182,8 @@ fn china_and_gla_barracks_command_sets_allow_retail_infantry() {
 #[test]
 fn construction_percent_cpp_scale_and_exclusive_dozer() {
     use crate::game_logic::host_production_buildable_command_residual::{
-        cpp_construction_percent_to_host_fraction, host_fraction_to_cpp_construction_percent,
         CONSTRUCTION_COMPLETE_PERCENT, CONSTRUCTION_SELL_PERCENT,
+        cpp_construction_percent_to_host_fraction, host_fraction_to_cpp_construction_percent,
     };
     assert_eq!(
         host_fraction_to_cpp_construction_percent(1.0, false, false),
@@ -255,7 +255,6 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
 
 #[test]
 fn exclusive_dozer_does_not_stack_build_rate() {
-
     // C++ DozerAIUpdate.cpp:305 — getBuilderID() != dozer refuses a second builder.
     let mut logic = GameLogic::new();
     ensure_test_structure_template(&mut logic);
@@ -345,7 +344,6 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
         "linear per-frame HP gain expected ~{expected}, got {after}"
     );
 }
-
 
 #[test]
 fn factory_door_phases_use_ini_door_times() {
@@ -451,10 +449,11 @@ fn queue_head_allowed_to_build_recheck_cancels_script_disallowed_unit() {
         .and_then(|o| o.building_data.as_ref())
         .map(|b| b.production_queue.len())
         .unwrap_or(0);
-    assert_eq!(qlen, 1, "dozer queue head must survive allowedToBuild false");
+    assert_eq!(
+        qlen, 1,
+        "dozer queue head must survive allowedToBuild false"
+    );
 }
-
-
 
 #[test]
 fn door_gated_spawn_waits_for_waiting_open() {
@@ -626,7 +625,11 @@ fn door_animated_factory_releases_after_opening_time() {
             .filter(|o| o.template_name == "AmericaTankCrusader")
             .count();
         let o = logic.host_object(bid).expect("wf");
-        (o.production_door_phase, o.production_door_phase_end_frame, units)
+        (
+            o.production_door_phase,
+            o.production_door_phase_end_frame,
+            units,
+        )
     };
     assert_eq!(phase1, 1);
     assert_eq!(end1, end0, "already-OPENING must preserve DoorOpeningTime");
@@ -680,14 +683,15 @@ fn closing_factory_door_pops_waiting_open_for_next_unit() {
     let bid = logic
         .create_object("AmericaWarFactory", Team::USA, glam::Vec3::ZERO)
         .expect("wf");
+    let door_end_frame = logic.frame.saturating_add(90);
     if let Some(o) = logic.host_object_mut(bid) {
         o.set_status_under_construction(false);
         o.construction_percent = 1.0;
         o.production_door_phase = 4;
         o.production_door_phases[0] = 4;
         o.production_door_active_index = 0;
-        o.production_door_phase_end_frame = logic.frame.saturating_add(90);
-        o.production_door_phase_end_frames[0] = logic.frame.saturating_add(90);
+        o.production_door_phase_end_frame = door_end_frame;
+        o.production_door_phase_end_frames[0] = door_end_frame;
     }
     assert!(logic.enqueue_production(bid, "AmericaTankCrusader".into()));
     if let Some(o) = logic.host_object_mut(bid) {
@@ -721,8 +725,6 @@ fn closing_factory_door_pops_waiting_open_for_next_unit() {
         "next unit must exit this frame, not wait out DoorCloseTime"
     );
 }
-
-
 
 #[test]
 fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
@@ -790,7 +792,14 @@ fn assign_unit_path_fail_closed_and_retail_ai_names() {
         .expect("inf");
     // Same-cell / already-there is not a wall march.
     let _ = logic.assign_unit_path(id, glam::Vec3::ZERO, &[]);
-    let src = include_str!("../world_save.rs");
+    let src = concat!(
+        include_str!("../world_save.rs"),
+        include_str!("../world_save/world_subsystems.rs"),
+        include_str!("../world_save/world_paths.rs"),
+        include_str!("../world_save/world_runtime.rs"),
+        include_str!("../world_save/world_players.rs"),
+        include_str!("../world_save/world_load.rs"),
+    );
     let body = src
         .split("pub fn assign_unit_path(")
         .nth(1)
@@ -847,9 +856,10 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
     logic.queued_audio_events.clear();
     logic.update_construction(&[sid], 1.0);
     assert!(
-        !logic.queued_audio_events.iter().any(|e| {
-            e.event_type == "BuildingConstructionLoop" && e.is_looping && !e.stop
-        }),
+        !logic
+            .queued_audio_events
+            .iter()
+            .any(|e| { e.event_type == "BuildingConstructionLoop" && e.is_looping && !e.stop }),
         "already-playing loop must not restart: {:?}",
         logic.queued_audio_events
     );

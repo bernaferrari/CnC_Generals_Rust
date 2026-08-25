@@ -1,8 +1,8 @@
 //! Internal thread pool for audio processing (not exposed in public API).
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Condvar, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::{Duration, Instant};

@@ -113,8 +113,7 @@ pub fn draw_overlord_rider(owner_id: ObjectID) {
         rider_guard.draw(None);
     }
 
-    if let (Ok(owner_guard), Ok(mut rider_guard)) =
-        (owner_drawable.read(), rider_drawable.write())
+    if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner_drawable.read(), rider_drawable.write())
     {
         rider_guard.set_stealth_look(owner_guard.get_stealth_look());
     }
@@ -142,4 +141,3 @@ mod tests {
         set_overlord_rider_hidden(INVALID_ID, true);
     }
 }
-

@@ -36,18 +36,18 @@
 //! collision_system.process_collisions().unwrap();
 //! ```
 
-use super::collision_geometry::{collision_test, CollideInfo, CollideLocAndNormal, GeometryInfo};
+use super::collision_geometry::{CollideInfo, CollideLocAndNormal, GeometryInfo, collision_test};
 use super::collision_response::{CollisionResponseConfig, CollisionResponseHandler};
 use super::partition_manager::PartitionManager;
-use super::{CollisionError, Coord3D, GameObject, ObjectId, ObjectStatusMask, COLLISION_MANAGER};
-use crate::ai::states::AIStateType;
+use super::{COLLISION_MANAGER, CollisionError, Coord3D, GameObject, ObjectId, ObjectStatusMask};
 use crate::ai::CommandSourceType;
+use crate::ai::states::AIStateType;
 use crate::common::{Coord3D as GameCoord3D, FormationID, KindOf, ObjectStatusTypes, Real, Vec3D};
 use crate::helpers::TheGameLogic;
 use crate::locomotor::LocomotorPriority;
 use crate::modules::AIUpdateInterfaceExt;
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::CrushSquishTestType;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -206,7 +206,6 @@ impl CollisionSystem {
         if kind_no_collide {
             return Ok(false);
         }
-
 
         let mut cinfo = CollideLocAndNormal::new(Coord3D::zero(), Coord3D::zero());
         let info_a = CollideInfo::new(pos_a, geom_a, angle_a);

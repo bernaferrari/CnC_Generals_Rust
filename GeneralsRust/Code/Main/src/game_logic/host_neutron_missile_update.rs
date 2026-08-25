@@ -218,7 +218,9 @@ impl HostNeutronMissileUpdateData {
             .bounding_sphere_radius
             .unwrap_or(self.bounding_sphere_radius)
             .max(0.0);
-        let terrain_y = world.terrain_height_y.unwrap_or_else(|| self.target.y.max(0.0));
+        let terrain_y = world
+            .terrain_height_y
+            .unwrap_or_else(|| self.target.y.max(0.0));
 
         // C++ update: 3D intermediate sphere *before* doAttack.
         if !self.reached_intermediate {
@@ -333,7 +335,8 @@ impl HostNeutronMissileUpdateData {
             new_pos.z = pos.z;
             new_pos.y = loft_y;
             self.vel = new_pos - pos;
-            self.special_frames_left = NEUTRON_SPECIAL_SPEED_TIME_FRAMES.saturating_sub(elapsed + 1);
+            self.special_frames_left =
+                NEUTRON_SPECIAL_SPEED_TIME_FRAMES.saturating_sub(elapsed + 1);
             let time_frac = elapsed as f32 / NEUTRON_SPECIAL_SPEED_TIME_FRAMES as f32;
             let amp = (1.0 - time_frac) * NEUTRON_SPECIAL_JITTER_DISTANCE;
             instance_jitter = Vec3::new(0.0, amp * 0.0, 0.0);
@@ -528,7 +531,7 @@ mod tests {
     fn loft_is_quadratic_not_linear() {
         let linear_mid = 160.0 * 22.0 / 45.0;
         let quad_mid = special_loft_world_y(10.0, 22, 45, 1.0, 160.0);
-        assert!((quad_mid - (10.0 + 160.0 * (22.0 / 45.0).powi(2))).abs() < 1e-4);
+        assert!((quad_mid - (10.0 + 160.0 * (22.0_f32 / 45.0).powi(2))).abs() < 1e-4);
         assert!(quad_mid < linear_mid);
     }
 

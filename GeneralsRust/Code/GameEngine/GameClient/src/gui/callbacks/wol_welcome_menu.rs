@@ -7,45 +7,45 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::display::image::Image;
 use crate::game_text::GameText;
+use crate::gamespy_overlay::{
+    GameSpyOverlayType, gs_message_box_ok, open_overlay, raise_gs_message_box, toggle_overlay,
+};
 use crate::gui::callbacks::online_callback_support::{
     dispatch_esc_gadget_selected, packed_ui_color,
-};
-use crate::gamespy_overlay::{
-    gs_message_box_ok, open_overlay, raise_gs_message_box, toggle_overlay, GameSpyOverlayType,
 };
 use crate::gui::callbacks::wol_buddy_overlay::handle_buddy_responses;
 use crate::gui::gadgets::{ListBox, ListBoxItemData};
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
+    with_window_manager, write_input_focus_response,
 };
+use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_engine::common::skirmish_battle_honors::{
-    BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK, BATTLE_HONOR_BLITZ10,
-    BATTLE_HONOR_BLITZ5, BATTLE_HONOR_GLOBAL_GENERAL, BATTLE_HONOR_OFFICERSCLUB,
+    BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK, BATTLE_HONOR_BLITZ5,
+    BATTLE_HONOR_BLITZ10, BATTLE_HONOR_GLOBAL_GENERAL, BATTLE_HONOR_OFFICERSCLUB,
     MAX_BATTLE_HONOR_COLUMNS, MAX_BATTLE_HONOR_IMAGE_HEIGHT, MAX_BATTLE_HONOR_IMAGE_WIDTH,
 };
 use game_engine::common::user_preferences::UserPreferences;
-use game_network::gamespy::buddy_thread::{
-    get_buddy_message_queue, BuddyRequest, BuddyRequestType,
-};
-use game_network::gamespy::peer_defs::{
-    default_gamespy_colors, get_gamespy_info, make_color, GameSpyColor, GameSpyGroupRoom,
-};
-use game_network::gamespy::peer_thread::{
-    get_peer_message_queue, PeerRequest, PeerRequestType, PeerResponse, PeerResponseType,
-};
-use game_network::gamespy::persistent_storage_thread::{
-    get_ps_message_queue, PSResponseType, LOC_MAX, LOC_MIN,
-};
-use game_network::rank_point_value::{calculate_rank, get_favorite_side, get_rank_point_values};
 use game_network::firewall_helper::{
     behavior_detection_update, detect_firewall, firewall_detection_done, get_firewall_behavior,
     write_firewall_behavior,
 };
-use game_engine::common::ini::ini_game_data::get_global_data;
+use game_network::gamespy::buddy_thread::{
+    BuddyRequest, BuddyRequestType, get_buddy_message_queue,
+};
+use game_network::gamespy::peer_defs::{
+    GameSpyColor, GameSpyGroupRoom, default_gamespy_colors, get_gamespy_info, make_color,
+};
+use game_network::gamespy::peer_thread::{
+    PeerRequest, PeerRequestType, PeerResponse, PeerResponseType, get_peer_message_queue,
+};
+use game_network::gamespy::persistent_storage_thread::{
+    LOC_MAX, LOC_MIN, PSResponseType, get_ps_message_queue,
+};
+use game_network::rank_point_value::{calculate_rank, get_favorite_side, get_rank_point_values};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -711,18 +711,18 @@ fn populate_battle_honors_list(
     );
 
     if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
-        if info.did_player_preorder(stats.id) {
-            insert_battle_honor(
-                listbox,
-                "OfficersClub",
-                (honors & BATTLE_HONOR_OFFICERSCLUB) != 0,
-                &mut row,
-                &mut column,
-            );
+        if let Ok(info) = slot.lock() {
+            if info.did_player_preorder(stats.id) {
+                insert_battle_honor(
+                    listbox,
+                    "OfficersClub",
+                    (honors & BATTLE_HONOR_OFFICERSCLUB) != 0,
+                    &mut row,
+                    &mut column,
+                );
+            }
         }
     }
-}
 }
 
 fn update_local_player_stats() {
@@ -773,10 +773,11 @@ fn handle_persistent_storage_responses() {
                 }
                 if let Some(queue) = get_ps_message_queue() {
                     if let Ok(mut queue) = queue.lock() {
-                         let profile_id = crate::gui::callbacks::online_callback_support::with_gamespy_info(
-                            |info| info.get_local_profile_id(),
-                        )
-                        .unwrap_or(0);
+                        let profile_id =
+                            crate::gui::callbacks::online_callback_support::with_gamespy_info(
+                                |info| info.get_local_profile_id(),
+                            )
+                            .unwrap_or(0);
                         let stats = queue.find_player_stats_by_id(profile_id);
                         let mut new_resp = resp.clone();
                         new_resp.response_type = PSResponseType::PlayerStats;
@@ -824,34 +825,34 @@ fn handle_persistent_storage_responses() {
                 }
             }
             if let Some(slot) = get_gamespy_info() {
-            if let Ok(mut info) = slot.lock() {
-                let wins: i32 = resp.player.wins.values().map(|v| *v as i32).sum();
-                let losses: i32 = resp.player.losses.values().map(|v| *v as i32).sum();
-                let rank_points = calculate_rank(&resp.player);
-                let favorite = get_favorite_side(&resp.player);
-                let side = if favorite < 0 { 0 } else { favorite };
-                if let Some(updated) =
-                    info.update_player_stats(resp.player.id, wins, losses, rank_points, side)
-                {
-                    let mut response = PeerResponse::default();
-                    response.response_type = PeerResponseType::PlayerInfo;
-                    response.nick = updated.name.as_str().to_string();
-                    response.player_profile_id = updated.profile_id;
-                    response.player_flags = updated.flags;
-                    response.player_wins = updated.wins;
-                    response.player_losses = updated.losses;
-                    response.player_rank_points = updated.rank_points;
-                    response.player_side = updated.side;
-                    response.player_preorder = updated.preorder;
-                    response.locale = updated.locale.as_str().to_string();
-                    if let Some(peer_queue) = get_peer_message_queue() {
-                        if let Ok(mut peer_queue) = peer_queue.lock() {
-                            peer_queue.add_response(response);
+                if let Ok(mut info) = slot.lock() {
+                    let wins: i32 = resp.player.wins.values().map(|v| *v as i32).sum();
+                    let losses: i32 = resp.player.losses.values().map(|v| *v as i32).sum();
+                    let rank_points = calculate_rank(&resp.player);
+                    let favorite = get_favorite_side(&resp.player);
+                    let side = if favorite < 0 { 0 } else { favorite };
+                    if let Some(updated) =
+                        info.update_player_stats(resp.player.id, wins, losses, rank_points, side)
+                    {
+                        let mut response = PeerResponse::default();
+                        response.response_type = PeerResponseType::PlayerInfo;
+                        response.nick = updated.name.as_str().to_string();
+                        response.player_profile_id = updated.profile_id;
+                        response.player_flags = updated.flags;
+                        response.player_wins = updated.wins;
+                        response.player_losses = updated.losses;
+                        response.player_rank_points = updated.rank_points;
+                        response.player_side = updated.side;
+                        response.player_preorder = updated.preorder;
+                        response.locale = updated.locale.as_str().to_string();
+                        if let Some(peer_queue) = get_peer_message_queue() {
+                            if let Ok(mut peer_queue) = peer_queue.lock() {
+                                peer_queue.add_response(response);
+                            }
                         }
                     }
                 }
             }
-}
             let (look_id, look_name) = get_look_at_player();
             if look_id > 0 {
                 populate_player_info_windows("PopupPlayerInfo.wnd", look_id, &look_name);
@@ -949,12 +950,12 @@ pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std:
         let title_id = name_to_id("WOLWelcomeMenu.wnd:StaticTextTitle");
         if let Some(title) = parent.borrow().find_child_by_id(title_id) {
             if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
-                let text = GameText::fetch("GUI:WOLWelcome")
-                    .replace("%s", info.get_local_base_name().as_str());
-                let _ = title.borrow_mut().set_text(&text);
+                if let Ok(info) = slot.lock() {
+                    let text = GameText::fetch("GUI:WOLWelcome")
+                        .replace("%s", info.get_local_base_name().as_str());
+                    let _ = title.borrow_mut().set_text(&text);
+                }
             }
-}
         }
     }
 
@@ -989,7 +990,7 @@ pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn s
         .unwrap_or(false);
     {
         let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.listbox_info = None;
         state.is_shutting_down = true;
     }
@@ -1092,7 +1093,8 @@ pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn st
                                 {
                                     let mut state = state_slot.borrow_mut();
                                     state.button_pushed = true;
-                                    state.next_screen = Some("Menus/WOLCustomLobby.wnd".to_string());
+                                    state.next_screen =
+                                        Some("Menus/WOLCustomLobby.wnd".to_string());
                                 }
                                 let _ = get_shell().pop();
                             } else {
@@ -1136,7 +1138,11 @@ pub fn wol_welcome_menu_input(
     let (button_pushed, parent, back_id) = {
         let slot = wol_state();
         let state = slot.borrow();
-        (state.button_pushed, state.parent.clone(), state.button_back_id)
+        (
+            state.button_pushed,
+            state.parent.clone(),
+            state.button_back_id,
+        )
     };
     if button_pushed {
         return WindowMsgHandled::Ignored;
@@ -1228,7 +1234,7 @@ pub fn wol_welcome_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let state_slot = wol_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }
@@ -1262,10 +1268,13 @@ pub fn wol_welcome_menu_system(
             }
             if control_id == state.button_my_info_id {
                 if let Some(slot) = get_gamespy_info() {
-            if let Ok(info) = slot.lock() {
-                    set_look_at_player(info.get_local_profile_id(), info.get_local_name().as_str());
+                    if let Ok(info) = slot.lock() {
+                        set_look_at_player(
+                            info.get_local_profile_id(),
+                            info.get_local_name().as_str(),
+                        );
+                    }
                 }
-}
                 toggle_overlay(GameSpyOverlayType::PlayerInfo);
                 return WindowMsgHandled::Handled;
             }

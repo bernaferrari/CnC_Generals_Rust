@@ -216,11 +216,15 @@ impl GameLogic {
             player.is_alive = false;
         }
 
-        let neutral_owner = self.players.values().find(|p| {
-            p.team == Team::Neutral
-                && !p.is_observer
-                && !p.name.to_ascii_lowercase().contains("observer")
-        }).map(|p| p.id);
+        let neutral_owner = self
+            .players
+            .values()
+            .find(|p| {
+                p.team == Team::Neutral
+                    && !p.is_observer
+                    && !p.name.to_ascii_lowercase().contains("observer")
+            })
+            .map(|p| p.id);
 
         let army: Vec<ObjectId> = self
             .objects

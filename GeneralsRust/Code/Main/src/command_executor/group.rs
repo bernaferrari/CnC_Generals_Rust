@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -59,7 +59,6 @@ impl<'a> CommandExecutor<'a> {
             },
         )
     }
-
 
     /// C++ AIGroup::getCommandButtonSourceObject residual —
     /// first living member that can act on `command` capability.
@@ -164,7 +163,7 @@ impl<'a> CommandExecutor<'a> {
     /// Heavily damaged units do not drag the whole group down.
     pub(crate) fn group_speed(&self, units: &[ObjectId]) -> f32 {
         use crate::game_logic::host_ai_path_combat_residual_wave105::{
-            calc_damage_state_residual, is_body_condition_better, BODY_REALLYDAMAGED,
+            BODY_REALLYDAMAGED, calc_damage_state_residual, is_body_condition_better,
         };
         let mut best = f32::INFINITY;
         let mut saw = false;
@@ -202,11 +201,7 @@ impl<'a> CommandExecutor<'a> {
                 saw = true;
             }
         }
-        if saw {
-            best
-        } else {
-            0.0
-        }
+        if saw { best } else { 0.0 }
     }
 
     /// C++ `AIMoveToState::onEnter` / team-column follow: `setDesiredSpeed(group->getSpeed())`

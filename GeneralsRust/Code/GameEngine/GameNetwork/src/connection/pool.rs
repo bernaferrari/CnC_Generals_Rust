@@ -7,14 +7,14 @@
 use crate::connection::Connection;
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
-use crate::transport_unified::UnifiedTransport as Transport;
 use crate::transport::TransportProtocol;
+use crate::transport_unified::UnifiedTransport as Transport;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::sync::{broadcast, RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore, broadcast};
 use tokio::time::timeout;
 use tracing::{debug, info, trace, warn};
 

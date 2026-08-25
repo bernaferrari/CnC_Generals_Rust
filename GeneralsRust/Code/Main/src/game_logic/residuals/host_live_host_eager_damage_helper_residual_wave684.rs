@@ -91,8 +91,8 @@ pub fn honesty_host_eager_damage_helper_source_markers_residual_wave684() -> boo
         && sh.contains("apply_host_damage_events")
         && sh.contains("take_early_damage_batch")
         && sh.contains("early_damage_applied");
-    let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
-        && eng.contains("Wave 682/925");
+    let eng_ok =
+        eng.contains("eager_apply_all_host_residuals_after_logic") && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostEagerDamageHelperAction::SourceMarkers);
     ok
@@ -148,10 +148,10 @@ mod tests {
     use crate::game_logic::host_damage_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_apply_host_damage_after_logic, eager_map_host_spawn_if_coupled,
         end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
-        shadow_session_after_host_tick, GameWorldShadow,
+        shadow_session_after_host_tick,
     };
     use glam::Vec3;
 

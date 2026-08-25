@@ -9,30 +9,30 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::{
-    display::view::{with_tactical_view, with_tactical_view_ref, Point3},
+    display::view::{Point3, with_tactical_view, with_tactical_view_ref},
     drawable::Drawable,
     effects::particle_manager::xfer_particle_system_manager_state,
     game_text::GameText,
-    gui::campaign_manager::{get_campaign_manager, XferHelper as CampaignXferHelper},
-    gui::window_video_manager::{with_window_video_manager, WindowVideoPlayType},
+    gui::campaign_manager::{XferHelper as CampaignXferHelper, get_campaign_manager},
+    gui::window_video_manager::{WindowVideoPlayType, with_window_video_manager},
     helpers::{InGameUiHooks, PendingCommand, PendingSpecialPower},
     message_stream::game_message::{ICoord2D, ObjectID},
     message_stream::hot_key::with_hot_key_manager,
     system::{
-        beacon_display::{BeaconMarker, BEACON_MATCH_THRESHOLD},
         BeaconNotification, Coord3D, SubsystemInterface,
+        beacon_display::{BEACON_MATCH_THRESHOLD, BeaconMarker},
     },
     terrain::{
-        TerrainError, TerrainVisual, TreeModuleData, TreeSaveRecord, TreeSphere, W3DToppleState,
-        W3DTreeBuffer, TREE_RADIUS_APPROX,
+        TREE_RADIUS_APPROX, TerrainError, TerrainVisual, TreeModuleData, TreeSaveRecord,
+        TreeSphere, W3DToppleState, W3DTreeBuffer,
     },
     video_player::{
-        get_video_player, init_video_player, VideoPlayerInterface as GlobalVideoPlayerInterface,
+        VideoPlayerInterface as GlobalVideoPlayerInterface, get_video_player, init_video_player,
     },
 };
+use game_engine::System::XferVersion;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::System::XferVersion;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
 use gamelogic::common::audio::AudioEventRts as LogicAudioEventRts;
@@ -44,11 +44,10 @@ use glam::{Mat4, Vec3};
 use kira::manager::{AudioManager, AudioManagerSettings};
 
 use crate::core::game_client::{
-    run_live_game_client_load_post_process, xfer_live_game_client_state, InGameUI,
-    VideoPlayerInterface,
+    InGameUI, VideoPlayerInterface, run_live_game_client_load_post_process,
+    xfer_live_game_client_state,
 };
 use crate::gui::ingame_ui::MessageText;
-
 
 fn xfer_bool_flag(xfer: &mut dyn Xfer, value: &mut bool) -> Result<(), XferStatus> {
     xfer.xfer_bool(value)
@@ -462,7 +461,6 @@ fn xfer_terrain_tree_buffer_v3(
     Ok(())
 }
 
-
 fn xfer_tree_save_record(
     xfer: &mut dyn Xfer,
     record: &mut TreeSaveRecord,
@@ -755,7 +753,6 @@ fn xfer_terrain_visual_state(
 
     Ok(())
 }
-
 
 fn xfer_pending_special_power(
     xfer: &mut dyn Xfer,
@@ -1476,7 +1473,8 @@ impl InGameUISubsystem {
     /// C++ `InGameUI::update` fade (InGameUI.cpp:1632-1657): after
     /// `messageTimeout` drop alpha, remove when it hits 0.
     pub fn expire_hud_messages(&mut self, current_frame: u32) {
-        let timeout = crate::gui::ingame_ui::InGameUI::message_timeout_frames(Self::MESSAGE_DELAY_MS);
+        let timeout =
+            crate::gui::ingame_ui::InGameUI::message_timeout_frames(Self::MESSAGE_DELAY_MS);
         self.hud_messages.retain_mut(|msg| {
             let age = current_frame.saturating_sub(msg.creation_frame);
             let orig_a = ((msg.original_color >> 24) & 0xFF) as u8;
@@ -1487,10 +1485,8 @@ impl InGameUISubsystem {
             if new_a == 0 {
                 false
             } else {
-                msg.color = ((new_a as u32) << 24)
-                    | ((r as u32) << 16)
-                    | ((g as u32) << 8)
-                    | (b as u32);
+                msg.color =
+                    ((new_a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
                 true
             }
         });
@@ -1521,7 +1517,6 @@ impl InGameUISubsystem {
             creation_frame: frame,
         });
     }
-
 
     pub fn push_military_subtitle(&mut self, label: &str, duration_ms: i32) {
         crate::gui::ingame_ui::start_military_subtitle(label, duration_ms);
@@ -1561,7 +1556,6 @@ impl InGameUISubsystem {
         &self.hud_messages
     }
 
-
     pub fn military_subtitles(&self) -> &VecDeque<(String, i32)> {
         &self.military_subtitles
     }
@@ -1581,7 +1575,6 @@ impl InGameUISubsystem {
     pub fn presentation_superweapon_timers(&self) -> &[PresentationSuperweaponTimerResidual] {
         &self.presentation_superweapon_timers
     }
-
 
     /// Wave 964: stamp presentation selection residual.
     pub fn set_presentation_selection_residual(
@@ -1618,7 +1611,6 @@ impl InGameUISubsystem {
         self.look_at_mouse_moved_recently = moved_recently;
     }
 
-
     pub fn presentation_local_team_name(&self) -> &str {
         &self.presentation_local_team_name
     }
@@ -1645,7 +1637,6 @@ impl InGameUISubsystem {
         );
     }
 
-
     fn disable_tooltips_until(&mut self, frame_num: u32) {
         if frame_num > self.tooltips_disabled_until {
             self.tooltips_disabled_until = frame_num;
@@ -1661,8 +1652,7 @@ impl InGameUISubsystem {
     }
 
     fn play_radar_movie(&mut self, movie_name: &str) -> bool {
-        let window_id =
-            NameKeyGenerator::name_to_key("ControlBar.wnd:LeftHUD") as i32;
+        let window_id = NameKeyGenerator::name_to_key("ControlBar.wnd:LeftHUD") as i32;
         let Some(window) =
             crate::gui::with_window_manager_ref(|manager| manager.get_window_by_id(window_id))
         else {
@@ -1673,7 +1663,6 @@ impl InGameUISubsystem {
             manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
         })
     }
-
 
     fn update_radar_movie_playback(&mut self) {
         with_window_video_manager(|manager| manager.update());
@@ -1982,7 +1971,6 @@ impl InGameUI for InGameUISubsystem {
         crate::gui::ingame_ui::InGameUI::disregard_live_drawable(object_id);
         Ok(())
     }
-
 
     fn handle_beacon_notification(
         &mut self,
@@ -2976,7 +2964,7 @@ mod tests {
             1,   // WaterRenderObjClass version
             0, 0, 0, 0, // cellsX
             0, 0, 0, 0, // cellsY
-            // meshDataSize = (0+1+2)*(0+1+2) = 9 points
+               // meshDataSize = (0+1+2)*(0+1+2) = 9 points
         ];
         for _ in 0..9 {
             payload.extend_from_slice(&0f32.to_le_bytes());
@@ -3120,9 +3108,11 @@ mod tests {
             random_scale_amount: 0.0,
             module_data,
         });
-        assert!(terrain
-            .tree_buffer_mut()
-            .apply_toppling_force(88, Vec3::X, 1.0, 0));
+        assert!(
+            terrain
+                .tree_buffer_mut()
+                .apply_toppling_force(88, Vec3::X, 1.0, 0)
+        );
 
         let mut dispatched = Vec::new();
         let count = terrain.drain_tree_fx_events_with(|fx_name, position| {
@@ -3289,7 +3279,6 @@ mod tests {
         assert!(ui.hud_messages().is_empty());
     }
 
-
     #[test]
     fn window_manager_subsystem_reset_does_not_destroy_wnd() {
         // C++ GameClient::reset (GameClient.cpp:426-457) never calls
@@ -3376,9 +3365,10 @@ mod tests {
         let removed_from_impl =
             if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
                 visual.as_mut().is_some_and(|live| {
-                    live.tree_buffer_mut().trees().iter().all(|tree| {
-                        tree.drawable_id != DRAWABLE_ID || tree.location == Vec3::ZERO
-                    })
+                    live.tree_buffer_mut()
+                        .trees()
+                        .iter()
+                        .all(|tree| tree.drawable_id != DRAWABLE_ID || tree.location == Vec3::ZERO)
                 })
             } else {
                 false
@@ -3388,5 +3378,4 @@ mod tests {
             "stub remove_tree_registration must clear the Impl buffer entry"
         );
     }
-
 }

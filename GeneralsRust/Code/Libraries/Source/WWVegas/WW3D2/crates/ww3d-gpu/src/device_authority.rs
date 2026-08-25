@@ -132,9 +132,7 @@ mod tests {
 
     fn isolated(test: impl FnOnce()) {
         static TEST_LOCK: OnceLock<parking_lot::Mutex<()>> = OnceLock::new();
-        let _serial = TEST_LOCK
-            .get_or_init(|| parking_lot::Mutex::new(()))
-            .lock();
+        let _serial = TEST_LOCK.get_or_init(|| parking_lot::Mutex::new(())).lock();
         reset_device_authority_for_tests();
         test();
         reset_device_authority_for_tests();

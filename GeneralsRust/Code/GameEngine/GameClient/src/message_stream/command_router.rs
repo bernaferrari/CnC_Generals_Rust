@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use gamelogic::commands::command::{Command, CommandType};
 use gamelogic::commands::command_queue::{
-    get_command_queue_manager, CommandPriority, QueuedCommand,
+    CommandPriority, QueuedCommand, get_command_queue_manager,
 };
 use gamelogic::common::{
     AsciiString, Coord3D as LogicCoord3D, IRegion2D as LogicRegion2D, Int, ObjectID,
@@ -103,7 +103,6 @@ pub enum CommandRoutingError {
     #[error("Failed to queue command: {0}")]
     QueueError(String),
 }
-
 
 fn determine_priority(message_type: &GameMessageType) -> CommandPriority {
     use GameMessageType::*;

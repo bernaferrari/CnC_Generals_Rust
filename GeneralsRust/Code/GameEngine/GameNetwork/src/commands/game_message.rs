@@ -725,8 +725,7 @@ impl GameMessage {
 
         trace!(
             "Deserialized GameMessage type {} with {} arguments",
-            message_type,
-            arg_count
+            message_type, arg_count
         );
 
         Ok(Self {

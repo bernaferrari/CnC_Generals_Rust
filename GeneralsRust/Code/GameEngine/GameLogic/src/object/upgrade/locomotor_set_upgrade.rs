@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
-use game_engine::common::ini::{INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -131,9 +133,8 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
 
         // C++ LocomotorSetUpgrade::upgradeImplementation: getObject()->getAIUpdateInterface()
         // Live host objects live on TheGameLogic (registry may be empty).
-        let object = TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-        });
+        let object = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id));
 
         let Some(object) = object else {
             log::warn!("LocomotorSetUpgrade: Object {} not found", self.object_id);

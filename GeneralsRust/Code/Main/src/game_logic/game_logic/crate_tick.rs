@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::prelude::*;
-use super::*;
 use super::authority::*;
 use super::construct::*;
 use super::host::*;
 use super::player::*;
+use super::prelude::*;
 use super::script_camera::*;
+use super::*;
 
 /// Host count of crate ticks that were empty-world no-ops (not C++ phase order).
 pub(super) static CRATE_EMPTY_NOOP_TICKS: AtomicU32 = AtomicU32::new(0);
@@ -296,4 +296,3 @@ pub struct PlayerStatistics {
     /// C++ EVA BuildingLost residual fires attributed to this player.
     pub eva_building_lost: u32,
 }
-

@@ -17,7 +17,7 @@ use crate::modules::SlowDeathBehaviorInterface;
 use crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule;
 use crate::object::behavior::neutron_missile_slow_death_update::NeutronMissileSlowDeathUpdate;
 use crate::object::behavior::slow_death_behavior::SlowDeathBehavior;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::Module;
 

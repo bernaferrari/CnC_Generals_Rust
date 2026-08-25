@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -209,7 +209,6 @@ impl SpyVisionSpecialPower {
             .do_special_power_at_location(location, angle, command_options);
     }
 
-
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
@@ -260,7 +259,6 @@ impl BehaviorModuleInterface for SpyVisionSpecialPower {
 }
 super::interface::impl_special_power_subclass!(SpyVisionSpecialPower);
 
-
 impl Snapshotable for SpyVisionSpecialPower {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -281,7 +279,6 @@ impl Snapshotable for SpyVisionSpecialPower {
         super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
-
 
 // INI field parsers
 
@@ -389,5 +386,4 @@ mod tests {
         let capped = if duration > 0 { 0 } else { duration };
         assert_eq!(capped, 0);
     }
-
 }

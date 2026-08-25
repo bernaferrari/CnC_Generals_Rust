@@ -1,6 +1,6 @@
 use crate::command_system::{
-    get_command_system, init_command_system, CommandMode, CommandType, GuardTarget, ModifierKeys,
-    MouseButton, MouseCommandContext, PresentationSelectedUnitHint, PresentationTargetHint,
+    CommandMode, CommandType, GuardTarget, ModifierKeys, MouseButton, MouseCommandContext,
+    PresentationSelectedUnitHint, PresentationTargetHint, get_command_system, init_command_system,
 };
 use crate::game_logic::{GameLogic, ObjectId, ObjectType, Team};
 use crate::presentation_frame::{PresentationFrame, PresentationObjectType};
@@ -120,11 +120,7 @@ impl InputCommandProcessor {
 
             let target_index = if reverse {
                 if let Some(idx) = start_index {
-                    if idx == 0 {
-                        workers.len() - 1
-                    } else {
-                        idx - 1
-                    }
+                    if idx == 0 { workers.len() - 1 } else { idx - 1 }
                 } else {
                     workers.len() - 1
                 }
@@ -178,11 +174,7 @@ impl InputCommandProcessor {
 
             let target_index = if reverse {
                 if let Some(idx) = start_index {
-                    if idx == 0 {
-                        units.len() - 1
-                    } else {
-                        idx - 1
-                    }
+                    if idx == 0 { units.len() - 1 } else { idx - 1 }
                 } else {
                     units.len() - 1
                 }
@@ -1435,10 +1427,12 @@ End
             .expect("parsed RiderChange host crosses the frozen frame");
         assert!(target.enter_is_rider_change);
         assert!(target.can_be_entered);
-        assert!(target
-            .rider_change_allowed_templates
-            .iter()
-            .any(|template| template.eq_ignore_ascii_case("GLAInfantryRebel")));
+        assert!(
+            target
+                .rider_change_allowed_templates
+                .iter()
+                .any(|template| template.eq_ignore_ascii_case("GLAInfantryRebel"))
+        );
         assert!(
             target
                 .rider_change_allowed_templates
@@ -1475,7 +1469,6 @@ End
             matches!(slow_command.command_type, CommandType::Enter { target_id } if target_id == bike_id),
             "frozen physical RMB must admit the modeled SET_SLUGGISH row"
         );
-
 
         // Run a real RMB -> frozen command -> executor -> arrival sequence.
         // The target has an existing valid worker rider, so the final arrival
@@ -1614,7 +1607,6 @@ End
             "SET_SLUGGISH must install the slow bike table, got {}",
             bike_sluggish.movement.max_speed
         );
-
     }
 
     #[test]

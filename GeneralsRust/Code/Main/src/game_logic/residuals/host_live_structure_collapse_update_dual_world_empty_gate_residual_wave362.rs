@@ -45,8 +45,8 @@ pub const RUNTIME_HOST_LIVE_STRUCTURE_COLLAPSE_UPDATE_DUAL_WORLD_EMPTY_GATE_CMD_
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_structure_collapse_update_dual_world_empty_gate_method_names_residual_wave362(
-) -> bool {
+pub fn honesty_live_structure_collapse_update_dual_world_empty_gate_method_names_residual_wave362()
+-> bool {
     LIVE_STRUCTURE_COLLAPSE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE362.len() == 7
         && residual_name_index(
             LIVE_STRUCTURE_COLLAPSE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE362,
@@ -63,8 +63,8 @@ pub fn honesty_live_structure_collapse_update_dual_world_empty_gate_method_names
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_structure_collapse_update_dual_world_empty_gate_nav_commands_residual_wave362(
-) -> bool {
+pub fn honesty_live_structure_collapse_update_dual_world_empty_gate_nav_commands_residual_wave362()
+-> bool {
     LIVE_STRUCTURE_COLLAPSE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE362.len() == 4
         && residual_name_index(
             LIVE_STRUCTURE_COLLAPSE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE362,

@@ -191,7 +191,7 @@ impl SpecialPowerModuleInterface for DefectorSpecialPower {
             None => {
                 return ActivationResult::InvalidTarget {
                     reason: "Defector power requires targeting".to_string(),
-                }
+                };
             }
         };
 

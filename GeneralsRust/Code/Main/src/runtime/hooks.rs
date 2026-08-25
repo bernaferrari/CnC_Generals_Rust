@@ -44,8 +44,7 @@ impl AttachmentHookRegistry {
         if guard.is_empty() {
             trace!(
                 "Attachment dispatch with no listeners: {} (parent {})",
-                record.name,
-                record.parent_label
+                record.name, record.parent_label
             );
         }
         for listener in guard.deref() {

@@ -79,8 +79,8 @@ pub fn residual_production_door_model_condition_log_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_production_door_model_condition_log_last_action(
-) -> ResidualProductionDoorModelConditionLogAction {
+pub fn residual_production_door_model_condition_log_last_action()
+-> ResidualProductionDoorModelConditionLogAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualProductionDoorModelConditionLogAction::MethodNames,
         2 => ResidualProductionDoorModelConditionLogAction::SourceMarkers,

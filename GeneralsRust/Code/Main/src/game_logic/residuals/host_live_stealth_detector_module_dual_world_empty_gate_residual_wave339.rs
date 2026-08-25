@@ -44,8 +44,8 @@ pub const RUNTIME_HOST_LIVE_STEALTH_DETECTOR_MODULE_DUAL_WORLD_EMPTY_GATE_CMD_NA
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_stealth_detector_module_dual_world_empty_gate_method_names_residual_wave339(
-) -> bool {
+pub fn honesty_live_stealth_detector_module_dual_world_empty_gate_method_names_residual_wave339()
+-> bool {
     LIVE_STEALTH_DETECTOR_MODULE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE339.len() == 5
         && residual_name_index(
             LIVE_STEALTH_DETECTOR_MODULE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE339,
@@ -62,8 +62,8 @@ pub fn honesty_live_stealth_detector_module_dual_world_empty_gate_method_names_r
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_stealth_detector_module_dual_world_empty_gate_nav_commands_residual_wave339(
-) -> bool {
+pub fn honesty_live_stealth_detector_module_dual_world_empty_gate_nav_commands_residual_wave339()
+-> bool {
     LIVE_STEALTH_DETECTOR_MODULE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE339.len() == 4
         && residual_name_index(
             LIVE_STEALTH_DETECTOR_MODULE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE339,

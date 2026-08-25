@@ -11,9 +11,9 @@ use crate::common::{GameResult, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
-use crate::object::contain::TransportContain;
 use crate::object::Object;
-use game_engine::common::ini::{INIError, INI};
+use crate::object::contain::TransportContain;
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data for InternetHackContain module
@@ -149,11 +149,7 @@ impl ContainModuleInterface for InternetHackContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.base.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {

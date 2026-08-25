@@ -12,7 +12,7 @@ pub mod chrome;
 pub mod ui;
 
 pub use cache::{
-    parse_map_bytes, run_cli, write_synthetic_ckmp_map, ExtractedMapInfo, MapCache, MapMetaData,
-    CACHE_FILE_NAME, DEFAULT_MAP_DIRS, MAP_HEIGHT_SCALE, MAP_XY_FACTOR,
+    CACHE_FILE_NAME, DEFAULT_MAP_DIRS, ExtractedMapInfo, MAP_HEIGHT_SCALE, MAP_XY_FACTOR, MapCache,
+    MapMetaData, parse_map_bytes, run_cli, write_synthetic_ckmp_map,
 };
 pub use chrome::{MapCacheChrome, MapExtentStatus};

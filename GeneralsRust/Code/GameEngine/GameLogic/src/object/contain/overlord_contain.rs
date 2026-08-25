@@ -21,7 +21,7 @@ use crate::modules::{
 };
 use crate::object::{Object, ObjectId};
 use crate::player::Player;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 300 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -710,7 +710,6 @@ impl OverlordContain {
         };
         let payload_templates = self.module_data.payload_template_names.clone();
 
-
         self.base.base.enable_load_sounds(false);
 
         for template_name in payload_templates {
@@ -941,11 +940,7 @@ impl ContainModuleInterface for OverlordContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
@@ -1226,10 +1221,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(
-            &mut self,
-            _snapshot: &mut dyn Snapshotable,
-        ) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 

@@ -9,12 +9,12 @@
 use super::*;
 use crate::game_logic::GameMode;
 use game_engine::common::message_stream::{
-    is_network_command_message, Coord3D, GameMessage, GameMessageArgumentType, GameMessageType,
-    ICoord2D, ObjectID,
+    Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D, ObjectID,
+    is_network_command_message,
 };
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Camera pose carried by `MSG_SET_REPLAY_CAMERA`.
 /// C++ `LookAtXlat.cpp:463-467` / `GameLogicDispatch.cpp:1807-1815`.
@@ -40,8 +40,14 @@ pub enum ReplayTeamOp {
         slot: u8,
         ids: Vec<ObjectId>,
     },
-    Select { player_index: i32, slot: u8 },
-    Add { player_index: i32, slot: u8 },
+    Select {
+        player_index: i32,
+        slot: u8,
+    },
+    Add {
+        player_index: i32,
+        slot: u8,
+    },
 }
 
 fn intern_name(name: &str) -> u32 {
@@ -49,8 +55,7 @@ fn intern_name(name: &str) -> u32 {
 }
 
 fn resolve_name(id: u32) -> String {
-    game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(id)
-        .unwrap_or_default()
+    game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(id).unwrap_or_default()
 }
 
 fn special_maps() -> &'static Mutex<(
@@ -58,7 +63,10 @@ fn special_maps() -> &'static Mutex<(
     HashMap<u32, SpecialPowerType>,
 )> {
     static MAPS: std::sync::LazyLock<
-        Mutex<(HashMap<SpecialPowerType, u32>, HashMap<u32, SpecialPowerType>)>,
+        Mutex<(
+            HashMap<SpecialPowerType, u32>,
+            HashMap<u32, SpecialPowerType>,
+        )>,
     > = std::sync::LazyLock::new(|| Mutex::new((HashMap::new(), HashMap::new())));
     &MAPS
 }
@@ -138,7 +146,6 @@ static BRIDGES_INSTALLED: AtomicBool = AtomicBool::new(false);
 static HOST_LOGIC_FRAME: AtomicU32 = AtomicU32::new(0);
 static LAST_LOGIC_CRC: AtomicU32 = AtomicU32::new(0);
 static LAST_LOGIC_CRC_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
-
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {
@@ -374,7 +381,6 @@ fn leftover_logic_crc() -> u32 {
         .unwrap_or(0)
 }
 
-
 fn logic_crc_due(frame: u32) -> bool {
     let interval = game_engine::common::crc_debug::replay_crc_interval();
     interval > 0 && frame % (interval as u32) == 0
@@ -406,7 +412,6 @@ pub fn post_host_logic_crc_if_due(frame: u32, host_fold: u32) -> Option<u32> {
     Some(crc)
 }
 
-
 /// True when the live recorder is in `RECORDERMODETYPE_PLAYBACK`.
 pub fn host_recorder_is_playback() -> bool {
     install_host_replay_bridges();
@@ -417,11 +422,13 @@ pub fn host_recorder_is_playback() -> bool {
 pub fn host_observer_look_at_player_index() -> Option<i32> {
     #[cfg(feature = "game_client")]
     {
-        if let Some(index) = game_client::helpers::TheControlBar::get_observer_look_at_player_index()
+        if let Some(index) =
+            game_client::helpers::TheControlBar::get_observer_look_at_player_index()
         {
             return Some(index);
         }
-        return game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index();
+        return game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(
+        );
     }
     #[cfg(not(feature = "game_client"))]
     None
@@ -446,7 +453,10 @@ pub fn host_should_remirror_observer_selection(player_index: i32) -> bool {
 
 /// Take the most recent playback `MSG_SET_REPLAY_CAMERA` pose.
 pub fn take_pending_replay_camera() -> Option<ReplayCameraPose> {
-    PENDING_REPLAY_CAMERA.lock().ok().and_then(|mut slot| slot.take())
+    PENDING_REPLAY_CAMERA
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
 }
 
 /// C++ SelectionXlat.cpp:1047 MSG_CREATE/SELECT/ADD_TEAM0+group.
@@ -575,12 +585,7 @@ fn push_pending_replay_team(op: ReplayTeamOp) {
     }
 }
 
-fn apply_replay_team_to_leftover_player(
-    player_index: i32,
-    slot: u8,
-    kind: u8,
-    ids: &[ObjectId],
-) {
+fn apply_replay_team_to_leftover_player(player_index: i32, slot: u8, kind: u8, ids: &[ObjectId]) {
     let Ok(list) = gamelogic::player::ThePlayerList().read() else {
         return;
     };
@@ -773,9 +778,12 @@ fn game_command_to_message(command: &GameCommand) -> Option<GameMessage> {
             let power_id = intern_special(power_type);
             match target {
                 PowerTarget::None => GameMessageType::DoSpecialPower(power_id, 0, 0),
-                PowerTarget::Object(id) => {
-                    GameMessageType::DoSpecialPowerAtObject(power_id, object_id_to_message(*id), 0, 0)
-                }
+                PowerTarget::Object(id) => GameMessageType::DoSpecialPowerAtObject(
+                    power_id,
+                    object_id_to_message(*id),
+                    0,
+                    0,
+                ),
                 PowerTarget::Location(pos) => GameMessageType::DoSpecialPowerAtLocation(
                     power_id,
                     coord_from_vec3(*pos),
@@ -800,7 +808,7 @@ fn game_command_to_message(command: &GameCommand) -> Option<GameMessage> {
             weapon_slot,
             target,
             ..
-} => {
+        } => {
             let slot = weapon_slot_to_id(weapon_slot);
             match target {
                 WeaponTarget::Location(pos) => {
@@ -888,11 +896,12 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
             target: GuardTarget::Object(object_id_from_message(*id)),
             mode: guard_mode_from_i32(*mode),
         },
-        CreateSelectedGroup(create_new, units)
-        | CreateSelectedGroupNoSound(create_new, units) => CommandType::CreateSelectedGroup {
-            create_new: *create_new,
-            units: units.iter().copied().map(object_id_from_message).collect(),
-        },
+        CreateSelectedGroup(create_new, units) | CreateSelectedGroupNoSound(create_new, units) => {
+            CommandType::CreateSelectedGroup {
+                create_new: *create_new,
+                units: units.iter().copied().map(object_id_from_message).collect(),
+            }
+        }
         Enter(_selector, id) => CommandType::Enter {
             target_id: object_id_from_message(*id),
         },
@@ -969,12 +978,12 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
             weapon_slot: weapon_slot_from_id(*slot),
             max_shots_to_fire: -1,
             target: WeaponTarget::Location(vec3_from_coord(coord)),
-},
+        },
         DoWeaponAtObject(slot, id) => CommandType::DoWeapon {
             weapon_slot: weapon_slot_from_id(*slot),
             max_shots_to_fire: -1,
             target: WeaponTarget::Object(object_id_from_message(*id)),
-},
+        },
         Evacuate | EvacuateAtLocation(_) => CommandType::Evacuate,
         CombatDropAtLocation(coord) => CommandType::CombatDrop {
             target: DropTarget::Location(vec3_from_coord(coord)),
@@ -1053,7 +1062,8 @@ mod tests {
         ));
         assert_eq!(message.get_player_index(), 3);
 
-        let restored = game_message_to_host_command(&message).expect("playback must restore MoveTo");
+        let restored =
+            game_message_to_host_command(&message).expect("playback must restore MoveTo");
         match restored.command_type {
             CommandType::MoveTo { destination, .. } => {
                 assert!((destination.x - 12.0).abs() < f32::EPSILON);
@@ -1137,7 +1147,6 @@ mod tests {
             other => panic!("expected pixel, got {other:?}"),
         }
         assert_eq!(camera.get_player_index(), 2);
-
     }
 
     fn host_command(command_type: CommandType) -> GameCommand {
@@ -1249,7 +1258,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn apply_replay_new_game_posts_to_the_message_stream() {
         // C++ GameLogicDispatch.cpp:396-421 MSG_NEW_GAME starts the match.
@@ -1295,9 +1303,9 @@ mod tests {
         // C++ GameLogicDispatch.cpp:1803 requires getObserverLookAtPlayer()==thisPlayer.
         #[cfg(feature = "game_client")]
         {
-            game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(
-                Some(1),
-            );
+            game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(Some(
+                1,
+            ));
             assert!(host_replay_observer_matches_player(1));
             assert!(!host_replay_observer_matches_player(0));
             game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(None);
@@ -1313,10 +1321,8 @@ mod tests {
     fn playback_move_queues_observer_selection_remirror() {
         // C++ GameLogicDispatch.cpp:1970-1984 remirrors after every network command.
         let _ = take_pending_replay_selection_remirror();
-        let message = GameMessage::with_player(
-            GameMessageType::DoMoveTo(Coord3D::new(4.0, 0.0, 1.0)),
-            4,
-        );
+        let message =
+            GameMessage::with_player(GameMessageType::DoMoveTo(Coord3D::new(4.0, 0.0, 1.0)), 4);
         apply_replay_messages_to_host(&[message]);
         assert_eq!(take_pending_replay_selection_remirror(), vec![4]);
     }
@@ -1392,7 +1398,4 @@ mod tests {
             "flush must post MSG_LOGIC_CRC so updateRecord can write .rep entries"
         );
     }
-
 }
-
-

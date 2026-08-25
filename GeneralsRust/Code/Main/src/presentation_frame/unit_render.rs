@@ -460,9 +460,7 @@ impl UnitRenderInput {
                 matches!(ro.object_type, PresentationObjectType::Infantry),
             ),
             stored_supplies: ro.stored_supplies,
-            drawable_supply_boxes: if ro.dock_kind
-                == crate::game_logic::DockKind::SupplyWarehouse
-            {
+            drawable_supply_boxes: if ro.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
                 ro.drawable_supply_boxes
             } else {
                 0
@@ -538,7 +536,6 @@ impl UnitRenderInput {
             .map(|model| model.model_key.clone())
             .unwrap_or_default();
     }
-
 
     /// Resolve C++ W3DModelDraw child visibility for exactly one selected
     /// Draw module.
@@ -1136,8 +1133,8 @@ impl UnitRenderInput {
         // Wave 508: body-damage / disguised / stunned model-condition residual.
         {
             use crate::game_logic::host_enum_table_residual::{
-                disguised_model_bit, host_apply_body_damage_model_bits, stunned_model_bit,
-                HostBodyDamageType,
+                HostBodyDamageType, disguised_model_bit, host_apply_body_damage_model_bits,
+                stunned_model_bit,
             };
             let body = match self.body_damage_state {
                 1 => HostBodyDamageType::Damaged,
@@ -1216,7 +1213,6 @@ impl UnitRenderInput {
             } else {
                 bits &= !(1u128 << snow_b);
             }
-
         }
         // Wave 510: captured / loaded transport residual bits.
         {
@@ -1464,7 +1460,6 @@ impl UnitRenderInput {
             None => [1.0, 1.0, 1.0, 1.0],
         }
     }
-
 }
 
 #[cfg(test)]
@@ -1812,7 +1807,7 @@ mod tests {
     #[test]
     fn status_tint_gate_skips_unmanned_and_tints_underpowered() {
         use crate::game_logic::{
-            reset_drawable_tint_envelopes, GameLogic, Player, Team, ThingTemplate,
+            GameLogic, Player, Team, ThingTemplate, reset_drawable_tint_envelopes,
         };
         reset_drawable_tint_envelopes();
         let mut logic = GameLogic::new();
@@ -1847,11 +1842,12 @@ mod tests {
             o.status.disabled_unmanned = false;
             o.status.disabled_underpowered = true;
         }
-        let underpowered = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
-            .unit_render_inputs()
-            .into_iter()
-            .find(|u| u.id == id)
-            .expect("underpowered input");
+        let underpowered =
+            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+                .unit_render_inputs()
+                .into_iter()
+                .find(|u| u.id == id)
+                .expect("underpowered input");
         assert!(underpowered.status_tint[0] < -0.01);
         assert!(underpowered.status_tint[0] > -0.5);
 
@@ -1866,7 +1862,10 @@ mod tests {
             .into_iter()
             .find(|u| u.id == id)
             .expect("subdued input");
-        assert!(subdued.status_tint[0] < -0.01, "DISABLED_SUBDUED is dark gray");
+        assert!(
+            subdued.status_tint[0] < -0.01,
+            "DISABLED_SUBDUED is dark gray"
+        );
         assert!(subdued.status_tint[2] < 0.0);
 
         reset_drawable_tint_envelopes();
@@ -1941,9 +1940,7 @@ mod tests {
         let mut template = ThingTemplate::new("ChinaStandardMine");
         template.set_health(10.0);
         template.add_kind_of(KindOf::Mine);
-        logic
-            .templates
-            .insert("ChinaStandardMine".into(), template);
+        logic.templates.insert("ChinaStandardMine".into(), template);
         let id = logic
             .create_object(
                 "ChinaStandardMine",
@@ -2007,22 +2004,14 @@ mod tests {
             .create_object("CivilianCar", Team::GLA, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("target");
         let timed = logic
-            .create_object(
-                "TNTStickyBomb",
-                Team::USA,
-                glam::Vec3::new(3.0, 0.0, 3.0),
-            )
+            .create_object("TNTStickyBomb", Team::USA, glam::Vec3::new(3.0, 0.0, 3.0))
             .expect("timed");
         {
             let o = logic.host_object_mut(timed).expect("timed obj");
             o.mine_data = Some(HostMineData::timed_demo_charge(0).with_attach(target));
         }
         let remote = logic
-            .create_object(
-                "TNTStickyBomb",
-                Team::USA,
-                glam::Vec3::new(4.0, 0.0, 4.0),
-            )
+            .create_object("TNTStickyBomb", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
             .expect("remote");
         {
             let o = logic.host_object_mut(remote).expect("remote obj");
@@ -2041,5 +2030,4 @@ mod tests {
         assert_eq!(remote_o.bomb_type, 2);
         assert_eq!(remote_o.bomb_timer_seconds, 0);
     }
-
 }

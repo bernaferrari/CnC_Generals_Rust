@@ -2,16 +2,16 @@
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
 use crate::common::{
-    Bool, Int, ModuleData, ObjectID, UnsignedInt, MODELCONDITION_ACTIVELY_CONSTRUCTING,
+    Bool, Int, MODELCONDITION_ACTIVELY_CONSTRUCTING, ModuleData, ObjectID, UnsignedInt,
 };
 use crate::helpers::TheGameLogic;
 use crate::helpers::TheThingFactory;
 use crate::modules::{
     BehaviorModuleInterface, ProductionUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::production::queue::{BuildQueueEntry, ProductionType};
-use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock, Weak};

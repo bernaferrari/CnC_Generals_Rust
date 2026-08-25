@@ -128,7 +128,6 @@ impl Object {
         }
     }
 
-
     /// Collision pass reset. Frame counters increment in doLocomotor (update_movement).
     pub fn clear_blocked_frame_state(&mut self) {
         self.is_blocked = false;
@@ -206,7 +205,7 @@ impl Object {
     /// On first crush pass of target point, applies HUGE crush damage.
     pub fn check_for_overlap_collision(&mut self, other: &mut Object, is_ally: bool) -> bool {
         use crate::game_logic::host_partition_collision_physics_residual::{
-            past_crush_point_residual, CrushTarget, PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+            CrushTarget, PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL, past_crush_point_residual,
         };
         self.ensure_crush_levels();
         other.ensure_crush_levels();
@@ -225,15 +224,14 @@ impl Object {
         // Instant-squish when the victim has the authored module.
         if other.has_squish_collide {
             use crate::game_logic::host_squish_collide::{
-                authored_crusher_geometry, should_skip_squish_for_goal_ability,
-                squish_geom_collides_with, template_has_hijacker_update,
-                velocity_toward_victim, SQUISH_HUGE_DAMAGE,
+                SQUISH_HUGE_DAMAGE, authored_crusher_geometry, should_skip_squish_for_goal_ability,
+                squish_geom_collides_with, template_has_hijacker_update, velocity_toward_victim,
             };
             let has_hijacker = template_has_hijacker_update(&other.template_name);
-            let tnt_active = crate::game_logic::host_tank_hunter::is_tank_hunter_template(
-                &other.template_name,
-            ) && other.ai_state == crate::game_logic::AIState::SpecialAbility
-                && other.target == Some(self.id);
+            let tnt_active =
+                crate::game_logic::host_tank_hunter::is_tank_hunter_template(&other.template_name)
+                    && other.ai_state == crate::game_logic::AIState::SpecialAbility
+                    && other.target == Some(self.id);
             if !is_ally
                 && self.crusher_level > 0
                 && !should_skip_squish_for_goal_ability(
@@ -246,8 +244,7 @@ impl Object {
                 let us = self.get_position();
                 let them = other.get_position();
                 let vel = self.movement.velocity;
-                let toward =
-                    velocity_toward_victim((us.x, us.z), (them.x, them.z), (vel.x, vel.z));
+                let toward = velocity_toward_victim((us.x, us.z), (them.x, them.z), (vel.x, vel.z));
                 let crusher_g = &self.thing.geometry;
                 let crusher_half_x =
                     ((crusher_g.bounds_max.x - crusher_g.bounds_min.x).abs() * 0.5).max(0.0);
@@ -479,7 +476,7 @@ impl Object {
     ) -> crate::game_logic::host_partition_collision_physics_residual::VehicleCrashImmobileOutcome
     {
         use crate::game_logic::host_partition_collision_physics_residual::{
-            vehicle_crash_into_immobile_outcome, PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL,
+            PHYSICS_DEFAULT_STRUCTURE_RUBBLE_HEIGHT_RESIDUAL, vehicle_crash_into_immobile_outcome,
         };
         let is_vehicle = self.is_kind_of(KindOf::Vehicle);
         let other_structure = other.is_kind_of(KindOf::Structure);
@@ -587,7 +584,6 @@ impl Object {
         );
         self.sync_shock_up_from_transform();
     }
-
 
     /// C++ killWhenRestingOnGround residual.
     ///
@@ -798,11 +794,7 @@ impl Object {
         // the unit is not already path-marching this frame.
         let v = self.movement.velocity;
         let marching = self.movement.target_position.is_some() || !self.movement.path.is_empty();
-        let mut new_pos = if marching {
-            old_pos
-        } else {
-            old_pos + v
-        };
+        let mut new_pos = if marching { old_pos } else { old_pos + v };
         // YPR: stun tick already integrates while stunned (avoid double apply).
         if self.shock_stun_frames == 0 {
             let pryf = self.pitch_roll_yaw_factor;
@@ -844,9 +836,7 @@ impl Object {
             }
             // Climber slope: while FLAG_CLIMBING, scale leftover XY when slope>1
             // (Locomotor.cpp:1734-1739 desiredSpeed /= groundSlope*4).
-            if self.is_climbing
-                && matches!(self.loco_appearance, LocomotorAppearance::Climber)
-            {
+            if self.is_climbing && matches!(self.loco_appearance, LocomotorAppearance::Climber) {
                 let slope = (new_pos.y - old_pos.y).abs().max(1.0);
                 if slope > 1.0 {
                     let scale = 1.0 / (slope * 4.0);
@@ -901,7 +891,7 @@ impl Object {
         self.record_host_locomotor();
         self.stamp_airborne_target_from_locomotor();
         let _ = airborne_start; // reserved for future free-fall start residual
-                                // C++ killWhenRestingOnGround residual after landing.
+        // C++ killWhenRestingOnGround residual after landing.
         if !airborne_end {
             let _ = self.maybe_kill_when_resting_on_ground();
         }
@@ -1093,8 +1083,8 @@ impl Object {
         }
         // Capture before this frame's land so first ground contact keeps STUNNED
         // one frame (C++ ≈1 frame grounded stun; FLAILING → STUNNED visible).
-        let already_on_ground = self.shock_grounded_once
-            || self.get_position().y <= self.ground_height + 0.05;
+        let already_on_ground =
+            self.shock_grounded_once || self.get_position().y <= self.ground_height + 0.05;
         // C++ has no stun timer. Keep IS_STUNNED until settle relief.
         let _ = countdown;
         // Integrate YPR while stunned (tumble settle). Motion step skips YPR
@@ -1372,8 +1362,8 @@ impl Object {
     /// Latch `IS_BRAKING` when Euclidean 2D exceeds 2× remaining path, then raise.
     pub fn raise_on_path_dist_to_goal(&mut self, dist_2d: f32, on_path_dist: f32) -> f32 {
         if dist_2d > on_path_dist {
-            let projectile = self.is_kind_of(KindOf::Projectile)
-                || self.object_type == ObjectType::Projectile;
+            let projectile =
+                self.is_kind_of(KindOf::Projectile) || self.object_type == ObjectType::Projectile;
             if !projectile && dist_2d > 2.0 * on_path_dist {
                 self.is_braking = true;
             }
@@ -1396,12 +1386,17 @@ impl Object {
 
     /// C++ braking pose cheat (`Locomotor.cpp:1092-1138`): snap XY (3D for
     /// projectiles) while OBJECT_STATUS_BRAKING. Host vel is units/sec.
-    pub fn braking_cheat_step(&self, current: glam::Vec3, target: glam::Vec3, dt: f32) -> glam::Vec3 {
+    pub fn braking_cheat_step(
+        &self,
+        current: glam::Vec3,
+        target: glam::Vec3,
+        dt: f32,
+    ) -> glam::Vec3 {
         if !self.is_braking {
             return current;
         }
-        let projectile = self.is_kind_of(KindOf::Projectile)
-            || self.object_type == ObjectType::Projectile;
+        let projectile =
+            self.is_kind_of(KindOf::Projectile) || self.object_type == ObjectType::Projectile;
         let dx = target.x - current.x;
         let dy = target.y - current.y;
         let dz = target.z - current.z;
@@ -1411,7 +1406,11 @@ impl Object {
             (dx * dx + dz * dz).sqrt()
         };
         if dist <= 0.001 {
-            return if projectile { target } else { glam::Vec3::new(target.x, current.y, target.z) };
+            return if projectile {
+                target
+            } else {
+                glam::Vec3::new(target.x, current.y, target.z)
+            };
         }
         let min_vel = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 30.0;
         let mut vel = self.movement.velocity.length() * dt.max(1.0e-6);

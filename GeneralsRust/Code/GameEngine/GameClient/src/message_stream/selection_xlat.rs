@@ -14,8 +14,8 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use super::game_message::*;
-use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
-use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator, emit_message};
+use crate::display::view::{IPoint2, Point3, with_tactical_view, with_tactical_view_ref};
 use crate::gui::game_window::{GameWindow, WindowStatus};
 use crate::gui::window_manager::with_window_manager_ref;
 use crate::helpers::TheInGameUI;
@@ -25,9 +25,9 @@ use crate::presentation_translator_residual::{
 };
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::common::types::{KindOf, ObjectShroudStatus, ObjectStatusMaskType};
-use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{player_list, PLAYER_INDEX_INVALID};
 use gamelogic::helpers::TheGameLogic;
+use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::player::{PLAYER_INDEX_INVALID, player_list};
 
 /// Drag tolerance in pixels before starting area selection
 /// Matches C++ Mouse.cpp m_dragTolerance
@@ -208,7 +208,6 @@ pub const KINDOF_AIRCRAFT: u32 = 0x00000040;
 /// Pack UI-local KindOf residual bits from catalog kind *names*.
 /// Writer for [`SelectableDrawable::kind_of_flags`]; uses the constants above.
 fn catalog_kind_of_flags(kind_names: &[String]) -> u32 {
-
     let mut flags = 0u32;
     for k in kind_names {
         if k.eq_ignore_ascii_case("Selectable") {
@@ -1008,7 +1007,6 @@ impl SelectionTranslator {
                     added,
                 ));
             }
-
         }
 
         messages
@@ -1197,11 +1195,14 @@ impl SelectionTranslator {
         }
 
         let drawables = self.collect_drawables();
-        let last_live = self.control_groups[group as usize].iter().rev().find_map(|id| {
-            drawables
-                .iter()
-                .find(|drawable| drawable.object_id == *id && !drawable.is_dead)
-        });
+        let last_live = self.control_groups[group as usize]
+            .iter()
+            .rev()
+            .find_map(|id| {
+                drawables
+                    .iter()
+                    .find(|drawable| drawable.object_id == *id && !drawable.is_dead)
+            });
         let Some(drawable) = last_live else {
             return;
         };
@@ -1863,8 +1864,6 @@ mod tests {
         assert_eq!(group1, vec![2, 3]);
     }
 
-
-
     #[test]
     fn test_add_control_group_double_tap_does_not_append_again() {
         let _guard = test_state_lock();
@@ -2011,7 +2010,6 @@ mod tests {
             assert_eq!(view.position().y, 0.0);
         });
     }
-
 
     #[test]
     fn test_is_click_tolerance() {
@@ -2204,5 +2202,4 @@ mod tests {
             "ForceAttackable without Selectable is not selectable (SelectionXlat.cpp:119-127)"
         );
     }
-
 }

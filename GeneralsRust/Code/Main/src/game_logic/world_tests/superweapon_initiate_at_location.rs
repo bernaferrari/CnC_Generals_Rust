@@ -12,7 +12,7 @@ use super::helpers::*;
 fn superweapon_fire_queues_initiate_at_location_sound_at_click() {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::special_power_strikes::{
-        HostSuperweaponKind, CRUISE_MISSILE_INITIATE_AT_LOCATION_SOUND,
+        CRUISE_MISSILE_INITIATE_AT_LOCATION_SOUND, HostSuperweaponKind,
         NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};

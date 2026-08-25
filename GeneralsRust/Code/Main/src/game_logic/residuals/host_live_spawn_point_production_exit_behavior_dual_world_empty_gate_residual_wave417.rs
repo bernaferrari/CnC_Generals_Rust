@@ -47,8 +47,8 @@ pub const RUNTIME_HOST_LIVE_SPAWN_POINT_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPT
 
 /// Honesty: method names residual pack.
 // 2026-08-15: empty-registry helper is fail-open (C++ does not skip-close).
-pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_residual_wave417(
-) -> bool {
+pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_residual_wave417()
+-> bool {
     LIVE_SPAWN_POINT_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE417.len() == 6
         && residual_name_index(
             LIVE_SPAWN_POINT_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE417,
@@ -65,8 +65,8 @@ pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_m
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_nav_commands_residual_wave417(
-) -> bool {
+pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_nav_commands_residual_wave417()
+-> bool {
     LIVE_SPAWN_POINT_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE417.len() == 4
         && residual_name_index(
             LIVE_SPAWN_POINT_PRODUCTION_EXIT_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE417,
@@ -82,8 +82,8 @@ pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_n
 }
 
 /// Wave 417 composite residual honesty pack.
-pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_residual_pack_wave417(
-) -> bool {
+pub fn honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_residual_pack_wave417()
+-> bool {
     honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_residual_wave417()
         && honesty_live_spawn_point_production_exit_behavior_dual_world_empty_gate_nav_commands_residual_wave417()
 }
@@ -131,7 +131,7 @@ pub fn honesty_spawn_point_production_exit_behavior_dual_world_empty_gate_source
     {
         return false;
     }
-        // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
+    // 2026-08-15: helper probes emptiness but returns false (C++ does not skip-close).
     let helper_ok = g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()")
         && g.contains("false");
@@ -181,8 +181,8 @@ mod tests {
     }
 
     #[test]
-    fn simulate_live_spawn_point_production_exit_behavior_dual_world_empty_gate_honesty_residual_live(
-    ) {
+    fn simulate_live_spawn_point_production_exit_behavior_dual_world_empty_gate_honesty_residual_live()
+     {
         assert!(
             simulate_live_spawn_point_production_exit_behavior_dual_world_empty_gate_honesty(),
             "spawn point production exit dual-world empty gate residual must latch"

@@ -3,8 +3,8 @@
 //! Equivalent to the C++ ProfileFuncLevel class, provides function-level
 //! call statistics and timing information.
 
-use crate::timing::ProfileTimer;
 use crate::ProfileResult;
+use crate::timing::ProfileTimer;
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::collections::HashMap;

@@ -6,13 +6,13 @@
 
 use super::super::collide_module::{CollideModule, CollideModuleData, CollideModuleInterface};
 use super::super::{CollisionError, Coord3D, GameError, GameObject, ObjectStatusMask};
-use crate::common::science::{ScienceType, SCIENCE_INVALID};
+use crate::common::science::{SCIENCE_INVALID, ScienceType};
 use crate::common::*;
 use crate::helpers::{TheAudio, TheFXListStore, TheGameLogic, TheInGameUI};
-use crate::object::collide::{crate_collide::*, LegacyCollideAdapter};
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
-use crate::player::{player_list, PlayerIndex, PlayerType};
+use crate::object::collide::{LegacyCollideAdapter, crate_collide::*};
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::player::{PlayerIndex, PlayerType, player_list};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::get_anim2d_collection;
 use serde::{Deserialize, Serialize};
@@ -472,7 +472,6 @@ impl CrateCollide {
             })
     }
 
-
     fn is_human_player(&self, _player_id: PlayerId) -> bool {
         let index = _player_id.value() as PlayerIndex;
         let Ok(list) = player_list().read() else {
@@ -615,7 +614,6 @@ impl LegacyCollideAdapter for CrateCollide {
         // Resolve via TheGameLogic first so the host-only path still validates
         // PickupScience / KindOf PARACHUTE (C++ isValidToExecute).
 
-
         let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
         else {
@@ -630,7 +628,6 @@ impl LegacyCollideAdapter for CrateCollide {
         other_id: crate::common::ObjectID,
     ) -> Result<bool, GameError> {
         // Resolve via TheGameLogic first so empty OBJECT_REGISTRY is not fail-closed.
-
 
         let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))

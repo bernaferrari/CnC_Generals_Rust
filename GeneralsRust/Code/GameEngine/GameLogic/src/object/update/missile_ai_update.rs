@@ -6,30 +6,30 @@
 //! Implements smart missile behavior including tracking, homing, fuel management,
 //! countermeasure resistance, and multi-stage flight patterns.
 
+use crate::GameLogicResult;
 use crate::common::{
-    kindof_from_name, AsciiString, Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID,
-    ObjectStatusMaskType, PathfindLayerEnum, Real, UnsignedInt, INVALID_ID, KIND_OF_MASK_ALL,
-    KIND_OF_MASK_NONE, MODELCONDITION_JAMMED, SECONDS_PER_LOGICFRAME_REAL,
+    AsciiString, Bool, Coord3D, INVALID_ID, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE, KindOfMaskType,
+    MODELCONDITION_JAMMED, Matrix3D, ModuleData, ObjectID, ObjectStatusMaskType, PathfindLayerEnum,
+    Real, SECONDS_PER_LOGICFRAME_REAL, UnsignedInt, kindof_from_name,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{
-    get_game_logic_random_value_real, TheFXListStore, TheGameLogic, TheParticleSystemManager,
-    TheTerrainLogic,
+    TheFXListStore, TheGameLogic, TheParticleSystemManager, TheTerrainLogic,
+    get_game_logic_random_value_real,
 };
 use crate::locomotor::BodyDamageType;
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, PhysicsBehaviorExt, ProjectileUpdateInterface,
-    UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object;
+use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::player::CMD_FROM_AI;
 use crate::weapon::{WeaponSlotType, WeaponTemplate};
-use crate::GameLogicResult;
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use glam::Vec4;
 use std::sync::{Arc, Weak};
@@ -410,7 +410,6 @@ pub struct MissileAIUpdate {
     /// Last pose passed to `update`. Used when the dual-world registry is empty
     /// so lock-distance / ignition still see a C++-faithful 2D range.
     last_known_pos: Option<Coord3D>,
-
 
     /// Maximum acceleration
     max_accel: Real,
@@ -1903,10 +1902,12 @@ mod tests {
 
         assert!(missile.projectile_handle_collision(None));
         assert_eq!(missile.state, MissileState::PreLaunch);
-        assert!(!object
-            .read()
-            .unwrap()
-            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+        assert!(
+            !object
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoCollisions)
+        );
 
         reset_game_logic_objects();
     }
@@ -1932,10 +1933,12 @@ mod tests {
 
         assert!(missile.projectile_handle_collision(None));
         assert_eq!(missile.state, MissileState::KillSelf);
-        assert!(object
-            .read()
-            .unwrap()
-            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+        assert!(
+            object
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoCollisions)
+        );
 
         reset_game_logic_objects();
     }
@@ -1956,10 +1959,12 @@ mod tests {
 
         assert!(missile.projectile_handle_collision(Some(1013)));
         assert_eq!(missile.state, MissileState::PreLaunch);
-        assert!(!projectile
-            .read()
-            .unwrap()
-            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+        assert!(
+            !projectile
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoCollisions)
+        );
 
         reset_game_logic_objects();
     }
@@ -1981,10 +1986,12 @@ mod tests {
 
         assert!(missile.projectile_handle_collision(Some(1015)));
         assert_eq!(missile.state, MissileState::KillSelf);
-        assert!(projectile
-            .read()
-            .unwrap()
-            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+        assert!(
+            projectile
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoCollisions)
+        );
 
         reset_game_logic_objects();
     }

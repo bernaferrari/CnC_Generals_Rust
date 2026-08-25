@@ -2,19 +2,19 @@
 
 use crate::game_text::GameText;
 use crate::gui::callbacks::message_box::{
-    message_box_yes_no, quit_message_box_yes_no, MessageBoxFunc,
+    MessageBoxFunc, message_box_yes_no, quit_message_box_yes_no,
 };
 use crate::gui::callbacks::popup_save_load::show_live_popup_save_load_layout;
+use crate::gui::{
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    queue_window_manager_op, with_window_manager,
+};
 use crate::gui::{
     get_disconnect_menu, get_lan_setup, get_shell, hide_diplomacy, hide_in_game_chat,
     queue_shell_operation, show_shell_map_if_available, try_with_shell_mut,
 };
-use crate::gui::{
-    queue_window_manager_op, with_window_manager, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
-};
 use crate::helpers::{TheControlBar, TheInGameUI};
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;

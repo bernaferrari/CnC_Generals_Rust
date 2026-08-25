@@ -949,7 +949,7 @@ impl SpecialPowerExecution {
 mod tests {
     use super::*;
     use crate::common::ascii_string::AsciiString;
-    use crate::common::ini::ini_science::{get_science_store_mut, ScienceInfo, ScienceType};
+    use crate::common::ini::ini_science::{ScienceInfo, ScienceType, get_science_store_mut};
 
     #[test]
     fn test_special_power_template_creation() {

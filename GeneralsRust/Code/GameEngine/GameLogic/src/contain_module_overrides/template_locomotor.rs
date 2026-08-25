@@ -38,7 +38,10 @@ fn write_set(
     }
     ai.set_locomotor_set_entries(
         set,
-        names.iter().map(|n| AsciiString::from(n.as_str())).collect(),
+        names
+            .iter()
+            .map(|n| AsciiString::from(n.as_str()))
+            .collect(),
     );
     Ok(())
 }
@@ -81,4 +84,3 @@ fn apply_template_locomotor(
 
     Ok(data)
 }
-

@@ -94,11 +94,17 @@ pub fn apply_speech_slider_volume(speech_volume: f32) -> f32 {
     (bink_units / 32768.0).clamp(0.0, 1.0)
 }
 
-pub fn parse_audio_layout(bytes: &[u8], audio_track_count: u32, version_b: bool) -> BinkAudioLayout {
+pub fn parse_audio_layout(
+    bytes: &[u8],
+    audio_track_count: u32,
+    version_b: bool,
+) -> BinkAudioLayout {
     let mut offset = 44usize;
     let count = audio_track_count as usize;
     // Per-track max decoded size (u32 each).
-    offset = offset.saturating_add(count.saturating_mul(4)).min(bytes.len());
+    offset = offset
+        .saturating_add(count.saturating_mul(4))
+        .min(bytes.len());
 
     let mut tracks = Vec::with_capacity(count);
     for _ in 0..count {
@@ -328,8 +334,7 @@ impl BinkAudioDecoder {
             overlap(&self.delay[chno], &self.coeffs, out, overlap_len, 1);
             let copy_end = self.duration.min(out.len());
             if overlap_len < copy_end {
-                out[overlap_len..copy_end]
-                    .copy_from_slice(&self.coeffs[overlap_len..copy_end]);
+                out[overlap_len..copy_end].copy_from_slice(&self.coeffs[overlap_len..copy_end]);
             }
             for i in 0..(self.len >> 4).min(256) {
                 let src = self.duration + i;
@@ -341,7 +346,13 @@ impl BinkAudioDecoder {
             }
         } else {
             let overlap_len = if self.first_frm { 0 } else { self.len >> 8 };
-            overlap(&self.delay[0], &self.coeffs, &mut dst[off0..], overlap_len, 2);
+            overlap(
+                &self.delay[0],
+                &self.coeffs,
+                &mut dst[off0..],
+                overlap_len,
+                2,
+            );
             if off1 < dst.len() {
                 overlap(
                     &self.delay[1],
@@ -462,7 +473,11 @@ fn rdft_inplace(buf: &mut [f32]) {
         out_i[i] = si;
     }
     for i in 0..n {
-        buf[i] = if i % 2 == 0 { out_r[i / 2] } else { out_i[i / 2] };
+        buf[i] = if i % 2 == 0 {
+            out_r[i / 2]
+        } else {
+            out_i[i / 2]
+        };
     }
     let _ = real;
 }
@@ -478,7 +493,10 @@ impl<'a> BitReader<'a> {
     }
 
     fn left(&self) -> usize {
-        self.data.len().saturating_mul(8).saturating_sub(self.bit_pos)
+        self.data
+            .len()
+            .saturating_mul(8)
+            .saturating_sub(self.bit_pos)
     }
 
     fn read(&mut self, bits: u8) -> Result<u32, ()> {
@@ -601,9 +619,8 @@ pub fn play_bink_pcm_through_miles(samples: &[f32], sample_rate: u32, channels: 
     let data = kira::sound::static_sound::StaticSoundData {
         sample_rate,
         frames: frames.into(),
-        settings: kira::sound::static_sound::StaticSoundSettings::new().volume(
-            kira::Volume::Amplitude(volume.max(0.0001) as f64),
-        ),
+        settings: kira::sound::static_sound::StaticSoundSettings::new()
+            .volume(kira::Volume::Amplitude(volume.max(0.0001) as f64)),
     };
     let mut slot = kira_playback().lock().unwrap_or_else(|e| e.into_inner());
     let Some(playback) = slot.as_mut() else {

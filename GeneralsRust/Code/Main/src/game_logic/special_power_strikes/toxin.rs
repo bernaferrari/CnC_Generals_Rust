@@ -69,4 +69,3 @@ pub fn toxin_field_death_type_for_template(
 pub fn toxin_field_target_is_airborne(is_aircraft: bool, airborne_target: bool) -> bool {
     is_aircraft || airborne_target
 }
-

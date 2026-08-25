@@ -62,8 +62,8 @@ fn residual_action_store(a: ResidualHostProductionSameFrameReadyCompleteAction) 
 pub fn residual_host_production_same_frame_ready_complete_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_production_same_frame_ready_complete_last_action(
-) -> ResidualHostProductionSameFrameReadyCompleteAction {
+pub fn residual_host_production_same_frame_ready_complete_last_action()
+-> ResidualHostProductionSameFrameReadyCompleteAction {
     ResidualHostProductionSameFrameReadyCompleteAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -100,7 +100,7 @@ pub fn honesty_host_production_same_frame_ready_complete_source_markers_residual
         && gl.contains("Wave 714")
         && gl.contains("gameworld_production_sole_tick_enabled()")
         && gl.contains("return;"); // sole early-return in update_production
-                                   // update_production sole path returns before collect
+    // update_production sole path returns before collect
     // 2026-08-15: first `fn update_production` is buildings.rs; Wave 714 sole
     // early-return is world_tick/production.rs:381.
     let upd_ok = gl
@@ -185,8 +185,8 @@ mod tests {
     use crate::game_logic::host_production_ready_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Resources, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick, gameworld_production_sole_tick_enabled,
-        GameWorldShadow,
+        GameWorldShadow, begin_shadow_coupled_tick, end_shadow_coupled_tick,
+        gameworld_production_sole_tick_enabled,
     };
     use glam::Vec3;
 

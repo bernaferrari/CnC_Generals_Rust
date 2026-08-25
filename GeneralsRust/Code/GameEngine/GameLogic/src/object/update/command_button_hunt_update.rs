@@ -16,8 +16,8 @@ use crate::command_button::{CommandButtonId, MAX_COMMANDS_PER_SET};
 use crate::commands::command::CommandType;
 use crate::common::types::ControlBarInterface;
 use crate::common::{
-    AsciiString, Bool, CommandSourceType, KindOf, ObjectID, Real, Relationship, UnsignedInt,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, CommandSourceType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, Real,
+    Relationship, UnsignedInt,
 };
 use crate::control_bar::get_control_bar_bridge;
 use crate::helpers::{TheGameLogic, ThePartitionManager};
@@ -27,8 +27,8 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::special_power_template::{SpecialPowerTemplate, get_special_power_store};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};

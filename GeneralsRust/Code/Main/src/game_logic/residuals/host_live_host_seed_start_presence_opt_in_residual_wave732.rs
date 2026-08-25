@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostSeedStartPresenceOptInAction) {
 pub fn residual_host_seed_start_presence_opt_in_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_seed_start_presence_opt_in_last_action(
-) -> ResidualHostSeedStartPresenceOptInAction {
+pub fn residual_host_seed_start_presence_opt_in_last_action()
+-> ResidualHostSeedStartPresenceOptInAction {
     ResidualHostSeedStartPresenceOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

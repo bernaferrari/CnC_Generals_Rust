@@ -1,6 +1,6 @@
 #![cfg(feature = "internal")]
 
-use generals_main::cnc_game_engine::{parity_test_support::StateMachineParityHarness, GameState};
+use generals_main::cnc_game_engine::{GameState, parity_test_support::StateMachineParityHarness};
 use generals_main::ui::Screen;
 
 #[test]

@@ -1,8 +1,8 @@
 //! Core Particle Editor implementation
 
 use crate::chrome::{
-    show_center_panel, show_menu_bar, show_properties_panel, show_status_bar, show_system_list,
-    ChromeAction, ChromeViewState, SystemListCommand,
+    ChromeAction, ChromeViewState, SystemListCommand, show_center_panel, show_menu_bar,
+    show_properties_panel, show_status_bar, show_system_list,
 };
 use crate::export::ParticleExporter;
 use crate::particles::{ParticleSystem, ParticleSystemTemplate};
@@ -576,9 +576,7 @@ impl GameTool for ParticleEditorTool {
                 .resizable(true)
                 .default_width(320.0)
                 .show(ctx, |ui| {
-                    let selected = self
-                        .selected_index
-                        .and_then(|i| self.systems.get_mut(i));
+                    let selected = self.selected_index.and_then(|i| self.systems.get_mut(i));
                     properties_changed = show_properties_panel(ui, selected);
                 });
         }
@@ -590,16 +588,9 @@ impl GameTool for ParticleEditorTool {
         let current_time = self.current_time;
         let mut center_changed = false;
         egui::CentralPanel::default().show(ctx, |ui| {
-            let selected = self
-                .selected_index
-                .and_then(|i| self.systems.get_mut(i));
-            center_changed = show_center_panel(
-                ui,
-                selected,
-                &mut self.preview,
-                current_time,
-                show_preview,
-            );
+            let selected = self.selected_index.and_then(|i| self.systems.get_mut(i));
+            center_changed =
+                show_center_panel(ui, selected, &mut self.preview, current_time, show_preview);
         });
         if center_changed {
             self.dirty = true;

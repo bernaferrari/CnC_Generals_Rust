@@ -1,6 +1,6 @@
 //! Audio level management and volume control utilities.
 
-use crate::{error::Result, Volume};
+use crate::{Volume, error::Result};
 use std::collections::HashMap;
 
 /// Audio level types

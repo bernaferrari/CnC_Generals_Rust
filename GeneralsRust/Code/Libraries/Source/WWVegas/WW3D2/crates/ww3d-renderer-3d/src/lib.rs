@@ -68,7 +68,7 @@ use crate::rendering::frame_uniform_arena::FrameUniformArena;
 use crate::rendering::lighting_system::LightEnvironmentClass;
 use crate::rendering::shadow_system::shadow_map::ShadowCasterSubmission;
 use crate::rendering::swapchain_state::{
-    make_surface_config, RendererSwapchainState, SwapchainFormatSet,
+    RendererSwapchainState, SwapchainFormatSet, make_surface_config,
 };
 use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
@@ -83,6 +83,7 @@ const FRAME_UNIFORM_ARENA_SIZE: usize = 512 * 1024;
 const FRAME_IN_FLIGHT: usize = 3;
 
 // Re-export commonly used types
+pub use rendering::camera_system::Camera;
 pub use rendering::camera_system::camera::{
     CameraClass, CameraUtils, ProjectionResType, ProjectionType,
 };
@@ -90,7 +91,6 @@ pub use rendering::camera_system::frustum::{
     Frustum as CameraFrustum, FrustumClass as CameraFrustumClass, Plane3 as CameraPlane,
 };
 pub use rendering::camera_system::viewport::ViewportClass;
-pub use rendering::camera_system::Camera;
 pub use rendering::mesh_system::*;
 pub use ww3d_core::*;
 pub use ww3d_geometry::*;
@@ -581,7 +581,6 @@ impl Renderer {
             &prepared.shadow_casters
         };
         mesh_manager.update_and_fill_live_cascade(targets.encoder, info, cascade_casters);
-
 
         let load_op = clear_color
             .map(wgpu::LoadOp::Clear)

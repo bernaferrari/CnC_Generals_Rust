@@ -1,27 +1,28 @@
 //! ControlBarPopupDescription.cpp port.
 
 use crate::game_text::GameText;
+use crate::gui::control_bar::{CommandButton as LiveCommandButton, MAX_BUILD_QUEUE_BUTTONS};
 use crate::gui::{
-    get_display_string_manager, with_window_manager, AnimateWindowManager, AnimationType, GameFont,
-    GameWindow, WindowLayout, WindowMsgHandled, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
+    AnimateWindowManager, AnimationType, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
+    GameFont, GameWindow, WindowLayout, WindowMsgHandled, get_display_string_manager,
+    with_window_manager,
 };
 use crate::helpers::TheInGameUI;
-use crate::gui::control_bar::{CommandButton as LiveCommandButton, MAX_BUILD_QUEUE_BUTTONS};
+use crate::message_stream::place_event_confirm::can_make_unit_for_place;
 use game_engine::common::ini::ini_command_button::{
-    get_control_bar as get_ini_control_bar, CommandButton as IniCommandButton,
+    CommandButton as IniCommandButton, get_control_bar as get_ini_control_bar,
 };
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::get_science_store;
+use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use game_engine::common::thing::module::Thing;
 use game_engine::common::thing::thing_factory::get_thing_factory;
 use gamelogic::commands::selection::get_selection_manager;
-use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::player_list;
-use gamelogic::player::Player;
-use crate::message_stream::place_event_confirm::can_make_unit_for_place;
-use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::helpers::TheThingFactory;
+use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::player::Player;
+use gamelogic::player::player_list;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -79,7 +80,9 @@ fn resolve_local_player() -> Option<Arc<std::sync::RwLock<Player>>> {
 }
 
 fn leftover_ini_command_button(name: &str) -> Option<IniCommandButton> {
-    get_ini_control_bar()?.find_command_button_resolved(name).cloned()
+    get_ini_control_bar()?
+        .find_command_button_resolved(name)
+        .cloned()
 }
 
 fn resolve_command_button(window: &GameWindow) -> Option<IniCommandButton> {
@@ -301,7 +304,6 @@ fn leftover_append_presentation_can_make(
     }
 }
 
-
 fn leftover_append_can_make_and_overcharge(
     description: &mut String,
     command_button: &IniCommandButton,
@@ -318,7 +320,10 @@ fn leftover_append_can_make_and_overcharge(
     let Ok(obj) = obj_arc.read() else {
         return;
     };
-    if command_button.command.eq_ignore_ascii_case("TOGGLE_OVERCHARGE") {
+    if command_button
+        .command
+        .eq_ignore_ascii_case("TOGGLE_OVERCHARGE")
+    {
         let active = obj
             .with_overcharge_behavior_interface(|overcharge| overcharge.is_overcharge_active())
             .unwrap_or(false);
@@ -337,7 +342,10 @@ fn leftover_append_can_make_and_overcharge(
             match can_make_unit_for_place(&obj, template.as_ref(), None) {
                 BuildCanMakeType::NoMoney => leftover_append_line(
                     description,
-                    &format!("\n{}", GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")),
+                    &format!(
+                        "\n{}",
+                        GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")
+                    ),
                 ),
                 BuildCanMakeType::QueueFull => leftover_append_line(
                     description,
@@ -354,8 +362,7 @@ fn leftover_append_can_make_and_overcharge(
                     ),
                 ),
                 BuildCanMakeType::MaxedOutForPlayer => {
-                    let key = if template.is_kind_of(gamelogic::common::types::KindOf::Structure)
-                    {
+                    let key = if template.is_kind_of(gamelogic::common::types::KindOf::Structure) {
                         "TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"
                     } else {
                         "TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"
@@ -366,8 +373,12 @@ fn leftover_append_can_make_and_overcharge(
             }
         }
     } else if !command_button.upgrade.is_empty()
-        && (command_button.command.eq_ignore_ascii_case("PLAYER_UPGRADE")
-            || command_button.command.eq_ignore_ascii_case("OBJECT_UPGRADE"))
+        && (command_button
+            .command
+            .eq_ignore_ascii_case("PLAYER_UPGRADE")
+            || command_button
+                .command
+                .eq_ignore_ascii_case("OBJECT_UPGRADE"))
     {
         let queue_full = leftover_production_count_for_obj(&obj)
             .is_some_and(|count| count == MAX_BUILD_QUEUE_BUTTONS);
@@ -379,12 +390,16 @@ fn leftover_append_can_make_and_overcharge(
                     GameText::fetch("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull")
                 ),
             );
-        } else if !player.get_money().can_afford(
-            leftover_upgrade_cost(&command_button.upgrade),
-        ) {
+        } else if !player
+            .get_money()
+            .can_afford(leftover_upgrade_cost(&command_button.upgrade))
+        {
             leftover_append_line(
                 description,
-                &format!("\n{}", GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")),
+                &format!(
+                    "\n{}",
+                    GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")
+                ),
             );
         }
     }
@@ -463,11 +478,7 @@ fn populate_layout_for_command(
 
     if !command_button.descriptive_text.is_empty() {
         if let Some(player_guard) = player_guard.as_ref() {
-            leftover_append_can_make_and_overcharge(
-                &mut description,
-                command_button,
-                player_guard,
-            );
+            leftover_append_can_make_and_overcharge(&mut description, command_button, player_guard);
         }
     }
 

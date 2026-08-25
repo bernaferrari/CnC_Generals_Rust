@@ -17,7 +17,7 @@
 //! This module provides compile-time embedded access to all original DirectX shader source files.
 //! The shaders are organized by DirectX version and can be accessed by name for runtime compilation.
 
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 

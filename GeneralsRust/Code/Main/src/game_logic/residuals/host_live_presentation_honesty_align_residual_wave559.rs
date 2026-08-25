@@ -190,7 +190,7 @@ pub fn simulate_presentation_honesty_align_dispatch_source() -> bool {
     let pf = pf_source();
     let pf_tests = include_str!("../../presentation_frame/tests/dual_tick_registry.rs");
     let ok = (pf.contains("fn status_sample_prefers_presentation")
-            || pf_tests.contains("fn status_sample_prefers_presentation"))
+        || pf_tests.contains("fn status_sample_prefers_presentation"))
         && (pf.contains("fn snap_camera_start_hint_prefers_presentation")
             || pf_tests.contains("fn snap_camera_start_hint_prefers_presentation"))
         && (pf.contains("fn train_unit_prefers_presentation_team")

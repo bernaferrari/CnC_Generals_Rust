@@ -10,7 +10,6 @@ fn is_generals_challenge_context() -> bool {
     crate::scripting::core::is_generals_challenge_campaign()
 }
 
-
 /// C++ Team.cpp:142-145 locoSetMatches — WB bit1 (air) shifts to locomotor AIR.
 fn loco_set_matches(lstm: u32, surface_bit_flags: u32) -> bool {
     let remapped = (surface_bit_flags & 0x01) | ((surface_bit_flags & 0x02) << 2);
@@ -46,11 +45,9 @@ impl ScriptConditionEvaluator {
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
-            THIS_PLAYER => {
-                with_script_engine_ref(|engine| engine.get_current_player_name())
-                    .flatten()
-                    .unwrap_or_else(|| raw.to_string())
-            }
+            THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
+                .flatten()
+                .unwrap_or_else(|| raw.to_string()),
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
@@ -136,10 +133,9 @@ impl ScriptConditionEvaluator {
         &self,
         area_name: &str,
     ) -> Result<crate::polygon_trigger::PolygonTrigger, ScriptError> {
-        if let Some(trigger) = with_script_engine_ref(|engine| {
-            engine.get_qualified_trigger_area_by_name(area_name)
-        })
-        .flatten()
+        if let Some(trigger) =
+            with_script_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
+                .flatten()
         {
             return Ok(trigger);
         }
@@ -604,25 +600,24 @@ impl ScriptConditionEvaluator {
         // an optional second boolean that inverts the meaning (TRUE => player alive).
         let wants_alive = condition.get_parameter(1).map(|p| p.get_int() != 0);
 
-        let all_destroyed = if let Some(census) =
-            crate::scripting::host_query_player_census(&player_name)
-        {
-            // Live host: leftover OBJECT_REGISTRY is empty so Player::hasAnyObjects is false.
-            !census.has_any_objects
-        } else if let Ok(players) = player_list().read() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    // C++: player is all destroyed if Player::hasAnyObjects() is false.
-                    !player.has_any_objects()
+        let all_destroyed =
+            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+                // Live host: leftover OBJECT_REGISTRY is empty so Player::hasAnyObjects is false.
+                !census.has_any_objects
+            } else if let Ok(players) = player_list().read() {
+                if let Some(player_arc) = players.find_player_by_name(&player_name) {
+                    if let Ok(player) = player_arc.read() {
+                        // C++: player is all destroyed if Player::hasAnyObjects() is false.
+                        !player.has_any_objects()
+                    } else {
+                        true
+                    }
                 } else {
                     true
                 }
             } else {
                 true
-            }
-        } else {
-            true
-        };
+            };
         let result = match wants_alive {
             Some(true) => !all_destroyed,
             Some(false) => all_destroyed,
@@ -674,23 +669,22 @@ impl ScriptConditionEvaluator {
             player_name
         );
 
-        let current_credits = if let Some(census) =
-            crate::scripting::host_query_player_census(&player_name)
-        {
-            census.money
-        } else {
-            // C++ returns false when playerFromParam cannot resolve the Side.
-            let Ok(players) = player_list().read() else {
-                return Ok(ScriptConditionResult::False);
+        let current_credits =
+            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+                census.money
+            } else {
+                // C++ returns false when playerFromParam cannot resolve the Side.
+                let Ok(players) = player_list().read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Some(player_arc) = players.find_player_by_name(&player_name) else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Ok(player) = player_arc.read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                player.get_money().get_money()
             };
-            let Some(player_arc) = players.find_player_by_name(&player_name) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let Ok(player) = player_arc.read() else {
-                return Ok(ScriptConditionResult::False);
-            };
-            player.get_money().get_money()
-        };
 
         let result = match comparison {
             ComparisonType::LessThan => target_credits < current_credits,
@@ -717,22 +711,21 @@ impl ScriptConditionEvaluator {
         );
 
         // C++ parity: ScriptConditions::evaluatePlayerHasNOrFewerBuildings
-        let building_count = if let Some(census) =
-            crate::scripting::host_query_player_census(&player_name)
-        {
-            census.building_count
-        } else {
-            let Ok(players) = player_list().read() else {
-                return Ok(ScriptConditionResult::False);
+        let building_count =
+            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+                census.building_count
+            } else {
+                let Ok(players) = player_list().read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Some(player_arc) = players.find_player_by_name(&player_name) else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Ok(player) = player_arc.read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                player.count_buildings()
             };
-            let Some(player_arc) = players.find_player_by_name(&player_name) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let Ok(player) = player_arc.read() else {
-                return Ok(ScriptConditionResult::False);
-            };
-            player.count_buildings()
-        };
 
         Ok(bool_result(count >= building_count))
     }
@@ -790,24 +783,23 @@ impl ScriptConditionEvaluator {
 
         // C++ parity: ScriptConditions::evaluatePlayerHasNOrFewerFactionBuildings
         // Uses KINDOF_MP_COUNT_FOR_VICTORY + KINDOF_STRUCTURE.
-        let building_count = if let Some(census) =
-            crate::scripting::host_query_player_census(&player_name)
-        {
-            census.faction_building_count
-        } else {
-            let Ok(players) = player_list().read() else {
-                return Ok(ScriptConditionResult::False);
+        let building_count =
+            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+                census.faction_building_count
+            } else {
+                let Ok(players) = player_list().read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Some(player_arc) = players.find_player_by_name(&player_name) else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Ok(player) = player_arc.read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let mask = crate::common::KindOf::Structure.cpp_mask()
+                    | crate::common::KindOf::CountsForVictory.cpp_mask();
+                player.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE)
             };
-            let Some(player_arc) = players.find_player_by_name(&player_name) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let Ok(player) = player_arc.read() else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let mask = crate::common::KindOf::Structure.cpp_mask()
-                | crate::common::KindOf::CountsForVictory.cpp_mask();
-            player.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE)
-        };
 
         Ok(bool_result(count >= building_count))
     }
@@ -826,22 +818,21 @@ impl ScriptConditionEvaluator {
             percent
         );
 
-        let power_ratio = if let Some(census) =
-            crate::scripting::host_query_player_census(&player_name)
-        {
-            census.supply_ratio()
-        } else {
-            let Ok(players) = player_list().read() else {
-                return Ok(ScriptConditionResult::False);
+        let power_ratio =
+            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+                census.supply_ratio()
+            } else {
+                let Ok(players) = player_list().read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Some(player_arc) = players.find_player_by_name(&player_name) else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Ok(player) = player_arc.read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                player.get_energy().supply_ratio()
             };
-            let Some(player_arc) = players.find_player_by_name(&player_name) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let Ok(player) = player_arc.read() else {
-                return Ok(ScriptConditionResult::False);
-            };
-            player.get_energy().supply_ratio()
-        };
         let test_ratio = percent as f32 / 100.0;
         Ok(bool_result(Self::compare_f32(
             comparison,
@@ -864,30 +855,28 @@ impl ScriptConditionEvaluator {
             desired_excess
         );
 
-        let actual_excess = if let Some(census) =
-            crate::scripting::host_query_player_census(&player_name)
-        {
-            census.excess_power()
-        } else {
-            let Ok(players) = player_list().read() else {
-                return Ok(ScriptConditionResult::False);
+        let actual_excess =
+            if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
+                census.excess_power()
+            } else {
+                let Ok(players) = player_list().read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Some(player_arc) = players.find_player_by_name(&player_name) else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let Ok(player) = player_arc.read() else {
+                    return Ok(ScriptConditionResult::False);
+                };
+                let energy = player.get_energy();
+                energy.production() - energy.consumption()
             };
-            let Some(player_arc) = players.find_player_by_name(&player_name) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let Ok(player) = player_arc.read() else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let energy = player.get_energy();
-            energy.production() - energy.consumption()
-        };
         Ok(bool_result(Self::compare_i32(
             comparison,
             actual_excess,
             desired_excess,
         )))
     }
-
 
     /// C++ Reference: ScriptConditions::evaluateScienceAcquired() line 1543-1553
     pub(crate) fn eval_player_acquired_science(
@@ -977,18 +966,17 @@ impl ScriptConditionEvaluator {
             target_points
         );
 
-        let current_points = crate::scripting::host_query_player_science_purchase_points(
-            &player_name,
-        )
-        .or_else(|| {
-            let players = player_list().read().ok()?;
-            let player_arc = players.find_player_by_name(&player_name)?;
-            player_arc
-                .read()
-                .ok()
-                .map(|p| p.get_science_purchase_points())
-        })
-        .unwrap_or(0);
+        let current_points =
+            crate::scripting::host_query_player_science_purchase_points(&player_name)
+                .or_else(|| {
+                    let players = player_list().read().ok()?;
+                    let player_arc = players.find_player_by_name(&player_name)?;
+                    player_arc
+                        .read()
+                        .ok()
+                        .map(|p| p.get_science_purchase_points())
+                })
+                .unwrap_or(0);
 
         let result = match comparison {
             Some(ComparisonType::LessThan) => current_points < target_points,
@@ -1280,7 +1268,6 @@ impl ScriptConditionEvaluator {
             ));
         }
 
-
         // C++: non-existent team is not destroyed; existing team uses Team::hasAnyObjects().
         if let Some(team_arc) = self.lookup_condition_team(&team_name) {
             if let Ok(team) = team_arc.read() {
@@ -1302,7 +1289,6 @@ impl ScriptConditionEvaluator {
                 &team_name,
             )));
         }
-
 
         // C++ evaluateHasUnits iterates every prototype instance for non-THIS names.
         if let Ok(factory) = get_team_factory().lock() {
@@ -1429,7 +1415,8 @@ impl ScriptConditionEvaluator {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(host_team_attacked_by_player(
-                &team_name, &player_name,
+                &team_name,
+                &player_name,
             )));
         }
 
@@ -1502,7 +1489,6 @@ impl ScriptConditionEvaluator {
             )));
         }
 
-
         if let Some(team_arc) = self.lookup_condition_team(&team_name) {
             if let Ok(team) = team_arc.read() {
                 return Ok(bool_result(team.is_created()));
@@ -1526,7 +1512,8 @@ impl ScriptConditionEvaluator {
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(bool_result(host_team_discovered_by_player(
-                &team_name, &player_name,
+                &team_name,
+                &player_name,
             )));
         }
 
@@ -1813,7 +1800,6 @@ impl ScriptConditionEvaluator {
         Ok(ScriptConditionResult::False)
     }
 
-
     pub(crate) fn eval_team_completed_sequential_execution(
         &self,
         condition: &Condition,
@@ -1850,7 +1836,6 @@ impl ScriptConditionEvaluator {
                 .unwrap_or(false),
             ));
         }
-
 
         let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(ScriptConditionResult::False);
@@ -1901,7 +1886,6 @@ impl ScriptConditionEvaluator {
                 .unwrap_or(false),
             ));
         }
-
 
         let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(ScriptConditionResult::False);
@@ -2093,7 +2077,6 @@ impl ScriptConditionEvaluator {
             });
         }
 
-
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(TeamInsideCounts::default());
         };
@@ -2251,12 +2234,13 @@ fn host_team_attacked_by_object_types(
         if obj.last_damage_source_id == 0 {
             continue;
         }
-        let Some(src) =
-            crate::scripting::host_script_query_object_by_id(obj.last_damage_source_id)
+        let Some(src) = crate::scripting::host_script_query_object_by_id(obj.last_damage_source_id)
         else {
             continue;
         };
-        if types.is_in_set(&crate::common::AsciiString::from(src.template_name.as_str())) {
+        if types.is_in_set(&crate::common::AsciiString::from(
+            src.template_name.as_str(),
+        )) {
             return true;
         }
     }

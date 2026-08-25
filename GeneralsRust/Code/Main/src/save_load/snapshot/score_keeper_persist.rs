@@ -15,7 +15,7 @@
 
 use crate::game_logic::{GameLogic, Player};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use game_engine::common::rts::score_keeper::{ScoreKeeper, MAX_PLAYER_COUNT};
+use game_engine::common::rts::score_keeper::{MAX_PLAYER_COUNT, ScoreKeeper};
 use serde::{Deserialize, Serialize};
 
 const SCKP_MAGIC: &[u8; 4] = b"SCKP";
@@ -58,10 +58,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     reset_score_counters(game_logic);
     let Some(suffix) = find_sckp_suffix(bytes) else {
         return Ok(());
@@ -143,7 +140,8 @@ fn write_leftover_serialize_table(player: &Player) -> Vec<u8> {
     let enemy_buildings = player
         .statistics
         .structures_destroyed
-        .saturating_sub(player.statistics.structures_destroyed_self) as i32;
+        .saturating_sub(player.statistics.structures_destroyed_self)
+        as i32;
 
     let mut units_destroyed = [0i32; MAX_PLAYER_COUNT];
     units_destroyed[slot] = self_units;

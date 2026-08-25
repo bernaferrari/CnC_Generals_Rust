@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use game_engine::common::ini::ini_misc_audio::AudioEventRTS;
 use game_engine::common::ini::{
-    self, get_campaign_store, get_campaign_store_mut, init_campaign_store, Campaign as IniCampaign,
-    INILoadType, Mission as IniMission, INI,
+    self, Campaign as IniCampaign, INI, INILoadType, Mission as IniMission, get_campaign_store,
+    get_campaign_store_mut, init_campaign_store,
 };
 
 pub const MAX_OBJECTIVE_LINES: usize = 5;
@@ -664,8 +664,8 @@ pub trait XferHelper {
         self.xfer_int(&mut info.game_id)?;
         let mut slot_count = game_engine::System::CHALLENGE_MAX_SLOTS as i32;
         self.xfer_int(&mut slot_count)?;
-        let slots_to_xfer = slot_count.clamp(0, game_engine::System::CHALLENGE_MAX_SLOTS as i32)
-            as usize;
+        let slots_to_xfer =
+            slot_count.clamp(0, game_engine::System::CHALLENGE_MAX_SLOTS as i32) as usize;
         for slot in info.slots.iter_mut().take(slots_to_xfer) {
             self.xfer_int(&mut slot.state)?;
             if version >= 2 {

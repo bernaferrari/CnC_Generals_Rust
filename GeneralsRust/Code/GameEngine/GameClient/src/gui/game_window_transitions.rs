@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use glam::Vec2;
 
-use super::game_window::{resolve_window_text, Color, GameWindow, WindowDrawData, WindowStatus};
+use super::game_window::{Color, GameWindow, WindowDrawData, WindowStatus, resolve_window_text};
 use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::UIRect;
 use super::window_manager::hide_window_rc;
@@ -2046,10 +2046,7 @@ impl Transition for ControlBarArrowTransition {
             return;
         }
         let (y_pos, alpha) = if self.draw_state < 16 {
-            (
-                self.pos.y + self.increment_pos.y * self.draw_state,
-                255u8,
-            )
+            (self.pos.y + self.increment_pos.y * self.draw_state, 255u8)
         } else {
             let mut alpha = (1.0 - (self.fade_percent * (self.draw_state - 16) as f32)) * 255.0;
             if alpha > 255.0 {
@@ -2058,10 +2055,7 @@ impl Transition for ControlBarArrowTransition {
             if alpha < 0.0 {
                 alpha = 0.0;
             }
-            (
-                self.pos.y + self.increment_pos.y * (16 - 1),
-                alpha as u8,
-            )
+            (self.pos.y + self.increment_pos.y * (16 - 1), alpha as u8)
         };
         let rect = UIRect::new(
             self.pos.x as f32,
@@ -2657,7 +2651,6 @@ impl GameWindowTransitionsHandler {
                 self.pending_group = None;
             }
         }
-
 
         if let Some(idx) = self.current_group {
             if self.groups[idx].is_finished() && self.groups[idx].is_reversed() {

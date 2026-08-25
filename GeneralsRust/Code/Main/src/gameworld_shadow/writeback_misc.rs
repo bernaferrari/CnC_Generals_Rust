@@ -225,8 +225,8 @@ impl GameWorldShadow {
             // Flag-only writeback: if entity says no mine and host has mine_data left to status, leave payload.
             // Cheer/demo flags are authoritative from GameWorld last-writer residual.
             let _ = host_has_mine; // presence is logged host→entity; entity→host keeps payload ownership on Main.
-                                   // Wave 665: GameWorld demo-mine-cheer last-write residual —
-                                   // host applies presentation bookkeeping from ready log.
+            // Wave 665: GameWorld demo-mine-cheer last-write residual —
+            // host applies presentation bookkeeping from ready log.
             ready.push(ObjectId(hid));
             updated += 1;
         }
@@ -650,7 +650,9 @@ impl GameWorldShadow {
         eid: EntityId,
         obj: &mut crate::game_logic::Object,
     ) -> bool {
-        use gamelogic::world::{WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY};
+        use gamelogic::world::{
+            WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
+        };
         let mut changed = false;
         let apply = |host: &mut Option<crate::game_logic::Weapon>,
                      facts: Option<gamelogic::world::WeaponSlotFacts>| {
@@ -668,7 +670,11 @@ impl GameWorldShadow {
                 w.clip_size = f.clip_size;
                 slot_changed = true;
             }
-            let ammo = if f.ammo == u32::MAX { None } else { Some(f.ammo) };
+            let ammo = if f.ammo == u32::MAX {
+                None
+            } else {
+                Some(f.ammo)
+            };
             if w.ammo != ammo {
                 w.ammo = ammo;
                 slot_changed = true;
@@ -1634,7 +1640,6 @@ impl GameWorldShadow {
                 || obj.last_horde_refresh_frame != ent.last_horde_refresh_frame
                 || obj.horde_next_wake_frame != ent.horde_next_wake_frame
                 || obj.horde_wake_initialized != ent.horde_wake_initialized
-
                 || obj.weapon_bonus_frenzy != ent.weapon_bonus_frenzy
                 || obj.weapon_bonus_frenzy_level != ent.weapon_bonus_frenzy_level
                 || obj.weapon_bonus_battle_plan_bombardment

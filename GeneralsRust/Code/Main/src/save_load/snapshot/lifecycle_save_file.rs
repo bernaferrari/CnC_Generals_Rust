@@ -46,7 +46,11 @@ fn save_file_roundtrip_preserves_lifecycle_envelope() {
     }
 
     manager
-        .save_game("lifecycle_tail_rt", &source, &save_info("lifecycle_tail_rt"))
+        .save_game(
+            "lifecycle_tail_rt",
+            &source,
+            &save_info("lifecycle_tail_rt"),
+        )
         .expect("save");
 
     let mut loaded = GameLogic::new();

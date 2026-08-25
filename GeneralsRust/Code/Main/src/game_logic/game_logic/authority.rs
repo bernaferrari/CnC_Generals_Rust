@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::prelude::*;
-use super::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::host::*;
 use super::player::*;
+use super::prelude::*;
 use super::script_camera::*;
+use super::*;
 
 impl GameLogic {
     pub(super) fn seed_sample_objectives() -> Vec<ObjectiveDisplay> {
@@ -42,8 +42,8 @@ impl GameLogic {
 
 #[derive(Debug)]
 pub(super) struct DestructionEvent {
-    pub(in super) id: ObjectId,
-    pub(in super) killer: Option<Team>,
+    pub(super) id: ObjectId,
+    pub(super) killer: Option<Team>,
 }
 
 /// An authoritative Gather command that the command executor accepted.

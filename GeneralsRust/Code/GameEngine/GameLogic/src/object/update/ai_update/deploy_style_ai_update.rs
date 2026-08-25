@@ -7,13 +7,13 @@ use std::sync::Arc;
 
 use crate::ai::states::AIStateType;
 use crate::common::{
-    Bool, ObjectID, ObjectStatusMaskType, UnsignedInt, MODELCONDITION_DEPLOYED,
-    MODELCONDITION_MOVING, MODELCONDITION_PACKING, MODELCONDITION_UNPACKING,
+    Bool, MODELCONDITION_DEPLOYED, MODELCONDITION_MOVING, MODELCONDITION_PACKING,
+    MODELCONDITION_UNPACKING, ObjectID, ObjectStatusMaskType, UnsignedInt,
 };
 use crate::helpers::{TheAudio, TheGameLogic};
 use crate::modules::AIUpdateInterface;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 

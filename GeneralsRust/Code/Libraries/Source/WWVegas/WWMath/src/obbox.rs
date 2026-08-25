@@ -8,11 +8,11 @@
 //! - Extent: size of the box (half-widths along each axis)
 //! - Basis: rotation matrix defining the orientation of the box
 //!
-//! To find the world space coordinates of the "+x,+y,+z" corner of 
+//! To find the world space coordinates of the "+x,+y,+z" corner of
 //! the bounding box you could use this equation:
 //! Vector3 corner = center + basis * extent;
 
-use crate::{Vector3, Matrix3, Matrix3D, WWMath, EPSILON};
+use crate::{EPSILON, Matrix3, Matrix3D, Vector3, WWMath};
 // Note: operator traits may be used in the future for OBBox operations
 
 /// Oriented Bounding Box
@@ -114,7 +114,7 @@ impl OBBox {
     /// Initialize a random oriented box
     pub fn init_random(&mut self, min_extent: f32, max_extent: f32) {
         self.center = Vector3::ZERO;
-        
+
         self.extent.x = min_extent + WWMath::random_float() * (max_extent - min_extent);
         self.extent.y = min_extent + WWMath::random_float() * (max_extent - min_extent);
         self.extent.z = min_extent + WWMath::random_float() * (max_extent - min_extent);
@@ -164,19 +164,17 @@ impl OBBox {
     pub fn compute_axis_aligned_extent(&self) -> Vector3 {
         Vector3::new(
             // X extent is the box projected onto the X axis
-            WWMath::fabs(self.extent.x * self.basis[0].x) +
-            WWMath::fabs(self.extent.y * self.basis[0].y) +
-            WWMath::fabs(self.extent.z * self.basis[0].z),
-            
+            WWMath::fabs(self.extent.x * self.basis[0].x)
+                + WWMath::fabs(self.extent.y * self.basis[0].y)
+                + WWMath::fabs(self.extent.z * self.basis[0].z),
             // Y extent
-            WWMath::fabs(self.extent.x * self.basis[1].x) +
-            WWMath::fabs(self.extent.y * self.basis[1].y) +
-            WWMath::fabs(self.extent.z * self.basis[1].z),
-            
+            WWMath::fabs(self.extent.x * self.basis[1].x)
+                + WWMath::fabs(self.extent.y * self.basis[1].y)
+                + WWMath::fabs(self.extent.z * self.basis[1].z),
             // Z extent
-            WWMath::fabs(self.extent.x * self.basis[2].x) +
-            WWMath::fabs(self.extent.y * self.basis[2].y) +
-            WWMath::fabs(self.extent.z * self.basis[2].z),
+            WWMath::fabs(self.extent.x * self.basis[2].x)
+                + WWMath::fabs(self.extent.y * self.basis[2].y)
+                + WWMath::fabs(self.extent.z * self.basis[2].z),
         )
     }
 
@@ -184,7 +182,7 @@ impl OBBox {
     pub fn transform(&self, transform: &Matrix3D) -> Self {
         let mut result_basis = Matrix3::IDENTITY;
         Matrix3::multiply_matrix3d_matrix3(transform, &self.basis, &mut result_basis);
-        
+
         Self {
             extent: self.extent, // Extents don't change
             center: transform.transform_vector(self.center),
@@ -202,8 +200,14 @@ impl OBBox {
     /// Get the 8 corner points of the box
     pub fn get_corners(&self) -> [Vector3; 8] {
         let params = [
-            [-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [1.0, 1.0, -1.0],
-            [-1.0, -1.0, 1.0],  [1.0, -1.0, 1.0],  [-1.0, 1.0, 1.0],  [1.0, 1.0, 1.0],
+            [-1.0, -1.0, -1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+            [1.0, -1.0, 1.0],
+            [-1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
         ];
 
         let mut corners = [Vector3::ZERO; 8];
@@ -216,9 +220,9 @@ impl OBBox {
     /// Check if this OBBox contains a point
     pub fn contains_point(&self, point: Vector3) -> bool {
         let local_point = self.world_to_local(point);
-        local_point.x.abs() <= self.extent.x &&
-        local_point.y.abs() <= self.extent.y &&
-        local_point.z.abs() <= self.extent.z
+        local_point.x.abs() <= self.extent.x
+            && local_point.y.abs() <= self.extent.y
+            && local_point.z.abs() <= self.extent.z
     }
 
     /// Transform a point from world space to local box space
@@ -307,9 +311,7 @@ impl Default for OBBox {
 
 impl PartialEq for OBBox {
     fn eq(&self, other: &Self) -> bool {
-        self.center == other.center &&
-        self.extent == other.extent &&
-        self.basis == other.basis
+        self.center == other.center && self.extent == other.extent && self.basis == other.basis
     }
 }
 
@@ -458,7 +460,7 @@ impl Triangle {
         let edge1 = v1 - v0;
         let edge2 = v2 - v0;
         let normal = edge1.cross(edge2).normalize();
-        
+
         Self {
             vertices: [v0, v1, v2],
             normal,
@@ -467,7 +469,11 @@ impl Triangle {
 }
 
 /// Test if a box intersects with a triangle on a given axis
-pub fn oriented_box_intersects_tri_on_axis(obbox: &OBBox, tri: &Triangle, mut axis: Vector3) -> bool {
+pub fn oriented_box_intersects_tri_on_axis(
+    obbox: &OBBox,
+    tri: &Triangle,
+    mut axis: Vector3,
+) -> bool {
     if axis.length_squared() < EPSILON {
         return true;
     }
@@ -559,19 +565,14 @@ mod tests {
 
     #[test]
     fn test_volume() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 2.0, 3.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 2.0, 3.0));
         assert_eq!(obbox.volume(), 48.0); // 8 * 1 * 2 * 3
     }
 
     #[test]
     fn test_compute_point() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::new(5.0, 0.0, 0.0),
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let obbox =
+            OBBox::from_center_extent(Vector3::new(5.0, 0.0, 0.0), Vector3::new(1.0, 1.0, 1.0));
 
         // Test corner points
         let corner = obbox.compute_point([1.0, 1.0, 1.0]);
@@ -583,10 +584,7 @@ mod tests {
 
     #[test]
     fn test_axis_aligned_extent() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 2.0, 3.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 2.0, 3.0));
 
         let aa_extent = obbox.compute_axis_aligned_extent();
         assert_eq!(aa_extent, Vector3::new(1.0, 2.0, 3.0));
@@ -594,10 +592,7 @@ mod tests {
 
     #[test]
     fn test_contains_point() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 1.0, 1.0));
 
         assert!(obbox.contains_point(Vector3::new(0.5, 0.5, 0.5)));
         assert!(obbox.contains_point(Vector3::new(1.0, 1.0, 1.0)));
@@ -606,10 +601,8 @@ mod tests {
 
     #[test]
     fn test_world_local_transform() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::new(5.0, 0.0, 0.0),
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let obbox =
+            OBBox::from_center_extent(Vector3::new(5.0, 0.0, 0.0), Vector3::new(1.0, 1.0, 1.0));
 
         let world_point = Vector3::new(6.0, 0.0, 0.0);
         let local_point = obbox.world_to_local(world_point);
@@ -621,10 +614,7 @@ mod tests {
 
     #[test]
     fn test_distance_to_point() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 1.0, 1.0));
 
         // Point inside
         assert_eq!(obbox.distance_to_point(Vector3::new(0.5, 0.5, 0.5)), 0.0);
@@ -636,10 +626,7 @@ mod tests {
 
     #[test]
     fn test_closest_point_to() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 1.0, 1.0));
 
         let outside_point = Vector3::new(3.0, 0.0, 0.0);
         let closest = obbox.closest_point_to(outside_point);
@@ -648,27 +635,19 @@ mod tests {
 
     #[test]
     fn test_expand() {
-        let mut obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let mut obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 1.0, 1.0));
 
         obbox.expand(0.5);
         assert_eq!(obbox.extent, Vector3::new(1.5, 1.5, 1.5));
 
-        let expanded = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 1.0, 1.0)
-        ).expanded(0.5);
+        let expanded =
+            OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 1.0, 1.0)).expanded(0.5);
         assert_eq!(expanded.extent, Vector3::new(1.5, 1.5, 1.5));
     }
 
     #[test]
     fn test_project_to_axis() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 2.0, 3.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 2.0, 3.0));
 
         let projection = obbox.project_to_axis(Vector3::new(1.0, 0.0, 0.0));
         assert_eq!(projection, 1.0);
@@ -679,23 +658,17 @@ mod tests {
 
     #[test]
     fn test_oriented_boxes_intersect() {
-        let box1 = OBBox::from_center_extent(
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let box1 =
+            OBBox::from_center_extent(Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 1.0, 1.0));
 
-        let box2 = OBBox::from_center_extent(
-            Vector3::new(1.5, 0.0, 0.0),
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let box2 =
+            OBBox::from_center_extent(Vector3::new(1.5, 0.0, 0.0), Vector3::new(1.0, 1.0, 1.0));
 
         // Boxes should intersect
         assert!(oriented_boxes_intersect(&box1, &box2));
 
-        let box3 = OBBox::from_center_extent(
-            Vector3::new(3.0, 0.0, 0.0),
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let box3 =
+            OBBox::from_center_extent(Vector3::new(3.0, 0.0, 0.0), Vector3::new(1.0, 1.0, 1.0));
 
         // Boxes should not intersect
         assert!(!oriented_boxes_intersect(&box1, &box3));
@@ -703,10 +676,8 @@ mod tests {
 
     #[test]
     fn test_transform() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::new(1.0, 0.0, 0.0),
-            Vector3::new(0.5, 0.5, 0.5)
-        );
+        let obbox =
+            OBBox::from_center_extent(Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.5, 0.5, 0.5));
 
         let mut transform = Matrix3D::IDENTITY;
         transform.translate(2.0, 0.0, 0.0);
@@ -718,16 +689,13 @@ mod tests {
 
     #[test]
     fn test_get_corners() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 1.0, 1.0));
 
         let corners = obbox.get_corners();
-        
+
         // Check that we have 8 corners
         assert_eq!(corners.len(), 8);
-        
+
         // Check a few specific corners
         assert!(corners.contains(&Vector3::new(-1.0, -1.0, -1.0)));
         assert!(corners.contains(&Vector3::new(1.0, 1.0, 1.0)));
@@ -735,10 +703,7 @@ mod tests {
 
     #[test]
     fn test_triangle_intersection() {
-        let obbox = OBBox::from_center_extent(
-            Vector3::ZERO,
-            Vector3::new(1.0, 1.0, 1.0)
-        );
+        let obbox = OBBox::from_center_extent(Vector3::ZERO, Vector3::new(1.0, 1.0, 1.0));
 
         // Triangle intersecting the box
         let tri = Triangle::new(
@@ -761,20 +726,14 @@ mod tests {
 
     #[test]
     fn test_equality() {
-        let box1 = OBBox::from_center_extent(
-            Vector3::new(1.0, 2.0, 3.0),
-            Vector3::new(0.5, 1.0, 1.5)
-        );
+        let box1 =
+            OBBox::from_center_extent(Vector3::new(1.0, 2.0, 3.0), Vector3::new(0.5, 1.0, 1.5));
 
-        let box2 = OBBox::from_center_extent(
-            Vector3::new(1.0, 2.0, 3.0),
-            Vector3::new(0.5, 1.0, 1.5)
-        );
+        let box2 =
+            OBBox::from_center_extent(Vector3::new(1.0, 2.0, 3.0), Vector3::new(0.5, 1.0, 1.5));
 
-        let box3 = OBBox::from_center_extent(
-            Vector3::new(2.0, 2.0, 3.0),
-            Vector3::new(0.5, 1.0, 1.5)
-        );
+        let box3 =
+            OBBox::from_center_extent(Vector3::new(2.0, 2.0, 3.0), Vector3::new(0.5, 1.0, 1.5));
 
         assert_eq!(box1, box2);
         assert_ne!(box1, box3);

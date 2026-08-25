@@ -77,8 +77,8 @@ pub fn residual_bootstrap_camera_no_live_dual_read_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_bootstrap_camera_no_live_dual_read_last_action(
-) -> ResidualBootstrapCameraNoLiveDualReadAction {
+pub fn residual_bootstrap_camera_no_live_dual_read_last_action()
+-> ResidualBootstrapCameraNoLiveDualReadAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualBootstrapCameraNoLiveDualReadAction::MethodNames,
         2 => ResidualBootstrapCameraNoLiveDualReadAction::SourceMarkers,

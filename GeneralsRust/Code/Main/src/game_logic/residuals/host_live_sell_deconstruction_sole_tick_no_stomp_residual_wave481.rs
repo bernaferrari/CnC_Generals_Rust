@@ -79,8 +79,8 @@ pub fn residual_sell_deconstruction_sole_tick_no_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_sell_deconstruction_sole_tick_no_stomp_last_action(
-) -> ResidualSellDeconstructionSoleTickNoStompAction {
+pub fn residual_sell_deconstruction_sole_tick_no_stomp_last_action()
+-> ResidualSellDeconstructionSoleTickNoStompAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualSellDeconstructionSoleTickNoStompAction::MethodNames,
         2 => ResidualSellDeconstructionSoleTickNoStompAction::SourceMarkers,

@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use super::font::{get_font_library, FontDesc, FontMetrics, GameFont};
+use super::font::{FontDesc, FontMetrics, GameFont, get_font_library};
 
 // ---------------------------------------------------------------------------
 // FontLibrary global singleton accessor  (C++: TheFontLibrary)

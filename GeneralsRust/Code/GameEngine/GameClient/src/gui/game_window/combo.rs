@@ -4,10 +4,10 @@
 use super::font::Color;
 use super::listbox::gadget_list_box_set_colors;
 use super::messages::{
-    WindowMessage, GCM_DEL_ALL, GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_SET_ITEM_DATA,
-    GCM_SET_SELECTION, GCM_SET_TEXT,
+    GCM_DEL_ALL, GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_SET_ITEM_DATA, GCM_SET_SELECTION,
+    GCM_SET_TEXT, WindowMessage,
 };
-use super::payload::{pop_payload, push_payload, with_payload, WindowMsgData, WindowMsgPayload};
+use super::payload::{WindowMsgData, WindowMsgPayload, pop_payload, push_payload, with_payload};
 use super::window_struct::{GameWindow, WindowWidget};
 use crate::gui::gadgets::ComboBoxItem;
 

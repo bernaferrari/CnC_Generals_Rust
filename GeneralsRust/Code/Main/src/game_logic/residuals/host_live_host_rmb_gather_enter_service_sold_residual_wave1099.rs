@@ -74,7 +74,10 @@ pub fn honesty_host_rmb_gather_enter_service_sold_nav_commands_residual_wave1099
 pub fn honesty_host_rmb_gather_enter_service_sold_residual_pack_wave1099() -> bool {
     let cs = cs_source();
     let es = es_source();
-    let w = match super::harness::last_rust_fn_body(cs, "classify_right_click_target_from_presentation") {
+    let w = match super::harness::last_rust_fn_body(
+        cs,
+        "classify_right_click_target_from_presentation",
+    ) {
         Some(b) => b,
         None => {
             residual_action_store(ResidualHostRmbGatherEnterServiceSoldAction::SourceMarkers);

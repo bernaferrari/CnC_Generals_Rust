@@ -1,9 +1,9 @@
 //! Apply-gate + per-appearance calc regressions.
 
 use super::{
+    CPP_PI, LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualAppearance, PhysicsVisualBody,
+    PhysicsVisualInput, PhysicsVisualLocoState, PhysicsVisualXform, ScriptedClientRng,
     apply_physics_visual_xform, calc_physics_visual_xform, post_multiply_physics_visual_xform,
-    LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualAppearance, PhysicsVisualBody,
-    PhysicsVisualInput, PhysicsVisualLocoState, PhysicsVisualXform, ScriptedClientRng, CPP_PI,
 };
 use crate::drawable::{Matrix4, Vector3};
 

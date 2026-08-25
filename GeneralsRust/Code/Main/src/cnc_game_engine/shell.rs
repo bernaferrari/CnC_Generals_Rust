@@ -35,7 +35,9 @@ impl CnCGameEngine {
                 .unwrap_or_else(|| {
                     game_client::gui::queue_shell_operation(move |shell| {
                         if let Err(error) = shell.push(layout_file, false) {
-                            warn!("Runtime host deferred shell screen {layout_file} failed: {error:?}");
+                            warn!(
+                                "Runtime host deferred shell screen {layout_file} failed: {error:?}"
+                            );
                         }
                     });
                     Ok(())
@@ -576,7 +578,6 @@ impl CnCGameEngine {
         // on the Menu transition path.
     }
 
-
     /// Ensure ControlBar / in-game layout is available when entering gameplay.
     ///
     /// C++ `ShowControlBar` loads ControlBar.wnd. This is **not** a silent no-op:
@@ -613,16 +614,15 @@ impl CnCGameEngine {
                             );
                         }
                     }
-                    let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(
-                        true,
-                    );
+                    let _ =
+                        game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
                     // show_control_bar no-ops when ControlBarState.visible is
                     // already true; the WND parent can still be HIDDEN from
                     // HideControlBar at boot. Force the retail parent visible.
                     game_client::gui::with_window_manager(|wm| {
-                        if let Some(parent) = wm.find_window_by_name(
-                            crate::gameplay_layout::CONTROL_BAR_PARENT_NAME,
-                        ) {
+                        if let Some(parent) =
+                            wm.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+                        {
                             if parent.borrow().is_hidden() {
                                 let _ = parent.borrow_mut().hide(false);
                             }
@@ -644,7 +644,6 @@ impl CnCGameEngine {
                             game_client::gui::control_bar::ControlBarStage::Default,
                         );
                     }
-
                 }
             }
             crate::gameplay_layout::GameplayLayoutStatus::AssetsUnavailable { searched } => {
@@ -664,17 +663,17 @@ impl CnCGameEngine {
         // ControlBarParent on TheWindowManager. Disk-probe Ready/miss must
         // not skip the archive resolver when the live parent is still gone.
         #[cfg(feature = "game_client")]
-        if !self.runtime_host_headless
-            && !crate::gameplay_layout::control_bar_parent_is_live()
-        {
+        if !self.runtime_host_headless && !crate::gameplay_layout::control_bar_parent_is_live() {
             let loaded = crate::gameplay_layout::materialise_live_control_bar();
             if loaded {
-                info!("ensure_gameplay_layouts: ControlBarParent materialised on live WM after enter");
+                info!(
+                    "ensure_gameplay_layouts: ControlBarParent materialised on live WM after enter"
+                );
                 let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
                 game_client::gui::with_window_manager(|wm| {
-                    if let Some(parent) = wm.find_window_by_name(
-                        crate::gameplay_layout::CONTROL_BAR_PARENT_NAME,
-                    ) {
+                    if let Some(parent) =
+                        wm.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+                    {
                         if parent.borrow().is_hidden() {
                             let _ = parent.borrow_mut().hide(false);
                         }
@@ -744,8 +743,7 @@ impl CnCGameEngine {
 
     /// ZH MD GameData.ini `ShellMapName` used when GlobalData still has the
     /// empty Common default at windowed boot.
-    pub(super) const DEFAULT_WINDOWED_SHELL_MAP: &'static str =
-        r"Maps\ShellMapMD\ShellMapMD.map";
+    pub(super) const DEFAULT_WINDOWED_SHELL_MAP: &'static str = r"Maps\ShellMapMD\ShellMapMD.map";
 
     /// C++ Shell::showShellMap(TRUE) starts GAME_SHELL with pending_file =
     /// ShellMapName. Windowed boot must attempt that map when the asset exists

@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -36,7 +36,6 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 
     /// Find the nearest building that can accept this unit for garrison/enter.
     pub(super) fn find_nearest_garrison_target(&self, unit_id: ObjectId) -> Option<ObjectId> {
@@ -190,9 +189,7 @@ impl<'a> CommandExecutor<'a> {
                 (Some(unit), Some(target)) => {
                     let rel = match (unit.owner_player_id, target.owner_player_id) {
                         (Some(a), Some(b)) => self.game_logic.player_relationship(a, b),
-                        _ if unit.team == target.team => {
-                            gamelogic::common::Relationship::Allies
-                        }
+                        _ if unit.team == target.team => gamelogic::common::Relationship::Allies,
                         _ => gamelogic::common::Relationship::Neutral,
                     };
                     (
@@ -233,7 +230,11 @@ impl<'a> CommandExecutor<'a> {
             .cave_system_residual()
             .index_holding_unit(id)
             .is_some();
-        is_contained || in_tunnel || in_cave || obj.container_id().is_some() || obj.contained_by.is_some()
+        is_contained
+            || in_tunnel
+            || in_cave
+            || obj.container_id().is_some()
+            || obj.contained_by.is_some()
     }
 
     pub(super) fn execute_exit(&mut self, units: &[ObjectId]) -> CommandResult {
@@ -274,7 +275,9 @@ impl<'a> CommandExecutor<'a> {
                 // shared MaxTunnelCapacity pool at THIS tunnel (cross-tunnel path).
                 if selected_obj.is_tunnel_network_style_container() {
                     let player_id = selected_obj.tunnel_system_key();
-                    let shared = self.game_logic.tunnel_network_contained_for_player(player_id);
+                    let shared = self
+                        .game_logic
+                        .tunnel_network_contained_for_player(player_id);
                     for contained in shared {
                         if seen_units.insert(contained) {
                             to_unload.push((contained, Some(selected_id), origin));
@@ -313,7 +316,6 @@ impl<'a> CommandExecutor<'a> {
                     }
                     continue;
                 }
-
 
                 for contained in selected_obj.contained_units() {
                     if seen_units.insert(contained) {
@@ -425,7 +427,6 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
         }
-
 
         let frame = self.game_logic.frame;
         let mut dropped_from: HashSet<ObjectId> = HashSet::new();
@@ -554,9 +555,7 @@ impl<'a> CommandExecutor<'a> {
                 let is_troop_crawler = container
                     .map(|c| c.is_troop_crawler_style_container())
                     .unwrap_or(false);
-                let is_garrison = container
-                    .map(|c| c.is_garrison_contain())
-                    .unwrap_or(false);
+                let is_garrison = container.map(|c| c.is_garrison_contain()).unwrap_or(false);
                 // C++ GarrisonContain::exitObjectViaDoor — burst/left/right walk.
                 // Do not treat every KINDOF_STRUCTURE as garrison (HealContain).
                 if garrisoned || is_garrison {
@@ -604,7 +603,9 @@ impl<'a> CommandExecutor<'a> {
             // Do not teleport to the 6-unit Idle ring used for generic dumps.
             if was_garrisoned {
                 if let Some(cid) = container_id {
-                    let _ = self.game_logic.garrison_exit_occupant_via_door(unit_id, cid);
+                    let _ = self
+                        .game_logic
+                        .garrison_exit_occupant_via_door(unit_id, cid);
                 } else {
                     let _ = self
                         .game_logic
@@ -614,7 +615,10 @@ impl<'a> CommandExecutor<'a> {
                 // C++ OpenContain::exitObjectViaDoor — ExitStart/End walk.
                 // TunnelContain does not override; walk the *exit* entrance.
                 // Do not Idle-teleport a 6-unit ring around the hull.
-                if !self.game_logic.unit_command_exit_via_open_contain(unit_id, cid) {
+                if !self
+                    .game_logic
+                    .unit_command_exit_via_open_contain(unit_id, cid)
+                {
                     let _ = self
                         .game_logic
                         .unit_command_exit_drop(unit_id, drop_position);
@@ -675,8 +679,6 @@ impl<'a> CommandExecutor<'a> {
                 c.pending_stream_exit = true;
             }
         }
-
-
 
         CommandResult::Success
     }
@@ -816,9 +818,9 @@ impl<'a> CommandExecutor<'a> {
                 false
             };
             if taking_off {
-                let _ = self.game_logic.unit_command_set_pending_evacuate(
-                    unit_id, true, and_exit, true,
-                );
+                let _ = self
+                    .game_logic
+                    .unit_command_set_pending_evacuate(unit_id, true, and_exit, true);
                 any = true;
                 continue;
             }
@@ -840,7 +842,6 @@ impl<'a> CommandExecutor<'a> {
                     any = true;
                 }
             }
-
         }
         if any {
             CommandResult::Success
@@ -1039,7 +1040,6 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::InvalidCommand
         }
     }
-
 }
 
 #[cfg(test)]
@@ -1048,8 +1048,8 @@ mod tests {
     use crate::command_executor::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::{
-        ContainAdmission, ContainModuleKind, ContainModuleMetadata, GameLogic,
-        HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate,
+        ContainAdmission, ContainModuleKind, ContainModuleMetadata, GameLogic, HostGeometryInfo,
+        HostGeometryType, KindOf, Team, ThingTemplate,
     };
 
     fn contain_pair(logic: &mut GameLogic, transport: ObjectId, pax: ObjectId) {
@@ -1103,16 +1103,10 @@ mod tests {
             let mut exec = CommandExecutor::new(&mut logic, 0);
             assert_eq!(exec.execute_exit(&[a]), CommandResult::Success);
         }
-        let remaining = logic
-            .host_object(transport)
-            .unwrap()
-            .contained_units();
+        let remaining = logic.host_object(transport).unwrap().contained_units();
         assert_eq!(remaining, vec![b], "EXIT must leave the unclicked occupant");
         assert!(logic.host_object(a).unwrap().contained_by.is_none());
-        assert_eq!(
-            logic.host_object(b).unwrap().contained_by,
-            Some(transport)
-        );
+        assert_eq!(logic.host_object(b).unwrap().contained_by, Some(transport));
     }
 
     #[test]
@@ -1175,7 +1169,7 @@ mod tests {
     fn execute_combat_drop_plays_voice_combat_drop() {
         // C++ CommandXlat.cpp:348-352 MSG_COMBATDROP_AT_* → first Chinook VoiceCombatDrop.
         use crate::game_logic::audio_dispatch_impl::{
-            clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+            UnitVoiceSlot, clear_test_template_voices, set_test_template_voice,
         };
         clear_test_template_voices();
         set_test_template_voice("CD_VOICE", UnitVoiceSlot::CombatDrop, "TestVoiceCombatDrop");
@@ -1397,10 +1391,7 @@ mod tests {
         assert!(logic.evacuate_container_now(transport, false));
         for _ in 0..120 {
             logic.tick_rappel_into(pax);
-            if logic
-                .host_object(pax)
-                .is_some_and(|o| !o.is_rappelling())
-            {
+            if logic.host_object(pax).is_some_and(|o| !o.is_rappelling()) {
                 break;
             }
         }
@@ -1408,11 +1399,13 @@ mod tests {
         assert!(!pax_obj.is_rappelling());
         assert_eq!(pax_obj.contained_by, Some(bunker));
         assert_eq!(pax_obj.ai_state, AIState::Garrisoned);
-        assert!(logic
-            .host_object(bunker)
-            .unwrap()
-            .contained_units()
-            .contains(&pax));
+        assert!(
+            logic
+                .host_object(bunker)
+                .unwrap()
+                .contained_units()
+                .contains(&pax)
+        );
     }
 
     #[test]
@@ -1497,13 +1490,14 @@ mod tests {
             !logic.host_object(pax).unwrap().is_alive(),
             "rappeller dies after killing two"
         );
-        assert!(!logic
-            .host_object(bunker)
-            .unwrap()
-            .contained_units()
-            .contains(&pax));
+        assert!(
+            !logic
+                .host_object(bunker)
+                .unwrap()
+                .contained_units()
+                .contains(&pax)
+        );
     }
-
 
     #[test]
     fn execute_exit_staggers_humvee_occupants_and_goes_aggressive() {
@@ -1546,7 +1540,12 @@ mod tests {
         }
         let remaining = logic.host_object(transport).unwrap().contained_units();
         assert_eq!(remaining.len(), 1, "ExitDelay must dump one occupant");
-        assert!(logic.host_object(transport).unwrap().pending_evacuate_on_stop);
+        assert!(
+            logic
+                .host_object(transport)
+                .unwrap()
+                .pending_evacuate_on_stop
+        );
         assert!(logic.host_object(transport).unwrap().frame_exit_not_busy > 0);
         let out = if remaining[0] == a { b } else { a };
         assert!(logic.host_object(out).unwrap().contained_by.is_none());
@@ -1593,7 +1592,12 @@ mod tests {
             Some(transport),
             "DelayExitInAir must hold the door until the bus lands"
         );
-        assert!(logic.host_object(transport).unwrap().pending_evacuate_on_stop);
+        assert!(
+            logic
+                .host_object(transport)
+                .unwrap()
+                .pending_evacuate_on_stop
+        );
     }
 
     #[test]
@@ -1637,7 +1641,11 @@ mod tests {
             assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
         }
         assert_eq!(
-            logic.host_object(transport).unwrap().contained_units().len(),
+            logic
+                .host_object(transport)
+                .unwrap()
+                .contained_units()
+                .len(),
             1,
             "ExitDelay dumps one occupant immediately"
         );
@@ -1915,11 +1923,7 @@ mod tests {
         logic.templates.insert("GLARebel".into(), rebel);
 
         let tunnel = logic
-            .create_object(
-                "GLATunnelNetwork",
-                Team::GLA,
-                Vec3::new(12.0, 0.0, 4.0),
-            )
+            .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(12.0, 0.0, 4.0))
             .unwrap();
         let pax = logic
             .create_object("GLARebel", Team::GLA, Vec3::new(13.0, 0.0, 4.0))
@@ -1933,10 +1937,7 @@ mod tests {
             p.set_contained_by(Some(tunnel));
             p.set_ai_state(AIState::Garrisoned);
         }
-        let key = logic
-            .host_object(tunnel)
-            .unwrap()
-            .tunnel_system_key();
+        let key = logic.host_object(tunnel).unwrap().tunnel_system_key();
         assert!(logic.tunnel_network.record_enter(key, pax, tunnel));
 
         {
@@ -1959,8 +1960,6 @@ mod tests {
             "must path toward ExitEnd, not Idle at the door"
         );
     }
-
-
 
     #[test]
     fn combat_drop_into_rejects_faction_structure() {
@@ -1992,7 +1991,11 @@ mod tests {
             .create_object("CD_P6", Team::USA, Vec3::new(1.0, 0.0, 0.0))
             .unwrap();
         let bldg = logic
-            .create_object("AmericaCommandCenter", Team::China, Vec3::new(40.0, 0.0, 0.0))
+            .create_object(
+                "AmericaCommandCenter",
+                Team::China,
+                Vec3::new(40.0, 0.0, 0.0),
+            )
             .unwrap();
         {
             let t = logic.host_object_mut(transport).unwrap();
@@ -2293,7 +2296,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn execute_exit_garrison_occupant_inventory_walks_burst() {
         // C++ MSG_EXIT / Command_StructureExit: occupant argument, not the bunker.
@@ -2419,8 +2421,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let origin_a = Vec3::new(0.0, 0.0, 0.0);
         let origin_b = Vec3::new(80.0, 0.0, 0.0);
-        let (bunker_a, ranger) =
-            garrison_bunker(&mut logic, "YANK_A", "YANK_R", origin_a, None);
+        let (bunker_a, ranger) = garrison_bunker(&mut logic, "YANK_A", "YANK_R", origin_a, None);
         let (bunker_b, _) = garrison_bunker(&mut logic, "YANK_B", "YANK_R2", origin_b, None);
         {
             let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -2519,12 +2520,6 @@ mod tests {
                 CommandResult::InvalidCommand
             );
         }
-        assert_eq!(
-            logic.host_object(pax).unwrap().contained_by,
-            Some(ferry)
-        );
+        assert_eq!(logic.host_object(pax).unwrap().contained_by, Some(ferry));
     }
-
-
 }
-

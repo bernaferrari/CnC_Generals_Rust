@@ -43,8 +43,8 @@ pub const RUNTIME_HOST_LIVE_POINT_DEFENSE_LASER_UPDATE_DUAL_WORLD_EMPTY_GATE_CMD
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_point_defense_laser_update_dual_world_empty_gate_method_names_residual_wave411(
-) -> bool {
+pub fn honesty_live_point_defense_laser_update_dual_world_empty_gate_method_names_residual_wave411()
+-> bool {
     LIVE_POINT_DEFENSE_LASER_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE411.len() == 5
         && residual_name_index(
             LIVE_POINT_DEFENSE_LASER_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE411,
@@ -61,8 +61,8 @@ pub fn honesty_live_point_defense_laser_update_dual_world_empty_gate_method_name
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_point_defense_laser_update_dual_world_empty_gate_nav_commands_residual_wave411(
-) -> bool {
+pub fn honesty_live_point_defense_laser_update_dual_world_empty_gate_nav_commands_residual_wave411()
+-> bool {
     LIVE_POINT_DEFENSE_LASER_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE411.len() == 4
         && residual_name_index(
             LIVE_POINT_DEFENSE_LASER_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE411,

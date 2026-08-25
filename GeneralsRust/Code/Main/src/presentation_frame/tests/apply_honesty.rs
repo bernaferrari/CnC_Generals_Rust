@@ -193,8 +193,8 @@ fn unit_command_cancel_upgrade_when_researching_residual() {
 #[test]
 fn structure_exposes_command_sell_residual() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
@@ -245,8 +245,8 @@ fn structure_exposes_command_sell_residual() {
 #[test]
 fn disabled_structure_keeps_sell_stop_rally() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
@@ -281,22 +281,19 @@ fn disabled_structure_keeps_sell_stop_rally() {
         cmds
     );
     assert!(
-        cmds.iter().any(|c| {
-            c.command_name
-                .to_ascii_lowercase()
-                .contains("upgrade")
-                && !c.enabled
-        }) || cmds.iter().all(|c| {
-            let n = c.command_name.to_ascii_lowercase();
-            n.contains("sell")
-                || n.contains("rally")
-                || n.contains("stop")
-                || n.contains("evacuate")
-                || n.contains("exit")
-                || n.contains("switchweapon")
-                || n.contains("beacon")
-                || !c.enabled
-        }),
+        cmds.iter()
+            .any(|c| { c.command_name.to_ascii_lowercase().contains("upgrade") && !c.enabled })
+            || cmds.iter().all(|c| {
+                let n = c.command_name.to_ascii_lowercase();
+                n.contains("sell")
+                    || n.contains("rally")
+                    || n.contains("stop")
+                    || n.contains("evacuate")
+                    || n.contains("exit")
+                    || n.contains("switchweapon")
+                    || n.contains("beacon")
+                    || !c.enabled
+            }),
         "non-exception commands must be Restricted: {:?}",
         cmds
     );
@@ -307,8 +304,8 @@ fn emp_plus_underpowered_does_not_reenable_specials() {
     // C++ ControlBarCommand.cpp:1051-1058 — IGNORES_UNDERPOWERED only when
     // DISABLED_UNDERPOWERED is the sole flag.
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
@@ -337,10 +334,10 @@ fn emp_plus_underpowered_does_not_reenable_specials() {
         "multi-flag disabled structure still shows Sell: {:?}",
         cmds
     );
-    if let Some(over) = cmds
-        .iter()
-        .find(|c| c.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge"))
-    {
+    if let Some(over) = cmds.iter().find(|c| {
+        c.command_name
+            .eq_ignore_ascii_case("Command_ToggleOvercharge")
+    }) {
         assert!(
             !over.enabled,
             "IGNORES_UNDERPOWERED must not re-enable on EMP+brownout: {:?}",
@@ -358,9 +355,7 @@ fn empty_chinook_combat_drop_restricted() {
     t.add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleChinook".into(), t);
+    logic.templates.insert("AmericaVehicleChinook".into(), t);
     let id = logic
         .create_object("AmericaVehicleChinook", Team::USA, glam::Vec3::ZERO)
         .expect("c");
@@ -385,8 +380,8 @@ fn empty_chinook_combat_drop_restricted() {
 #[test]
 fn generals_power_hidden_without_required_science() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
@@ -416,9 +411,9 @@ fn generals_power_hidden_without_required_science() {
         cmds
     );
     assert!(
-        !cmds
-            .iter()
-            .any(|c| c.command_name.eq_ignore_ascii_case("Command_SpectreGunship")),
+        !cmds.iter().any(|c| c
+            .command_name
+            .eq_ignore_ascii_case("Command_SpectreGunship")),
         "Spectre hidden without science: {:?}",
         cmds
     );
@@ -427,9 +422,9 @@ fn generals_power_hidden_without_required_science() {
 #[test]
 fn human_hides_ai_only_construct_cameo() {
     use crate::game_logic::{
+        KindOf, Team, ThingTemplate,
         buildings::{BuildingData, BuildingType},
         host_production_buildable_command_residual::BSTATUS_ONLY_BY_AI,
-        KindOf, Team, ThingTemplate,
     };
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
@@ -441,9 +436,7 @@ fn human_hides_ai_only_construct_cameo() {
     let mut hidden = ThingTemplate::new("AmericaTankCrusader");
     hidden.buildable_status = BSTATUS_ONLY_BY_AI;
     hidden.add_kind_of(KindOf::Vehicle);
-    logic
-        .templates
-        .insert("AmericaTankCrusader".into(), hidden);
+    logic.templates.insert("AmericaTankCrusader".into(), hidden);
     let id = logic
         .create_object("AmericaWarFactory", Team::USA, glam::Vec3::ZERO)
         .expect("wf");
@@ -456,10 +449,10 @@ fn human_hides_ai_only_construct_cameo() {
     }
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     assert!(
-        !frame.unit_command_buttons().iter().any(|c| c
-            .command_name
-            .to_ascii_lowercase()
-            .contains("crusader")),
+        !frame
+            .unit_command_buttons()
+            .iter()
+            .any(|c| c.command_name.to_ascii_lowercase().contains("crusader")),
         "ONLY_BY_AI Crusader must be hidden: {:?}",
         frame.unit_command_buttons()
     );
@@ -467,8 +460,8 @@ fn human_hides_ai_only_construct_cameo() {
 
 fn presentation_feeds_unit_command_panel_buttons() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tu = ThingTemplate::new("AmericaInfantryRanger");
@@ -482,10 +475,18 @@ fn presentation_feeds_unit_command_panel_buttons() {
     tb.add_kind_of(KindOf::Selectable);
     logic.templates.insert("AmericaBarracks".into(), tb);
     let ranger = logic
-        .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
         .expect("r");
     let barracks = logic
-        .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+        .create_object(
+            "AmericaBarracks",
+            Team::USA,
+            glam::Vec3::new(30.0, 0.0, 0.0),
+        )
         .expect("b");
     if let Some(o) = logic.host_object_mut(ranger) {
         o.selected = true;
@@ -494,7 +495,7 @@ fn presentation_feeds_unit_command_panel_buttons() {
             damage: 10.0,
             range: 100.0,
             ..crate::game_logic::Weapon::default()
-});
+        });
     }
     if let Some(p) = logic.get_player_mut(0) {
         p.selected_objects = vec![ranger];
@@ -572,9 +573,7 @@ fn unit_command_exposes_deploy_for_sentry_residual() {
         .map(|b| b.command_name)
         .collect();
     assert!(
-        names
-            .iter()
-            .any(|n| n.eq_ignore_ascii_case("Command_Stop")),
+        names.iter().any(|n| n.eq_ignore_ascii_case("Command_Stop")),
         "sentry CommandSet should expose Stop: {:?}",
         names
     );
@@ -634,9 +633,9 @@ fn hero_ability_commands_on_selection_residual() {
 #[test]
 fn presentation_feeds_victory_and_construction() {
     use crate::game_logic::{
+        KindOf, Player, Resources, Team, ThingTemplate,
         buildings::{BuildingData, BuildingType, ProductionItem},
         victory::PlayerOutcome,
-        KindOf, Player, Resources, Team, ThingTemplate,
     };
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "VHuman", true));
@@ -749,10 +748,12 @@ fn presentation_feeds_control_bar_radar_and_queues() {
     }
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     assert_eq!(frame.local_radar_count, 3);
-    assert!(frame
-        .local_queued_upgrades
-        .iter()
-        .any(|u| u.contains("AdvancedTraining")));
+    assert!(
+        frame
+            .local_queued_upgrades
+            .iter()
+            .any(|u| u.contains("AdvancedTraining"))
+    );
 
     #[cfg(feature = "game_client")]
     {
@@ -760,10 +761,11 @@ fn presentation_feeds_control_bar_radar_and_queues() {
         frame.apply_to_control_bar(&mut bar);
         assert_eq!(bar.presentation_radar_count(), 3);
         assert!(!bar.presentation_radar_disabled());
-        assert!(bar
-            .presentation_queued_upgrades()
-            .iter()
-            .any(|u| u.contains("AdvancedTraining")));
+        assert!(
+            bar.presentation_queued_upgrades()
+                .iter()
+                .any(|u| u.contains("AdvancedTraining"))
+        );
         assert!(
             !bar.get_special_power_shortcuts().is_empty(),
             "expected special power shortcuts from ready selection"
@@ -799,10 +801,12 @@ fn presentation_feeds_control_bar_sciences() {
         o.selected = true;
     }
     let frame = PresentationFrame::build_from_logic(&logic, 0);
-    assert!(frame
-        .local_unlocked_sciences
-        .iter()
-        .any(|s| s == "SCIENCE_RedGuards"));
+    assert!(
+        frame
+            .local_unlocked_sciences
+            .iter()
+            .any(|s| s == "SCIENCE_RedGuards")
+    );
     assert!(frame.local_has_science("SCIENCE_PaladinTank"));
 
     #[cfg(feature = "game_client")]
@@ -810,10 +814,11 @@ fn presentation_feeds_control_bar_sciences() {
         let mut bar = game_client::gui::control_bar::ControlBar::new();
         frame.apply_to_control_bar(&mut bar);
         let sci = bar.get_science_state();
-        assert!(sci
-            .unlocked_sciences
-            .iter()
-            .any(|s| s == "SCIENCE_RedGuards"));
+        assert!(
+            sci.unlocked_sciences
+                .iter()
+                .any(|s| s == "SCIENCE_RedGuards")
+        );
         assert!(
             sci.rank1_buttons
                 .iter()
@@ -848,10 +853,12 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
     }
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     let panel = frame.control_bar_selection_panel();
-    assert!(panel
-        .applied_upgrades
-        .iter()
-        .any(|u| u == "UpgradeAdvancedTraining"));
+    assert!(
+        panel
+            .applied_upgrades
+            .iter()
+            .any(|u| u == "UpgradeAdvancedTraining")
+    );
     assert!(panel.special_power_ready);
 
     #[cfg(feature = "game_client")]
@@ -860,10 +867,12 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
         frame.apply_to_control_bar(&mut bar);
         let portrait = bar.get_portrait_state();
         assert_eq!(portrait.upgrade_cameos.len(), 2);
-        assert!(portrait
-            .upgrade_cameos
-            .iter()
-            .any(|c| c.upgrade_name == "UpgradeAdvancedTraining" && c.is_completed));
+        assert!(
+            portrait
+                .upgrade_cameos
+                .iter()
+                .any(|c| c.upgrade_name == "UpgradeAdvancedTraining" && c.is_completed)
+        );
         assert!(portrait.special_power_ready);
     }
 }
@@ -871,8 +880,8 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
 #[test]
 fn presentation_feeds_control_bar_garrison_inventory() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tb = ThingTemplate::new("GarrisonBunker");
@@ -941,8 +950,8 @@ fn presentation_feeds_control_bar_garrison_inventory() {
 #[test]
 fn presentation_feeds_control_bar_veterancy_and_production() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType, ProductionItem},
         Experience, KindOf, Team, ThingTemplate, VeterancyLevel,
+        buildings::{BuildingData, BuildingType, ProductionItem},
     };
     let mut logic = crate::game_logic::GameLogic::new();
     let mut tb = ThingTemplate::new("VetBarracks");
@@ -1117,7 +1126,7 @@ fn presentation_frame_observes_combat_kill_particle_systems() {
             projectile_speed: 0.0,
             pre_attack_delay: 0.0,
             ..Weapon::default()
-});
+        });
         a.attack_target(victim);
     }
     {
@@ -1256,16 +1265,18 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
     assert_eq!(snap.floating_texts.len(), 2);
     assert_eq!(snap.world_anims.len(), 1);
     assert_eq!(snap.world_anims[0].template, MONEY_PICKUP_ANIM_TEMPLATE);
-    assert!(snap
-        .floating_texts
-        .iter()
-        .any(|t| t.kind == PresentationFloatingTextKind::AutoDeposit && t.amount == 100));
-    assert!(snap
-        .floating_texts
-        .iter()
-        .any(|t| t.kind == PresentationFloatingTextKind::MoneyCrate
-            && t.amount == 125
-            && t.color_rgba == (0, 255, 0, 255)));
+    assert!(
+        snap.floating_texts
+            .iter()
+            .any(|t| t.kind == PresentationFloatingTextKind::AutoDeposit && t.amount == 100)
+    );
+    assert!(
+        snap.floating_texts
+            .iter()
+            .any(|t| t.kind == PresentationFloatingTextKind::MoneyCrate
+                && t.amount == 125
+                && t.color_rgba == (0, 255, 0, 255))
+    );
     assert_eq!(snap.active_floating_texts_at(frame).len(), 2);
     assert_eq!(
         snap.active_floating_texts_at(frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES)
@@ -1274,10 +1285,8 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
         "C++ keeps cash through the vanish window after timeout"
     );
     assert!(
-        snap.active_floating_texts_at(
-            frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES + 10
-        )
-        .is_empty(),
+        snap.active_floating_texts_at(frame + PRESENTATION_FLOATING_TEXT_TIMEOUT_FRAMES + 10)
+            .is_empty(),
         "vanish window ends once fade alpha hits 0"
     );
 
@@ -1324,7 +1333,7 @@ fn presentation_frame_freezes_floating_text_and_world_anim() {
 #[test]
 fn presentation_frame_freezes_laser_line3d_segments() {
     use crate::game_logic::host_base_defense::{
-        make_patriot_assist_lasers, PATRIOT_LASER_SEGMENTS,
+        PATRIOT_LASER_SEGMENTS, make_patriot_assist_lasers,
     };
 
     let mut logic = GameLogic::new();
@@ -1684,9 +1693,9 @@ fn complete_events_do_not_invent_unit_ready_upgrade_building_sfx() {
         .map(|e| e.event_type)
         .collect();
     assert!(
-        names.iter().all(|n| n != "BuildingComplete"
-            && n != "UnitReady"
-            && n != "UpgradeComplete"),
+        names
+            .iter()
+            .all(|n| n != "BuildingComplete" && n != "UnitReady" && n != "UpgradeComplete"),
         "invented complete SFX: {names:?}"
     );
 }
@@ -1702,7 +1711,9 @@ fn capture_building_button_uses_ready_and_in_use() {
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
     ranger.capture_power = crate::game_logic::CapturePowerKind::Ranger;
-    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
     let id = logic
         .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
         .expect("ranger");
@@ -1721,7 +1732,12 @@ fn capture_building_button_uses_ready_and_in_use() {
         .expect("capture button");
     assert_eq!(
         capture.enabled,
-        frame.objects.iter().find(|o| o.id == id).unwrap().capture_power_ready,
+        frame
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .unwrap()
+            .capture_power_ready,
         "button must follow capture_power_ready"
     );
 
@@ -1758,7 +1774,10 @@ fn ranger_command_set_does_not_invent_buttons() {
         o.selected = true;
     }
     let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
-    let names: Vec<_> = cmds.iter().map(|c| c.command_name.to_ascii_lowercase()).collect();
+    let names: Vec<_> = cmds
+        .iter()
+        .map(|c| c.command_name.to_ascii_lowercase())
+        .collect();
     for invented in [
         "command_patrol",
         "command_scatter",
@@ -1783,8 +1802,8 @@ fn ranger_command_set_does_not_invent_buttons() {
 #[test]
 fn script_disabled_and_unmanned_hide_command_strip() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
@@ -1833,13 +1852,17 @@ fn transport_exit_slots_bind_occupant_portraits() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
-    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
     ranger
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
-    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
     let hid = logic
         .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
         .expect("humvee");
@@ -1885,11 +1908,7 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
         .templates
         .insert("AmericaParticleCannonUplink".into(), puc);
     let id = logic
-        .create_object(
-            "AmericaParticleCannonUplink",
-            Team::USA,
-            glam::Vec3::ZERO,
-        )
+        .create_object("AmericaParticleCannonUplink", Team::USA, glam::Vec3::ZERO)
         .expect("puc");
     if let Some(o) = logic.host_object_mut(id) {
         o.status.under_construction = false;
@@ -1904,7 +1923,11 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
     let cold = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
     let fire = cold
         .iter()
-        .find(|c| c.command_name.to_ascii_lowercase().contains("particleuplink"))
+        .find(|c| {
+            c.command_name
+                .to_ascii_lowercase()
+                .contains("particleuplink")
+        })
         .expect("PUC fire button");
     assert!(!fire.enabled, "cooldown PUC must be gray: {:?}", cold);
 
@@ -1916,7 +1939,11 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
     let busy = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
     let busy_fire = busy
         .iter()
-        .find(|c| c.command_name.to_ascii_lowercase().contains("particleuplink"))
+        .find(|c| {
+            c.command_name
+                .to_ascii_lowercase()
+                .contains("particleuplink")
+        })
         .expect("PUC fire while in use");
     assert!(!busy_fire.enabled, "in-use PUC must be gray");
 
@@ -1926,7 +1953,11 @@ fn special_power_buttons_disabled_on_cooldown_or_in_use() {
     let ready = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
     let ready_fire = ready
         .iter()
-        .find(|c| c.command_name.to_ascii_lowercase().contains("particleuplink"))
+        .find(|c| {
+            c.command_name
+                .to_ascii_lowercase()
+                .contains("particleuplink")
+        })
         .expect("PUC fire when ready");
     assert!(ready_fire.enabled, "ready PUC must be clickable");
 }
@@ -1941,13 +1972,17 @@ fn evacuate_disabled_with_zero_occupants() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
-    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
     let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
     ranger
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
-    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
     let hid = logic
         .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
         .expect("humvee");
@@ -1982,7 +2017,10 @@ fn evacuate_disabled_with_zero_occupants() {
         .iter()
         .find(|c| c.command_name.to_ascii_lowercase().contains("evacuate"))
         .expect("evacuate loaded");
-    assert!(evac_loaded.enabled, "occupied transport evacuate must be live");
+    assert!(
+        evac_loaded.enabled,
+        "occupied transport evacuate must be live"
+    );
 }
 
 #[test]
@@ -2007,16 +2045,20 @@ fn command_set_strip_keeps_authored_holes() {
     assert!(
         cmds.len() >= 14,
         "CommandSet strip must keep 14 WND slots: {:?}",
-        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+        cmds.iter()
+            .map(|c| c.command_name.as_str())
+            .collect::<Vec<_>>()
     );
-    let stop_idx = cmds.iter().position(|c| {
-        c.command_name.eq_ignore_ascii_case("Command_Stop")
-    });
+    let stop_idx = cmds
+        .iter()
+        .position(|c| c.command_name.eq_ignore_ascii_case("Command_Stop"));
     assert_eq!(
         stop_idx,
         Some(13),
         "Stop stays in authored slot 14: {:?}",
-        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+        cmds.iter()
+            .map(|c| c.command_name.as_str())
+            .collect::<Vec<_>>()
     );
     let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
@@ -2088,17 +2130,23 @@ fn leftover_control_bar_override_hides_and_replaces_strip_slots() {
     assert!(
         cmds.len() >= 14,
         "override strip must keep 14 WND slots: {:?}",
-        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+        cmds.iter()
+            .map(|c| c.command_name.as_str())
+            .collect::<Vec<_>>()
     );
     assert!(
         cmds[0].command_name.is_empty(),
         "COMMANDBAR_REMOVE must hide leftover-nulled slot 0: {:?}",
-        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+        cmds.iter()
+            .map(|c| c.command_name.as_str())
+            .collect::<Vec<_>>()
     );
     assert!(
         cmds[2].command_name.eq_ignore_ascii_case("Command_Guard"),
         "COMMANDBAR_ADD must replace leftover slot 2: {:?}",
-        cmds.iter().map(|c| c.command_name.as_str()).collect::<Vec<_>>()
+        cmds.iter()
+            .map(|c| c.command_name.as_str())
+            .collect::<Vec<_>>()
     );
 }
 
@@ -2111,13 +2159,17 @@ fn multi_select_intersects_ok_for_multi_select_slots() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
-    logic.templates.insert("AmericaInfantryRanger".into(), ranger);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
     let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
     humvee
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .set_health(240.0);
-    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
     let rid = logic
         .create_object("AmericaInfantryRanger", Team::USA, glam::Vec3::ZERO)
         .expect("ranger");
@@ -2145,12 +2197,16 @@ fn multi_select_intersects_ok_for_multi_select_slots() {
         .map(|c| c.command_name.to_ascii_lowercase())
         .collect();
     assert!(
-        !names.iter().any(|n| n.contains("capture") || n.contains("construct")),
+        !names
+            .iter()
+            .any(|n| n.contains("capture") || n.contains("construct")),
         "multi-select must drop non-OK_FOR_MULTI_SELECT: {:?}",
         names
     );
     assert!(
-        names.iter().any(|n| n.contains("stop") || n.contains("guard") || n.contains("attackmove")),
+        names
+            .iter()
+            .any(|n| n.contains("stop") || n.contains("guard") || n.contains("attackmove")),
         "multi-select must keep common Guard/Stop/AttackMove: {:?}",
         names
     );
@@ -2177,7 +2233,9 @@ fn leftover_get_command_availability_hides_script_unsellable() {
     }
     let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
     assert!(
-        !cmds.iter().any(|c| c.command_name.eq_ignore_ascii_case("Command_Sell")),
+        !cmds
+            .iter()
+            .any(|c| c.command_name.eq_ignore_ascii_case("Command_Sell")),
         "SCRIPT_UNSELLABLE must hide Sell via leftover getCommandAvailability: {:?}",
         cmds
     );
@@ -2213,7 +2271,10 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
     let mut bar = game_client::gui::control_bar::ControlBar::new();
     frame.apply_to_control_bar(&mut bar);
     let residual = bar.presentation_availability();
-    assert!(residual.single_use_used, "leftover WND must stamp SINGLE_USE");
+    assert!(
+        residual.single_use_used,
+        "leftover WND must stamp SINGLE_USE"
+    );
     assert!(residual.disabled_subdued, "leftover WND must stamp SUBDUED");
     assert!(
         residual.script_unsellable,
@@ -2241,10 +2302,7 @@ fn leftover_strip_single_use_restricts_whole_strip() {
         p.selected_objects = vec![id];
     }
     let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
-    let named: Vec<_> = cmds
-        .iter()
-        .filter(|c| !c.command_name.is_empty())
-        .collect();
+    let named: Vec<_> = cmds.iter().filter(|c| !c.command_name.is_empty()).collect();
     assert!(
         !named.is_empty(),
         "single-use barracks must still show named cameos: {:?}",
@@ -2293,9 +2351,15 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Transport)
         .set_health(200.0);
-    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
     let tid = logic
-        .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::new(40.0, 0.0, 0.0))
+        .create_object(
+            "AmericaVehicleHumvee",
+            Team::USA,
+            glam::Vec3::new(40.0, 0.0, 0.0),
+        )
         .expect("t");
     if let Some(o) = logic.host_object_mut(id) {
         o.selected = false;
@@ -2309,9 +2373,9 @@ fn leftover_strip_subdued_restricts_sell_and_evacuate() {
         p.selected_objects = vec![tid];
     }
     let evac_cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
-    let evac = evac_cmds.iter().find(|c| {
-        c.command_name.to_ascii_lowercase().contains("evacuate")
-    });
+    let evac = evac_cmds
+        .iter()
+        .find(|c| c.command_name.to_ascii_lowercase().contains("evacuate"));
     assert!(
         evac.is_some_and(|c| !c.enabled),
         "SUBDUED must grey Evacuate: {:?}",
@@ -2368,8 +2432,8 @@ fn under_construction_keeps_cancel_when_script_disabled() {
     // C++ populateUnderConstruction is its own context — SCRIPT_DISABLED
     // must not wipe CancelConstruction the way CommandSet does.
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
@@ -2414,7 +2478,9 @@ fn empty_transport_exit_slot_starts_disabled() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .set_health(200.0);
-    logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
     let hid = logic
         .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
         .expect("humvee");
@@ -2435,7 +2501,10 @@ fn empty_transport_exit_slot_starts_disabled() {
         })
         .collect();
     assert!(
-        !exits.is_empty() && exits.iter().all(|c| !c.enabled && c.exit_object_id.is_none()),
+        !exits.is_empty()
+            && exits
+                .iter()
+                .all(|c| !c.enabled && c.exit_object_id.is_none()),
         "empty EXIT_CONTAINER must stay disabled: {:?}",
         cmds
     );
@@ -2445,8 +2514,8 @@ fn empty_transport_exit_slot_starts_disabled() {
 fn empty_command_set_garrison_builds_structure_inventory() {
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
     let mut logic = GameLogic::new();
     let mut tb = ThingTemplate::new("CivilianEmptyCommandSetBunker");
@@ -2462,11 +2531,7 @@ fn empty_command_set_garrison_builds_structure_inventory() {
         .add_kind_of(KindOf::Selectable);
     logic.templates.insert("InventoryRanger".into(), tu);
     let bunker = logic
-        .create_object(
-            "CivilianEmptyCommandSetBunker",
-            Team::USA,
-            glam::Vec3::ZERO,
-        )
+        .create_object("CivilianEmptyCommandSetBunker", Team::USA, glam::Vec3::ZERO)
         .expect("bunker");
     let ranger = logic
         .create_object("InventoryRanger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
@@ -2485,7 +2550,12 @@ fn empty_command_set_garrison_builds_structure_inventory() {
     }
     let cmds = PresentationFrame::build_from_logic(&logic, 0).unit_command_buttons();
     let names: Vec<_> = cmds.iter().map(|c| c.command_name.as_str()).collect();
-    assert_eq!(cmds.len(), 14, "inventory rebuilds 14 WND slots: {:?}", names);
+    assert_eq!(
+        cmds.len(),
+        14,
+        "inventory rebuilds 14 WND slots: {:?}",
+        names
+    );
     assert!(
         names
             .iter()
@@ -2518,5 +2588,3 @@ fn empty_command_set_garrison_builds_structure_inventory() {
         names
     );
 }
-
-

@@ -3,8 +3,8 @@
 //! This module provides integration between ww3d-effects and ww3d-renderer-3d,
 //! enabling particle systems, decals, and other effects to render correctly.
 
-use crate::rendering::mesh_system::MeshClass;
 use crate::Renderer;
+use crate::rendering::mesh_system::MeshClass;
 use std::sync::Arc;
 use ww3d_core::errors::W3DResult;
 
@@ -109,11 +109,7 @@ impl EffectMesh {
         } else {
             let t = self.age / self.lifetime;
             // Fade out in last 20% of lifetime
-            if t > 0.8 {
-                1.0 - (t - 0.8) * 5.0
-            } else {
-                1.0
-            }
+            if t > 0.8 { 1.0 - (t - 0.8) * 5.0 } else { 1.0 }
         }
     }
 }

@@ -182,7 +182,6 @@ pub trait RenderObjClass: std::fmt::Debug + Send + Sync + Any {
     }
     fn prepare_lod(&mut self, _camera: &crate::rendering::camera_system::CameraClass) {}
 
-
     /// Get the position of this object
     fn position(&self) -> Vec3 {
         let transform = self.transform();

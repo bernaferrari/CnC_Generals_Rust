@@ -120,11 +120,7 @@ impl SphereClass {
     pub fn distance_squared_to_point(&self, point: Vec3) -> f32 {
         let distance = (point - self.center).length();
         let diff = distance - self.radius;
-        if diff > 0.0 {
-            diff * diff
-        } else {
-            0.0
-        }
+        if diff > 0.0 { diff * diff } else { 0.0 }
     }
 
     /// Find the closest point on the sphere to a given point
@@ -354,8 +350,10 @@ mod tests {
         assert!(t2 > t1); // Exit point after entry point
 
         // Ray missing sphere should not intersect
-        assert!(sphere
-            .ray_intersection(Vec3::new(0.0, 2.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
-            .is_none());
+        assert!(
+            sphere
+                .ray_intersection(Vec3::new(0.0, 2.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+                .is_none()
+        );
     }
 }

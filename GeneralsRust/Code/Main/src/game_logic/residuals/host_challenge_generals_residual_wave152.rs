@@ -128,10 +128,10 @@ mod tests {
     #[test]
     fn simulate_challenge_generals_prepare_default_residual_live() {
         use game_client::gui::{
+            NUM_GENERALS, ResidualChallengeGeneralsAction,
             residual_challenge_generals_bio_name_len, residual_challenge_generals_difficulty,
             residual_challenge_generals_last_action, residual_challenge_generals_starts_enabled,
             residual_challenge_generals_template_num, simulate_challenge_generals_prepare_default,
-            ResidualChallengeGeneralsAction, NUM_GENERALS,
         };
         assert_eq!(NUM_GENERALS, CHALLENGE_NUM_GENERALS_WAVE152);
         assert!(

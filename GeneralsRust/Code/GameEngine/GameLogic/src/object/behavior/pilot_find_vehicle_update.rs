@@ -1,17 +1,17 @@
 //! PilotFindVehicleUpdate - Ejected pilot finds and enters vehicle
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::ai::integration::{with_ai_integration, IntegratedAiPlayer};
+use crate::ai::integration::{IntegratedAiPlayer, with_ai_integration};
 use crate::common::{CommandSourceType, Coord3D, KindOf, ModuleData, ObjectID, Real, UnsignedInt};
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::contain::open_contain::ObjectRelationship;
 use crate::player::PlayerType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 

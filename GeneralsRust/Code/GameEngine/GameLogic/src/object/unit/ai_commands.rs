@@ -85,7 +85,6 @@ impl UnitAIUpdate {
             }
         }
 
-
         self.last_command_source = command.cmd_source;
         self.current_command = Some(command.cmd);
         if self.jet_ai.is_some() {
@@ -1352,9 +1351,7 @@ impl UnitAIUpdate {
                         if let Some(start) = terrain_guard.get_waypoint_by_id(start_id) {
                             // C++ setPathFromWaypoint: count > WAYPOINT_PATH_LIMIT.
                             // Also stop at a branch (num_links > 1) like the prior walk.
-                            for node in
-                                terrain_guard.walk_link0_chain(start, WAYPOINT_PATH_LIMIT)
-                            {
+                            for node in terrain_guard.walk_link0_chain(start, WAYPOINT_PATH_LIMIT) {
                                 chain.push(Waypoint::new(
                                     node.get_id(),
                                     *node.get_location(),

@@ -68,7 +68,6 @@ pub const OIL_DERRICK_DEPOSIT_AUDIO: &str = "MoneyDepositSound";
 /// Capture bonus also goes through Money::deposit (playSound=true).
 pub const OIL_DERRICK_CAPTURE_BONUS_AUDIO: &str = "MoneyDepositSound";
 
-
 /// C++ AutoDepositUpdate floating text Z lift (pos.z += 10.0f). Host Y-up → Y + 10.
 pub const OIL_DERRICK_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
 
@@ -609,8 +608,12 @@ mod tests {
     #[test]
     fn legal_income_source_matrix() {
         assert!(is_legal_oil_derrick_income_source(true, true, false, false));
-        assert!(!is_legal_oil_derrick_income_source(false, true, false, false));
-        assert!(!is_legal_oil_derrick_income_source(true, false, false, false));
+        assert!(!is_legal_oil_derrick_income_source(
+            false, true, false, false
+        ));
+        assert!(!is_legal_oil_derrick_income_source(
+            true, false, false, false
+        ));
         assert!(!is_legal_oil_derrick_income_source(true, true, true, false));
         assert!(!is_legal_oil_derrick_income_source(true, true, false, true));
     }

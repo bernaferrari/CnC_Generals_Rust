@@ -12,7 +12,6 @@ fn leftover_auto_acquire_idle_yes(template_name: &str) -> bool {
         != 0
 }
 
-
 fn leftover_factory_auto_acquire_bits(template_name: &str) -> Option<u32> {
     leftover_factory_ai_update_bits(template_name).map(|(bits, _)| bits)
 }
@@ -37,7 +36,6 @@ fn template_occlusion_delay_frames(template_name: &str) -> u32 {
             as u32,
     )
 }
-
 
 fn leftover_factory_ai_update_bits(template_name: &str) -> Option<(u32, bool)> {
     let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
@@ -68,11 +66,7 @@ fn leftover_factory_ai_update_bits(template_name: &str) -> Option<(u32, bool)> {
 /// Never calls `find_template(..., true)` (that lazy-inits Object INI).
 fn leftover_factory_body_initial_health(template_name: &str) -> Option<f32> {
     leftover_factory_body_health(template_name).and_then(|(_, initial)| {
-        if initial > 0.0 {
-            Some(initial)
-        } else {
-            None
-        }
+        if initial > 0.0 { Some(initial) } else { None }
     })
 }
 
@@ -142,7 +136,9 @@ fn name_is_ai_update_module(name: &str) -> bool {
         || name.to_ascii_lowercase().ends_with("aiupdate")
 }
 
-fn leftover_typed_auto_acquire(data: &dyn game_engine::common::thing::module::ModuleData) -> Option<u32> {
+fn leftover_typed_auto_acquire(
+    data: &dyn game_engine::common::thing::module::ModuleData,
+) -> Option<u32> {
     use gamelogic::object::update::ai_update::{
         AssaultTransportAIUpdateModuleData, ChinookAIUpdateModuleData,
         DeliverPayloadAIUpdateModuleData, DeployStyleAIUpdateModuleData, DozerAIUpdateModuleData,
@@ -154,7 +150,10 @@ fn leftover_typed_auto_acquire(data: &dyn game_engine::common::thing::module::Mo
     if let Some(d) = data.as_any().downcast_ref::<AIUpdateModuleData>() {
         return Some(d.auto_acquire_enemies_when_idle());
     }
-    if let Some(d) = data.as_any().downcast_ref::<DeployStyleAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<DeployStyleAIUpdateModuleData>()
+    {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
     if let Some(d) = data.as_any().downcast_ref::<JetAIUpdateModuleData>() {
@@ -166,19 +165,31 @@ fn leftover_typed_auto_acquire(data: &dyn game_engine::common::thing::module::Mo
     if let Some(d) = data.as_any().downcast_ref::<WorkerAIUpdateModuleData>() {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
-    if let Some(d) = data.as_any().downcast_ref::<SupplyTruckAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<SupplyTruckAIUpdateModuleData>()
+    {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
     if let Some(d) = data.as_any().downcast_ref::<ChinookAIUpdateModuleData>() {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
-    if let Some(d) = data.as_any().downcast_ref::<HackInternetAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<HackInternetAIUpdateModuleData>()
+    {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
-    if let Some(d) = data.as_any().downcast_ref::<AssaultTransportAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<AssaultTransportAIUpdateModuleData>()
+    {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
-    if let Some(d) = data.as_any().downcast_ref::<DeliverPayloadAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
+    {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
     if let Some(d) = data.as_any().downcast_ref::<TransportAIUpdateModuleData>() {
@@ -187,7 +198,10 @@ fn leftover_typed_auto_acquire(data: &dyn game_engine::common::thing::module::Mo
     if let Some(d) = data.as_any().downcast_ref::<WanderAIUpdateModuleData>() {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
-    if let Some(d) = data.as_any().downcast_ref::<RailedTransportAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<RailedTransportAIUpdateModuleData>()
+    {
         return Some(d.base.auto_acquire_enemies_when_idle());
     }
     None
@@ -205,7 +219,10 @@ fn leftover_typed_forbid_player(data: &dyn game_engine::common::thing::module::M
     if let Some(d) = data.as_any().downcast_ref::<AIUpdateModuleData>() {
         return d.forbid_player_commands();
     }
-    if let Some(d) = data.as_any().downcast_ref::<DeployStyleAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<DeployStyleAIUpdateModuleData>()
+    {
         return d.base.forbid_player_commands();
     }
     if let Some(d) = data.as_any().downcast_ref::<JetAIUpdateModuleData>() {
@@ -217,19 +234,31 @@ fn leftover_typed_forbid_player(data: &dyn game_engine::common::thing::module::M
     if let Some(d) = data.as_any().downcast_ref::<WorkerAIUpdateModuleData>() {
         return d.base.forbid_player_commands();
     }
-    if let Some(d) = data.as_any().downcast_ref::<SupplyTruckAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<SupplyTruckAIUpdateModuleData>()
+    {
         return d.base.forbid_player_commands();
     }
     if let Some(d) = data.as_any().downcast_ref::<ChinookAIUpdateModuleData>() {
         return d.base.forbid_player_commands();
     }
-    if let Some(d) = data.as_any().downcast_ref::<HackInternetAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<HackInternetAIUpdateModuleData>()
+    {
         return d.base.forbid_player_commands();
     }
-    if let Some(d) = data.as_any().downcast_ref::<AssaultTransportAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<AssaultTransportAIUpdateModuleData>()
+    {
         return d.base.forbid_player_commands();
     }
-    if let Some(d) = data.as_any().downcast_ref::<DeliverPayloadAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
+    {
         return d.base.forbid_player_commands();
     }
     if let Some(d) = data.as_any().downcast_ref::<TransportAIUpdateModuleData>() {
@@ -238,7 +267,10 @@ fn leftover_typed_forbid_player(data: &dyn game_engine::common::thing::module::M
     if let Some(d) = data.as_any().downcast_ref::<WanderAIUpdateModuleData>() {
         return d.base.forbid_player_commands();
     }
-    if let Some(d) = data.as_any().downcast_ref::<RailedTransportAIUpdateModuleData>() {
+    if let Some(d) = data
+        .as_any()
+        .downcast_ref::<RailedTransportAIUpdateModuleData>()
+    {
         return d.base.forbid_player_commands();
     }
     false
@@ -292,8 +324,8 @@ impl Object {
         let template_name = template.name.clone();
         let max_health = template.max_health;
         // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
-        let initial_health = leftover_factory_body_initial_health(&template_name)
-            .unwrap_or(max_health);
+        let initial_health =
+            leftover_factory_body_initial_health(&template_name).unwrap_or(max_health);
         let position = Vec3::ZERO; // Default position
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
@@ -384,13 +416,12 @@ impl Object {
         let subdual_damage_cap = template.subdual_damage_cap.max(0.0);
         let subdual_heal_rate_frames = template.subdual_heal_rate_frames;
         let subdual_heal_amount = template.subdual_heal_amount.max(0.0);
-        let pitch_roll_yaw_factor = if template.pitch_roll_yaw_factor.is_finite()
-            && template.pitch_roll_yaw_factor > 0.0
-        {
-            template.pitch_roll_yaw_factor
-        } else {
-            2.0
-        };
+        let pitch_roll_yaw_factor =
+            if template.pitch_roll_yaw_factor.is_finite() && template.pitch_roll_yaw_factor > 0.0 {
+                template.pitch_roll_yaw_factor
+            } else {
+                2.0
+            };
         let physics_mass = template.physics_mass.max(1.0e-4);
         let shock_resistance = template.shock_resistance.max(0.0);
         let forward_friction = template.forward_friction;
@@ -441,8 +472,6 @@ impl Object {
         let turret = turret_spawn_for_template(&template_name);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
-
-
         Self {
             thing: Thing::new(template),
             id,
@@ -485,8 +514,6 @@ impl Object {
             dozer_task_repair_target: None,
             dozer_task_repair_order_frame: 0,
             dozer_dock_action: None,
-
-
 
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
@@ -541,9 +568,10 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
-            bone_fx_damage: crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
-                &template_name,
-            ),
+            bone_fx_damage:
+                crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
+                    &template_name,
+                ),
             poisoned_behavior: None,
             defection_helper: None,
             fire_weapon_power: None,
@@ -1033,14 +1061,11 @@ impl Object {
             terrain_decal_size: 0.0,
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
-            terrain_decal_opacity: if is_fs_fake {
-                1.0
-            } else {
-                0.0
-            },
-            sub_object_visibility: crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
-                &template_name,
-            ),
+            terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
+            sub_object_visibility:
+                crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
+                    &template_name,
+                ),
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
@@ -1161,7 +1186,6 @@ impl Object {
             weapon_bonus_solo: 0,
             is_receiving_difficulty_bonus: false,
 
-
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
@@ -1186,8 +1210,7 @@ impl Object {
             assault_transport: None,
             deploy_style: None,
             command_button_hunt: None,
-            last_command_source:
-                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
+            last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             has_overlord_gattling_addon: false,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
@@ -1314,13 +1337,12 @@ impl Object {
         };
         let turret = turret_spawn_for_template(&template_name);
 
-        let pitch_roll_yaw_factor = if template.pitch_roll_yaw_factor.is_finite()
-            && template.pitch_roll_yaw_factor > 0.0
-        {
-            template.pitch_roll_yaw_factor
-        } else {
-            2.0
-        };
+        let pitch_roll_yaw_factor =
+            if template.pitch_roll_yaw_factor.is_finite() && template.pitch_roll_yaw_factor > 0.0 {
+                template.pitch_roll_yaw_factor
+            } else {
+                2.0
+            };
         let physics_mass = template.physics_mass.max(1.0e-4);
         let shock_resistance = template.shock_resistance.max(0.0);
         let forward_friction = template.forward_friction;
@@ -1393,8 +1415,6 @@ impl Object {
             dozer_task_repair_order_frame: 0,
             dozer_dock_action: None,
 
-
-
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
             supply_truck_state: SupplyTruckState::Idle,
@@ -1448,9 +1468,10 @@ impl Object {
             keep_object_die: None,
             wave_guide_data: None,
             fire_weapon_when_dead_fired: false,
-            bone_fx_damage: crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
-                &template_name,
-            ),
+            bone_fx_damage:
+                crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_template(
+                    &template_name,
+                ),
             poisoned_behavior: None,
             defection_helper: None,
             fire_weapon_power: None,
@@ -1940,14 +1961,11 @@ impl Object {
             terrain_decal_size: 0.0,
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
-            terrain_decal_opacity: if is_fs_fake {
-                1.0
-            } else {
-                0.0
-            },
-            sub_object_visibility: crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
-                &template_name,
-            ),
+            terrain_decal_opacity: if is_fs_fake { 1.0 } else { 0.0 },
+            sub_object_visibility:
+                crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
+                    &template_name,
+                ),
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
@@ -2068,7 +2086,6 @@ impl Object {
             weapon_bonus_solo: 0,
             is_receiving_difficulty_bonus: false,
 
-
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
@@ -2093,8 +2110,7 @@ impl Object {
             assault_transport: None,
             deploy_style: None,
             command_button_hunt: None,
-            last_command_source:
-                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
+            last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             overlord_portable_occupant: None,
@@ -2149,7 +2165,6 @@ impl Object {
             partition_last_affect: None,
             partition_last_look: None,
 
-
             auto_acquire_when_idle,
             auto_acquire_idle_bits,
             forbid_player_commands,
@@ -2201,9 +2216,8 @@ impl Object {
     /// C++ `Object::setSafeOcclusionFrame(frame + getOcclusionDelay())`.
     /// GarrisonContain/TunnelContain `onRemoving` and Object create.
     pub fn stamp_safe_occlusion_frame(&mut self, current_frame: u32) {
-        self.safe_occlusion_frame = current_frame.saturating_add(template_occlusion_delay_frames(
-            &self.template_name,
-        ));
+        self.safe_occlusion_frame =
+            current_frame.saturating_add(template_occlusion_delay_frames(&self.template_name));
     }
 
     /// C++ `GarrisonContain::update` dead-occupant stamp:
@@ -2211,7 +2225,6 @@ impl Object {
     pub fn stamp_safe_occlusion_frame_huge(&mut self, current_frame: u32) {
         self.safe_occlusion_frame = current_frame.saturating_add(30_000);
     }
-
 
     pub fn is_kind_of(&self, kind: KindOf) -> bool {
         self.thing.is_kind_of(kind)
@@ -2233,7 +2246,6 @@ impl Object {
         )
     }
 
-
     /// C++ PoisonedBehavior::onDamage residual.
     pub fn notify_poisoned_on_damage(
         &mut self,
@@ -2243,7 +2255,7 @@ impl Object {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) {
         use crate::game_logic::host_poisoned_behavior::{
-            is_poison_damage_type, HostPoisonedBehaviorData,
+            HostPoisonedBehaviorData, is_poison_damage_type,
         };
         if !is_poison_damage_type(damage_type) || damage_dealt <= 0.0 {
             return;
@@ -2376,7 +2388,6 @@ impl Object {
         true
     }
 
-
     pub fn is_alive(&self) -> bool {
         if self.status.destroyed || self.status.effectively_dead || self.status.keep_as_rubble {
             return false;
@@ -2502,9 +2513,7 @@ impl Object {
         if self.is_kind_of(KindOf::AlwaysSelectable) {
             return true;
         }
-        self.is_alive()
-            && self.is_kind_of(KindOf::Selectable)
-            && !self.status.unselectable
+        self.is_alive() && self.is_kind_of(KindOf::Selectable) && !self.status.unselectable
     }
 
     pub fn is_worker(&self) -> bool {
@@ -2536,7 +2545,6 @@ impl Object {
                 .any(|&id| leftover_object_is_kind_of_hero(id))
             || self.is_kind_of(KindOf::Hero)
     }
-
 
     pub fn is_command_center(&self) -> bool {
         self.is_kind_of(KindOf::CommandCenter)
@@ -2608,7 +2616,6 @@ impl Object {
             || self.hive_slaves.iter().any(|s| s.alive)
             || crate::game_logic::host_base_defense::is_stinger_site_structure(&self.template_name)
     }
-
 
     /// C++ DISABLED_FREEFALL residual.
     pub fn is_freefall_disabled(&self) -> bool {
@@ -2731,8 +2738,14 @@ mod tests {
         template.add_kind_of(KindOf::Selectable);
         let mut obj = Object::new(template, ObjectId(4), Team::USA);
         obj.set_contained_by(Some(ObjectId(99)));
-        assert!(obj.status.unselectable, "enter sets OBJECT_STATUS_UNSELECTABLE");
-        assert!(obj.status.masked, "enclosing enter sets OBJECT_STATUS_MASKED");
+        assert!(
+            obj.status.unselectable,
+            "enter sets OBJECT_STATUS_UNSELECTABLE"
+        );
+        assert!(
+            obj.status.masked,
+            "enclosing enter sets OBJECT_STATUS_MASKED"
+        );
         assert!(!obj.is_selectable(), "UNSELECTABLE drops click-select");
         obj.set_contained_by(None);
         assert!(!obj.status.unselectable);
@@ -2760,22 +2773,34 @@ mod tests {
         };
         use crate::game_logic::host_usa_tanks::USA_TANK_TURRET_TURN_RATE;
 
-        let ranger = Object::new(ThingTemplate::new("AmericaInfantryRanger"), ObjectId(1), Team::USA);
+        let ranger = Object::new(
+            ThingTemplate::new("AmericaInfantryRanger"),
+            ObjectId(1),
+            Team::USA,
+        );
         assert!(!ranger.turret_enabled);
         assert!((ranger.turret_angle_deg).abs() < 0.01);
         assert!((ranger.turret_pitch_deg).abs() < 0.01);
 
-        let dozer = Object::new(ThingTemplate::new("AmericaVehicleDozer"), ObjectId(2), Team::USA);
+        let dozer = Object::new(
+            ThingTemplate::new("AmericaVehicleDozer"),
+            ObjectId(2),
+            Team::USA,
+        );
         assert!(!dozer.turret_enabled);
 
-        let crusader = Object::new(ThingTemplate::new("AmericaTankCrusader"), ObjectId(3), Team::USA);
+        let crusader = Object::new(
+            ThingTemplate::new("AmericaTankCrusader"),
+            ObjectId(3),
+            Team::USA,
+        );
         assert!(crusader.turret_enabled);
         assert!((crusader.turret_angle_deg).abs() < 0.01);
         assert!((crusader.turret_pitch_deg).abs() < 0.01);
         assert!(
             (crusader.turret_turn_rate_rad
                 - turret_deg_per_sec_to_rad_per_frame(USA_TANK_TURRET_TURN_RATE))
-                .abs()
+            .abs()
                 < 1e-5
         );
 
@@ -2789,8 +2814,10 @@ mod tests {
         assert!((sc.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
         assert!(
             (sc.turret_turn_rate_rad
-                - turret_deg_per_sec_to_rad_per_frame(STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC))
-                .abs()
+                - turret_deg_per_sec_to_rad_per_frame(
+                    STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC
+                ))
+            .abs()
                 < 1e-5
         );
     }
@@ -2831,7 +2858,6 @@ mod tests {
             gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE
         );
         assert!(obj.auto_acquire_when_idle);
-
     }
 
     #[test]
@@ -2926,6 +2952,4 @@ mod tests {
         obj.max_health = 50.0;
         assert_eq!(obj.body_initial_health(), 50.0);
     }
-
-
 }

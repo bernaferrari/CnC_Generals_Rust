@@ -41,7 +41,6 @@ pub(crate) fn apply_evaluate_morale_bonus(obj: &mut Object) {
     obj.record_host_weapon_bonus();
 }
 
-
 impl GameLogic {
     /// C++ `evaluateMoraleBonus` on a live host HordeUpdate object.
     pub(crate) fn evaluate_horde_morale_bonus(&mut self, object_id: ObjectId) {
@@ -60,7 +59,7 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_battlemaster::{
-            battlemaster_shell_flight_frames, BATTLE_MASTER_PROJECTILE, BM_SHELL_MAX_HEALTH,
+            BATTLE_MASTER_PROJECTILE, BM_SHELL_MAX_HEALTH, battlemaster_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -230,11 +229,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_battlemaster::{
-            battlemaster_scatter_aim, battlemaster_scatter_misses_infantry,
-            battlemaster_splash_damage_at, is_battlemaster_template,
-            is_legal_battlemaster_splash_target, BATTLE_MASTER_DAMAGE,
-            BATTLE_MASTER_DAMAGE_TYPE, BATTLE_MASTER_DEATH_TYPE, BATTLE_MASTER_FIRE_AUDIO,
-            BATTLE_MASTER_SPLASH_RADIUS,
+            BATTLE_MASTER_DAMAGE, BATTLE_MASTER_DAMAGE_TYPE, BATTLE_MASTER_DEATH_TYPE,
+            BATTLE_MASTER_FIRE_AUDIO, BATTLE_MASTER_SPLASH_RADIUS, battlemaster_scatter_aim,
+            battlemaster_scatter_misses_infantry, battlemaster_splash_damage_at,
+            is_battlemaster_template, is_legal_battlemaster_splash_target,
         };
 
         let damage = source
@@ -418,7 +416,6 @@ impl GameLogic {
         let mut w = red_guard_weapon(in_horde, nationalism_active);
         w.last_fire_time = last_fire;
         obj.weapon = Some(w);
-
     }
 
     /// Refresh Tank Hunter RPG residual from current horde / nationalism flags.
@@ -558,7 +555,7 @@ impl GameLogic {
     /// Apply Chain Guns residual to a MiniGunner (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_minigunner_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_minigunner::{
-            is_minigunner_template, UPGRADE_CHINA_CHAIN_GUNS,
+            UPGRADE_CHINA_CHAIN_GUNS, is_minigunner_template,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -580,14 +577,16 @@ impl GameLogic {
     /// Only HordeUpdate infantry count (C++ getHUI). Radius 30 / Count 5 / RubOff 20.
     pub fn update_china_infantry_horde_status(&mut self) {
         use crate::game_logic::host_battlemaster::{
-            evaluate_leftover_horde_blob_scan, leftover_horde_bounding_sphere_radius,
-            leftover_horde_draw_icon_ui, leftover_horde_take_wake, LeftoverHordeScanUnit,
+            LeftoverHordeScanUnit, evaluate_leftover_horde_blob_scan,
+            leftover_horde_bounding_sphere_radius, leftover_horde_draw_icon_ui,
+            leftover_horde_take_wake,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::{
-            counts_toward_infantry_horde, is_china_infantry_horde_unit, is_red_guard_template,
-            leftover_infantry_is_horde_neighbor, INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS,
-            INFANTRY_HORDE_RUB_OFF_RADIUS, INFANTRY_HORDE_UPDATE_FRAMES,
+            INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS, INFANTRY_HORDE_RUB_OFF_RADIUS,
+            INFANTRY_HORDE_UPDATE_FRAMES, counts_toward_infantry_horde,
+            is_china_infantry_horde_unit, is_red_guard_template,
+            leftover_infantry_is_horde_neighbor,
         };
         use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
@@ -695,7 +694,6 @@ impl GameLogic {
             }
         }
 
-
         self.red_guard_residual_horde_grants = self
             .red_guard_residual_horde_grants
             .saturating_add(red_grants);
@@ -717,7 +715,6 @@ impl GameLogic {
         }
     }
 
-
     /// Apply Red Guard residual fire: bayonet one-shot vs close infantry, else gun damage.
     pub(in super::super) fn apply_red_guard_residual_at(
         &mut self,
@@ -726,9 +723,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_red_guard::{
-            distance_2d, should_apply_bayonet_residual, BAYONET_DAMAGE, BAYONET_DAMAGE_TYPE,
-            BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE, REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE,
-            REDGUARD_FIRE_AUDIO,
+            BAYONET_DAMAGE, BAYONET_DAMAGE_TYPE, BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE,
+            REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE, REDGUARD_FIRE_AUDIO, distance_2d,
+            should_apply_bayonet_residual,
         };
 
         let source_team = source
@@ -1018,10 +1015,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_tank_hunter::{
-            is_legal_tank_hunter_splash_target, tank_hunter_scatter_aim,
-            tank_hunter_scatter_misses_infantry, tank_hunter_splash_damage_at, TANK_HUNTER_DAMAGE,
-            TANK_HUNTER_DAMAGE_TYPE, TANK_HUNTER_DEATH_TYPE, TANK_HUNTER_FIRE_AUDIO,
-            TANK_HUNTER_SPLASH_RADIUS,
+            TANK_HUNTER_DAMAGE, TANK_HUNTER_DAMAGE_TYPE, TANK_HUNTER_DEATH_TYPE,
+            TANK_HUNTER_FIRE_AUDIO, TANK_HUNTER_SPLASH_RADIUS, is_legal_tank_hunter_splash_target,
+            tank_hunter_scatter_aim, tank_hunter_scatter_misses_infantry,
+            tank_hunter_splash_damage_at,
         };
 
         let damage = source
@@ -1189,7 +1186,7 @@ impl GameLogic {
 
     /// Apply AP Bullets residual tag to a GLA Rebel (damage × 1.25).
     pub fn apply_rebel_ap_bullets_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_gla_rebel::{is_gla_rebel_template, UPGRADE_GLA_AP_BULLETS};
+        use crate::game_logic::host_gla_rebel::{UPGRADE_GLA_AP_BULLETS, is_gla_rebel_template};
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
@@ -1214,8 +1211,8 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_ranger::{
-            flashbang_shell_flight_frames, FLASHBANG_GRENADE_MAX_HEALTH,
-            FLASHBANG_GRENADE_PROJECTILE,
+            FLASHBANG_GRENADE_MAX_HEALTH, FLASHBANG_GRENADE_PROJECTILE,
+            flashbang_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1487,9 +1484,9 @@ impl GameLogic {
 
     pub fn update_humvee_tow_missile_projectiles(&mut self) {
         use crate::game_logic::host_humvee::{
-            humvee_air_tow_missile_step_speed, humvee_ground_tow_missile_step_speed,
             HUMVEE_AIR_TOW_MISSILE_LOCK_DISTANCE, HUMVEE_AIR_TOW_MISSILE_TURN_DISTANCE,
-            HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE,
+            HUMVEE_GROUND_TOW_MISSILE_TURN_DISTANCE, humvee_air_tow_missile_step_speed,
+            humvee_ground_tow_missile_step_speed,
         };
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1678,8 +1675,8 @@ impl GameLogic {
 
     pub fn update_dragon_flame_projectiles(&mut self) {
         use crate::game_logic::host_dragon_tank::{
-            dragon_flame_missile_step_speed, DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL,
-            DRAGON_FLAME_MISSILE_TURN_DISTANCE, DRAGON_FLAME_STREAM,
+            DRAGON_FLAME_MISSILE_DETONATE_ON_NO_FUEL, DRAGON_FLAME_MISSILE_TURN_DISTANCE,
+            DRAGON_FLAME_STREAM, dragon_flame_missile_step_speed,
         };
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1796,10 +1793,10 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_toxin_tractor::{
-            anthrax_tier_from_flags, is_chem_general_template, toxin_stream_projectile_name,
             TOXIN_STREAM_MISSILE_FUEL_FRAMES, TOXIN_STREAM_MISSILE_IGNITION_DELAY_FRAMES,
             TOXIN_STREAM_MISSILE_MAX_HEALTH, TOXIN_STREAM_NAME, UPGRADE_GLA_ANTHRAX_BETA,
-            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags,
+            is_chem_general_template, toxin_stream_projectile_name,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1869,7 +1866,7 @@ impl GameLogic {
 
     pub fn update_toxin_stream_projectiles(&mut self) {
         use crate::game_logic::host_toxin_tractor::{
-            toxin_stream_missile_step_speed, TOXIN_STREAM_MISSILE_TURN_DISTANCE, TOXIN_STREAM_NAME,
+            TOXIN_STREAM_MISSILE_TURN_DISTANCE, TOXIN_STREAM_NAME, toxin_stream_missile_step_speed,
         };
         let frame = self.frame;
         let flying: Vec<ObjectId> = self
@@ -1993,8 +1990,8 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_technical::{
-            TECHNICAL_RPG_MISSILE, TECH_RPG_MISSILE_FUEL_FRAMES,
-            TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES, TECH_RPG_MISSILE_MAX_HEALTH,
+            TECH_RPG_MISSILE_FUEL_FRAMES, TECH_RPG_MISSILE_IGNITION_DELAY_FRAMES,
+            TECH_RPG_MISSILE_MAX_HEALTH, TECHNICAL_RPG_MISSILE,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -2065,11 +2062,7 @@ mod horde_allies_tests {
             let x = i as f32 * 8.0;
             a_ids.push(
                 logic
-                    .create_object_for_player(
-                        "ChinaInfantryRedguard",
-                        1,
-                        Vec3::new(x, 0.0, 0.0),
-                    )
+                    .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(x, 0.0, 0.0))
                     .expect("a"),
             );
             b_ids.push(
@@ -2095,27 +2088,17 @@ mod horde_allies_tests {
             let x = i as f32 * 8.0;
             a_ids.push(
                 logic
-                    .create_object_for_player(
-                        "ChinaInfantryRedguard",
-                        1,
-                        Vec3::new(x, 0.0, 0.0),
-                    )
+                    .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(x, 0.0, 0.0))
                     .expect("a extra"),
             );
         }
         logic.update_china_infantry_horde_status();
         assert!(
-            logic
-                .host_object(a_ids[0])
-                .expect("a0")
-                .weapon_bonus_horde,
+            logic.host_object(a_ids[0]).expect("a0").weapon_bonus_horde,
             "five owned allies must form a horde"
         );
         assert!(
-            !logic
-                .host_object(b_ids[0])
-                .expect("b0")
-                .weapon_bonus_horde,
+            !logic.host_object(b_ids[0]).expect("b0").weapon_bonus_horde,
             "enemy China blob must stay out of the other player's horde"
         );
     }

@@ -21,11 +21,11 @@
  * Functions:                                                                                  *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+use crate::core::WW3DFormat;
 use crate::core::error::{Error, Result};
 use crate::core::ww3dformat::FormatDecision;
-use crate::core::WW3DFormat;
 use crate::material_system::TextureStageSettings;
-use crate::rendering::texture_decode::{decode_texture_file, TextureData, TextureDataKind};
+use crate::rendering::texture_decode::{TextureData, TextureDataKind, decode_texture_file};
 use crate::rendering::texture_metrics;
 use crate::rendering::texture_quality;
 use crate::texture_system::{SurfaceClass, TextureFormat};
@@ -74,7 +74,6 @@ pub type TextureBase = TextureBaseClass; // Alias for compatibility
 
 /// Retail missing-texture asset name (`RequiredAssets/w3d_missing_texture.tga`).
 pub const MISSING_TEXTURE_NAME: &str = "w3d_missing_texture.tga";
-
 
 // Placeholder for reference counting - will be replaced with Arc
 pub struct RefCountClass;
@@ -211,11 +210,7 @@ fn convert_a1r5g5b5_to_rgba(raw: &[u8]) -> Vec<u8> {
 }
 
 fn scale_1_to_8(value: u8) -> u8 {
-    if value == 0 {
-        0
-    } else {
-        255
-    }
+    if value == 0 { 0 } else { 255 }
 }
 
 fn scale_4_to_8(value: u8) -> u8 {

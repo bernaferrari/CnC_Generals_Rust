@@ -50,7 +50,6 @@ pub(super) fn host_context_pick_profile(
     profile
 }
 
-
 fn presentation_is_mine_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
     use crate::game_logic::KindOf;
     o.has_mine
@@ -70,10 +69,7 @@ fn presentation_is_shrubbery_pick(o: &crate::presentation_frame::RenderableObjec
 fn presentation_is_force_attackable_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
     use crate::game_logic::KindOf;
     o.is_force_attackable
-        || crate::presentation_frame::PresentationFrame::object_has_kind(
-            o,
-            KindOf::ForceAttackable,
-        )
+        || crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::ForceAttackable)
         || crate::game_logic::host_car_bomb::object_definition_has_kind(
             &o.template_name,
             "FORCEATTACKABLE",
@@ -93,10 +89,7 @@ fn profile_has_widened_bits(profile: HostContextPickProfile) -> bool {
     profile.include_mines || profile.include_shrubbery || profile.include_force_attackable
 }
 
-
-fn presentation_object_has_flame_weapon(
-    o: &crate::presentation_frame::RenderableObject,
-) -> bool {
+fn presentation_object_has_flame_weapon(o: &crate::presentation_frame::RenderableObject) -> bool {
     let Some(name) = crate::game_logic::primary_weapon_name_for_unit(&o.template_name) else {
         return false;
     };
@@ -115,7 +108,6 @@ pub(super) fn pick_widened_context_target(
     if !profile_has_widened_bits(profile) {
         return None;
     }
-
 
     let mut best: Option<(ObjectId, f32)> = None;
     for o in &frame.objects {
@@ -164,10 +156,8 @@ fn pick_widened_context_target_along_ray(
             continue;
         }
 
-        let radius = crate::pick_ray::presentation_mesh_pick_radius(
-            o.selection_radius,
-            o.health_box_width,
-        );
+        let radius =
+            crate::pick_ray::presentation_mesh_pick_radius(o.selection_radius, o.health_box_width);
         let Some(t) = crate::pick_ray::ray_sphere_hit_t(ray_start, ray_dir, o.position, radius)
         else {
             continue;
@@ -203,11 +193,7 @@ fn closer_presentation_pick_along_ray(
         (Some(s), Some(e)) if s != e => {
             let st = hit_t(s).unwrap_or(f32::MAX);
             let et = hit_t(e).unwrap_or(f32::MAX);
-            if et < st {
-                Some(e)
-            } else {
-                Some(s)
-            }
+            if et < st { Some(e) } else { Some(s) }
         }
         (s, e) => s.or(e),
     }
@@ -271,16 +257,11 @@ pub(super) fn closer_presentation_pick(
                 .find(|o| o.id == e)
                 .map(|o| o.position.distance(position))
                 .unwrap_or(f32::MAX);
-            if ed < sd {
-                Some(e)
-            } else {
-                Some(s)
-            }
+            if ed < sd { Some(e) } else { Some(s) }
         }
         (s, e) => s.or(e),
     }
 }
-
 
 /// Mirror `InGameUI::selectNextIdleWorker`: only exactly one currently
 /// selected idle worker advances; any empty, multi, or unrelated selection
@@ -411,9 +392,8 @@ impl CnCGameEngine {
             BASE_SELECTION_RADIUS,
             profile,
         );
-        closer_presentation_pick(frame, position, standard, extra).map(|id| {
-            self.remap_ignored_in_gui_pick(frame, id)
-        })
+        closer_presentation_pick(frame, position, standard, extra)
+            .map(|id| self.remap_ignored_in_gui_pick(frame, id))
     }
 
     /// C++ `W3DView::pickDrawable` + point `iterateDrawablesInRegion`.
@@ -464,18 +444,12 @@ impl CnCGameEngine {
             player_team,
             prioritize_enemy_targets,
         );
-        let extra = pick_widened_context_target_along_ray(
-            frame,
-            ray_start,
-            ray_end,
-            player_team,
-            profile,
-        );
+        let extra =
+            pick_widened_context_target_along_ray(frame, ray_start, ray_end, player_team, profile);
         closer_presentation_pick_along_ray(frame, ray_start, ray_end, standard, extra)
             .filter(|&id| !self.host_object_id_blocked_by_opaque_hud(id))
             .map(|id| self.remap_ignored_in_gui_pick(frame, id))
     }
-
 
     fn remap_ignored_in_gui_pick(
         &self,
@@ -526,12 +500,9 @@ impl CnCGameEngine {
         };
         let (view_w, view_h) = self.tactical_viewport_size();
         let view_projection = self.projection_matrix * self.view_matrix;
-        let Some(screen) = project_world_to_screen(
-            view_projection,
-            object.position,
-            view_w,
-            view_h,
-        ) else {
+        let Some(screen) =
+            project_world_to_screen(view_projection, object.position, view_w, view_h)
+        else {
             return false;
         };
         #[cfg(feature = "game_client")]
@@ -548,7 +519,6 @@ impl CnCGameEngine {
             false
         }
     }
-
 
     /// Retail `ControlBar.wnd:ButtonIdleWorker` and
     /// `IdleWorker.wnd:ButtonSelectNextIdleWorker` action.  This deliberately
@@ -907,7 +877,6 @@ impl CnCGameEngine {
             game_client::helpers::TheControlBar::toggle_purchase_science();
         }
     }
-
 
     /// Cycle idle friendly combat units residual (Ctrl+Alt+, / .).
     pub(super) fn cycle_idle_military_selection(&mut self, delta: i32) {
@@ -1837,7 +1806,6 @@ fn matching_units_hotkey_plan(
     }
 }
 
-
 /// C++ `iNeedAHero` first `KINDOF_HERO`, then `getContainedBy()` + lookAt.
 fn select_hero_from_frame(
     frame: &crate::presentation_frame::PresentationFrame,
@@ -2008,11 +1976,14 @@ mod idle_worker_selection_tests {
         );
         let camera = glam::Vec3::new(0.0, 80.0, 80.0);
         assert_eq!(
-            pick_widened_context_target_along_ray(&frame, camera, glam::Vec3::ZERO, Some(Team::USA), armed),
+            pick_widened_context_target_along_ray(
+                &frame,
+                camera,
+                glam::Vec3::ZERO,
+                Some(Team::USA),
+                armed
+            ),
             Some(id)
         );
     }
-
-
-
 }

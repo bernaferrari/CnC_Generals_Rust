@@ -48,10 +48,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_bppl_suffix(bytes) else {
         return Ok(());
     };
@@ -156,11 +153,7 @@ mod tests {
         );
         source.add_player(Player::new(0, Team::USA, "USA", true));
         let tank_id = source
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(12.0, 0.0, 8.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(12.0, 0.0, 8.0))
             .expect("crusader");
         source.activate_battle_plan(0, HostBattlePlan::Bombardment, None);
         {
@@ -174,9 +167,7 @@ mod tests {
         );
 
         let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
             find_bppl_suffix(&snapshot.lifecycle_tail).is_some(),
             "BPPL suffix must be appended to lifecycle tail"

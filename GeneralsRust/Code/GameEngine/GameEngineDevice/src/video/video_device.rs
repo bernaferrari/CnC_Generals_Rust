@@ -21,10 +21,10 @@ use tokio::sync::RwLock;
 
 #[cfg(feature = "video")]
 use wgpu::{
-    util::DeviceExt, Adapter, Backends, BindGroup, Buffer, CommandEncoder, CompositeAlphaMode,
-    ComputePass, ComputePipeline, Device, Features, Instance, Limits, PowerPreference, PresentMode,
-    Queue, RenderPass, RenderPipeline, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture,
-    Texture, TextureFormat, TextureView,
+    Adapter, Backends, BindGroup, Buffer, CommandEncoder, CompositeAlphaMode, ComputePass,
+    ComputePipeline, Device, Features, Instance, Limits, PowerPreference, PresentMode, Queue,
+    RenderPass, RenderPipeline, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture,
+    Texture, TextureFormat, TextureView, util::DeviceExt,
 };
 
 #[cfg(feature = "video")]
@@ -35,13 +35,13 @@ use winit::{
     dpi::{LogicalSize, PhysicalSize},
     event_loop::{ControlFlow, EventLoop},
     monitor::{MonitorHandle, VideoMode},
-    window::{Fullscreen, Window, WindowBuilder},
+    window::{Fullscreen, Window},
 };
 
 #[cfg(feature = "video")]
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
-use bytemuck::{cast_slice, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, cast_slice};
 use glam::{Mat4, Vec3, Vec4};
 
 /// Video device configuration

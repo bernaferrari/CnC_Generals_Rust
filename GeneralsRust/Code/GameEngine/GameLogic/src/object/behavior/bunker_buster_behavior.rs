@@ -17,13 +17,13 @@ use crate::common::{
 use crate::effects::FXList;
 use crate::helpers::{TheFXListStore, TheGameLogic};
 use crate::modules::{
-    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
 use crate::upgrade::template::UpgradeTemplate;
 use crate::weapon::WeaponTemplate;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -44,7 +44,6 @@ pub const BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT: f32 = 100.0;
 pub const BUNKER_BUSTER_DETONATION_FX_NAME: &str = "FX_BunkerBusterExplosion";
 /// Retail WeaponObjects.ini `CrashThroughBunkerFX` (authored typo `Intial`).
 pub const BUNKER_BUSTER_CRASH_THROUGH_FX_NAME: &str = "WeaponFX_BunkerBusterIntialImpact";
-
 
 /// Module data for bunker buster behavior
 #[derive(Clone, Debug)]

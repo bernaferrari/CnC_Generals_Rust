@@ -6,14 +6,14 @@
 //! a scaffold gate when leaving rubble.
 
 use crate::ai::THE_AI;
+use crate::common::Region2D;
 use crate::common::{BodyDamageType, PathfindLayerEnum as CommonLayer};
 use crate::damage::{DamageInfo, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::helpers::TheGameLogic;
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
-use crate::path::{PathfindLayerEnum, LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F};
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F, PathfindLayerEnum};
 use crate::terrain::Bridge;
-use crate::common::Region2D;
 
 /// C++ `Bridge::updateDamageState`.
 pub fn update_damage_state(bridge: &mut Bridge) {

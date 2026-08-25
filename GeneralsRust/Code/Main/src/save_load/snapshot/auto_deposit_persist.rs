@@ -48,10 +48,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load deposit clocks.
     game_logic.oil_derricks.clear();
     game_logic.black_markets.clear();

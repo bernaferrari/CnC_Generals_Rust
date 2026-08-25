@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostSpectrePriorClearNoDamageAuthHpStompActi
 pub fn residual_host_spectre_prior_clear_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_spectre_prior_clear_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostSpectrePriorClearNoDamageAuthHpStompAction {
+pub fn residual_host_spectre_prior_clear_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostSpectrePriorClearNoDamageAuthHpStompAction {
     ResidualHostSpectrePriorClearNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -69,8 +69,8 @@ pub fn residual_host_spectre_prior_clear_no_damage_auth_hp_stomp_last_action(
 fn gl_source() -> &'static str {
     super::GAME_LOGIC_HOST_SRC
 }
-pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_method_names_residual_wave750(
-) -> bool {
+pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_method_names_residual_wave750()
+-> bool {
     let names = LIVE_HOST_SPECTRE_PRIOR_CLEAR_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE750;
     let ok = residual_name_index(names, "Clear prior gunship residual").is_some()
         && residual_name_index(names, "spectre_gunship_deployment_reg.record_prior_clear")
@@ -81,8 +81,8 @@ pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_method_names_res
     residual_action_store(ResidualHostSpectrePriorClearNoDamageAuthHpStompAction::MethodNames);
     ok
 }
-pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_source_markers_residual_wave750(
-) -> bool {
+pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_source_markers_residual_wave750()
+-> bool {
     let gl = gl_source();
     let ok = gl.contains("Wave 750")
         && gl.contains("Clear prior gunship residual")
@@ -93,8 +93,8 @@ pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_source_markers_r
     residual_action_store(ResidualHostSpectrePriorClearNoDamageAuthHpStompAction::SourceMarkers);
     ok
 }
-pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_nav_commands_residual_wave750(
-) -> bool {
+pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_nav_commands_residual_wave750()
+-> bool {
     let steps = LIVE_HOST_SPECTRE_PRIOR_CLEAR_NO_DAMAGE_AUTH_HP_STOMP_NAV_STEPS_WAVE750;
     let cmds = RUNTIME_HOST_LIVE_HOST_SPECTRE_PRIOR_CLEAR_NO_DAMAGE_AUTH_HP_STOMP_CMD_NAMES_WAVE750;
     let ok = residual_name_index(steps, "REQUIRE_DAMAGE_AUTH_SKIP_HP_STOMP").is_some()

@@ -25,25 +25,25 @@ pub mod squish_collide;
 
 // Re-export key collision types for convenience
 pub use collision_geometry::{
-    collide_test_dispatch, collision_test, CollideInfo, CollideLocAndNormal, GeometryInfo,
-    GeometryType,
+    CollideInfo, CollideLocAndNormal, GeometryInfo, GeometryType, collide_test_dispatch,
+    collision_test,
 };
 pub use collision_response::{
     CollisionResponseConfig, CollisionResponseHandler, CollisionResponseType,
     TerrainCollisionHandler,
 };
 pub use collision_system::{
-    with_collision_system, with_collision_system_mut, CollisionSystem, CollisionSystemStatistics,
-    COLLISION_SYSTEM,
+    COLLISION_SYSTEM, CollisionSystem, CollisionSystemStatistics, with_collision_system,
+    with_collision_system_mut,
 };
 pub use partition_manager::{
-    CellCoord, FindPositionFlags, FindPositionOptions, PartitionFilter, PartitionManager,
-    PartitionStatistics, ValueOrThreat, PARTITION_CELL_SIZE, PARTITION_MANAGER, RANDOM_START_ANGLE,
+    CellCoord, FindPositionFlags, FindPositionOptions, PARTITION_CELL_SIZE, PARTITION_MANAGER,
+    PartitionFilter, PartitionManager, PartitionStatistics, RANDOM_START_ANGLE, ValueOrThreat,
 };
 
 use crate::common::{
-    GameError, ObjectId, ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship,
-    VeterancyLevel, INVALID_ID,
+    GameError, INVALID_ID, ObjectId, ObjectStatusMaskType, ObjectStatusTypes, PlayerId,
+    Relationship, VeterancyLevel,
 };
 use crate::damage::{
     DamageInfo as EngineDamageInfo, DamageType as EngineDamageType, DeathType as EngineDeathType,
@@ -692,7 +692,6 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
         }
     }
 }
-
 
 // Global collision manager instance
 lazy_static::lazy_static! {

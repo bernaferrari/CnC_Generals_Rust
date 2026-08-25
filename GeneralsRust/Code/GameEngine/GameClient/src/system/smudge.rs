@@ -1,7 +1,7 @@
 //! Smudge system (terrain decals), matching System/Smudge.cpp.
 
-use glam::{Vec2, Vec3};
 use crate::effects::decals::DecalRenderItem;
+use glam::{Vec2, Vec3};
 use nalgebra::Point3;
 use std::sync::{Arc, Mutex, OnceLock};
 

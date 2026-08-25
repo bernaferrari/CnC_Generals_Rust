@@ -201,20 +201,12 @@ impl WWMath {
     /// C++ `WWMath::Min` (`wwmath.h:221-225`): `if (a<b) return a; return b;`
     /// so `min(1.0, NaN)` is NaN and `min(NaN, 1.0)` is `1.0`.
     pub fn min(a: f32, b: f32) -> f32 {
-        if a < b {
-            a
-        } else {
-            b
-        }
+        if a < b { a } else { b }
     }
 
     /// Get the maximum of two floats (C++ `WWMath::Max`, `wwmath.h:227-231`).
     pub fn max(a: f32, b: f32) -> f32 {
-        if a > b {
-            a
-        } else {
-            b
-        }
+        if a > b { a } else { b }
     }
 
     /// Linear interpolation between two floats

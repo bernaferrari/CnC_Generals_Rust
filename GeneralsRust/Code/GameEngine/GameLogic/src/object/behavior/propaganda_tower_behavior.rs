@@ -10,20 +10,20 @@ use std::sync::{Arc, RwLock, Weak};
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, DisabledMaskType, KindOf, ModuleData, ObjectID, ObjectStatusTypes, Real,
-    Relationship, UnsignedInt, WeaponBonusConditionFlags, WeaponBonusConditionType,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, DisabledMaskType, KindOf, LOGICFRAMES_PER_SECOND, ModuleData, ObjectID,
+    ObjectStatusTypes, Real, Relationship, UnsignedInt, WeaponBonusConditionFlags,
+    WeaponBonusConditionType,
 };
 use crate::effects::FXList;
 use crate::helpers::{TheFXListStore, TheGameLogic, ThePartitionManager};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object;
-use crate::player::{player_list, Player};
-use crate::upgrade::{center::get_upgrade_center, UpgradeTemplate, UpgradeType};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::player::{Player, player_list};
+use crate::upgrade::{UpgradeTemplate, UpgradeType, center::get_upgrade_center};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

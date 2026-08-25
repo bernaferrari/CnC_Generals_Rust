@@ -24,8 +24,8 @@
 //! matrix (Chinook 60), or multiplayer upgrade replication.
 //! WorkerShoes residual lives in `host_gla_worker` (speed + supply boost 8).
 
-use crate::game_logic::object::Object;
 use super::{ObjectId, Team};
+use crate::game_logic::object::Object;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -317,11 +317,7 @@ pub fn residual_upgrade_command_set_producers(upgrade_name: &str) -> &'static [&
     if n.contains("supplylines") {
         &["AmericaSupplyCenter", "ChinaSupplyCenter", "GLASupplyStash"]
     } else if n.contains("capture") {
-        &[
-            "AmericaBarracks",
-            "ChinaBarracks",
-            "GLABarracks",
-        ]
+        &["AmericaBarracks", "ChinaBarracks", "GLABarracks"]
     } else if n.contains("advancedtraining") {
         &["AmericaStrategyCenter"]
     } else if n.contains("nationalism") {
@@ -344,7 +340,6 @@ fn residual_command_set_allows_upgrade(object: &Object, upgrade_name: &str) -> b
     })
 }
 
-
 /// China CommandCenter RadarUpgrade is TriggeredBy `Upgrade_ChinaRadar`.
 /// America CC / GLA RadarVan use GrantUpgradeCreate and need no research.
 pub fn radar_provider_required_research_upgrade(template_name: &str) -> Option<&'static str> {
@@ -365,7 +360,6 @@ pub fn radar_provider_required_research_upgrade(template_name: &str) -> Option<&
         None
     }
 }
-
 
 /// Host residual upgrade kinds with known observable unlocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -418,7 +412,6 @@ pub enum HostUpgradeKind {
     /// Infantry General Fanaticism. C++ sets FANATICISM only inside Nationalism.
     Fanaticism,
     /// China Chain Guns gattling/minigun damage residual.
-
     ChainGuns,
     /// China Uranium Shells tank damage residual.
     UraniumShells,
@@ -520,7 +513,6 @@ impl HostUpgradeKind {
             HostUpgradeKind::Fanaticism
         } else if n.contains("nationalism") {
             HostUpgradeKind::Nationalism
-
         } else if n.contains("chainguns") || n.contains("chaingun") {
             HostUpgradeKind::ChainGuns
         } else if n.contains("uraniumshells") || n.contains("uraniumshell") {
@@ -1324,10 +1316,7 @@ mod tests {
         assert!(is_object_scoped_upgrade("Upgrade_BecomeRealGLABarracks"));
         assert!(!is_object_scoped_upgrade(UPGRADE_AMERICA_FLASHBANG));
         assert!(!is_object_scoped_upgrade(UPGRADE_CHINA_RADAR));
-        assert_eq!(
-            upgrade_mux_target_ids(true, Some(7u32), [7, 8, 9]),
-            vec![7]
-        );
+        assert_eq!(upgrade_mux_target_ids(true, Some(7u32), [7, 8, 9]), vec![7]);
         assert_eq!(
             upgrade_mux_target_ids(false, Some(7u32), [7, 8, 9]),
             vec![7, 8, 9]
@@ -1783,11 +1772,7 @@ pub fn calc_stealthed_status_for_player(
 
 /// Heat-vision second material pass opacity residual (0.0 or 1.0).
 pub fn camo_netting_heat_vision_opacity(look: HostCamoStealthLook) -> f32 {
-    if look.heat_vision_active() {
-        1.0
-    } else {
-        0.0
-    }
+    if look.heat_vision_active() { 1.0 } else { 0.0 }
 }
 
 /// Discrete FriendlyOpacity residual from cloaked / revealed state.
@@ -1807,7 +1792,10 @@ pub fn camo_netting_friendly_opacity(stealthed: bool, detected: bool) -> f32 {
 /// that factor into FriendlyOpacityMin..Max so cloaked structures pulse between
 /// **50%** and **100%**. Returns `(opacity, next_phase)`.
 pub fn camo_netting_pulse_opacity(phase: f32) -> (f32, f32) {
-    crate::game_logic::object::stealth_update_pulse_opacity(phase, CAMO_NETTING_FRIENDLY_OPACITY_MIN)
+    crate::game_logic::object::stealth_update_pulse_opacity(
+        phase,
+        CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+    )
 }
 
 // --- CamoNetting sub-object net mesh residual (presentation state, not GPU) ---
@@ -2446,4 +2434,3 @@ mod can_produce_upgrade_tests {
         );
     }
 }
-

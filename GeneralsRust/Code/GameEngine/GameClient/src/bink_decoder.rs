@@ -1089,11 +1089,7 @@ fn get_coef(br: &mut BitReader, bits1: u8) -> Result<i32, String> {
     } else {
         let bits = bits1 - 1;
         let val = (br.read(bits)? as i32) | (1 << bits);
-        if br.read_bool()? {
-            Ok(-val)
-        } else {
-            Ok(val)
-        }
+        if br.read_bool()? { Ok(-val) } else { Ok(val) }
     }
 }
 

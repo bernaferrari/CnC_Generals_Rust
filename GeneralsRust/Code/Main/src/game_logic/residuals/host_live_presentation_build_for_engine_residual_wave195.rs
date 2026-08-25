@@ -108,11 +108,11 @@ pub fn honesty_engine_build_for_engine_call_sites_source() -> bool {
 /// Live residual: build_for_engine yields GW-primary objects when shadow live.
 pub fn simulate_live_presentation_build_for_engine_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-    use gamelogic::world::entities::TemplateRef;
     use gamelogic::world::PlayerId;
+    use gamelogic::world::entities::TemplateRef;
     use glam::Vec3;
 
     if !honesty_live_presentation_build_for_engine_residual_pack_wave195() {

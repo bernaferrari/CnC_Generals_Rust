@@ -139,11 +139,14 @@ mod host_eva_drain_tests {
     #[test]
     fn process_eva_events_must_not_steal_the_eva_queue() {
         // C++ Eva::update (Eva.cpp:264-525) is the sole consumer of setShouldPlay.
-        let src = include_str!("world_scripts/scripts_camera.rs");
+        let src = include_str!("world_scripts/scripts_camera/script_state.rs");
         let process = src
-            .split("pub(in super::super) fn process_eva_events")
+            .split("pub(in crate::game_logic::game_logic) fn process_eva_events")
             .nth(1)
-            .and_then(|s| s.split("pub(in super::super) fn mission_script_count").next())
+            .and_then(|s| {
+                s.split("pub(in crate::game_logic::game_logic) fn mission_script_count")
+                    .next()
+            })
             .unwrap_or("");
         assert!(
             !process.contains("TheEva::drain_events"),

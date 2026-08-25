@@ -258,11 +258,7 @@ impl PointShadowMap {
         // Approximate shadow influence as distance attenuation with configurable bias.
         let normalized = 1.0 - (distance_to_light / self.light_range);
         let biased = (normalized + (shadow_bias / self.light_range)).clamp(0.0, 1.0);
-        if biased <= 0.0 {
-            0.0
-        } else {
-            biased * biased
-        }
+        if biased <= 0.0 { 0.0 } else { biased * biased }
     }
 }
 

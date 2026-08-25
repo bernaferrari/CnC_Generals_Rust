@@ -4,12 +4,12 @@ use crate::game_text::GameText;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::KeyModifiers;
 use crate::gui::{
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
     queue_shell_pop, queue_shell_shutdown_complete, show_shell_map_if_available,
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowWidget,
+    with_window_manager, write_input_focus_response,
 };
 use crate::message_stream::meta_event::{
-    get_command_map_entries, reset_command_map_entries, update_command_map_entry, CommandMapEntry,
+    CommandMapEntry, get_command_map_entries, reset_command_map_entries, update_command_map_entry,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
@@ -662,11 +662,7 @@ pub fn residual_keyboard_options_category_index() -> usize {
 /// Residual: last selected command index (-1 if none).
 pub fn residual_keyboard_options_command_index() -> Option<usize> {
     let idx = RESIDUAL_KB_COMMAND.load(std::sync::atomic::Ordering::Relaxed);
-    if idx < 0 {
-        None
-    } else {
-        Some(idx as usize)
-    }
+    if idx < 0 { None } else { Some(idx as usize) }
 }
 
 fn ensure_keyboard_options_control_ids(state: &mut KeyboardOptionsMenuState) {

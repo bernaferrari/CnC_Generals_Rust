@@ -5,7 +5,7 @@
 //! This is useful for expensive functions that need to be evaluated
 //! frequently during runtime.
 
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::{Arc, Mutex};
 
 /// A 1D curve trait for functions that can be sampled to create lookup tables.

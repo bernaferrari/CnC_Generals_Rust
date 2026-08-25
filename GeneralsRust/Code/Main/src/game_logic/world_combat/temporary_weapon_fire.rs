@@ -6,7 +6,7 @@
 use super::super::*;
 use super::temporary_weapon_status::promote_temporary_weapon_status;
 use crate::game_logic::host_enum_table_residual::{
-    host_calc_body_damage_state, HostBodyDamageType,
+    HostBodyDamageType, host_calc_body_damage_state,
 };
 use crate::game_logic::host_temporary_weapon_behavior::{
     FireWeaponBodyDamageState, FireWeaponWhenDamagedWeaponRole, TemporaryWeaponRuntimeKey,
@@ -136,7 +136,10 @@ impl GameLogic {
         chosen
     }
 
-    pub(in super::super) fn damaged_continuous_plan(&mut self, source: ObjectId) -> Vec<TemporaryWeaponRuntimeKey> {
+    pub(in super::super) fn damaged_continuous_plan(
+        &mut self,
+        source: ObjectId,
+    ) -> Vec<TemporaryWeaponRuntimeKey> {
         let Some((object_tags, player_tags)) = self.fire_when_owned_upgrade_tags(source) else {
             return Vec::new();
         };
@@ -194,9 +197,8 @@ impl GameLogic {
     fn dead_ephemeral_specs(
         &mut self,
         source: ObjectId,
-    ) -> Vec<
-        crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
-    > {
+    ) -> Vec<crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec>
+    {
         let Some(object) = self.objects.get(&source) else {
             return Vec::new();
         };
@@ -275,11 +277,13 @@ const fn continuous_role(body: FireWeaponBodyDamageState) -> FireWeaponWhenDamag
     }
 }
 
-fn owned_upgrade_tag_refs<'a>(object_tags: &'a [String], player_tags: &'a [String]) -> Vec<&'a str> {
+fn owned_upgrade_tag_refs<'a>(
+    object_tags: &'a [String],
+    player_tags: &'a [String],
+) -> Vec<&'a str> {
     object_tags
         .iter()
         .chain(player_tags.iter())
         .map(|s| s.as_str())
         .collect()
 }
-

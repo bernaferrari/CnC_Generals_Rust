@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -161,7 +161,6 @@ impl SpecialAbility {
     fn dispatch_on_special_power_creation(&mut self) {}
 }
 
-
 impl Module for SpecialAbility {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -205,7 +204,6 @@ impl BehaviorModuleInterface for SpecialAbility {
 }
 super::interface::impl_special_power_subclass!(SpecialAbility);
 
-
 impl Snapshotable for SpecialAbility {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -222,7 +220,6 @@ impl Snapshotable for SpecialAbility {
         super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
-
 
 fn parse_special_power_template_field(
     _ini: &mut INI,
@@ -265,10 +262,7 @@ const SPECIAL_ABILITY_FIELDS: &[FieldParse<SpecialAbilityModuleData>] = &[
     },
 ];
 
-fn parse_ability_bool_field(
-    setter: &mut dyn FnMut(bool),
-    tokens: &[&str],
-) -> Result<(), INIError> {
+fn parse_ability_bool_field(setter: &mut dyn FnMut(bool), tokens: &[&str]) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     setter(INI::parse_bool(token)?);
     Ok(())
@@ -280,7 +274,6 @@ fn parse_ability_initiate_sound(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.base.initiate_sound =
-        crate::object::special_power_template::AudioEventRts::new(*token);
+    data.base.initiate_sound = crate::object::special_power_template::AudioEventRts::new(*token);
     Ok(())
 }

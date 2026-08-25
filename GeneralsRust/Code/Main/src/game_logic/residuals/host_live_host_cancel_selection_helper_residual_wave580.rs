@@ -129,8 +129,8 @@ pub fn honesty_host_cancel_selection_helper_source_markers_residual_wave580() ->
         residual_action_store(ResidualHostCancelSelectionHelperAction::SourceMarkers);
         return false;
     };
-    let cancel_ok = cancel.contains("Wave 580")
-        && cancel.contains("ObjectLifecycleOp::CancelProduction");
+    let cancel_ok =
+        cancel.contains("Wave 580") && cancel.contains("ObjectLifecycleOp::CancelProduction");
     let sel_ok = sel.contains("Wave 579")
         && sel.contains("SessionControlOp::SelectObjects")
         && sel.contains("self.selected_objects = ids");

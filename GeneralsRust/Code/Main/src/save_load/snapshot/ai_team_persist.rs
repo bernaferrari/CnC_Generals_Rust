@@ -3,11 +3,12 @@
 //! C++ `Team::xfer` (`Team.cpp:2666`) writes `m_commonAttackTarget`. Live
 //! host stores that residual in `GameLogic.team_common_attack_targets`
 //! (`world_tick/mood.rs`). C++ `AIUpdateInterface::xfer`
-//! (`AIUpdate.cpp:4995-5103`) writes waypoint IDs, the waypoint queue,
-//! `m_path`, `m_requestedDestination`, `m_currentVictimID`, and path flags.
+//! (`AIUpdate.cpp:4995-5105`) writes waypoint IDs, the waypoint queue,
+//! `m_path`, `m_requestedDestination`, `m_currentVictimID`, path flags,
+//! `m_lastCommandSource`, `m_ignoreObstacleID`, `m_finalPosition` /
+//! `m_doFinalPosition`, and `m_canPathThroughUnits`.
 //! Live `ObjectSnapshot` clones `movement` (path + index + target) but
-//! `UnitSnapshot.waypoints` was hardcoded empty and the remaining AI-order
-//! fields never left the live object.
+//! those AI-order residuals never left the live object.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No world snapshot version bump.
@@ -19,7 +20,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
-const TMAI_VERSION: u32 = 1;
+const TMAI_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct TeamCommonAttackPersist {
@@ -59,12 +60,88 @@ struct ObjectAiOrderPersist {
     /// C++ `AIUpdateInterface::m_attitude` (Sleep=-2 … Aggressive=2).
     #[serde(default)]
     ai_attitude: i8,
+    /// C++ `AIUpdateInterface::m_doFinalPosition`.
+    #[serde(default)]
+    do_final_position: bool,
+    /// C++ `AIUpdateInterface::m_finalPosition` (host Y-up).
+    #[serde(default)]
+    final_position: [f32; 3],
+    /// C++ `AIUpdateInterface::m_ignoreObstacleID` (0 = none).
+    #[serde(default)]
+    ignored_obstacle_id: u32,
+    /// C++ `AIUpdateInterface::m_canPathThroughUnits`.
+    #[serde(default)]
+    can_path_through_units: bool,
+    /// C++ `AIUpdateInterface::m_lastCommandSource` (CommandSourceType ordinal).
+    #[serde(default = "default_last_command_source")]
+    last_command_source: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectAiOrderPersistV1 {
+    object_id: u32,
+    path: Vec<[f32; 3]>,
+    current_path_index: u32,
+    target_position: Option<[f32; 3]>,
+    requested_destination: Option<[f32; 3]>,
+    requested_victim_id: u32,
+    waiting_for_path: bool,
+    is_exact_path: bool,
+    is_attack_path: bool,
+    is_approach_path: bool,
+    is_safe_path: bool,
+    pending_waypoint_labels: Vec<String>,
+    completed_waypoint_labels: Vec<String>,
+    queue_for_path_frames: u32,
+    group_speed_factor: f32,
+    pending_path: Option<PendingPathPersist>,
+    #[serde(default)]
+    ai_attitude: i8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AiTeamPersistPayload {
     team_targets: Vec<TeamCommonAttackPersist>,
     orders: Vec<ObjectAiOrderPersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV1 {
+    team_targets: Vec<TeamCommonAttackPersist>,
+    orders: Vec<ObjectAiOrderPersistV1>,
+}
+
+fn default_last_command_source() -> u32 {
+    crate::game_logic::HUNT_CMD_FROM_AI
+}
+
+impl From<ObjectAiOrderPersistV1> for ObjectAiOrderPersist {
+    fn from(v1: ObjectAiOrderPersistV1) -> Self {
+        Self {
+            object_id: v1.object_id,
+            path: v1.path,
+            current_path_index: v1.current_path_index,
+            target_position: v1.target_position,
+            requested_destination: v1.requested_destination,
+            requested_victim_id: v1.requested_victim_id,
+            waiting_for_path: v1.waiting_for_path,
+            is_exact_path: v1.is_exact_path,
+            is_attack_path: v1.is_attack_path,
+            is_approach_path: v1.is_approach_path,
+            is_safe_path: v1.is_safe_path,
+            pending_waypoint_labels: v1.pending_waypoint_labels,
+            completed_waypoint_labels: v1.completed_waypoint_labels,
+            queue_for_path_frames: v1.queue_for_path_frames,
+            group_speed_factor: v1.group_speed_factor,
+            pending_path: v1.pending_path,
+            ai_attitude: v1.ai_attitude,
+            do_final_position: false,
+            final_position: [0.0; 3],
+            ignored_obstacle_id: 0,
+            can_path_through_units: false,
+            last_command_source: default_last_command_source(),
+        }
+    }
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
@@ -81,16 +158,13 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_tmai_suffix(bytes) else {
         return Ok(());
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != TMAI_VERSION {
+    if version != 1 && version != TMAI_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown TMAI suffix version {version}"
         )));
@@ -101,8 +175,22 @@ pub fn apply_from_lifecycle_tail(
             "TMAI payload truncated".to_string(),
         ));
     }
-    let payload: AiTeamPersistPayload = bincode::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
+    let encoded = &rest[..payload_len];
+    let payload = if version == 1 {
+        let old: AiTeamPersistPayloadV1 = bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
+        AiTeamPersistPayload {
+            team_targets: old.team_targets,
+            orders: old
+                .orders
+                .into_iter()
+                .map(ObjectAiOrderPersist::from)
+                .collect(),
+        }
+    } else {
+        bincode::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?
+    };
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -144,7 +232,12 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             || !object.pending_waypoint_labels.is_empty()
             || !object.completed_waypoint_labels.is_empty()
             || pending_path.is_some()
-            || object.ai_attitude != 0;
+            || object.ai_attitude != 0
+            || object.do_final_position
+            || object.ignored_obstacle_id.is_some()
+            || object.can_path_through_units
+            || object.last_command_source != default_last_command_source();
+
         if !interesting {
             continue;
         }
@@ -165,6 +258,11 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             queue_for_path_frames: object.queue_for_path_frames,
             group_speed_factor: object.group_speed_factor,
             ai_attitude: object.ai_attitude,
+            do_final_position: object.do_final_position,
+            final_position: vec3_to_arr(&object.final_position),
+            ignored_obstacle_id: object.ignored_obstacle_id.map(|v| v.0).unwrap_or(0),
+            can_path_through_units: object.can_path_through_units,
+            last_command_source: object.last_command_source,
             pending_path,
         });
     }
@@ -189,7 +287,10 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
     let mut pending = Vec::new();
     for order in payload.orders {
         let id = ObjectId(order.object_id);
-        if let Some(req) = order.pending_path.as_ref().map(|p| restore_pending_path(id, p))
+        if let Some(req) = order
+            .pending_path
+            .as_ref()
+            .map(|p| restore_pending_path(id, p))
         {
             pending.push(req);
         }
@@ -205,8 +306,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
             object.movement.target_position = Some(arr_to_vec3(pos));
         }
         object.requested_destination = order.requested_destination.map(arr_to_vec3);
-        object.requested_victim_id = (order.requested_victim_id != 0)
-            .then_some(ObjectId(order.requested_victim_id));
+        object.requested_victim_id =
+            (order.requested_victim_id != 0).then_some(ObjectId(order.requested_victim_id));
         object.waiting_for_path = order.waiting_for_path;
         object.is_exact_path = order.is_exact_path;
         object.is_attack_path = order.is_attack_path;
@@ -217,6 +318,12 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
         object.queue_for_path_frames = order.queue_for_path_frames;
         object.group_speed_factor = order.group_speed_factor;
         object.ai_attitude = order.ai_attitude;
+        object.do_final_position = order.do_final_position;
+        object.final_position = arr_to_vec3(order.final_position);
+        object.ignored_obstacle_id =
+            (order.ignored_obstacle_id != 0).then_some(ObjectId(order.ignored_obstacle_id));
+        object.can_path_through_units = order.can_path_through_units;
+        object.last_command_source = order.last_command_source;
     }
     game_logic.restore_pending_host_paths(pending);
 }
@@ -250,7 +357,8 @@ fn restore_pending_path(unit_id: ObjectId, persist: &PendingPathPersist) -> Pend
         aircraft: persist.aircraft,
         surfaces: persist.surfaces,
         is_crusher: persist.is_crusher,
-        ignore_obstacle: (persist.ignore_obstacle != 0).then_some(ObjectId(persist.ignore_obstacle)),
+        ignore_obstacle: (persist.ignore_obstacle != 0)
+            .then_some(ObjectId(persist.ignore_obstacle)),
     }
 }
 
@@ -387,7 +495,10 @@ mod tests {
         let loaded = restored.host_object(id).expect("restored ranger");
         assert_eq!(loaded.movement.path, remaining);
         assert_eq!(loaded.movement.current_path_index, 0);
-        assert_eq!(loaded.requested_destination, Some(*remaining.last().unwrap()));
+        assert_eq!(
+            loaded.requested_destination,
+            Some(*remaining.last().unwrap())
+        );
         assert_eq!(loaded.pending_waypoint_labels, vec!["HeroPath".to_string()]);
         assert!(loaded.is_exact_path);
         assert!(loaded.is_attack_path);
@@ -458,6 +569,100 @@ mod tests {
         assert_eq!(
             loaded.ai_attitude, -2,
             "script Sleep attitude must survive load"
+        );
+    }
+
+    #[test]
+    fn snapshot_round_trips_ai_update_path_residuals() {
+        use crate::game_logic::HUNT_CMD_FROM_PLAYER;
+
+        let mut source = ranger_logic();
+        let depot = source
+            .create_object("USASupplyDepot", Team::USA, Vec3::new(40.0, 0.0, 10.0))
+            .expect("depot");
+        let id = source
+            .create_object("Ranger", Team::USA, Vec3::new(8.0, 0.0, 4.0))
+            .expect("ranger");
+        let plant = Vec3::new(10.25, 0.0, 5.5);
+        if let Some(obj) = source.host_object_mut(id) {
+            // Mid-settle / mid-exit / mid-enter / mid-hunt: no remaining path.
+            obj.do_final_position = true;
+            obj.final_position = plant;
+            obj.ignored_obstacle_id = Some(depot);
+            obj.can_path_through_units = true;
+            obj.last_command_source = HUNT_CMD_FROM_PLAYER;
+        }
+
+        let builder = SnapshotBuilder::new();
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+        assert!(
+            find_tmai_suffix(&snapshot.lifecycle_tail).is_some(),
+            "TMAI suffix must capture leftover AIUpdate path residuals"
+        );
+
+        let mut restored = ranger_logic();
+        restored.templates = source.templates.clone();
+        builder
+            .restore_from_snapshot(&snapshot, &mut restored)
+            .expect("restore");
+        let loaded = restored.host_object(id).expect("restored ranger");
+        assert!(
+            loaded.do_final_position,
+            "m_doFinalPosition must survive load"
+        );
+        assert_eq!(loaded.final_position, plant);
+        assert_eq!(loaded.ignored_obstacle_id, Some(depot));
+        assert!(
+            loaded.can_path_through_units,
+            "m_canPathThroughUnits must survive load"
+        );
+        assert_eq!(
+            loaded.last_command_source, HUNT_CMD_FROM_PLAYER,
+            "m_lastCommandSource CMD_FROM_PLAYER must survive load"
+        );
+    }
+
+    #[test]
+    fn v1_suffix_defaults_new_ai_update_residuals() {
+        let mut logic = ranger_logic();
+        let id = logic
+            .create_object("Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("ranger");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.do_final_position = true;
+            obj.final_position = Vec3::new(1.0, 2.0, 3.0);
+            obj.ignored_obstacle_id = Some(ObjectId(99));
+            obj.can_path_through_units = true;
+            obj.last_command_source = crate::game_logic::HUNT_CMD_FROM_PLAYER;
+        }
+
+        let v1 = AiTeamPersistPayloadV1 {
+            team_targets: Vec::new(),
+            orders: vec![ObjectAiOrderPersistV1 {
+                object_id: id.0,
+                ai_attitude: 0,
+                ..Default::default()
+            }],
+        };
+        let encoded = bincode::serialize(&v1).expect("v1 encode");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(TMAI_MAGIC);
+        append_u32(&mut bytes, 1);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v1");
+        let loaded = logic.host_object(id).expect("ranger");
+        assert!(
+            !loaded.do_final_position,
+            "v1 saves default m_doFinalPosition false"
+        );
+        assert_eq!(loaded.final_position, Vec3::ZERO);
+        assert_eq!(loaded.ignored_obstacle_id, None);
+        assert!(!loaded.can_path_through_units);
+        assert_eq!(
+            loaded.last_command_source,
+            crate::game_logic::HUNT_CMD_FROM_AI
         );
     }
 }

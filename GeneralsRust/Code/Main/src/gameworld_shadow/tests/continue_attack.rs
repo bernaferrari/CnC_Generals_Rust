@@ -291,7 +291,7 @@ fn assign_unit_attack_path_decision_authority() {
             damage: 10.0,
             range: 25.0,
             ..Weapon::default()
-});
+        });
     }
     let tpos = glam::Vec3::new(80.0, 0.0, 0.0);
     let ok = logic.assign_unit_attack_path_for_test(uid, Some(vid), tpos);
@@ -521,12 +521,12 @@ fn missile_defender_laser_guided_decision_authority() {
             damage: 20.0,
             range: 250.0,
             ..Weapon::default()
-});
+        });
         o.weapon = Some(Weapon {
             damage: 5.0,
             range: 100.0,
             ..Weapon::default()
-});
+        });
     }
     let ok = logic.activate_missile_defender_laser_guided_for_test(mid, eid);
     assert!(ok, "laser guided should activate");
@@ -601,7 +601,7 @@ fn private_attack_object_decision_authority() {
             damage: 10.0,
             range: 50.0,
             ..Weapon::default()
-});
+        });
     }
     let ok = logic.private_attack_object_for_test(uid, vid, -1);
     assert!(ok, "private_attack_object should enter attack SM");
@@ -873,7 +873,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
             damage: 10.0,
             range: 100.0,
             ..crate::game_logic::Weapon::default()
-});
+        });
     }
     // Drive one mood tick.
     logic.tick_mood_auto_acquire_for_test(&[oid]);
@@ -1026,7 +1026,7 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
         o.weapon = Some(Weapon {
             damage: 10.0,
             ..Weapon::default()
-});
+        });
     }
     let mut ai = AIPlayer::new(usa_id, Team::USA, AIDifficulty::Medium);
     ai.enemy_player_id = gla_id;

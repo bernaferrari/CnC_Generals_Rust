@@ -8,7 +8,7 @@ pub enum HostReloadType {
 }
 
 pub fn host_reload_type_for_weapon_name(name: &str) -> HostReloadType {
-    use gamelogic::weapon::{with_weapon_store, WeaponReloadType as GlReload};
+    use gamelogic::weapon::{WeaponReloadType as GlReload, with_weapon_store};
     let _ = ensure_host_weapon_store();
     let from_store = with_weapon_store(|store| {
         store
@@ -67,7 +67,7 @@ impl HostPrefireType {
 
 /// Resolve PreAttackType for a weapon name.
 pub fn host_prefire_type_for_weapon_name(name: &str) -> HostPrefireType {
-    use gamelogic::weapon::{with_weapon_store, WeaponPrefireType};
+    use gamelogic::weapon::{WeaponPrefireType, with_weapon_store};
     let _ = ensure_host_weapon_store();
     let from_store = with_weapon_store(|store| {
         store
@@ -128,7 +128,7 @@ pub fn host_delay_between_shots_secs_rolled(name: &str) -> Option<f32> {
 }
 
 fn leftover_delay_between_shots_secs(name: &str, rof: f32, roll: bool) -> Option<f32> {
-    use gamelogic::weapon::{with_weapon_store, WeaponBonus, WeaponBonusField};
+    use gamelogic::weapon::{WeaponBonus, WeaponBonusField, with_weapon_store};
     let _ = ensure_host_weapon_store();
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
@@ -149,7 +149,6 @@ fn leftover_delay_between_shots_secs(name: &str, rof: f32, roll: bool) -> Option
     .flatten()
 }
 
-
 /// C++ Weapon.ini PrimaryDamage residual amount (Regular).
 pub fn host_primary_damage_for_weapon_name(name: &str) -> Option<f32> {
     use gamelogic::weapon::with_weapon_store;
@@ -163,7 +162,6 @@ pub fn host_primary_damage_for_weapon_name(name: &str) -> Option<f32> {
     .ok()
     .flatten()
 }
-
 
 pub(super) fn seed_prefire_type_for(name: &str) -> HostPrefireType {
     let n = name.to_ascii_lowercase();

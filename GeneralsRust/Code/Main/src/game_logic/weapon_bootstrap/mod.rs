@@ -31,7 +31,7 @@
 // Restricted re-exports so impl submodules can `use super::*;`
 // without dumping the parent crate surface through `pub use`.
 pub(in crate::game_logic::weapon_bootstrap) use gamelogic::weapon::{
-    with_weapon_store, with_weapon_store_mut, WeaponAntiMask, WeaponTemplate,
+    WeaponAntiMask, WeaponTemplate, with_weapon_store, with_weapon_store_mut,
 };
 use glam::Vec3;
 pub(in crate::game_logic::weapon_bootstrap) use std::path::{Path, PathBuf};
@@ -57,8 +57,8 @@ mod fx;
 pub use fx::*;
 mod projectile_sound;
 pub use projectile_sound::*;
-mod projectile_lifecycle;
 mod projectile_flight;
+mod projectile_lifecycle;
 pub use projectile_flight::*;
 pub use projectile_lifecycle::*;
 mod damage_kinds;
@@ -71,7 +71,6 @@ mod store;
 pub use store::*;
 mod extra_bonus;
 pub use extra_bonus::*;
-
 
 #[cfg(test)]
 mod tests;

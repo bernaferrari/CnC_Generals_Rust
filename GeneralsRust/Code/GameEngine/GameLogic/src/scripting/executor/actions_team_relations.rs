@@ -6,7 +6,6 @@
 use super::*;
 use crate::modules::AIUpdateInterfaceExt;
 
-
 impl ScriptActionDispatcher {
     pub(crate) fn do_team_flash(
         &mut self,
@@ -91,7 +90,6 @@ impl ScriptActionDispatcher {
                 player: player_name.clone(),
             });
         }
-
 
         let Some(target_player) = player_list()
             .read()
@@ -237,7 +235,6 @@ impl ScriptActionDispatcher {
             }
         }
 
-
         crate::scripting::request_host_team_override_relation(
             crate::scripting::HostScriptTeamOverrideRelationRequest::RemoveTeam {
                 source: team_name,
@@ -266,9 +263,10 @@ impl ScriptActionDispatcher {
             }
         }
 
-
         crate::scripting::request_host_team_override_relation(
-            crate::scripting::HostScriptTeamOverrideRelationRequest::RemoveAll { source: team_name },
+            crate::scripting::HostScriptTeamOverrideRelationRequest::RemoveAll {
+                source: team_name,
+            },
         );
         Ok(ScriptActionResult::Success)
     }
@@ -305,7 +303,6 @@ impl ScriptActionDispatcher {
                 team_guard.set_override_player_relationship(player_index, relationship);
             }
         }
-
 
         crate::scripting::request_host_team_override_relation(
             crate::scripting::HostScriptTeamOverrideRelationRequest::SetPlayer {
@@ -401,8 +398,6 @@ impl ScriptActionDispatcher {
                 let slots = guard.get_transport_slot_count() as u32;
                 units.push((member_id, slots));
             }
-
-
         }
 
         let mut solver = game_engine::common::partition_solver::BinPartitionSolver::new(
@@ -426,7 +421,6 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-
     /// C++ Reference: ScriptActions::doTeamEnterNamed()
     /// Team enters a specific named object (building/transport)
     pub(crate) fn do_team_enter_named(
@@ -445,7 +439,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         // Get the target object ID
         let tracker = get_named_object_tracker();
@@ -485,7 +478,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let group_arc = self.create_ai_group_from_team(&team_name)?;
         let write_result = group_arc.write();
         if let Ok(mut group) = write_result {
@@ -519,7 +511,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let team_player_mask = self
             .get_team_by_name(&team_name)
@@ -596,7 +587,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let Some(team_arc) = self.get_team_by_name(&team_name).ok() else {
             return Ok(ScriptActionResult::Success);
         };
@@ -650,7 +640,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Get waypoint position
         let waypoint_name_ascii = AsciiString::from(waypoint_name.as_str());
         let waypoint_pos = get_terrain_logic().read().ok().and_then(|terrain| {
@@ -700,7 +689,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Get the object ID from name tracker
         let tracker = get_named_object_tracker();
         let target_id = tracker.get_object_id(&object_name).ok().flatten();
@@ -743,7 +731,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
             Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
@@ -805,7 +792,6 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-
     pub(crate) fn do_team_guard_in_tunnel_network(
         &mut self,
         action: &ScriptAction,
@@ -818,7 +804,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         if let Ok(mut factory_guard) = get_team_factory().lock() {
             if let Some(team_arc) = factory_guard.find_team(&team_name) {
@@ -1016,7 +1001,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some(team_center) = self
             .compute_team_center_and_first(&team_arc)
@@ -1063,7 +1047,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
             Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
             Err(_) => {
@@ -1104,7 +1087,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         // Get the object ID from name tracker
         let tracker = get_named_object_tracker();
@@ -1208,7 +1190,6 @@ impl ScriptActionDispatcher {
             super::request_host_team_attitude(&team_name, mood);
             return Ok(ScriptActionResult::Success);
         }
-
 
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
             if let Ok(mut group) = group_arc.write() {

@@ -5,7 +5,7 @@ use bitflags::bitflags;
 
 use crate::gui::gadgets::Color as GadgetColor;
 
-use super::payload::{write_bool_payload, WindowId, WindowMsgData};
+use super::payload::{WindowId, WindowMsgData, write_bool_payload};
 
 /// Result type for window operations
 pub type WindowResult<T> = Result<T, WindowError>;

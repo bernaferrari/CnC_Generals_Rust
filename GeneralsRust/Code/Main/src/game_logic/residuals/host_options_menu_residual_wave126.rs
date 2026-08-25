@@ -147,9 +147,9 @@ mod tests {
     #[test]
     fn simulate_options_prepare_accept_residual_live() {
         use game_client::gui::callbacks::{
-            residual_options_menu_is_bound, residual_options_menu_last_action,
-            simulate_options_menu_back_button_gadget_selected,
-            simulate_options_menu_prepare_accept, ResidualOptionsMenuAction,
+            ResidualOptionsMenuAction, residual_options_menu_is_bound,
+            residual_options_menu_last_action, simulate_options_menu_back_button_gadget_selected,
+            simulate_options_menu_prepare_accept,
         };
         assert!(
             simulate_options_menu_prepare_accept(),

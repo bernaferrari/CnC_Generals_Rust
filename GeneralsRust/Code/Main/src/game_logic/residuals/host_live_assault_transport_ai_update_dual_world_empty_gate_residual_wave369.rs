@@ -46,8 +46,8 @@ pub const RUNTIME_HOST_LIVE_ASSAULT_TRANSPORT_AI_UPDATE_DUAL_WORLD_EMPTY_GATE_CM
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_assault_transport_ai_update_dual_world_empty_gate_method_names_residual_wave369(
-) -> bool {
+pub fn honesty_live_assault_transport_ai_update_dual_world_empty_gate_method_names_residual_wave369()
+-> bool {
     LIVE_ASSAULT_TRANSPORT_AI_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE369.len() == 8
         && residual_name_index(
             LIVE_ASSAULT_TRANSPORT_AI_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE369,
@@ -64,8 +64,8 @@ pub fn honesty_live_assault_transport_ai_update_dual_world_empty_gate_method_nam
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_assault_transport_ai_update_dual_world_empty_gate_nav_commands_residual_wave369(
-) -> bool {
+pub fn honesty_live_assault_transport_ai_update_dual_world_empty_gate_nav_commands_residual_wave369()
+-> bool {
     LIVE_ASSAULT_TRANSPORT_AI_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE369.len() == 4
         && residual_name_index(
             LIVE_ASSAULT_TRANSPORT_AI_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE369,

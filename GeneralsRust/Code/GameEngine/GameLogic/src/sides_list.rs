@@ -3,15 +3,15 @@
 //! Port of C++ SidesList.{h,cpp} for map/player side metadata.
 
 use crate::build_list_info::BuildListInfo;
+use crate::common::Coord3D;
 use crate::common::well_known_keys::{
     key_player_allies, key_player_display_name, key_player_enemies, key_player_faction,
     key_player_is_human, key_player_name, key_team_is_singleton, key_team_name, key_team_owner,
 };
 use crate::common::xfer::Xfer;
-use crate::common::Coord3D;
-use crate::common::{AsciiString, Bool, Dict, Int, Snapshot, UnicodeString, MAX_PLAYER_COUNT};
+use crate::common::{AsciiString, Bool, Dict, Int, MAX_PLAYER_COUNT, Snapshot, UnicodeString};
 use crate::scripting::{
-    parse_player_scripts_list_chunk, ScriptList, ScriptListReadInfo, XferSnapshot,
+    ScriptList, ScriptListReadInfo, XferSnapshot, parse_player_scripts_list_chunk,
 };
 use crate::system::game_logic::SubsystemInterface;
 use game_engine::common::system::file::FileAccess;

@@ -21,7 +21,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use tokio::sync::{broadcast, watch, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast, watch};
 use tokio::task::JoinSet;
 use tokio::time::interval;
 use tracing::{debug, info, trace, warn};

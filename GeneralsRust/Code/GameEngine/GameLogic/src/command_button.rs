@@ -9,11 +9,11 @@ use crate::common::*;
 use crate::helpers::TheThingFactory;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::update::special_power_update::SpecialPowerCommandOption;
-use crate::upgrade::center::with_upgrade_center;
 use crate::upgrade::UpgradeTemplate;
+use crate::upgrade::center::with_upgrade_center;
 use game_engine::common::ini::ini_command_button as common_buttons;
 use game_engine::common::rts::{
-    get_science_store, ScienceAccess, ScienceStore, ScienceType, SCIENCE_INVALID,
+    SCIENCE_INVALID, ScienceAccess, ScienceStore, ScienceType, get_science_store,
 };
 use std::sync::Arc;
 
@@ -631,7 +631,6 @@ mod tests {
             assert!(set.get_command_button(0).is_some());
         }
     }
-
 }
 
 pub fn map_gui_command_to_command_type(command: &str) -> crate::commands::command::CommandType {

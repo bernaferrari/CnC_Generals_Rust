@@ -1,7 +1,7 @@
 //! Condition registry for script evaluation.
 
-use super::skirmish_conditions;
 use super::ScriptCondition;
+use super::skirmish_conditions;
 use std::collections::HashMap;
 
 /// Condition registry

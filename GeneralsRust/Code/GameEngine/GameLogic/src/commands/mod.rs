@@ -73,8 +73,8 @@ pub mod unit_command_queue;
 
 // Re-export commonly used types for convenience
 pub use command::{
-    command_builder, Command, CommandArgumentDataType, CommandArgumentType, CommandType,
-    CommandValidation, CommandValidator, DefaultCommandValidator, MAX_COMMAND_ARGUMENTS,
+    Command, CommandArgumentDataType, CommandArgumentType, CommandType, CommandValidation,
+    CommandValidator, DefaultCommandValidator, MAX_COMMAND_ARGUMENTS, command_builder,
 };
 
 pub use rts_command::{
@@ -83,15 +83,15 @@ pub use rts_command::{
 };
 
 pub use command_queue::{
-    get_command_queue_manager, CommandExecutionState, CommandPriority, CommandQueue,
-    CommandQueueManager, PlayerCommandQueue, PlayerCommandQueueStats, QueuedCommand,
-    MAX_COMMANDS_PER_FRAME, MAX_COMMANDS_PER_PLAYER,
+    CommandExecutionState, CommandPriority, CommandQueue, CommandQueueManager,
+    MAX_COMMANDS_PER_FRAME, MAX_COMMANDS_PER_PLAYER, PlayerCommandQueue, PlayerCommandQueueStats,
+    QueuedCommand, get_command_queue_manager,
 };
 
 pub use command_processor::{
-    get_command_processor, AIManager, CommandExecutionContext, CommandExecutionResult,
-    CommandExecutionStats, CommandHandler, CommandProcessor, GameObject, ObjectManager,
-    PlayerManager,
+    AIManager, CommandExecutionContext, CommandExecutionResult, CommandExecutionStats,
+    CommandHandler, CommandProcessor, GameObject, ObjectManager, PlayerManager,
+    get_command_processor,
 };
 
 // Additional command system constants and types
@@ -116,15 +116,14 @@ pub static THE_COMMAND_PROCESSOR: Lazy<Arc<Mutex<CommandProcessor>>> =
     Lazy::new(|| Arc::new(Mutex::new(CommandProcessor::new())));
 
 pub use selection::{
-    get_selection_manager, ControlGroup, ObjectInfo, ObjectKind, ObjectLookup, PlayerSelection,
-    SelectedObject, SelectionCriteria, SelectionInfo, SelectionManager, SelectionType,
-    MAX_CONTROL_GROUPS, MAX_SELECTION_SIZE,
+    ControlGroup, MAX_CONTROL_GROUPS, MAX_SELECTION_SIZE, ObjectInfo, ObjectKind, ObjectLookup,
+    PlayerSelection, SelectedObject, SelectionCriteria, SelectionInfo, SelectionManager,
+    SelectionType, get_selection_manager,
 };
 
 pub use formation::{
-    get_formation_manager, Formation, FormationManager, FormationMovementOrder,
-    FormationObjectLookup, FormationPosition, FormationSettings, FormationState, FormationTemplate,
-    FormationType,
+    Formation, FormationManager, FormationMovementOrder, FormationObjectLookup, FormationPosition,
+    FormationSettings, FormationState, FormationTemplate, FormationType, get_formation_manager,
 };
 
 /// Initialize the command system - call this at game startup

@@ -69,14 +69,15 @@ impl OcclusionCandidate {
                 && (object.is_unit || object.is_mobile)
                 && object.safe_occlusion_frame <= current_frame,
             destroyed: object.destroyed,
-            player_index: object.owner_player_id.map(|id| id as usize).unwrap_or_else(|| {
-                match object.team {
+            player_index: object
+                .owner_player_id
+                .map(|id| id as usize)
+                .unwrap_or_else(|| match object.team {
                     crate::game_logic::Team::China => 0,
                     crate::game_logic::Team::USA => 1,
                     crate::game_logic::Team::GLA => 4,
                     crate::game_logic::Team::Neutral => 7,
-                }
-            }),
+                }),
             team_color: object.team_color,
         }
     }
@@ -120,8 +121,7 @@ pub fn ray_sphere_occludes(
     let direction = to_target / max_distance;
     let sphere_vector = sphere_center - camera;
     let alpha = sphere_vector.dot(direction);
-    let beta =
-        sphere_radius * sphere_radius - (sphere_vector.dot(sphere_vector) - alpha * alpha);
+    let beta = sphere_radius * sphere_radius - (sphere_vector.dot(sphere_vector) - alpha * alpha);
     if beta < 0.0 {
         return false;
     }
@@ -493,7 +493,6 @@ pub fn enqueue_occluded_player_color_pass(
 mod tests {
     use super::*;
 
-
     fn candidate(
         id: u32,
         position: Vec3,
@@ -537,14 +536,7 @@ mod tests {
             0,
             [0.2, 0.2, 0.2, 1.0],
         );
-        let hidden = candidate(
-            2,
-            Vec3::ZERO,
-            2.0,
-            false,
-            2,
-            [0.25, 0.5, 0.25, 1.0],
-        );
+        let hidden = candidate(2, Vec3::ZERO, 2.0, false, 2, [0.25, 0.5, 0.25, 1.0]);
         let clear = candidate(
             3,
             Vec3::new(80.0, 0.0, 0.0),
@@ -553,8 +545,7 @@ mod tests {
             2,
             [0.25, 0.5, 0.25, 1.0],
         );
-        let overlays =
-            classify_occluded_player_overlays(camera, &[building, hidden, clear]);
+        let overlays = classify_occluded_player_overlays(camera, &[building, hidden, clear]);
         assert_eq!(overlays.len(), 1);
         assert_eq!(overlays[0].object_id, ObjectId(2));
         assert_eq!(overlays[0].player_index, 2);
@@ -621,14 +612,11 @@ mod tests {
             )
             .unwrap();
         let pax = logic
-            .create_object(
-                "OccRanger",
-                crate::game_logic::Team::USA,
-                Vec3::ZERO,
-            )
+            .create_object("OccRanger", crate::game_logic::Team::USA, Vec3::ZERO)
             .unwrap();
+        let safe_frame = logic.frame;
         if let Some(p) = logic.host_object_mut(pax) {
-            p.stamp_safe_occlusion_frame(logic.frame);
+            p.stamp_safe_occlusion_frame(safe_frame);
         }
         let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
         let camera = Vec3::new(0.0, 0.0, 100.0);
@@ -645,6 +633,4 @@ mod tests {
             "after OcclusionDelay the unit is a potential occludee"
         );
     }
-
-
 }

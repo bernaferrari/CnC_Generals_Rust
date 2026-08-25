@@ -121,7 +121,7 @@ impl GameLogic {
 
     pub fn update_stealth_jet_missile_projectiles(&mut self) {
         use crate::game_logic::host_bunker_buster::{
-            should_play_crash_through_fx, BUNKER_BUSTER_CRASH_THROUGH_FX,
+            BUNKER_BUSTER_CRASH_THROUGH_FX, should_play_crash_through_fx,
         };
         use crate::game_logic::host_stealth_fighter::{
             STEALTH_FIGHTER_PROJECTILE_SPEED, STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES,
@@ -286,14 +286,14 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_bunker_buster::{
-            is_bunker_buster_carrier, should_apply_bunker_buster, UPGRADE_AMERICA_BUNKER_BUSTERS,
+            UPGRADE_AMERICA_BUNKER_BUSTERS, is_bunker_buster_carrier, should_apply_bunker_buster,
         };
         use crate::game_logic::host_stealth_fighter::{
+            STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_DAMAGE_TYPE, STEALTH_FIGHTER_DEATH_TYPE,
+            STEALTH_FIGHTER_FIRE_AUDIO, STEALTH_FIGHTER_PRIMARY_RADIUS,
             is_legal_stealth_fighter_target, is_stealth_fighter_template,
             stealth_fighter_damage_at, stealth_jet_scatter_aim,
-            stealth_jet_scatter_misses_infantry, STEALTH_FIGHTER_DAMAGE,
-            STEALTH_FIGHTER_DAMAGE_TYPE, STEALTH_FIGHTER_DEATH_TYPE, STEALTH_FIGHTER_FIRE_AUDIO,
-            STEALTH_FIGHTER_PRIMARY_RADIUS,
+            stealth_jet_scatter_misses_infantry,
         };
 
         let (source_team, has_bunker_buster, is_carrier) = {
@@ -491,8 +491,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
-            is_comanche_template, is_legal_comanche_target, COMANCHE_CANNON_DAMAGE,
-            COMANCHE_CANNON_DAMAGE_TYPE, COMANCHE_CANNON_DEATH_TYPE, COMANCHE_CANNON_FIRE_AUDIO,
+            COMANCHE_CANNON_DAMAGE, COMANCHE_CANNON_DAMAGE_TYPE, COMANCHE_CANNON_DEATH_TYPE,
+            COMANCHE_CANNON_FIRE_AUDIO, is_comanche_template, is_legal_comanche_target,
         };
 
         let source_team = source
@@ -586,8 +586,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_helix_minigun::{
-            is_legal_helix_minigun_target, HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DAMAGE_TYPE,
-            HELIX_MINIGUN_DEATH_TYPE, HELIX_MINIGUN_FIRE_AUDIO,
+            HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DAMAGE_TYPE, HELIX_MINIGUN_DEATH_TYPE,
+            HELIX_MINIGUN_FIRE_AUDIO, is_legal_helix_minigun_target,
         };
         use crate::game_logic::host_overlord_addons::is_helix_template;
 
@@ -682,10 +682,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
-            comanche_antitank_damage_at, comanche_antitank_scatter_aim,
-            comanche_antitank_scatter_misses_infantry, is_comanche_template,
-            is_legal_comanche_target, COMANCHE_AT_DAMAGE_TYPE, COMANCHE_AT_DEATH_TYPE,
-            COMANCHE_AT_FIRE_AUDIO, COMANCHE_AT_PRIMARY_RADIUS, COMANCHE_AT_SECONDARY_RADIUS,
+            COMANCHE_AT_DAMAGE_TYPE, COMANCHE_AT_DEATH_TYPE, COMANCHE_AT_FIRE_AUDIO,
+            COMANCHE_AT_PRIMARY_RADIUS, COMANCHE_AT_SECONDARY_RADIUS, comanche_antitank_damage_at,
+            comanche_antitank_scatter_aim, comanche_antitank_scatter_misses_infantry,
+            is_comanche_template, is_legal_comanche_target,
         };
 
         let source_team = source
@@ -852,8 +852,8 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_slave_drones::{
-            is_battle_drone_template, BATTLE_DRONE_FIRE_AUDIO, BATTLE_DRONE_GUN_DAMAGE,
-            BATTLE_DRONE_GUN_DAMAGE_TYPE, BATTLE_DRONE_GUN_DEATH_TYPE,
+            BATTLE_DRONE_FIRE_AUDIO, BATTLE_DRONE_GUN_DAMAGE, BATTLE_DRONE_GUN_DAMAGE_TYPE,
+            BATTLE_DRONE_GUN_DEATH_TYPE, is_battle_drone_template,
         };
 
         let source_team = source
@@ -927,10 +927,10 @@ impl GameLogic {
     /// Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
     pub fn update_battle_drone_repair_residual(&mut self, dt: f32) {
         use crate::game_logic::host_slave_drones::{
-            battle_drone_repair_amount_for_frame, battle_drone_should_idle_repair_master,
-            battle_drone_weld_close_enough, battle_drone_weld_pose, is_battle_drone_template,
             BATTLE_DRONE_REPAIR_SPARKS_AUDIO, BATTLE_DRONE_REPAIR_WELDING_FX_BONE,
-            BATTLE_DRONE_REPAIR_WELDING_SYS,
+            BATTLE_DRONE_REPAIR_WELDING_SYS, battle_drone_repair_amount_for_frame,
+            battle_drone_should_idle_repair_master, battle_drone_weld_close_enough,
+            battle_drone_weld_pose, is_battle_drone_template,
         };
 
         // C++ doRepairLogic heals TheGameLogic->findObjectByID(m_slaver) only.
@@ -949,7 +949,8 @@ impl GameLogic {
             self.battle_drone_weld_states.clear();
             return;
         }
-        let live: std::collections::HashSet<ObjectId> = drones.iter().map(|(id, _, _)| *id).collect();
+        let live: std::collections::HashSet<ObjectId> =
+            drones.iter().map(|(id, _, _)| *id).collect();
         self.battle_drone_weld_states
             .retain(|id, _| live.contains(id));
 
@@ -1026,8 +1027,8 @@ impl GameLogic {
     /// Apply Uranium Shells residual tag + rebind Overlord / Emperor main gun.
     pub fn apply_overlord_gun_uranium_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_overlord_gun::{
-            has_uranium_shells_upgrade, is_overlord_gun_chassis, overlord_gun_weapon,
-            UPGRADE_CHINA_URANIUM_SHELLS,
+            UPGRADE_CHINA_URANIUM_SHELLS, has_uranium_shells_upgrade, is_overlord_gun_chassis,
+            overlord_gun_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1059,7 +1060,7 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_overlord_gun::{
-            overlord_shell_flight_frames, OVERLORD_PROJECTILE, OVERLORD_SHELL_MAX_HEALTH,
+            OVERLORD_PROJECTILE, OVERLORD_SHELL_MAX_HEALTH, overlord_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1228,10 +1229,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_overlord_gun::{
-            has_uranium_shells_upgrade, is_legal_overlord_gun_splash_target,
-            is_overlord_gun_chassis, overlord_damage_at, overlord_scatter_aim,
-            overlord_scatter_misses_infantry, OVERLORD_DAMAGE_TYPE, OVERLORD_DEATH_TYPE,
-            OVERLORD_FIRE_AUDIO, OVERLORD_SECONDARY_RADIUS,
+            OVERLORD_DAMAGE_TYPE, OVERLORD_DEATH_TYPE, OVERLORD_FIRE_AUDIO,
+            OVERLORD_SECONDARY_RADIUS, has_uranium_shells_upgrade,
+            is_legal_overlord_gun_splash_target, is_overlord_gun_chassis, overlord_damage_at,
+            overlord_scatter_aim, overlord_scatter_misses_infantry,
         };
 
         let (source_team, has_uranium) = {
@@ -1386,8 +1387,8 @@ impl GameLogic {
     /// Apply AP Bullets residual tag + rebind Jarmen Kell sniper.
     pub fn apply_jarmen_kell_ap_bullets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_jarmen_kell::{
-            has_ap_bullets_upgrade, is_jarmen_kell_template, jarmen_kell_weapon,
-            UPGRADE_GLA_AP_BULLETS,
+            UPGRADE_GLA_AP_BULLETS, has_ap_bullets_upgrade, is_jarmen_kell_template,
+            jarmen_kell_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1416,9 +1417,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_jarmen_kell::{
+            JARMEN_KELL_DAMAGE_TYPE, JARMEN_KELL_DEATH_TYPE, JARMEN_KELL_FIRE_AUDIO,
             has_ap_bullets_upgrade, is_jarmen_kell_template, is_legal_jarmen_kell_target,
-            jarmen_kell_damage_with_ap, JARMEN_KELL_DAMAGE_TYPE, JARMEN_KELL_DEATH_TYPE,
-            JARMEN_KELL_FIRE_AUDIO,
+            jarmen_kell_damage_with_ap,
         };
 
         let (source_team, damage) = {
@@ -1537,13 +1538,12 @@ impl GameLogic {
         let mut w = battlemaster_weapon(uranium, in_horde, nationalism_active);
         w.last_fire_time = last_fire;
         obj.weapon = Some(w);
-
     }
 
     /// Apply Uranium Shells residual (PLAYER_UPGRADE DAMAGE 125%) to a Battlemaster.
     pub fn apply_battlemaster_uranium_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_battlemaster::{
-            is_battlemaster_template, UPGRADE_CHINA_URANIUM_SHELLS,
+            UPGRADE_CHINA_URANIUM_SHELLS, is_battlemaster_template,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1562,7 +1562,7 @@ impl GameLogic {
 
     /// Apply Nationalism residual tag (ROF stacks with horde when active).
     pub fn apply_battlemaster_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_battlemaster::{is_battlemaster_template, UPGRADE_NATIONALISM};
+        use crate::game_logic::host_battlemaster::{UPGRADE_NATIONALISM, is_battlemaster_template};
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
@@ -1581,14 +1581,13 @@ impl GameLogic {
     /// HordeUpdate vehicles). Radius 75 / Count 5 / RubOff 20; terrain-decal fade.
     pub fn update_battlemaster_horde_status(&mut self) {
         use crate::game_logic::host_battlemaster::{
-            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob_scan,
-            is_battlemaster_template, is_china_vehicle_horde_unit,
-            leftover_horde_bounding_sphere_radius, leftover_horde_draw_icon_ui,
-            leftover_horde_take_wake, same_vehicle_horde_family, BATTLE_MASTER_HORDE_COUNT,
-            BATTLE_MASTER_HORDE_RADIUS, BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
-            BATTLE_MASTER_HORDE_UPDATE_FRAMES, LeftoverHordeScanUnit,
+            BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
+            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS, BATTLE_MASTER_HORDE_UPDATE_FRAMES,
+            LeftoverHordeScanUnit, counts_toward_battlemaster_horde,
+            evaluate_leftover_horde_blob_scan, is_battlemaster_template,
+            is_china_vehicle_horde_unit, leftover_horde_bounding_sphere_radius,
+            leftover_horde_draw_icon_ui, leftover_horde_take_wake, same_vehicle_horde_family,
         };
-
 
         let snapshot: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
             .objects
@@ -1683,7 +1682,6 @@ impl GameLogic {
             }
         }
 
-
         self.battlemaster_residual_horde_grants = self
             .battlemaster_residual_horde_grants
             .saturating_add(grants);
@@ -1692,7 +1690,6 @@ impl GameLogic {
             self.refresh_battlemaster_weapon(id);
         }
     }
-
 
     /// Apply Battlemaster residual fire (primary on intended + small splash radius).
     ///
@@ -1707,7 +1704,7 @@ impl GameLogic {
         intended: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_usa_tanks::{
-            usa_tank_shell_flight_frames, USA_SHELL_MAX_HEALTH, USA_TANK_GUN_PROJECTILE,
+            USA_SHELL_MAX_HEALTH, USA_TANK_GUN_PROJECTILE, usa_tank_shell_flight_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1881,10 +1878,10 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_usa_tanks::{
-            is_crusader_template, is_legal_usa_tank_splash_target, is_paladin_template,
-            usa_tank_gun_splash_damage_at, usa_tank_scatter_aim, usa_tank_scatter_misses_infantry,
-            CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO, USA_TANK_GUN_DAMAGE,
-            USA_TANK_GUN_DAMAGE_TYPE, USA_TANK_GUN_DEATH_TYPE, USA_TANK_GUN_PRIMARY_RADIUS,
+            CRUSADER_FIRE_AUDIO, PALADIN_FIRE_AUDIO, USA_TANK_GUN_DAMAGE, USA_TANK_GUN_DAMAGE_TYPE,
+            USA_TANK_GUN_DEATH_TYPE, USA_TANK_GUN_PRIMARY_RADIUS, is_crusader_template,
+            is_legal_usa_tank_splash_target, is_paladin_template, usa_tank_gun_splash_damage_at,
+            usa_tank_scatter_aim, usa_tank_scatter_misses_infantry,
         };
 
         let (source_team, damage, is_paladin) = {

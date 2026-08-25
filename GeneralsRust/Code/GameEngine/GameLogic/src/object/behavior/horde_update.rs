@@ -5,17 +5,17 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, Int, KindOf, KindOfMaskType, ModuleData, ObjectID, Real, UnsignedInt,
-    WeaponBonusConditionFlags, KIND_OF_MASK_NONE,
+    AsciiString, Bool, Int, KIND_OF_MASK_NONE, KindOf, KindOfMaskType, ModuleData, ObjectID, Real,
+    UnsignedInt, WeaponBonusConditionFlags,
 };
-use crate::common::{GameLogicRandomValue, FROM_CENTER_2D, LOGICFRAMES_PER_SECOND};
+use crate::common::{FROM_CENTER_2D, GameLogicRandomValue, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
-use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -592,7 +592,8 @@ impl UpdateModuleInterface for HordeUpdate {
                     drawable.set_terrain_decal(TerrainDecalType::None);
                 }
 
-                if let Some((target, rate)) = horde_terrain_decal_fade(was_in_horde, self.in_horde) {
+                if let Some((target, rate)) = horde_terrain_decal_fade(was_in_horde, self.in_horde)
+                {
                     drawable.set_terrain_decal_fade_target(target, rate);
                 }
             }
@@ -820,7 +821,6 @@ mod tests {
         let delay = leftover_horde_first_wake_delay(30);
         assert!(delay >= 1 && delay <= 30);
     }
-
 
     #[test]
     fn on_drawable_bound_hides_flag_subobjects() {

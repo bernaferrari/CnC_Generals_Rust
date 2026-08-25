@@ -5,11 +5,11 @@
 //! `on_delete` walks that same list order (`Object::onDestroy` / `on_delete`).
 //! Flattened Entity fields stay the write surface.
 
+use super::GameWorld;
 use super::entities::{EntityId, EntityInstalledModules, EntityModuleRecord, EntityModuleState};
 use super::entity_module_instances::{
-    live_modules_from_spec, live_modules_from_tags, EntityLiveModule,
+    EntityLiveModule, live_modules_from_spec, live_modules_from_tags,
 };
-use super::GameWorld;
 use crate::object::Object;
 use std::collections::HashMap;
 

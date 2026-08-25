@@ -61,8 +61,8 @@ fn residual_action_store(a: ResidualHostDualLineLethalNoDamageAuthHpStompAction)
 pub fn residual_host_dual_line_lethal_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_dual_line_lethal_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostDualLineLethalNoDamageAuthHpStompAction {
+pub fn residual_host_dual_line_lethal_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostDualLineLethalNoDamageAuthHpStompAction {
     ResidualHostDualLineLethalNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -81,8 +81,8 @@ pub fn honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_method_names_residu
     residual_action_store(ResidualHostDualLineLethalNoDamageAuthHpStompAction::MethodNames);
     ok
 }
-pub fn honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_source_markers_residual_wave753(
-) -> bool {
+pub fn honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_source_markers_residual_wave753()
+-> bool {
     let gl = gl_source();
     let ok = gl.contains("Wave 753")
         && gl.contains("aurora_bomb_projectile = false")

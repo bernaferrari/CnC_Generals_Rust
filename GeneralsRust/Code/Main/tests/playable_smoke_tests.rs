@@ -270,7 +270,7 @@ fn run_basic_faction_flow(human_team: Team) {
             reload_time: 0.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-});
+        });
     }
 
     let supplies_before_sell = game_logic
@@ -505,7 +505,7 @@ fn mini_skirmish_playable_flow_smoke() {
             reload_time: 0.0,
             projectile_speed: 0.0,
             ..Weapon::default()
-});
+        });
     }
 
     let save_dir = TempDir::new().expect("smoke save temp dir should be created");
@@ -545,11 +545,13 @@ fn mini_skirmish_playable_flow_smoke() {
             .target,
         Some(supply_dock)
     );
-    assert!(loaded_game_logic
-        .get_object(ranger_id)
-        .expect("loaded ranger should exist")
-        .weapon
-        .is_some());
+    assert!(
+        loaded_game_logic
+            .get_object(ranger_id)
+            .expect("loaded ranger should exist")
+            .weapon
+            .is_some()
+    );
 
     let mut game_logic = loaded_game_logic;
     // load_game rebinds host skirmish AI for non-local players. Pause it so the
@@ -601,11 +603,13 @@ fn mini_skirmish_playable_flow_smoke() {
 
     let summary = game_logic.build_victory_summary(Some(0));
     assert!(summary.player_results.len() >= 2);
-    assert!(summary
-        .player_results
-        .iter()
-        .any(|result| result.player_id == 0
-            && result.outcome == generals_main::game_logic::PlayerOutcome::Won));
+    assert!(
+        summary
+            .player_results
+            .iter()
+            .any(|result| result.player_id == 0
+                && result.outcome == generals_main::game_logic::PlayerOutcome::Won)
+    );
 }
 
 #[test]

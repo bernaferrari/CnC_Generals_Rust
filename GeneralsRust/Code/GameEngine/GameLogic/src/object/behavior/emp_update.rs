@@ -9,8 +9,8 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Color, Coord3D, GameLogicRandomValue, GameLogicRandomValueReal, Int, KindOf,
-    KindOfMaskType, Matrix3D, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion,
-    PI,
+    KindOfMaskType, Matrix3D, ModuleData, ObjectID, PI, Real, Relationship, UnsignedInt,
+    XferVersion,
 };
 use crate::helpers::{TheGameLogic, TheParticleSystemManager, ThePartitionManager};
 use crate::modules::{
@@ -19,11 +19,11 @@ use crate::modules::{
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::{
-    drawable::TintStatus, registry::OBJECT_REGISTRY, DrawableArcExt, Object as GameObject,
-    INVALID_ID as OBJECT_INVALID_ID,
+    DrawableArcExt, INVALID_ID as OBJECT_INVALID_ID, Object as GameObject, drawable::TintStatus,
+    registry::OBJECT_REGISTRY,
 };
 use crate::weapon::WeaponAffectsMask;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

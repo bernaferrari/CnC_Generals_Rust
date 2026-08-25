@@ -1080,12 +1080,16 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&temp_root);
 
-        assert!(normalized
-            .iter()
-            .any(|path| path.ends_with("Data/INI/Default/Video.ini")));
-        assert!(normalized
-            .iter()
-            .any(|path| path.ends_with("Data/INI/Video.ini")));
+        assert!(
+            normalized
+                .iter()
+                .any(|path| path.ends_with("Data/INI/Default/Video.ini"))
+        );
+        assert!(
+            normalized
+                .iter()
+                .any(|path| path.ends_with("Data/INI/Video.ini"))
+        );
     }
 
     #[test]

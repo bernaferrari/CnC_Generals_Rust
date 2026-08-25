@@ -1,8 +1,8 @@
 use crate::draw_group_info::get_draw_group_info;
 use crate::game_text::GameText;
-use crate::gui::display_string::{get_display_string_manager, DisplayStringHandle};
-use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 pub use crate::gui::display_string::{DisplayStringManager, DisplayStringManagerAccess};
+use crate::gui::font::{FontDesc, get_font_library};
 
 pub fn new_display_string() -> DisplayStringHandle {
     get_display_string_manager().new_display_string()

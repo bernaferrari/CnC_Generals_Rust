@@ -62,28 +62,28 @@
 
 use async_trait::async_trait;
 use game_engine::common::system::compression::{
-    compress_data, get_preferred_compression, CompressionLevel,
+    CompressionLevel, compress_data, get_preferred_compression,
 };
 use game_engine::get_game_state;
 use parking_lot::{Mutex, RwLock as ParkingRwLock};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
-use std::sync::atomic::{AtomicU16, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, AtomicU32, AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::fs;
-use tokio::sync::{broadcast, watch, Mutex as AsyncMutex, OnceCell, RwLock};
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, RwLock, broadcast, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::commands::{CommandPayload, FrameInfoData, ProgressType};
 use crate::connection::{
+    ConnectionManager as ConnManager,
     disconnect_voting::{
         DisconnectReason, DisconnectVotingCoordinator, VoteDecision, VoteEvent, VoteEvidence,
     },
-    ConnectionManager as ConnManager,
 };
 use crate::error::{NetworkError as NetError, NetworkResult as NetResult};
 use crate::frame_data::{
@@ -91,8 +91,8 @@ use crate::frame_data::{
 };
 use crate::nat::{NatBinding as NatBind, NatConfig as NatCfg, NatService as NatSvc};
 use crate::observability::telemetry;
-use crate::security::firewall::{FirewallConfig as FwConfig, FirewallHelper as FwHelper};
 use crate::security::SecurityManager as SecManager;
+use crate::security::firewall::{FirewallConfig as FwConfig, FirewallHelper as FwHelper};
 use crate::transport_unified::UnifiedTransport as NetTransport;
 use crate::utils::NetworkUtils;
 
@@ -161,37 +161,37 @@ pub use connection_state::{
 };
 pub use desync_manager::{DesyncInfo, DesyncManager, DesyncMetrics};
 pub use download_manager::{
-    DownloadEvent, DownloadManager, DownloadProgress, QueuedDownload,
     DOWNLOADEVENT_COULDNOTCONNECT, DOWNLOADEVENT_DISCONNECTERROR,
     DOWNLOADEVENT_LOCALFILEOPENFAILED, DOWNLOADEVENT_LOGINFAILED, DOWNLOADEVENT_NOSUCHFILE,
     DOWNLOADEVENT_NOSUCHSERVER, DOWNLOADEVENT_TCPERROR, DOWNLOADSTATUS_CONNECTING,
     DOWNLOADSTATUS_DISCONNECTING, DOWNLOADSTATUS_DONE, DOWNLOADSTATUS_DOWNLOADING,
     DOWNLOADSTATUS_FINDINGFILE, DOWNLOADSTATUS_FINISHING, DOWNLOADSTATUS_GO,
-    DOWNLOADSTATUS_LOGGINGIN, DOWNLOADSTATUS_NONE, DOWNLOADSTATUS_QUERYINGRESUME,
+    DOWNLOADSTATUS_LOGGINGIN, DOWNLOADSTATUS_NONE, DOWNLOADSTATUS_QUERYINGRESUME, DownloadEvent,
+    DownloadManager, DownloadProgress, QueuedDownload,
 };
 pub use error::{NetworkError, NetworkResult};
 pub use file_transfer::FileMetadata;
 pub use file_transfer::{
-    bandwidth::{BandwidthManager, BandwidthThrottle},
     TransferType,
+    bandwidth::{BandwidthManager, BandwidthThrottle},
 };
 pub use frame_data::{FrameData, FrameDataManager};
 pub use frame_manager::{
-    FrameData as SyncFrame, FrameDataManager as SyncFrameManager, FrameManagerStats,
-    FRAMES_TO_KEEP, FRAME_DATA_LENGTH, MAX_FRAMES_AHEAD, MIN_RUNAHEAD,
+    FRAME_DATA_LENGTH, FRAMES_TO_KEEP, FrameData as SyncFrame,
+    FrameDataManager as SyncFrameManager, FrameManagerStats, MAX_FRAMES_AHEAD, MIN_RUNAHEAD,
 };
 pub use frame_resend::{
     FrameResendCommand, FrameResendManager, FrameResendRequest, SerializableFrameResendRequest,
 };
 pub use game_info::{
-    game_info_to_ascii_string, parse_ascii_string_to_game_info, FirewallBehaviorType, GameInfo,
-    GameInfoSnapshot, GameSlot, GameSlotSnapshot, Money, SkirmishGameInfo, SlotState,
-    PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
+    FirewallBehaviorType, GameInfo, GameInfoSnapshot, GameSlot, GameSlotSnapshot, Money,
+    PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SkirmishGameInfo,
+    SlotState, game_info_to_ascii_string, parse_ascii_string_to_game_info,
 };
 pub use gamespy::{GameSpyCommand, GameSpyEvent, GameSpyInterface, GameSpyStatus};
 pub use keep_alive::{
-    KeepAliveConfig, KeepAliveManager, KeepAliveMetrics, KeepAliveState, IDLE_TIMEOUT_SECS,
-    KEEP_ALIVE_INTERVAL_SECS,
+    IDLE_TIMEOUT_SECS, KEEP_ALIVE_INTERVAL_SECS, KeepAliveConfig, KeepAliveManager,
+    KeepAliveMetrics, KeepAliveState,
 };
 pub use lan_api::{DiscoveryConfig, GameDiscovery, LanApi, LanConfig, LanEvent, LanResult};
 pub use matchmaking::lobby::Lobby;
@@ -202,20 +202,20 @@ pub use nat::{
 };
 pub use nat_traversal::{NatBehavior, NatTraversalManager, NatType, PortAllocationPattern};
 pub use rank_point_value::{
-    calculate_rank, get_favorite_side, get_rank_point_values, RankPoints, MAX_RANKS,
-    RANK_BRIGADIER_GENERAL, RANK_CAPTAIN, RANK_COLONEL, RANK_COMMANDER_IN_CHIEF, RANK_CORPORAL,
-    RANK_GENERAL, RANK_LIEUTENANT, RANK_MAJOR, RANK_PRIVATE, RANK_SERGEANT,
+    MAX_RANKS, RANK_BRIGADIER_GENERAL, RANK_CAPTAIN, RANK_COLONEL, RANK_COMMANDER_IN_CHIEF,
+    RANK_CORPORAL, RANK_GENERAL, RANK_LIEUTENANT, RANK_MAJOR, RANK_PRIVATE, RANK_SERGEANT,
+    RankPoints, calculate_rank, get_favorite_side, get_rank_point_values,
 };
 // PacketType removed - C++ has no transport-layer packet type
 // All command differentiation happens at application layer via NetCommandType
 pub use net_packet::{NetPacket, NetPacketHeader, PacketPayload};
-pub use security::firewall::{FirewallConfig, FirewallHelper};
 pub use security::SecurityManager;
+pub use security::firewall::{FirewallConfig, FirewallHelper};
 pub use time::{NetworkClock, NetworkInstant};
 pub use transport::{Transport, TransportMessage, TransportMetrics, TransportProtocol};
 pub use transport_udp::{
-    calculate_crc32, xor_decrypt, xor_encrypt, Transport as UdpTransport,
-    TransportConfig as UdpConfig, GENERALS_MAGIC_NUMBER, MAX_PACKET_SIZE,
+    GENERALS_MAGIC_NUMBER, MAX_PACKET_SIZE, Transport as UdpTransport,
+    TransportConfig as UdpConfig, calculate_crc32, xor_decrypt, xor_encrypt,
 };
 pub use wol_browser::{WolBrowser, WolBrowserCommand, WolBrowserEvent};
 

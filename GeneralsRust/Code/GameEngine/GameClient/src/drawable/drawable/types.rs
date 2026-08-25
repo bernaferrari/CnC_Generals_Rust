@@ -30,7 +30,6 @@ pub struct DrawableXferVisualSnapshot {
     pub overlay_icons: Vec<(String, u32, String, u32)>,
 }
 
-
 /// 3D vector for positions, rotations, and colors
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vector3 {
@@ -285,7 +284,6 @@ pub struct DrawableOverlayData {
     /// C++ `drawsAnyUIText()` — GameClient should `addTextBearingDrawable`.
     pub queue_ui_text: bool,
 
-
     // --- Ammo pip overlay (drawAmmo, Drawable.cpp lines 2861-2912) ---
     /// Number of full ammo pips (matches C++ numFull from getAmmoPipShowingInfo).
     pub ammo_full: u8,
@@ -388,10 +386,7 @@ pub fn health_bar_colors(
 ) -> ([f32; 4], [f32; 4]) {
     let ratio = health_ratio.clamp(0.0, 1.0);
     if under_construction_or_disabled {
-        return (
-            [0.0, ratio, 1.0, 1.0],
-            [0.0, ratio * 0.5, 0.5, 1.0],
-        );
+        return ([0.0, ratio, 1.0, 1.0], [0.0, ratio * 0.5, 0.5, 1.0]);
     }
     let (mut red, mut green) = if ratio >= 0.5 {
         (1.0 - ((ratio - 0.5) / 0.5), 1.0)
@@ -408,7 +403,6 @@ pub fn health_bar_colors(
     }
     ([red, green, 0.0, 1.0], outline)
 }
-
 
 impl Color {
     pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {

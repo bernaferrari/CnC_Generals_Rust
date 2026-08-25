@@ -28,26 +28,25 @@ use crate::gui::w3d_gadget_draw::{
     w3d_thin_border_draw,
 };
 use crate::gui::window_script::{
-    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
-    WindowLayoutDefinition,
+    TabControlData as ScriptTabControlData, WindowDefinition, WindowLayoutDefinition,
+    parse_window_script,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
 use super::*;
 
-fn nonempty_draw<'a>(window: &'a [WindowDrawData], layout: &'a [WindowDrawData]) -> &'a [WindowDrawData] {
-    if !window.is_empty() {
-        window
-    } else {
-        layout
-    }
+fn nonempty_draw<'a>(
+    window: &'a [WindowDrawData],
+    layout: &'a [WindowDrawData],
+) -> &'a [WindowDrawData] {
+    if !window.is_empty() { window } else { layout }
 }
 
 impl WindowManager {

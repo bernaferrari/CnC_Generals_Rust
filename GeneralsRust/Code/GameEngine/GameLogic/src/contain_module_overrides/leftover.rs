@@ -55,7 +55,6 @@ macro_rules! ai_update_factories {
     };
 }
 
-
 ai_update_factories!(
     transport_ai_update_data_factory,
     transport_ai_update_module_factory,
@@ -455,4 +454,3 @@ special_power_factories!(
     DefectorSpecialPower,
     "DefectorSpecialPower"
 );
-

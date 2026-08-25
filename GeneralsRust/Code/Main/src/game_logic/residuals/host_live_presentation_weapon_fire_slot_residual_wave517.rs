@@ -78,8 +78,8 @@ pub fn residual_presentation_weapon_fire_slot_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_weapon_fire_slot_last_action(
-) -> ResidualPresentationWeaponFireSlotAction {
+pub fn residual_presentation_weapon_fire_slot_last_action()
+-> ResidualPresentationWeaponFireSlotAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationWeaponFireSlotAction::MethodNames,
         2 => ResidualPresentationWeaponFireSlotAction::SourceMarkers,

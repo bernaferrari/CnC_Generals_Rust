@@ -7,15 +7,15 @@
 
 use super::core::*;
 use super::events::{AreaTracker, EventManager, NamedObjectTracker};
+use crate::ObjectId;
 use crate::common::{
-    kind_of_indices, AsciiString, KindOf, ObjectID, INVALID_ID, LOGICFRAMES_PER_SECOND,
+    AsciiString, INVALID_ID, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, kind_of_indices,
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::object::object_types::ObjectTypes;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::scripting::XferSnapshot;
-use crate::team::{get_team_factory, TeamID, TheTeamFactory, TEAM_ID_INVALID};
-use crate::ObjectId;
+use crate::team::{TEAM_ID_INVALID, TeamID, TheTeamFactory, get_team_factory};
 use crate::{GameLogicError, GameLogicResult};
 use futures::executor::block_on;
 use game_engine::common::name_key_generator::NameKeyGenerator;

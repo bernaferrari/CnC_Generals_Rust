@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
-use game_engine::common::ini::{INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 

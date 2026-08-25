@@ -4,7 +4,7 @@
 //! wwlib-rust crate functionality. Run with: cargo run --example wwfile_full_demo
 
 use std::env;
-use wwlib_rust::wwfile::{datetime, utils, FileInterface, FileRights, SeekDirection, WWFile};
+use wwlib_rust::wwfile::{FileInterface, FileRights, SeekDirection, WWFile, datetime, utils};
 use wwlib_rust::{file_printf, file_printf_indented};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

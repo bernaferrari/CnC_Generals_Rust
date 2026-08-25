@@ -72,7 +72,6 @@ pub mod thing_template;
 pub mod thing_template_color;
 pub mod thing_template_locomotor;
 
-
 // Re-export the main types for easier access
 pub use draw_module::{
     DebrisDrawInterface, DrawModule, DrawableModuleTrait, LaserDrawInterface, ModuleInterfaceFlags,
@@ -90,29 +89,30 @@ pub use module::{
 };
 
 pub use module_factory::{
-    get_module_factory, init_module_factory, shutdown_module_factory, ModuleFactory,
-    ModuleTemplate, NewModuleDataProc, NewModuleProc,
+    ModuleFactory, ModuleTemplate, NewModuleDataProc, NewModuleProc, get_module_factory,
+    init_module_factory, shutdown_module_factory,
 };
 
 pub use thing::{
-    register_align_on_terrain, register_terrain_height_provider, register_underwater_provider,
-    BaseThing, KindOfMaskType, KindOfType,
+    BaseThing, KindOfMaskType, KindOfType, register_align_on_terrain,
+    register_terrain_height_provider, register_underwater_provider,
 };
 
 pub use thing_factory::{
-    clear_object_create_overrides, ensure_system_ini_drawable_only_templates,
-    ensure_thing_factory_exists, generic_tracer_template_matches_system_ini, get_thing_factory,
-    init_thing_factory, leftover_object_create_override, leftover_object_create_overrides,
+    DRAWABLE_STATUS_NONE, DrawableStatus, OBJECT_STATUS_MASK_NONE, ObjectCreateOverride,
+    ObjectCreateOverridesLiveOverlay, ObjectStatusMaskType, SYSTEM_INI_DRAWABLE_ONLY_FALLBACK,
+    Team, ThingCreationError, ThingFactory, ThingLoadType, clear_object_create_overrides,
+    ensure_system_ini_drawable_only_templates, ensure_thing_factory_exists,
+    generic_tracer_template_matches_system_ini, get_thing_factory, init_thing_factory,
+    leftover_object_create_override, leftover_object_create_overrides,
     load_templates_from_ini_text, register_object_create_overrides_live_overlay,
-    shutdown_thing_factory, DrawableStatus, ObjectCreateOverride, ObjectCreateOverridesLiveOverlay,
-    ObjectStatusMaskType, Team, ThingCreationError, ThingFactory, ThingLoadType,
-    DRAWABLE_STATUS_NONE, OBJECT_STATUS_MASK_NONE, SYSTEM_INI_DRAWABLE_ONLY_FALLBACK,
+    shutdown_thing_factory,
 };
 
 pub use thing_template::{
     ArmorTemplateSet, AudioArray, BuildCompletionType, BuildableStatus, EditorSortingType,
-    ModuleInfo, PerUnitFxMap, PerUnitSoundMap, RadarPriorityType, ThingTemplate,
-    ThingTemplateAudioType, WeaponTemplateSet, LEVEL_COUNT, MAX_UPGRADE_CAMEO_UPGRADES,
+    LEVEL_COUNT, MAX_UPGRADE_CAMEO_UPGRADES, ModuleInfo, PerUnitFxMap, PerUnitSoundMap,
+    RadarPriorityType, ThingTemplate, ThingTemplateAudioType, WeaponTemplateSet,
 };
 
 /// Initialize the entire Thing subsystem
@@ -225,9 +225,11 @@ mod tests {
     #[test]
     fn test_audio_array() {
         let mut audio_array = AudioArray::new();
-        assert!(audio_array
-            .get(ThingTemplateAudioType::VoiceSelect)
-            .is_none());
+        assert!(
+            audio_array
+                .get(ThingTemplateAudioType::VoiceSelect)
+                .is_none()
+        );
 
         // Would need actual AudioEventRts to test setting
         // audio_array.set(ThingTemplateAudioType::VoiceSelect, audio_event);

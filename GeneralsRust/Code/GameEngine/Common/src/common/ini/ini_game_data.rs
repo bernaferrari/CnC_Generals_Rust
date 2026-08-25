@@ -7,7 +7,7 @@
 //! Rust port: 2025
 
 use crate::common::global_data as runtime_global_data;
-use crate::common::ini::ini::{INIError, INIResult, INI};
+use crate::common::ini::ini::{INI, INIError, INIResult};
 use crate::common::user_preferences::UserPreferences;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
@@ -1286,7 +1286,8 @@ fn apply_option_preferences_overlay(data: &mut GlobalData, pref: &UserPreference
         data.client_retaliation_mode_enabled = enabled;
     }
     if let Some(enabled) = alternate_mouse_preference_value(
-        pref.get_string("UseDoubleClickAttackMove").map(String::as_str),
+        pref.get_string("UseDoubleClickAttackMove")
+            .map(String::as_str),
     ) {
         data.double_click_attack_move = enabled;
     }

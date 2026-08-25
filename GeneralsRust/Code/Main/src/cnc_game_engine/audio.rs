@@ -184,7 +184,7 @@ impl CnCGameEngine {
     pub(super) fn sync_audio_listener_from_main_camera(&self) {
         #[cfg(feature = "game_client")]
         {
-            use game_client::display::view::{with_tactical_view, Point3};
+            use game_client::display::view::{Point3, with_tactical_view};
 
             // Main camera is Y-up; GameClient View / C++ Coord3D is Z-up (X/Y ground).
             let target = Point3::new(
@@ -241,7 +241,6 @@ impl CnCGameEngine {
             game_client::eva::update_eva_system();
         }
     }
-
 
     /// Get or create a texture bind group for a material (delegated to graphics system)
     pub(super) fn get_material_bind_group(

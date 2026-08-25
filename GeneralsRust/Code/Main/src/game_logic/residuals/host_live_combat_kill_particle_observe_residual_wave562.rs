@@ -148,7 +148,8 @@ pub fn honesty_combat_kill_particle_observe_source_markers_residual_wave562() ->
         && body.contains("DeathExplosion");
     // 2026-08-15: can_attack uses weapon_slot(0..2) (object/bonuses.rs:616-618).
     let can_attack_ok = obj.contains("fn can_attack")
-        && (obj.contains("self.weapon.is_some()") || obj.contains("self.weapon_slot(slot).is_some()"));
+        && (obj.contains("self.weapon.is_some()")
+            || obj.contains("self.weapon_slot(slot).is_some()"));
     let ok = order_ok && marker_ok && can_attack_ok && !pf.contains("playable_claim = true");
     residual_action_store(ResidualCombatKillParticleObserveAction::SourceMarkers);
     ok

@@ -5,13 +5,13 @@
 //! Rust port recreates that behaviour and feeds the generated geometry into the modern
 //! renderer by synthesising transient mesh instances each frame.
 
+use crate::Renderer;
 use crate::core::error::{Error, RendererResult};
 use crate::material_system::{MaterialPassClass, VertexMaterialClass};
 use crate::render_object_system::AABoxClass;
 use crate::render_object_system::RenderInfoClass;
 use crate::rendering::mesh_system::{MeshClass, MeshModelClass};
 use crate::rendering::shader_system::ShaderClass;
-use crate::Renderer;
 use glam::{Mat2, Vec2, Vec3, Vec4};
 use lazy_static::lazy_static;
 use std::sync::Arc;

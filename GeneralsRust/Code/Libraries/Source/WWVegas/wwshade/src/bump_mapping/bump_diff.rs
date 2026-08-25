@@ -4,7 +4,7 @@
 //! with normal mapping. It's a port of the original ShdBumpDiffDefClass from
 //! the C++ WW3D engine.
 
-use super::{constants::*, BumpMappingParams, ShaderVersion};
+use super::{BumpMappingParams, ShaderVersion, constants::*};
 use crate::def::ShdDefClass;
 use crate::error::{ShdError, ShdResult};
 use crate::interface::{RenderInfo, ShdInterface};

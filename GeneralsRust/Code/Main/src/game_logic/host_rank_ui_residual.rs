@@ -23,10 +23,11 @@
 //! - Shell `playable_claim` stays false; network deferred
 
 use crate::game_logic::host_science_rank::{
-    retail_cumulative_science_points_through, retail_rank_for_level,
-    retail_rank_level_for_skill_points, RANK1_SKILL_POINTS_NEEDED, RANK2_SKILL_POINTS_NEEDED,
+    RANK_SCIENCE_POINTS_DEFAULT, RANK1_SKILL_POINTS_NEEDED, RANK2_SKILL_POINTS_NEEDED,
     RANK3_SKILL_POINTS_NEEDED, RANK4_SKILL_POINTS_NEEDED, RANK5_SCIENCE_POINTS_GRANTED,
-    RANK5_SKILL_POINTS_NEEDED, RANK_SCIENCE_POINTS_DEFAULT, RETAIL_RANK_COUNT, RETAIL_RANK_TABLE,
+    RANK5_SKILL_POINTS_NEEDED, RETAIL_RANK_COUNT, RETAIL_RANK_TABLE,
+    retail_cumulative_science_points_through, retail_rank_for_level,
+    retail_rank_level_for_skill_points,
 };
 
 // ---------------------------------------------------------------------------
@@ -253,7 +254,8 @@ pub fn honesty_rank_skill_points_application_residual_pack_wave89() -> bool {
     let negative_delta = {
         let mut mid = reset;
         mid.skill_points = 100;
-        let (s, gained) = add_skill_points_residual(mid, -40, 1.0, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL);
+        let (s, gained) =
+            add_skill_points_residual(mid, -40, 1.0, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL);
         s.skill_points == 60 && !gained && s.rank_level == 1
     };
     let modifier_applied = {

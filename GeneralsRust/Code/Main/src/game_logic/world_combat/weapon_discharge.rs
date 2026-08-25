@@ -81,9 +81,7 @@ impl GameLogic {
                     capture.source_pos[1],
                     capture.source_pos[2],
                 );
-                let target = capture
-                    .target_pos
-                    .map(|p| Vec3::new(p[0], p[1], p[2]));
+                let target = capture.target_pos.map(|p| Vec3::new(p[0], p[1], p[2]));
                 let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
                 let radius =
                     fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
@@ -182,20 +180,22 @@ impl GameLogic {
         let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
         let radius = fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
         let matrix = self.objects.get(&source).map(|o| o.get_transform_matrix());
-        let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl_oriented(
-            where_pos,
-            Some(target_pos),
-            capture.logic_frame,
-            source,
-            capture.target_id,
-            &capture.selected_fx_name,
-            "",
-            "",
-            "",
-            speed,
-            radius,
-            matrix,
-        );
+        let _ = self
+            .combat_particles
+            .spawn_weapon_fire_fx_named_ocl_oriented(
+                where_pos,
+                Some(target_pos),
+                capture.logic_frame,
+                source,
+                capture.target_id,
+                &capture.selected_fx_name,
+                "",
+                "",
+                "",
+                speed,
+                radius,
+                matrix,
+            );
     }
 
     pub fn take_weapon_discharges_for_presentation(
@@ -288,7 +288,7 @@ mod tests {
             damage: 1.0,
             range: 100.0,
             ..Weapon::default()
-});
+        });
         assert!(object.set_weapon_barrel_count_for_slot(0, 3));
         object.weapon_barrel_states[0].current_barrel = 2;
         object.weapon_barrel_states[0].shots_left_on_barrel = 1;

@@ -48,10 +48,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_rhbh_suffix(bytes) else {
         return Ok(());
     };
@@ -94,17 +91,11 @@ fn capture(game_logic: &GameLogic) -> RebuildHolePersistPayload {
         objects.push(ObjectRebuildHolePersist {
             object_id: id.0,
             is_rebuild_hole: object.is_rebuild_hole,
-            rebuild_template_name: object
-                .rebuild_template_name
-                .clone()
-                .unwrap_or_default(),
+            rebuild_template_name: object.rebuild_template_name.clone().unwrap_or_default(),
             rebuild_ready_frame: object.rebuild_ready_frame,
             rebuild_spawner_id: object.rebuild_spawner_id.map(|id| id.0).unwrap_or(0),
             rebuild_worker_id: object.rebuild_worker_id.map(|id| id.0).unwrap_or(0),
-            rebuild_reconstructing_id: object
-                .rebuild_reconstructing_id
-                .map(|id| id.0)
-                .unwrap_or(0),
+            rebuild_reconstructing_id: object.rebuild_reconstructing_id.map(|id| id.0).unwrap_or(0),
         });
     }
     RebuildHolePersistPayload { objects }
@@ -122,8 +113,10 @@ fn apply_payload(game_logic: &mut GameLogic, payload: RebuildHolePersistPayload)
             Some(entry.rebuild_template_name)
         };
         object.rebuild_ready_frame = entry.rebuild_ready_frame;
-        object.rebuild_spawner_id = (entry.rebuild_spawner_id != 0).then_some(ObjectId(entry.rebuild_spawner_id));
-        object.rebuild_worker_id = (entry.rebuild_worker_id != 0).then_some(ObjectId(entry.rebuild_worker_id));
+        object.rebuild_spawner_id =
+            (entry.rebuild_spawner_id != 0).then_some(ObjectId(entry.rebuild_spawner_id));
+        object.rebuild_worker_id =
+            (entry.rebuild_worker_id != 0).then_some(ObjectId(entry.rebuild_worker_id));
         object.rebuild_reconstructing_id = (entry.rebuild_reconstructing_id != 0)
             .then_some(ObjectId(entry.rebuild_reconstructing_id));
     }
@@ -164,10 +157,9 @@ mod tests {
     #[test]
     fn snapshot_round_trips_rebuild_hole_reconstruction() {
         let mut source = GameLogic::new();
-        source.templates.insert(
-            "GLAHole".to_string(),
-            ThingTemplate::new("GLAHole"),
-        );
+        source
+            .templates
+            .insert("GLAHole".to_string(), ThingTemplate::new("GLAHole"));
         source.add_player(Player::new(0, Team::GLA, "GLA", true));
         let hole_id = source
             .create_object("GLAHole", Team::GLA, Vec3::new(40.0, 0.0, 24.0))
@@ -183,9 +175,7 @@ mod tests {
         }
 
         let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
             find_rhbh_suffix(&snapshot.lifecycle_tail).is_some(),
             "RHBH suffix must be appended to lifecycle tail"

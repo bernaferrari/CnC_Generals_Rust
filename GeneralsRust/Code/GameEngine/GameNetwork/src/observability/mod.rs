@@ -21,10 +21,10 @@ use {
     metrics::{counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram},
     opentelemetry::KeyValue,
     opentelemetry_otlp::WithExportConfig,
-    opentelemetry_sdk::{trace, Resource},
+    opentelemetry_sdk::{Resource, trace},
     tracing::{error, info, warn},
     tracing_opentelemetry::OpenTelemetryLayer,
-    tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry},
+    tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt},
 };
 
 #[cfg(feature = "metrics")]

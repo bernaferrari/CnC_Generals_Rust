@@ -12,7 +12,9 @@ impl Object {
     pub(super) fn on_capture_award_score(&self, new_owner: &Option<Arc<RwLock<Player>>>) {
         if let Some(new_owner_arc) = new_owner {
             if let Ok(mut owner_guard) = new_owner_arc.write() {
-                owner_guard.get_score_keeper_mut().add_object_captured_obj(self);
+                owner_guard
+                    .get_score_keeper_mut()
+                    .add_object_captured_obj(self);
             }
         }
     }

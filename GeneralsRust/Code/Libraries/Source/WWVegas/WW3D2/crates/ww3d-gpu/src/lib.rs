@@ -47,8 +47,8 @@ pub use command::*;
 pub use device::MemoryType;
 pub use device::{DeviceBuffer, GpuDevice, MemoryStats};
 pub use device_authority::{
-    acquire_device, adopt_device, is_device_acquired, request_device, shared_device,
-    SharedGpuDevice,
+    SharedGpuDevice, acquire_device, adopt_device, is_device_acquired, request_device,
+    shared_device,
 };
 pub use dynamic_buffer::*;
 pub use fvf::*;
@@ -66,9 +66,9 @@ pub use surface::*;
 pub use sync::*;
 pub use tessellation::*;
 // Note: texture::TextureManager and ww3d_core::TextureManager are different types
+pub use DeviceBuffer as Buffer;
 #[allow(ambiguous_glob_reexports)]
 pub use texture::*;
-pub use DeviceBuffer as Buffer;
 
 // Re-export wgpu types for convenience
 pub use wgpu;
@@ -271,11 +271,7 @@ impl GpuContext {
     }
 
     /// Create GPU context with surface
-    pub async fn with_surface<W>(
-        window: W,
-        width: u32,
-        height: u32,
-    ) -> Result<Self, GpuError>
+    pub async fn with_surface<W>(window: W, width: u32, height: u32) -> Result<Self, GpuError>
     where
         W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
     {

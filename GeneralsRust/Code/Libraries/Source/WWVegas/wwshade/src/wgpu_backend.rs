@@ -8,13 +8,13 @@ use std::sync::Arc;
 use wgpu::*;
 
 use crate::{
+    ShdDefClass, ShdInterface, ShdResult,
     bump_mapping::{BumpDiffShaderDef, BumpSpecShaderDef},
     class_ids::ShdDefClassId,
     cubemap::CubeMapShaderDef,
     gloss_mask::GlossMaskShaderDef,
     interface::RenderInfo,
     simple::SimpleShaderDef,
-    ShdDefClass, ShdInterface, ShdResult,
 };
 
 /// WGPU-based shader interface implementation that maintains the same API

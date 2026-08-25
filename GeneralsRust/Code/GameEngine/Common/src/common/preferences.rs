@@ -974,9 +974,9 @@ mod tests {
     #[test]
     fn custom_match_rejects_locked_challenge_general_preference() {
         use crate::common::ini::ini_challenge_generals::{
-            get_challenge_generals_mut, ChallengeGenerals,
+            ChallengeGenerals, get_challenge_generals_mut,
         };
-        use crate::common::rts::player_template::{get_player_template_store_mut, PlayerTemplate};
+        use crate::common::rts::player_template::{PlayerTemplate, get_player_template_store_mut};
 
         {
             let mut store = get_player_template_store_mut();

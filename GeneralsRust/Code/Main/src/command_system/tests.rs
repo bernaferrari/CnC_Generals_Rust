@@ -8,7 +8,7 @@ fn legacy_weapon_command_without_shot_field_uses_cxx_no_max_default() {
         weapon_slot: WeaponSlot::Primary,
         max_shots_to_fire: i32::MAX,
         target: WeaponTarget::Location(Vec3::ZERO),
-};
+    };
     let mut encoded = serde_json::to_value(&original).expect("serialize weapon command");
     encoded["DoWeapon"]
         .as_object_mut()
@@ -489,12 +489,15 @@ fn queue_upgrade_deducts_once_per_team_and_prevents_duplicate_queue() {
 
     let player_after_first = game_logic.get_player(0).expect("player should exist");
     assert_eq!(
-            player_after_first.effective_supplies(), 4200,
-            "upgrade cost should be charged once per team, not per selected unit (retail SupplyLines=800)"
-        );
-    assert!(player_after_first
-        .queued_upgrades
-        .contains("Upgrade_AmericaSupplyLines"));
+        player_after_first.effective_supplies(),
+        4200,
+        "upgrade cost should be charged once per team, not per selected unit (retail SupplyLines=800)"
+    );
+    assert!(
+        player_after_first
+            .queued_upgrades
+            .contains("Upgrade_AmericaSupplyLines")
+    );
 
     let second_result = system.execute_command(&queue_command, &mut game_logic);
     assert_eq!(second_result, CommandResult::InvalidCommand);
@@ -1144,11 +1147,10 @@ fn right_click_waypoint_mode_outranks_ctrl_force_attack() {
     }
 }
 
-
 fn right_click_damaged_vehicle_get_repaired_context_residual() {
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Player, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
 
     let mut logic = GameLogic::new();
@@ -1219,7 +1221,7 @@ fn right_click_damaged_vehicle_get_repaired_context_residual() {
 
 #[test]
 fn command_type_from_button_name_view_and_formation_residual() {
-    use crate::command_system::{command_type_from_button_name, CommandType};
+    use crate::command_system::{CommandType, command_type_from_button_name};
     assert!(matches!(
         command_type_from_button_name("Command_CreateFormation"),
         Some(CommandType::CreateFormation)
@@ -1509,9 +1511,8 @@ fn ordinary_crate_click_issues_move_to_crate() {
     }
 }
 
-
 fn special_power_button_maps_and_structure_resolves_puc_residual() {
-    use crate::command_system::{command_type_from_button_name, CommandType, SpecialPowerType};
+    use crate::command_system::{CommandType, SpecialPowerType, command_type_from_button_name};
     use crate::game_logic::host_superweapon_kindof::special_power_for_superweapon_structure;
     assert!(matches!(
         command_type_from_button_name("Command_SpecialPower"),
@@ -1574,7 +1575,7 @@ fn command_type_from_button_name_upgrade_and_cancel_residual() {
 #[test]
 fn queue_upgrade_refuses_when_production_queue_full_residual() {
     use crate::game_logic::buildings::{
-        BuildingData, BuildingType, ProductionItem, ProductionKind, DEFAULT_PRODUCTION_QUEUE_LIMIT,
+        BuildingData, BuildingType, DEFAULT_PRODUCTION_QUEUE_LIMIT, ProductionItem, ProductionKind,
     };
     use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
     use crate::game_logic::{KindOf, Player, Resources, Team, ThingTemplate};
@@ -1647,8 +1648,8 @@ fn cancel_upgrade_empty_name_cancels_production_head_residual() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_upgrades::UPGRADE_AMERICA_FLASHBANG;
     use crate::game_logic::{
-        buildings::{BuildingData, BuildingType},
         KindOf, Player, Team, ThingTemplate,
+        buildings::{BuildingData, BuildingType},
     };
 
     let mut logic = crate::game_logic::GameLogic::new();
@@ -1679,10 +1680,12 @@ fn cancel_upgrade_empty_name_cancels_production_head_residual() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     logic.process_commands();
-    assert!(logic
-        .get_player(0)
-        .map(|p| p.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG))
-        .unwrap_or(false));
+    assert!(
+        logic
+            .get_player(0)
+            .map(|p| p.has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG))
+            .unwrap_or(false)
+    );
     let money_after_queue = logic
         .get_player(0)
         .map(|p| p.effective_supplies())
@@ -1778,9 +1781,11 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         3000,
         "cancel should refund the queued upgrade cost"
     );
-    assert!(!player_after_cancel
-        .queued_upgrades
-        .contains("Upgrade_AmericaSupplyLines"));
+    assert!(
+        !player_after_cancel
+            .queued_upgrades
+            .contains("Upgrade_AmericaSupplyLines")
+    );
 
     assert_eq!(
         system.execute_command(&cancel_command, &mut game_logic),
@@ -1867,7 +1872,6 @@ fn queue_upgrade_refuses_command_set_without_upgrade_button() {
     assert!(!player_after.has_queued_upgrade("Upgrade_AmericaSupplyLines"));
 }
 
-
 #[test]
 fn queued_upgrade_completes_during_simulation_update() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
@@ -1902,24 +1906,32 @@ fn queued_upgrade_completes_during_simulation_update() {
     );
 
     let player_after_queue = game_logic.get_player(0).expect("player should exist");
-    assert!(player_after_queue
-        .queued_upgrades
-        .contains("Upgrade_AmericaSupplyLines"));
-    assert!(!player_after_queue
-        .unlocked_sciences
-        .contains("Upgrade_AmericaSupplyLines"));
+    assert!(
+        player_after_queue
+            .queued_upgrades
+            .contains("Upgrade_AmericaSupplyLines")
+    );
+    assert!(
+        !player_after_queue
+            .unlocked_sciences
+            .contains("Upgrade_AmericaSupplyLines")
+    );
 
     game_logic.update();
 
     let player_after_update = game_logic
         .get_player(0)
         .expect("player should exist after update");
-    assert!(!player_after_update
-        .queued_upgrades
-        .contains("Upgrade_AmericaSupplyLines"));
-    assert!(player_after_update
-        .unlocked_sciences
-        .contains("Upgrade_AmericaSupplyLines"));
+    assert!(
+        !player_after_update
+            .queued_upgrades
+            .contains("Upgrade_AmericaSupplyLines")
+    );
+    assert!(
+        player_after_update
+            .unlocked_sciences
+            .contains("Upgrade_AmericaSupplyLines")
+    );
     assert_eq!(
         system.execute_command(&command, &mut game_logic),
         CommandResult::InvalidCommand,
@@ -1987,7 +1999,7 @@ fn capture_building_context_residual() {
 
 #[test]
 fn unit_ability_button_name_map_residual() {
-    use crate::command_system::{command_type_from_button_name, CommandType};
+    use crate::command_system::{CommandType, command_type_from_button_name};
     assert!(matches!(
         command_type_from_button_name("Command_Hijack"),
         Some(CommandType::Hijack { .. })
@@ -2013,7 +2025,7 @@ fn unit_ability_button_name_map_residual() {
 
 #[test]
 fn retail_special_power_names_map_without_fuzzy_asset_or_id_fallbacks() {
-    use crate::command_system::{special_power_type_from_template_name, SpecialPowerType as Power};
+    use crate::command_system::{SpecialPowerType as Power, special_power_type_from_template_name};
 
     let cases = [
         (
@@ -2200,16 +2212,10 @@ fn hijacker_context_click_issues_hijack_before_attack() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .set_health(400.0);
-    logic
-        .templates
-        .insert("AmericaTankCrusader".into(), tank_t);
+    logic.templates.insert("AmericaTankCrusader".into(), tank_t);
 
     let hijacker = logic
-        .create_object_for_player(
-            "GLAInfantryHijacker",
-            0,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
+        .create_object_for_player("GLAInfantryHijacker", 0, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("hijacker");
     let tank = logic
         .create_object(
@@ -2744,10 +2750,7 @@ fn location_power_unit_click_issues_at_location_not_object() {
         .process_mouse_input(&context, &[ObjectId(1)], 0, None)
         .expect("location-power click must issue a command");
     match command.command_type {
-        CommandType::DoSpecialPower {
-            power_type,
-            target,
-        } => {
+        CommandType::DoSpecialPower { power_type, target } => {
             assert_eq!(power_type, SpecialPowerType::Airstrike);
             assert_eq!(
                 target,
@@ -2765,10 +2768,7 @@ fn location_power_unit_click_issues_at_location_not_object() {
         .process_mouse_input(&context, &[ObjectId(1)], 0, None)
         .expect("object-power click must issue a command");
     match command.command_type {
-        CommandType::DoSpecialPower {
-            power_type,
-            target,
-        } => {
+        CommandType::DoSpecialPower { power_type, target } => {
             assert_eq!(power_type, SpecialPowerType::MissileDefenderLaserGuided);
             assert_eq!(
                 target,
@@ -2868,4 +2868,3 @@ fn leftover_no_target_covers_can_do_special_power_types() {
     assert!(!leftover_special_power_is_no_target(&P::ParticleCannon));
     assert!(!leftover_special_power_is_no_target(&P::CashHack));
 }
-

@@ -147,11 +147,7 @@ impl W3DBufferManager {
         }
     }
 
-    fn allocate_vertex_slot(
-        &mut self,
-        fvf: VbmFvfType,
-        size: i32,
-    ) -> Option<VertexBufferSlot> {
+    fn allocate_vertex_slot(&mut self, fvf: VbmFvfType, size: i32) -> Option<VertexBufferSlot> {
         if self.slots_allocated >= MAX_NUMBER_SLOTS {
             return None;
         }

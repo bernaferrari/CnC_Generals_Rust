@@ -116,9 +116,9 @@ mod tests {
     #[test]
     fn simulate_ime_prepare_composition_cycle_residual_live() {
         use game_client::gui::{
-            residual_ime_candidate_count, residual_ime_is_composing, residual_ime_is_enabled,
-            residual_ime_last_action, simulate_ime_clear_candidates,
-            simulate_ime_prepare_composition_cycle, ResidualImeAction,
+            ResidualImeAction, residual_ime_candidate_count, residual_ime_is_composing,
+            residual_ime_is_enabled, residual_ime_last_action, simulate_ime_clear_candidates,
+            simulate_ime_prepare_composition_cycle,
         };
         assert!(
             simulate_ime_prepare_composition_cycle("nihao"),

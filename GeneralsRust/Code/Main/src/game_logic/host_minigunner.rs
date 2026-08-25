@@ -31,7 +31,7 @@
 use super::Weapon;
 use crate::game_logic::host_gattling_tank::GattlingFireLevel;
 use crate::game_logic::host_red_guard::{
-    delay_frames_to_reload_secs, INFANTRY_HORDE_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT,
+    INFANTRY_HORDE_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT, delay_frames_to_reload_secs,
 };
 
 /// Retail primary ground gun.
@@ -181,11 +181,7 @@ pub fn target_is_airborne_for_minigunner(is_aircraft: bool, airborne_target: boo
 
 /// Slot residual: 1 = AA secondary, 0 = ground primary.
 pub fn preferred_minigunner_slot(target_is_air: bool) -> u8 {
-    if target_is_air {
-        1
-    } else {
-        0
-    }
+    if target_is_air { 1 } else { 0 }
 }
 
 /// Continuous-fire ROF multiplier residual (1 / 2 / 3).
@@ -297,9 +293,9 @@ pub fn minigunner_ground_weapon(
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual air Weapon.
@@ -326,9 +322,9 @@ pub fn minigunner_air_weapon(
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Advance continuous-fire residual state after a shot (MiniGunner thresholds).

@@ -2,9 +2,9 @@
 //! Verifies TerrainQuery implementation and PhysicsEngine integration
 
 use gamelogic::common::Coord3D;
-use gamelogic::physics::{get_physics_engine, PhysicsState, PhysicsType, TerrainQuery};
+use gamelogic::physics::{PhysicsState, PhysicsType, TerrainQuery, get_physics_engine};
 use gamelogic::terrain::{
-    init_terrain_physics_integration, TerrainLogic, TerrainQueryWrapper, THE_TERRAIN_LOGIC,
+    THE_TERRAIN_LOGIC, TerrainLogic, TerrainQueryWrapper, init_terrain_physics_integration,
 };
 
 #[test]

@@ -54,8 +54,8 @@ fn tr_source() -> &'static str {
     game_client::message_stream::translators::TRANSLATORS_SRC
 }
 
-pub fn honesty_host_source_fallback_context_disabled_residual_method_names_residual_wave1075(
-) -> bool {
+pub fn honesty_host_source_fallback_context_disabled_residual_method_names_residual_wave1075()
+-> bool {
     let names = LIVE_HOST_SOURCE_FALLBACK_CONTEXT_DISABLED_RESIDUAL_METHOD_NAMES_WAVE1075;
     let ok = residual_name_index(names, "selection_source_object_id").is_some()
         && residual_name_index(names, "Wave 1075").is_some();
@@ -64,8 +64,8 @@ pub fn honesty_host_source_fallback_context_disabled_residual_method_names_resid
     ok
 }
 
-pub fn honesty_host_source_fallback_context_disabled_residual_nav_commands_residual_wave1075(
-) -> bool {
+pub fn honesty_host_source_fallback_context_disabled_residual_nav_commands_residual_wave1075()
+-> bool {
     let steps = LIVE_HOST_SOURCE_FALLBACK_CONTEXT_DISABLED_RESIDUAL_NAV_STEPS_WAVE1075;
     let ok = residual_name_index(steps, "LIVE_HOST_SOURCE_FALLBACK_CONTEXT_DISABLED_RESIDUAL")
         .is_some()
@@ -80,7 +80,7 @@ pub fn honesty_host_source_fallback_context_disabled_residual_residual_pack_wave
     let gl = gl_source();
     let tr = tr_source();
     let ok = (tr.contains("Wave 1075: no unusable local fallback residual")
-            || tr.contains("Wave 1075/1111: no unusable local fallback residual"))
+        || tr.contains("Wave 1075/1111: no unusable local fallback residual"))
         && tr.contains("Wave 1075: disabled residual fail-closed for dual context pick")
         && tr.contains("return 0;")
         && (tr.contains("|| entry.disabled") || tr.contains("&& !e.disabled"))

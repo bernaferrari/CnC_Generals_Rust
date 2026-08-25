@@ -10,12 +10,12 @@
 
 use base_types::*;
 use parking_lot::Mutex;
-use std::alloc::{alloc, dealloc, Layout};
+use std::alloc::{Layout, alloc, dealloc};
 use std::collections::HashMap;
 use std::fmt;
 use std::ptr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Maximum number of subpools allowed in a DynamicMemoryAllocator
 pub const MAX_DYNAMIC_MEMORY_ALLOCATOR_SUBPOOLS: usize = 8;

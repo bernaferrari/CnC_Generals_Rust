@@ -17,21 +17,13 @@ macro_rules! ww_inline {
 /// Max helper (C++ macro replacement).
 #[inline]
 pub fn ww_max<T: PartialOrd + Copy>(a: T, b: T) -> T {
-    if a > b {
-        a
-    } else {
-        b
-    }
+    if a > b { a } else { b }
 }
 
 /// Min helper (C++ macro replacement).
 #[inline]
 pub fn ww_min<T: PartialOrd + Copy>(a: T, b: T) -> T {
-    if a < b {
-        a
-    } else {
-        b
-    }
+    if a < b { a } else { b }
 }
 
 /// Return array size (for fixed-size arrays).

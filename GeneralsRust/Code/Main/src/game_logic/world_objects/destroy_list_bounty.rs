@@ -3,7 +3,6 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-
 /// C++ `OpenContain::getDamagePercentageToUnits` — INI `DamagePercentToUnits`
 /// via `parsePercentToReal` (`100%` → `1.0`). Live `building_data` is never
 /// populated, so resolve authored retail percents by container kind.
@@ -30,7 +29,8 @@ fn damage_percent_to_units_from_ini(obj: &Object) -> f32 {
         return crate::game_logic::host_technical::TECHNICAL_DAMAGE_PERCENT_TO_UNITS / 100.0;
     }
     if obj.is_troop_crawler_style_container() {
-        return crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DAMAGE_PERCENT_TO_UNITS / 100.0;
+        return crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DAMAGE_PERCENT_TO_UNITS
+            / 100.0;
     }
     if obj.is_listening_outpost_style_container() {
         return crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DAMAGE_PERCENT_TO_UNITS
@@ -42,11 +42,7 @@ fn damage_percent_to_units_from_ini(obj: &Object) -> f32 {
     if crate::game_logic::host_heal::is_ambulance_healer(&obj.template_name) {
         return crate::game_logic::host_heal::AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS;
     }
-    if obj
-        .template_name
-        .to_ascii_lowercase()
-        .contains("firebase")
-    {
+    if obj.template_name.to_ascii_lowercase().contains("firebase") {
         // Retail AmericaFireBase DamagePercentToUnits 100% (parsePercentToReal).
         return 1.0;
     }
@@ -141,9 +137,10 @@ fn is_specific_rider_free_to_exit(
     grid: &crate::game_logic::PathfindingGrid,
 ) -> bool {
     if let Some(ai) = container.chinook_ai.as_ref() {
-        let can_rappel = crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
-            rider.is_kind_of(KindOf::Infantry),
-        );
+        let can_rappel =
+            crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+                rider.is_kind_of(KindOf::Infantry),
+            );
         if ai.ai_free_to_exit(can_rappel)
             != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
         {
@@ -166,7 +163,6 @@ fn is_specific_rider_free_to_exit(
     }
     valid_rider_movement_terrain(grid, surfaces, container.get_position())
 }
-
 
 impl GameLogic {
     /// Wave 912: true when destroy queue or destroy-ready residual has work.
@@ -312,7 +308,9 @@ impl GameLogic {
                 // Any non-container death (splash, scripts) must free the slot.
                 if let Some(player_id) = self.tunnel_network.player_holding_unit(event.id) {
                     let exit_at = obj.contained_by.unwrap_or(event.id);
-                    let _ = self.tunnel_network.record_exit(player_id, event.id, exit_at);
+                    let _ = self
+                        .tunnel_network
+                        .record_exit(player_id, event.id, exit_at);
                 }
                 // C++ CaveContain::removeFromContain (CaveContain.cpp:54-83) on
                 // occupant death: tracker remove then onRemoving (LastEmpty).
@@ -385,7 +383,6 @@ impl GameLogic {
                 // C++ death audio is DamageFX + FXList Sound nuggets (Wave 535 particles).
                 // Never invent UnitDie / BuildingDie / UnitDieBurned.
 
-
                 let eject_origin = obj.get_position();
 
                 // C++ OpenContain::onDie: processDamageToContained(getDamagePercentageToUnits()).
@@ -417,7 +414,6 @@ impl GameLogic {
                     );
                 let is_cave = obj.is_cave_style_container();
 
-
                 if rider_change_payload {
                     for contained_id in obj.contained_units() {
                         if let Some(unit) = self.objects.get_mut(&contained_id) {
@@ -428,13 +424,12 @@ impl GameLogic {
                             unit.set_status_attacking(false);
                             unit.status.destroyed = true;
                         }
-                        if let Some(player_id) = self.tunnel_network.player_holding_unit(contained_id)
+                        if let Some(player_id) =
+                            self.tunnel_network.player_holding_unit(contained_id)
                         {
-                            let _ = self.tunnel_network.record_exit(
-                                player_id,
-                                contained_id,
-                                event.id,
-                            );
+                            let _ =
+                                self.tunnel_network
+                                    .record_exit(player_id, contained_id, event.id);
                         }
                         self.mark_object_for_destruction(contained_id, event.killer);
                     }
@@ -504,9 +499,9 @@ impl GameLogic {
                         })
                         .map(|o| o.id)
                         .collect();
-                    let outcome =
-                        self.tunnel_network
-                            .on_tunnel_destroyed(player_id, event.id, &remaining);
+                    let outcome = self
+                        .tunnel_network
+                        .on_tunnel_destroyed(player_id, event.id, &remaining);
                     if outcome.cave_in {
                         for uid in outcome.cave_in_units {
                             if let Some(unit) = self.objects.get_mut(&uid) {
@@ -648,8 +643,7 @@ impl GameLogic {
                                 unit.set_target(None);
                                 unit.set_contained_by(None);
                                 unit.set_ai_state(AIState::Idle);
-                                if crate::gameworld_shadow::gameworld_ai_decision_authority_live()
-                                {
+                                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                     crate::game_logic::host_ai_decision_log::record_stop_attack(
                                         contained_id,
                                     );
@@ -677,9 +671,9 @@ impl GameLogic {
                 // Fail-closed: not full FireWeaponWhenDead anthrax matrix / FX list.
                 {
                     use crate::game_logic::host_toxin_tractor::{
-                        anthrax_tier_from_flags, is_chem_general_template,
-                        is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_BETA,
-                        UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+                        UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
+                        UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags,
+                        is_chem_general_template, is_toxin_tractor_template,
                     };
                     if !obj.fire_weapon_when_dead_fired
                         && is_toxin_tractor_template(&obj.template_name)
@@ -715,8 +709,8 @@ impl GameLogic {
                 // Note: object already removed from map — use `obj` snapshot for upgrades/pos.
                 {
                     use crate::game_logic::host_bomb_truck_detonate::{
-                        is_bomb_truck_template, BombTruckDetonationProfile, UPGRADE_BOMB_TRUCK_BIO,
-                        UPGRADE_BOMB_TRUCK_HE, UPGRADE_GLA_ANTHRAX_BETA,
+                        BombTruckDetonationProfile, UPGRADE_BOMB_TRUCK_BIO, UPGRADE_BOMB_TRUCK_HE,
+                        UPGRADE_GLA_ANTHRAX_BETA, is_bomb_truck_template,
                     };
                     if !obj.fire_weapon_when_dead_fired
                         && is_bomb_truck_template(&obj.template_name)
@@ -1140,9 +1134,10 @@ impl GameLogic {
         let Some(object) = self.objects.get(&object_id) else {
             return;
         };
-        let has_cash_bounty = object.thing.template.special_power_modules.iter().any(|m| {
-            m.module_kind == crate::game_logic::SpecialPowerModuleKind::CashBountyPower
-        });
+        let has_cash_bounty =
+            object.thing.template.special_power_modules.iter().any(|m| {
+                m.module_kind == crate::game_logic::SpecialPowerModuleKind::CashBountyPower
+            });
         if !has_cash_bounty {
             return;
         }
@@ -1155,7 +1150,6 @@ impl GameLogic {
         };
         let _ = self.apply_cash_bounty_from_palace_modules(player_id, None);
     }
-
 
     /// Residual honesty: cash bounty was configured and at least one award paid.
     /// Fail-closed: not full palace module / floating-text parity.
@@ -1189,7 +1183,9 @@ impl GameLogic {
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
+    use crate::game_logic::{
+        GameLogic, KindOf, ObjectId, Player, PlayerTemplateIdentity, Team, ThingTemplate,
+    };
 
     fn setup_two_tunnels_and_rider() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
         let mut logic = GameLogic::new();
@@ -1375,11 +1371,7 @@ mod tests {
         gun.add_kind_of(KindOf::Vehicle).set_health(100.0);
         logic.templates.insert("SplashGun".into(), gun);
         let gun_id = logic
-            .create_object(
-                "SplashGun",
-                Team::USA,
-                glam::Vec3::new(-80.0, 0.0, 0.0),
-            )
+            .create_object("SplashGun", Team::USA, glam::Vec3::new(-80.0, 0.0, 0.0))
             .expect("gun");
         let hp_before = logic.host_object(uid).unwrap().health.current;
         let key = crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA);
@@ -1475,16 +1467,22 @@ mod tests {
             }
         }
         let rider = logic
-            .create_object("TestInfantry", Team::USA, hull + glam::Vec3::new(1.0, 0.0, 0.0))
+            .create_object(
+                "TestInfantry",
+                Team::USA,
+                hull + glam::Vec3::new(1.0, 0.0, 0.0),
+            )
             .expect("rider");
         if let Some(r) = logic.host_object_mut(rider) {
             r.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
             r.set_contained_by(Some(transport));
         }
-        assert!(logic
-            .host_object_mut(transport)
-            .unwrap()
-            .add_occupant(rider));
+        assert!(
+            logic
+                .host_object_mut(transport)
+                .unwrap()
+                .add_occupant(rider)
+        );
         (logic, transport, rider)
     }
 
@@ -1496,8 +1494,7 @@ mod tests {
         logic.mark_object_for_destruction(transport, None);
         logic.process_destroy_list();
         let r = logic.host_object(rider);
-        let dead = r.is_none()
-            || r.is_some_and(|o| !o.is_alive() || o.status.destroyed);
+        let dead = r.is_none() || r.is_some_and(|o| !o.is_alive() || o.status.destroyed);
         assert!(
             dead,
             "invalid-terrain transport death must kill riders, not dump them alive"
@@ -1543,7 +1540,10 @@ mod tests {
         logic.mark_object_for_destruction(transport, None);
         logic.process_destroy_list();
         let r = logic.host_object(rider).expect("survivor stays in world");
-        assert!(r.is_alive(), "10% DamagePercentToUnits must leave a survivor");
+        assert!(
+            r.is_alive(),
+            "10% DamagePercentToUnits must leave a survivor"
+        );
         assert!(!r.status.destroyed);
         assert!(r.contained_by.is_none());
         assert_eq!(r.ai_state, crate::game_logic::AIState::Moving);
@@ -1570,14 +1570,14 @@ mod tests {
             r.next_mood_check_time, 42,
             "ResetMoodCheckTimeOnExit wakes the rider immediately"
         );
-        let audio = gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
-            .expect("onRemoving template audio");
+        let audio =
+            gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
+                .expect("onRemoving template audio");
         assert_eq!(audio.container_template, "TestAmphibTransport");
         assert_eq!(audio.container_id, transport.0);
         assert_eq!(audio.rider_template, "TestInfantry");
         assert_eq!(audio.rider_id, rider.0);
     }
-
 
     #[test]
     fn score_the_kill_gates_destroy_and_lost_counters() {
@@ -1817,4 +1817,3 @@ mod tests {
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
     }
 }
-

@@ -44,11 +44,17 @@ pub fn set_pending_control_groups(groups: HashMap<u8, Vec<u32>>) {
 }
 
 pub fn take_pending_control_groups() -> Option<HashMap<u8, Vec<u32>>> {
-    PENDING_CONTROL_GROUPS.lock().ok().and_then(|mut slot| slot.take())
+    PENDING_CONTROL_GROUPS
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
 }
 
 pub fn peek_pending_control_groups() -> Option<HashMap<u8, Vec<u32>>> {
-    PENDING_CONTROL_GROUPS.lock().ok().and_then(|slot| slot.clone())
+    PENDING_CONTROL_GROUPS
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
 }
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
@@ -69,10 +75,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    _game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_hsqd_suffix(bytes) else {
         set_pending_control_groups(HashMap::new());
         return Ok(());
@@ -225,10 +228,7 @@ mod tests {
 
     fn reset_leftover(index: i32) -> Arc<RwLock<Player>> {
         let player = Arc::new(RwLock::new(Player::new(index)));
-        player
-            .write()
-            .expect("player")
-            .init_from_dict_defaults();
+        player.write().expect("player").init_from_dict_defaults();
         if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
             list.clear();
             list.add_player(Arc::clone(&player));

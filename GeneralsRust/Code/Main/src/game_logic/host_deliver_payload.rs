@@ -2546,7 +2546,7 @@ mod tests {
         // Freefall until fallen ≥ 12.5.
         assert!(!should_open_crate_parachute(95.0, 90.0)); // fallen 5
         assert!(should_open_crate_parachute(95.0, 82.5)); // fallen 12.5
-                                                          // Low-altitude fudge: start 10 < 2×12.5 → fudge to 25.
+        // Low-altitude fudge: start 10 < 2×12.5 → fudge to 25.
         let fudged = fudge_crate_parachute_start_height(10.0, 0.0);
         assert!((fudged - 25.0).abs() < 0.01);
         // Freefall faster than open.

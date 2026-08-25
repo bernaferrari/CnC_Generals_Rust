@@ -13,7 +13,7 @@
 use std::any::Any;
 use std::sync::{Arc, RwLock};
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -22,7 +22,7 @@ use game_engine::common::thing::module::{
 };
 
 use crate::common::{
-    Bool, NameKeyType, ObjectID, Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
+    Bool, LOGICFRAMES_PER_SECOND, NameKeyType, ObjectID, Real, UnsignedInt, XferVersion,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheInGameUI, TheRadar};
@@ -30,11 +30,11 @@ use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, PowerPlantUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{
-    xfer_update_module_base_state, OverchargeBehaviorInterface,
-};
 use crate::object::Object;
-use crate::player::{player_list, Player};
+use crate::object::behavior::behavior_module::{
+    OverchargeBehaviorInterface, xfer_update_module_base_state,
+};
+use crate::player::{Player, player_list};
 
 /// Wave 435: host-only path has no dual-world factory objects.
 #[inline]

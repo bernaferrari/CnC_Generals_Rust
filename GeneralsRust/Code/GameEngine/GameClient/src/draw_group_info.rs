@@ -2,7 +2,7 @@
 
 use std::sync::{OnceLock, RwLock};
 
-use crate::color::{game_make_color, Color};
+use crate::color::{Color, game_make_color};
 use game_engine::common::ini::ini_draw_group_info as common_draw_group_info;
 
 #[derive(Debug, Clone)]

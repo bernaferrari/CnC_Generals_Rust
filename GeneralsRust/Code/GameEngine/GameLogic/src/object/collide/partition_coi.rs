@@ -148,9 +148,9 @@ fn push_unique(cells: &mut Vec<CellCoord>, cell: CellCoord) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::collision_geometry::GeometryInfo;
     use super::super::partition_manager::CellCoord;
+    use super::*;
 
     #[test]
     fn large_box_touches_cells_beyond_center() {

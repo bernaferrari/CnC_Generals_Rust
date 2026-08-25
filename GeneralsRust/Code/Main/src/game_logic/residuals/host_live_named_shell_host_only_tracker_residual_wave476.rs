@@ -78,8 +78,8 @@ pub fn residual_named_shell_host_only_tracker_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_named_shell_host_only_tracker_last_action(
-) -> ResidualNamedShellHostOnlyTrackerAction {
+pub fn residual_named_shell_host_only_tracker_last_action()
+-> ResidualNamedShellHostOnlyTrackerAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualNamedShellHostOnlyTrackerAction::MethodNames,
         2 => ResidualNamedShellHostOnlyTrackerAction::SourceMarkers,

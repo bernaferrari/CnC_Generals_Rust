@@ -9,7 +9,7 @@
 //! Desc:   Terrain bridge INI loading
 
 use crate::common::ascii_string::AsciiString;
-use crate::common::ini::{FieldParse, INIError, INI};
+use crate::common::ini::{FieldParse, INI, INIError};
 use crate::debug_assert_crash;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
@@ -1522,27 +1522,30 @@ mod tests {
     fn bridge_cpp_numeric_fields_reject_invalid_values() {
         let mut properties = HashMap::new();
         properties.insert("BridgeScale".to_string(), "wide".to_string());
-        assert!(IniTerrainBridge::parse_terrain_bridge_block(
-            AsciiString::from("BadBridgeScale"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniTerrainBridge::parse_terrain_bridge_block(
+                AsciiString::from("BadBridgeScale"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("TransitionEffectsHeight".to_string(), "high".to_string());
-        assert!(IniTerrainBridge::parse_terrain_bridge_block(
-            AsciiString::from("BadTransitionHeight"),
-            properties,
-        )
-        .is_err());
+        assert!(
+            IniTerrainBridge::parse_terrain_bridge_block(
+                AsciiString::from("BadTransitionHeight"),
+                properties,
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert("NumFXPerType".to_string(), "many".to_string());
-        assert!(IniTerrainBridge::parse_terrain_bridge_block(
-            AsciiString::from("BadNumFX"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniTerrainBridge::parse_terrain_bridge_block(AsciiString::from("BadNumFX"), properties)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1713,22 +1716,26 @@ mod tests {
     fn bridge_block_rejects_malformed_cpp_values() {
         let mut properties = HashMap::new();
         properties.insert("RadarColor".to_string(), "red".to_string());
-        assert!(IniTerrainBridge::parse_terrain_bridge_block(
-            AsciiString::from("BadRadarColor"),
-            properties
-        )
-        .is_err());
+        assert!(
+            IniTerrainBridge::parse_terrain_bridge_block(
+                AsciiString::from("BadRadarColor"),
+                properties
+            )
+            .is_err()
+        );
 
         let mut properties = HashMap::new();
         properties.insert(
             "TransitionToFX".to_string(),
             "Transition:Damage ToState:Medium EffectNum:1 Unknown:BridgeFX".to_string(),
         );
-        assert!(IniTerrainBridge::parse_terrain_bridge_block(
-            AsciiString::from("BadTransitionLabel"),
-            properties,
-        )
-        .is_err());
+        assert!(
+            IniTerrainBridge::parse_terrain_bridge_block(
+                AsciiString::from("BadTransitionLabel"),
+                properties,
+            )
+            .is_err()
+        );
     }
 
     #[test]

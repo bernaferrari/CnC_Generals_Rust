@@ -78,8 +78,8 @@ pub fn residual_minimap_bounds_presentation_first_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_minimap_bounds_presentation_first_last_action(
-) -> ResidualMinimapBoundsPresentationFirstAction {
+pub fn residual_minimap_bounds_presentation_first_last_action()
+-> ResidualMinimapBoundsPresentationFirstAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualMinimapBoundsPresentationFirstAction::MethodNames,
         2 => ResidualMinimapBoundsPresentationFirstAction::SourceMarkers,

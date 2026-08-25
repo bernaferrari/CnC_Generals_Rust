@@ -397,9 +397,11 @@ mod tests {
         honors.set_challenge_campaign_complete(MAX_GLOBAL_GENERAL_TYPES, 1);
 
         assert!(!honors.get_challenge_campaign_complete(MAX_GLOBAL_GENERAL_TYPES, 1));
-        assert!(!honors
-            .data
-            .contains_key(&challenge_campaign_key(MAX_GLOBAL_GENERAL_TYPES, 1)));
+        assert!(
+            !honors
+                .data
+                .contains_key(&challenge_campaign_key(MAX_GLOBAL_GENERAL_TYPES, 1))
+        );
     }
 
     #[test]
@@ -435,11 +437,15 @@ mod tests {
             honors.get_endurance_medal("Maps/Official/TournamentDesert.map", 1),
             5
         );
-        assert!(honors
-            .data
-            .contains_key("Maps/Official/TournamentDesert.map_1"));
-        assert!(!honors
-            .data
-            .contains_key("Endurance_Maps/Official/TournamentDesert.map_1"));
+        assert!(
+            honors
+                .data
+                .contains_key("Maps/Official/TournamentDesert.map_1")
+        );
+        assert!(
+            !honors
+                .data
+                .contains_key("Endurance_Maps/Official/TournamentDesert.map_1")
+        );
     }
 }

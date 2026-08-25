@@ -345,7 +345,7 @@ fn damage_authority_live_requires_coupled_frame() {
 #[test]
 fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     use crate::game_logic::{
-        host_construction_progress_log, host_heal_log, KindOf, Team, ThingTemplate,
+        KindOf, Team, ThingTemplate, host_construction_progress_log, host_heal_log,
     };
     crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(gameworld_damage_authority_enabled());
@@ -394,7 +394,7 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
 
 #[test]
 fn construction_authority_last_writes_percent() {
-    use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     assert!(gameworld_construction_authority_enabled());
     let mut logic = GameLogic::new();
@@ -449,7 +449,7 @@ fn construction_authority_last_writes_percent() {
 
 #[test]
 fn construction_tick_advances_when_rate_logged_without_entity_uc() {
-    use crate::game_logic::{host_construction_progress_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
     crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RateOnlyUc");
@@ -488,10 +488,7 @@ fn construction_tick_advances_when_rate_logged_without_entity_uc() {
         .entity_for_host(oid)
         .and_then(|eid| shadow.world.entity(eid).map(|e| e.construction_percent))
         .unwrap_or(0.0);
-    assert!(
-        pct > 0.2,
-        "rate*dt must advance percent, got {pct}"
-    );
+    assert!(pct > 0.2, "rate*dt must advance percent, got {pct}");
 }
 
 #[test]

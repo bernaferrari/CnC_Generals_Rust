@@ -24,11 +24,9 @@ impl ScriptActionDispatcher {
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
-            THIS_PLAYER => {
-                with_script_engine_ref(|engine| engine.get_current_player_name())
-                    .flatten()
-                    .unwrap_or_else(|| raw.to_string())
-            }
+            THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
+                .flatten()
+                .unwrap_or_else(|| raw.to_string()),
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
@@ -980,9 +978,10 @@ impl ScriptActionDispatcher {
             if player_guard.get_player_type() == PlayerType::Human {
                 // C++ ScriptEngine.cpp:5789-5791: Challenge dummy ThePlayer is not the enemy.
                 if is_generals_challenge_campaign() {
-                    let is_dummy = NameKeyGenerator::key_to_name(player_guard.get_player_name_key())
-                        .as_deref()
-                        == Some(THE_PLAYER);
+                    let is_dummy =
+                        NameKeyGenerator::key_to_name(player_guard.get_player_name_key())
+                            .as_deref()
+                            == Some(THE_PLAYER);
                     if is_dummy {
                         continue;
                     }
@@ -1360,7 +1359,6 @@ impl ScriptActionDispatcher {
             return Ok(None);
         }
 
-
         let team_arc = match self.get_or_create_team_by_name(team_name) {
             Ok(team) => team,
             Err(err) => {
@@ -1555,10 +1553,9 @@ impl ScriptActionDispatcher {
         &self,
         area_name: &str,
     ) -> Result<crate::polygon_trigger::PolygonTrigger, ScriptError> {
-        if let Some(trigger) = with_script_engine_ref(|engine| {
-            engine.get_qualified_trigger_area_by_name(area_name)
-        })
-        .flatten()
+        if let Some(trigger) =
+            with_script_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
+                .flatten()
         {
             return Ok(trigger);
         }

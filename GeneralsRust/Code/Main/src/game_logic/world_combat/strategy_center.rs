@@ -15,9 +15,9 @@ impl GameLogic {
         center_id: ObjectId,
     ) {
         use crate::game_logic::host_strategy_center::{
+            STRATEGY_CENTER_GUN_FIRE_AUDIO, STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
             is_legal_strategy_center_gun_target, strategy_center_gun_damage_at,
-            strategy_center_gun_in_range, STRATEGY_CENTER_GUN_FIRE_AUDIO,
-            STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
+            strategy_center_gun_in_range,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -386,9 +386,9 @@ impl GameLogic {
     /// Fail-closed: not full AutoAcquire LOS / turret pitch / CONTINUOUS_FIRE anim.
     pub(in super::super) fn try_base_defense_residual_fire(&mut self, defense_id: ObjectId) {
         use crate::game_logic::host_base_defense::{
+            GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
             is_dual_slot_base_defense, is_gattling_cannon_structure, is_patriot_battery_structure,
-            is_stinger_site_structure, preferred_dual_defense_slot, GATTLING_BUILDING_FIRE_AUDIO,
-            PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
+            is_stinger_site_structure, preferred_dual_defense_slot,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -535,7 +535,6 @@ impl GameLogic {
                 return;
             }
         }
-
 
         let damage = {
             let Some(attacker) = self.objects.get(&defense_id) else {
@@ -834,11 +833,11 @@ impl GameLogic {
         slot: u8,
     ) {
         use crate::game_logic::host_base_defense::{
+            PATRIOT_ASSIST_LASER_AUDIO, PatriotAssistLaserKind, PendingPatriotAssist,
             is_patriot_battery_structure, is_patriot_free_to_assist,
             is_within_patriot_assist_weapon_range, is_within_patriot_request_assist_range,
             make_patriot_assist_lasers, patriot_request_assist_range_for_template,
-            patriots_are_assist_equivalent, PatriotAssistLaserKind, PendingPatriotAssist,
-            PATRIOT_ASSIST_LASER_AUDIO,
+            patriots_are_assist_equivalent,
         };
 
         let Some(requester) = self.objects.get(&requester_id) else {
@@ -860,7 +859,8 @@ impl GameLogic {
         let victim_pos = victim.get_position();
 
         // C++ Weapon.cpp:2477 — only fan out when leftover RequestAssistRange > 0.
-        let request_range = patriot_request_assist_range_for_template(&requester_template, slot == 1);
+        let request_range =
+            patriot_request_assist_range_for_template(&requester_template, slot == 1);
         if request_range <= 0.0 {
             return;
         }
@@ -1042,8 +1042,8 @@ impl GameLogic {
 
     pub(in super::super) fn update_pending_patriot_assists(&mut self) {
         use crate::game_logic::host_base_defense::{
-            is_within_patriot_assist_weapon_range, LAZR_PATRIOT_FIRE_AUDIO,
-            PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
+            LAZR_PATRIOT_FIRE_AUDIO, PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
+            is_within_patriot_assist_weapon_range,
         };
 
         if self.pending_patriot_assists.is_empty() {
@@ -1231,9 +1231,9 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) {
         use crate::game_logic::host_base_defense::{
+            SUPW_PATRIOT_EMP_AUDIO, SUPW_PATRIOT_EMP_DURATION_FRAMES, SUPW_PATRIOT_EMP_RADIUS,
             is_emp_own_building, is_legal_supw_patriot_emp_target, supw_emp_scatter_aim,
-            supw_emp_scatter_misses_infantry, supw_patriot_emp_until_frame, SUPW_PATRIOT_EMP_AUDIO,
-            SUPW_PATRIOT_EMP_DURATION_FRAMES, SUPW_PATRIOT_EMP_RADIUS,
+            supw_emp_scatter_misses_infantry, supw_patriot_emp_until_frame,
         };
         use crate::game_logic::host_emp_pulse::is_emp_hardened_name;
 
@@ -1284,11 +1284,7 @@ impl GameLogic {
         // C++ ProjectileDetonationOCL CreateObject EMPPatriotEffectSpheroid at impact.
         let _ = self.spawn_emp_patriot_spheroid(impact, source_id);
 
-
-        let source_owner = self
-            .objects
-            .get(&source_id)
-            .and_then(|o| o.owner_player_id);
+        let source_owner = self.objects.get(&source_id).and_then(|o| o.owner_player_id);
         let until = supw_patriot_emp_until_frame(self.frame);
         let radius = SUPW_PATRIOT_EMP_RADIUS;
         use crate::game_logic::host_emp_pulse::{
@@ -1444,7 +1440,7 @@ impl GameLogic {
         to: glam::Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_weapon_laser::{
-            laser_beam_lifetime_frames, WEAPON_LASER_BEAM_MAX_HEALTH,
+            WEAPON_LASER_BEAM_MAX_HEALTH, laser_beam_lifetime_frames,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1531,7 +1527,7 @@ impl GameLogic {
         to_id: Option<ObjectId>,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_point_defense::{
-            pdl_laser_beam_name, PDL_LASER_BEAM_LIFETIME_FRAMES, PDL_LASER_BEAM_MAX_HEALTH,
+            PDL_LASER_BEAM_LIFETIME_FRAMES, PDL_LASER_BEAM_MAX_HEALTH, pdl_laser_beam_name,
         };
         use crate::game_logic::host_weapon_laser::ResidualWeaponLaser;
         use crate::game_logic::{KindOf, ThingTemplate};
@@ -1619,9 +1615,9 @@ impl GameLogic {
 
     pub fn update_point_defense_intercept(&mut self) {
         use crate::game_logic::host_point_defense::{
-            intercept_priority, is_point_defense_carrier, is_primary_intercept_target,
-            is_secondary_intercept_target, pdl_damage, pdl_delay_frames, pdl_fire_range,
-            pdl_module_count, PDL_INTERCEPT_AUDIO,
+            PDL_INTERCEPT_AUDIO, intercept_priority, is_point_defense_carrier,
+            is_primary_intercept_target, is_secondary_intercept_target, pdl_damage,
+            pdl_delay_frames, pdl_fire_range, pdl_module_count,
         };
 
         // Snapshot carriers first (immutable pass).

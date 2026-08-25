@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain};
-use crate::common::{BodyDamageType, GameResult, ObjectID, PlayerMaskType, INVALID_ID};
+use crate::common::{BodyDamageType, GameResult, INVALID_ID, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
@@ -15,7 +15,7 @@ use crate::modules::{
 };
 use crate::object::Object;
 use crate::player::Player;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 274 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -870,11 +870,7 @@ impl ContainModuleInterface for HelixContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.base.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
@@ -1139,10 +1135,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(
-            &mut self,
-            _snapshot: &mut dyn Snapshotable,
-        ) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 

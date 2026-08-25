@@ -9,8 +9,8 @@
 //! - Animation time is properly passed to GPU
 //! - All systems use consistent time source
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 /// Global animation clock - synchronized across all systems

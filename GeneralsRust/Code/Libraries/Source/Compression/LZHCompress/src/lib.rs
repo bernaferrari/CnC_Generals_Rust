@@ -296,11 +296,7 @@ impl CompressionStats {
     pub fn throughput_mb_s(&self) -> f64 {
         let mb = self.original_size as f64 / (1024.0 * 1024.0);
         let seconds = self.compression_time.as_secs_f64();
-        if seconds > 0.0 {
-            mb / seconds
-        } else {
-            0.0
-        }
+        if seconds > 0.0 { mb / seconds } else { 0.0 }
     }
 }
 

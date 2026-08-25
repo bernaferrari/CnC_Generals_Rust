@@ -12,23 +12,23 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers, AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction,
-    PartitionFilter, THE_AI,
+    search_qualifiers,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
-use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePartitionManager};
+use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, PhysicsBehaviorExt, FAST_AS_POSSIBLE,
+    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -43,7 +43,7 @@ use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
-    Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT,
+    NO_MAX_SHOTS_LIMIT, Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus,
 };
 use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
@@ -788,7 +788,10 @@ fn idle_restake_plan_runs_for_ultra_accurate_and_loco_less() {
     assert!(!ultra.snap, "ultraAccurate gates only the snap");
 
     let loco_less = idle_pathfinder_restake_plan(true, true, pos, false);
-    assert!(loco_less.first_restake, "loco-less ultraAccurate==false still restakes");
+    assert!(
+        loco_less.first_restake,
+        "loco-less ultraAccurate==false still restakes"
+    );
     assert!(loco_less.snap);
 
     let zero = idle_pathfinder_restake_plan(true, true, Coord3D::new(0.0, 0.0, 0.0), false);
@@ -819,7 +822,6 @@ fn team_change_abort_clears_matching_team_target() {
     clear_team_target_object_if_victim(&mut team, 55);
     assert_eq!(team.get_team_target_object(), INVALID_ID);
 }
-
 
 #[test]
 fn nested_attack_machine_picks_up_parent_goal_change() {
@@ -859,11 +861,13 @@ fn attack_on_exit_clears_leech_range_mode() {
             .get_weapon_in_slot_mut(WeaponSlotType::Primary)
             .expect("primary weapon")
             .set_leech_range_active(true);
-        assert!(owner
-            .weapon_set
-            .get_weapon_in_slot(WeaponSlotType::Primary)
-            .expect("primary")
-            .has_leech_range());
+        assert!(
+            owner
+                .weapon_set
+                .get_weapon_in_slot(WeaponSlotType::Primary)
+                .expect("primary")
+                .has_leech_range()
+        );
     }
 
     let machine = StateMachine::new(Some(Arc::downgrade(&object)), "leech-exit");
@@ -884,4 +888,3 @@ fn attack_on_exit_clears_leech_range_mode() {
     }
     OBJECT_REGISTRY.unregister_object(id);
 }
-

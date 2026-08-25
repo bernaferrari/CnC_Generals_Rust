@@ -3,28 +3,28 @@
 //! Uses thread-local RefCell for window state and Cell<bool> global flags
 //! matching C++ statics (via mod.rs helpers).
 
-
-#[path = "skirmish_map_preview.rs"]
-mod skirmish_map_preview;
 #[path = "skirmish_battle_honor_display.rs"]
 mod skirmish_battle_honor_display;
+#[path = "skirmish_map_preview.rs"]
+mod skirmish_map_preview;
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel, queue_shell_pop,
-    queue_shell_reverse_animate_window, queue_shell_shutdown_complete, show_shell_map_if_available,
-    try_with_shell_mut, with_window_manager, GameWindow, SkirmishPreferences, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus, GLM_RIGHT_CLICKED,
+    GLM_RIGHT_CLICKED, GameWindow, SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowStatus, get_shell, get_skirmish_setup, message_box_ok,
+    message_box_ok_cancel, queue_shell_pop, queue_shell_reverse_animate_window,
+    queue_shell_shutdown_complete, show_shell_map_if_available, try_with_shell_mut,
+    with_window_manager,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
 use crate::shell_hooks::{
-    signal_ui_interaction, SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED,
-    SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME, SHELL_SCRIPT_HOOK_SKIRMISH_OPENED,
+    SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED, SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME,
+    SHELL_SCRIPT_HOOK_SKIRMISH_OPENED, signal_ui_interaction,
 };
 use game_engine::common::ini::ini_map_cache::{
-    get_map_cache_mut, init_global_map_cache, Coord3D, MapMetaData, Region3D,
+    Coord3D, MapMetaData, Region3D, get_map_cache_mut, init_global_map_cache,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_game_logic_random;
@@ -33,8 +33,8 @@ use game_engine::common::skirmish_battle_honors::SkirmishBattleHonors;
 use game_engine::common::system::get_unsigned_int_from_registry;
 use game_network::matchmaking::slots::PlayerColor;
 use game_network::{
-    game_info_to_ascii_string, parse_ascii_string_to_game_info, Money, SlotState,
-    PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_RANDOM,
+    Money, PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_RANDOM, SlotState, game_info_to_ascii_string,
+    parse_ascii_string_to_game_info,
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::{GAME_SHELL, GAME_SINGLE_PLAYER, GAME_SKIRMISH};
@@ -275,7 +275,11 @@ fn update_map_preview(state: &mut SkirmishGameOptionsState) {
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     position_start_buttons(state, meta.as_ref());
-    skirmish_map_preview::position_additional_images(meta.as_ref(), state.map_window.as_ref(), true);
+    skirmish_map_preview::position_additional_images(
+        meta.as_ref(),
+        state.map_window.as_ref(),
+        true,
+    );
     update_map_start_spots(state, meta.as_ref());
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
         if let Some(widget) = text_entry.borrow_mut().static_text_mut() {
@@ -1184,7 +1188,10 @@ fn resolve_map_file_path(map_name: &str) -> Option<std::path::PathBuf> {
 }
 
 fn path_is_official_map(path: &std::path::Path) -> bool {
-    let s = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let s = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
     if s.contains("userdata") || s.contains("/maps/user") {
         return false;
     }
@@ -1220,7 +1227,8 @@ fn parse_map_header_meta(map_name: &str, path: &std::path::Path) -> Option<MapMe
         meta.set_waypoint(name.clone(), Coord3D::new(pos.x, pos.y, pos.z));
     }
     for pos in loader.get_supply_positions() {
-        meta.supply_positions.push(Coord3D::new(pos.x, pos.y, pos.z));
+        meta.supply_positions
+            .push(Coord3D::new(pos.x, pos.y, pos.z));
     }
     for pos in loader.get_tech_positions() {
         meta.tech_positions.push(Coord3D::new(pos.x, pos.y, pos.z));
@@ -1249,11 +1257,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
             .filter(|s| !s.is_empty());
         let setup_selected = {
             let s = setup.selected_map().trim().to_string();
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
+            if s.is_empty() { None } else { Some(s) }
         };
         let info = setup.game_info_mut().game_info_mut();
         let current = info.get_map().to_string();
@@ -1393,9 +1397,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     msg.append_integer_argument(DIFFICULTY_NORMAL);
     msg.append_integer_argument(0);
     msg.append_integer_argument(max_fps);
-    log::info!(
-        "Skirmish Start posted NewGame skirmish={is_skirmish} fps={max_fps} map={map_name}"
-    );
+    log::info!("Skirmish Start posted NewGame skirmish={is_skirmish} fps={max_fps} map={map_name}");
     TheGameLogic::request_start_new_game();
 }
 

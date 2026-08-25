@@ -26,12 +26,12 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+use crate::game_logic::ObjectId;
 use crate::game_logic::host_deliver_payload::{
-    find_closest_edge_point_residual, RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z,
-    RESIDUAL_MAP_EXTENT_MIN_X, RESIDUAL_MAP_EXTENT_MIN_Z,
+    RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
+    RESIDUAL_MAP_EXTENT_MIN_Z, find_closest_edge_point_residual,
 };
 use crate::game_logic::special_power_strikes::SPECTRE_GUNSHIP_ORBIT_RADIUS;
-use crate::game_logic::ObjectId;
 
 /// Retail AttackAreaRadius residual.
 pub const SPECTRE_DEPLOY_ATTACK_AREA_RADIUS: f32 = 200.0;

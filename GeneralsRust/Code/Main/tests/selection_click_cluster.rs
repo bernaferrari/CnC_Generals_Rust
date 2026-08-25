@@ -1,6 +1,7 @@
 use generals_main::pick_ray::{
-    is_os_style_double_click, opaque_window_chain_blocks_pick, presentation_mesh_pick_radius,
-    ray_sphere_hit_t, world_lmb_selection_allowed, MIN_PICK_SPHERE_RADIUS, OS_DOUBLE_CLICK_SLOP_PX,
+    MIN_PICK_SPHERE_RADIUS, OS_DOUBLE_CLICK_SLOP_PX, is_os_style_double_click,
+    opaque_window_chain_blocks_pick, presentation_mesh_pick_radius, ray_sphere_hit_t,
+    world_lmb_selection_allowed,
 };
 use glam::Vec3;
 
@@ -81,7 +82,7 @@ fn quit_menu_destroys_world_left_click() {
 
 #[test]
 fn live_paths_wire_the_four_selection_hud_gates() {
-    let mouse = include_str!("../src/cnc_game_engine/mouse.rs");
+    let mouse = generals_main::cnc_game_engine::ENGINE_SRC;
     let input = include_str!("../src/cnc_game_engine/input.rs");
     let hotkeys = include_str!("../src/cnc_game_engine/hotkeys.rs");
     assert!(mouse.contains("fn find_object_at_cursor"));

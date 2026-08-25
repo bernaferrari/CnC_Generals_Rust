@@ -45,8 +45,8 @@ pub const RUNTIME_HOST_LIVE_HOTKEY_MOVE_ATTACK_SELECTION_PRESENTATION_ONLY_CMD_N
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_hotkey_move_attack_selection_presentation_only_method_names_residual_wave221(
-) -> bool {
+pub fn honesty_live_hotkey_move_attack_selection_presentation_only_method_names_residual_wave221()
+-> bool {
     LIVE_HOTKEY_MOVE_ATTACK_SELECTION_PRESENTATION_ONLY_METHOD_NAMES_WAVE221.len() == 6
         && residual_name_index(
             LIVE_HOTKEY_MOVE_ATTACK_SELECTION_PRESENTATION_ONLY_METHOD_NAMES_WAVE221,
@@ -63,8 +63,8 @@ pub fn honesty_live_hotkey_move_attack_selection_presentation_only_method_names_
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_hotkey_move_attack_selection_presentation_only_nav_commands_residual_wave221(
-) -> bool {
+pub fn honesty_live_hotkey_move_attack_selection_presentation_only_nav_commands_residual_wave221()
+-> bool {
     LIVE_HOTKEY_MOVE_ATTACK_SELECTION_PRESENTATION_ONLY_NAV_STEPS_WAVE221.len() == 4
         && residual_name_index(
             LIVE_HOTKEY_MOVE_ATTACK_SELECTION_PRESENTATION_ONLY_NAV_STEPS_WAVE221,

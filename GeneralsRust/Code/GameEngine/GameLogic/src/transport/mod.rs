@@ -10,7 +10,7 @@ pub mod udp;
 
 pub use crc::Crc;
 pub use encryption::{decrypt_buffer, encrypt_buffer};
-pub use packet::{TransportMessage, TransportMessageHeader, MAX_MESSAGE_LEN, MAX_PACKET_SIZE};
+pub use packet::{MAX_MESSAGE_LEN, MAX_PACKET_SIZE, TransportMessage, TransportMessageHeader};
 pub use udp::UdpTransport;
 
 /// Magic number for identifying Generals packets (0xF00D)

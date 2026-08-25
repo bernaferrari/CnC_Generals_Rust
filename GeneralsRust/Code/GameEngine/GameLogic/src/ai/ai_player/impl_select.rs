@@ -903,7 +903,7 @@ impl AIPlayer {
             }
             let dist = (dx * dx + dy * dy).sqrt();
             let factor = 1.0 - (dist / (2.0 * radius)); // 1.0 center, 0.5 edge
-                                                        // C++ calcCostToBuild(pPlayer) — pass player when possible.
+            // C++ calcCostToBuild(pPlayer) — pass player when possible.
             let mut value = template
                 .calc_cost_to_build(Some(&*player_guard as &dyn std::any::Any))
                 .max(0) as f32;

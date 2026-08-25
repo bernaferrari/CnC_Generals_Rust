@@ -1,6 +1,6 @@
 use game_client_rust::terrain::{
-    IRegion2D, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap, W3DTerrainBackground,
-    TEX_1X, TEX_2X, TEX_4X,
+    IRegion2D, TEX_1X, TEX_2X, TEX_4X, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap,
+    W3DTerrainBackground,
 };
 use game_engine::map_object::MAP_HEIGHT_SCALE;
 

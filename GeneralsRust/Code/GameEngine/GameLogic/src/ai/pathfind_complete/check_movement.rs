@@ -406,7 +406,6 @@ impl PathfindingSystem {
                     continue;
                 }
 
-
                 // order matters: obj considers unit relationship.
                 let Some((rel, unit_has_ai, can_crush)) = OBJECT_REGISTRY
                     .with_object(obj_id, |obj_guard| {

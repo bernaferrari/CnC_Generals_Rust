@@ -15,7 +15,7 @@ use crate::modules::{
     RailedTransportDockUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};

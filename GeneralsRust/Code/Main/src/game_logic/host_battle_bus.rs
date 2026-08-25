@@ -180,7 +180,6 @@ pub fn battle_bus_hit_ground_fx_name(template_name: &str) -> String {
         .unwrap_or_else(|| BATTLE_BUS_FX_HIT_GROUND.to_string())
 }
 
-
 // --- UndeadBody residual ---
 
 /// Retail MaxHealth residual (first life).
@@ -430,9 +429,9 @@ pub fn battle_bus_passenger_dummy_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Residual BattleBusDummyWeapon (SECONDARY AA residual enable).
@@ -452,9 +451,9 @@ pub fn battle_bus_dummy_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Residual of C++ TransportContain armed-rider check:
@@ -623,14 +622,14 @@ mod tests {
             damage: 10.0,
             range: 100.0,
             ..Weapon::default()
-};
+        };
         assert!(rider_has_viable_weapon(Some(&rifle), true));
         assert!(!rider_has_viable_weapon(Some(&rifle), false));
         let melee = Weapon {
             damage: 20.0,
             range: 3.0,
             ..Weapon::default()
-};
+        };
         assert!(!rider_has_viable_weapon(Some(&melee), true));
         assert!(!rider_has_viable_weapon(None, true));
     }

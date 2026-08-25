@@ -19,31 +19,31 @@ struct HostWanderPath {
     wait_frames: i32,
 }
 
-fn wander_in_place_sessions() -> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>> {
+fn wander_in_place_sessions()
+-> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>> {
     static SESSIONS: std::sync::LazyLock<
         std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>>,
     > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
     &SESSIONS
 }
 
-
-fn wander_in_place_lock(
-) -> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderInPlace>> {
+fn wander_in_place_lock()
+-> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderInPlace>> {
     wander_in_place_sessions()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn wander_path_sessions() -> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderPath>>
-{
+fn wander_path_sessions()
+-> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderPath>> {
     static SESSIONS: std::sync::LazyLock<
         std::sync::Mutex<std::collections::HashMap<u32, HostWanderPath>>,
     > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
     &SESSIONS
 }
 
-fn wander_path_lock() -> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderPath>>
-{
+fn wander_path_lock()
+-> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderPath>> {
     wander_path_sessions()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -113,7 +113,7 @@ fn host_wander_radius_for_name(name: &str) -> Option<f32> {
 
 fn host_wander_about_point_delta(obj: &crate::game_logic::object::Object) -> i32 {
     use crate::game_logic::host_upgrade_module_residuals::{
-        locomotor_name_for_set_kind, HostLocomotorSetKind,
+        HostLocomotorSetKind, locomotor_name_for_set_kind,
     };
     let wander_set = obj
         .get_cur_locomotor_set_token()
@@ -261,28 +261,30 @@ impl GameLogic {
             .unwrap_or(0.0);
         let contained = obj.contained_by.is_some();
         let base = obj.vision_range.max(0.0);
-        let inner = crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
-            base,
-            player_is_human,
-            true,
-            contained,
-            weapon_r,
-            mood == 1,
-            mood >= 2,
-            mood <= -2,
-            true,
-        );
-        let outer = crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
-            base,
-            player_is_human,
-            false,
-            contained,
-            weapon_r,
-            mood == 1,
-            mood >= 2,
-            mood <= -2,
-            true,
-        );
+        let inner =
+            crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
+                base,
+                player_is_human,
+                true,
+                contained,
+                weapon_r,
+                mood == 1,
+                mood >= 2,
+                mood <= -2,
+                true,
+            );
+        let outer =
+            crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
+                base,
+                player_is_human,
+                false,
+                contained,
+                weapon_r,
+                mood == 1,
+                mood >= 2,
+                mood <= -2,
+                true,
+            );
         (inner, outer)
     }
 
@@ -342,9 +344,6 @@ impl GameLogic {
             .unwrap_or(60)
     }
 
-
-
-
     /// C++ PartitionFilterRejectBuildings — keep non-buildings; computer
     /// players acquire all enemy structures; humans keep FS_BASE_DEFENSE and
     /// garrisoned attacking buildings.
@@ -365,8 +364,7 @@ impl GameLogic {
         if cand.is_kind_of(KindOf::FSBaseDefense) {
             return true;
         }
-        cand.can_attack()
-            && (cand.is_garrison_contain() || !cand.contained_units().is_empty())
+        cand.can_attack() && (cand.is_garrison_contain() || !cand.contained_units().is_empty())
     }
 
     /// C++ GuardRetaliateExitConditions — timer, per-state victim radius, owner leash.
@@ -467,9 +465,7 @@ impl GameLogic {
             );
             if enter_guard {
                 if hijack_guard {
-                    if rel != Relationship::Enemies
-                        || !self.can_hijack_vehicle(unit_id, cand)
-                    {
+                    if rel != Relationship::Enemies || !self.can_hijack_vehicle(unit_id, cand) {
                         continue;
                     }
                 } else if rel != Relationship::Neutral
@@ -502,7 +498,6 @@ impl GameLogic {
         }
         best.map(|(id, _)| id)
     }
-
 
     /// C++ AIUpdateInterface::getNextMoodTarget residual.
     ///
@@ -579,11 +574,7 @@ impl GameLogic {
     /// `teamAmerica`), never the faction enum (`USA`/`America`).
     pub fn inherit_team_ai_defaults(&mut self, unit_id: ObjectId) {
         let (owner, team, instance) = match self.objects.get(&unit_id) {
-            Some(o) => (
-                o.owner_player_id,
-                o.team,
-                o.team_instance_name.clone(),
-            ),
+            Some(o) => (o.owner_player_id, o.team, o.team_instance_name.clone()),
             None => return,
         };
         let trimmed = instance.trim();
@@ -772,7 +763,6 @@ impl GameLogic {
         n
     }
 
-
     /// Look up host ObjectId by unit name (named object tracker residual).
     pub fn find_object_id_by_name(&self, name: &str) -> Option<ObjectId> {
         // Prefer host object name residual (production path — no engine_object_id).
@@ -940,9 +930,7 @@ impl GameLogic {
                 // C++ PartitionFilterPlayerAffiliation ALLOW_ALLIES.
                 let allied = self.object_relationship(o, &self.objects[&victim_id])
                     == gamelogic::common::Relationship::Allies
-                    || (o.owner_player_id.is_none()
-                        && o.team == vteam
-                        && o.team != Team::Neutral);
+                    || (o.owner_player_id.is_none() && o.team == vteam && o.team != Team::Neutral);
                 if !allied {
                     return false;
                 }
@@ -990,8 +978,7 @@ impl GameLogic {
             let frames = self.host_guard_chase_unit_frames();
             let now = self.frame;
             if let Some(o) = self.objects.get_mut(&id) {
-                if (o.guard_chase_phase == GUARD_CHASE_PHASE_RETALIATE
-                    || o.guard_chase_phase == 2)
+                if (o.guard_chase_phase == GUARD_CHASE_PHASE_RETALIATE || o.guard_chase_phase == 2)
                     && o.guard_chase_give_up_frame == 0
                 {
                     o.guard_chase_give_up_frame = now.saturating_add(frames);
@@ -1114,21 +1101,24 @@ impl GameLogic {
                 .and_then(|o| o.last_damage_source.take());
             if let Some(aid) = last {
                 if aid != id {
-                    let legal = self.objects.get(&aid).is_some_and(|a| {
-                        a.is_alive() && !a.status.destroyed
-                    }) && matches!(
-                        self.get_able_to_attack_specific_object(
-                            id,
-                            aid,
-                            AbleToAttackType::NewTarget,
-                            false,
-                        ),
-                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                    ) && self.objects.get(&aid).is_some_and(|a| {
-                        self.objects.get(&id).is_some_and(|me| {
-                            a.is_targetable_by_enemy_of(me.team)
-                        })
-                    });
+                    let legal = self
+                        .objects
+                        .get(&aid)
+                        .is_some_and(|a| a.is_alive() && !a.status.destroyed)
+                        && matches!(
+                            self.get_able_to_attack_specific_object(
+                                id,
+                                aid,
+                                AbleToAttackType::NewTarget,
+                                false,
+                            ),
+                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                        )
+                        && self.objects.get(&aid).is_some_and(|a| {
+                            self.objects
+                                .get(&id)
+                                .is_some_and(|me| a.is_targetable_by_enemy_of(me.team))
+                        });
                     if legal {
                         if let Some(o) = self.objects.get_mut(&id) {
                             o.guard_retaliate_victim = Some(aid);
@@ -1193,7 +1183,7 @@ impl GameLogic {
             return false;
         };
         use crate::game_logic::host_upgrade_module_residuals::{
-            apply_choose_locomotor_set, HostLocomotorSetKind,
+            HostLocomotorSetKind, apply_choose_locomotor_set,
         };
         let (kind, panicking) = match set.trim().to_ascii_lowercase().as_str() {
             "panic" => (HostLocomotorSetKind::Panic, true),
@@ -1262,7 +1252,6 @@ impl GameLogic {
         }
         self.tick_host_wander_in_place();
     }
-
 
     /// C++ `doTeamWander` / `doTeamPanic` member loop: closest waypoint on path,
     /// then wander/panic locomotor + follow. Missing path returns like C++.
@@ -1569,15 +1558,12 @@ impl GameLogic {
         }
     }
 
-
-
     /// Drain leftover `TEAM_SET_ATTITUDE` onto live host members.
     pub fn apply_host_team_attitude_script_requests(&mut self) {
         for (team_name, mood) in gamelogic::scripting::take_host_team_attitude_requests() {
             let _ = self.set_team_attitude_by_name(&team_name, &mood.to_string());
         }
     }
-
 
     /// Drain leftover `BUILD_TEAM` / `RECRUIT_TEAM` onto host AIPlayer.
     /// C++ `ScriptActions::doBuildTeam` / `doRecruitTeam`.
@@ -1889,7 +1875,6 @@ impl GameLogic {
         best.map(|(id, _)| id)
     }
 
-
     /// C++ PartitionFilterRepulsor + AI::findClosestRepulsor residual.
     ///
     /// Returns closest living repulsor in range:
@@ -2037,9 +2022,7 @@ impl GameLogic {
         } else {
             return false;
         }
-        if !keep_parent_state
-            && crate::gameworld_shadow::gameworld_ai_decision_authority_live()
-        {
+        if !keep_parent_state && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
         }
         true
@@ -2075,7 +2058,6 @@ impl GameLogic {
     pub fn scan_guard_retaliate_inner_for_test(&self, unit_id: ObjectId) -> Option<ObjectId> {
         self.scan_guard_retaliate_inner(unit_id)
     }
-
 }
 
 #[cfg(test)]
@@ -2083,9 +2065,7 @@ mod tests {
     use super::*;
     use crate::game_logic::{KindOf, ObjectId, Player, Team, ThingTemplate};
     use game_engine::common::ascii_string::AsciiString;
-    use game_engine::common::ini::ini_locomotor::{
-        get_locomotor_store_mut, LocomotorTemplate,
-    };
+    use game_engine::common::ini::ini_locomotor::{LocomotorTemplate, get_locomotor_store_mut};
 
     fn register_wander_loco(name: &str, radius: f32) {
         let mut template = LocomotorTemplate::new(AsciiString::from(name));
@@ -2269,7 +2249,10 @@ mod tests {
         let civ = logic.host_object(id).expect("civ");
         assert_eq!(civ.move_away_from, Some(ObjectId(4229)));
         assert!(civ.move_away_frames > 0);
-        assert!(civ.is_panicking, "leftover-bail must enter MOVE_AWAY_FROM_REPULSORS");
+        assert!(
+            civ.is_panicking,
+            "leftover-bail must enter MOVE_AWAY_FROM_REPULSORS"
+        );
     }
 
     #[test]
@@ -2431,7 +2414,13 @@ mod tests {
         let mut logic = GameLogic::new();
         let gid = ObjectId(25098);
         let eid = ObjectId(25099);
-        w25_spawn_fighter(&mut logic, gid, "W25AreaGuard", Team::China, glam::Vec3::ZERO);
+        w25_spawn_fighter(
+            &mut logic,
+            gid,
+            "W25AreaGuard",
+            Team::China,
+            glam::Vec3::ZERO,
+        );
         w25_spawn_fighter(
             &mut logic,
             eid,
@@ -2528,8 +2517,7 @@ mod tests {
             None,
         );
         assert_eq!(
-            only_neutral,
-            None,
+            only_neutral, None,
             "Neutral civilians/tech must not be auto-acquired"
         );
     }
@@ -2541,7 +2529,13 @@ mod tests {
         let gid = ObjectId(25130);
         let def_id = ObjectId(25131);
         let live = ObjectId(25132);
-        w25_spawn_fighter(&mut logic, gid, "W25GuardDef", Team::China, glam::Vec3::ZERO);
+        w25_spawn_fighter(
+            &mut logic,
+            gid,
+            "W25GuardDef",
+            Team::China,
+            glam::Vec3::ZERO,
+        );
         w25_spawn_fighter(
             &mut logic,
             def_id,
@@ -2575,7 +2569,6 @@ mod tests {
             "closer undetected defector must lose to farther Enemy"
         );
     }
-
 
     #[test]
     fn guard_retaliate_inner_skips_neutral_civilians() {
@@ -2613,7 +2606,6 @@ mod tests {
             "Neutral civilian must not be retaliate-acquired"
         );
     }
-
 
     #[test]
     fn guard_retaliate_inner_skips_off_map_and_uses_2d() {
@@ -2715,13 +2707,25 @@ mod tests {
         logic.templates.insert("W29MergeRanger".into(), tmpl);
 
         let a = logic
-            .create_object("W29MergeRanger", Team::USA, glam::Vec3::new(10.0, 0.0, 10.0))
+            .create_object(
+                "W29MergeRanger",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            )
             .expect("src a");
         let b = logic
-            .create_object("W29MergeRanger", Team::USA, glam::Vec3::new(20.0, 0.0, 10.0))
+            .create_object(
+                "W29MergeRanger",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 10.0),
+            )
             .expect("src b");
         let keep = logic
-            .create_object("W29MergeRanger", Team::USA, glam::Vec3::new(40.0, 0.0, 10.0))
+            .create_object(
+                "W29MergeRanger",
+                Team::USA,
+                glam::Vec3::new(40.0, 0.0, 10.0),
+            )
             .expect("dest keep");
         if let Some(obj) = logic.host_object_mut(a) {
             obj.owner_player_id = Some(1);
@@ -2788,7 +2792,11 @@ mod tests {
         }
 
         let near = logic
-            .create_object("W29HijackTank", Team::Neutral, glam::Vec3::new(80.0, 0.0, 50.0))
+            .create_object(
+                "W29HijackTank",
+                Team::Neutral,
+                glam::Vec3::new(80.0, 0.0, 50.0),
+            )
             .expect("near husk");
         if let Some(obj) = logic.host_object_mut(near) {
             obj.status.disabled_unmanned = true;
@@ -2882,14 +2890,18 @@ mod tests {
         logic.apply_host_load_transports_script_requests();
 
         let infantry = logic.host_object(infantry).expect("infantry after");
-        assert_eq!(infantry.target, Some(transport), "aiEnter leftover solver pair");
+        assert_eq!(
+            infantry.target,
+            Some(transport),
+            "aiEnter leftover solver pair"
+        );
         assert_eq!(infantry.ai_state, AIState::Entering);
     }
 
     #[test]
     fn named_fire_weapon_follows_live_waypoint_path() {
-        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
         use crate::game_logic::Weapon;
+        use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
         use gamelogic::object::registry::OBJECT_REGISTRY;
         use gamelogic::scripting::{
             request_host_script_named_fire_weapon_path,
@@ -2987,7 +2999,4 @@ mod tests {
             "projectile follows leftover waypoint path, dest={dest:?}"
         );
     }
-
 }
-
-

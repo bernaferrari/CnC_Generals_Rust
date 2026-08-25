@@ -10,7 +10,10 @@ use super::*;
 
 impl Object {
     /// C++ `GUI_COMMAND_SWITCH_WEAPON`: `setWeaponLock(slot, LOCKED_PERMANENTLY)`.
-    pub(super) fn lock_switch_weapon_from_command(&mut self, command_button: &crate::command_button::CommandButton) {
+    pub(super) fn lock_switch_weapon_from_command(
+        &mut self,
+        command_button: &crate::command_button::CommandButton,
+    ) {
         self.set_weapon_lock(
             command_button.get_weapon_slot(),
             WeaponLockType::LockedPermanently,
@@ -18,7 +21,10 @@ impl Object {
     }
 
     /// C++ `GUI_COMMAND_FIRE_WEAPON`: `setWeaponLock(slot, LOCKED_TEMPORARILY)`.
-    pub(super) fn lock_fire_weapon_from_command(&mut self, command_button: &crate::command_button::CommandButton) {
+    pub(super) fn lock_fire_weapon_from_command(
+        &mut self,
+        command_button: &crate::command_button::CommandButton,
+    ) {
         self.set_weapon_lock(
             command_button.get_weapon_slot(),
             WeaponLockType::LockedTemporarily,

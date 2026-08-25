@@ -585,8 +585,8 @@ impl CheckBoxBuilder {
 mod tests {
     use super::*;
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     #[test]
@@ -792,8 +792,10 @@ mod tests {
 
         let commands = checkbox.render_commands(&theme);
 
-        assert!(commands
-            .iter()
-            .all(|command| !matches!(command, CheckBoxRenderCommand::CheckMarkLine { .. })));
+        assert!(
+            commands
+                .iter()
+                .all(|command| !matches!(command, CheckBoxRenderCommand::CheckMarkLine { .. }))
+        );
     }
 }

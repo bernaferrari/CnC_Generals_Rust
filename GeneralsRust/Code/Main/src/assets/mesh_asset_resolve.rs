@@ -621,7 +621,7 @@ pub fn model_key_with_presentation_conditions(
     model_condition_bits: u128,
 ) -> String {
     use crate::game_logic::host_enum_table_residual::{
-        host_model_condition_has, sold_model_bit, MC_BIT_RUBBLE,
+        MC_BIT_RUBBLE, host_model_condition_has, sold_model_bit,
     };
     let sold = host_model_condition_has(model_condition_bits, sold_model_bit());
     let rubble = host_model_condition_has(model_condition_bits, MC_BIT_RUBBLE);
@@ -1442,7 +1442,10 @@ mod tests {
         );
         let mut t = ThingTemplate::new("TreeSpruce03");
         t.set_model("PTXPine03");
-        assert_eq!(model_key_from_template(&t).to_ascii_lowercase(), "ptxpine03");
+        assert_eq!(
+            model_key_from_template(&t).to_ascii_lowercase(),
+            "ptxpine03"
+        );
         let unnamed = ThingTemplate::new("TreeSpruce03");
         assert_eq!(
             model_key_from_template(&unnamed).to_ascii_lowercase(),
@@ -1619,12 +1622,16 @@ mod tests {
     #[test]
     fn w3d_path_search_residual_honesty_constants() {
         assert!(honesty_w3d_path_search_roots_ok());
-        assert!(W3D_SEARCH_ROOT_RESIDUALS
-            .iter()
-            .any(|p| p.contains("W3DZH/Art/W3D")));
-        assert!(W3D_SEARCH_ROOT_RESIDUALS
-            .iter()
-            .any(|p| p.contains("W3DEnglishZH")));
+        assert!(
+            W3D_SEARCH_ROOT_RESIDUALS
+                .iter()
+                .any(|p| p.contains("W3DZH/Art/W3D"))
+        );
+        assert!(
+            W3D_SEARCH_ROOT_RESIDUALS
+                .iter()
+                .any(|p| p.contains("W3DEnglishZH"))
+        );
         let candidates = filesystem_w3d_candidates("airanger_s");
         assert!(
             candidates.iter().any(|p| {

@@ -13,7 +13,7 @@
 //! the previous session's reservations.
 
 use crate::game_logic::host_supply_gather::{
-    restore_live_dock_queues, snapshot_live_dock_queues, HostDockApproachQueue,
+    HostDockApproachQueue, restore_live_dock_queues, snapshot_live_dock_queues,
 };
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -62,10 +62,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Always drop the previous session first (C++ module state is per-object).
     restore_live_dock_queues(Vec::new());
     let Some(suffix) = find_dckq_suffix(bytes) else {
@@ -176,7 +173,8 @@ fn apply_payload(game_logic: &mut GameLogic, payload: DockQueuePersistPayload) {
         let Some(object) = game_logic.host_object_mut(ObjectId(entry.dock_id)) else {
             continue;
         };
-        object.dock_active_docker = (entry.active_docker != 0).then_some(ObjectId(entry.active_docker));
+        object.dock_active_docker =
+            (entry.active_docker != 0).then_some(ObjectId(entry.active_docker));
     }
 }
 

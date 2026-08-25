@@ -401,7 +401,10 @@ mod tests {
             assert_eq!(terrain_class_name(class), name);
         }
         assert_eq!(terrain_class_from_name("NONE"), Some(TerrainClass::None));
-        assert_eq!(terrain_class_from_index(TerrainClass::NumClasses as usize), None);
+        assert_eq!(
+            terrain_class_from_index(TerrainClass::NumClasses as usize),
+            None
+        );
         assert_eq!(terrain_class_from_index(999), None);
         let impl_src = include_str!("terrain_types.rs")
             .split("#[cfg(test)]")

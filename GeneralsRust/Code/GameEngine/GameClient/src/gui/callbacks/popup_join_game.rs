@@ -1,12 +1,12 @@
 //! PopupJoinGame.cpp callback port.
 
 use crate::gamespy_overlay::{
-    close_overlay, current_staging_room_id, find_staging_room_by_id, queue_join_request,
-    set_lobby_attempt_host_join, GameSpyOverlayType,
+    GameSpyOverlayType, close_overlay, current_staging_room_id, find_staging_room_by_id,
+    queue_join_request, set_lobby_attempt_host_join,
 };
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
@@ -34,7 +34,8 @@ fn popup_join_state() -> Rc<RefCell<PopupJoinState>> {
 
 pub fn popup_join_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let parent_id = NameKeyGenerator::name_to_key("PopupJoinGame.wnd:ParentJoinPopUp") as i32;
-    let text_entry_id = NameKeyGenerator::name_to_key("PopupJoinGame.wnd:TextEntryGamePassword") as i32;
+    let text_entry_id =
+        NameKeyGenerator::name_to_key("PopupJoinGame.wnd:TextEntryGamePassword") as i32;
     let button_cancel_id = NameKeyGenerator::name_to_key("PopupJoinGame.wnd:ButtonCancel") as i32;
     let static_text_game_name_id =
         NameKeyGenerator::name_to_key("PopupJoinGame.wnd:StaticTextGameName");
@@ -129,7 +130,7 @@ pub fn popup_join_game_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let state_slot = popup_join_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if control_id == state.button_cancel_id.unwrap_or(0) {
                 close_overlay(GameSpyOverlayType::GamePassword);
                 set_lobby_attempt_host_join(false);
@@ -141,7 +142,7 @@ pub fn popup_join_game_system(
         WindowMessage::GadgetEditDone => {
             let control_id = data1 as i32;
             let state_slot = popup_join_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if control_id == state.text_entry_id.unwrap_or(0) {
                 if let Some(text_entry) = state.text_entry.as_ref() {
                     let mut text_entry = text_entry.borrow_mut();
@@ -165,7 +166,7 @@ fn join_game(password: String) {
         close_overlay(GameSpyOverlayType::GamePassword);
         set_lobby_attempt_host_join(false);
         let state_slot = popup_join_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.parent = None;
         state.text_entry = None;
         return;
@@ -175,7 +176,7 @@ fn join_game(password: String) {
         close_overlay(GameSpyOverlayType::GamePassword);
         set_lobby_attempt_host_join(false);
         let state_slot = popup_join_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.parent = None;
         state.text_entry = None;
         return;

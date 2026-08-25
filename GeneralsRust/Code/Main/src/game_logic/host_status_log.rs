@@ -196,4 +196,3 @@ pub fn request_under_construction_mine_sweep(object: ObjectId) {
 pub fn drain_under_construction_mine_sweeps() -> Vec<ObjectId> {
     UC_MINE_SWEEP.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
-

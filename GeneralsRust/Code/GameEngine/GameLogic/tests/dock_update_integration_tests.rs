@@ -213,7 +213,7 @@ mod dock_integration_tests {
 
         // Set total value and check per-box value
         dock.set_cash_value(10000); // $10,000 total
-                                    // Should be $1000 per box (10000 / 10)
+        // Should be $1000 per box (10000 / 10)
     }
 
     #[test]

@@ -9,15 +9,15 @@ use crate::ai::states::AICommandParmsStorage;
 use crate::ai::{AiCommandParams, AiCommandType};
 use crate::common::CommandSourceType;
 use crate::common::{
-    Bool, Color, Coord3D, GameLogicRandomValueReal, Int, ObjectID, Real, UnsignedInt,
-    VeterancyLevel, INVALID_ID,
+    Bool, Color, Coord3D, GameLogicRandomValueReal, INVALID_ID, Int, ObjectID, Real, UnsignedInt,
+    VeterancyLevel,
 };
 use crate::helpers::{
-    game_client_random_value_real, TheAudio, TheGameLogic, TheGameText, TheInGameUI,
+    TheAudio, TheGameLogic, TheGameText, TheInGameUI, game_client_random_value_real,
 };
 use crate::modules::{AIUpdateInterface, HackInternetAIUpdateInterface};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 

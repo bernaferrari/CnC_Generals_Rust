@@ -10,10 +10,10 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
+use crate::game_logic::GameLogic;
 use crate::game_logic::host_leaflet_drop::HostLeafletDropMission;
 use crate::game_logic::host_paradrop::HostParadropMission;
 use crate::game_logic::host_sneak_attack::{HostSneakAttackMission, PendingSneakShockwave};
-use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -76,10 +76,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load mid-flight drops.
     game_logic.host_paradrops.clear();
     game_logic.host_leaflet_drops.clear();
@@ -182,8 +179,12 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 mod tests {
     use super::*;
     use crate::game_logic::host_leaflet_drop::HostLeafletDropKind;
-    use crate::game_logic::host_paradrop::{HostParadropKind, HostParadropPhase, PARADROP_RESIDUAL_TEMPLATE};
-    use crate::game_logic::host_sneak_attack::{HostSneakAttackKind, HostSneakAttackPhase, GLA_SNEAK_TUNNEL_TEMPLATE};
+    use crate::game_logic::host_paradrop::{
+        HostParadropKind, HostParadropPhase, PARADROP_RESIDUAL_TEMPLATE,
+    };
+    use crate::game_logic::host_sneak_attack::{
+        GLA_SNEAK_TUNNEL_TEMPLATE, HostSneakAttackKind, HostSneakAttackPhase,
+    };
     use crate::game_logic::{GameLogic, ObjectId, Team};
     use glam::Vec3;
 
@@ -232,18 +233,21 @@ mod tests {
             30,
             GLA_SNEAK_TUNNEL_TEMPLATE,
         );
-        source.host_sneak_attacks.pending_shockwaves.push(PendingSneakShockwave {
-            mission_id: sneak_id,
-            source_object: ObjectId(7),
-            source_team: Team::GLA,
-            source_owner_player_id: None,
-            target_position: Vec3::new(50.0, 0.0, 60.0),
-            apply_frame: 31,
-            damage: 10.0,
-            radius: 35.0,
-            weapon_name: "SneakAttackShockwaveWeaponSmall".to_string(),
-            pulse_index: 0,
-        });
+        source
+            .host_sneak_attacks
+            .pending_shockwaves
+            .push(PendingSneakShockwave {
+                mission_id: sneak_id,
+                source_object: ObjectId(7),
+                source_team: Team::GLA,
+                source_owner_player_id: None,
+                target_position: Vec3::new(50.0, 0.0, 60.0),
+                apply_frame: 31,
+                damage: 10.0,
+                radius: 35.0,
+                weapon_name: "SneakAttackShockwaveWeaponSmall".to_string(),
+                pulse_index: 0,
+            });
 
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
@@ -260,17 +264,30 @@ mod tests {
         assert_eq!(loaded.host_paradrops.pending_count(), 1);
         let drop = loaded.host_paradrops.get(drop_id).expect("paradrop");
         assert_eq!(drop.phase, HostParadropPhase::Queued);
-        assert_eq!(drop.drop_frame, source.host_paradrops.get(drop_id).unwrap().drop_frame);
+        assert_eq!(
+            drop.drop_frame,
+            source.host_paradrops.get(drop_id).unwrap().drop_frame
+        );
         assert_eq!(loaded.host_paradrops.transports_spawned, 1);
 
         assert_eq!(loaded.host_leaflet_drops.pending_count(), 1);
         let leaflet = loaded.host_leaflet_drops.get(leaflet_id).expect("leaflet");
-        assert_eq!(leaflet.impact_frame, source.host_leaflet_drops.get(leaflet_id).unwrap().impact_frame);
+        assert_eq!(
+            leaflet.impact_frame,
+            source
+                .host_leaflet_drops
+                .get(leaflet_id)
+                .unwrap()
+                .impact_frame
+        );
 
         assert_eq!(loaded.host_sneak_attacks.pending_count(), 1);
         let sneak = loaded.host_sneak_attacks.get(sneak_id).expect("sneak");
         assert_eq!(sneak.phase, HostSneakAttackPhase::Queued);
-        assert_eq!(sneak.spawn_frame, source.host_sneak_attacks.get(sneak_id).unwrap().spawn_frame);
+        assert_eq!(
+            sneak.spawn_frame,
+            source.host_sneak_attacks.get(sneak_id).unwrap().spawn_frame
+        );
         assert_eq!(loaded.host_sneak_attacks.pending_shockwaves.len(), 1);
     }
 }

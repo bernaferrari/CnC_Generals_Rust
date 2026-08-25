@@ -83,8 +83,8 @@ pub fn residual_host_body_damage_ready_log_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_body_damage_ready_log_helper_last_action(
-) -> ResidualHostBodyDamageReadyLogHelperAction {
+pub fn residual_host_body_damage_ready_log_helper_last_action()
+-> ResidualHostBodyDamageReadyLogHelperAction {
     ResidualHostBodyDamageReadyLogHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

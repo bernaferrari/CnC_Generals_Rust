@@ -14,9 +14,9 @@
 use crate::render_bridge::{BoneOverride, DrawSubmission, SubObjectVisibility};
 use gamelogic::object::draw::w3d_model_draw::{HlodGhostChildCapturePath, HlodLiveChildState};
 use gamelogic::object::w3d_ghost_object::{Matrix3x4, RenderSubObjectSnapshot};
+use ww3d_assets::AssetManager;
 use ww3d_assets::hlod_anim_pose::{child_world_from_anim_bones, resolve_hlod_anim_applied_bones};
 use ww3d_assets::prototypes::{HlodInstance, MeshPrototype};
-use ww3d_assets::AssetManager;
 
 /// C++ `TextureMapperClass::MAPPER_ID_LINEAR_OFFSET` (`mapper.h:29`).
 pub const MAPPER_ID_LINEAR_OFFSET: u32 = 1;

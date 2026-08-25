@@ -411,11 +411,7 @@ impl Ray {
             None
         } else {
             let t = (-b - discriminant.sqrt()) / (2.0 * a);
-            if t >= 0.0 {
-                Some(t)
-            } else {
-                None
-            }
+            if t >= 0.0 { Some(t) } else { None }
         }
     }
 

@@ -8,8 +8,8 @@ use game_engine::common::bit_flags::ModelConditionFlags;
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Module;
-use gamelogic::common::types::{ObjectShroudStatus, WeaponSlotType, INVALID_ID};
 use gamelogic::common::Matrix3D;
+use gamelogic::common::types::{INVALID_ID, ObjectShroudStatus, WeaponSlotType};
 use gamelogic::helpers::{
     BoneOverrideState, ModelDrawSourceIdentity, ModelDrawState, TheGameClient,
 };
@@ -545,9 +545,11 @@ fn test_icon_info() {
     icon_info.set_icon(IconType::DefaultHeal, icon, 10, 0);
 
     assert!(icon_info.icons.contains_key(&IconType::DefaultHeal));
-    assert!(icon_info
-        .keep_till_frame
-        .contains_key(&IconType::DefaultHeal));
+    assert!(
+        icon_info
+            .keep_till_frame
+            .contains_key(&IconType::DefaultHeal)
+    );
 
     icon_info.clear_icon(IconType::DefaultHeal);
     assert!(!icon_info.icons.contains_key(&IconType::DefaultHeal));
@@ -2127,9 +2129,11 @@ fn set_time_of_day_queues_ambient_restart() {
         .unwrap();
     drawable.update(0.0);
     assert!(drawable.ambient_sound_is_active());
-    assert!(drawable
-        .get_model_condition_flags()
-        .test(ModelConditionFlags::NIGHT));
+    assert!(
+        drawable
+            .get_model_condition_flags()
+            .test(ModelConditionFlags::NIGHT)
+    );
 }
 
 #[test]
@@ -2287,4 +2291,3 @@ fn status_icons_are_submitted_on_overlay_data() {
     assert!(drawable.overlay_data.show_enthusiastic);
     assert!(drawable.overlay_data.show_bombed);
 }
-

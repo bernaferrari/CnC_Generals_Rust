@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use super::command::{Command, CommandType, CommandValidation};
 use crate::common::{
-    AsciiString, Bool, Coord3D, DrawableID, ICoord2D, IRegion2D, Int, ObjectID, PlayerMaskType,
-    Real, UnicodeString, UnsignedInt, LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, Coord3D, DrawableID, ICoord2D, IRegion2D, Int, LOGICFRAMES_PER_SECOND,
+    ObjectID, PlayerMaskType, Real, UnicodeString, UnsignedInt,
 };
 use crate::object::registry::OBJECT_REGISTRY;
 

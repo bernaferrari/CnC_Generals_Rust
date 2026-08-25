@@ -4,26 +4,26 @@
 use crate::assets::sound_effects::SoundEffectsTable;
 use crate::assets::textures::TextureManager;
 use crate::authoritative_world::{
-    advance_authority_frames, set_verification_single_authority, AuthorityProbe,
+    AuthorityProbe, advance_authority_frames, set_verification_single_authority,
 };
-use crate::deterministic_trace::{run_trace_scenario, TraceScenario};
+use crate::deterministic_trace::{TraceScenario, run_trace_scenario};
 use crate::effects::particle_system::{ParticleSystem, ParticleSystemTemplate};
 use crate::game_logic::GameLogic;
 use crate::game_logic::{KindOf, Resources, Team, ThingTemplate};
 use crate::golden_campaign::run_golden_campaign;
 use crate::golden_skirmish::run_golden_skirmish;
+use crate::save_load::SaveLoadManager;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
     MissionStatus,
 };
-use crate::save_load::SaveLoadManager;
 use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-use crate::ui::hud_state::{color_for_player, UiColor};
+use crate::ui::hud_state::{UiColor, color_for_player};
 use crate::ui::main_menu::MainMenuState;
 use glam::Vec3;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 static MISSING_TEXTURE_NOTES: AtomicUsize = AtomicUsize::new(0);
@@ -148,11 +148,7 @@ pub fn texture_missing_diagnostic(
     }
     let msg = diagnose_missing_asset(texture_name);
     log::warn!("texture fallback count={missing_total}: {msg}");
-    if verification {
-        Err(msg)
-    } else {
-        Ok(())
-    }
+    if verification { Err(msg) } else { Ok(()) }
 }
 
 /// Exercise the real TextureManager missing-fallback path (wired to note_missing_texture_fallback).

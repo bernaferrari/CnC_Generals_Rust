@@ -3,7 +3,7 @@
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
 
-use super::helpers::{map_common_bonus_flags, ObjectId};
+use super::helpers::{ObjectId, map_common_bonus_flags};
 use super::masks_enums::{WeaponBonus, WeaponBonusConditionFlags};
 use super::weapon_instance::Weapon;
 
@@ -25,18 +25,22 @@ impl Weapon {
         }) {
             flags.0 |= source_flags.0;
             if let Some(container_id) = container_id {
-                if let Some(container_flags) = OBJECT_REGISTRY.with_object(container_id, |container| {
-                    let Some(contain) = container.get_contain() else {
-                        return None;
-                    };
-                    let Ok(contain_guard) = contain.try_lock() else {
-                        return None;
-                    };
-                    if !contain_guard.passes_weapon_bonus_to_passengers() {
-                        return None;
-                    }
-                    Some(map_common_bonus_flags(container.get_weapon_bonus_condition()))
-                }) {
+                if let Some(container_flags) =
+                    OBJECT_REGISTRY.with_object(container_id, |container| {
+                        let Some(contain) = container.get_contain() else {
+                            return None;
+                        };
+                        let Ok(contain_guard) = contain.try_lock() else {
+                            return None;
+                        };
+                        if !contain_guard.passes_weapon_bonus_to_passengers() {
+                            return None;
+                        }
+                        Some(map_common_bonus_flags(
+                            container.get_weapon_bonus_condition(),
+                        ))
+                    })
+                {
                     if let Some(container_flags) = container_flags {
                         flags.0 |= container_flags.0;
                     }

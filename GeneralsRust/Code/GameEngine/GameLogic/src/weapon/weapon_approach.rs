@@ -5,7 +5,7 @@ use crate::common::{Coord3D, KindOf};
 use crate::helpers::TheTerrainLogic;
 use crate::path::{PATHFIND_CELL_SIZE_F, SURFACE_AIR, SURFACE_GROUND};
 
-use super::helpers::{dual_world_registry_unavailable, ObjectId};
+use super::helpers::{ObjectId, dual_world_registry_unavailable};
 use super::weapon_instance::Weapon;
 
 const ATTACK_RANGE_APPROACH_FUDGE: f32 = 0.9;
@@ -132,10 +132,7 @@ impl Weapon {
                             approach_target_pos,
                             |goal| {
                                 self.is_source_object_with_goal_position_within_attack_range(
-                                    source,
-                                    goal,
-                                    target,
-                                    pos,
+                                    source, goal, target, pos,
                                 )
                             },
                         );

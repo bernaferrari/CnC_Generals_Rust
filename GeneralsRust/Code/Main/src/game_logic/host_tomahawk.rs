@@ -222,9 +222,9 @@ pub fn tomahawk_weapon() -> Weapon {
         pre_attack_delay: delay_frames_to_reload_secs(TOMAHAWK_PRE_ATTACK_FRAMES),
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Dual-radius residual damage at distance from impact (max of rings).

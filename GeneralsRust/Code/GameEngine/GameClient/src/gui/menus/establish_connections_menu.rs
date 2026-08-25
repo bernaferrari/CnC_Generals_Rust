@@ -417,11 +417,7 @@ impl EstablishConnectionsMenu {
             return None;
         }
         let name = self.player_ready_control_names[slot];
-        if name.is_empty() {
-            None
-        } else {
-            Some(name)
-        }
+        if name.is_empty() { None } else { Some(name) }
     }
 
     /// Get the control name for a player name display
@@ -430,11 +426,7 @@ impl EstablishConnectionsMenu {
             return None;
         }
         let name = self.player_name_control_names[slot];
-        if name.is_empty() {
-            None
-        } else {
-            Some(name)
-        }
+        if name.is_empty() { None } else { Some(name) }
     }
 
     /// Get the control name for a player status display
@@ -443,11 +435,7 @@ impl EstablishConnectionsMenu {
             return None;
         }
         let name = self.player_status_control_names[slot];
-        if name.is_empty() {
-            None
-        } else {
-            Some(name)
-        }
+        if name.is_empty() { None } else { Some(name) }
     }
 }
 

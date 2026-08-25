@@ -349,7 +349,6 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::peek_cached_point_on_path(self)
     }
 
-
     fn get_locomotor_distance_to_goal(&self) -> Real {
         UnitAIUpdate::get_locomotor_distance_to_goal(self)
     }

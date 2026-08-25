@@ -117,9 +117,9 @@ mod tests {
     #[test]
     fn simulate_credits_prepare_skip_residual_live() {
         use game_client::gui::callbacks::{
-            residual_credits_menu_is_active, residual_credits_menu_last_action,
-            simulate_credits_menu_bind_controls, simulate_credits_menu_prepare_skip,
-            ResidualCreditsMenuAction,
+            ResidualCreditsMenuAction, residual_credits_menu_is_active,
+            residual_credits_menu_last_action, simulate_credits_menu_bind_controls,
+            simulate_credits_menu_prepare_skip,
         };
         assert!(simulate_credits_menu_bind_controls());
         assert!(residual_credits_menu_is_active());

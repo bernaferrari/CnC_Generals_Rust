@@ -10,9 +10,9 @@ use crate::common::ObjectID;
 use crate::common::UpgradeMaskType;
 use crate::common::*;
 use crate::economy::{ResourceProduction, ResourceType};
-use crate::object::object_factory::{get_object_factory, ObjectCreationFlags};
+use crate::object::object_factory::{ObjectCreationFlags, get_object_factory};
 use crate::object::{Object, TriggerInfo};
-use crate::player::{player_list, Player, PlayerIndex};
+use crate::player::{Player, PlayerIndex, player_list};
 use crate::special_power::{SpecialPowerTemplate, SpecialPowerType};
 use crate::system::game_logic::current_frame;
 use crate::team::Team;
@@ -589,11 +589,7 @@ impl Structure {
             if let Ok(obj_guard) = base_arc.read() {
                 let current = obj_guard.get_health();
                 let max = obj_guard.get_max_health();
-                if max > 0.0 {
-                    current / max
-                } else {
-                    0.0
-                }
+                if max > 0.0 { current / max } else { 0.0 }
             } else {
                 0.0
             }

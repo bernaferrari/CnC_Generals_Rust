@@ -356,7 +356,6 @@ impl Object {
         }
         self.modules = modules;
 
-
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable_guard) = drawable.write() {
                 drawable_guard.clear_modules();
@@ -387,7 +386,6 @@ impl Object {
     pub fn set_name(&mut self, name: AsciiString) {
         self.name = name;
     }
-
 
     pub fn is_receiving_difficulty_bonus(&self) -> bool {
         self.is_receiving_difficulty_bonus
@@ -820,7 +818,6 @@ impl Object {
             self.on_die(&default_damage);
         }
 
-
         log::debug!("Object {} death processing complete", self.id);
     }
 
@@ -917,7 +914,6 @@ impl Object {
 
         let self_inflicted = damage_info.input.source_id == self.id;
         self.on_die_detonate_booby_trap();
-
 
         // FIRST, call our die modules
         log::debug!("Object {} calling die modules", self.id);
@@ -1106,8 +1102,6 @@ impl Object {
         tracker.set_trainable_override(trainable);
         self.experience_tracker = Some(Arc::new(Mutex::new(tracker)));
     }
-
-
 }
 
 impl Drop for Object {

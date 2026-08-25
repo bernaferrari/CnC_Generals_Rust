@@ -1,8 +1,8 @@
 //! ReplayControls.cpp callback bridge.
 
 use crate::gui::callbacks::get_ingame_ui_system;
-use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled};
 use crate::gui::with_window_manager;
+use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::helpers::TheGameLogic;
 
@@ -15,7 +15,9 @@ pub fn create_replay_control() -> bool {
         if manager.get_window_by_id(parent_id).is_some() {
             return true;
         }
-        manager.create_windows_from_script("ReplayControl.wnd").is_ok()
+        manager
+            .create_windows_from_script("ReplayControl.wnd")
+            .is_ok()
     })
 }
 
@@ -64,7 +66,6 @@ pub fn toggle_replay_controls() {
         let _ = win.borrow_mut().hide(!show);
     });
 }
-
 
 pub fn replay_control_input(
     window: &GameWindow,

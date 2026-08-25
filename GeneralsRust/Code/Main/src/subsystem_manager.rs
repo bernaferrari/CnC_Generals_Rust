@@ -1,14 +1,14 @@
 use crate::config::GlobalData;
 use crate::game_results_queue;
 use crate::input_system::InputSystem;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use game_engine::common::message_stream::{
-    get_message_stream, GameMessageType as MessageStreamGameMessageType,
+    GameMessageType as MessageStreamGameMessageType, get_message_stream,
 };
 use game_engine::common::system::{
-    big_file_system::BigArchiveBackend, file_system::get_file_system,
+    Xfer, big_file_system::BigArchiveBackend, file_system::get_file_system,
     local_file_system::LocalFileSystem,
-    subsystem_interface::SubsystemInterface as CommonSubsystemInterface, Xfer,
+    subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
 };
 use game_engine::get_game_state;
 use log::{debug, error, info, warn};
@@ -325,7 +325,7 @@ impl SubsystemInterface for GlobalDataSubsystem {
     }
 
     fn calculate_xfer_crc(&self) -> Option<u32> {
-        use game_engine::common::ini::{INILoadType, INI};
+        use game_engine::common::ini::{INI, INILoadType};
         use game_engine::common::system::xfer_crc::XferCRC;
         use game_engine::common::system::xfer_load::XferLoad;
         use std::io::Cursor;
@@ -595,13 +595,11 @@ impl AudioManagerSubsystem {
                     // Leftover addAudioEvent already applied mute / not-for-local.
                     // C++ has no second backend — do not replay on rodio.
                     if crate::assets::audio::leftover_the_audio_is_live() {
-                        if let Some(handle) =
-                            crate::assets::audio::play_sound_through_the_audio_at(
-                                event.event_type.as_str(),
-                                position,
-                                event.object_id.map(|id| id.0),
-                            )
-                        {
+                        if let Some(handle) = crate::assets::audio::play_sound_through_the_audio_at(
+                            event.event_type.as_str(),
+                            position,
+                            event.object_id.map(|id| id.0),
+                        ) {
                             if event.is_looping {
                                 if let Some(id) = event.object_id {
                                     self.track_looping_object_audio(
@@ -613,11 +611,7 @@ impl AudioManagerSubsystem {
                             }
                         } else if event.is_looping {
                             if let Some(id) = event.object_id {
-                                self.track_looping_object_audio(
-                                    id.0,
-                                    event.event_type.clone(),
-                                    0,
-                                );
+                                self.track_looping_object_audio(id.0, event.event_type.clone(), 0);
                             }
                         }
                         continue;
@@ -854,7 +848,7 @@ impl GameClientSubsystem {
             with_shell_mut, with_window_manager,
         };
         use game_client::system::SubsystemInterface as GameClientSubsystemInterface;
-        use game_client::video_player::{get_video_player, VideoPlayerInterface as _};
+        use game_client::video_player::{VideoPlayerInterface as _, get_video_player};
 
         update_eva_system();
         with_window_video_manager(|manager| manager.update());
@@ -923,7 +917,6 @@ impl SubsystemInterface for GameClientSubsystem {
         game_client::eva::reset_eva_system();
         Ok(())
     }
-
 
     fn update(&mut self, _dt: f32) -> Result<()> {
         self.update_internal(true)
@@ -1993,7 +1986,9 @@ pub fn init_subsystem_manager() -> Result<()> {
         register_default_subsystems(&mut manager);
 
         if let Err(err) = manager.initialize_all() {
-            warn!("Some subsystems failed to initialize: {err}. Continuing with available subsystems.");
+            warn!(
+                "Some subsystems failed to initialize: {err}. Continuing with available subsystems."
+            );
         }
 
         // C++ parity: GameEngine::init() lines 674-676. These must run after all
@@ -2132,42 +2127,60 @@ mod tests {
             );
         }
 
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["TerrainTypes", "TerrainRoads"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["TerrainRoads", "GlobalLanguage"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["RankInfoStore", "PlayerTemplateStore"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["ObjectCreationListStore", "BuildAssistant"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["Radar", "MetaMap"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["MetaMap", "ActionManager"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["ActionManager", "GameStateMap"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["GameStateMap", "GameState"].as_slice()));
-        assert!(manager
-            .initialization_order
-            .windows(2)
-            .any(|pair| pair == ["GameState", "GameResultsQueue"].as_slice()));
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["TerrainTypes", "TerrainRoads"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["TerrainRoads", "GlobalLanguage"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["RankInfoStore", "PlayerTemplateStore"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["ObjectCreationListStore", "BuildAssistant"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["Radar", "MetaMap"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["MetaMap", "ActionManager"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["ActionManager", "GameStateMap"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["GameStateMap", "GameState"].as_slice())
+        );
+        assert!(
+            manager
+                .initialization_order
+                .windows(2)
+                .any(|pair| pair == ["GameState", "GameResultsQueue"].as_slice())
+        );
     }
 
     #[test]

@@ -91,10 +91,9 @@ pub fn take_host_script_merge_team_requests() -> Vec<HostScriptMergeTeamRequest>
 /// Leftover partition / leftover crate objects are empty on the player path.
 pub fn request_host_script_capture_nearest_unowned(team: &str) {
     HOST_SCRIPT_CAPTURE_NEAREST_UNOWNED_REQUESTS.with(|q| {
-        q.borrow_mut()
-            .push(HostScriptCaptureNearestUnownedRequest {
-                team: team.to_string(),
-            });
+        q.borrow_mut().push(HostScriptCaptureNearestUnownedRequest {
+            team: team.to_string(),
+        });
     });
 }
 
@@ -139,4 +138,3 @@ mod tests {
         assert!(take_host_script_capture_nearest_unowned_requests().is_empty());
     }
 }
-

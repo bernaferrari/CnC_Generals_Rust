@@ -240,7 +240,10 @@ impl GameWindow {
         }
     }
 
-    pub(crate) fn handle_slider_left_drag(&mut self, packed_mouse: WindowMsgData) -> WindowMsgHandled {
+    pub(crate) fn handle_slider_left_drag(
+        &mut self,
+        packed_mouse: WindowMsgData,
+    ) -> WindowMsgHandled {
         let mouse_x = (packed_mouse & 0xFFFF) as i32;
         let mouse_y = ((packed_mouse >> 16) & 0xFFFF) as i32;
         let (win_x, win_y) = self.get_screen_position();
@@ -317,7 +320,9 @@ impl GameWindow {
             let _ = thumb.borrow_mut().set_position(0, 0);
             self.apply_slider_value(max_val);
         } else if child_center_y >= win_y + height - thumb_h / 2 {
-            let _ = thumb.borrow_mut().set_position(0, (height - thumb_h).max(0));
+            let _ = thumb
+                .borrow_mut()
+                .set_position(0, (height - thumb_h).max(0));
             self.apply_slider_value(min_val);
         } else {
             let num_ticks = (height - thumb_h) as f32 / span as f32;
@@ -341,7 +346,6 @@ impl GameWindow {
         self.notify_slider_track();
         WindowMsgHandled::Handled
     }
-
 
     pub(crate) fn show_tab_pane(&mut self, index: usize) {
         let panes: Vec<Rc<RefCell<GameWindow>>> = self

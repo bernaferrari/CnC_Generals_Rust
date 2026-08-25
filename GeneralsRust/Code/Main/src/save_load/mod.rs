@@ -179,7 +179,8 @@ pub fn current_mission_save_description() -> String {
         } else {
             campaign.name.clone()
         };
-        let (format, exists) = game_client::game_text::GameText::fetch_with_exists("GUI:MissionSave");
+        let (format, exists) =
+            game_client::game_text::GameText::fetch_with_exists("GUI:MissionSave");
         // Retail English token when the CSF label is missing.
         let format = if exists && format.contains('%') {
             format
@@ -257,9 +258,11 @@ pub fn format_error_loading_game(filepath: &str) -> (String, String) {
         return (title, body);
     }
     #[cfg(not(feature = "game_client"))]
-    ("GUI:Error".to_string(), format!("GUI:ErrorLoadingGame {filepath}"))
+    (
+        "GUI:Error".to_string(),
+        format!("GUI:ErrorLoadingGame {filepath}"),
+    )
 }
-
 
 /// Available save game information
 #[derive(Debug, Clone)]
@@ -622,7 +625,11 @@ mod tests {
         snapshot.xfer(&mut xfer).expect("xfer version");
         xfer.close().expect("close");
         let bytes = std::fs::read(&path).expect("read");
-        assert_eq!(bytes, vec![1u8], "placeholder snapshot must write version 1");
+        assert_eq!(
+            bytes,
+            vec![1u8],
+            "placeholder snapshot must write version 1"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -648,5 +655,4 @@ mod tests {
             "{body}"
         );
     }
-
 }

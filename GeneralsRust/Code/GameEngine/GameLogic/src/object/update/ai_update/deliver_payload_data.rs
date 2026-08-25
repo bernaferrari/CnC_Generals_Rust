@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use crate::common::RadiusDecalTemplate;
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, Real, UnsignedInt, WeaponSlotType, SHADOW_NAMES,
+    AsciiString, Bool, Coord3D, Int, Real, SHADOW_NAMES, UnsignedInt, WeaponSlotType,
 };
 use crate::effects::FXList;
 use crate::helpers::TheFXListStore;
 use crate::weapon::WeaponTemplate;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 
 /// Delivery data passed to DeliverPayloadAIUpdate.
 #[derive(Debug, Clone)]

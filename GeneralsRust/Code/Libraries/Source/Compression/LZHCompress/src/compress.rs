@@ -18,7 +18,7 @@
 //!    - Generate optimal Huffman codes
 //!    - Encode output using variable-length codes
 
-use crate::{dictionary::Dictionary, CompressionLevel, LzhHeader, LzhMatch, Result};
+use crate::{CompressionLevel, LzhHeader, LzhMatch, Result, dictionary::Dictionary};
 
 /// Maximum block size for compression (matches C++ BLOCKSIZE = 500000)
 const MAX_BLOCK_SIZE: usize = 500_000;

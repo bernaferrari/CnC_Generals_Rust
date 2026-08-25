@@ -47,7 +47,6 @@ impl Default for WaterGridState {
     }
 }
 
-
 static WATER_HOOKS: LazyLock<Mutex<VisualWaterHooks>> =
     LazyLock::new(|| Mutex::new(VisualWaterHooks::default()));
 static WATER_STATE: LazyLock<Mutex<WaterGridState>> =
@@ -73,7 +72,6 @@ fn with_state<R>(f: impl FnOnce(&WaterGridState) -> R) -> Option<R> {
 pub fn reset_water_grid_state() {
     let _ = with_state_mut(|s| *s = WaterGridState::default());
 }
-
 
 /// C++ `TheTerrainVisual->enableWaterGrid`.
 pub fn visual_enable_water_grid(enable: bool) {
@@ -192,11 +190,7 @@ fn world_to_grid(grid: &WaterGridState, world_x: f32, world_y: f32) -> Option<(f
         .transform_point3(Vec3::new(world_x, world_y, 0.0));
     let grid_x = local.x / cell_size;
     let grid_y = local.y / cell_size;
-    if grid_x < 0.0
-        || grid_y < 0.0
-        || grid_x > grid_cells_x - 1.0
-        || grid_y > grid_cells_y - 1.0
-    {
+    if grid_x < 0.0 || grid_y < 0.0 || grid_x > grid_cells_x - 1.0 || grid_y > grid_cells_y - 1.0 {
         return None;
     }
     Some((grid_x, grid_y))

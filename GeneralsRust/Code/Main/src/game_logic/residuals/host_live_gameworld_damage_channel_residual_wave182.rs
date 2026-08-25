@@ -109,7 +109,7 @@ pub fn simulate_live_gameworld_damage_channel_honesty() -> bool {
     use crate::game_logic::host_damage_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        ensure_gate_damage_authority, gameworld_damage_authority_enabled, GameWorldShadow,
+        GameWorldShadow, ensure_gate_damage_authority, gameworld_damage_authority_enabled,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

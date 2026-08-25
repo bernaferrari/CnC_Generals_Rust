@@ -67,7 +67,10 @@ fn make_color_target(
     (tex, view)
 }
 
-fn make_radial_mask(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::Texture, wgpu::TextureView) {
+fn make_radial_mask(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> (wgpu::Texture, wgpu::TextureView) {
     // Procedural analog of `exmask_g.tga` when the asset is missing.
     const N: u32 = 64;
     let mut pixels = vec![0u8; (N * N * 4) as usize];
@@ -123,7 +126,10 @@ fn make_radial_mask(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::Textur
     (tex, view)
 }
 
-fn try_load_fade_mask(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::Texture, wgpu::TextureView) {
+fn try_load_fade_mask(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> (wgpu::Texture, wgpu::TextureView) {
     // C++ `ScreenCrossFadeFilter::init` loads `exmask_g.tga`.
     let candidates = [
         "art/textures/exmask_g.tga",
@@ -427,7 +433,11 @@ pub fn filter_post_render(
                     }
                 }
             }
-            (1.0f32, if pan { 1.0 } else { 0.0 }, if additive { 1.0 } else { 0.0 })
+            (
+                1.0f32,
+                if pan { 1.0 } else { 0.0 },
+                if additive { 1.0 } else { 0.0 },
+            )
         }
         FilterType::Crossfade => (2.0f32, 0.0, 0.0),
         FilterType::Null => return,

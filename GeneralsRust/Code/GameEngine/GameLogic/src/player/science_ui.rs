@@ -9,7 +9,7 @@
 
 use crate::common::*;
 use crate::player::{Player, ScienceVec};
-use game_engine::common::rts::{ScienceType, SCIENCE_INVALID};
+use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
 
 /// Notification event for rank level-up
 #[derive(Debug, Clone)]

@@ -335,7 +335,7 @@ impl SpecialPowerModuleInterface for OCLSpecialPower {
 mod tests {
     use super::*;
     use crate::special_power_module::integration::{
-        initialize_integration_context, set_ocl_system, ObjectCreationListInterface,
+        ObjectCreationListInterface, initialize_integration_context, set_ocl_system,
     };
     use std::sync::{Arc, RwLock};
 
@@ -413,5 +413,4 @@ mod tests {
         assert!((data.base.recharge_time - 600.0).abs() < 0.1);
         assert_ne!(data.ocl_name.as_str(), "SUPERWEAPON_DaisyCutter");
     }
-
 }

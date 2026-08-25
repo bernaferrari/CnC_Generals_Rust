@@ -3,7 +3,6 @@ use std::sync::OnceLock;
 
 use super::victory_conditions::AllianceState;
 
-
 /// C++ ScriptActions NAMED_*_SPECIAL_POWER_COUNTDOWN residual.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NamedSpecialPowerCountdownOp {

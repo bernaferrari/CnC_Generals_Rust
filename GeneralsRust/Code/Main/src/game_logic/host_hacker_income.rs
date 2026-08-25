@@ -58,7 +58,6 @@ pub const HACKER_XP_PER_CASH_UPDATE: f32 = 1.0;
 /// C++ HackInternet → Money::deposit → MiscAudio MoneyDepositSound.
 pub const HACKER_CASH_PING_AUDIO: &str = "MoneyDepositSound";
 
-
 /// C++ HackInternet floating text Z lift (pos.z += 20.0f). Host Y-up → Y + 20.
 pub const HACKER_FLOATING_TEXT_Z_OFFSET: f32 = 20.0;
 
@@ -288,11 +287,7 @@ impl HostHackerIncomeRegistry {
     /// (`CashUpdateDelay`). First cash is unpack + delay, then the extra
     /// decrement-then-fire frame.
     #[inline]
-    fn first_cash_update_after(
-        current_frame: u32,
-        unpack_frames: u32,
-        delay_frames: u32,
-    ) -> u32 {
+    fn first_cash_update_after(current_frame: u32, unpack_frames: u32, delay_frames: u32) -> u32 {
         Self::next_cash_update_after(current_frame.saturating_add(unpack_frames), delay_frames)
     }
 
@@ -650,7 +645,6 @@ pub fn honesty_hacker_income_cash_residual_ok() -> bool {
         && cash_interval_frames(false) == 60
         && cash_interval_frames(true) == 54
         && HACKER_CASH_PING_AUDIO == "MoneyDepositSound"
-
         && HACKER_UNPACK_TIME_MS == 7_300
         && HACKER_PACK_TIME_MS == 5_133
         && (HACKER_PACK_UNPACK_VARIATION - 0.5).abs() < 0.01
@@ -1009,17 +1003,17 @@ mod tests {
             .insert("TestInternetCenterEvac".into(), ic_t);
 
         let ic = logic
-            .create_object(
-                "TestInternetCenterEvac",
-                Team::China,
-                glam::Vec3::ZERO,
-            )
+            .create_object("TestInternetCenterEvac", Team::China, glam::Vec3::ZERO)
             .expect("ic");
         if let Some(obj) = logic.host_object_mut(ic) {
             obj.set_status_under_construction(false);
         }
         let hacker = logic
-            .create_object("TestHackerEvac", Team::China, glam::Vec3::new(1.0, 0.0, 0.0))
+            .create_object(
+                "TestHackerEvac",
+                Team::China,
+                glam::Vec3::new(1.0, 0.0, 0.0),
+            )
             .expect("hacker");
         assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
         if let Some(obj) = logic.host_object_mut(hacker) {
@@ -1052,12 +1046,8 @@ mod tests {
             .get_player(1)
             .map(|p| p.resources.supplies)
             .unwrap_or(u32::MAX);
-        assert_eq!(
-            cash, 0,
-            "idle outside after IC evacuate must not deposit"
-        );
+        assert_eq!(cash, 0, "idle outside after IC evacuate must not deposit");
     }
-
 
     /// Field HackInternet while idle must still deposit (not the IC evacuate leak).
     #[test]

@@ -19,12 +19,12 @@
 use crate::desync_manager::DesyncManager;
 use crate::error::{NetworkError, NetworkResult};
 use crate::game_info::NET_CRC_INTERVAL;
-use crate::network_defs::{FRAMES_TO_KEEP, FRAME_DATA_LENGTH, MAX_FRAMES_AHEAD, MIN_RUNAHEAD};
+use crate::network_defs::{FRAME_DATA_LENGTH, FRAMES_TO_KEEP, MAX_FRAMES_AHEAD, MIN_RUNAHEAD};
 use crate::sync::frame_buffer::FrameBuffer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use tokio::sync::{mpsc, Mutex, Notify};
+use tokio::sync::{Mutex, Notify, mpsc};
 use tracing::{debug, info, warn};
 
 // ---------------------------------------------------------------------------

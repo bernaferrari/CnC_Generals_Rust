@@ -44,10 +44,9 @@ pub fn prime_live_damage_context(
         crate::game_logic::host_transition_damage_fx::set_damage_fx_source(None);
     }
     if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
-        set_pending_damage_status_type(
-            weapon_name
-                .and_then(crate::game_logic::weapon_bootstrap::host_damage_status_type_for_weapon_name),
-        );
+        set_pending_damage_status_type(weapon_name.and_then(
+            crate::game_logic::weapon_bootstrap::host_damage_status_type_for_weapon_name,
+        ));
     } else {
         set_pending_damage_status_type(None);
     }
@@ -239,7 +238,9 @@ impl Object {
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self, fx_type, damage.max(0.0),
+                self,
+                fx_type,
+                damage.max(0.0),
             );
             let _ = (source, death_type);
             return false;
@@ -270,8 +271,7 @@ impl Object {
             if amount > 0.0 {
                 let now = crate::game_logic::host_historic_bonus::logic_frame();
                 self.last_healing_timestamp = Some(now);
-                self.last_damage_info_type =
-                    Some(crate::game_logic::combat::DamageType::Healing);
+                self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
                 if is_bridge {
                     let max_health = self.health.maximum.max(self.max_health).max(1.0);
                     crate::game_logic::host_bridge_behavior::record_mirror(
@@ -287,7 +287,9 @@ impl Object {
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self, fx_type, amount.max(0.0),
+                self,
+                fx_type,
+                amount.max(0.0),
             );
             return false;
         }
@@ -322,9 +324,12 @@ impl Object {
                             damage_type.to_store() as u32,
                         );
                         self.stamp_last_damage_cpp(source, false, damage_type);
-                        let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                            self, fx_type, damage.max(0.0),
-                        );
+                        let _ =
+                            crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                                self,
+                                fx_type,
+                                damage.max(0.0),
+                            );
                         return true;
                     }
                     self.occupants.clear();
@@ -334,7 +339,9 @@ impl Object {
                         self.stamp_last_damage_cpp(source, false, damage_type);
                     }
                     let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                        self, fx_type, damage.max(0.0),
+                        self,
+                        fx_type,
+                        damage.max(0.0),
                     );
                     let _ = (source, death_type);
                     return false;
@@ -349,7 +356,9 @@ impl Object {
                 self.stamp_last_damage_cpp(source, false, damage_type);
             }
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self, fx_type, damage.max(0.0),
+                self,
+                fx_type,
+                damage.max(0.0),
             );
             let _ = (source, death_type);
             return false;
@@ -372,7 +381,9 @@ impl Object {
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self, fx_type, typed.max(0.0),
+                self,
+                fx_type,
+                typed.max(0.0),
             );
             let _ = (source, death_type);
             return false;
@@ -400,7 +411,9 @@ impl Object {
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self, fx_type, amount.max(0.0),
+                self,
+                fx_type,
+                amount.max(0.0),
             );
             let _ = (source, death_type);
             return false;
@@ -464,7 +477,6 @@ impl Object {
             self.break_stealth();
         }
 
-
         // C++ UndeadBody.cpp:58-68 / HighlanderBody.cpp:30-36 clamp
         // DamageInfo.in.m_amount PRE-armor, then ActiveBody applies armor
         // to the (possibly clamped) raw amount.
@@ -507,7 +519,9 @@ impl Object {
         // m_damageScalar only for non-UNRESISTABLE (ActiveBody.cpp:351, 490-497).
         // No invented armor/(armor+100) extra mitigation.
         let typed = crate::game_logic::host_armor_residual::apply_residual_armor(
-            self, damage_type, incoming,
+            self,
+            damage_type,
+            incoming,
         );
         let battle_plan_armor = self.battle_plan_armor_damage_scalar();
         let mut actual_damage = if matches!(
@@ -603,8 +617,6 @@ impl Object {
             fx_type,
             actual_damage,
         );
-
-
 
         // C++ UndeadBody::startSecondLife after ActiveBody::attemptDamage residual.
         if battle_bus_start_second {
@@ -761,9 +773,7 @@ impl Object {
             return true;
         }
         let n = self.template_name.to_ascii_lowercase();
-        n.contains("firefield")
-            || n.contains("poisonfield")
-            || n.contains("radiationfield")
+        n.contains("firefield") || n.contains("poisonfield") || n.contains("radiationfield")
     }
 
     /// C++ InactiveBody::attemptDamage — no HP; UNRESISTABLE calls onDie once.
@@ -795,8 +805,8 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
     ) -> bool {
         use crate::game_logic::host_base_defense::{
-            hive_damage_class_for_type, is_stinger_site_structure,
-            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors, HostHiveDamageClass,
+            HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
+            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors,
         };
         if source.is_none() {
             return false;
@@ -837,7 +847,9 @@ impl Object {
                 result.slave_damage_applied
             };
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-                self, damage_type, dealt,
+                self,
+                damage_type,
+                dealt,
             );
             return true;
         }
@@ -944,7 +956,6 @@ mod tests {
         );
         assert!(!tank.is_weapons_jammed());
     }
-
 
     #[test]
     fn gattling_uses_tank_armor_ten_percent() {
@@ -1147,7 +1158,11 @@ mod tests {
     fn status_duration_applies_armor_coefficient() {
         // C++ ActiveBody.cpp:351 adjustDamage; 460-464 ConvertDurationFromMsecsToFrames
         // on the armor-adjusted msec.
-        register_coeff_armor("StatusHalfArmor", gamelogic::damage::DamageType::Status, 0.5);
+        register_coeff_armor(
+            "StatusHalfArmor",
+            gamelogic::damage::DamageType::Status,
+            0.5,
+        );
         let mut tmpl = ThingTemplate::new("StatusHalf");
         tmpl.set_health(100.0);
         tmpl.add_kind_of(KindOf::Vehicle);
@@ -1186,11 +1201,14 @@ mod tests {
             0.5,
         );
         let mut tank = vehicle("RadTank", 47, 100.0);
-        tank.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: Some("RadTankArmor".into()),
-            damage_fx: None,
-        });
+        tank.thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("RadTankArmor".into()),
+                damage_fx: None,
+            });
         assert!(!tank.take_radiation_field_tick(20.0, None));
         assert!(
             (tank.health.current - 90.0).abs() < 1e-3,
@@ -1229,7 +1247,8 @@ mod tests {
             None,
             0.0,
         );
-        if let Some(mut store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store_mut() {
+        if let Some(mut store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store_mut()
+        {
             store.add_damage_fx("VetDamageFX".into(), dfx);
         }
         let _ = take_dispatched_armor_damage_fx();
@@ -1238,11 +1257,15 @@ mod tests {
         set_damage_fx_source(Some(snapshot_damage_fx_source(&attacker)));
         let mut victim = vehicle("RookieTank", 83, 200.0);
         victim.experience.level = crate::game_logic::VeterancyLevel::Rookie;
-        victim.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: Some("TankArmor".into()),
-            damage_fx: Some("VetDamageFX".into()),
-        });
+        victim
+            .thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("TankArmor".into()),
+                damage_fx: Some("VetDamageFX".into()),
+            });
         assert!(!victim.take_damage_from_typed(20.0, Some(ObjectId(82)), DamageType::Unresistable));
         let dispatched = take_dispatched_armor_damage_fx();
         assert!(
@@ -1259,7 +1282,7 @@ mod tests {
     fn take_damage_dispatches_armor_damage_fx() {
         // C++ ActiveBody.cpp:653 doDamageFX after attemptDamage.
         use crate::game_logic::host_transition_damage_fx::{
-            take_dispatched_armor_damage_fx, TemplateDamageAudio,
+            TemplateDamageAudio, take_dispatched_armor_damage_fx,
         };
         game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
         let mut dfx = game_engine::common::ini::ini_damage_fx::DamageFX::new();
@@ -1269,20 +1292,26 @@ mod tests {
             None,
             0.0,
         );
-        if let Some(mut store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store_mut() {
+        if let Some(mut store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store_mut()
+        {
             store.add_damage_fx("TankDamageFX".into(), dfx);
         }
         let _ = take_dispatched_armor_damage_fx();
         let mut tank = vehicle("FxTank", 61, 200.0);
-        tank.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: Some("TankArmor".into()),
-            damage_fx: Some("TankDamageFX".into()),
-        });
+        tank.thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("TankArmor".into()),
+                damage_fx: Some("TankDamageFX".into()),
+            });
         assert!(!tank.take_damage_from_typed(20.0, None, DamageType::Unresistable));
         let dispatched = take_dispatched_armor_damage_fx();
         assert!(
-            dispatched.iter().any(|n| n == "TankDamageFX" || n == "FX_TestHitSpark"),
+            dispatched
+                .iter()
+                .any(|n| n == "TankDamageFX" || n == "FX_TestHitSpark"),
             "armor DamageFX must dispatch, got {dispatched:?}"
         );
         let _ = TemplateDamageAudio::default();
@@ -1292,8 +1321,8 @@ mod tests {
     fn take_damage_queues_template_voice_fear_and_attacked_by() {
         // C++ ActiveBody.cpp:574 setAttackedBy, :624-637 VoiceFear.
         use crate::game_logic::host_transition_damage_fx::{
-            set_test_template_audio, set_test_voice_fear_roll, take_pending_attacked_by,
-            TemplateDamageAudio,
+            TemplateDamageAudio, set_test_template_audio, set_test_voice_fear_roll,
+            take_pending_attacked_by,
         };
         crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
         crate::game_logic::host_voice_fear_log::clear();
@@ -1346,7 +1375,8 @@ mod tests {
         };
         let _ = take_attacked_by_log();
         let victim = std::sync::Arc::new(std::sync::RwLock::new(gamelogic::player::Player::new(3)));
-        let attacker = std::sync::Arc::new(std::sync::RwLock::new(gamelogic::player::Player::new(4)));
+        let attacker =
+            std::sync::Arc::new(std::sync::RwLock::new(gamelogic::player::Player::new(4)));
         if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
             list.add_player(victim.clone());
             list.add_player(attacker);
@@ -1363,7 +1393,11 @@ mod tests {
     #[test]
     fn poison_field_tick_infects_and_unresistable_does_not() {
         // C++ FireWeaponUpdate DAMAGE_POISON → armor + PoisonedBehavior::onDamage.
-        let mut unit = Object::new(ThingTemplate::new("PoisonInfantry"), ObjectId(31), Team::USA);
+        let mut unit = Object::new(
+            ThingTemplate::new("PoisonInfantry"),
+            ObjectId(31),
+            Team::USA,
+        );
         unit.health.current = 100.0;
         unit.health.maximum = 100.0;
         assert!(!unit.take_damage_from_immediate_typed_death(
@@ -1372,7 +1406,10 @@ mod tests {
             DamageType::Toxin,
             crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta,
         ));
-        let p = unit.poisoned_behavior.as_ref().expect("field tick must infect");
+        let p = unit
+            .poisoned_behavior
+            .as_ref()
+            .expect("field tick must infect");
         assert!(p.is_active());
         assert_eq!(
             p.death_type,
@@ -1418,7 +1455,6 @@ mod tests {
             "Unresistable DoT must not refresh poison amount"
         );
     }
-
 
     #[test]
     fn last_damage_skips_zero_and_same_frame_first_write_wins() {
@@ -1470,8 +1506,8 @@ mod tests {
     #[test]
     fn stinger_small_arms_and_sniper_hit_slaves_not_structure() {
         use crate::game_logic::host_base_defense::{
-            hive_damage_class_for_type, init_stinger_hive_slave_roster, sync_hive_slave_mirrors,
-            HostHiveDamageClass,
+            HostHiveDamageClass, hive_damage_class_for_type, init_stinger_hive_slave_roster,
+            sync_hive_slave_mirrors,
         };
         assert_eq!(
             hive_damage_class_for_type(DamageType::Bullet),
@@ -1526,7 +1562,11 @@ mod tests {
             "width = clamp(13+9,20,150)*2 = 44, got {w}"
         );
         let pos = tank.get_health_box_position();
-        assert!((pos.y - 20.0).abs() < 1e-3, "y = 0 + height 10 + 10, got {}", pos.y);
+        assert!(
+            (pos.y - 20.0).abs() < 1e-3,
+            "y = 0 + height 10 + 10, got {}",
+            pos.y
+        );
     }
 
     #[test]
@@ -1538,11 +1578,14 @@ mod tests {
         bus.install_battle_bus_transport();
         bus.health.maximum = 50.0;
         bus.health.current = 50.0;
-        bus.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: Some("BusFlameArmor".into()),
-            damage_fx: None,
-        });
+        bus.thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("BusFlameArmor".into()),
+                damage_fx: None,
+            });
         assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame));
         assert!(
             bus.armor_set_second_life,
@@ -1563,11 +1606,14 @@ mod tests {
         bus.install_battle_bus_transport();
         bus.health.maximum = 50.0;
         bus.health.current = 50.0;
-        bus.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: Some("BusVulnArmor".into()),
-            damage_fx: None,
-        });
+        bus.thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("BusVulnArmor".into()),
+                damage_fx: None,
+            });
         let killed = bus.take_damage_from_typed(40.0, None, DamageType::Explosive);
         assert!(
             killed,
@@ -1583,11 +1629,14 @@ mod tests {
         register_coeff_armor("TreeFlameArmor", gamelogic::damage::DamageType::Flame, 0.25);
         let mut tree = vehicle("Tree01", 93, 50.0);
         tree.install_highlander_body();
-        tree.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: Some("TreeFlameArmor".into()),
-            damage_fx: None,
-        });
+        tree.thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("TreeFlameArmor".into()),
+                damage_fx: None,
+            });
         assert!(!tree.take_damage_from_typed(999.0, None, DamageType::Flame));
         assert!(
             (tree.health.current - 37.75).abs() < 0.05,
@@ -1607,11 +1656,14 @@ mod tests {
         );
         let mut tree = vehicle("Tree01", 94, 50.0);
         tree.install_highlander_body();
-        tree.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
-            conditions: 0,
-            armor: Some("TreeVulnArmor".into()),
-            damage_fx: None,
-        });
+        tree.thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("TreeVulnArmor".into()),
+                damage_fx: None,
+            });
         assert!(tree.take_damage_from_typed(40.0, None, DamageType::Explosive));
         assert!(tree.status.destroyed);
     }
@@ -1630,6 +1682,4 @@ mod tests {
         assert!(!o.take_damage_from_typed(10.0, None, DamageType::Unresistable));
         assert!((o.health.current - 90.0).abs() < 1e-3);
     }
-
-
 }

@@ -10,7 +10,7 @@
 
 use glam::Quat;
 use ww3d_animation::hcompressed_anim::{
-    HCompressedAnimClass, ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED,
+    ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED, HCompressedAnimClass,
 };
 use ww3d_animation::motion_channels::{
     AdaptiveDeltaMotionChannelClass, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,

@@ -20,9 +20,11 @@ impl GameWorldShadow {
             return false;
         };
         let owner_player_id = e.owner.and_then(|owner| {
-            host_player_to_gw.iter().find_map(|(&host_player_id, &gw_player_id)| {
-                (gw_player_id == owner).then_some(host_player_id)
-            })
+            host_player_to_gw
+                .iter()
+                .find_map(|(&host_player_id, &gw_player_id)| {
+                    (gw_player_id == owner).then_some(host_player_id)
+                })
         });
         let mut changed = false;
         let fire_spread_candidates = &snaps.fire_spread_candidates;
@@ -167,10 +169,11 @@ impl GameWorldShadow {
                         if oid == hid || !would {
                             continue;
                         }
-                        let dist = crate::game_logic::host_fire_spread::fire_spread_center_3d_distance(
-                            glam::Vec3::new(origin.x, origin.y, origin.z),
-                            glam::Vec3::new(ox, oy, oz),
-                        );
+                        let dist =
+                            crate::game_logic::host_fire_spread::fire_spread_center_3d_distance(
+                                glam::Vec3::new(origin.x, origin.y, origin.z),
+                                glam::Vec3::new(ox, oy, oz),
+                            );
                         if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
                             best = Some((oid, dist));
                         }
@@ -204,8 +207,8 @@ impl GameWorldShadow {
         // Wave 821: Black market / oil derrick AutoDeposit residual.
         if e.black_market_building {
             use crate::game_logic::{
-                is_legal_black_market_income_source, BLACK_MARKET_DEPOSIT_AMOUNT,
-                BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
+                BLACK_MARKET_DEPOSIT_AMOUNT, BLACK_MARKET_DEPOSIT_INTERVAL_FRAMES,
+                is_legal_black_market_income_source,
             };
             let alive = e.health > 0.0 && !e.destroyed;
             let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
@@ -247,8 +250,8 @@ impl GameWorldShadow {
         }
         if e.oil_derrick_building {
             use crate::game_logic::{
-                is_legal_oil_derrick_income_source, oil_derrick_deposit_amount,
-                OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES,
+                OIL_DERRICK_DEPOSIT_INTERVAL_FRAMES, is_legal_oil_derrick_income_source,
+                oil_derrick_deposit_amount,
             };
             let alive = e.health > 0.0 && !e.destroyed;
             let constructed = !e.under_construction && e.construction_percent + 0.001 >= 1.0;
@@ -308,62 +311,62 @@ impl GameWorldShadow {
                 e.hacker_next_deposit_frame = 0;
                 changed = true;
             } else {
-            use crate::game_logic::is_legal_hacker_income_source;
-            let alive = e.health > 0.0 && !e.destroyed;
-            let neutral = e.team_ordinal == 255;
-            let disabled_hacked = e.disabled_hacked;
-            if is_legal_hacker_income_source(alive, neutral, disabled_hacked) {
-                // HackInternetState descends through the configured tiers and
-                // falls through to $1 when this real module has all-zero
-                // amounts. Do not substitute retail host constants here.
-                let amount = match e.veterancy_ordinal {
-                    3 if e.hacker_heroic_cash_amount != 0 => e.hacker_heroic_cash_amount,
-                    3 | 2 if e.hacker_elite_cash_amount != 0 => e.hacker_elite_cash_amount,
-                    3 | 2 | 1 if e.hacker_veteran_cash_amount != 0 => {
-                        e.hacker_veteran_cash_amount
+                use crate::game_logic::is_legal_hacker_income_source;
+                let alive = e.health > 0.0 && !e.destroyed;
+                let neutral = e.team_ordinal == 255;
+                let disabled_hacked = e.disabled_hacked;
+                if is_legal_hacker_income_source(alive, neutral, disabled_hacked) {
+                    // HackInternetState descends through the configured tiers and
+                    // falls through to $1 when this real module has all-zero
+                    // amounts. Do not substitute retail host constants here.
+                    let amount = match e.veterancy_ordinal {
+                        3 if e.hacker_heroic_cash_amount != 0 => e.hacker_heroic_cash_amount,
+                        3 | 2 if e.hacker_elite_cash_amount != 0 => e.hacker_elite_cash_amount,
+                        3 | 2 | 1 if e.hacker_veteran_cash_amount != 0 => {
+                            e.hacker_veteran_cash_amount
+                        }
+                        _ if e.hacker_regular_cash_amount != 0 => e.hacker_regular_cash_amount,
+                        _ => 1,
+                    };
+                    // C++ selects the fast delay for any contained hacker, not
+                    // only the particular InternetHackContain presentation state.
+                    let contained = e.contained_by_host != 0;
+                    let interval = if contained {
+                        e.hacker_cash_update_delay_fast_frames
+                    } else {
+                        e.hacker_cash_update_delay_frames
+                    };
+                    if e.hacker_next_deposit_frame == 0 {
+                        // First schedule includes UNPACKING then cash delay.
+                        // Remirror usually bakes this; keep the same formula here.
+                        e.hacker_next_deposit_frame =
+                            frame.saturating_add(interval).saturating_add(1);
+                        changed = true;
+                    } else if frame >= e.hacker_next_deposit_frame {
+                        e.hacker_next_deposit_frame =
+                            frame.saturating_add(interval).saturating_add(1);
+                        if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
+                            let pos = e.transform.position;
+                            crate::game_logic::host_hacker_income_log::record(
+                                crate::game_logic::host_hacker_income_log::HackerIncomeEvent {
+                                    id: crate::game_logic::ObjectId(hid),
+                                    team: Self::entity_team_from_ordinal(e.team_ordinal),
+                                    owner_player_id,
+                                    pos: glam::Vec3::new(pos.x, pos.y, pos.z),
+                                    amount,
+                                    xp_per_cash_update: e.hacker_xp_per_cash_update,
+                                    next_deposit_frame: e.hacker_next_deposit_frame,
+                                    in_internet_center: e.hacker_in_internet_center,
+                                    stealthed: e.stealthed,
+                                    detected: e.detected,
+                                    veterancy_ordinal: e.veterancy_ordinal,
+                                    container_radius: 0.0,
+                                },
+                            );
+                        }
+                        changed = true;
                     }
-                    _ if e.hacker_regular_cash_amount != 0 => e.hacker_regular_cash_amount,
-                    _ => 1,
-                };
-                // C++ selects the fast delay for any contained hacker, not
-                // only the particular InternetHackContain presentation state.
-                let contained = e.contained_by_host != 0;
-                let interval = if contained {
-                    e.hacker_cash_update_delay_fast_frames
-                } else {
-                    e.hacker_cash_update_delay_frames
-                };
-                if e.hacker_next_deposit_frame == 0 {
-                    // First schedule includes UNPACKING then cash delay.
-                    // Remirror usually bakes this; keep the same formula here.
-                    e.hacker_next_deposit_frame =
-                        frame.saturating_add(interval).saturating_add(1);
-                    changed = true;
-                } else if frame >= e.hacker_next_deposit_frame {
-                    e.hacker_next_deposit_frame =
-                        frame.saturating_add(interval).saturating_add(1);
-                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                        let pos = e.transform.position;
-                        crate::game_logic::host_hacker_income_log::record(
-                            crate::game_logic::host_hacker_income_log::HackerIncomeEvent {
-                                id: crate::game_logic::ObjectId(hid),
-                                team: Self::entity_team_from_ordinal(e.team_ordinal),
-                                owner_player_id,
-                                pos: glam::Vec3::new(pos.x, pos.y, pos.z),
-                                amount,
-                                xp_per_cash_update: e.hacker_xp_per_cash_update,
-                                next_deposit_frame: e.hacker_next_deposit_frame,
-                                in_internet_center: e.hacker_in_internet_center,
-                                stealthed: e.stealthed,
-                                detected: e.detected,
-                                veterancy_ordinal: e.veterancy_ordinal,
-                                container_radius: 0.0,
-                            },
-                        );
-                    }
-                    changed = true;
                 }
-            }
             }
         }
         changed
@@ -373,9 +376,10 @@ impl GameWorldShadow {
 #[cfg(test)]
 mod tests {
     use crate::game_logic::{
+        ContainAdmission, ContainModuleKind, ContainModuleMetadata, GameLogic,
+        HackInternetAIUpdateMetadata, KindOf, Player, Team, ThingTemplate,
         host_hacker_income::{HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR},
-        host_hacker_income_log, ContainAdmission, ContainModuleKind, ContainModuleMetadata,
-        GameLogic, HackInternetAIUpdateMetadata, KindOf, Player, Team, ThingTemplate,
+        host_hacker_income_log,
     };
     use crate::gameworld_shadow::GameWorldShadow;
     use glam::Vec3;

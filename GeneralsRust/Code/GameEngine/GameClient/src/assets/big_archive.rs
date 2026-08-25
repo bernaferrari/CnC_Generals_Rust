@@ -8,7 +8,7 @@
 //! - Multi-part BIG archives
 //! - Integrity checking and validation
 
-use bytemuck::{cast_slice, from_bytes, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, cast_slice, from_bytes};
 use memmap2::{Mmap, MmapOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};

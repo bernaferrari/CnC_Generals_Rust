@@ -71,7 +71,6 @@ fn init_global_rank_info_store_if_needed() {
     let _ = RANK_INFO_STORE.set(RwLock::new(RankInfoStore::default()));
 }
 
-
 /// Rank descriptor exported by the subsystem.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RankInfo {

@@ -25,7 +25,7 @@
 //!   no slice-only damage floor (was 40).
 
 //! Wave 957: host_object/host_objects authority dual-read seal.
-use crate::authoritative_world::{set_verification_single_authority, AuthorityProbe};
+use crate::authoritative_world::{AuthorityProbe, set_verification_single_authority};
 use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::host_structure_economy_residual::COMMAND_CENTER_MAX_HEALTH;
 use crate::game_logic::{
@@ -237,7 +237,7 @@ fn install_templates(logic: &mut GameLogic) {
             range: 100.0,
             reload_time: 1.0,
             ..Weapon::default()
-});
+        });
     }
     for t in templates {
         logic.templates.insert(t.name.clone(), t);

@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostProductionSpawnPoseNoRejitterAction) {
 pub fn residual_host_production_spawn_pose_no_rejitter_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_production_spawn_pose_no_rejitter_last_action(
-) -> ResidualHostProductionSpawnPoseNoRejitterAction {
+pub fn residual_host_production_spawn_pose_no_rejitter_last_action()
+-> ResidualHostProductionSpawnPoseNoRejitterAction {
     ResidualHostProductionSpawnPoseNoRejitterAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

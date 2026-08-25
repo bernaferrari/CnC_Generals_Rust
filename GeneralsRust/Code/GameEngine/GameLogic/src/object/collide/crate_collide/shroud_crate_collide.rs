@@ -5,11 +5,11 @@
 //! Desc: A crate that clears the shroud for the picker-upper
 
 use super::*;
-use crate::common::{kindof_from_name, LegacyModuleData};
+use crate::common::{LegacyModuleData, kindof_from_name};
 use crate::helpers::TheAudio;
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
 use crate::object::collide::*;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ModuleData, NameKeyType, ShroudCrateCollideConfig};
 

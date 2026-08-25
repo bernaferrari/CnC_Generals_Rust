@@ -129,7 +129,6 @@ impl RayCollisionQuery {
         Some(result)
     }
 
-
     /// Test ray intersection with Sphere
     pub fn test_sphere(&self, sphere: &SphereClass) -> Option<CollisionResult> {
         let oc = self.origin - sphere.center;
@@ -237,7 +236,9 @@ pub fn test_aabox_obbox(aabox: &AABoxClass, obbox: &OBBoxClass) -> bool {
     let b_axes = obbox.basis;
     let t = obbox.center - aabox.center;
     let ra = |axis: Vec3| {
-        aabox.extent.x * axis.x.abs() + aabox.extent.y * axis.y.abs() + aabox.extent.z * axis.z.abs()
+        aabox.extent.x * axis.x.abs()
+            + aabox.extent.y * axis.y.abs()
+            + aabox.extent.z * axis.z.abs()
     };
     let rb = |axis: Vec3| {
         obbox.extent.x * b_axes[0].dot(axis).abs()
@@ -270,8 +271,6 @@ pub fn test_aabox_obbox(aabox: &AABoxClass, obbox: &OBBoxClass) -> bool {
     }
     true
 }
-
-
 
 pub fn test_sphere_sphere(a: &SphereClass, b: &SphereClass) -> bool {
     let distance_squared = (a.center - b.center).length_squared();
@@ -408,9 +407,7 @@ mod tests {
         // AABB of local extents would overlap (1.5,0) with extent 0.2; rotated diamond does not
         assert!(!test_aabox_obbox(&aabox, &obbox));
 
-        let along_diag =
-            AABoxClass::from_center_extent(Vec3::new(1.0, 1.0, 0.0), Vec3::splat(0.2));
+        let along_diag = AABoxClass::from_center_extent(Vec3::new(1.0, 1.0, 0.0), Vec3::splat(0.2));
         assert!(test_aabox_obbox(&along_diag, &obbox));
     }
 }
-

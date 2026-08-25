@@ -297,19 +297,24 @@ impl GameLogic {
         )
     }
 
-
     /// C++ CommandButtonHuntUpdate::update residual.
     pub fn tick_command_button_hunt_updates(&mut self) {
         use crate::game_logic::host_command_button_hunt::{
-            hunt_last_command_is_from_ai, HostCommandButtonHuntData, HostCommandButtonHuntMode,
-            HUNT_CMD_FROM_AI,
+            HUNT_CMD_FROM_AI, HostCommandButtonHuntData, HostCommandButtonHuntMode,
+            hunt_last_command_is_from_ai,
         };
 
         let frame = self.frame;
 
         let busy: std::collections::HashSet<ObjectId> =
             self.pending_special_abilities.keys().copied().collect();
-        let hunters: Vec<(ObjectId, HostCommandButtonHuntData, Team, glam::Vec3, AIState)> = self
+        let hunters: Vec<(
+            ObjectId,
+            HostCommandButtonHuntData,
+            Team,
+            glam::Vec3,
+            AIState,
+        )> = self
             .objects
             .iter()
             .filter_map(|(id, o)| {
@@ -410,8 +415,9 @@ impl GameLogic {
                 HostCommandButtonHuntMode::SabotageBuilding => {
                     PendingSpecialAbility::Sabotage { target_id }
                 }
-                HostCommandButtonHuntMode::SpecialPower
-                | HostCommandButtonHuntMode::FireWeapon => continue,
+                HostCommandButtonHuntMode::SpecialPower | HostCommandButtonHuntMode::FireWeapon => {
+                    continue;
+                }
             };
             self.queue_pending_special_ability(hunter_id, ability);
             if let Some(tp) = self.objects.get(&target_id).map(|t| t.get_position()) {
@@ -438,8 +444,8 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         use crate::game_logic::host_car_bomb::hijack_target_rejected;
         use crate::game_logic::host_command_button_hunt::{
-            hunt_enter_action_ok, hunt_same_map_status, hunt_stealthed_undetected,
-            COMMAND_BUTTON_HUNT_SCAN_RANGE,
+            COMMAND_BUTTON_HUNT_SCAN_RANGE, hunt_enter_action_ok, hunt_same_map_status,
+            hunt_stealthed_undetected,
         };
         use gamelogic::common::Relationship;
 
@@ -496,12 +502,12 @@ impl GameLogic {
         hunter_pos: glam::Vec3,
         button: &str,
     ) -> Option<ObjectId> {
+        use super::super::ATTACK_PRIORITY_DISTANCE_MODIFIER;
         use crate::game_logic::host_command_button_hunt::{
+            COMMAND_BUTTON_HUNT_SCAN_RANGE, HUNT_PLACE_EXPLOSIVE_VIEW_RANGE,
             hunt_effective_priority, hunt_same_map_status, hunt_special_capture_skips,
             hunt_special_is_place_explosive, hunt_stealthed_undetected,
-            COMMAND_BUTTON_HUNT_SCAN_RANGE, HUNT_PLACE_EXPLOSIVE_VIEW_RANGE,
         };
-        use super::super::ATTACK_PRIORITY_DISTANCE_MODIFIER;
         use gamelogic::common::Relationship;
 
         let kind = classify_command_button_hunt_special(button);
@@ -546,9 +552,7 @@ impl GameLogic {
                 CommandButtonHuntSpecial::Tnt | CommandButtonHuntSpecial::DemoCharge => {
                     is_str || (is_veh && !is_air)
                 }
-                CommandButtonHuntSpecial::HackVehicle => {
-                    is_veh && !is_air && !t.is_disabled()
-                }
+                CommandButtonHuntSpecial::HackVehicle => is_veh && !is_air && !t.is_disabled(),
                 CommandButtonHuntSpecial::HackBuilding | CommandButtonHuntSpecial::StealCash => {
                     is_str
                 }
@@ -636,16 +640,15 @@ impl GameLogic {
             }
             let same_owner = match (hunter_owner, m.owner_player_id) {
                 (Some(a), Some(b)) => a == b,
-                _ => {
-                    self.objects
-                        .get(&hunter_id)
-                        .is_some_and(|h| h.team == m.team && h.team != Team::Neutral)
-                }
+                _ => self
+                    .objects
+                    .get(&hunter_id)
+                    .is_some_and(|h| h.team == m.team && h.team != Team::Neutral),
             };
-            same_owner && hunt_dist_2d(m.get_position(), target_pos) <= HUNT_PLACE_EXPLOSIVE_VIEW_RANGE
+            same_owner
+                && hunt_dist_2d(m.get_position(), target_pos) <= HUNT_PLACE_EXPLOSIVE_VIEW_RANGE
         })
     }
-
 
     fn issue_command_button_hunt_special(
         &mut self,
@@ -706,7 +709,6 @@ impl GameLogic {
             }
         }
     }
-
 
     /// C++ DeployStyleAIUpdate pack/unpack timer residual.
     pub fn tick_deploy_style_updates(&mut self) {
@@ -788,9 +790,8 @@ impl GameLogic {
                 if obj.get_template().deploy_style_metadata.is_none() {
                     return false;
                 }
-                let trying_to_move = obj.waiting_for_path
-                    || !obj.movement.path.is_empty()
-                    || obj.status.moving;
+                let trying_to_move =
+                    obj.waiting_for_path || !obj.movement.path.is_empty() || obj.status.moving;
                 let is_in_guard_idle = matches!(
                     obj.ai_state,
                     AIState::GuardingArea | AIState::GuardingObject
@@ -798,8 +799,7 @@ impl GameLogic {
                 if is_in_guard_idle {
                     return true;
                 }
-                if !matches!(obj.ai_state, AIState::Attacking | AIState::AttackingGround)
-                {
+                if !matches!(obj.ai_state, AIState::Attacking | AIState::AttackingGround) {
                     return false;
                 }
                 let Some(slot) = obj.selected_weapon_slot() else {
@@ -908,7 +908,6 @@ impl GameLogic {
         }
     }
 
-
     /// Ensure a source-authored DeployStyle unit is unpacking/unpacked before
     /// fire. Callers must establish a live, in-range attack target (or C++
     /// `isInGuardIdleState`) before invoking this; `DeployStyleAIUpdate::update`
@@ -939,10 +938,7 @@ impl GameLogic {
                     true
                 }
             } else {
-                let ready_to_attack = obj
-                    .deploy_style
-                    .as_ref()
-                    .map(|ds| ds.is_ready_to_attack());
+                let ready_to_attack = obj.deploy_style.as_ref().map(|ds| ds.is_ready_to_attack());
                 let ready = match ready_to_attack {
                     Some(true) => true,
                     Some(false) => {
@@ -1064,10 +1060,7 @@ impl GameLogic {
 
             let target_id = target_raw.and_then(|raw| {
                 let id = ObjectId(raw);
-                self.objects
-                    .get(&id)
-                    .filter(|t| t.is_alive())
-                    .map(|_| id)
+                self.objects.get(&id).filter(|t| t.is_alive()).map(|_| id)
             });
 
             if let Some(target_id) = target_id {
@@ -1160,7 +1153,8 @@ impl GameLogic {
         match c.assault_transport.as_mut() {
             Some(a) => a.on_player_attack_move([dest.x, dest.y, dest.z]),
             None => {
-                let mut a = crate::game_logic::host_troop_crawler::HostAssaultTransportState::default();
+                let mut a =
+                    crate::game_logic::host_troop_crawler::HostAssaultTransportState::default();
                 a.on_player_attack_move([dest.x, dest.y, dest.z]);
                 c.assault_transport = Some(a);
             }
@@ -1226,10 +1220,7 @@ impl GameLogic {
         let (members, is_attack_object, is_attack_move, target_raw, goal) = snapshot;
         let target_id = target_raw.and_then(|raw| {
             let id = ObjectId(raw);
-            self.objects
-                .get(&id)
-                .filter(|t| t.is_alive())
-                .map(|_| id)
+            self.objects.get(&id).filter(|t| t.is_alive()).map(|_| id)
         });
 
         for mid_raw in members {
@@ -1412,7 +1403,6 @@ impl GameLogic {
         (0..a.member_ids.len()).all(|i| a.is_new_member(i))
     }
 
-
     /// C++ UndeadBody + BattleBusSlowDeathBehavior first-life / empty-hulk residual.
     pub fn tick_battle_bus_slow_deaths(&mut self) {
         use crate::game_logic::combat::DamageType;
@@ -1502,9 +1492,7 @@ impl GameLogic {
     /// Host Y is up; sample terrain (XZ ground) and fall back to the object's ground cache.
     fn vehicle_is_significantly_above_terrain(&self, vehicle: &crate::game_logic::Object) -> bool {
         let pos = vehicle.get_position();
-        let terrain_y = self
-            .terrain_height_at(pos)
-            .unwrap_or(vehicle.ground_height);
+        let terrain_y = self.terrain_height_at(pos).unwrap_or(vehicle.ground_height);
         let height_above_terrain = pos.y - terrain_y;
         height_above_terrain > -(3.0 * 3.0) * crate::game_logic::Object::SHOCK_GRAVITY
     }
@@ -1702,14 +1690,9 @@ impl GameLogic {
         spawned
     }
 
-
     /// C++ `VeterancyCrateCollide::executeCrateBehavior`: crate AIUpdate
     /// `getGoalObject() == picker`. No AI / no matching goal → inert.
-    pub fn veterancy_crate_ai_goal_matches(
-        &self,
-        crate_id: ObjectId,
-        picker_id: ObjectId,
-    ) -> bool {
+    pub fn veterancy_crate_ai_goal_matches(&self, crate_id: ObjectId, picker_id: ObjectId) -> bool {
         let Some(crate_obj) = self.objects.get(&crate_id) else {
             return false;
         };
@@ -1748,7 +1731,10 @@ impl GameLogic {
                         && !o.status.under_construction
                         && !o.is_kind_of(KindOf::Structure)
                         && o.is_trainable()
-                        && !matches!(o.experience.level, crate::game_logic::VeterancyLevel::Heroic)
+                        && !matches!(
+                            o.experience.level,
+                            crate::game_logic::VeterancyLevel::Heroic
+                        )
                         && {
                             let p = o.get_position();
                             let dx = p.x - origin.x;
@@ -1782,11 +1768,11 @@ impl GameLogic {
         money_provided: u32,
         seed: u32,
     ) -> (&'static str, u32) {
+        use crate::game_logic::VeterancyLevel;
         use crate::game_logic::host_gamedata_lobby_residual::{
             SALVAGE_LEVEL_CHANCE_RESIDUAL, SALVAGE_WEAPON_CHANCE_RESIDUAL,
         };
         use crate::game_logic::host_rng_residual::pure_logic_random_real;
-        use crate::game_logic::VeterancyLevel;
 
         let Some(picker) = self.objects.get_mut(&picker_id) else {
             return ("none", 0);
@@ -1808,8 +1794,8 @@ impl GameLogic {
         }
         // C++ SalvageCrateCollide::eligibleForLevel: not HEROIC and isTrainable.
         // Untrainable pickers fall through to doMoney instead of burning the crate.
-        let can_level = picker.is_trainable()
-            && !matches!(picker.experience.level, VeterancyLevel::Heroic);
+        let can_level =
+            picker.is_trainable() && !matches!(picker.experience.level, VeterancyLevel::Heroic);
         if can_level {
             let roll = pure_logic_random_real(seed, 2, 0.0, 1.0);
             if SALVAGE_LEVEL_CHANCE_RESIDUAL >= 1.0 - f32::EPSILON
@@ -1841,16 +1827,14 @@ impl GameLogic {
         // Ally kill → no crate (C++ CreateCrateDie::onDie getRelationship==ALLIES).
         // Resolve controlling players (unique-team fallback) — not Team faction equality.
         if let Some(kid) = killer_id {
-            let killer_snap = self.objects.get(&kid).map(|k| {
-                (
-                    k.owner_player_id,
-                    k.team,
-                    k.team_instance_name.clone(),
-                )
-            });
-            let victim_snap = self.objects.get(&victim_id).map(|v| {
-                (v.owner_player_id, v.team_instance_name.clone())
-            });
+            let killer_snap = self
+                .objects
+                .get(&kid)
+                .map(|k| (k.owner_player_id, k.team, k.team_instance_name.clone()));
+            let victim_snap = self
+                .objects
+                .get(&victim_id)
+                .map(|v| (v.owner_player_id, v.team_instance_name.clone()));
             if let (Some((k_own, k_team, k_inst)), Some((v_own, v_inst))) =
                 (killer_snap, victim_snap)
             {
@@ -1894,10 +1878,7 @@ impl GameLogic {
                     .map(|p| p.unlocked_sciences.iter().cloned().collect())
             })
             .unwrap_or_default();
-        let victim_owner = self
-            .objects
-            .get(&victim_id)
-            .and_then(|v| v.owner_player_id);
+        let victim_owner = self.objects.get(&victim_id).and_then(|v| v.owner_player_id);
         let seed = crate::game_logic::host_create_crate_die::crate_die_seed(
             victim_id, killer_id, self.frame,
         );
@@ -1910,7 +1891,10 @@ impl GameLogic {
                 killer_sciences: &killer_sciences,
             };
             let Some(req) = crate::game_logic::host_create_crate_die::try_roll_crate_spawn_gated(
-                name, seed, draw, Some(&gates),
+                name,
+                seed,
+                draw,
+                Some(&gates),
             ) else {
                 continue;
             };
@@ -2157,13 +2141,11 @@ fn leftover_template_command_set(template_name: &str) -> Option<String> {
     }
 }
 
-
-
 #[cfg(test)]
 mod hq_tb5nn_tests {
     use super::*;
     use crate::game_logic::host_command_button_hunt::{
-        HostCommandButtonHuntMode, HUNT_CMD_FROM_AI,
+        HUNT_CMD_FROM_AI, HostCommandButtonHuntMode,
     };
     use crate::game_logic::{
         KindOf, Object, ObjectId, Team, ThingTemplate, Weapon, WeaponLockType,
@@ -2225,4 +2207,3 @@ mod hq_tb5nn_tests {
         assert_eq!(u.weapon_lock_slot, 1);
     }
 }
-

@@ -141,9 +141,9 @@ mod tests {
     #[test]
     fn simulate_replay_prepare_load_residual_live() {
         use game_client::gui::callbacks::{
-            residual_replay_menu_last_action, residual_replay_menu_selected_slot,
-            simulate_replay_menu_back_button_gadget_selected, simulate_replay_menu_prepare_load,
-            ResidualReplayMenuAction,
+            ResidualReplayMenuAction, residual_replay_menu_last_action,
+            residual_replay_menu_selected_slot, simulate_replay_menu_back_button_gadget_selected,
+            simulate_replay_menu_prepare_load,
         };
         assert!(
             simulate_replay_menu_prepare_load(0),

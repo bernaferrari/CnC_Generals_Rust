@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::particle_manager::*;
-use game_engine::common::ini::{INIError, INILoadType, INI};
+use game_engine::common::ini::{INI, INIError, INILoadType};
 
 /// Particle system INI field parser
 pub struct ParticleSystemINIParser {
@@ -97,7 +97,6 @@ impl ParticleSystemINIParser {
         })
     }
 
-
     /// Parse a source that contains only `ParticleSystem` blocks into `manager`.
     pub fn overlay_mixed_source(
         &self,
@@ -109,7 +108,6 @@ impl ParticleSystemINIParser {
             self.parse_particle_system_source(ini, manager)
         })
     }
-
 
     /// Load C++ `ParticleSystem.ini` directly into the GameClient manager.
     ///
@@ -1064,6 +1062,9 @@ End
             ParticlePriorityType::None
         );
         assert!(manager.find_template("SecondStillLoads").is_some());
-        assert_eq!(ParticlePriorityType::from_index(0), Some(ParticlePriorityType::None));
+        assert_eq!(
+            ParticlePriorityType::from_index(0),
+            Some(ParticlePriorityType::None)
+        );
     }
 }

@@ -79,8 +79,8 @@ pub fn residual_presentation_poison_defector_tint_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_poison_defector_tint_last_action(
-) -> ResidualPresentationPoisonDefectorTintAction {
+pub fn residual_presentation_poison_defector_tint_last_action()
+-> ResidualPresentationPoisonDefectorTintAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationPoisonDefectorTintAction::MethodNames,
         2 => ResidualPresentationPoisonDefectorTintAction::SourceMarkers,

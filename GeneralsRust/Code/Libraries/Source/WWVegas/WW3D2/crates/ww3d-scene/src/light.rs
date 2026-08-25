@@ -622,7 +622,6 @@ fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
     }
 }
 
-
 /// Global lighting LOD cutoff - uses Arc<Mutex<f32>> for thread-safe mutable access
 static LIGHTING_LOD_CUTOFF: OnceLock<Arc<Mutex<f32>>> = OnceLock::new();
 

@@ -218,7 +218,6 @@ impl Default for CursorTooltipState {
             tooltip_text_color: [220, 220, 220, 255],
             tooltip_back_color: [20, 20, 0, 127],
             draw_submitted: false,
-
         }
     }
 }
@@ -348,7 +347,6 @@ impl MouseState {
     pub fn latch_position(&mut self) {
         self.previous_position = self.position;
     }
-
 
     /// Get current mouse position
     pub fn position(&self) -> (f32, f32) {
@@ -889,7 +887,6 @@ impl Mouse {
         }
     }
 
-
     /// Get input statistics
     pub fn stats(&self) -> &InputStats {
         &self.stats
@@ -1007,7 +1004,6 @@ impl Mouse {
     pub fn mark_tooltip_draw_submitted(&mut self) {
         self.tooltip_state.draw_submitted = true;
     }
-
 
     fn update_tooltip(&mut self) {
         let ts = &mut self.tooltip_state;

@@ -5,8 +5,8 @@
 use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::ini::{FieldParse, INIError, INILoadType, INIResult, INI};
-use crate::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
+use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
+use crate::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
 
 pub const MAX_AI_UPGRADES: usize = 20;
 

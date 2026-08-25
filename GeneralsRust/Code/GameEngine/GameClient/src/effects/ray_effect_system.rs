@@ -126,8 +126,7 @@ pub fn create_ray_effect_by_template(
     let midpoint = ray_effect_midpoint(start, end);
     let start_c = gamelogic::common::Coord3D::new(start[0], start[1], start[2]);
     let end_c = gamelogic::common::Coord3D::new(end[0], end[1], end[2]);
-    let visuals =
-        gamelogic::helpers::TheGameClient::ray_effect_template_visuals(template_name);
+    let visuals = gamelogic::helpers::TheGameClient::ray_effect_template_visuals(template_name);
     let template_drawable_id = gamelogic::helpers::TheGameClient.create_ray_effect_drawable(
         template_name,
         &start_c,
@@ -287,9 +286,7 @@ pub fn live_ray_effects() -> Vec<LiveRayEffect> {
 
 /// C++ `RayEffectSystem::reset` / `init`.
 pub fn reset_ray_effects() {
-    let mut store = global_rays()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
     let ids: Vec<u32> = store
         .slots
         .iter()
@@ -415,12 +412,8 @@ mod tests {
     fn fxlist_ray_effect_expires_after_max_intensity_plus_fade() {
         reset_ray_effects();
         update_ray_effects(10);
-        let ray = create_ray_effect_by_template(
-            [0.0, 0.0, 0.0],
-            [10.0, 0.0, 0.0],
-            "GenericLaser",
-        )
-        .expect("template present");
+        let ray = create_ray_effect_by_template([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], "GenericLaser")
+            .expect("template present");
         assert_eq!(live_ray_effects().len(), 1);
         assert!((ray.width_scalar - 1.0).abs() < 1e-5);
         assert!(ray.expire_frame > ray.created_frame);
@@ -437,5 +430,4 @@ mod tests {
         );
         reset_ray_effects();
     }
-
 }

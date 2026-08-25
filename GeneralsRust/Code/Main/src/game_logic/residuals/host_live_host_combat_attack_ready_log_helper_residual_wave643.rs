@@ -81,8 +81,8 @@ pub fn residual_host_combat_attack_ready_log_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_combat_attack_ready_log_helper_last_action(
-) -> ResidualHostCombatAttackReadyLogHelperAction {
+pub fn residual_host_combat_attack_ready_log_helper_last_action()
+-> ResidualHostCombatAttackReadyLogHelperAction {
     ResidualHostCombatAttackReadyLogHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

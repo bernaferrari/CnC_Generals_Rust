@@ -6,7 +6,7 @@
 
 use super::*;
 use game_engine::common::bit_flags::{
-    create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
+    ModelConditionBitFlags, ModelConditionFlags, create_model_condition_flags,
 };
 
 impl BasicDrawable {

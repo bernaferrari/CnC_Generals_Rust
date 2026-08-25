@@ -1306,15 +1306,15 @@ fn execute_packs_presentation_fx_segments_from_frame() {
     let i = src.find("pub fn execute").expect("execute");
     let body = &src[i..src.len().min(i + 3500)];
     assert!(
-            body.contains("pack_presentation_laser_segments")
-                && body.contains("pack_presentation_projectiles")
-                && body.contains("pack_presentation_move_lines")
-                && body.contains("pack_presentation_attack_lines")
-                && body.contains("pack_presentation_floating_texts")
-                && body.contains("pack_presentation_world_anims")
-                && body.contains("pack_presentation_particle_systems"),
-            "execute must pack presentation FX/order/UI/particle layout lines without GameLogic dual-read"
-        );
+        body.contains("pack_presentation_laser_segments")
+            && body.contains("pack_presentation_projectiles")
+            && body.contains("pack_presentation_move_lines")
+            && body.contains("pack_presentation_attack_lines")
+            && body.contains("pack_presentation_floating_texts")
+            && body.contains("pack_presentation_world_anims")
+            && body.contains("pack_presentation_particle_systems"),
+        "execute must pack presentation FX/order/UI/particle layout lines without GameLogic dual-read"
+    );
     assert!(
         body.contains("debug_last_laser_segments_packed")
             && body.contains("debug_last_projectile_segments_packed"),

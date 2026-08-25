@@ -1,15 +1,15 @@
 //! GameSpy overlay state and layout helpers.
 
+use crate::gui::callbacks::message_box::{
+    MessageBoxFunc, message_box_ok, message_box_ok_cancel, message_box_yes_no,
+};
+use crate::gui::{GameWindow, WindowLayout, with_window_manager};
+use game_network::gamespy::buddy_thread::{
+    BuddyRequest, BuddyRequestType, get_buddy_message_queue,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::gui::callbacks::message_box::{
-    message_box_ok, message_box_ok_cancel, message_box_yes_no, MessageBoxFunc,
-};
-use crate::gui::{with_window_manager, GameWindow, WindowLayout};
-use game_network::gamespy::buddy_thread::{
-    get_buddy_message_queue, BuddyRequest, BuddyRequestType,
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GameSpyOverlayType {
@@ -86,7 +86,7 @@ fn overlay_script(overlay: GameSpyOverlayType) -> &'static str {
 fn clear_gs_message_boxes() {
     let window = {
         let state_slot = overlay_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.message_box_ok = None;
         state.message_box_cancel = None;
         state.message_box_window.take()
@@ -102,7 +102,7 @@ fn clear_gs_message_boxes() {
 fn message_box_ok_clicked() {
     let callback = {
         let state_slot = overlay_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.message_box_window = None;
         state.message_box_ok.take()
     };
@@ -114,7 +114,7 @@ fn message_box_ok_clicked() {
 fn message_box_cancel_clicked() {
     let callback = {
         let state_slot = overlay_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.message_box_window = None;
         state.message_box_cancel.take()
     };
@@ -219,7 +219,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
 
     let layout = {
         let state_slot = overlay_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         if let Some(layout) = state.overlays.get(&overlay).cloned() {
             layout.borrow_mut().hide(false);
             Some(layout)
@@ -250,7 +250,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
 pub fn close_overlay(overlay: GameSpyOverlayType) {
     let layout = {
         let state_slot = overlay_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         state.overlays.remove(&overlay)
     };
     if let Some(layout) = layout {
@@ -262,7 +262,7 @@ pub fn close_overlay(overlay: GameSpyOverlayType) {
 pub fn close_all_overlays() {
     let overlays = {
         let state_slot = overlay_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         let overlays = state.overlays.drain().map(|(_, v)| v).collect::<Vec<_>>();
         overlays
     };
@@ -313,7 +313,7 @@ pub fn reopen_player_info() {
 pub fn check_reopen_player_info() {
     let reopen = {
         let state_slot = overlay_state();
-    let mut state = state_slot.borrow_mut();
+        let mut state = state_slot.borrow_mut();
         if state.reopen_player_info {
             state.reopen_player_info = false;
             true

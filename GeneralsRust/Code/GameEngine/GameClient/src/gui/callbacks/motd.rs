@@ -1,9 +1,9 @@
 //! W3DMOTD.cpp callback port.
 
 use crate::gui::{
-    with_window_manager, GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
+    GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus, with_window_manager,
 };
-use game_engine::common::name_key_generator::{NameKeyGenerator, NAMEKEY_INVALID};
+use game_engine::common::name_key_generator::{NAMEKEY_INVALID, NameKeyGenerator};
 use std::cell::Cell;
 
 thread_local! {

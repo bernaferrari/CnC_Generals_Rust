@@ -78,8 +78,8 @@ pub fn residual_presentation_body_disguise_stun_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_body_disguise_stun_last_action(
-) -> ResidualPresentationBodyDisguiseStunAction {
+pub fn residual_presentation_body_disguise_stun_last_action()
+-> ResidualPresentationBodyDisguiseStunAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationBodyDisguiseStunAction::MethodNames,
         2 => ResidualPresentationBodyDisguiseStunAction::SourceMarkers,

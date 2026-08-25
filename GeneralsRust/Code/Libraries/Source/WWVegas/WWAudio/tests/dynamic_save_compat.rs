@@ -1,6 +1,7 @@
 use std::io::Cursor;
 
 use wp_audio::{
+    SoundClassId, VoiceHandle, VoicePlaybackState, VoiceSpatialMode,
     logical::list::LogicalSoundRegistry,
     logical_listener::LogicalListener,
     math::Vector3,
@@ -9,7 +10,6 @@ use wp_audio::{
         SavedSoundRecord,
     },
     sound_scene::SoundScene,
-    SoundClassId, VoiceHandle, VoicePlaybackState, VoiceSpatialMode,
 };
 
 fn legacy_dynamic_sample_bytes() -> Vec<u8> {

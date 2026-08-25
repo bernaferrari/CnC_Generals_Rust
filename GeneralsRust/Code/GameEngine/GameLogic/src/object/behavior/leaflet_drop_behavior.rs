@@ -2,8 +2,8 @@
 //!
 //! Drops leaflets and disables enemy infantry/vehicles in range.
 
-use crate::common::xfer::XferExt;
 use crate::common::DisabledType;
+use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion,
 };
@@ -11,10 +11,10 @@ use crate::helpers::{TheGameLogic, TheParticleSystemManager, ThePartitionManager
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 

@@ -479,7 +479,6 @@ impl HLod {
             .unwrap_or(AT_MAX_LOD)
     }
 
-
     /// Set transform
     pub fn set_transform(&mut self, transform: Mat4) {
         self.transform = transform;
@@ -536,9 +535,12 @@ impl HLod {
         if !crate::hlod_bounding_box::is_bounding_box_obbox(model.get_name(), model.class_id()) {
             return None;
         }
-        let (center, extent) = model
-            .local_center_extent()
-            .unwrap_or_else(|| (model.get_bounding_box().center, model.get_bounding_box().extent));
+        let (center, extent) = model.local_center_extent().unwrap_or_else(|| {
+            (
+                model.get_bounding_box().center,
+                model.get_bounding_box().extent,
+            )
+        });
         Some(crate::hlod_bounding_box::obj_space_box_from_obbox(
             self.transform,
             node.transform,

@@ -4,8 +4,8 @@
 //! standard message boxes, extended message boxes, and quit dialogs.
 
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowId, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowId, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use log::{debug, info, warn};
@@ -1412,9 +1412,11 @@ mod tests {
         assert!(message_box.get_result().is_none());
 
         // Test showing message box
-        assert!(message_box
-            .show_message_box("Test", "This is a test", MessageBoxType::YesNo)
-            .is_ok());
+        assert!(
+            message_box
+                .show_message_box("Test", "This is a test", MessageBoxType::YesNo)
+                .is_ok()
+        );
         assert!(message_box.is_visible());
         assert_eq!(message_box.get_title(), "Test");
         assert_eq!(message_box.get_message(), "This is a test");
@@ -1431,16 +1433,18 @@ mod tests {
         let mut extended = ExtendedMessageBoxCallbacks::new();
 
         // Test showing extended message box
-        assert!(extended
-            .show_extended_message_box(
-                "Extended Test",
-                "This is an extended test",
-                MessageBoxType::OkCancel,
-                Some(30),
-                Some(MessageBoxButton::Ok),
-                "warning"
-            )
-            .is_ok());
+        assert!(
+            extended
+                .show_extended_message_box(
+                    "Extended Test",
+                    "This is an extended test",
+                    MessageBoxType::OkCancel,
+                    Some(30),
+                    Some(MessageBoxButton::Ok),
+                    "warning"
+                )
+                .is_ok()
+        );
 
         assert!(extended.is_visible());
         assert_eq!(extended.get_timeout(), Some(30));
@@ -1477,20 +1481,24 @@ mod tests {
         assert!(system.get_quit().read().is_ok());
 
         // Test system-level operations
-        assert!(system
-            .show_message_box("System Test", "Testing", MessageBoxType::Ok)
-            .is_ok());
+        assert!(
+            system
+                .show_message_box("System Test", "Testing", MessageBoxType::Ok)
+                .is_ok()
+        );
         assert!(system.show_quit_dialog(false).is_ok());
     }
 
     #[test]
     fn test_global_functions() {
-        assert!(show_message_box(
-            "Global Test",
-            "Testing global functions",
-            MessageBoxType::Ok
-        )
-        .is_ok());
+        assert!(
+            show_message_box(
+                "Global Test",
+                "Testing global functions",
+                MessageBoxType::Ok
+            )
+            .is_ok()
+        );
         assert!(show_quit_dialog(true).is_ok());
     }
 
@@ -1510,9 +1518,11 @@ mod tests {
 
         for msg_type in types {
             let mut message_box = MessageBoxCallbacks::new();
-            assert!(message_box
-                .show_message_box("Test", "Test", msg_type)
-                .is_ok());
+            assert!(
+                message_box
+                    .show_message_box("Test", "Test", msg_type)
+                    .is_ok()
+            );
         }
     }
 

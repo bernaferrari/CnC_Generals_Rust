@@ -29,7 +29,7 @@
 //! - Not network SCUD / toxin replication (network deferred)
 
 use super::ObjectId;
-use crate::game_logic::host_toxin_tractor::{is_chem_general_template, AnthraxResidualTier};
+use crate::game_logic::host_toxin_tractor::{AnthraxResidualTier, is_chem_general_template};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -408,10 +408,9 @@ impl HostScudPoisonRegistry {
             if !zone.is_due_tick(current_frame) {
                 continue;
             }
-            let death_type =
-                crate::game_logic::host_poisoned_behavior::death_type_for_anthrax_tier(
-                    zone.anthrax_tier,
-                );
+            let death_type = crate::game_logic::host_poisoned_behavior::death_type_for_anthrax_tier(
+                zone.anthrax_tier,
+            );
             let mut hits = Vec::new();
             for &(id, pos, _team, alive, airborne) in object_positions {
                 if !alive || id == zone.source_object || airborne {
@@ -713,9 +712,27 @@ mod tests {
 
         let positions = vec![
             (ObjectId(1), Vec3::ZERO, Team::GLA, true, false),
-            (ObjectId(2), Vec3::new(10.0, 0.0, 0.0), Team::USA, true, false),
-            (ObjectId(3), Vec3::new(200.0, 0.0, 0.0), Team::USA, true, false),
-            (ObjectId(4), Vec3::new(10.0, 0.0, 0.0), Team::USA, true, true),
+            (
+                ObjectId(2),
+                Vec3::new(10.0, 0.0, 0.0),
+                Team::USA,
+                true,
+                false,
+            ),
+            (
+                ObjectId(3),
+                Vec3::new(200.0, 0.0, 0.0),
+                Team::USA,
+                true,
+                false,
+            ),
+            (
+                ObjectId(4),
+                Vec3::new(10.0, 0.0, 0.0),
+                Team::USA,
+                true,
+                true,
+            ),
         ];
         let plans = reg.plan_due_ticks(0, &positions);
         // Base + gamma zones both due.

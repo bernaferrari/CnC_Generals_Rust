@@ -85,10 +85,7 @@ pub fn turret_deg_per_sec_to_rad_per_frame(deg_per_sec: f32) -> f32 {
 
 /// C++ `INI::parseDurationUnsignedInt` — msec → frames (ceil).
 pub fn turret_ms_to_frames(ms: u32) -> u32 {
-    let frames = (ms as u64)
-        .saturating_mul(30)
-        .saturating_add(999)
-        / 1_000;
+    let frames = (ms as u64).saturating_mul(30).saturating_add(999) / 1_000;
     u32::try_from(frames).unwrap_or(u32::MAX)
 }
 
@@ -107,9 +104,10 @@ fn turret_spawn_from_object_definition(template_name: &str) -> Option<TurretSpaw
     let definition = guard
         .get_object_definition(template_name)
         .or_else(|| guard.resolve_object_definition(template_name, None))?;
-    let module = definition.behavior_modules.iter().find(|module| {
-        module_has_turret_block(module)
-    })?;
+    let module = definition
+        .behavior_modules
+        .iter()
+        .find(|module| module_has_turret_block(module))?;
     Some(parse_turret_module(module))
 }
 
@@ -189,30 +187,29 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
     use crate::game_logic::host_battlemaster::BATTLE_MASTER_TURRET_TURN_RATE;
     use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
     use crate::game_logic::host_humvee::{
-        is_humvee_template, HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE,
+        HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE, is_humvee_template,
     };
     use crate::game_logic::host_neutron_shell::is_nuke_cannon_template;
     use crate::game_logic::host_nuke_cannon::NUKE_CANNON_TURRET_TURN_RATE;
     use crate::game_logic::host_strategy_center::{
-        is_strategy_center_template, STRATEGY_CENTER_FIRE_PITCH_DEG,
-        STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG, STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES,
-        STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG, STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES,
-        STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
-        STRATEGY_CENTER_RECENTER_TIME_FRAMES, STRATEGY_CENTER_TURRET_PITCH_RATE_DEG_PER_SEC,
-        STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC,
+        STRATEGY_CENTER_FIRE_PITCH_DEG, STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG,
+        STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_MIN_IDLE_SCAN_ANGLE_DEG,
+        STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES, STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG,
+        STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG, STRATEGY_CENTER_RECENTER_TIME_FRAMES,
+        STRATEGY_CENTER_TURRET_PITCH_RATE_DEG_PER_SEC,
+        STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC, is_strategy_center_template,
     };
-    use crate::game_logic::host_technical::{is_technical_template, TECHNICAL_TURRET_TURN_RATE};
+    use crate::game_logic::host_technical::{TECHNICAL_TURRET_TURN_RATE, is_technical_template};
     use crate::game_logic::host_tomahawk::{
-        is_tomahawk_template, TOMAHAWK_FIRE_PITCH, TOMAHAWK_TURRET_PITCH_RATE,
-        TOMAHAWK_TURRET_TURN_RATE,
+        TOMAHAWK_FIRE_PITCH, TOMAHAWK_TURRET_PITCH_RATE, TOMAHAWK_TURRET_TURN_RATE,
+        is_tomahawk_template,
     };
     use crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_TURRET_TURN_RATE;
     use crate::game_logic::host_usa_tanks::USA_TANK_TURRET_TURN_RATE;
 
     if is_strategy_center_template(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(
-            STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC,
-        );
+        let mut spec =
+            TurretSpawnSpec::enabled_with_turn_rate(STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC);
         spec.pitch_rate_rad =
             turret_deg_per_sec_to_rad_per_frame(STRATEGY_CENTER_TURRET_PITCH_RATE_DEG_PER_SEC);
         spec.natural_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;

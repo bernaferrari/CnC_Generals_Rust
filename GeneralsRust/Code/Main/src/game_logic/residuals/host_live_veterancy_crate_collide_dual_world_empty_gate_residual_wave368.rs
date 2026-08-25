@@ -46,8 +46,8 @@ pub const RUNTIME_HOST_LIVE_VETERANCY_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_CMD_NA
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_veterancy_crate_collide_dual_world_empty_gate_method_names_residual_wave368(
-) -> bool {
+pub fn honesty_live_veterancy_crate_collide_dual_world_empty_gate_method_names_residual_wave368()
+-> bool {
     LIVE_VETERANCY_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE368.len() == 7
         && residual_name_index(
             LIVE_VETERANCY_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE368,
@@ -64,8 +64,8 @@ pub fn honesty_live_veterancy_crate_collide_dual_world_empty_gate_method_names_r
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_veterancy_crate_collide_dual_world_empty_gate_nav_commands_residual_wave368(
-) -> bool {
+pub fn honesty_live_veterancy_crate_collide_dual_world_empty_gate_nav_commands_residual_wave368()
+-> bool {
     LIVE_VETERANCY_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE368.len() == 4
         && residual_name_index(
             LIVE_VETERANCY_CRATE_COLLIDE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE368,

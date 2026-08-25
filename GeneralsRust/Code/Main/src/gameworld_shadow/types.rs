@@ -11,8 +11,6 @@ pub(super) struct HordePlayerRel {
     pub map_relations: HashMap<u32, gamelogic::common::Relationship>,
 }
 
-
-
 /// Compact probe comparing host authority vs GameWorld shadow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameWorldShadowProbe {

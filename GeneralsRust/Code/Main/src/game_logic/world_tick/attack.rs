@@ -380,10 +380,7 @@ impl GameLogic {
         }
         // C++ KINDOF_DONT_AUTO_CRUSH_INFANTRY (Tomahawk, dozers).
         if obj.is_kind_of(crate::game_logic::KindOf::Dozer)
-            || obj
-                .template_name
-                .to_ascii_uppercase()
-                .contains("TOMAHAWK")
+            || obj.template_name.to_ascii_uppercase().contains("TOMAHAWK")
         {
             return false;
         }
@@ -589,7 +586,8 @@ impl GameLogic {
                     let Some(attacker) = self.objects.get(&unit_id) else {
                         return AttackMachineResult::Failure;
                     };
-                    let is_ally = self.object_relationship(attacker, victim) == Relationship::Allies;
+                    let is_ally =
+                        self.object_relationship(attacker, victim) == Relationship::Allies;
                     (
                         victim.forward_speed_2d().abs(),
                         attacker.can_crush_or_squish(victim, is_ally),
@@ -664,7 +662,6 @@ impl GameLogic {
         self.remove_self_as_jet_targeter(unit_id);
         self.remove_self_as_jet_targeter_from_current_victim(unit_id);
     }
-
 
     /// C++ AIUpdateInterface::setTurretTargetObject residual.
     pub fn set_turret_target_object(
@@ -843,8 +840,7 @@ impl GameLogic {
     /// Leftover `turret.rs` friend_check_for_idle_mood_target: PreferMostDamage FromAi.
     fn turret_check_for_idle_mood_target(&mut self, unit_id: ObjectId, current_time: f32) {
         use mood_action_adjust::AFFECT_RANGE_IGNORE_ALL;
-        let adj =
-            self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle, false);
+        let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle, false);
         if adj & AFFECT_RANGE_IGNORE_ALL != 0 {
             return;
         }
@@ -989,9 +985,8 @@ impl GameLogic {
 
         let result = match sub {
             TurretSubState::Idle => {
-                let strategy_center = crate::game_logic::host_strategy_center::is_strategy_center_template(
-                    &tmpl,
-                );
+                let strategy_center =
+                    crate::game_logic::host_strategy_center::is_strategy_center_template(&tmpl);
                 // Strategy Center idle-scan is owned by
                 // `tick_strategy_center_turret_idle_scan` (Bombardment ACTIVE).
                 // Do not double-step the generic SM.
@@ -1400,7 +1395,6 @@ impl GameLogic {
                     };
                     if v.is_temporarily_preventing_aim_success(self.frame) {
                         return AttackAimResult::Continue;
-
                     }
                     let aim = v.apply_sneaky_targeting_offset(raw, self.frame);
 
@@ -1950,10 +1944,11 @@ impl GameLogic {
                     let w = slot.and_then(|s| u.weapon_slot(s));
                     let (min_r, max_r) = w.map(|w| (w.min_range, w.range)).unwrap_or((0.0, 0.0));
                     let name = slot.and_then(|s| u.weapon_name_for_slot(s));
-                    let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(max_r)
-                        || name
-                            .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
-                            .unwrap_or(false);
+                    let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(
+                        max_r,
+                    ) || name
+                        .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
+                        .unwrap_or(false);
                     (
                         min_r,
                         max_r,

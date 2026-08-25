@@ -5,8 +5,8 @@
 //! RTS interface elements that appear during gameplay.
 
 use super::{
-    color_for_player, layout, utils, BeaconDot, ControlBarSelectionPanelState, Interactive,
-    KeyCode, MinimapUIState, MouseButton, Renderable, UIEvent, UIRenderContext, UnitDisplayInfo,
+    BeaconDot, ControlBarSelectionPanelState, Interactive, KeyCode, MinimapUIState, MouseButton,
+    Renderable, UIEvent, UIRenderContext, UnitDisplayInfo, color_for_player, layout, utils,
 };
 use crate::game_logic::ObjectId;
 use crate::localization;
@@ -211,14 +211,9 @@ fn command_button_hotkey(command_name: &str) -> Option<KeyCode> {
         return None;
     }
     let (localized, exists) = game_client::game_text::GameText::fetch_with_exists(label);
-    let source = if exists {
-        localized.as_str()
-    } else {
-        label
-    };
+    let source = if exists { localized.as_str() } else { label };
     hotkey_char_from_ampersand(source).and_then(keycode_from_hotkey_char)
 }
-
 
 /// Resource display component
 pub struct ResourceDisplay {
@@ -529,10 +524,7 @@ impl ConstructionPanel {
         for (i, item) in self.building_queue.iter_mut().enumerate() {
             item.queue_index = i;
             item.production_id = i as u32;
-            item.position = (
-                start_x + i as i32 * (button_size + spacing) as i32,
-                start_y,
-            );
+            item.position = (start_x + i as i32 * (button_size + spacing) as i32, start_y);
             item.size = (button_size, button_size);
         }
     }
@@ -645,10 +637,7 @@ impl Default for GameHUD {
 
 impl GameHUD {
     /// Apply presentation ControlBar unit-command residual (Command_* names).
-    pub fn apply_presentation_unit_commands(
-        &mut self,
-        commands: &[crate::ui::UnitCommandButton],
-    ) {
+    pub fn apply_presentation_unit_commands(&mut self, commands: &[crate::ui::UnitCommandButton]) {
         self.command_buttons.clear();
         if commands.is_empty() {
             return;
@@ -1186,7 +1175,6 @@ impl GameHUD {
         #[cfg(feature = "game_client")]
         game_client::helpers::TheInGameUI::message(text);
     }
-
 
     pub fn push_radar_message(&mut self, text: &str) {
         self.add_radar_message(text, None, RadarPingKind::Generic);
@@ -1773,7 +1761,9 @@ mod tests {
             .map(|b| b.item_name.as_str())
             .collect();
         assert!(
-            !gla_names.iter().any(|n| n.contains("Ranger") || n.contains("Redguard")),
+            !gla_names
+                .iter()
+                .any(|n| n.contains("Ranger") || n.contains("Redguard")),
             "GLA barracks must not invent USA/China infantry: {:?}",
             gla_names
         );
@@ -1785,7 +1775,9 @@ mod tests {
             .map(|b| b.item_name.as_str())
             .collect();
         assert!(
-            !cc_names.iter().any(|n| *n == "AmericaBarracks" || *n == "AmericaPowerPlant"),
+            !cc_names
+                .iter()
+                .any(|n| *n == "AmericaBarracks" || *n == "AmericaPowerPlant"),
             "CC must not invent dozer structure lists: {:?}",
             cc_names
         );
@@ -1834,10 +1826,11 @@ mod tests {
             .handle_mouse_click(100, 100, MouseButton::Right)
             .expect("cancel event");
         assert!(matches!(ev, UIEvent::CancelStructurePlacement));
-        assert!(hud
-            .construction_panel
-            .pending_structure_placement()
-            .is_none());
+        assert!(
+            hud.construction_panel
+                .pending_structure_placement()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1865,10 +1858,11 @@ mod tests {
             pending.as_slice(),
             [UIEvent::CancelStructurePlacement]
         ));
-        assert!(hud
-            .construction_panel
-            .pending_structure_placement()
-            .is_none());
+        assert!(
+            hud.construction_panel
+                .pending_structure_placement()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1926,10 +1920,11 @@ mod tests {
             }
             other => panic!("expected PlaceStructureAt, got {other:?}"),
         }
-        assert!(hud
-            .construction_panel
-            .pending_structure_placement()
-            .is_none());
+        assert!(
+            hud.construction_panel
+                .pending_structure_placement()
+                .is_none()
+        );
     }
 
     fn construction_hotkey_queues_pending_ui_event_residual() {
@@ -2073,9 +2068,12 @@ mod tests {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
         hud.construction_panel.visible = true;
-        hud.construction_panel.add_to_queue("Ranger", "Ranger", 225, 5.0);
-        hud.construction_panel.add_to_queue("Ranger", "Ranger", 225, 5.0);
-        hud.construction_panel.add_to_queue("MissileDefender", "Missile Defender", 300, 5.0);
+        hud.construction_panel
+            .add_to_queue("Ranger", "Ranger", 225, 5.0);
+        hud.construction_panel
+            .add_to_queue("Ranger", "Ranger", 225, 5.0);
+        hud.construction_panel
+            .add_to_queue("MissileDefender", "Missile Defender", 300, 5.0);
         assert_eq!(hud.construction_panel.building_queue.len(), 3);
         assert_eq!(hud.construction_panel.building_queue[1].production_id, 1);
 
@@ -2096,10 +2094,7 @@ mod tests {
             other => panic!("expected CancelUnitProduction, got {other:?}"),
         }
         assert_eq!(hud.construction_panel.building_queue.len(), 2);
-        assert_eq!(
-            hud.construction_panel.building_queue[0].item_name,
-            "Ranger"
-        );
+        assert_eq!(hud.construction_panel.building_queue[0].item_name, "Ranger");
         assert_eq!(
             hud.construction_panel.building_queue[1].item_name,
             "MissileDefender"

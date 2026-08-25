@@ -147,11 +147,7 @@ impl AngryMobProjectileKind {
         }
     }
     pub fn from_u8(v: u8) -> Self {
-        if v == 1 {
-            Self::Molotov
-        } else {
-            Self::Rock
-        }
+        if v == 1 { Self::Molotov } else { Self::Rock }
     }
     pub fn projectile_name(self) -> &'static str {
         match self {
@@ -555,10 +551,7 @@ impl HostAngryMobState {
     pub fn is_due_expand(&self, current_frame: u32) -> bool {
         !self.pending_nexus_destroy
             && self.member_count < ANGRY_MOB_MAX_MEMBERS
-            && self
-                .replacement_times
-                .iter()
-                .any(|&t| current_frame >= t)
+            && self.replacement_times.iter().any(|&t| current_frame >= t)
     }
 
     /// Next SpawnTemplateName residual in rotation.
@@ -677,9 +670,8 @@ impl HostAngryMobRegistry {
     pub fn sync_mobs(&mut self, living: &[(ObjectId, super::Team, Vec3)], current_frame: u32) {
         let living_ids: std::collections::HashSet<ObjectId> =
             living.iter().map(|(id, _, _)| *id).collect();
-        self.active.retain(|m| {
-            living_ids.contains(&m.object_id) && !m.pending_nexus_destroy
-        });
+        self.active
+            .retain(|m| living_ids.contains(&m.object_id) && !m.pending_nexus_destroy);
 
         for &(id, team, pos) in living {
             if let Some(m) = self.active.iter_mut().find(|m| m.object_id == id) {
@@ -823,13 +815,18 @@ impl HostAngryMobRegistry {
         candidates: &[(ObjectId, Vec3, super::Team, bool, bool, bool, bool)],
         armed_by_team: impl Fn(super::Team) -> bool,
     ) -> Vec<HostAngryMobTickPlan> {
-        self.plan_due_ticks_with_enemies(current_frame, candidates, armed_by_team, |_, mob_team, _, team| {
-            is_angry_mob_hostile_team(
-                mob_team == super::Team::Neutral,
-                team == mob_team,
-                team == super::Team::Neutral,
-            )
-        })
+        self.plan_due_ticks_with_enemies(
+            current_frame,
+            candidates,
+            armed_by_team,
+            |_, mob_team, _, team| {
+                is_angry_mob_hostile_team(
+                    mob_team == super::Team::Neutral,
+                    team == mob_team,
+                    team == super::Team::Neutral,
+                )
+            },
+        )
     }
 
     /// Like [`Self::plan_due_ticks`], but hostility is C++ ENEMIES
@@ -891,15 +888,8 @@ impl HostAngryMobRegistry {
                 let origin = mob
                     .member_ids
                     .get(slot as usize)
-                    .and_then(|mid| {
-                        candidates
-                            .iter()
-                            .find(|(id, ..)| *id == *mid)
-                            .map(|c| c.1)
-                    })
-                    .unwrap_or_else(|| {
-                        angry_mob_member_orbit_destination(mob.position, slot)
-                    });
+                    .and_then(|mid| candidates.iter().find(|(id, ..)| *id == *mid).map(|c| c.1))
+                    .unwrap_or_else(|| angry_mob_member_orbit_destination(mob.position, slot));
                 origins.push(origin);
             }
             let hits = assign_angry_mob_member_hits(
@@ -1254,22 +1244,19 @@ mod tests {
             ANGRY_MOB_MAX_MEMBERS as usize
         );
 
-        if let Some(mob) = reg.active_mobs_mut().iter_mut().find(|m| m.object_id == mob_id)
+        if let Some(mob) = reg
+            .active_mobs_mut()
+            .iter_mut()
+            .find(|m| m.object_id == mob_id)
         {
             mob.member_ids = (10..20).map(ObjectId).collect();
             mob.member_count = mob.member_ids.len() as u32;
         }
 
         assert!(!reg.on_spawn_death(mob_id, ObjectId(10), 1));
-        assert_eq!(
-            reg.member_count_of(mob_id),
-            Some(ANGRY_MOB_MAX_MEMBERS - 1)
-        );
+        assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS - 1));
         assert_eq!(reg.apply_due_expands(1), 0);
-        assert_eq!(
-            reg.member_count_of(mob_id),
-            Some(ANGRY_MOB_MAX_MEMBERS - 1)
-        );
+        assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS - 1));
         assert!(!reg.honesty_expand_ok());
 
         let n = reg.apply_due_expands(1 + ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
@@ -1286,7 +1273,10 @@ mod tests {
         let mob_id = ObjectId(1);
         reg.sync_mobs(&[(mob_id, Team::GLA, Vec3::ZERO)], 0);
         reg.apply_due_expands(0);
-        if let Some(mob) = reg.active_mobs_mut().iter_mut().find(|m| m.object_id == mob_id)
+        if let Some(mob) = reg
+            .active_mobs_mut()
+            .iter_mut()
+            .find(|m| m.object_id == mob_id)
         {
             mob.member_ids = (1..=10).map(|i| ObjectId(i + 100)).collect();
             mob.member_count = 10;

@@ -7,11 +7,11 @@
 //! - Parallel rendering preparation
 //! - Work-stealing task scheduler
 
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use rayon::prelude::*;
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, RwLock,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -594,8 +594,8 @@ impl RayonProcessor {
                 // Simple distance-based collision detection
                 let distance = (object.transform.position - body.position).length();
                 if distance < 1.0 { // Collision threshold
-                     // Note: This is not thread-safe for collecting results
-                     // In practice, you'd use a thread-safe collection
+                    // Note: This is not thread-safe for collecting results
+                    // In practice, you'd use a thread-safe collection
                 }
             }
         });

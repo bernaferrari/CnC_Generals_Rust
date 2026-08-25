@@ -42,8 +42,8 @@ pub const RUNTIME_HOST_LIVE_CONSTRUCTION_PLACEMENT_DUAL_WORLD_EMPTY_GATE_CMD_NAM
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_construction_placement_dual_world_empty_gate_method_names_residual_wave454(
-) -> bool {
+pub fn honesty_live_construction_placement_dual_world_empty_gate_method_names_residual_wave454()
+-> bool {
     LIVE_CONSTRUCTION_PLACEMENT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE454.len() == 3
         && residual_name_index(
             LIVE_CONSTRUCTION_PLACEMENT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE454,
@@ -60,8 +60,8 @@ pub fn honesty_live_construction_placement_dual_world_empty_gate_method_names_re
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_construction_placement_dual_world_empty_gate_nav_commands_residual_wave454(
-) -> bool {
+pub fn honesty_live_construction_placement_dual_world_empty_gate_nav_commands_residual_wave454()
+-> bool {
     LIVE_CONSTRUCTION_PLACEMENT_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE454.len() == 4
         && residual_name_index(
             LIVE_CONSTRUCTION_PLACEMENT_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE454,

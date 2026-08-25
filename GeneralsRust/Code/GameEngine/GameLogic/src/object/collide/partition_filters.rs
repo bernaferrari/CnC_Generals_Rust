@@ -9,8 +9,8 @@ use crate::action_manager::{self, CanEnterType};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::types::ControlBarInterface;
 use crate::common::{
-    CommandSourceType, DisabledType, KindOf, KindOfMaskType, ObjectShroudStatus,
-    ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship, INVALID_ID, KIND_OF_MASK_NONE,
+    CommandSourceType, DisabledType, INVALID_ID, KIND_OF_MASK_NONE, KindOf, KindOfMaskType,
+    ObjectShroudStatus, ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Relationship,
 };
 use crate::player::ThePlayerList;
 use crate::squad::Squad;
@@ -1714,12 +1714,12 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
 mod tests {
     use super::super::partition_manager::PartitionFilter;
     use super::*;
-    use crate::common::types::DefaultThingTemplate;
     use crate::common::AsciiString;
+    use crate::common::types::DefaultThingTemplate;
     use crate::modules::ContainModuleInterface;
+    use crate::object::Object;
     use crate::object::contain::{GarrisonContain, GarrisonContainModuleData};
     use crate::object::registry::OBJECT_REGISTRY;
-    use crate::object::Object;
     use crate::player::Player;
     use crate::team::Team;
     use std::collections::HashMap;

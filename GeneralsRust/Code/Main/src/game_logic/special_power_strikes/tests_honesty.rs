@@ -776,7 +776,9 @@ fn particle_uplink_sound_residual_pack_honesty() {
     {
         let loops = reg.take_puc_loop_audio_this_frame();
         assert!(
-            loops.iter().any(|(_, _, cue)| *cue == PARTICLE_UNPACK_AUDIO),
+            loops
+                .iter()
+                .any(|(_, _, cue)| *cue == PARTICLE_UNPACK_AUDIO),
             "PREPARING must note UnpackToIdleSoundLoop"
         );
     }
@@ -1683,9 +1685,11 @@ fn special_power_audio_name_table_wave77_honesty() {
     assert_eq!(NUCLEAR_MISSILE_INITIATE_AT_LOCATION_SOUND, "AirRaidSiren");
     // Neutron InitiateSound commented out in retail — empty residual honesty.
     assert!(NUCLEAR_MISSILE_INITIATE_SOUND.is_empty());
-    assert!(HostSuperweaponKind::DaisyCutter
-        .retail_initiate_sound()
-        .is_empty());
+    assert!(
+        HostSuperweaponKind::DaisyCutter
+            .retail_initiate_sound()
+            .is_empty()
+    );
     // Host residual queue labels stay special-power template names.
     assert_eq!(
         HostSuperweaponKind::ScudStorm.activate_audio(),

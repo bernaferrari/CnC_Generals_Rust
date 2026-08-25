@@ -1,7 +1,7 @@
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, TheTerrainVisual};
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
@@ -194,12 +194,7 @@ impl W3DPropDraw {
         let orientation = owner_guard.get_orientation();
         let scale = owner_guard
             .get_drawable()
-            .and_then(|drawable| {
-                drawable
-                    .read()
-                    .ok()
-                    .map(|guard| guard.get_world_scale().x)
-            })
+            .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_world_scale().x))
             .unwrap_or(1.0);
         Some((position, orientation, scale))
     }

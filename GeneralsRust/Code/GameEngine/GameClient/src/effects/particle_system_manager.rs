@@ -9,10 +9,10 @@
 // Public re-exports to preserve parity with the original C++ API.
 pub use crate::effects::particle_manager::{
     EmissionVelocity, EmissionVelocityType, EmissionVolume, EmissionVolumeType,
-    GameClientRandomVariable, Keyframe, ObjectId as ParticleObjectId, ParticlePriorityType,
-    ParticleShaderType, ParticleSystemId, ParticleSystemManager, ParticleSystemTemplate,
-    ParticleType as CppParticleTypeEnum, RGBColorKeyframe, RandomKeyframe, WindMotion,
-    INVALID_PARTICLE_SYSTEM_ID, MAX_KEYFRAMES,
+    GameClientRandomVariable, INVALID_PARTICLE_SYSTEM_ID, Keyframe, MAX_KEYFRAMES,
+    ObjectId as ParticleObjectId, ParticlePriorityType, ParticleShaderType, ParticleSystemId,
+    ParticleSystemManager, ParticleSystemTemplate, ParticleType as CppParticleTypeEnum,
+    RGBColorKeyframe, RandomKeyframe, WindMotion,
 };
 
 // Also re-export the core ParticleSystem type used by the renderer from the

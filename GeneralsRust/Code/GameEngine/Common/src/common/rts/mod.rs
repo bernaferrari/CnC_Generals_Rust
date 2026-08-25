@@ -61,7 +61,7 @@ pub mod tunnel_tracker;
 pub use academy_stats::{AcademyAdviceInfo, AcademyClassificationType, AcademyStats};
 pub use achievements::{Achievement, AchievementCalculator, AchievementType};
 pub use action_manager::{
-    set_object_data_provider, ActionManager, Object, ObjectDataProvider, WeaponSlotType,
+    ActionManager, Object, ObjectDataProvider, WeaponSlotType, set_object_data_provider,
 };
 pub use energy::Energy;
 pub use handicap::{Handicap, HandicapType, ThingType};
@@ -73,25 +73,24 @@ pub use mission_stats::MissionStats;
 pub use money::Money;
 pub use multiplayer_rankings::{ELOCalculator, GameMode, PlayerRanking, PlayerTier, RankingSystem};
 pub use player::{
-    get_player_object_world, set_player_object_world, Player, PlayerObjectSnapshot,
-    PlayerObjectWorld,
+    Player, PlayerObjectSnapshot, PlayerObjectWorld, get_player_object_world,
+    set_player_object_world,
 };
-pub use player_list::{PlayerList, MAX_PLAYER_COUNT};
+pub use player_list::{MAX_PLAYER_COUNT, PlayerList};
 pub use player_template::{PlayerTemplate, PlayerTemplateStore};
 pub use post_game_stats::{GameResult, PlayerPostGameStats, PlayerSide, PostGameStatistics};
 pub use production_prerequisite::{PrereqUnitFlags, PrereqUnitRec, ProductionPrerequisite};
 pub use resource_gathering_manager::{ResourceGatheringManager, ResourceWorld};
 pub use science::{
-    get_science_store, get_science_store_mut, init_science_store, GeneralsExperience,
-    RankThreshold, RankThresholdStore, ScienceAccess, ScienceInfo, ScienceStore, ScienceSubsystem,
-    ScienceType, ScienceVec, LEVEL_CAP, SCIENCE_INVALID,
+    GeneralsExperience, LEVEL_CAP, RankThreshold, RankThresholdStore, SCIENCE_INVALID,
+    ScienceAccess, ScienceInfo, ScienceStore, ScienceSubsystem, ScienceType, ScienceVec,
+    get_science_store, get_science_store_mut, init_science_store,
 };
 pub use score_keeper::ScoreKeeper;
 pub use special_power::{SpecialPowerStore, SpecialPowerTemplate, SpecialPowerType};
 pub use team::{
-    get_team_factory, set_team_command_sink, set_team_factory, PlayerRef, Relationship,
-    SidesListReader, Team, TeamCommandSink, TeamFactory, TeamID, TeamInfoReader, TeamMember,
-    TeamPrototype, TeamPrototypeFlags, TeamRelationMap, TEAM_ID_INVALID,
-    TEAM_PROTOTYPE_ID_INVALID,
+    PlayerRef, Relationship, SidesListReader, TEAM_ID_INVALID, TEAM_PROTOTYPE_ID_INVALID, Team,
+    TeamCommandSink, TeamFactory, TeamID, TeamInfoReader, TeamMember, TeamPrototype,
+    TeamPrototypeFlags, TeamRelationMap, get_team_factory, set_team_command_sink, set_team_factory,
 };
-pub use tunnel_tracker::{TunnelDestroyResult, TunnelTracker, INVALID_ID};
+pub use tunnel_tracker::{INVALID_ID, TunnelDestroyResult, TunnelTracker};

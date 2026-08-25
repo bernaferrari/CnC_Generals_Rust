@@ -16,7 +16,7 @@ impl GameLogic {
     pub fn update_deliver_payloads(&mut self) {
         use crate::game_logic::host_deliver_payload::SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE;
         use crate::game_logic::host_supply_drop_zone::{
-            drop_cash_amount, SUPPLY_DROP_ZONE_DROP_CASH,
+            SUPPLY_DROP_ZONE_DROP_CASH, drop_cash_amount,
         };
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
@@ -429,10 +429,7 @@ impl GameLogic {
                     continue;
                 }
                 // C++ CrateCollide::isValidToExecute ForbidOwnerPlayer / HumanOnly.
-                if crate_forbid_owner
-                    && crate_owner.is_some()
-                    && crate_owner == *picker_owner
-                {
+                if crate_forbid_owner && crate_owner.is_some() && crate_owner == *picker_owner {
                     continue;
                 }
                 if crate_human_only {
@@ -622,8 +619,7 @@ impl GameLogic {
             // C++ VeterancyCrateCollide residual path.
             if entry.is_veterancy {
                 // C++ onCollide: isValidToExecute false leaves the crate.
-                if !self.veterancy_crate_is_valid_to_execute(picker_id, entry.veterancy_levels)
-                {
+                if !self.veterancy_crate_is_valid_to_execute(picker_id, entry.veterancy_levels) {
                     continue;
                 }
                 // C++ executeCrateBehavior: crate AI goal must be the picker.
@@ -667,7 +663,8 @@ impl GameLogic {
                     self.execute_salvage_crate_behavior(picker_id, entry.money_provided, seed);
                 (money, 0u32, Some(kind))
             } else {
-                let (cash, extra) = HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines);
+                let (cash, extra) =
+                    HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines);
                 (cash, extra, None)
             };
             // Salvage may grant upgrade with 0 money — still consume crate.
@@ -705,9 +702,8 @@ impl GameLogic {
             let money_crate = salvage_kind.is_none();
             if money_crate {
                 // ExecuteAnimation MoneyPickUp residual (INI-authored money crates).
-                let anim = HostMoneyCrateRegistry::money_pickup_anim(
-                    crate_id, picker_id, pos, self.frame,
-                );
+                let anim =
+                    HostMoneyCrateRegistry::money_pickup_anim(crate_id, picker_id, pos, self.frame);
                 self.host_money_crates.record_money_pickup_anim(anim);
             }
             if salvage_money && amount > 0 {
@@ -716,7 +712,12 @@ impl GameLogic {
                     .map(|player| player.color_rgb)
                     .unwrap_or((200, 200, 200));
                 let floating = HostMoneyCrateRegistry::salvage_money_floating_text(
-                    crate_id, picker_id, pos, amount, self.frame, player_color,
+                    crate_id,
+                    picker_id,
+                    pos,
+                    amount,
+                    self.frame,
+                    player_color,
                 );
                 self.host_money_crates.record_money_floating_text(floating);
             }
@@ -757,8 +758,8 @@ impl GameLogic {
     /// Object / W3D bone / CrateParachuteLocomotor force matrix.
     pub(crate) fn tick_crate_parachute_residual(&mut self, crate_id: ObjectId) {
         use crate::game_logic::host_deliver_payload::{
-            should_open_crate_parachute, tick_crate_parachute_height, CRATE_PARACHUTE_LAND_AUDIO,
-            CRATE_PARACHUTE_OPEN_AUDIO,
+            CRATE_PARACHUTE_LAND_AUDIO, CRATE_PARACHUTE_OPEN_AUDIO, should_open_crate_parachute,
+            tick_crate_parachute_height,
         };
 
         // Only residual money crates use this path (pilot path is separate).
@@ -792,7 +793,7 @@ impl GameLogic {
         if open && !landed {
             if let Some(target) = landing_override {
                 use crate::game_logic::host_usa_pilot::{
-                    step_parachute_landing_override, PARACHUTE_LANDING_OVERRIDE_SPEED,
+                    PARACHUTE_LANDING_OVERRIDE_SPEED, step_parachute_landing_override,
                 };
                 let (sx, sz, moved) = step_parachute_landing_override(
                     pos.x,
@@ -866,8 +867,8 @@ impl GameLogic {
     /// GLA RadarVan GrantUpgradeCreate Upgrade_GLARadar + RadarUpgrade DisableProof.
     pub(crate) fn update_player_radar(&mut self) {
         use crate::game_logic::host_radar::{
-            drain_leftover_radar_disabled_edges, is_disabled_for_radar, is_legal_radar_provider,
-            RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
+            RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO, drain_leftover_radar_disabled_edges,
+            is_disabled_for_radar, is_legal_radar_provider,
         };
         use crate::game_logic::host_upgrades::{
             normalize_upgrade_identity, radar_provider_required_research_upgrade,
@@ -918,14 +919,16 @@ impl GameLogic {
             if let Some(required) = radar_provider_required_research_upgrade(&obj.template_name) {
                 let researched = self.players.get(&player_id).is_some_and(|player| {
                     player.has_unlocked_upgrade(required)
-                        || player.unlocked_sciences.iter().any(|name| {
-                            normalize_upgrade_identity(name).contains("chinaradar")
-                        })
+                        || player
+                            .unlocked_sciences
+                            .iter()
+                            .any(|name| normalize_upgrade_identity(name).contains("chinaradar"))
                 });
                 let tagged = obj.has_upgrade_tag(required)
-                    || obj.applied_upgrades.iter().any(|name| {
-                        normalize_upgrade_identity(name).contains("chinaradar")
-                    });
+                    || obj
+                        .applied_upgrades
+                        .iter()
+                        .any(|name| normalize_upgrade_identity(name).contains("chinaradar"));
                 if !researched && !tagged {
                     continue;
                 }
@@ -950,7 +953,10 @@ impl GameLogic {
             let sabotaged = player.power_sabotaged_till_frame > 0
                 && self.frame < player.power_sabotaged_till_frame;
             let brownout = player.power_available < 0 || sabotaged;
-            let had = prior_has.get(&pid).copied().unwrap_or_else(|| player.has_radar());
+            let had = prior_has
+                .get(&pid)
+                .copied()
+                .unwrap_or_else(|| player.has_radar());
             player.disable_proof_radar_count = proof;
             if brownout {
                 player.disable_radar();
@@ -1001,7 +1007,6 @@ impl GameLogic {
             levels,
         )
     }
-
 
     /// C++ parity (Player::update → doPowerDisable): set/clear
     /// `disabled_underpowered` on all KINDOF_POWERED objects depending on
@@ -1099,8 +1104,8 @@ impl GameLogic {
         // Disable-proof vans stay online via hasRadar, not by skipping the flag.
         let frame = self.frame;
         for player in self.players.values_mut() {
-            let sabotaged = player.power_sabotaged_till_frame > 0
-                && frame < player.power_sabotaged_till_frame;
+            let sabotaged =
+                player.power_sabotaged_till_frame > 0 && frame < player.power_sabotaged_till_frame;
             if sabotaged || player.power_available < 0 {
                 player.disable_radar();
             } else {
@@ -1160,7 +1165,6 @@ impl GameLogic {
             } else {
                 obj.status.disabled_underpowered = should_disable;
             }
-
         }
         // C++ Eva::shouldPlayLowPower residual (local energy insufficient).
         self.update_eva_low_power();

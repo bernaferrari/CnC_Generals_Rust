@@ -979,7 +979,7 @@ mod tests {
         let box_geom = GeometryInfo::new_box(40.0, 20.0, false);
         let expected = (box_geom.get_major_radius() * box_geom.get_major_radius()
             + box_geom.get_minor_radius() * box_geom.get_minor_radius())
-            .sqrt();
+        .sqrt();
         assert!((box_geom.get_bounding_circle_radius() - expected).abs() < 1e-4);
         assert!(box_geom.get_bounding_circle_radius() > box_geom.get_major_radius());
         let cyl = GeometryInfo::new_cylinder(7.0, 12.0, false);

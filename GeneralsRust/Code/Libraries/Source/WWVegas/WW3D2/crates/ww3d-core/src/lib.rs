@@ -22,32 +22,31 @@ pub mod texture;
 pub mod w3d_io;
 
 pub use chunks::{
-    W3DChunkType, W3D_CHUNK_ADAPTIVEDELTA_CHANNEL, W3D_CHUNK_AGGREGATE,
-    W3D_CHUNK_AGGREGATE_CLASS_INFO, W3D_CHUNK_AGGREGATE_HEADER, W3D_CHUNK_AGGREGATE_INFO,
-    W3D_CHUNK_ANIMATION, W3D_CHUNK_ANIMATION_CHANNEL, W3D_CHUNK_ANIMATION_HEADER,
-    W3D_CHUNK_BIT_CHANNEL, W3D_CHUNK_BOX, W3D_CHUNK_COLLECTION, W3D_CHUNK_COLLECTION_HEADER,
-    W3D_CHUNK_COLLECTION_OBJ_NAME, W3D_CHUNK_COMPRESSED_ANIMATION,
-    W3D_CHUNK_COMPRESSED_ANIMATION_CHANNEL, W3D_CHUNK_COMPRESSED_ANIMATION_HEADER,
-    W3D_CHUNK_COMPRESSED_BIT_CHANNEL, W3D_CHUNK_DAZZLE, W3D_CHUNK_DAZZLE_NAME,
-    W3D_CHUNK_DAZZLE_TYPENAME, W3D_CHUNK_EMITTER, W3D_CHUNK_EMITTER_HEADER,
+    W3D_CHUNK_ADAPTIVEDELTA_CHANNEL, W3D_CHUNK_AGGREGATE, W3D_CHUNK_AGGREGATE_CLASS_INFO,
+    W3D_CHUNK_AGGREGATE_HEADER, W3D_CHUNK_AGGREGATE_INFO, W3D_CHUNK_ANIMATION,
+    W3D_CHUNK_ANIMATION_CHANNEL, W3D_CHUNK_ANIMATION_HEADER, W3D_CHUNK_BIT_CHANNEL, W3D_CHUNK_BOX,
+    W3D_CHUNK_COLLECTION, W3D_CHUNK_COLLECTION_HEADER, W3D_CHUNK_COLLECTION_OBJ_NAME,
+    W3D_CHUNK_COMPRESSED_ANIMATION, W3D_CHUNK_COMPRESSED_ANIMATION_CHANNEL,
+    W3D_CHUNK_COMPRESSED_ANIMATION_HEADER, W3D_CHUNK_COMPRESSED_BIT_CHANNEL, W3D_CHUNK_DAZZLE,
+    W3D_CHUNK_DAZZLE_NAME, W3D_CHUNK_DAZZLE_TYPENAME, W3D_CHUNK_EMITTER, W3D_CHUNK_EMITTER_HEADER,
     W3D_CHUNK_EMITTER_INFO, W3D_CHUNK_EMITTER_INFOV2, W3D_CHUNK_EMITTER_LINE_PROPERTIES,
     W3D_CHUNK_EMITTER_PROPS, W3D_CHUNK_EMITTER_USER_DATA, W3D_CHUNK_HIERARCHY,
     W3D_CHUNK_HIERARCHY_HEADER, W3D_CHUNK_HLOD, W3D_CHUNK_HMODEL, W3D_CHUNK_HMODEL_HEADER,
     W3D_CHUNK_LOD, W3D_CHUNK_LODMODEL, W3D_CHUNK_LODMODEL_HEADER, W3D_CHUNK_MATERIAL_INFO,
     W3D_CHUNK_MATERIAL_PASS, W3D_CHUNK_MESH, W3D_CHUNK_MESH_HEADER3, W3D_CHUNK_MESH_USER_TEXT,
-    W3D_CHUNK_NODE, W3D_CHUNK_NULL_OBJECT, W3D_CHUNK_PLACEHOLDER, W3D_CHUNK_POINTS,
-    W3D_CHUNK_PIVOTS, W3D_CHUNK_PIVOT_FIXUPS, W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS,
+    W3D_CHUNK_NODE, W3D_CHUNK_NULL_OBJECT, W3D_CHUNK_PIVOT_FIXUPS, W3D_CHUNK_PIVOTS,
+    W3D_CHUNK_PLACEHOLDER, W3D_CHUNK_POINTS, W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS,
     W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE, W3D_CHUNK_PRELIT_UNLIT, W3D_CHUNK_PRELIT_VERTEX,
-    W3D_CHUNK_RING, W3D_CHUNK_SHADERS, W3D_CHUNK_SHADER_IDS, W3D_CHUNK_SPHERE,
-    W3D_CHUNK_TEXTURES, W3D_CHUNK_TEXTURE_REPLACER_INFO, W3D_CHUNK_TIMECODED_CHANNEL,
+    W3D_CHUNK_RING, W3D_CHUNK_SHADER_IDS, W3D_CHUNK_SHADERS, W3D_CHUNK_SPHERE,
+    W3D_CHUNK_TEXTURE_REPLACER_INFO, W3D_CHUNK_TEXTURES, W3D_CHUNK_TIMECODED_CHANNEL,
     W3D_CHUNK_TRANSFORM_NODE, W3D_CHUNK_TRIANGLES, W3D_CHUNK_VERTEX_INFLUENCES,
-    W3D_CHUNK_VERTEX_NORMALS, W3D_CHUNK_VERTEX_SHADE_INDICES, W3D_CHUNK_VERTICES,
+    W3D_CHUNK_VERTEX_NORMALS, W3D_CHUNK_VERTEX_SHADE_INDICES, W3D_CHUNK_VERTICES, W3DChunkType,
 };
 use once_cell::sync::Lazy;
 
 pub use class_registry::{
-    class_id_for_type, class_name_from_id, is_class_registered, register_builtin_class_names,
-    register_class, register_class_name, type_id_from_class, ClassRegistryError,
+    ClassRegistryError, class_id_for_type, class_name_from_id, is_class_registered,
+    register_builtin_class_names, register_class, register_class_name, type_id_from_class,
 };
 pub use classid::{ClassID, RenderObjClassId};
 pub use dllist::{DLListClass, DLListNode};
@@ -64,7 +63,7 @@ pub use animation::{
     HierarchyAnimation, Pivot,
 };
 pub use asset_manager::{
-    global_asset_manager, AssetHandle, AssetLoader, AssetManager, AssetStatus,
+    AssetHandle, AssetLoader, AssetManager, AssetStatus, global_asset_manager,
 };
 pub use lighting::{Attenuation, Light, LightEnvironment, LightType};
 pub use material::{
@@ -72,7 +71,7 @@ pub use material::{
     ShaderType, TextureStage, VertexMaterial,
 };
 pub use mesh::{
-    create_cube_mesh, create_quad_mesh, Mesh, MeshBuilder, MeshGeometry, Triangle, Vertex,
+    Mesh, MeshBuilder, MeshGeometry, Triangle, Vertex, create_cube_mesh, create_quad_mesh,
 };
 pub use render_object::{
     AABox, BoundingSphere, Ray, RayCollisionResult, RenderHook, RenderInfo, RenderObject,
@@ -80,11 +79,10 @@ pub use render_object::{
 };
 pub use scene::{Camera, Frustum, Layer, ProjectionType, Scene, SceneBuilder};
 pub use texture::{
-    create_checkerboard_texture, create_solid_color_texture, Texture, TextureAnimation,
-    TextureAnimationType, TextureData, TextureDimensions, TextureFormat, TextureLoader,
-    TextureManager,
+    Texture, TextureAnimation, TextureAnimationType, TextureData, TextureDimensions, TextureFormat,
+    TextureLoader, TextureManager, create_checkerboard_texture, create_solid_color_texture,
 };
-pub use w3d_io::{load_w3d_file, save_w3d_file, W3DChunk, W3DReader, W3DWriter};
+pub use w3d_io::{W3DChunk, W3DReader, W3DWriter, load_w3d_file, save_w3d_file};
 
 static CLASS_REGISTRY_INIT: Lazy<()> = Lazy::new(|| {
     register_builtin_class_names();

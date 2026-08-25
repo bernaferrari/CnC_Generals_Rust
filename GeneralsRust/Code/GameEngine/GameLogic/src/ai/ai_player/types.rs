@@ -263,7 +263,6 @@ pub fn leftover_compute_center_and_radius_of_base(
     (true, cx, cy, max_rad_sqr.sqrt())
 }
 
-
 /// AI Player implementation
 #[derive(Debug)]
 pub struct AIPlayer {

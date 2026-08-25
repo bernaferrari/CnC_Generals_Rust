@@ -240,7 +240,6 @@ impl SnapshotBuilder {
         self.restore_object_modules(&snapshot.modules, &mut object, game_logic)?;
         Self::rebuild_garrisoned_units_from_occupants(&mut object);
 
-
         // The generic pending-ability map is runtime-only.  Preserve the
         // source-side state now, but defer rebuilding that map until every
         // object has been inserted below.  Object snapshots are restored in
@@ -516,7 +515,6 @@ impl SnapshotBuilder {
                         object.movement.target_position = unit_snapshot.waypoints.first().copied();
                     }
                 }
-
             }
             ObjectTypeSnapshot::Building(building_snapshot) => {
                 object.object_type = ObjectType::Building;
@@ -689,7 +687,6 @@ impl SnapshotBuilder {
                 units_should_hunt: false,
                 list_in_score_screen: true,
 
-
                 kind_of_production_cost_changes: Vec::new(),
                 shared_special_power_cooldowns: std::collections::HashMap::new(),
                 // C++ Player::xfer m_upgradesCompleted. Stamp writes the name
@@ -714,7 +711,6 @@ impl SnapshotBuilder {
         }
         crate::save_load::apply_pending_player_team_chunks(game_logic);
         Ok(())
-
     }
 
     pub(super) fn restore_all_teams(
@@ -814,7 +810,6 @@ impl SnapshotBuilder {
 
         Ok(())
     }
-
 
     pub(super) fn restore_weather(
         &self,
@@ -1268,9 +1263,8 @@ fn upgrade_production_restore_time_secs(upgrade_name: &str) -> f32 {
             .find_upgrade(upgrade_name)
             .map(|template| template.get_build_time())
     });
-    let fallback_secs =
-        crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name)
-            .retail_build_time_secs();
+    let fallback_secs = crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name)
+        .retail_build_time_secs();
     parsed_secs
         .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
         .unwrap_or(fallback_secs)

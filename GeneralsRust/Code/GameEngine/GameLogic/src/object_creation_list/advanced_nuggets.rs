@@ -9,7 +9,7 @@
 // - AttackNugget: Make object attack a position
 // - ApplyRandomForceNugget: Apply random physical forces
 
-use super::nuggets::{calc_random_force, ObjectCreationNugget};
+use super::nuggets::{ObjectCreationNugget, calc_random_force};
 use super::{CreationContext, CreationResult};
 use crate::common::*;
 use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt, PhysicsBehaviorExt};
@@ -1052,14 +1052,18 @@ mod tests {
         };
         let primary = Coord3D::new(1.0, 2.0, 3.0);
         let secondary = Coord3D::new(4.0, 5.0, 6.0);
-        assert!(nugget
-            .create_with_angle(&ctx, None, &primary, &secondary, 0.0, 12)
-            .is_none());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, None, &primary, &secondary, 0.0, 12)
+                .is_none()
+        );
 
         let obj = Object::new_test(42, 100.0);
-        assert!(nugget
-            .create_with_angle(&ctx, Some(&obj), &primary, &secondary, 0.0, 12)
-            .is_none());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, Some(&obj), &primary, &secondary, 0.0, 12)
+                .is_none()
+        );
     }
 
     #[test]
@@ -1080,9 +1084,11 @@ mod tests {
         };
         let primary = Coord3D::new(0.0, 0.0, 0.0);
         let secondary = Coord3D::new(10.0, 20.0, 0.0);
-        assert!(nugget
-            .create_with_angle(&ctx, Some(&obj), &primary, &secondary, 0.0, 0)
-            .is_none());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, Some(&obj), &primary, &secondary, 0.0, 0)
+                .is_none()
+        );
 
         let rec = record.lock().unwrap();
         assert_eq!(rec.shots, 9);
@@ -1108,9 +1114,11 @@ mod tests {
             min_pitch: 0.0,
             max_pitch: 0.0,
         };
-        assert!(nugget
-            .create_with_angle(&ctx, Some(&obj), &Coord3D::ZERO, &Coord3D::ZERO, 0.0, 0)
-            .is_none());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, Some(&obj), &Coord3D::ZERO, &Coord3D::ZERO, 0.0, 0)
+                .is_none()
+        );
         assert!(record.lock().unwrap().force.is_none());
 
         assert!(nugget.create_with_objects(&ctx, &obj, None, 7).is_none());

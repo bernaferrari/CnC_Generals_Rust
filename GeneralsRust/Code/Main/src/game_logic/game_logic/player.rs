@@ -161,8 +161,6 @@ pub struct Player {
     /// C++ Player::m_listInScoreScreen (`excludePlayerFromScoreScreen`).
     pub list_in_score_screen: bool,
 
-
-
     /// C++ Player::m_specialPowerReadyTimerList residual (seconds remaining).
     /// SharedSyncedTimer superweapons sync across a player's command centers.
     pub shared_special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
@@ -183,7 +181,8 @@ pub struct Player {
         HashMap<String, HashMap<String, gamelogic::common::Relationship>>,
     /// C++ `Team::m_playerRelations` drained from TEAM_SET_OVERRIDE_RELATION_TO_PLAYER.
     /// Outer key: source team instance. Inner: target player id.
-    pub team_instance_player_relations: HashMap<String, HashMap<u32, gamelogic::common::Relationship>>,
+    pub team_instance_player_relations:
+        HashMap<String, HashMap<u32, gamelogic::common::Relationship>>,
     /// C++ `Player::m_sciencesDisabled` (script `PLAYER_SCIENCE_AVAILABILITY`).
     pub sciences_disabled: HashSet<String>,
     /// C++ `Player::m_sciencesHidden`.
@@ -192,7 +191,6 @@ pub struct Player {
     pub attacked_by: [bool; Self::MAX_ATTACKED_BY_PLAYERS],
     /// C++ `Player::m_attackedFrame` — last frame `setAttackedBy` fired.
     pub attacked_frame: u32,
-
 }
 
 /// Main-owned identity of the C++ `PlayerTemplate` that constructed a host
@@ -355,7 +353,6 @@ impl Player {
     /// C++ `GameCommon.h MAX_PLAYER_COUNT`.
     pub const MAX_ATTACKED_BY_PLAYERS: usize = 16;
 
-
     pub fn new(id: u32, team: Team, name: &str, is_local: bool) -> Self {
         Self {
             id,
@@ -402,7 +399,6 @@ impl Player {
             units_should_hunt: false,
             list_in_score_screen: true,
 
-
             shared_special_power_cooldowns: HashMap::new(),
             team_relations: HashMap::new(),
             team_instance_team_relations: HashMap::new(),
@@ -428,8 +424,6 @@ impl Player {
         }
     }
 
-
-
     /// C++ `Player::addUpgrade(..., UPGRADE_STATUS_COMPLETE)`.
     pub fn add_completed_upgrade(&mut self, name: &str) {
         if name.is_empty() {
@@ -453,15 +447,19 @@ impl Player {
             let Ok(list) = gamelogic::player::player_list().read() else {
                 return;
             };
-            let by_name = [self.name.as_str(), self.map_side.map_player_name.as_str(), named.as_str()]
-                .into_iter()
-                .find_map(|n| {
-                    if n.is_empty() {
-                        None
-                    } else {
-                        list.find_player_by_name(n)
-                    }
-                });
+            let by_name = [
+                self.name.as_str(),
+                self.map_side.map_player_name.as_str(),
+                named.as_str(),
+            ]
+            .into_iter()
+            .find_map(|n| {
+                if n.is_empty() {
+                    None
+                } else {
+                    list.find_player_by_name(n)
+                }
+            });
             by_name
                 .or_else(|| list.get_player(self.id as i32).cloned())
                 .or_else(|| {
@@ -607,7 +605,6 @@ impl Player {
     pub fn get_attacked_frame(&self) -> u32 {
         self.attacked_frame
     }
-
 
     /// C++ Player::getOrStartSpecialPowerReadyFrame residual (seconds remaining).
     /// Missing entry means ready (C++ starts timer at "now" on first query).
@@ -843,8 +840,8 @@ impl Player {
     /// C++ Player::addSkillPoints with GameLogic rank-level limit.
     pub fn add_skill_points_limited(&mut self, points: i32, rank_level_limit: i32) -> bool {
         use crate::game_logic::host_rank_ui_residual::{
-            add_skill_points_residual, rank_level_down_threshold_residual,
-            rank_level_up_threshold_residual, RankSkillStateResidual,
+            RankSkillStateResidual, add_skill_points_residual, rank_level_down_threshold_residual,
+            rank_level_up_threshold_residual,
         };
         use crate::game_logic::host_science_rank::retail_rank_for_level;
 
@@ -857,12 +854,8 @@ impl Player {
             level_up: rank_level_up_threshold_residual(old_level),
             level_down: rank_level_down_threshold_residual(old_level),
         };
-        let (new_state, level_gained) = add_skill_points_residual(
-            state,
-            points,
-            self.skill_points_modifier,
-            rank_level_limit,
-        );
+        let (new_state, level_gained) =
+            add_skill_points_residual(state, points, self.skill_points_modifier, rank_level_limit);
         self.rank_level = new_state.rank_level;
         self.skill_points = new_state.skill_points;
         self.science_purchase_points = new_state.science_purchase_points;
@@ -933,12 +926,10 @@ impl Player {
         template: Option<&game_engine::common::rts::player_template::PlayerTemplate>,
     ) -> bool {
         use crate::game_logic::host_rank_ui_residual::{
-            set_rank_level_residual, rank_level_down_threshold_residual,
-            rank_level_up_threshold_residual, RankSkillStateResidual,
+            RankSkillStateResidual, rank_level_down_threshold_residual,
+            rank_level_up_threshold_residual, set_rank_level_residual,
         };
-        use crate::game_logic::host_science_rank::{
-            retail_rank_for_level, RETAIL_RANK_COUNT,
-        };
+        use crate::game_logic::host_science_rank::{RETAIL_RANK_COUNT, retail_rank_for_level};
 
         let limit = gamelogic::helpers::TheGameLogic::get_rank_level_limit().max(1) as u32;
         let old = self.rank_level.max(1);
@@ -981,7 +972,7 @@ impl Player {
     /// C++ Player::addScience / addSciencePurchasePoints after rank-up.
     /// Live host leftover PlayerList stays stale unless we write it here.
     fn sync_leftover_player_sciences_from_host(&self) {
-        use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
+        use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
 
         let names = [self.name.as_str(), self.map_side.map_player_name.as_str()];
         let leftover = {
@@ -1016,7 +1007,6 @@ impl Player {
             }
         }
     }
-
 
     /// Supplies visible to purchase gates (includes in-flight economy-authority delta).
     pub fn effective_supplies(&self) -> u32 {
@@ -1060,7 +1050,6 @@ impl Player {
                     self.id,
                     crate::game_logic::host_economy_log::HostMoneyAudio::Withdraw,
                 );
-
             }
             crate::game_logic::host_economy_log::record(
                 self.id,
@@ -1133,8 +1122,10 @@ impl Player {
     pub fn record_building_garrisoned(&mut self) {
         self.statistics.structures_garrisoned =
             self.statistics.structures_garrisoned.saturating_add(1);
-        self.statistics.academy_buildings_garrisoned =
-            self.statistics.academy_buildings_garrisoned.saturating_add(1);
+        self.statistics.academy_buildings_garrisoned = self
+            .statistics
+            .academy_buildings_garrisoned
+            .saturating_add(1);
     }
 
     pub fn add_money_earned(&mut self, amount: u32) {
@@ -1286,7 +1277,6 @@ impl Player {
         }
         inserted
     }
-
 
     /// C++ `Player::grantScience` — refuse when `ScienceStore::isScienceGrantable` is false.
     pub fn grant_science(&mut self, science_name: &str) -> bool {
@@ -1463,10 +1453,8 @@ impl Player {
     }
 
     pub fn record_self_structure_destroyed(&mut self) {
-        self.statistics.structures_destroyed_self = self
-            .statistics
-            .structures_destroyed_self
-            .saturating_add(1);
+        self.statistics.structures_destroyed_self =
+            self.statistics.structures_destroyed_self.saturating_add(1);
     }
 
     pub fn record_structure_lost(&mut self) {
@@ -1528,7 +1516,6 @@ impl Player {
             );
         }
 
-
         self.map_side.read_handicap_from_dict(dict);
     }
 
@@ -1538,7 +1525,9 @@ impl Player {
         other_player_id: u32,
         relationship: gamelogic::common::Relationship,
     ) {
-        self.map_side.relations.insert(other_player_id, relationship);
+        self.map_side
+            .relations
+            .insert(other_player_id, relationship);
     }
 
     /// C++ `Player::getRelationship` map lookup (missing → Neutral at the caller).
@@ -1822,7 +1811,6 @@ fn host_science_is_grantable(science_name: &str) -> bool {
     .unwrap_or(false)
 }
 
-
 pub(super) fn normalize_upgrade_name(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -1919,7 +1907,6 @@ pub(super) struct AirfieldHealingInfo {
     pub(super) heal_start_frame: u32,
 }
 
-
 /// C++ `HeliTakeoffOrLandingState` two-point path (JetAIUpdate.cpp:961-1125).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct HostHeliTakeoffOrLanding {
@@ -1928,7 +1915,6 @@ pub(super) struct HostHeliTakeoffOrLanding {
     pub(super) landing: bool,
     pub(super) airfield_id: ObjectId,
 }
-
 
 /// Fat-object ID store as its **own field** so a tick can mut-borrow objects
 /// without `&mut self` on the whole [`GameLogic`] (`self.objects.get_mut` +
@@ -2173,9 +2159,8 @@ mod map_side_dict_tests {
         const NAME: &str = "Upgrade_W4106AcademyRadar";
         gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
             let mut ini = game_engine::common::ini::INI::new();
-            let source = format!(
-                "{NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n"
-            );
+            let source =
+                format!("{NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n");
             ini.with_inline_source(&source, |ini| {
                 center
                     .parse_upgrade_definition(ini)
@@ -2201,5 +2186,4 @@ mod map_side_dict_tests {
             "complete must add leftover ScoreKeeper money spent"
         );
     }
-
 }

@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -61,7 +61,6 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-
         if !unit.is_alive()
             || !target.is_alive()
             || unit.status.under_construction
@@ -90,9 +89,7 @@ impl<'a> CommandExecutor<'a> {
 
         // USA Pilot residual: pilots may Enter unmanned ground vehicles for recrew
         // even when the vehicle is not a residual transport container.
-        let pilot_recrew = self
-            .game_logic
-            .can_execute_pilot_recrew(unit_id, target_id);
+        let pilot_recrew = self.game_logic.can_execute_pilot_recrew(unit_id, target_id);
         if pilot_recrew {
             return true;
         }
@@ -154,7 +151,10 @@ impl<'a> CommandExecutor<'a> {
             (None, None) => {
                 legacy_ownerless_world
                     && unit.team == target.team
-                    && self.game_logic.unique_player_id_for_team(unit.team).is_some()
+                    && self
+                        .game_logic
+                        .unique_player_id_for_team(unit.team)
+                        .is_some()
             }
             _ => false,
         };
@@ -171,7 +171,10 @@ impl<'a> CommandExecutor<'a> {
                 legacy_ownerless_world
                     && (target.team == Team::Neutral
                         || (target.team == unit.team
-                            && self.game_logic.unique_player_id_for_team(unit.team).is_some()))
+                            && self
+                                .game_logic
+                                .unique_player_id_for_team(unit.team)
+                                .is_some()))
             }
         };
 

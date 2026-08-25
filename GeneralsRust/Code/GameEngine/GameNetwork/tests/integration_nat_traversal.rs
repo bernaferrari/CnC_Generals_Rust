@@ -11,8 +11,8 @@
 
 use game_network::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::sync::RwLock;
@@ -918,9 +918,11 @@ async fn test_upnp_error_handling() {
 
     let remaining = gateway.get_mappings().await;
     // In mock, all should be removed
-    assert!(remaining
-        .iter()
-        .all(|m| m.external_port < 9000 || m.external_port >= 9005));
+    assert!(
+        remaining
+            .iter()
+            .all(|m| m.external_port < 9000 || m.external_port >= 9005)
+    );
     metrics.errors_recovered += 1;
 
     metrics.total_time_ms = start_time.elapsed().as_millis();

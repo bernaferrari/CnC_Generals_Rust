@@ -78,8 +78,8 @@ pub fn residual_diplomacy_presentation_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_diplomacy_presentation_helper_last_action(
-) -> ResidualDiplomacyPresentationHelperAction {
+pub fn residual_diplomacy_presentation_helper_last_action()
+-> ResidualDiplomacyPresentationHelperAction {
     ResidualDiplomacyPresentationHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

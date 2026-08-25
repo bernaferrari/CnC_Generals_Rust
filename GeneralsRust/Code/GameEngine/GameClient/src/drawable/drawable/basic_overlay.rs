@@ -1,10 +1,10 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
-use crate::display::view::{with_tactical_view_ref, Point3};
+use crate::display::view::{Point3, with_tactical_view_ref};
 use crate::draw_group_info::get_draw_group_info;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
-use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::font::{FontDesc, get_font_library};
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
@@ -14,17 +14,17 @@ use game_engine::common::audio::audio_event_rts::AudioEventRts;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::get_global_audio_manager;
 use game_engine::common::bit_flags::{
-    create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
+    ModelConditionBitFlags, ModelConditionFlags, create_model_condition_flags,
 };
-use game_engine::common::ini::{get_anim2d_collection, get_global_data, TimeOfDay as IniTimeOfDay};
+use game_engine::common::ini::{TimeOfDay as IniTimeOfDay, get_anim2d_collection, get_global_data};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
+use gamelogic::common::types::{FormationID, INVALID_ID, ObjectID, WeaponSlotType};
 use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient, TheGameLogic};
-use gamelogic::scripting::{get_script_engine, TFade};
+use gamelogic::scripting::{TFade, get_script_engine};
 
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
+use gamelogic::player::{NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS, Player};
 use parking_lot::Mutex;
 use std::error::Error;
 use std::sync::Arc;
@@ -178,12 +178,13 @@ impl BasicDrawable {
             )
         };
 
-
         let ratio = (health / max_health).clamp(0.0, 1.0);
         let really_damaged = self
             .model_condition_flags
             .test(ModelConditionFlags::REALLYDAMAGED);
-        let damaged = self.model_condition_flags.test(ModelConditionFlags::DAMAGED);
+        let damaged = self
+            .model_condition_flags
+            .test(ModelConditionFlags::DAMAGED);
         let (fill, outline) = health_bar_colors(
             ratio,
             under_construction || disabled_not_held,
@@ -196,7 +197,6 @@ impl BasicDrawable {
         self.overlay_data.health_bar_visible = true;
         self.overlay_data.visible = true;
     }
-
 
     /// C++ `Drawable::s_veterancyImage[level]` (`Drawable.cpp:254-257`).
     /// Regular (0) has no chevron; Veteran/Elite/Heroic use SCVeter1-3.
@@ -250,8 +250,9 @@ impl BasicDrawable {
             }
             self.overlay_data.is_under_construction = true;
             self.overlay_data.construction_percent = self.presentation_construction_percent;
-            self.overlay_data.construct_text =
-                Some(format_under_construction_desc(self.presentation_construction_percent));
+            self.overlay_data.construct_text = Some(format_under_construction_desc(
+                self.presentation_construction_percent,
+            ));
             self.overlay_data.visible = true;
             return;
         }
@@ -282,7 +283,6 @@ impl BasicDrawable {
                 self.overlay_data.visible = true;
             }
         }
-
     }
 
     pub fn draw_caption(&mut self, _health_region: &IRegion2D) {
@@ -446,7 +446,6 @@ impl BasicDrawable {
         }
     }
 
-
     fn clear_icon_ui_overlay(&mut self) {
         self.overlay_data.visible = false;
         self.overlay_data.health_bar_visible = false;
@@ -482,7 +481,6 @@ impl BasicDrawable {
             self.overlay_data.visible = true;
         }
     }
-
 
     pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
         // C++ Drawable::drawAmmo (`Drawable.cpp:2865-2870`).
@@ -558,7 +556,6 @@ impl BasicDrawable {
             self.overlay_data.show_contained = true;
             return;
         }
-
 
         let Some(obj_id) = self.object_id else {
             return;
@@ -780,12 +777,14 @@ impl BasicDrawable {
             .find_update_module("StickyBombUpdate")
             .and_then(|handle| {
                 handle.with_module(|module| {
-                    module.get_sticky_bomb_control_interface().and_then(|sticky| {
-                        if sticky.get_target() == INVALID_ID {
-                            return None;
-                        }
-                        Some((sticky.is_timed_bomb(), sticky.get_detonation_frame()))
-                    })
+                    module
+                        .get_sticky_bomb_control_interface()
+                        .and_then(|sticky| {
+                            if sticky.get_target() == INVALID_ID {
+                                return None;
+                            }
+                            Some((sticky.is_timed_bomb(), sticky.get_detonation_frame()))
+                        })
                 })
             });
         if let Some((timed, die_frame)) = sticky {
@@ -794,8 +793,7 @@ impl BasicDrawable {
                 self.overlay_data.bomb_type = 1;
                 let now = TheGameLogic::get_frame();
                 let remaining = die_frame.saturating_sub(now);
-                self.overlay_data.bomb_timer_seconds =
-                    ((remaining as f32) / 30.0).ceil() as u32;
+                self.overlay_data.bomb_timer_seconds = ((remaining as f32) / 30.0).ceil() as u32;
             } else {
                 self.overlay_data.bomb_type = 2;
                 self.overlay_data.bomb_timer_seconds = 0;
@@ -940,9 +938,7 @@ impl BasicDrawable {
             self.draw_veterancy(health_region);
         }
         self.mark_overlay_visible_if_any_chrome();
-
     }
-
 }
 
 #[cfg(test)]
@@ -998,4 +994,3 @@ mod hud_stealth_veterancy_tests {
         );
     }
 }
-

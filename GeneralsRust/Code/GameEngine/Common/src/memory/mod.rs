@@ -59,7 +59,7 @@ pub use config::{PoolConfig, PoolConfigBuilder};
 pub use generation::{Generation, GenerationalIndex};
 pub use handle::{PoolHandle, WeakPoolHandle};
 pub use pool::{ObjectPool, PoolFactory};
-pub use registry::{PoolRegistry, POOL_REGISTRY};
+pub use registry::{POOL_REGISTRY, PoolRegistry};
 pub use stats::{AllocationStats, MemoryStats, PoolStats};
 
 // Re-export debug tracking (conditional compilation)

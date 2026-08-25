@@ -6,8 +6,8 @@
 use ww3d_renderer_3d::rendering::{
     debug_render_modes::{DebugRenderMode, PerformanceHud, PerformanceStats},
     post_process::{
-        rgb_to_luminance, tone_map_reinhard, BloomSettings, ColorGradingSettings, FxaaSettings,
-        GaussianBlur,
+        BloomSettings, ColorGradingSettings, FxaaSettings, GaussianBlur, rgb_to_luminance,
+        tone_map_reinhard,
     },
     reflection_system::ReflectionPlane,
 };

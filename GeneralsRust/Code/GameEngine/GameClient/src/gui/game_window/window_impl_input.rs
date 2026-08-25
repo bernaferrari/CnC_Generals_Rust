@@ -1209,7 +1209,6 @@ impl GameWindow {
                 return WindowMsgHandled::Handled;
             }
 
-
             if !self.owner_is_self {
                 if let Some(owner) = self.get_owner() {
                     let _ = owner.borrow_mut().send_system_message(
@@ -1229,4 +1228,3 @@ impl GameWindow {
         WindowMsgHandled::Ignored
     }
 }
-

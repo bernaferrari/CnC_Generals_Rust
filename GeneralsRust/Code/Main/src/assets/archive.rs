@@ -6,7 +6,7 @@
 
 //! High-level archive facade built on top of the modernized core BIG loader.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::archive_file_system as core;
 use log::warn;
@@ -504,10 +504,8 @@ fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
 /// `Win32BIGFileSystem.cpp:37-49` loads ZH `*.big` then registry `InstallPath`.
 const BASE_GENERALS_W3D_ARCHIVES: &[&str] = &["W3D.big", "W3DEnglish.big"];
 
-const BASE_GENERALS_INSTALL_DIR_NAMES: &[&str] = &[
-    "Command & Conquer Generals",
-    "Command and Conquer Generals",
-];
+const BASE_GENERALS_INSTALL_DIR_NAMES: &[&str] =
+    &["Command & Conquer Generals", "Command and Conquer Generals"];
 
 const WINDOWS_GAME_EXTRACT_DIRS: &[&str] = &["extracted_big_files", "extracted_big_files_v2"];
 
@@ -551,11 +549,7 @@ fn steam_library_common_dirs() -> Vec<PathBuf> {
         push(home.join(".steam/steam/steamapps/common"));
         push(home.join(".steam/root/steamapps/common"));
         push(home.join(".local/share/Steam/steamapps/common"));
-        push(
-            home.join(
-                ".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common",
-            ),
-        );
+        push(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common"));
         push(home.join("Steam/steamapps/common"));
     }
 
@@ -589,7 +583,9 @@ fn classic_ea_games_roots() -> Vec<PathBuf> {
 }
 
 fn path_search_key(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/").to_ascii_lowercase()
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase()
 }
 
 /// Probe locations for original-Generals `W3D.big` / `W3DEnglish.big`.
@@ -703,7 +699,6 @@ fn base_generals_mount_dirs() -> Vec<PathBuf> {
 
     dirs
 }
-
 
 /// Archive system statistics (mirrors legacy reporting).
 #[derive(Debug, Default, Clone)]
@@ -1079,8 +1074,10 @@ mod tests {
             "repo windows_game extract W3D.big must be probed even if absent"
         );
         assert!(
-            rendered.iter().any(|p| p.contains("windows_game")
-                && p.ends_with("extracted_big_files/w3denglish.big")),
+            rendered
+                .iter()
+                .any(|p| p.contains("windows_game")
+                    && p.ends_with("extracted_big_files/w3denglish.big")),
             "repo windows_game extract W3DEnglish.big must be probed even if absent"
         );
         assert!(

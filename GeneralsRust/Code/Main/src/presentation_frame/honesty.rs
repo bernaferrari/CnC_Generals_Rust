@@ -43,11 +43,7 @@ impl PresentationFrame {
             return None;
         }
         let r8 = self.fow_grid.to_r8_texture();
-        if r8.is_empty() {
-            None
-        } else {
-            Some(r8)
-        }
+        if r8.is_empty() { None } else { Some(r8) }
     }
 
     /// True when terrain FOW overlay should darken from the presentation grid.

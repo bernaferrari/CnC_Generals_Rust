@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -73,11 +73,10 @@ impl<'a> CommandExecutor<'a> {
             let place_r = self
                 .game_logic
                 .structure_place_radius_for_template(template_name);
-            if !self.game_logic.move_objects_for_construction(
-                location,
-                place_r,
-                Some(unit_id),
-            ) && self.game_logic.player_is_human(self.current_player_id)
+            if !self
+                .game_logic
+                .move_objects_for_construction(location, place_r, Some(unit_id))
+                && self.game_logic.player_is_human(self.current_player_id)
             {
                 return CommandResult::InvalidLocation;
             }
@@ -317,8 +316,7 @@ impl<'a> CommandExecutor<'a> {
         }
         let team = match self.game_logic.host_object(builder_id) {
             Some(unit)
-                if unit.can_construct()
-                    && unit.owner_player_id == Some(self.current_player_id) =>
+                if unit.can_construct() && unit.owner_player_id == Some(self.current_player_id) =>
             {
                 unit.team
             }
@@ -337,11 +335,10 @@ impl<'a> CommandExecutor<'a> {
         let place_r = self
             .game_logic
             .structure_place_radius_for_template(template_name);
-        if !self.game_logic.move_objects_for_construction(
-            location,
-            place_r,
-            Some(builder_id),
-        ) && self.game_logic.player_is_human(self.current_player_id)
+        if !self
+            .game_logic
+            .move_objects_for_construction(location, place_r, Some(builder_id))
+            && self.game_logic.player_is_human(self.current_player_id)
         {
             return CommandResult::InvalidLocation;
         }
@@ -353,14 +350,11 @@ impl<'a> CommandExecutor<'a> {
                 return CommandResult::InvalidCommand;
             }
         }
-        let Some(building_id) = self
-            .game_logic
-            .create_object_under_construction_for_player(
-                template_name,
-                self.current_player_id,
-                location,
-            )
-        else {
+        let Some(building_id) = self.game_logic.create_object_under_construction_for_player(
+            template_name,
+            self.current_player_id,
+            location,
+        ) else {
             if let Some(player) = self.game_logic.get_player_mut(self.current_player_id) {
                 player.resources.supplies = player
                     .resources
@@ -527,7 +521,6 @@ impl<'a> CommandExecutor<'a> {
             }
         }
     }
-
 }
 
 fn leftover_kindof_bits(template_name: &str) -> u128 {

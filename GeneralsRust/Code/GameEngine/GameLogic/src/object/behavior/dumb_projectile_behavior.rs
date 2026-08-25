@@ -13,14 +13,14 @@ use glam::Vec4;
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, Int, KindOf, KindOfMaskType, ModuleData, ObjectID,
-    ObjectStatusMaskType, PathfindLayerEnum, Real, UnsignedInt, WeaponBonusConditionFlags,
-    XferMode, XferVersion, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE, LOGICFRAMES_PER_SECOND,
-    MODELCONDITION_JAMMED, SECONDS_PER_LOGICFRAME_REAL,
+    AsciiString, Bool, Coord3D, Int, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE, KindOf, KindOfMaskType,
+    LOGICFRAMES_PER_SECOND, MODELCONDITION_JAMMED, ModuleData, ObjectID, ObjectStatusMaskType,
+    PathfindLayerEnum, Real, SECONDS_PER_LOGICFRAME_REAL, UnsignedInt, WeaponBonusConditionFlags,
+    XferMode, XferVersion,
 };
 use crate::effects::FXList;
 use crate::helpers::{
-    get_game_logic_random_value_real, TheFXListStore, TheGameLogic, ThePartitionManager,
+    TheFXListStore, TheGameLogic, ThePartitionManager, get_game_logic_random_value_real,
 };
 use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, ProjectileUpdateInterface,
@@ -28,11 +28,11 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{
-    registry::OBJECT_REGISTRY, DrawableArcExt, Object as GameObject,
-    INVALID_ID as OBJECT_INVALID_ID,
+    DrawableArcExt, INVALID_ID as OBJECT_INVALID_ID, Object as GameObject,
+    registry::OBJECT_REGISTRY,
 };
 use crate::weapon::{WeaponSlotType, WeaponTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -248,11 +248,7 @@ fn parse_kind_of_mask(label: &str, _tokens: &[&str]) -> KindOfMaskType {
         }
     }
 
-    if mask == 0 {
-        KIND_OF_MASK_NONE
-    } else {
-        mask
-    }
+    if mask == 0 { KIND_OF_MASK_NONE } else { mask }
 }
 
 const DUMB_PROJECTILE_FIELDS: &[FieldParse<DumbProjectileBehaviorModuleData>] = &[
@@ -643,7 +639,6 @@ impl DumbProjectileBehavior {
     fn get_current_frame(&self) -> UnsignedInt {
         TheGameLogic::get_frame()
     }
-
 
     /// Initialize flight path using Bezier curve calculation
     /// Matches C++ DumbProjectileBehavior::calcFlightPath() from DumbProjectileBehavior.cpp:389-435
@@ -1264,7 +1259,8 @@ pub(crate) fn dispatch_dumb_projectile_handle_collision(
         if let Some(dumb) = (module as &mut dyn Any).downcast_mut::<DumbProjectileBehavior>() {
             return dumb.projectile_handle_collision(other);
         }
-        if let Some(wrap) = (module as &mut dyn Any).downcast_mut::<DumbProjectileBehaviorModule>() {
+        if let Some(wrap) = (module as &mut dyn Any).downcast_mut::<DumbProjectileBehaviorModule>()
+        {
             return wrap.behavior_mut().projectile_handle_collision(other);
         }
         false
@@ -1536,8 +1532,8 @@ mod tests {
 
     #[test]
     fn module_factory_downcasts() {
-        use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::Object;
+        use crate::object::registry::OBJECT_REGISTRY;
 
         OBJECT_REGISTRY.clear();
         let object_id = 1;
@@ -1548,11 +1544,13 @@ mod tests {
             Arc::new(DumbProjectileBehaviorModuleData::default()) as Arc<dyn ThingModuleData>;
         let module =
             dumb_projectile_behavior_module_factory(Arc::new(StubThing { object_id }), data);
-        assert!(module
-            .get_module_data()
-            .as_any()
-            .downcast_ref::<DumbProjectileBehaviorModuleData>()
-            .is_some());
+        assert!(
+            module
+                .get_module_data()
+                .as_any()
+                .downcast_ref::<DumbProjectileBehaviorModuleData>()
+                .is_some()
+        );
     }
 
     #[test]

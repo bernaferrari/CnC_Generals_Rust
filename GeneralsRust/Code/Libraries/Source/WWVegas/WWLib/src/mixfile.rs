@@ -1,5 +1,5 @@
 use crate::crc::Crc32;
-use crate::ffactory::{the_file_factory, FactoryFile, FileFactoryClass};
+use crate::ffactory::{FactoryFile, FileFactoryClass, the_file_factory};
 use crate::rawfile::{FileRights, SeekOrigin};
 use std::cmp::Ordering;
 use std::fs;

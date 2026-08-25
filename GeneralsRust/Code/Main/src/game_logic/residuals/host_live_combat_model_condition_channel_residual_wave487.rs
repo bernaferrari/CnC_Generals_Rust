@@ -79,8 +79,8 @@ pub fn residual_combat_model_condition_channel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_combat_model_condition_channel_last_action(
-) -> ResidualCombatModelConditionChannelAction {
+pub fn residual_combat_model_condition_channel_last_action()
+-> ResidualCombatModelConditionChannelAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualCombatModelConditionChannelAction::MethodNames,
         2 => ResidualCombatModelConditionChannelAction::SourceMarkers,

@@ -581,7 +581,7 @@ impl MeshLoader for W3dLoader {
                                             Err(_) => {
                                                 return MeshLoadResult::Error(
                                                     "Failed to read W3D vertices".to_string(),
-                                                )
+                                                );
                                             }
                                         }
                                     }
@@ -598,7 +598,7 @@ impl MeshLoader for W3dLoader {
                                             Err(_) => {
                                                 return MeshLoadResult::Error(
                                                     "Failed to read W3D normals".to_string(),
-                                                )
+                                                );
                                             }
                                         }
                                     }
@@ -615,7 +615,7 @@ impl MeshLoader for W3dLoader {
                                             Err(_) => {
                                                 return MeshLoadResult::Error(
                                                     "Failed to read W3D triangles".to_string(),
-                                                )
+                                                );
                                             }
                                         }
                                     }
@@ -634,7 +634,7 @@ impl MeshLoader for W3dLoader {
                                         Err(_) => {
                                             return MeshLoadResult::Error(
                                                 "Failed to read W3D texcoords".to_string(),
-                                            )
+                                            );
                                         }
                                     }
                                 }
@@ -760,7 +760,7 @@ impl UniversalMeshLoader {
             "ply" => MeshFormat::Ply,
             "w3d" => MeshFormat::W3d,
             _ => {
-                return MeshLoadResult::Error(format!("Unsupported file extension: {}", extension))
+                return MeshLoadResult::Error(format!("Unsupported file extension: {}", extension));
             }
         };
 

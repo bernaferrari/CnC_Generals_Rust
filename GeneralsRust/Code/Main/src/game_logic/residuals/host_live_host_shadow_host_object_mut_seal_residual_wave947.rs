@@ -100,9 +100,7 @@ pub fn honesty_host_shadow_host_object_mut_seal_residual_pack_wave947() -> bool 
         && mut_count == 0
         && host_mut_count >= 1
         && channel_ok
-        && (gl.contains("Wave 947")
-            || gl.contains("946/947")
-            || gl.contains("Wave 955/958"))
+        && (gl.contains("Wave 947") || gl.contains("946/947") || gl.contains("Wave 955/958"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostShadowHostObjectMutSealAction::SourceMarkers);

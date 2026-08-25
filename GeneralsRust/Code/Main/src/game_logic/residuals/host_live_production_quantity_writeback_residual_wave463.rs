@@ -76,8 +76,8 @@ pub fn residual_production_quantity_writeback_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_production_quantity_writeback_last_action(
-) -> ResidualProductionQuantityWritebackAction {
+pub fn residual_production_quantity_writeback_last_action()
+-> ResidualProductionQuantityWritebackAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualProductionQuantityWritebackAction::MethodNames,
         2 => ResidualProductionQuantityWritebackAction::SourceMarkers,

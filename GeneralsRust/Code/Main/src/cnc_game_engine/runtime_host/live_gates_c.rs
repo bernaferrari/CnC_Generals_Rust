@@ -899,7 +899,9 @@ impl CnCGameEngine {
                 "click_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_ok_{action}"
             )
         } else {
-            format!("click_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_miss_{action}")
+            format!(
+                "click_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_miss_{action}"
+            )
         };
     }
 
@@ -1049,9 +1051,13 @@ impl CnCGameEngine {
             _ => self.host_unknown_action_fail_closed(false),
         };
         self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_ok_{action}")
+            format!(
+                "click_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_ok_{action}"
+            )
         } else {
-            format!("click_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_miss_{action}")
+            format!(
+                "click_live_sabotage_internet_center_crate_collide_dual_world_empty_gate_miss_{action}"
+            )
         };
     }
 
@@ -1129,7 +1135,9 @@ impl CnCGameEngine {
                 "click_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_ok_{action}"
             )
         } else {
-            format!("click_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_miss_{action}")
+            format!(
+                "click_live_supply_warehouse_crippling_behavior_dual_world_empty_gate_miss_{action}"
+            )
         };
     }
 

@@ -22,7 +22,6 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "w3d")]
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState, Buffer,
     BufferBindingType, BufferDescriptor, BufferUsages, Color, ColorTargetState, ColorWrites,
@@ -37,6 +36,7 @@ use wgpu::{
     StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
     TextureSampleType, TextureUsages, TextureView, TextureViewDimension, VertexAttribute,
     VertexBufferLayout, VertexFormat, VertexState,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 
 /// Maximum number of lights per frame
@@ -783,12 +783,8 @@ impl W3DRenderer {
                 staged.world_matrix
             };
             let normal_matrix = compute_normal_matrix(model_matrix);
-            let camera_distance = mesh_camera_distance(
-                &mesh,
-                self.current_camera.as_ref(),
-                model_matrix,
-                None,
-            );
+            let camera_distance =
+                mesh_camera_distance(&mesh, self.current_camera.as_ref(), model_matrix, None);
             let batch = RenderBatch {
                 mesh_id: staged.mesh_id,
                 mesh: Some(mesh),
@@ -1253,11 +1249,7 @@ fn mesh_vertex_count(mesh: &Mesh) -> Option<u32> {
         return None;
     }
     let count = mesh.vertices.len() as u64 / stride;
-    if count == 0 {
-        None
-    } else {
-        Some(count as u32)
-    }
+    if count == 0 { None } else { Some(count as u32) }
 }
 
 fn batch_triangle_count(mesh: &Mesh, index_data: &[u32]) -> u32 {

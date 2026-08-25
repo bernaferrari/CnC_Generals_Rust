@@ -110,9 +110,10 @@ pub fn projectile_collides_with_structure(mask: u32, same_controller: bool) -> b
 }
 
 /// C++ Weapon.cpp:271 default `m_affectsMask` when RadiusDamageAffects is omitted.
-pub const WEAPON_AFFECTS_DEFAULT: u32 = crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES
-    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
-    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+pub const WEAPON_AFFECTS_DEFAULT: u32 =
+    crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES
+        | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+        | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
 
 /// C++ Weapon.ini RadiusDamageAffects residual mask (Regular).
 ///
@@ -122,7 +123,9 @@ pub fn host_radius_damage_affects_for_weapon_name(name: &str) -> u32 {
     use gamelogic::weapon::with_weapon_store;
     let _ = ensure_host_weapon_store();
     let from_store = with_weapon_store(|store| {
-        store.find_weapon_template(name).map(|wt| wt.affects_mask.bits())
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.affects_mask.bits())
     })
     .ok()
     .flatten();
@@ -154,8 +157,8 @@ pub fn radius_damage_affects_victim(
     same_template: bool,
 ) -> bool {
     use crate::game_logic::host_ai_path_combat_residual_wave105::{
-        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_SELF,
-        WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
+        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
+        WEAPON_AFFECTS_SELF, WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
     };
     use gamelogic::common::Relationship;
 

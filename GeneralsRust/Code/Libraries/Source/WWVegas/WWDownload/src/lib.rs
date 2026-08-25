@@ -96,6 +96,11 @@ pub mod ftpdefs;
 #[cfg(windows)]
 pub mod registry;
 pub use config::{ConfigManager, DownloadConfig};
+#[cfg(not(windows))]
+pub use config::{
+    get_string_from_registry, get_unsigned_int_from_registry, set_string_in_registry,
+    set_unsigned_int_in_registry,
+};
 pub use download::{ConsoleDownloadListener, DownloadListener, DownloadManager, ProgressInfo};
 pub use error::{DownloadError, DownloadEvent, DownloadResult, DownloadStatus};
 pub use ftp_client::{FtpClient, FtpConfig, FtpProgressCallback};
@@ -104,12 +109,7 @@ pub use registry::{
     get_string_from_registry, get_unsigned_int_from_registry, set_string_in_registry,
     set_unsigned_int_in_registry,
 };
-#[cfg(not(windows))]
-pub use config::{
-    get_string_from_registry, get_unsigned_int_from_registry, set_string_in_registry,
-    set_unsigned_int_in_registry,
-};
-pub use url_builder::{format_urls_from_config, UrlBuilder, UrlConfig};
+pub use url_builder::{UrlBuilder, UrlConfig, format_urls_from_config};
 
 // Internal modules
 mod config;

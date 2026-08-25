@@ -1,6 +1,6 @@
 use game_engine::common::system::compression::{
-    compress_data, decompress_data, get_preferred_compression, get_uncompressed_size,
-    is_data_compressed, CompressionEngine, CompressionInterface, CompressionLevel, CompressionType,
+    CompressionEngine, CompressionInterface, CompressionLevel, CompressionType, compress_data,
+    decompress_data, get_preferred_compression, get_uncompressed_size, is_data_compressed,
 };
 
 #[test]

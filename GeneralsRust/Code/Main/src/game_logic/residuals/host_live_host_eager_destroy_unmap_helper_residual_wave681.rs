@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostEagerDestroyUnmapHelperAction) {
 pub fn residual_host_eager_destroy_unmap_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_eager_destroy_unmap_helper_last_action(
-) -> ResidualHostEagerDestroyUnmapHelperAction {
+pub fn residual_host_eager_destroy_unmap_helper_last_action()
+-> ResidualHostEagerDestroyUnmapHelperAction {
     ResidualHostEagerDestroyUnmapHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
@@ -142,9 +142,9 @@ mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
         eager_map_host_spawn_if_coupled, eager_unmap_host_destroy_if_coupled,
-        end_shadow_coupled_tick, install_active_shadow_for_coupled_tick, GameWorldShadow,
+        end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
     };
     use glam::Vec3;
 

@@ -12,13 +12,13 @@ use crate::gui::callbacks::{
 };
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, GameWindow, LanPreferences, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
+    GLM_DOUBLE_CLICKED, GameWindow, LanPreferences, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, get_shell, show_shell_map_if_available, try_with_shell_mut,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{
-    ensure_the_lan, reset_the_lan, the_lan, ChatType, LanEvent, LanGameInfo, LanResult,
+    ChatType, LanEvent, LanGameInfo, LanResult, ensure_the_lan, reset_the_lan, the_lan,
 };
 use log::warn;
 
@@ -165,15 +165,17 @@ fn handle_lan_event(state: &mut LanLobbyState, event: LanEvent) {
                         .get_host()
                         .map(|p| p.name.clone())
                         .unwrap_or_else(|| game.name.clone());
-                    let label = if matches!(
-                        game.state,
-                        game_network::lan_api::LanGameState::InProgress
-                    ) {
-                        format!("[{host}]")
-                    } else {
-                        host
-                    };
-                    box_.add_item_with_data(idx as i32, &label, Some(ListBoxItemData::Integer(idx as i32)));
+                    let label =
+                        if matches!(game.state, game_network::lan_api::LanGameState::InProgress) {
+                            format!("[{host}]")
+                        } else {
+                            host
+                        };
+                    box_.add_item_with_data(
+                        idx as i32,
+                        &label,
+                        Some(ListBoxItemData::Integer(idx as i32)),
+                    );
                 }
             }
         }
@@ -232,7 +234,10 @@ fn handle_lan_event(state: &mut LanLobbyState, event: LanEvent) {
             } else {
                 "LAN:GameStartTimerPlural"
             };
-            add_chat_line(state, &GameText::fetch(key).replace("%d", &seconds.to_string()));
+            add_chat_line(
+                state,
+                &GameText::fetch(key).replace("%d", &seconds.to_string()),
+            );
         }
         LanEvent::GameStart => {
             set_lan_button_pushed(true);
@@ -533,9 +538,8 @@ pub fn lan_lobby_system(
                         let _ = api.request_lobby_leave(false).await;
                     }
                 });
-                let _ = try_with_shell_mut(|shell| {
-                    shell.push("Menus/NetworkDirectConnect.wnd", false)
-                });
+                let _ =
+                    try_with_shell_mut(|shell| shell.push("Menus/NetworkDirectConnect.wnd", false));
             }
             WindowMsgHandled::Handled
         }
@@ -566,7 +570,8 @@ pub fn lan_lobby_system(
                         let _ = api.request_set_name(name).await;
                     }
                 });
-            } else if data1 as i32 == st.text_entry_chat_id && matches!(msg, WindowMessage::GadgetEditDone)
+            } else if data1 as i32 == st.text_entry_chat_id
+                && matches!(msg, WindowMessage::GadgetEditDone)
             {
                 let mut text = get_text(&st.text_entry_chat);
                 set_text(&st.text_entry_chat, "");

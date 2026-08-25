@@ -58,8 +58,8 @@ fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 
-pub fn honesty_host_gameworld_production_paused_writeback_residual_method_names_residual_wave990(
-) -> bool {
+pub fn honesty_host_gameworld_production_paused_writeback_residual_method_names_residual_wave990()
+-> bool {
     let names = LIVE_HOST_GAMEWORLD_PRODUCTION_PAUSED_WRITEBACK_RESIDUAL_METHOD_NAMES_WAVE990;
     let ok = residual_name_index(names, "production_paused").is_some()
         && residual_name_index(names, "Wave 990").is_some();
@@ -70,8 +70,8 @@ pub fn honesty_host_gameworld_production_paused_writeback_residual_method_names_
     ok
 }
 
-pub fn honesty_host_gameworld_production_paused_writeback_residual_nav_commands_residual_wave990(
-) -> bool {
+pub fn honesty_host_gameworld_production_paused_writeback_residual_nav_commands_residual_wave990()
+-> bool {
     let steps = LIVE_HOST_GAMEWORLD_PRODUCTION_PAUSED_WRITEBACK_RESIDUAL_NAV_STEPS_WAVE990;
     let ok = residual_name_index(
         steps,

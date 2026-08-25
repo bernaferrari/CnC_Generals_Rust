@@ -173,9 +173,9 @@ mod intersection;
 mod overlap;
 mod sweep;
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod test_sweep;
+#[cfg(test)]
+mod tests;
 
 #[allow(unused_imports)]
 pub use intersection::*;

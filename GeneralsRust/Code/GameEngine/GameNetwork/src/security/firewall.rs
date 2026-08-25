@@ -6,7 +6,7 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::transport::TransportProtocol;
 use igd::aio::Gateway;
-use igd::{aio::search_gateway, PortMappingProtocol};
+use igd::{PortMappingProtocol, aio::search_gateway};
 use parking_lot::Mutex as SyncMutex;
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddrV4};

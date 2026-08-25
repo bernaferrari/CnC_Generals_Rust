@@ -33,7 +33,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // C++: Team *theTeam = TheScriptEngine->getTeamNamed(teamName); if (!theTeam) return;
         let Ok(team_arc) = self.get_team_by_name(&team_name) else {
             return Ok(ScriptActionResult::Success);
@@ -189,7 +188,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let Some((group_arc, command_button, source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
         else {
@@ -254,7 +252,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let Some((group_arc, command_button, _source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
         else {
@@ -294,7 +291,6 @@ impl ScriptActionDispatcher {
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
-
 
         let Some((group_arc, command_button, _source_obj)) =
             self.resolve_team_command_button_context(&team_name, &command_button)?
@@ -1004,7 +1000,6 @@ impl ScriptActionDispatcher {
             }
         }
 
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -1089,7 +1084,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(target_id)) = tracker.get_object_id(&target_name) else {
             log::warn!("Target '{}' not found for team face", target_name);
@@ -1149,7 +1143,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let waypoint_pos = self.get_waypoint_position(&waypoint_name)?;
         let waypoint_pos =

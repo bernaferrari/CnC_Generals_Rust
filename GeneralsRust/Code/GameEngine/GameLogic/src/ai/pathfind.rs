@@ -1,6 +1,6 @@
-use crate::ai::path_optimization::PathOptimizer;
-use crate::ai::pathfind_astar::{PathfindLayerEnum as OptLayer, PATHFIND_CELL_SIZE_F};
 use crate::ai::THE_AI;
+use crate::ai::path_optimization::PathOptimizer;
+use crate::ai::pathfind_astar::{PATHFIND_CELL_SIZE_F, PathfindLayerEnum as OptLayer};
 use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
 use crate::common::xfer::XferExt;
@@ -1169,11 +1169,8 @@ impl Pathfinder {
             0.0,
         );
         if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-            pos.z = terrain.get_layer_height(
-                pos.x,
-                pos.y,
-                crate::common::PathfindLayerEnum::Ground,
-            );
+            pos.z =
+                terrain.get_layer_height(pos.x, pos.y, crate::common::PathfindLayerEnum::Ground);
         }
         pos
     }
@@ -1706,7 +1703,6 @@ pub fn update_goal_for_object(
     }
     Ok(())
 }
-
 
 /// Snap a world position to the nearest pathfind grid cell center.
 /// Matches C++ Pathfinder::goalPosition() — returns the grid-snapped position

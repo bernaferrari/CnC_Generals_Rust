@@ -79,7 +79,6 @@ pub enum LocoGoalType {
 /// C++ `AIFaceState::update` relative-angle success (`0.035` rad ≈ 2°).
 pub const FACE_REL_THRESH_RAD: f32 = 0.035;
 
-
 /// The durable marker for one actually accepted WeaponSet discharge.
 ///
 /// This is deliberately separate from `last_fire_*` / `fire_intent_count`:
@@ -155,8 +154,6 @@ pub struct DrawableOverlayIcon {
     pub anim_frame: u32,
 }
 
-
-
 fn default_pitch_roll_yaw_factor() -> f32 {
     2.0
 }
@@ -168,10 +165,9 @@ pub(crate) fn default_turret_turn_rate() -> f32 {
 
 mod turret_spawn;
 pub(crate) use turret_spawn::{
-    turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames, turret_spawn_for_template,
-    TurretSpawnSpec,
+    TurretSpawnSpec, turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames,
+    turret_spawn_for_template,
 };
-
 
 /// C++ default recenter wait residual (2 * LOGICFRAMES_PER_SECOND).
 pub(crate) fn default_turret_recenter_frames() -> u32 {
@@ -245,7 +241,6 @@ pub fn calc_slow_down_dist(cur_speed: f32, desired_speed: f32, max_braking: f32)
     const FUDGE: f32 = 1.05;
     dist * FUDGE
 }
-
 
 /// Object type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -3099,17 +3094,17 @@ mod bonuses;
 mod construct;
 mod damage;
 mod death;
+#[cfg(test)]
+mod entity_inventory_audit;
 mod entity_lifecycle_apply;
+#[cfg(test)]
+mod entity_lifecycle_audit;
 mod entity_lifecycle_envelope;
 mod entity_lifecycle_flight;
 mod entity_lifecycle_inventory;
 mod entity_lifecycle_projectiles;
 mod entity_lifecycle_residuals;
 mod entity_lifecycle_tags;
-    #[cfg(test)]
-    mod entity_lifecycle_audit;
-    #[cfg(test)]
-    mod entity_inventory_audit;
 mod install;
 mod jets;
 mod orders;
@@ -3136,30 +3131,26 @@ pub use status_bits::{
     leftover_object_script_targetable,
 };
 
-
-pub use visual::ObjectVisualInfo;
-pub use stealth::{
-    capture_drawable_tint_envelope, drawable_disabled_dark_tint, drawable_explicit_fade_opacity,
-    drawable_status_tint_rgb, friendly_stealth_pulse_opacity, is_live_stealth_black_market,
-    order_idle_enemies_on_reveal, restore_drawable_tint_envelope, sample_drawable_status_tint,
-    stealth_second_material_pass_opacity, stealth_update_pulse_opacity,
-    DrawableTintEnvelopePersist, DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT,
-    MATERIAL_PASS_OPACITY_FADE_SCALAR, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
-    STEALTH_UPDATE_PULSE_PHASE_RATE, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR,
-    TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
-    VERY_TRANSPARENT_MATERIAL_PASS_OPACITY,
+pub use jets::{
+    HostJetAi, HostJetPendingResume, JET_AFTERBURNER_SOUND, JET_AFTERBURNER_SOUND_STOP,
+    JET_LOCKON_TICK_SOUND, JET_RTB_PHASE_APPROACH, JET_RTB_PHASE_LANDING, JET_RTB_PHASE_TAXI,
+    JET_WHEEL_SCREECH_SOUND, JET_WHEEL_SCREECH_Z_SLOP, JetAiTickAction,
+    STEALTH_FIGHTER_LOCKON_CURSOR, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
 };
 #[cfg(test)]
 pub use stealth::reset_drawable_tint_envelopes;
-pub use jets::{
-    HostJetAi, HostJetPendingResume, JetAiTickAction, JET_AFTERBURNER_SOUND,
-    JET_AFTERBURNER_SOUND_STOP, JET_LOCKON_TICK_SOUND, JET_RTB_PHASE_APPROACH,
-    JET_RTB_PHASE_LANDING, JET_RTB_PHASE_TAXI, JET_WHEEL_SCREECH_SOUND,
-    JET_WHEEL_SCREECH_Z_SLOP, STEALTH_FIGHTER_LOCKON_CURSOR,
-    STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
+pub use stealth::{
+    DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, DrawableTintEnvelopePersist,
+    MATERIAL_PASS_OPACITY_FADE_SCALAR, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
+    STEALTH_UPDATE_PULSE_PHASE_RATE, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR,
+    TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
+    VERY_TRANSPARENT_MATERIAL_PASS_OPACITY, capture_drawable_tint_envelope,
+    drawable_disabled_dark_tint, drawable_explicit_fade_opacity, drawable_status_tint_rgb,
+    friendly_stealth_pulse_opacity, is_live_stealth_black_market, order_idle_enemies_on_reveal,
+    restore_drawable_tint_envelope, sample_drawable_status_tint,
+    stealth_second_material_pass_opacity, stealth_update_pulse_opacity,
 };
-
-
+pub use visual::ObjectVisualInfo;
 
 #[cfg(test)]
 mod tests;

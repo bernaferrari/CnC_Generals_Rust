@@ -78,8 +78,8 @@ pub fn residual_render_ui_pipeline_presentation_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_render_ui_pipeline_presentation_last_action(
-) -> ResidualRenderUiPipelinePresentationAction {
+pub fn residual_render_ui_pipeline_presentation_last_action()
+-> ResidualRenderUiPipelinePresentationAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualRenderUiPipelinePresentationAction::MethodNames,
         2 => ResidualRenderUiPipelinePresentationAction::SourceMarkers,
@@ -181,8 +181,7 @@ pub fn simulate_render_ui_pipeline_presentation_source() -> bool {
 /// Wave 570: script messages peel into `take_presentation_or_boot_new_script_messages`.
 pub fn simulate_render_script_clock_pipeline_presentation_source() -> bool {
     let src = cnc_source();
-    let script_ok = src
-        .contains("Wave 462")
+    let script_ok = src.contains("Wave 462")
         || (src.contains("Wave 570")
             && src.contains("take_presentation_or_boot_new_script_messages")
             && src.contains("self.take_presentation_or_boot_new_script_messages()"));

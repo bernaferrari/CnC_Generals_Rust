@@ -121,13 +121,12 @@ impl GameLogic {
                     continue;
                 };
                 let b_id = ObjectId(b_raw);
-                let geom_hit = if let (Some(a), Some(b)) =
-                    (self.objects.get(a_id), self.objects.get(&b_id))
-                {
-                    super::collide_dispatch::host_geom_collides(a, b)
-                } else {
-                    None
-                };
+                let geom_hit =
+                    if let (Some(a), Some(b)) = (self.objects.get(a_id), self.objects.get(&b_id)) {
+                        super::collide_dispatch::host_geom_collides(a, b)
+                    } else {
+                        None
+                    };
                 // C++ processContactList only onCollide after geomCollidesWithGeom.
                 // First-overlap 0-damage crush bookkeeping must not fire from
                 // a shared partition cell without contact (hq-zsklj).
@@ -152,14 +151,8 @@ impl GameLogic {
                     if self.try_physics_collide(*a_id, b_id, a_r) {
                         handled = handled.saturating_add(1);
                     }
-                    let reverse_ok = self
-                        .objects
-                        .get(a_id)
-                        .is_some_and(|o| !o.status.destroyed)
-                        && self
-                            .objects
-                            .get(&b_id)
-                            .is_some_and(|o| !o.status.destroyed);
+                    let reverse_ok = self.objects.get(a_id).is_some_and(|o| !o.status.destroyed)
+                        && self.objects.get(&b_id).is_some_and(|o| !o.status.destroyed);
                     if reverse_ok && self.try_physics_collide(b_id, *a_id, b_r) {
                         handled = handled.saturating_add(1);
                     }
@@ -296,7 +289,8 @@ impl GameLogic {
                 Some(o) => o.get_position(),
                 None => continue,
             };
-            let Some(force) = compute_shock_wave_force(source_pos, pos, amount, radius, taper) else {
+            let Some(force) = compute_shock_wave_force(source_pos, pos, amount, radius, taper)
+            else {
                 continue;
             };
             if let Some(o) = self.objects.get_mut(&id) {
@@ -325,8 +319,8 @@ impl GameLogic {
             return 0;
         }
         use crate::game_logic::weapon_bootstrap::{
-            host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
-            WEAPON_AFFECTS_DEFAULT,
+            WEAPON_AFFECTS_DEFAULT, host_radius_damage_affects_for_weapon_name,
+            radius_damage_affects_victim,
         };
         let affects = weapon_name
             .map(host_radius_damage_affects_for_weapon_name)
@@ -462,9 +456,9 @@ impl GameLogic {
         weapon_name: Option<&str>,
     ) -> u32 {
         use crate::game_logic::weapon_bootstrap::{
-            host_primary_damage_radius_for_weapon_name, host_radius_damage_affects_for_weapon_name,
-            host_secondary_damage_for_weapon_name, host_secondary_damage_radius_for_weapon_name,
-            radius_damage_affects_victim, WEAPON_AFFECTS_DEFAULT,
+            WEAPON_AFFECTS_DEFAULT, host_primary_damage_radius_for_weapon_name,
+            host_radius_damage_affects_for_weapon_name, host_secondary_damage_for_weapon_name,
+            host_secondary_damage_radius_for_weapon_name, radius_damage_affects_victim,
         };
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
         let (primary_r, secondary_r, primary_dmg, secondary_dmg) = match weapon_name {
@@ -477,7 +471,11 @@ impl GameLogic {
                 let pr = host_primary_damage_radius_for_weapon_name(n) * radius_mult;
                 let sr = host_secondary_damage_radius_for_weapon_name(n) * radius_mult;
                 let sd = host_secondary_damage_for_weapon_name(n);
-                let primary = if pr > 0.0 { pr } else { splash_radius * radius_mult };
+                let primary = if pr > 0.0 {
+                    pr
+                } else {
+                    splash_radius * radius_mult
+                };
                 (primary, sr, weapon_damage, sd)
             }
             None => (splash_radius, 0.0, weapon_damage, 0.0),
@@ -589,13 +587,8 @@ impl GameLogic {
             .get(&attacker_id)
             .map(|a| a.get_position())
             .unwrap_or(impact);
-        let _ = self.apply_shock_wave_at_impact(
-            impact,
-            source_pos,
-            max_r,
-            weapon_name,
-            Some(skip_id),
-        );
+        let _ =
+            self.apply_shock_wave_at_impact(impact, source_pos, max_r, weapon_name, Some(skip_id));
         hits
     }
 
@@ -606,8 +599,8 @@ impl GameLogic {
         slot: u8,
     ) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_effective_scatter_radius, scatter_misses_intended_target, scatter_seed_for_shot,
-            DEFAULT_SCATTER_HIT_RADIUS,
+            DEFAULT_SCATTER_HIT_RADIUS, host_effective_scatter_radius,
+            scatter_misses_intended_target, scatter_seed_for_shot,
         };
         let (wname, tgt_inf, hit_r) = {
             let attacker = match self.objects.get(&attacker_id) {
@@ -781,7 +774,6 @@ impl GameLogic {
         )
     }
 
-
     pub(crate) fn try_continue_attack_after_kill(
         &mut self,
         attacker_id: ObjectId,
@@ -940,8 +932,7 @@ impl GameLogic {
             if !self.score_the_kill_victim_counts(victim) {
                 return false;
             }
-            if killer.owner_player_id.is_some()
-                && killer.owner_player_id == victim.owner_player_id
+            if killer.owner_player_id.is_some() && killer.owner_player_id == victim.owner_player_id
             {
                 return false;
             }

@@ -394,10 +394,13 @@ pub fn stealth_fighter_allowed_to_stealth_residual(attacking: bool) -> bool {
 
 /// Whether a mine-kind object should use the 0-opacity stealth residual.
 #[inline]
-pub fn is_mine_stealth_kind_residual(is_mine: bool, is_demo_trap: bool, has_mine_data: bool) -> bool {
+pub fn is_mine_stealth_kind_residual(
+    is_mine: bool,
+    is_demo_trap: bool,
+    has_mine_data: bool,
+) -> bool {
     is_mine || is_demo_trap || has_mine_data
 }
-
 
 // ---------------------------------------------------------------------------
 // 3. Stealth residual deepen (StealthUpdate ctor + level bits + samples)
@@ -589,7 +592,6 @@ pub const DETECTOR_IR_PING_PARTICLE: &str = "IRDetectPing";
 pub const DETECTOR_IR_BRIGHT_PARTICLE: &str = "IRDetectPingBright";
 /// C++ `IRGridParticleSysName` residual — leftover-refreshed every DetectionRate scan.
 pub const DETECTOR_IR_GRID_PARTICLE: &str = "IRDetectGrid";
-
 
 /// Common DetectionRate residual (msec) — most infantry/vehicle detectors.
 pub const DETECTOR_RATE_COMMON_MS_RESIDUAL: u32 = 500;
@@ -788,9 +790,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::BlastCrater => M::BLAST_CRATER.bits(),
         KindOf::HugeVehicle => M::HUGE_VEHICLE.bits(),
 
-
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
-
     }
 }
 
@@ -799,7 +799,9 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
 pub fn live_object_kind_of_cpp_mask<'a>(
     kinds: impl IntoIterator<Item = &'a crate::game_logic::KindOf>,
 ) -> u128 {
-    kinds.into_iter().fold(0u128, |acc, k| acc | live_kind_of_cpp_mask(*k))
+    kinds
+        .into_iter()
+        .fold(0u128, |acc, k| acc | live_kind_of_cpp_mask(*k))
 }
 
 fn parse_extra_detect_kindof_ini(value: &str) -> u128 {
@@ -815,7 +817,11 @@ pub fn extra_detect_kindof_from_leftover_template(template_name: &str) -> Option
     let factory = guard.as_ref()?;
     let tmpl = factory.find_template(template_name, false)?;
     for entry in tmpl.get_behavior_module_info().iter() {
-        if !entry.name.as_str().eq_ignore_ascii_case("StealthDetectorUpdate") {
+        if !entry
+            .name
+            .as_str()
+            .eq_ignore_ascii_case("StealthDetectorUpdate")
+        {
             continue;
         }
         if let Some(data) = entry
@@ -922,7 +928,6 @@ pub const VISION_ALERT_RANGE_MODIFIER_RESIDUAL: f32 = 1.1;
 pub const VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL: f32 = 1.5;
 /// Retail AIData.ini GuardChaseUnitsDuration residual (4s × 30 fps).
 pub const GUARD_CHASE_UNIT_FRAMES_RESIDUAL: u32 = 120;
-
 
 /// C++ DynamicShroudClearingRangeUpdate GRID_FX_DECAL_COUNT residual.
 pub const DYNAMIC_SHROUD_GRID_FX_DECAL_COUNT_RESIDUAL: u32 = 30;

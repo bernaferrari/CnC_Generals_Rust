@@ -321,9 +321,9 @@ fn update_combat_prefers_secondary_damage_vs_structure() {
 
     // Armor may reduce slightly; secondary path must land ~secondary damage, not primary.
     assert!(
-            dealt > primary_dmg + 0.5,
-            "structure shot must use secondary path: dealt={dealt} primary={primary_dmg} secondary={secondary_dmg}"
-        );
+        dealt > primary_dmg + 0.5,
+        "structure shot must use secondary path: dealt={dealt} primary={primary_dmg} secondary={secondary_dmg}"
+    );
     assert!(
         (dealt - secondary_dmg).abs() < 1.0 || dealt >= secondary_dmg * 0.5,
         "dealt damage should track secondary ({secondary_dmg}), got {dealt}"
@@ -420,9 +420,9 @@ fn update_combat_prefers_secondary_damage_vs_infantry() {
     let dealt = health_before - health_after;
 
     assert!(
-            dealt > primary_dmg + 0.5,
-            "infantry PreferredAgainst residual must use secondary: dealt={dealt} primary={primary_dmg} secondary={secondary_dmg}"
-        );
+        dealt > primary_dmg + 0.5,
+        "infantry PreferredAgainst residual must use secondary: dealt={dealt} primary={primary_dmg} secondary={secondary_dmg}"
+    );
 
     let atk = logic.objects.get(&attacker_id).expect("attacker");
     let pri_last = atk.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
@@ -609,7 +609,6 @@ fn damage_dealt_at_self_position_reads_store_not_name_seed() {
     ));
     assert!(!host_damage_dealt_at_self_position_for_weapon_name(""));
 }
-
 
 #[test]
 fn projectile_stream_name_seeds() {
@@ -952,13 +951,12 @@ fn shock_wave_for_seeded_weapons_residual() {
 
 #[test]
 fn radius_damage_affects_for_seeded_weapons_residual() {
+    use crate::game_logic::ObjectId;
     use crate::game_logic::host_ai_path_combat_residual_wave105::{
         WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
         WEAPON_DOESNT_AFFECT_AIRBORNE,
     };
-    use crate::game_logic::ObjectId;
     use gamelogic::common::Relationship;
-    use gamelogic::weapon::{with_weapon_store_mut, WeaponTemplate};
 
     ensure_host_weapon_store();
     // Omitted RadiusDamageAffects / unknown name: C++ constructor default.
@@ -968,14 +966,15 @@ fn radius_damage_affects_for_seeded_weapons_residual() {
     assert_eq!(omitted & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
     assert_eq!(omitted & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
 
-    let mut neutron = WeaponTemplate::new("TestNeutronSplashWeapon".to_string());
-    neutron.parse_weapon_fields_from_ini(&std::collections::HashMap::from([(
-        "RadiusDamageAffects".to_string(),
-        "SUICIDE SELF ALLIES ENEMIES NEUTRALS NOT_SIMILAR NOT_AIRBORNE".to_string(),
-    )]));
-    let _ = with_weapon_store_mut(|store| {
-        store.add_weapon_template(neutron);
-    });
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(
+            r#"Weapon TestNeutronSplashWeapon
+  RadiusDamageAffects = SUICIDE SELF ALLIES ENEMIES NEUTRALS NOT_SIMILAR NOT_AIRBORNE
+End
+"#,
+        ),
+        1
+    );
     let n = host_radius_damage_affects_for_weapon_name("TestNeutronSplashWeapon");
     assert_ne!(n & WEAPON_DOESNT_AFFECT_AIRBORNE, 0);
     assert_ne!(n & WEAPON_AFFECTS_ALLIES, 0);
@@ -1048,7 +1047,11 @@ fn projectile_collides_for_seeded_weapons_residual() {
         PROJECTILE_COLLIDE_CONTROLLED_STRUCTURES,
         false
     ));
-    assert!(projectile_structure_same_controller(Some(1), Some(1), false));
+    assert!(projectile_structure_same_controller(
+        Some(1),
+        Some(1),
+        false
+    ));
     assert!(!projectile_structure_same_controller(
         Some(1),
         Some(2),
@@ -1222,7 +1225,6 @@ fn delay_between_shots_frames_draws_inclusive_range() {
     }
 }
 
-
 #[test]
 fn target_pitch_limits_seed_and_gate() {
     let sc = seed_target_pitch_limits_for("AmericaStrategyCenterArtillery");
@@ -1360,9 +1362,8 @@ fn scatter_miss_gate_residual() {
 #[test]
 fn shock_wave_force_tapers_from_firer_not_impact() {
     let firer = glam::Vec3::ZERO;
-    let near =
-        compute_shock_wave_force(firer, glam::Vec3::new(10.0, 0.0, 0.0), 100.0, 100.0, 0.75)
-            .expect("near");
+    let near = compute_shock_wave_force(firer, glam::Vec3::new(10.0, 0.0, 0.0), 100.0, 100.0, 0.75)
+        .expect("near");
     let far = compute_shock_wave_force(firer, glam::Vec3::new(90.0, 0.0, 0.0), 100.0, 100.0, 0.75)
         .expect("far");
     assert!(near.length() > far.length(), "near {near:?} far {far:?}");
@@ -1380,10 +1381,10 @@ fn shock_wave_force_tapers_from_firer_not_impact() {
 
 #[test]
 fn splash_skips_producer_when_self_unset() {
+    use crate::game_logic::ObjectId;
     use crate::game_logic::host_ai_path_combat_residual_wave105::{
         WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_SELF,
     };
-    use crate::game_logic::ObjectId;
     use gamelogic::common::Relationship;
     let default_mask = WEAPON_AFFECTS_ALLIES | WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS;
     let tank = ObjectId(10);
@@ -1483,11 +1484,7 @@ fn estimate_sniper_vs_tank_applies_residual_armor() {
     ensure_host_weapon_store();
     let mut tmpl = ThingTemplate::new("GLATankScorpion");
     tmpl.add_kind_of(KindOf::Vehicle).set_health(400.0);
-    let tank = crate::game_logic::Object::new(
-        tmpl,
-        crate::game_logic::ObjectId(1),
-        Team::GLA,
-    );
+    let tank = crate::game_logic::Object::new(tmpl, crate::game_logic::ObjectId(1), Team::GLA);
     let est = host_estimate_weapon_from_name("GLAJarmenKellRifle", 180.0);
     let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
         "GLAJarmenKellRifle",
@@ -1503,11 +1500,8 @@ fn estimate_sniper_vs_tank_applies_residual_armor() {
         t.add_kind_of(KindOf::Infantry).set_health(100.0);
         t
     };
-    let infantry = crate::game_logic::Object::new(
-        infantry_t,
-        crate::game_logic::ObjectId(2),
-        Team::USA,
-    );
+    let infantry =
+        crate::game_logic::Object::new(infantry_t, crate::game_logic::ObjectId(2), Team::USA);
     let inf_victim = host_estimate_victim_from_object(
         &infantry,
         0,
@@ -1554,7 +1548,8 @@ fn nearer_bridge_end_is_not_span_center() {
     let from = glam::Vec3::new(0.0, 0.0, 0.0);
     let center = glam::Vec3::new(100.0, 0.0, 0.0);
     let tmpl = ThingTemplate::new("TestBridge");
-    let mut bridge = crate::game_logic::Object::new(tmpl, crate::game_logic::ObjectId(1), Team::Neutral);
+    let mut bridge =
+        crate::game_logic::Object::new(tmpl, crate::game_logic::ObjectId(1), Team::Neutral);
     bridge.set_position(center);
     bridge.selection_radius = 40.0;
     let aim = crate::game_logic::combat::nearer_live_bridge_attack_point(from, &bridge);

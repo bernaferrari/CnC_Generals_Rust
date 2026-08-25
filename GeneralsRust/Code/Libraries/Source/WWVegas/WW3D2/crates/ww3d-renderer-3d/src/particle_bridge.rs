@@ -3,9 +3,9 @@
 //! These helpers centralize how particle systems obtain GPU resources so that
 //! emitters and buffers no longer need to manage their own device/queue handles.
 
+use crate::Renderer;
 use crate::core::error::RendererResult;
 use crate::pointgr::PointGroupMode;
-use crate::Renderer;
 use std::sync::Arc;
 use ww3d_particles::buffer::{ParticleBuffer, RenderMode};
 use ww3d_particles::emitter::ParticleEmitter;

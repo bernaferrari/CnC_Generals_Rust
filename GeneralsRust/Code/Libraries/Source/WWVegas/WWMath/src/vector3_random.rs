@@ -3,9 +3,9 @@
 //! This module provides various randomizer implementations for generating
 //! random Vector3 points within different geometric shapes.
 
-use crate::vector3::Vector3;
 use crate::WWMath;
-use rand::{thread_rng, Rng};
+use crate::vector3::Vector3;
+use rand::{Rng, thread_rng};
 
 /// Class ID constants for randomizer identification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

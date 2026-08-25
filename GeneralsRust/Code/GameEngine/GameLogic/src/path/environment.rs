@@ -7,7 +7,7 @@
 
 use super::{CollisionMap, NavigationMap, PathfindCellType, Pathfinder};
 use crate::common::{Coord3D, ICoord2D, IRegion2D};
-use crate::path::{world_to_grid, PATHFIND_CELL_SIZE_F};
+use crate::path::{PATHFIND_CELL_SIZE_F, world_to_grid};
 use crate::world::World;
 
 /// Margin (in cells) added around detected world bounds when rebuilding the grid.
@@ -179,8 +179,8 @@ impl PathEnvironment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::entities::{TemplateRef, Transform};
     use crate::world::World;
+    use crate::world::entities::{TemplateRef, Transform};
 
     #[test]
     fn dynamic_units_mark_collision_cells() {

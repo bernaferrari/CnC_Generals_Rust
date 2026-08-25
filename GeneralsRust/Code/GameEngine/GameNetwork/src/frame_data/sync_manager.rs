@@ -188,8 +188,7 @@ impl FrameData {
 
         trace!(
             "Added command, total count = {}, frame command count = {}",
-            self.command_count,
-            self.frame_command_count
+            self.command_count, self.frame_command_count
         );
 
         Ok(())

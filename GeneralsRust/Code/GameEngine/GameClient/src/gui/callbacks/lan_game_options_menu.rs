@@ -7,15 +7,15 @@ use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_lan_setup, get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
-    GLM_RIGHT_CLICKED,
+    GLM_RIGHT_CLICKED, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    WindowStatus, get_lan_setup, get_shell, show_shell_map_if_available, try_with_shell_mut,
+    with_window_manager,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::matchmaking::slots::PlayerColor;
-use game_network::{Money, SlotState, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM};
+use game_network::{Money, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SlotState};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::GAME_LAN;
 use std::cell::RefCell;

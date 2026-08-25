@@ -146,8 +146,8 @@ pub(super) fn pending_weapon_slot(pending: &PendingCommand) -> WeaponSlotType {
     weapon_slot_from_u32(pending.source_object_id)
 }
 
-pub(super) fn pending_special_power_payload(
-) -> Option<(crate::helpers::PendingSpecialPower, SpecialPowerTemplate)> {
+pub(super) fn pending_special_power_payload()
+-> Option<(crate::helpers::PendingSpecialPower, SpecialPowerTemplate)> {
     let power = TheInGameUI::get_pending_special_power()?;
     let store = get_special_power_store()?;
     let template = store

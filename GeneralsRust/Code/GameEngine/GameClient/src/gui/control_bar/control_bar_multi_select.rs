@@ -184,7 +184,6 @@ fn push_common_slots(
     }
 }
 
-
 /// Residual: last multi-select action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

@@ -1,6 +1,6 @@
 //! Shared helper utilities (ObjectHelper equivalent).
 
-use crate::common::{ObjectStatusTypes, TheGameLogic, UnsignedInt, NEVER};
+use crate::common::{NEVER, ObjectStatusTypes, TheGameLogic, UnsignedInt};
 use crate::modules::UpdateSleepTime;
 use crate::object::Object;
 

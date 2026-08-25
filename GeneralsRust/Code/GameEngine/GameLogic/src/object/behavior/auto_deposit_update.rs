@@ -7,13 +7,13 @@
 //! FILE: AutoDepositUpdate.cpp lines 1-268
 
 use crate::common::{AsciiString, Bool, Coord3D, Int, KindOf, ModuleData, ObjectID, UnsignedInt};
-use crate::object::CONSTRUCTION_COMPLETE;
-use crate::helpers::{game_client_random_value_real, TheGameText, TheInGameUI};
+use crate::helpers::{TheGameText, TheInGameUI, game_client_random_value_real};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::CONSTRUCTION_COMPLETE;
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::upgrade::center::get_upgrade_center;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

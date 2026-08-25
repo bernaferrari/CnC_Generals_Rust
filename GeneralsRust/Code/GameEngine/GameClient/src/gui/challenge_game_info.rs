@@ -95,7 +95,7 @@ pub fn restore_map_and_template(map: String, template: i32) {
 
 /// C++ `xferSnapshot(TheChallengeGameInfo)` capture.
 pub fn snapshot_challenge_game_info() -> game_engine::System::ChallengeGameInfoXfer {
-    use game_engine::System::{ChallengeGameInfoXfer, ChallengeSlotXfer, CHALLENGE_MAX_SLOTS};
+    use game_engine::System::{CHALLENGE_MAX_SLOTS, ChallengeGameInfoXfer, ChallengeSlotXfer};
     with_challenge_game_info(|info| {
         let gi = info.game_info();
         let mut slots = std::array::from_fn(|_| ChallengeSlotXfer::default());

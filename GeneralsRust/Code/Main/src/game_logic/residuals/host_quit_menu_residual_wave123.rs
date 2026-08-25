@@ -138,9 +138,8 @@ mod tests {
     #[test]
     fn simulate_quit_prepare_exit_residual_live() {
         use game_client::gui::callbacks::{
-            residual_quit_menu_is_visible, residual_quit_menu_last_action,
+            ResidualQuitMenuAction, residual_quit_menu_is_visible, residual_quit_menu_last_action,
             simulate_quit_menu_prepare_exit, simulate_quit_menu_toggle_show,
-            ResidualQuitMenuAction,
         };
         assert!(simulate_quit_menu_toggle_show());
         assert!(residual_quit_menu_is_visible());

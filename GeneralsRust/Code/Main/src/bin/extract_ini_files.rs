@@ -122,7 +122,9 @@ async fn main() -> Result<()> {
                                 }
                             }
                             Err(_) => {
-                                println!("❌ Failed to decode as UTF-8, showing first 1000 bytes as hex:");
+                                println!(
+                                    "❌ Failed to decode as UTF-8, showing first 1000 bytes as hex:"
+                                );
                                 let preview = if data.len() > 1000 {
                                     &data[..1000]
                                 } else {

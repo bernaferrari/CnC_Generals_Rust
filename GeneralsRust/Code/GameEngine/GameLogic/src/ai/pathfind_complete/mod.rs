@@ -12,19 +12,19 @@
 pub(crate) use super::object_footprint_positions;
 pub(crate) use super::path_optimization::PathOptimizer;
 pub use super::pathfind_astar::{
-    AStarPathfinder, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
-    COST_ORTHOGONAL, PATHFIND_CELL_SIZE, PATHFIND_CELL_SIZE_F,
+    AStarPathfinder, COST_DIAGONAL, COST_ORTHOGONAL, GridCoord, PATHFIND_CELL_SIZE,
+    PATHFIND_CELL_SIZE_F, PathfindCellType, PathfindLayerEnum,
 };
 
-pub(crate) use crate::common::xfer::{Xfer, XferExt};
 pub(crate) use crate::common::KindOf;
+pub(crate) use crate::common::xfer::{Xfer, XferExt};
 pub(crate) use crate::common::{
-    Coord2D, Coord3D, ICoord2D, ObjectID, ObjectStatusTypes,
-    PathfindLayerEnum as CommonPathfindLayerEnum, Relationship, INVALID_ID,
+    Coord2D, Coord3D, ICoord2D, INVALID_ID, ObjectID, ObjectStatusTypes,
+    PathfindLayerEnum as CommonPathfindLayerEnum, Relationship,
 };
 pub(crate) use crate::helpers::{ThePartitionManager, TheTerrainLogic};
-pub(crate) use crate::object::registry::OBJECT_REGISTRY;
 pub(crate) use crate::object::CrushSquishTestType;
+pub(crate) use crate::object::registry::OBJECT_REGISTRY;
 
 pub(crate) use std::collections::{HashMap, HashSet, VecDeque};
 pub(crate) use std::sync::atomic::{AtomicI32, Ordering};
@@ -49,16 +49,15 @@ mod tests;
 
 pub use system::PathfindingSystem;
 pub use types::{
-    compute_point_on_path_from_waypoints, peek_point_on_path_from_waypoints, BridgeLayer,
-    CheckMovementInfo, LocomotorSurfaceTypeMask, PathRequest, PathResult, LAYER_Z_CLOSE_ENOUGH_F,
+    BridgeLayer, CheckMovementInfo, LAYER_Z_CLOSE_ENOUGH_F, LocomotorSurfaceTypeMask,
     MAX_PATH_ITERATIONS, MAX_WALL_PIECES, PATHFIND_CELLS_PER_FRAME, PATHFIND_QUEUE_LEN,
-    SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER, UNINITIALIZED_ZONE,
-    ZONE_BLOCK_SIZE,
+    PathRequest, PathResult, SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE,
+    SURFACE_WATER, UNINITIALIZED_ZONE, ZONE_BLOCK_SIZE, compute_point_on_path_from_waypoints,
+    peek_point_on_path_from_waypoints,
 };
-
 
 pub(crate) use block_zones::{BlockCombiner, ZoneManager};
 pub(crate) use types::{
-    clip_line_cells, dual_world_registry_unavailable, ignored_obstacle_cells, GoalCell,
-    ObjectPathQueue,
+    GoalCell, ObjectPathQueue, clip_line_cells, dual_world_registry_unavailable,
+    ignored_obstacle_cells,
 };

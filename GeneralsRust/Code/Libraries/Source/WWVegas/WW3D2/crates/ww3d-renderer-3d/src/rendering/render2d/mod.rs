@@ -22,7 +22,7 @@ pub mod render2dsentence;
 
 pub use bmp2d::*;
 pub use font3d::*;
-pub use gpu_context::{is_textured, screen_to_clip, Render2DGpuContext};
+pub use gpu_context::{Render2DGpuContext, is_textured, screen_to_clip};
 pub use render2dsentence::Render2DSentenceClass;
 
 /// Color conversion macros (equivalent to C++ macros)

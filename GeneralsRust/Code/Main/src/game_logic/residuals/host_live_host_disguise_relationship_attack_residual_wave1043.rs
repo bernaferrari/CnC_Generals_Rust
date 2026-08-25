@@ -78,8 +78,7 @@ pub fn honesty_host_disguise_relationship_attack_residual_residual_pack_wave1043
     let cnc = cnc_source();
     let gl = gl_source();
     let tr = tr_source();
-    let ok = (tr.contains("Wave 973/1043: host empty dual-world")
-            || tr.contains("Wave 973/1043"))
+    let ok = (tr.contains("Wave 973/1043: host empty dual-world") || tr.contains("Wave 973/1043"))
         && (tr.contains("Wave 975/1043: host empty dual-world")
             || tr.contains("Wave 975/1043/1049"))
         && tr.contains("translator_entry_apparent_team(&entry)")

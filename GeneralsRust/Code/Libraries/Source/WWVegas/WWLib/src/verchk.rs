@@ -7,14 +7,12 @@ use std::ffi::CString;
 #[cfg(target_os = "windows")]
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(target_os = "windows")]
-use std::mem::{size_of, MaybeUninit};
+use std::mem::{MaybeUninit, size_of};
 #[cfg(target_os = "windows")]
 use std::os::windows::io::AsRawHandle;
 #[cfg(target_os = "windows")]
 use std::ptr;
 
-#[cfg(target_os = "windows")]
-use windows::core::PCSTR;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{FILETIME, HANDLE, HINSTANCE};
 #[cfg(target_os = "windows")]
@@ -23,8 +21,10 @@ use windows::Win32::Storage::FileSystem::GetFileTime;
 use windows::Win32::System::SystemServices::{IMAGE_DOS_HEADER, IMAGE_FILE_HEADER};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Version::{
-    GetFileVersionInfoA, GetFileVersionInfoSizeA, VerQueryValueA, VS_FIXEDFILEINFO,
+    GetFileVersionInfoA, GetFileVersionInfoSizeA, VS_FIXEDFILEINFO, VerQueryValueA,
 };
+#[cfg(target_os = "windows")]
+use windows::core::PCSTR;
 
 /// Obtain version information from the specified file.
 #[cfg(target_os = "windows")]

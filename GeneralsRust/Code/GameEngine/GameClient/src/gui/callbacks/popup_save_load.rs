@@ -4,7 +4,7 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::quit_menu::destroy_quit_menu;
 use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::control_bar::{
-    host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
+    HostControlBarInputProvenance, host_control_bar_input_provenance_for_current_dispatch,
 };
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::menu_flags::{
@@ -12,17 +12,16 @@ use crate::gui::menu_flags::{
 };
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
-    queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
+    GLM_DOUBLE_CLICKED, GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData,
+    WindowMsgHandled, queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
     queue_shell_shutdown_complete, queue_window_manager_op, queue_window_manager_op_deferred,
     show_shell_map_if_available, with_shell_ref, with_window_manager, write_input_focus_response,
-    GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{
-    get_game_state, AvailableGameInfo, SaveCode, SaveFileType, SaveLoadLayoutType, SnapshotType,
+    AvailableGameInfo, SaveCode, SaveFileType, SaveLoadLayoutType, SnapshotType, get_game_state,
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
@@ -1718,11 +1717,7 @@ pub fn residual_save_load_last_action() -> ResidualSaveLoadAction {
 /// Residual: last selected slot index (-1 if none).
 pub fn residual_save_load_selected_slot() -> Option<i32> {
     let slot = RESIDUAL_SAVE_LOAD_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 {
-        None
-    } else {
-        Some(slot)
-    }
+    if slot < 0 { None } else { Some(slot) }
 }
 
 /// Residual: bind SaveLoad gadget IDs for popup or full-screen layout.

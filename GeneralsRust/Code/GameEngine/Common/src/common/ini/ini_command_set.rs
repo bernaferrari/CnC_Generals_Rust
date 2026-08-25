@@ -7,9 +7,9 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::ini::{FieldParse, INIError, INIResult, INI};
-use super::ini_command_button::get_control_bar;
+use super::ini::{FieldParse, INI, INIError, INIResult};
 use super::ini_command_button::CommandButton;
+use super::ini_command_button::get_control_bar;
 
 /// Maximum number of command buttons in a set
 pub const MAX_COMMAND_BUTTONS_PER_SET: usize = 18; // Typically 3x6 grid
@@ -535,18 +535,22 @@ mod tests {
         let mut command_set = CommandSet::new("TestSet".to_string());
 
         // Set button at specific position
-        assert!(command_set
-            .set_button_at_position(5, "Button5".to_string())
-            .is_ok());
+        assert!(
+            command_set
+                .set_button_at_position(5, "Button5".to_string())
+                .is_ok()
+        );
         assert_eq!(
             command_set.get_button_at_position(5),
             Some(&"Button5".to_string())
         );
 
         // Try to set button beyond max position
-        assert!(command_set
-            .set_button_at_position(MAX_COMMAND_BUTTONS_PER_SET, "InvalidButton".to_string())
-            .is_err());
+        assert!(
+            command_set
+                .set_button_at_position(MAX_COMMAND_BUTTONS_PER_SET, "InvalidButton".to_string())
+                .is_err()
+        );
     }
 
     #[test]

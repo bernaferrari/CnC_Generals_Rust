@@ -8,7 +8,7 @@
 //! filters. Same-type events therefore throttle **map-wide** for 10s.
 //! Inactive ring-buffer history still counts (events die at 4s).
 
-use super::{Coord3D, RadarEvent, RadarEventType, MAX_RADAR_EVENTS};
+use super::{Coord3D, MAX_RADAR_EVENTS, RadarEvent, RadarEventType};
 
 /// C++ `closeEnoughDistanceSq = 250 * 250` (kept for the authored constant).
 pub const CLOSE_ENOUGH_DISTANCE_SQ: f32 = 250.0 * 250.0;

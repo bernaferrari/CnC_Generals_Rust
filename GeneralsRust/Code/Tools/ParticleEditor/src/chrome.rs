@@ -248,7 +248,10 @@ pub fn show_system_list(
             }
             for (i, system) in systems.iter().enumerate() {
                 let selected_here = selected == Some(i);
-                if ui.selectable_label(selected_here, &system.info.name).clicked() {
+                if ui
+                    .selectable_label(selected_here, &system.info.name)
+                    .clicked()
+                {
                     cmd = SystemListCommand::Select(i);
                 }
             }
@@ -316,7 +319,11 @@ fn show_key_params(ui: &mut egui::Ui, system: &mut ParticleSystem) -> bool {
     let mut changed = false;
 
     // Emission rate == C++ BurstCount (particles per burst).
-    changed |= edit_random_var(ui, "Emission Rate (Burst Count)", &mut system.info.burst_count);
+    changed |= edit_random_var(
+        ui,
+        "Emission Rate (Burst Count)",
+        &mut system.info.burst_count,
+    );
     changed |= edit_random_var(ui, "Burst Delay", &mut system.info.burst_delay);
     changed |= edit_random_var(ui, "Lifetime", &mut system.info.lifetime);
     changed |= edit_particle_type(ui, &mut system.info.particle_type);
@@ -372,7 +379,11 @@ pub fn show_properties_panel(ui: &mut egui::Ui, system: Option<&mut ParticleSyst
             }
         });
         changed |= edit_random_var(ui, "Size", &mut system.info.start_size);
-        changed |= edit_random_var(ui, "Emission Rate (Burst Count)", &mut system.info.burst_count);
+        changed |= edit_random_var(
+            ui,
+            "Emission Rate (Burst Count)",
+            &mut system.info.burst_count,
+        );
         changed |= edit_random_var(ui, "Burst Delay", &mut system.info.burst_delay);
         changed |= edit_random_var(ui, "Initial Delay", &mut system.info.initial_delay);
 
@@ -616,14 +627,16 @@ mod tests {
                 "File menu missing {item}"
             );
         }
-        assert!(file
-            .items
-            .iter()
-            .any(|i| i.label == "New System" && i.action == Some(ChromeAction::NewSystem)));
-        assert!(file
-            .items
-            .iter()
-            .any(|i| i.label == "Export INI..." && i.action == Some(ChromeAction::ExportIni)));
+        assert!(
+            file.items
+                .iter()
+                .any(|i| i.label == "New System" && i.action == Some(ChromeAction::NewSystem))
+        );
+        assert!(
+            file.items
+                .iter()
+                .any(|i| i.label == "Export INI..." && i.action == Some(ChromeAction::ExportIni))
+        );
 
         let edit = menus.iter().find(|m| m.label == "Edit").expect("Edit");
         assert!(!edit.items.is_empty());
@@ -707,7 +720,10 @@ mod tests {
         assert!(ini.contains("BurstCount = 5"), "{ini}");
         assert!(ini.contains("Type = STREAK"), "{ini}");
         assert!(ini.contains("ParticleName = EXPtracer"), "{ini}");
-        assert!(ini.contains("Gravity = -2.5") || ini.contains("Gravity = -2.50"), "{ini}");
+        assert!(
+            ini.contains("Gravity = -2.5") || ini.contains("Gravity = -2.50"),
+            "{ini}"
+        );
         assert!(ini.contains("IsOneShot = Yes"), "{ini}");
 
         // Same bytes as File > Export INI / `_writeSingleParticleSystem`.

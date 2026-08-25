@@ -67,7 +67,6 @@ fn residual_completion_die_power(template_name: &str) -> Option<String> {
     None
 }
 
-
 /// C++ SpecialPowerCompletionDie residual payload on an object.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostSpecialPowerCompletionDieData {
@@ -131,5 +130,4 @@ mod tests {
         );
         assert!(completion_die_power_for_template("AmericaInfantryRanger").is_none());
     }
-
 }

@@ -8,7 +8,7 @@ use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
 
-use crate::common::{DisabledMaskType, NameKeyType, ObjectID, INVALID_ID};
+use crate::common::{DisabledMaskType, INVALID_ID, NameKeyType, ObjectID};
 use crate::helpers::{FiringTracker, TheGameLogic};
 use crate::modules::{
     BehaviorModuleInterface, SleepyUpdatePhase, UpdateModuleInterface, UpdateSleepTime,

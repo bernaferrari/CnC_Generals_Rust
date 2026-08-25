@@ -152,8 +152,8 @@ mod tests {
     #[test]
     fn simulate_presentation_boundary_prepare_honesty_residual_live() {
         use crate::graphics::{
-            residual_presentation_boundary_last_action, residual_presentation_boundary_ok,
-            simulate_presentation_boundary_prepare_honesty, ResidualPresentationBoundaryAction,
+            ResidualPresentationBoundaryAction, residual_presentation_boundary_last_action,
+            residual_presentation_boundary_ok, simulate_presentation_boundary_prepare_honesty,
         };
         assert!(
             simulate_presentation_boundary_prepare_honesty(),

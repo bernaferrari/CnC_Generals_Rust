@@ -14,10 +14,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -804,7 +804,7 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
     use tokio::net::TcpListener;
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
     use tokio_tungstenite::{accept_async, tungstenite::Message};
     use url::Url;
 

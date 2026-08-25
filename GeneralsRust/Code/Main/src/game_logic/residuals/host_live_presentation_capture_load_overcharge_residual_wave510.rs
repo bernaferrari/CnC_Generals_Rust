@@ -78,8 +78,8 @@ pub fn residual_presentation_capture_load_overcharge_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_capture_load_overcharge_last_action(
-) -> ResidualPresentationCaptureLoadOverchargeAction {
+pub fn residual_presentation_capture_load_overcharge_last_action()
+-> ResidualPresentationCaptureLoadOverchargeAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationCaptureLoadOverchargeAction::MethodNames,
         2 => ResidualPresentationCaptureLoadOverchargeAction::SourceMarkers,
@@ -155,16 +155,15 @@ pub fn simulate_presentation_capture_load_overcharge_stamp_source() -> bool {
     let pf = pf_source();
     let en = en_source();
     let rp = rp_source();
-    let ok = pf
-        .contains("Wave 510")
+    let ok = pf.contains("Wave 510")
         && en.contains("pub fn loaded_model_bit")
         && en.contains("pub fn power_plant_upgraded_model_bit")
         && (pf.contains("self.overcharge_enabled") || pf.contains("overcharge_enabled"))
         && (pf.contains("!self.is_structure && self.occupant_count > 0")
             || pf.contains("occupant_count"));
-        && rp.contains(
-            "Wave 510: CAPTURED / LOADED / POWER_PLANT_UPGRADED bits included in stamp helper",
-        );
+    &&rp.contains(
+        "Wave 510: CAPTURED / LOADED / POWER_PLANT_UPGRADED bits included in stamp helper",
+    );
     residual_action_store(ResidualPresentationCaptureLoadOverchargeAction::StampSource);
     ok
 }

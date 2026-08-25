@@ -5,7 +5,7 @@
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::sync::Arc;
-use wgpu::{util::DeviceExt, BindGroup, Buffer, Device, Queue, RenderPass, RenderPipeline};
+use wgpu::{BindGroup, Buffer, Device, Queue, RenderPass, RenderPipeline, util::DeviceExt};
 
 /// Point group for rendering particles with GPU instancing
 #[derive(Debug)]

@@ -2,6 +2,10 @@
 //!
 //! Split from `w3d_c_api.rs`. Public names stay identical for C ABI / parity.
 
+use super::constants::*;
+use super::leftover::*;
+use super::math::*;
+use super::types::*;
 use crate::w3d::renderer::{batch_material_params, batch_priority};
 use crate::w3d::w3d_device::RenderObject;
 use crate::w3d::{
@@ -10,18 +14,14 @@ use crate::w3d::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
-use super::constants::*;
-use super::leftover::*;
-use super::math::*;
-use super::types::*;
 
 /// Set transform - matches original W3DDevice::SetTransform(matrix)
 #[no_mangle]
@@ -111,7 +111,10 @@ pub(super) async fn set_transform_internal(
 pub(super) fn current_world_transform(device: &W3DDeviceC) -> W3D_MATRIX {
     current_transform_value(device, W3D_TRANSFORM_STATE::W3DTS_WORLD)
 }
-pub(super) fn current_transform_value(device: &W3DDeviceC, state: W3D_TRANSFORM_STATE) -> W3D_MATRIX {
+pub(super) fn current_transform_value(
+    device: &W3DDeviceC,
+    state: W3D_TRANSFORM_STATE,
+) -> W3D_MATRIX {
     if let Ok(states) = device.transform_states.lock() {
         states
             .get(&state)

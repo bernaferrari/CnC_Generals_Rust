@@ -46,7 +46,6 @@ pub const OVERLORD_GATTLING_AIR_DAMAGE_TYPE: &str = "SMALL_ARMS";
 /// Retail GattlingBuildingGun DeathType residual.
 pub const OVERLORD_GATTLING_DEATH_TYPE: &str = "NORMAL";
 
-
 /// Retail portable-structure object / OCL residual names (SpeakerTower = propaganda).
 pub const OCL_OVERLORD_GATTLING: &str = "OCL_OverlordGattlingCannon";
 pub const OCL_OVERLORD_PROPAGANDA: &str = "OCL_OverlordPropagandaTower";
@@ -509,9 +508,9 @@ pub fn overlord_gattling_air_weapon(level: u8, chain_guns: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Build residual GattlingBuildingGun ground stats for passenger residual fire.
@@ -530,11 +529,7 @@ pub fn should_apply_overlord_gattling_residual(has_addon: bool) -> bool {
 
 /// Slot residual: 1 = AA secondary, 0 = primary tank/minigun + passenger ground gattling.
 pub fn overlord_gattling_slot_for_air(target_is_air: bool) -> u8 {
-    if target_is_air {
-        1
-    } else {
-        0
-    }
+    if target_is_air { 1 } else { 0 }
 }
 
 /// Legal residual gattling hit target.

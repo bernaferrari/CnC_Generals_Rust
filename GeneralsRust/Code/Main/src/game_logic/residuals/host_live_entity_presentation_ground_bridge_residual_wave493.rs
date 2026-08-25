@@ -77,8 +77,8 @@ pub fn residual_entity_presentation_ground_bridge_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_entity_presentation_ground_bridge_last_action(
-) -> ResidualEntityPresentationGroundBridgeAction {
+pub fn residual_entity_presentation_ground_bridge_last_action()
+-> ResidualEntityPresentationGroundBridgeAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualEntityPresentationGroundBridgeAction::MethodNames,
         2 => ResidualEntityPresentationGroundBridgeAction::SourceMarkers,

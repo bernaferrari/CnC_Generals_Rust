@@ -61,8 +61,8 @@ fn residual_action_store(a: ResidualHostSeedStartingBuildingOptInAction) {
 pub fn residual_host_seed_starting_building_opt_in_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_seed_starting_building_opt_in_last_action(
-) -> ResidualHostSeedStartingBuildingOptInAction {
+pub fn residual_host_seed_starting_building_opt_in_last_action()
+-> ResidualHostSeedStartingBuildingOptInAction {
     ResidualHostSeedStartingBuildingOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {
@@ -84,8 +84,8 @@ pub fn honesty_host_seed_starting_building_opt_in_source_markers_residual_wave73
     let gl = gl_source();
     // 2026-08-15: Wave 734 comment lives on world_skirmish_tests.rs; the
     // opt-in gate is world_tick/production.rs:1276-1285.
-    let wave = gl.contains("Wave 734")
-        || include_str!("../world_skirmish_tests.rs").contains("Wave 734");
+    let wave =
+        gl.contains("Wave 734") || include_str!("../world_skirmish_tests.rs").contains("Wave 734");
     let gl_ok = wave
         && gl.contains("allow_seed_building")
         && gl.contains("GENERALS_RUNTIME_HOST_SEED_STARTING_BUILDING")

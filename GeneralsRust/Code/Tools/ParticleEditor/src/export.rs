@@ -211,9 +211,7 @@ impl ParticleExporter {
             "IsHollow" | "IsEmissionVolumeHollow" => {
                 system.info.is_emission_volume_hollow = Self::parse_bool_token(value)?
             }
-            "IsGroundAligned" => {
-                system.info.is_ground_aligned = Self::parse_bool_token(value)?
-            }
+            "IsGroundAligned" => system.info.is_ground_aligned = Self::parse_bool_token(value)?,
             "IsEmitAboveGroundOnly" => {
                 system.info.is_emit_above_ground_only = Self::parse_bool_token(value)?
             }
@@ -329,9 +327,7 @@ impl ParticleExporter {
             // Particle parameters (C++ writes `Size` for start size)
             "Lifetime" => system.info.lifetime = self.parse_random_variable(value)?,
             "Size" | "StartSize" => system.info.start_size = self.parse_random_variable(value)?,
-            "StartSizeRate" => {
-                system.info.start_size_rate = self.parse_random_variable(value)?
-            }
+            "StartSizeRate" => system.info.start_size_rate = self.parse_random_variable(value)?,
             "SizeRate" => system.info.size_rate = self.parse_random_variable(value)?,
             "SizeRateDamping" => {
                 system.info.size_rate_damping = self.parse_random_variable(value)?
@@ -421,10 +417,7 @@ impl ParticleExporter {
 
         content.push_str("  Lifetime = ");
         content.push_str(&self.random_var_to_string(&info.lifetime));
-        content.push_str(&format!(
-            "\n  SystemLifetime = {}\n",
-            info.system_lifetime
-        ));
+        content.push_str(&format!("\n  SystemLifetime = {}\n", info.system_lifetime));
         content.push_str("  Size = ");
         content.push_str(&self.random_var_to_string(&info.start_size));
         content.push_str("\n  StartSizeRate = ");
@@ -534,11 +527,7 @@ impl ParticleExporter {
     }
 
     fn yes_no(value: bool) -> &'static str {
-        if value {
-            "Yes"
-        } else {
-            "No"
-        }
+        if value { "Yes" } else { "No" }
     }
 
     fn parse_bool_token(value: &str) -> Result<bool> {
@@ -682,11 +671,7 @@ impl ParticleExporter {
         if parts.len() < 2 {
             return Err(anyhow::anyhow!("Invalid Alpha keyframe: {}", value));
         }
-        let frame = if parts.len() >= 3 {
-            parts[2] as u32
-        } else {
-            0
-        };
+        let frame = if parts.len() >= 3 { parts[2] as u32 } else { 0 };
         Ok(RandomKeyframe {
             var: GameClientRandomVariable::new(parts[0], parts[1]),
             frame,
@@ -1245,10 +1230,8 @@ mod tests {
     fn binary_raw_export_writes_cpp_particle_system_ini_text() {
         let mut exporter = ParticleExporter::new();
         exporter.export_format = ExportFormat::Binary;
-        let dir = std::env::temp_dir().join(format!(
-            "particle_editor_bin_raw_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("particle_editor_bin_raw_{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("tmp dir");
         let path = dir.join("RawDump.ini");
         let text = "ParticleSystem RawDump\nParticleName = EXPtracer\nEnd\n";

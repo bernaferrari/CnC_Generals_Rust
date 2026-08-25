@@ -403,7 +403,6 @@ impl GameLogic {
         }
     }
 
-
     pub fn get_next_mood_target(
         &mut self,
         unit_id: ObjectId,
@@ -448,8 +447,8 @@ impl GameLogic {
             return None;
         }
         use gamelogic::object::update::ai_update_interface::{
-            AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS, AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING,
-            AUTO_ACQUIRE_IDLE_STEALTHED,
+            AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS,
+            AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING, AUTO_ACQUIRE_IDLE_STEALTHED,
         };
         if called_during_idle && (auto_idle & AUTO_ACQUIRE_IDLE) == 0 {
             return None;
@@ -592,7 +591,6 @@ impl GameLogic {
             .unwrap_or(true)
     }
 
-
     /// Idle mood auto-acquire: if idle and mood allows, set attack target.
     pub fn try_mood_auto_acquire(
         &mut self,
@@ -690,11 +688,8 @@ impl GameLogic {
             .and_then(|o| o.owner_player_id)
             .and_then(|pid| self.players.get(&pid))
             .is_some_and(|p| p.is_local);
-        let adj = self.get_mood_matrix_action_adjustment(
-            unit_id,
-            MoodMatrixAction::Move,
-            is_player,
-        );
+        let adj =
+            self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Move, is_player);
         if (adj & mood_action_adjust::ACTION_TO_ATTACK_MOVE) != 0 {
             AIState::AttackMoving
         } else {
@@ -812,7 +807,6 @@ impl GameLogic {
                 return CanAttackResult::NotPossible;
             }
         }
-
 
         // C++ Object::isAbleToAttack (Object.cpp:3167) consults
         // ContainModule::isPassengerAllowedToFire(id). TransportContain is
@@ -932,7 +926,10 @@ impl GameLogic {
                 .building_data
                 .as_ref()
                 .is_some_and(|bd| bd.hide_garrisoned_state);
-            let original = victim.building_data.as_ref().and_then(|bd| bd.original_team);
+            let original = victim
+                .building_data
+                .as_ref()
+                .and_then(|bd| bd.original_team);
             let current_to_observer = match (
                 self.host_controlling_player_id(victim),
                 self.host_controlling_player_id(source),
@@ -1008,15 +1005,12 @@ impl GameLogic {
             .any(|slot| source.weapon_slot(slot).is_some());
 
         let contained_by = source.contained_by;
-        let immobile_or_spawn = source.is_kind_of(KindOf::Immobile)
-            || source.is_spawns_are_the_weapons();
+        let immobile_or_spawn =
+            source.is_kind_of(KindOf::Immobile) || source.is_spawns_are_the_weapons();
 
-        let (
-            target_pos,
-            has_legal_anti,
-            has_legal_estimate,
-            pitch_ok,
-        ) = if let Some(vid) = victim_id {
+        let (target_pos, has_legal_anti, has_legal_estimate, pitch_ok) = if let Some(vid) =
+            victim_id
+        {
             let Some(v) = self.objects.get(&vid) else {
                 return CanAttackResult::NotPossible;
             };
@@ -1091,7 +1085,12 @@ impl GameLogic {
                 })
             });
             let pitch_ok = source.is_any_within_target_pitch_for_slots(v, candidate_slots);
-            (v.get_position(), has_legal_anti, has_legal_estimate, pitch_ok)
+            (
+                v.get_position(),
+                has_legal_anti,
+                has_legal_estimate,
+                pitch_ok,
+            )
         } else if let Some(p) = pos {
             let has_legal_anti = candidate_slots.iter().copied().any(|slot| {
                 source.weapon_slot(slot).is_some_and(|weapon| {
@@ -1165,9 +1164,7 @@ impl GameLogic {
             }
         }
 
-        if let Some(r) =
-            self.passenger_weapon_able_result(unit_id, victim_id, pos, attack_type)
-        {
+        if let Some(r) = self.passenger_weapon_able_result(unit_id, victim_id, pos, attack_type) {
             return r;
         }
 
@@ -1259,7 +1256,9 @@ impl GameLogic {
 #[cfg(test)]
 mod common_target_parity {
     use super::*;
-    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{
+        GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon,
+    };
 
     fn reset_session_difficulty() {
         crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
@@ -1385,7 +1384,9 @@ mod common_target_parity {
             .insert("USA_AttackSquad2".into(), plane);
         assert!(logic.host_team_common_target(attacker).is_none());
         assert!(
-            !logic.team_common_attack_targets.contains_key("USA_AttackSquad2"),
+            !logic
+                .team_common_attack_targets
+                .contains_key("USA_AttackSquad2"),
             "aircraft common target must be cleared"
         );
 
@@ -1400,7 +1401,9 @@ mod common_target_parity {
             .insert("USA_AttackSquad2".into(), garrisoned);
         assert!(logic.host_team_common_target(attacker).is_none());
         assert!(
-            !logic.team_common_attack_targets.contains_key("USA_AttackSquad2"),
+            !logic
+                .team_common_attack_targets
+                .contains_key("USA_AttackSquad2"),
             "garrisoned common target must be cleared"
         );
     }
@@ -1573,9 +1576,7 @@ mod common_target_parity {
 
     #[test]
     fn find_closest_enemy_ranks_by_bounding_sphere_2d() {
-        use crate::game_logic::{
-            find_enemy_flags, HostGeometryInfo, HostGeometryType, ObjectType,
-        };
+        use crate::game_logic::{HostGeometryInfo, HostGeometryType, ObjectType, find_enemy_flags};
         let mut logic = GameLogic::new();
         let mut at = ThingTemplate::new("HuntHullRanker");
         at.add_kind_of(KindOf::Infantry);
@@ -1649,7 +1650,7 @@ mod common_target_parity {
     #[test]
     fn find_closest_enemy_skips_undetected_defector() {
         // C++ PartitionFilterLiveMapEnemies uses getRelationship == ENEMIES.
-        use crate::game_logic::{find_enemy_flags, Player};
+        use crate::game_logic::{Player, find_enemy_flags};
         use gamelogic::common::Relationship;
         let mut logic = GameLogic::new();
         let mut usa = Player::new(0, Team::USA, "PlyrAmerica", true);
@@ -1715,9 +1716,6 @@ mod common_target_parity {
             "undetected defector hunter must not auto-acquire"
         );
     }
-
-
-
 }
 
 #[cfg(test)]
@@ -1866,8 +1864,7 @@ mod get_able_weapon_parity {
         logic.objects.insert(ObjectId(4030), {
             let mut o = Object::new(st, ObjectId(4030), Team::GLA);
             o.set_position(Vec3::ZERO);
-            o.hive_slaves =
-                crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
+            o.hive_slaves = crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
             o.hive_slave_count = 3;
             o
         });
@@ -2002,235 +1999,232 @@ mod get_able_weapon_parity {
     }
 }
 
-
-
-    #[test]
-    fn player_attack_rejects_neutral_without_script_targetable() {
-        let mut logic = GameLogic::new();
-        let mut at = ThingTemplate::new("TgtAtk");
-        at.add_kind_of(KindOf::Infantry);
-        logic.objects.insert(ObjectId(4201), {
-            let mut o = Object::new(at, ObjectId(4201), Team::USA);
-            o.set_position(Vec3::ZERO);
-            o.weapon = Some(Weapon {
-                range: 100.0,
-                damage: 10.0,
-                ..Default::default()
-            });
-            o
-        });
-        let mut nt = ThingTemplate::new("CivInfantry");
-        nt.add_kind_of(KindOf::Infantry);
-        nt.add_kind_of(KindOf::Attackable);
-        logic.objects.insert(ObjectId(4202), {
-            let mut o = Object::new(nt, ObjectId(4202), Team::Neutral);
-            o.set_position(Vec3::new(10.0, 0.0, 0.0));
-            o
-        });
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4201),
-                ObjectId(4202),
-                AbleToAttackType::NewTarget,
-                true,
-            ),
-            CanAttackResult::NotPossible,
-            "CMD_FROM_PLAYER must reject neutrals without SCRIPT_TARGETABLE"
-        );
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4201),
-                ObjectId(4202),
-                AbleToAttackType::NewTarget,
-                false,
-            ),
-            CanAttackResult::Possible,
-            "AI/script attacks ignore SCRIPT_TARGETABLE"
-        );
-        logic
-            .objects
-            .get_mut(&ObjectId(4202))
-            .unwrap()
-            .apply_object_panel_flag("Player Targetable", true);
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4201),
-                ObjectId(4202),
-                AbleToAttackType::NewTarget,
-                true,
-            ),
-            CanAttackResult::Possible,
-            "leftover_sa objectTargetable must admit player attack on neutrals"
-        );
-        logic
-            .objects
-            .get_mut(&ObjectId(4202))
-            .unwrap()
-            .set_script_targetable(false);
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4201),
-                ObjectId(4202),
-                AbleToAttackType::NewTargetForced,
-                true,
-            ),
-            CanAttackResult::Possible,
-            "force attack still ignores SCRIPT_TARGETABLE"
-        );
-    }
-
-    #[test]
-    fn player_attack_allows_non_allied_mine_without_script_targetable() {
-        let mut logic = GameLogic::new();
-        let mut at = ThingTemplate::new("MineAtk");
-        at.add_kind_of(KindOf::Infantry);
-        logic.objects.insert(ObjectId(4211), {
-            let mut o = Object::new(at, ObjectId(4211), Team::USA);
-            o.set_position(Vec3::ZERO);
-            o.weapon = Some(Weapon {
-                range: 100.0,
-                damage: 10.0,
-                ..Default::default()
-            });
-            o
-        });
-        let mut mt = ThingTemplate::new("DemoTrap");
-        mt.add_kind_of(KindOf::Mine);
-        logic.objects.insert(ObjectId(4212), {
-            let mut o = Object::new(mt, ObjectId(4212), Team::Neutral);
-            o.set_position(Vec3::new(10.0, 0.0, 0.0));
-            o
-        });
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4211),
-                ObjectId(4212),
-                AbleToAttackType::NewTarget,
-                true,
-            ),
-            CanAttackResult::Possible,
-            "non-allied mines stay player-targetable without SCRIPT_TARGETABLE"
-        );
-    }
-
-    #[test]
-    fn player_attack_rejects_hidden_garrison_without_script_targetable() {
-        use crate::game_logic::{
-            BuildingData, BuildingType, ContainModuleKind, ContainModuleMetadata, Player,
-        };
-        let mut logic = GameLogic::new();
-        let mut usa = Player::new(0, Team::USA, "USA", true);
-        usa.alliance_team = 1;
-        let mut gla = Player::new(1, Team::GLA, "GLA", false);
-        gla.alliance_team = 2;
-        let civ = Player::new(9, Team::Neutral, "Civilian", false);
-        logic.add_player(usa);
-        logic.add_player(gla);
-        logic.add_player(civ);
-
-        let mut at = ThingTemplate::new("HideAtk");
-        at.add_kind_of(KindOf::Infantry);
-        logic.objects.insert(ObjectId(4301), {
-            let mut o = Object::new(at, ObjectId(4301), Team::USA);
-            o.set_position(Vec3::ZERO);
-            o.owner_player_id = Some(0);
-            o.weapon = Some(Weapon {
-                range: 100.0,
-                damage: 10.0,
-                ..Default::default()
-            });
-            o
-        });
-
-        let mut bunker = ThingTemplate::new("CivBunkerHide");
-        bunker.add_kind_of(KindOf::Structure);
-        bunker.add_kind_of(KindOf::Attackable);
-        bunker.contain_module = ContainModuleMetadata {
-            kind: ContainModuleKind::Garrison,
-            slots: Some(5),
-            is_enclosing_container: true,
+#[test]
+fn player_attack_rejects_neutral_without_script_targetable() {
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("TgtAtk");
+    at.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(ObjectId(4201), {
+        let mut o = Object::new(at, ObjectId(4201), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
             ..Default::default()
-        };
-        logic.objects.insert(ObjectId(4302), {
-            let mut o = Object::new(bunker, ObjectId(4302), Team::Neutral);
-            o.set_position(Vec3::new(10.0, 0.0, 0.0));
-            let mut bd = BuildingData::new(BuildingType::Bunker);
-            bd.max_garrison = 5;
-            bd.original_team = Some(Team::Neutral);
-            bd.hide_garrisoned_state = true;
-            o.building_data = Some(bd);
-            o.set_team_and_owner(Team::GLA, Some(1));
-            o
         });
+        o
+    });
+    let mut nt = ThingTemplate::new("CivInfantry");
+    nt.add_kind_of(KindOf::Infantry);
+    nt.add_kind_of(KindOf::Attackable);
+    logic.objects.insert(ObjectId(4202), {
+        let mut o = Object::new(nt, ObjectId(4202), Team::Neutral);
+        o.set_position(Vec3::new(10.0, 0.0, 0.0));
+        o
+    });
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4201),
+            ObjectId(4202),
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::NotPossible,
+        "CMD_FROM_PLAYER must reject neutrals without SCRIPT_TARGETABLE"
+    );
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4201),
+            ObjectId(4202),
+            AbleToAttackType::NewTarget,
+            false,
+        ),
+        CanAttackResult::Possible,
+        "AI/script attacks ignore SCRIPT_TARGETABLE"
+    );
+    logic
+        .objects
+        .get_mut(&ObjectId(4202))
+        .unwrap()
+        .apply_object_panel_flag("Player Targetable", true);
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4201),
+            ObjectId(4202),
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::Possible,
+        "leftover_sa objectTargetable must admit player attack on neutrals"
+    );
+    logic
+        .objects
+        .get_mut(&ObjectId(4202))
+        .unwrap()
+        .set_script_targetable(false);
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4201),
+            ObjectId(4202),
+            AbleToAttackType::NewTargetForced,
+            true,
+        ),
+        CanAttackResult::Possible,
+        "force attack still ignores SCRIPT_TARGETABLE"
+    );
+}
 
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4301),
-                ObjectId(4302),
-                AbleToAttackType::NewTarget,
-                true,
-            ),
-            CanAttackResult::NotPossible,
-            "FROM_PLAYER must reject hide-garrison whose apparent controller is the original non-enemy owner"
-        );
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4301),
-                ObjectId(4302),
-                AbleToAttackType::NewTarget,
-                false,
-            ),
-            CanAttackResult::Possible,
-            "AI/script attacks ignore apparent-controller hide"
-        );
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4301),
-                ObjectId(4302),
-                AbleToAttackType::NewTargetForced,
-                true,
-            ),
-            CanAttackResult::Possible,
-            "force attack skips leftover apparent_controller_blocks_player"
-        );
-        logic
-            .objects
-            .get_mut(&ObjectId(4302))
-            .unwrap()
-            .apply_object_panel_flag("Player Targetable", true);
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4301),
-                ObjectId(4302),
-                AbleToAttackType::NewTarget,
-                true,
-            ),
-            CanAttackResult::Possible,
-            "SCRIPT_TARGETABLE admits player attack on hidden garrison"
-        );
-        logic
-            .objects
-            .get_mut(&ObjectId(4302))
-            .unwrap()
-            .set_script_targetable(false);
-        if let Some(bd) = logic
-            .objects
-            .get_mut(&ObjectId(4302))
-            .unwrap()
-            .building_data
-            .as_mut()
-        {
-            bd.hide_garrisoned_state = false;
-        }
-        assert_eq!(
-            logic.get_able_to_attack_specific_object(
-                ObjectId(4301),
-                ObjectId(4302),
-                AbleToAttackType::NewTarget,
-                true,
-            ),
-            CanAttackResult::Possible,
-            "visible occupant-owned garrison stays player-attackable"
-        );
+#[test]
+fn player_attack_allows_non_allied_mine_without_script_targetable() {
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("MineAtk");
+    at.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(ObjectId(4211), {
+        let mut o = Object::new(at, ObjectId(4211), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            ..Default::default()
+        });
+        o
+    });
+    let mut mt = ThingTemplate::new("DemoTrap");
+    mt.add_kind_of(KindOf::Mine);
+    logic.objects.insert(ObjectId(4212), {
+        let mut o = Object::new(mt, ObjectId(4212), Team::Neutral);
+        o.set_position(Vec3::new(10.0, 0.0, 0.0));
+        o
+    });
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4211),
+            ObjectId(4212),
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::Possible,
+        "non-allied mines stay player-targetable without SCRIPT_TARGETABLE"
+    );
+}
+
+#[test]
+fn player_attack_rejects_hidden_garrison_without_script_targetable() {
+    use crate::game_logic::{
+        BuildingData, BuildingType, ContainModuleKind, ContainModuleMetadata, Player,
+    };
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    usa.alliance_team = 1;
+    let mut gla = Player::new(1, Team::GLA, "GLA", false);
+    gla.alliance_team = 2;
+    let civ = Player::new(9, Team::Neutral, "Civilian", false);
+    logic.add_player(usa);
+    logic.add_player(gla);
+    logic.add_player(civ);
+
+    let mut at = ThingTemplate::new("HideAtk");
+    at.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(ObjectId(4301), {
+        let mut o = Object::new(at, ObjectId(4301), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.owner_player_id = Some(0);
+        o.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            ..Default::default()
+        });
+        o
+    });
+
+    let mut bunker = ThingTemplate::new("CivBunkerHide");
+    bunker.add_kind_of(KindOf::Structure);
+    bunker.add_kind_of(KindOf::Attackable);
+    bunker.contain_module = ContainModuleMetadata {
+        kind: ContainModuleKind::Garrison,
+        slots: Some(5),
+        is_enclosing_container: true,
+        ..Default::default()
+    };
+    logic.objects.insert(ObjectId(4302), {
+        let mut o = Object::new(bunker, ObjectId(4302), Team::Neutral);
+        o.set_position(Vec3::new(10.0, 0.0, 0.0));
+        let mut bd = BuildingData::new(BuildingType::Bunker);
+        bd.max_garrison = 5;
+        bd.original_team = Some(Team::Neutral);
+        bd.hide_garrisoned_state = true;
+        o.building_data = Some(bd);
+        o.set_team_and_owner(Team::GLA, Some(1));
+        o
+    });
+
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4301),
+            ObjectId(4302),
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::NotPossible,
+        "FROM_PLAYER must reject hide-garrison whose apparent controller is the original non-enemy owner"
+    );
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4301),
+            ObjectId(4302),
+            AbleToAttackType::NewTarget,
+            false,
+        ),
+        CanAttackResult::Possible,
+        "AI/script attacks ignore apparent-controller hide"
+    );
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4301),
+            ObjectId(4302),
+            AbleToAttackType::NewTargetForced,
+            true,
+        ),
+        CanAttackResult::Possible,
+        "force attack skips leftover apparent_controller_blocks_player"
+    );
+    logic
+        .objects
+        .get_mut(&ObjectId(4302))
+        .unwrap()
+        .apply_object_panel_flag("Player Targetable", true);
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4301),
+            ObjectId(4302),
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::Possible,
+        "SCRIPT_TARGETABLE admits player attack on hidden garrison"
+    );
+    logic
+        .objects
+        .get_mut(&ObjectId(4302))
+        .unwrap()
+        .set_script_targetable(false);
+    if let Some(bd) = logic
+        .objects
+        .get_mut(&ObjectId(4302))
+        .unwrap()
+        .building_data
+        .as_mut()
+    {
+        bd.hide_garrisoned_state = false;
     }
-
+    assert_eq!(
+        logic.get_able_to_attack_specific_object(
+            ObjectId(4301),
+            ObjectId(4302),
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::Possible,
+        "visible occupant-owned garrison stays player-attackable"
+    );
+}

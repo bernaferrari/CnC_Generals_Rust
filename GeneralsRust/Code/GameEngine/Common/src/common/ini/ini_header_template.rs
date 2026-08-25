@@ -3,7 +3,7 @@
 //! Corresponds to C++ INI::parseHeaderTemplateDefinition in HeaderTemplate.cpp
 //! Parses font header templates for UI consistency.
 
-use crate::common::ini::{ini, FieldParse, INIError, INIResult, INI};
+use crate::common::ini::{FieldParse, INI, INIError, INIResult, ini};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
@@ -129,14 +129,14 @@ pub fn init_header_template_manager() {
 }
 
 /// Get a read reference to the HeaderTemplateManager
-pub fn get_header_template_manager(
-) -> Option<std::sync::RwLockReadGuard<'static, HeaderTemplateManager>> {
+pub fn get_header_template_manager()
+-> Option<std::sync::RwLockReadGuard<'static, HeaderTemplateManager>> {
     HEADER_TEMPLATE_MANAGER.get()?.read().ok()
 }
 
 /// Get a write reference to the HeaderTemplateManager
-pub fn get_header_template_manager_mut(
-) -> Option<std::sync::RwLockWriteGuard<'static, HeaderTemplateManager>> {
+pub fn get_header_template_manager_mut()
+-> Option<std::sync::RwLockWriteGuard<'static, HeaderTemplateManager>> {
     HEADER_TEMPLATE_MANAGER.get()?.write().ok()
 }
 

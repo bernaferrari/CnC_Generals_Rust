@@ -4,7 +4,7 @@
 //! This is effectively a sub-rectangle of the big pathfind map.
 #![allow(missing_docs, deprecated, unused_variables)]
 
-use super::{PathNode, PathfindCell, PathfindCellInfo, PathfindCellType, PATHFIND_CELL_SIZE_F};
+use super::{PATHFIND_CELL_SIZE_F, PathNode, PathfindCell, PathfindCellInfo, PathfindCellType};
 use crate::common::{Coord3D, ICoord2D, IRegion2D, ObjectID};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::{PathfindLayerEnum, ZoneStorageType};
@@ -126,7 +126,10 @@ impl PathfindLayer {
 
     /// Classify cells based on terrain and obstacles
     pub fn classify_cells(&mut self) {
-        let hi = ICoord2D::new(self.x_origin + self.width - 1, self.y_origin + self.height - 1);
+        let hi = ICoord2D::new(
+            self.x_origin + self.width - 1,
+            self.y_origin + self.height - 1,
+        );
         let lo = ICoord2D::new(self.x_origin, self.y_origin);
         let layer = self.layer;
         let x_origin = self.x_origin;
@@ -177,7 +180,10 @@ impl PathfindLayer {
 
     /// Internal cell classification for layers
     fn classify_layer_map_cell(&mut self, x: i32, y: i32, cell: &mut PathfindCell) {
-        let hi = ICoord2D::new(self.x_origin + self.width - 1, self.y_origin + self.height - 1);
+        let hi = ICoord2D::new(
+            self.x_origin + self.width - 1,
+            self.y_origin + self.height - 1,
+        );
         super::pathfind_layer_classify::classify_layer_map_cell(
             self.layer,
             self.x_origin + x,

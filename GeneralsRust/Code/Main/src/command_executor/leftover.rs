@@ -7,13 +7,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -63,12 +63,8 @@ impl<'a> CommandExecutor<'a> {
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
     ) -> bool {
-        self.game_logic.unit_command_path_with_state_ignoring(
-            unit_id,
-            goal,
-            state,
-            ignore_obstacle,
-        )
+        self.game_logic
+            .unit_command_path_with_state_ignoring(unit_id, goal, state, ignore_obstacle)
     }
 
     /// Begin one C++ support order after its caller has validated the concrete
@@ -434,7 +430,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_clear_mines(&mut self, units: &[ObjectId]) -> CommandResult {
-        use crate::game_logic::host_mines::{is_mine_clearer, DOZER_MINE_CLEAR_SCAN_RANGE};
+        use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_SCAN_RANGE, is_mine_clearer};
         let mut any = false;
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -710,7 +706,6 @@ impl<'a> CommandExecutor<'a> {
                     any = true;
                 }
             }
-
         }
         if any {
             // C++ CommandXlat.cpp:384-443 MSG_GET_REPAIRED VoiceMove / VoiceMoveUpgraded.
@@ -872,12 +867,7 @@ impl<'a> CommandExecutor<'a> {
         }
 
         let pos = clamp_beacon_to_world(self.game_logic, location);
-        if self
-            .game_logic
-            .templates
-            .get(&template_name)
-            .is_none()
-        {
+        if self.game_logic.templates.get(&template_name).is_none() {
             let mut tpl = crate::game_logic::ThingTemplate::new(&template_name);
             tpl.set_health(1.0);
             self.game_logic.templates.insert(template_name.clone(), tpl);
@@ -1239,13 +1229,10 @@ fn live_beacon_hide(logic: &mut GameLogic, id: ObjectId) {
     if let Some(pos) = pos {
         logic.note_beacon_removed_at(pos);
     }
-    let smoke_id = live_beacon_client_state()
-        .lock()
-        .ok()
-        .and_then(|mut s| {
-            s.hidden.insert(id.0);
-            s.smoke.remove(&id.0)
-        });
+    let smoke_id = live_beacon_client_state().lock().ok().and_then(|mut s| {
+        s.hidden.insert(id.0);
+        s.smoke.remove(&id.0)
+    });
     if let Some(smoke_id) = smoke_id {
         logic.combat_particles_mut().deactivate(smoke_id);
     }
@@ -1348,26 +1335,22 @@ pub fn tick_live_beacon_client_updates(logic: &mut GameLogic) {
                 .map(|p| p.color_rgb)
                 .unwrap_or((255, 255, 255));
             let color = gamelogic::common::Color::rgb(rgb.0, rgb.1, rgb.2);
-            let (template, tint) = BeaconClientUpdateModule::resolve_smoke_template_with_lookup(
-                color,
-                |name| {
+            let (template, tint) =
+                BeaconClientUpdateModule::resolve_smoke_template_with_lookup(color, |name| {
                     TheParticleSystemManager::get()
                         .and_then(|m| m.find_template(name))
                         .is_some()
-                },
-            )
-            .unwrap_or_else(|| {
-                (
-                    format!("BeaconSmoke{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2),
-                    Some(color),
-                )
-            });
-            if let Some(smoke_id) = logic.combat_particles_mut().attach_named_to_object(
-                id,
-                pos,
-                frame,
-                &template,
-            ) {
+                })
+                .unwrap_or_else(|| {
+                    (
+                        format!("BeaconSmoke{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2),
+                        Some(color),
+                    )
+                });
+            if let Some(smoke_id) = logic
+                .combat_particles_mut()
+                .attach_named_to_object(id, pos, frame, &template)
+            {
                 if let Some(tint) = tint {
                     if let Some(client_id) = logic
                         .combat_particles()
@@ -1443,16 +1426,16 @@ impl GameLogic {
                 .get(&build_target)
                 .map(|s| (s.get_position(), s.selection_radius));
             match (dozer_info, site) {
-                (Some((dozer_pos, airborne)), Some((site_pos, site_radius))) => Some(
-                    self.find_good_build_or_repair_position(
+                (Some((dozer_pos, airborne)), Some((site_pos, site_radius))) => {
+                    Some(self.find_good_build_or_repair_position(
                         dozer_pos,
                         site_pos,
                         site_radius,
                         airborne,
                         airborne.then_some(build_target),
                         Some(dozer_id),
-                    ),
-                ),
+                    ))
+                }
                 _ => None,
             }
         };
@@ -1466,7 +1449,6 @@ impl GameLogic {
             st.builder_id = Some(dozer_id);
         }
     }
-
 
     /// C++ `DozerAIUpdate::newTask(DOZER_TASK_REPAIR)` (DozerAIUpdate.cpp:1948-2008).
     /// Parks an in-flight BUILD in its own slot; only the REPAIR slot is replaced.
@@ -1490,9 +1472,9 @@ impl GameLogic {
     /// C++ `DozerAIUpdate::internalTaskComplete` for one task slot.
     pub fn dozer_internal_task_complete(&mut self, dozer_id: ObjectId, repair: bool) {
         let repair_target = if repair {
-            self.objects.get(&dozer_id).and_then(|obj| {
-                obj.dozer_task_repair_target.or(obj.target)
-            })
+            self.objects
+                .get(&dozer_id)
+                .and_then(|obj| obj.dozer_task_repair_target.or(obj.target))
         } else {
             None
         };
@@ -1544,9 +1526,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&dozer_id) else {
             return;
         };
-        if !obj.is_alive()
-            || !(obj.is_kind_of(KindOf::Dozer) || obj.is_kind_of(KindOf::Worker))
-        {
+        if !obj.is_alive() || !(obj.is_kind_of(KindOf::Dozer) || obj.is_kind_of(KindOf::Worker)) {
             return;
         }
         let current_is_repair = matches!(obj.ai_state, AIState::Repairing);
@@ -1622,9 +1602,8 @@ impl GameLogic {
         let (dozer_pos, st_pos, st_radius, airborne, stored_dock) = {
             let d = self.objects.get(&dozer_id);
             let dpos = d.map(|d| d.get_position()).unwrap_or(glam::Vec3::ZERO);
-            let airborne = d.is_some_and(|d| {
-                d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target
-            });
+            let airborne =
+                d.is_some_and(|d| d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target);
             let stored = d.and_then(|d| d.dozer_dock_action);
             let (spos, srad) = self
                 .objects
@@ -1732,9 +1711,9 @@ pub fn host_rappeller_count(logic: &GameLogic, transport_id: ObjectId) -> usize 
         .iter()
         .copied()
         .filter(|&pid| {
-            logic.host_object(pid).is_some_and(|pax| {
-                pax.is_alive() && pax.is_kind_of(KindOf::Infantry)
-            })
+            logic
+                .host_object(pid)
+                .is_some_and(|pax| pax.is_alive() && pax.is_kind_of(KindOf::Infantry))
         })
         .count()
 }
@@ -1759,7 +1738,9 @@ pub fn leftover_command_from_common_message(
             text: String::new(),
         },
         GameMessageType::RemoveBeacon(_) => CommandType::RemoveBeacon,
-        GameMessageType::SetBeaconText(_, text) => CommandType::SetBeaconText { text: text.clone() },
+        GameMessageType::SetBeaconText(_, text) => {
+            CommandType::SetBeaconText { text: text.clone() }
+        }
         GameMessageType::SelfDestruct(player_id) => {
             let _ = player_id;
             let transfer_to_ally = match message.get_argument(0) {
@@ -1916,7 +1897,12 @@ mod leftover_dispatch_tests {
         logic
             .get_players_mut()
             .insert(0, Player::new(0, Team::USA, "P0", true));
-        assert!(!logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
+        assert!(
+            !logic
+                .get_player(0)
+                .unwrap()
+                .logical_retaliation_mode_enabled
+        );
         let result = CommandExecutor::new(&mut logic, 0)
             .execute_command(command(
                 0,
@@ -1928,7 +1914,12 @@ mod leftover_dispatch_tests {
             ))
             .expect("exec");
         assert_eq!(result, CommandResult::Success);
-        assert!(logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
+        assert!(
+            logic
+                .get_player(0)
+                .unwrap()
+                .logical_retaliation_mode_enabled
+        );
     }
 
     #[test]
@@ -1942,7 +1933,12 @@ mod leftover_dispatch_tests {
         logic.leftover_dispatch_tick();
         assert!(logic.has_pending_commands());
         logic.process_commands();
-        assert!(logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
+        assert!(
+            logic
+                .get_player(0)
+                .unwrap()
+                .logical_retaliation_mode_enabled
+        );
     }
 
     #[test]
@@ -2020,7 +2016,9 @@ mod leftover_dispatch_tests {
             .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(500.0, 0.0, 500.0))
             .expect("enemy CC");
         let _ = (mine, theirs);
-        let mine_pos = logic.player_command_center_position(0).expect("own CC pose");
+        let mine_pos = logic
+            .player_command_center_position(0)
+            .expect("own CC pose");
         assert!((mine_pos.x - 10.0).abs() < 0.1);
         assert!((mine_pos.z - 10.0).abs() < 0.1);
         let theirs_pos = logic.player_command_center_position(1).expect("p1 CC pose");
@@ -2106,9 +2104,7 @@ mod leftover_dispatch_tests {
         let result = CommandExecutor::new(&mut logic, 0)
             .execute_command(command(
                 0,
-                CommandType::SetBeaconText {
-                    text: "go".into(),
-                },
+                CommandType::SetBeaconText { text: "go".into() },
                 vec![id],
             ))
             .expect("exec");
@@ -2236,17 +2232,12 @@ mod leftover_dispatch_tests {
         tick_live_beacon_client_updates(&mut logic);
         logic.frame = logic.frame.saturating_add(31);
         tick_live_beacon_client_updates(&mut logic);
-        let radar = game_engine::common::system::radar::get_radar_system()
-            .read()
-            .expect("radar");
+        let radar_system = game_engine::common::system::radar::get_radar_system();
+        let radar = radar_system.read().expect("radar");
         assert!(
-            radar
-                .get_active_events()
-                .iter()
-                .any(|e| e.event_type
-                    == game_engine::common::system::radar::RadarEventType::BeaconPulse
-                    || e.event_type
-                        == game_engine::common::system::radar::RadarEventType::Information),
+            radar.get_active_events().iter().any(|e| e.event_type
+                == game_engine::common::system::radar::RadarEventType::BeaconPulse
+                || e.event_type == game_engine::common::system::radar::RadarEventType::Information),
             "visible beacon must pulse or have place INFORMATION"
         );
     }
@@ -2290,15 +2281,13 @@ mod leftover_dispatch_tests {
             .add_kind_of(KindOf::Dozer)
             .add_kind_of(KindOf::Worker)
             .set_health(300.0);
-        logic
-            .templates
-            .insert("DozerParkBuild".into(), dozer_tpl);
+        logic.templates.insert("DozerParkBuild".into(), dozer_tpl);
         let mut bld = ThingTemplate::new("ScaffoldParkBuild");
         bld.add_kind_of(KindOf::Structure).set_health(500.0);
-        logic.templates.insert("ScaffoldParkBuild".into(), bld.clone());
         logic
             .templates
-            .insert("DamagedParkBuild".into(), bld);
+            .insert("ScaffoldParkBuild".into(), bld.clone());
+        logic.templates.insert("DamagedParkBuild".into(), bld);
         let dozer = logic
             .create_object_for_player("DozerParkBuild", 0, Vec3::ZERO)
             .expect("dozer");
@@ -2381,9 +2370,7 @@ mod leftover_dispatch_tests {
         logic
             .templates
             .insert("ScaffoldSameFrameTie".into(), bld.clone());
-        logic
-            .templates
-            .insert("DamagedSameFrameTie".into(), bld);
+        logic.templates.insert("DamagedSameFrameTie".into(), bld);
         let dozer = logic
             .create_object_for_player("DozerSameFrameTie", 0, Vec3::ZERO)
             .expect("dozer");
@@ -2406,7 +2393,10 @@ mod leftover_dispatch_tests {
         logic.dozer_new_task_repair(dozer, damaged);
         {
             let dz = logic.host_object(dozer).expect("dz");
-            assert_eq!(dz.dozer_task_build_order_frame, dz.dozer_task_repair_order_frame);
+            assert_eq!(
+                dz.dozer_task_build_order_frame,
+                dz.dozer_task_repair_order_frame
+            );
             assert_eq!(dz.dozer_task_build_target, Some(scaffold));
             assert_eq!(dz.dozer_task_repair_target, Some(damaged));
         }
@@ -2439,9 +2429,7 @@ mod leftover_dispatch_tests {
             .add_kind_of(KindOf::Dozer)
             .add_kind_of(KindOf::Worker)
             .set_health(300.0);
-        logic
-            .templates
-            .insert("DozerIdleRepair".into(), dozer_tpl);
+        logic.templates.insert("DozerIdleRepair".into(), dozer_tpl);
         let mut bld = ThingTemplate::new("DamagedIdleRepair");
         bld.add_kind_of(KindOf::Structure).set_health(500.0);
         logic.templates.insert("DamagedIdleRepair".into(), bld);
@@ -2494,9 +2482,7 @@ mod leftover_dispatch_tests {
         logic
             .templates
             .insert("ScaffoldParkedRepair".into(), bld.clone());
-        logic
-            .templates
-            .insert("DamagedParkedRepair".into(), bld);
+        logic.templates.insert("DamagedParkedRepair".into(), bld);
         let dozer = logic
             .create_object_for_player("DozerParkedRepair", 0, Vec3::ZERO)
             .expect("dozer");
@@ -2544,7 +2530,6 @@ mod leftover_dispatch_tests {
         assert_eq!(dz.target, Some(damaged));
     }
 
-
     #[test]
     fn player_stop_cancels_current_build_so_idle_does_not_resume() {
         // hq-msoee: C++ Worker/Dozer aiDoCommand default arm cancels
@@ -2562,9 +2547,7 @@ mod leftover_dispatch_tests {
             .add_kind_of(KindOf::Dozer)
             .add_kind_of(KindOf::Worker)
             .set_health(300.0);
-        logic
-            .templates
-            .insert("DozerCancelBuild".into(), dozer_tpl);
+        logic.templates.insert("DozerCancelBuild".into(), dozer_tpl);
         let mut bld = ThingTemplate::new("ScaffoldCancelBuild");
         bld.add_kind_of(KindOf::Structure).set_health(500.0);
         logic.templates.insert("ScaffoldCancelBuild".into(), bld);
@@ -2638,15 +2621,9 @@ mod leftover_dispatch_tests {
         bld.add_kind_of(KindOf::Structure)
             .set_cost(50, 0)
             .set_health(500.0);
-        logic
-            .templates
-            .insert("AmericaBarracksSlot".into(), bld);
+        logic.templates.insert("AmericaBarracksSlot".into(), bld);
         let dozer = logic
-            .create_object_for_player(
-                "AmericaVehicleDozerSlot",
-                0,
-                Vec3::new(200.0, 0.0, 0.0),
-            )
+            .create_object_for_player("AmericaVehicleDozerSlot", 0, Vec3::new(200.0, 0.0, 0.0))
             .expect("dozer");
         if let Some(dz) = logic.host_object_mut(dozer) {
             dz.selection_radius = 8.0;
@@ -2802,9 +2779,7 @@ mod leftover_dispatch_tests {
             .templates
             .insert("AmericaVehicleDozerSnap".into(), dozer_tpl);
         let mut pad_tpl = ThingTemplate::new("AmericaWarFactorySnap");
-        pad_tpl
-            .add_kind_of(KindOf::Structure)
-            .set_health(1500.0);
+        pad_tpl.add_kind_of(KindOf::Structure).set_health(1500.0);
         logic
             .templates
             .insert("AmericaWarFactorySnap".into(), pad_tpl);
@@ -2816,11 +2791,7 @@ mod leftover_dispatch_tests {
             )
             .expect("dozer");
         let pad = logic
-            .create_object_for_player(
-                "AmericaWarFactorySnap",
-                0,
-                glam::Vec3::ZERO,
-            )
+            .create_object_for_player("AmericaWarFactorySnap", 0, glam::Vec3::ZERO)
             .expect("pad");
         if let Some(p) = logic.host_object_mut(pad) {
             p.selection_radius = 80.0;

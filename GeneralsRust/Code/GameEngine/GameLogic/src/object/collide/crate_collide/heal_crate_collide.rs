@@ -7,7 +7,7 @@ use super::crate_collide::{CrateCollide, CrateCollideBehavior, CrateCollideModul
 use crate::common::*;
 use crate::helpers::TheAudio;
 use crate::object::collide::crate_collide::*;
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 
 /// Configuration data for HealCrateCollide.
 ///
@@ -341,7 +341,7 @@ impl game_engine::common::system::Snapshotable for HealCrateCollide {
 mod tests {
     use super::*;
     use game_engine::common::rts::science::{
-        get_science_store, get_science_store_mut, init_science_store, ScienceInfo, SCIENCE_INVALID,
+        SCIENCE_INVALID, ScienceInfo, get_science_store, get_science_store_mut, init_science_store,
     };
 
     fn install_test_science(name: &str) -> crate::common::science::ScienceType {
@@ -380,18 +380,12 @@ mod tests {
         )
         .expect("heal crate ini parses");
 
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
         assert_ne!(
             data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0
         );
-        assert_ne!(
-            data.base.forbidden_kind_of & (KindOf::Drone.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.forbidden_kind_of & (KindOf::Drone.cpp_mask()), 0);
         assert!(data.base.is_forbid_owner_player);
         assert!(!data.base.is_building_pickup);
         assert!(data.base.is_human_only_pickup);

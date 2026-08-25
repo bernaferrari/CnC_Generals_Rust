@@ -14,7 +14,6 @@ impl GameLogic {
 
         self.propagate_hacked_to_spawn_slaves();
 
-
         let mut ai_commands = Vec::new();
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP; // Convert frame to seconds
         let game_phase = GamePhase::from_time(current_time);
@@ -36,12 +35,8 @@ impl GameLogic {
             let mut pending_stump: Option<(String, glam::Vec3, f32, bool)> = None;
             let mut defector_audio: Vec<String> = Vec::new();
             let mut disguise_halfpoint: Option<(glam::Vec3, bool, bool)> = None;
-            let mut missile_idle_audio: Option<(
-                Option<String>,
-                bool,
-                Option<String>,
-                glam::Vec3,
-            )> = None;
+            let mut missile_idle_audio: Option<(Option<String>, bool, Option<String>, glam::Vec3)> =
+                None;
             let height_die_terrain = {
                 let (pos, ground, name) = match self.objects.get(&object_id) {
                     Some(o) => (o.get_position(), o.ground_height, o.template_name.clone()),
@@ -56,12 +51,7 @@ impl GameLogic {
                 let stump_ori = obj.get_orientation();
                 if let Some(td) = obj.topple_data.as_mut() {
                     if let Some(name) = td.take_pending_stump_name() {
-                        pending_stump = Some((
-                            name,
-                            stump_pos,
-                            stump_ori,
-                            td.burned_at_topple,
-                        ));
+                        pending_stump = Some((name, stump_pos, stump_ori, td.burned_at_topple));
                     }
                 }
                 // Wave 761: under coupled GameWorld shadow, status timer expire
@@ -205,7 +195,10 @@ impl GameLogic {
                 }
                 // C++ ObjectWeaponStatusHelper every-frame getStatus:
                 // refill auto-reload clips and flip READY when ClipReloadTime elapses.
-                if [0u8, 1, 2].iter().any(|&slot| obj.weapon_slot(slot).is_some()) {
+                if [0u8, 1, 2]
+                    .iter()
+                    .any(|&slot| obj.weapon_slot(slot).is_some())
+                {
                     obj.refresh_weapon_fire_status(current_time);
                 }
                 obj.tick_spy_vision_disabled(self.frame);
@@ -227,12 +220,7 @@ impl GameLogic {
                     let stump_ori = obj.get_orientation();
                     if let Some(td) = obj.topple_data.as_mut() {
                         if let Some(name) = td.take_pending_stump_name() {
-                            pending_stump = Some((
-                                name,
-                                stump_pos,
-                                stump_ori,
-                                td.burned_at_topple,
-                            ));
+                            pending_stump = Some((name, stump_pos, stump_ori, td.burned_at_topple));
                         }
                     }
                 }
@@ -580,8 +568,7 @@ impl GameLogic {
                 use crate::game_logic::host_bomb_truck_disguise::{
                     BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_REVEAL_FX,
                     BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO,
-                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO,
-                    BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
+                    BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO, BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
                 };
                 let (sound, fx) = if gaining {
                     (BOMB_TRUCK_DISGUISE_STARTED_AUDIO, BOMB_TRUCK_DISGUISE_FX)
@@ -842,15 +829,14 @@ impl GameLogic {
 
     /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.
     pub(in super::super) fn update_slaved_drone_follow(&mut self) {
+        use crate::game_logic::VeterancyLevel;
         use crate::game_logic::host_slave_drones::{
+            SLAVE_ATTACK_RANGE, SLAVE_GUARD_MAX_RANGE, SLAVE_SCOUT_RANGE,
             battle_drone_should_idle_repair_master, battle_drone_should_repair_master,
             is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
             scout_drone_should_grant_range_bonus, slave_follow_destination_y,
-            slave_should_defect_to_master, synced_spawn_veterancy, SLAVE_ATTACK_RANGE,
-            SLAVE_GUARD_MAX_RANGE, SLAVE_SCOUT_RANGE,
+            slave_should_defect_to_master, synced_spawn_veterancy,
         };
-        use crate::game_logic::VeterancyLevel;
-
 
         let drones: Vec<(
             ObjectId,
@@ -889,8 +875,8 @@ impl GameLogic {
             })
             .collect();
 
-
-        for (drone_id, master_id, dpos, idle, is_battle, is_scout, drone_team, drone_level) in drones
+        for (drone_id, master_id, dpos, idle, is_battle, is_scout, drone_team, drone_level) in
+            drones
         {
             let (master_missing, master_dead, snapped) = match self.objects.get(&master_id) {
                 None => (true, false, None),
@@ -931,7 +917,6 @@ impl GameLogic {
             else {
                 continue;
             };
-
 
             let (sync_master, sync_drone) = synced_spawn_veterancy(master_level, drone_level);
             if sync_master != master_level {
@@ -1006,7 +991,7 @@ impl GameLogic {
     /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
     pub(in super::super) fn update_demo_trap_detonate_when_killed(&mut self) {
         use crate::game_logic::host_mines::{
-            should_detonate_when_killed, HostMineDetonateReason, DEMO_TRAP_DETONATE_WHEN_KILLED,
+            DEMO_TRAP_DETONATE_WHEN_KILLED, HostMineDetonateReason, should_detonate_when_killed,
         };
         let due: Vec<ObjectId> = self
             .objects
@@ -1080,7 +1065,6 @@ impl GameLogic {
             }
         }
     }
-
 }
 
 /// Retail FXList.ini Sound nuggets when the FX store is not loaded.
@@ -1094,7 +1078,6 @@ fn heli_fx_fallback_sounds(fx: &str) -> Vec<String> {
         _ => Vec::new(),
     }
 }
-
 
 /// C++ SlavedUpdate.cpp:196-258 attack / scout-ahead / 2×GuardMaxRange recall / guard.
 pub fn slaved_update_follow_goal(

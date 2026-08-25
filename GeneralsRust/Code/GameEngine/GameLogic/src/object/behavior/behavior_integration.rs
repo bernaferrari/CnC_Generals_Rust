@@ -12,11 +12,11 @@ use super::{
     stealth_behavior::{StealthBehavior, StealthConfig},
 };
 
-use crate::common::{ModuleData, LOGICFRAMES_PER_SECOND};
+use crate::GameLogicResult;
+use crate::common::{LOGICFRAMES_PER_SECOND, ModuleData};
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use crate::object::{Object, ObjectId};
-use crate::GameLogicResult;
 use async_trait::async_trait;
 use std::any::Any;
 use std::collections::HashMap;

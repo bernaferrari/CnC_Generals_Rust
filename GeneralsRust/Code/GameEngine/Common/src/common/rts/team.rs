@@ -436,18 +436,27 @@ impl TeamTemplateInfo {
         if dict.get_type(key_team_production_priority()).is_some() {
             info.production_priority = dict.get_int(key_team_production_priority());
         }
-        if dict.get_type(key_team_production_priority_success_increase()).is_some() {
+        if dict
+            .get_type(key_team_production_priority_success_increase())
+            .is_some()
+        {
             info.production_priority_success_increase =
                 dict.get_int(key_team_production_priority_success_increase());
         }
-        if dict.get_type(key_team_production_priority_failure_decrease()).is_some() {
+        if dict
+            .get_type(key_team_production_priority_failure_decrease())
+            .is_some()
+        {
             info.production_priority_failure_decrease =
                 dict.get_int(key_team_production_priority_failure_decrease());
         }
         if dict.get_type(key_team_production_condition()).is_some() {
             info.production_condition = dict.get_ascii_string(key_team_production_condition());
         }
-        if dict.get_type(key_team_executes_actions_on_create()).is_some() {
+        if dict
+            .get_type(key_team_executes_actions_on_create())
+            .is_some()
+        {
             info.execute_actions = dict.get_bool(key_team_executes_actions_on_create());
         }
 
@@ -2461,7 +2470,6 @@ impl Team {
             }
         }
     }
-
 }
 
 impl Snapshotable for Team {
@@ -3150,7 +3158,6 @@ pub trait TeamCommandSink: Send + Sync {
 static TEAM_COMMAND_SINK: LazyLock<Mutex<Option<Arc<dyn TeamCommandSink>>>> =
     LazyLock::new(|| Mutex::new(None));
 
-
 pub fn set_team_command_sink(sink: Arc<dyn TeamCommandSink>) {
     if let Ok(mut guard) = TEAM_COMMAND_SINK.lock() {
         *guard = Some(sink);
@@ -3338,7 +3345,6 @@ impl TeamFactory {
         self.prototypes.get(&name_key)
     }
 
-
     /// Find an existing team instance by name without creating one.
     pub fn find_existing_team(&self, name: &str) -> Option<&Team> {
         self.find_team_prototype(name)
@@ -3431,7 +3437,6 @@ impl TeamFactory {
         // Add to prototype's instance list
         let prototype = self.prototypes.get_mut(&name_key)?;
         prototype.add_team_instance(new_team);
-
 
         // Return the newly created team
         prototype.get_first_team_instance_mut()
@@ -3634,7 +3639,6 @@ impl Default for TeamFactory {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3668,7 +3672,6 @@ mod tests {
         fn get_id(&self) -> u32 {
             self.id
         }
-
 
         fn is_ai_recruitable(&self) -> bool {
             true

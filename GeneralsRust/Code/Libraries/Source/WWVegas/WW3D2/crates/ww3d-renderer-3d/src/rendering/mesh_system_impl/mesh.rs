@@ -324,8 +324,7 @@ impl MeshClass {
                 raytest.result.normal = world
                     .transform_vector3(raytest.result.normal)
                     .normalize_or_zero();
-                raytest.result.contact_point =
-                    world.transform_point3(obj_ray.result.contact_point);
+                raytest.result.contact_point = world.transform_point3(obj_ray.result.contact_point);
                 raytest.collided_render_obj = Some(self as *const MeshClass as usize);
                 return true;
             }
@@ -443,7 +442,6 @@ impl MeshClass {
             false
         }
     }
-
 
     /// Create a decal on this mesh - equivalent to C++ MeshClass::Create_Decal
     pub fn create_decal(&mut self, generator: &mut DecalGeneratorClass) {

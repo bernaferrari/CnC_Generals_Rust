@@ -60,10 +60,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_wsfl_suffix(bytes) else {
         return Ok(());
     };
@@ -264,9 +261,7 @@ mod tests {
         }
 
         let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder
-            .create_world_snapshot(&source)
-            .expect("snapshot");
+        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
             find_wsfl_suffix(&snapshot.lifecycle_tail).is_some(),
             "WSFL suffix must be appended to lifecycle tail"
@@ -287,7 +282,9 @@ mod tests {
             "ARMORSET_CRATEUPGRADE_ONE must survive load"
         );
         assert!(
-            loaded.applied_upgrades.contains("WEAPONSET_CRATEUPGRADE_ONE"),
+            loaded
+                .applied_upgrades
+                .contains("WEAPONSET_CRATEUPGRADE_ONE"),
             "crate upgrade tag must be re-applied"
         );
         assert!(loaded.weapon_set_elite, "WEAPONSET_ELITE must survive load");

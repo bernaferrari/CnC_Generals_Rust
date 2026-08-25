@@ -5,7 +5,7 @@
 //! Desc: A crate that gives a level of experience to all within n distance
 
 use super::*;
-use crate::common::{kindof_from_name, FieldParse, FieldType, KindOf};
+use crate::common::{FieldParse, FieldType, KindOf, kindof_from_name};
 use crate::experience::ExperienceRequirements;
 use crate::helpers::TheGameLogic;
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
@@ -15,7 +15,7 @@ use crate::object::collide::partition_filters::{
 use crate::object::collide::*;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::scripting::engine::transfer_object_name;
-use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
 use std::sync::{Arc, Mutex};
 
 /// Wave 368: host-only path has no dual-world factory objects.
@@ -562,7 +562,7 @@ mod tests {
     use super::*;
     use crate::helpers::TheThingFactory;
     use crate::object_manager::get_object_manager;
-    use crate::player::{player_list, Player, PlayerIndex};
+    use crate::player::{Player, PlayerIndex, player_list};
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
     use std::sync::{Arc, RwLock};
 
@@ -684,10 +684,7 @@ mod tests {
             data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0
         );
-        assert_ne!(
-            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
-            0
-        );
+        assert_ne!(data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()), 0);
         assert!((data.base.execute_animation_display_time_seconds - 1.75).abs() < f32::EPSILON);
     }
 
@@ -707,16 +704,22 @@ mod tests {
     #[test]
     fn veterancy_crate_build_field_parse_exposes_cpp_tokens() {
         let fields = VeterancyCrateCollideModuleData::build_field_parse();
-        assert!(fields
-            .iter()
-            .any(|field| field.token == "EffectRange" && field.target == "range_of_effect"));
-        assert!(fields
-            .iter()
-            .any(|field| field.token == "AddsOwnerVeterancy"
-                && field.target == "adds_owner_veterancy"));
-        assert!(fields
-            .iter()
-            .any(|field| field.token == "IsPilot" && field.target == "is_pilot"));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.token == "EffectRange" && field.target == "range_of_effect")
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.token == "AddsOwnerVeterancy"
+                    && field.target == "adds_owner_veterancy")
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.token == "IsPilot" && field.target == "is_pilot")
+        );
     }
 
     #[test]

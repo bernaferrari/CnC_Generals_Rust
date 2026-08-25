@@ -152,8 +152,7 @@ pub fn honesty_host_restart_pause_helper_source_markers_residual_wave601() -> bo
     // 2026-08-15: pause is SessionControlOp::SetPaused (ui_commands.rs:845-847).
     let pause_ok = pause.contains("Wave 575")
         && pause.contains("game_paused = paused")
-        && (pause.contains("set_paused(paused)")
-            || pause.contains("SessionControlOp::SetPaused"));
+        && (pause.contains("set_paused(paused)") || pause.contains("SessionControlOp::SetPaused"));
     let call_ok = eng.contains("self.host_restart_mission_from_ui()")
         && eng.contains("self.host_set_paused(true)")
         && eng.contains("self.host_set_paused(false)");

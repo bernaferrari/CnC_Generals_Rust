@@ -83,8 +83,8 @@ pub fn residual_host_production_door_ready_log_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_production_door_ready_log_helper_last_action(
-) -> ResidualHostProductionDoorReadyLogHelperAction {
+pub fn residual_host_production_door_ready_log_helper_last_action()
+-> ResidualHostProductionDoorReadyLogHelperAction {
     ResidualHostProductionDoorReadyLogHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

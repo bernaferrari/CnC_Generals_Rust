@@ -1,4 +1,4 @@
-use wwlib_rust::md5::{digest_to_hex, Md5};
+use wwlib_rust::md5::{Md5, digest_to_hex};
 
 fn main() {
     println!("MD5 Implementation Demo");

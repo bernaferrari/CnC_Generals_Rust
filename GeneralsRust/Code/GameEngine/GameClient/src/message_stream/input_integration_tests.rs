@@ -302,9 +302,11 @@ mod integration_tests {
         };
 
         let messages = processor.process_input_event(alt_down);
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaBeginWaypoints)));
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::MetaBeginWaypoints))
+        );
 
         let alt_up = InputEvent::KeyUp {
             key: KeyCode::LeftAlt,
@@ -313,9 +315,11 @@ mod integration_tests {
         };
 
         let messages = processor.process_input_event(alt_up);
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaEndWaypoints)));
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::MetaEndWaypoints))
+        );
     }
 
     /// Test Shift for prefer-selection mode
@@ -330,9 +334,11 @@ mod integration_tests {
         };
 
         let messages = processor.process_input_event(shift_down);
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaBeginPreferSelection)));
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::MetaBeginPreferSelection))
+        );
 
         let shift_up = InputEvent::KeyUp {
             key: KeyCode::LeftShift,
@@ -341,9 +347,11 @@ mod integration_tests {
         };
 
         let messages = processor.process_input_event(shift_up);
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaEndPreferSelection)));
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::MetaEndPreferSelection))
+        );
     }
 
     /// Test focus loss clears all input state
@@ -438,9 +446,11 @@ mod integration_tests {
         let messages = processor.process_input_event(select_up);
 
         // Should generate area selection
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::AreaSelection(_))));
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::AreaSelection(_)))
+        );
 
         // Step 2: Create control group (Ctrl+1)
         let create_group = InputEvent::KeyDown {
@@ -449,9 +459,11 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
         let messages = processor.process_input_event(create_group);
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaCreateTeam(1))));
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::MetaCreateTeam(1)))
+        );
 
         // Step 3: Deselect (click empty ground)
         let deselect_down = InputEvent::MouseButtonDown {
@@ -477,9 +489,11 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
         let messages = processor.process_input_event(select_group);
-        assert!(messages
-            .iter()
-            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaSelectTeam(1))));
+        assert!(
+            messages
+                .iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::MetaSelectTeam(1)))
+        );
 
         // Step 5: Issue move command (right-click)
         let move_down = InputEvent::MouseButtonDown {

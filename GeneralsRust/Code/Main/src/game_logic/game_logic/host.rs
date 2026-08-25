@@ -1,5 +1,6 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
+use super::HostHeliTakeoffOrLanding;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
@@ -7,8 +8,6 @@ use super::player::*;
 use super::prelude::*;
 use super::script_camera::*;
 use super::*;
-use super::HostHeliTakeoffOrLanding;
-
 
 pub struct GameLogic {
     /// Named AttackPriorityInfo residual map (script sets).
@@ -47,8 +46,6 @@ pub struct GameLogic {
     pub(super) vision_last_reveal_all: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
     /// C++ `m_partitionLastShroud` (Object::shroud / doShroudCover).
     pub(super) vision_last_shroud: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
-
-
 
     /// Players in the game. Coupled shadow: supplies/power/sciences last-write
     /// from GameWorld `PlayerData` (economy writeback). This map is a read-view
@@ -272,7 +269,7 @@ pub struct GameLogic {
     /// Host GLA Tunnel Network residual (TunnelContain shared MaxTunnelCapacity=10).
     /// Enter any allied tunnel; exit/evacuate at any allied tunnel (cross-tunnel).
     /// Last-tunnel cave-in, heal, and GuardTunnelNetwork nemesis are live.
-    pub(super) tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry,
+    pub(crate) tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry,
 
     /// C++ CaveSystem + CaveContain shared CaveIndex tracker.
     pub(super) cave_system: crate::game_logic::host_cave_system::HostCaveSystem,
@@ -321,7 +318,6 @@ pub struct GameLogic {
     pub(super) ambulance_auto_heal_pulse_accum: f32,
     pub(super) heal_residual_heal_pad_heals: u32,
 
-
     /// Host China Propaganda / Speaker Tower residual honesty counters.
     /// Fail-closed: not full PropagandaTowerBehavior sole-benefactor / upgrade FX matrix.
     /// heals: radius %max-health heal ticks applied to same-team non-structures.
@@ -329,7 +325,6 @@ pub struct GameLogic {
     pub(super) propaganda_residual_heals: u32,
     pub(super) propaganda_residual_buffs: u32,
     pub(super) propaganda_scan: crate::game_logic::host_propaganda::HostPropagandaScanState,
-
 
     /// Host China ECM Tank / jammer residual honesty counters.
     /// jams: DISABLED_SUBDUED full halt + fire-only weapons_jammed grants
@@ -357,18 +352,15 @@ pub struct GameLogic {
     pub(super) heli_takeoff_or_landing:
         std::collections::HashMap<ObjectId, HostHeliTakeoffOrLanding>,
     /// C++ `ParkingPlaceBehavior::m_healing` — list can exceed stall count.
-    pub(super) airfield_healing:
-        std::collections::HashMap<ObjectId, Vec<AirfieldHealingInfo>>,
+    pub(super) airfield_healing: std::collections::HashMap<ObjectId, Vec<AirfieldHealingInfo>>,
     /// C++ `ParkingPlaceBehavior::m_nextHealFrame`.
     pub(super) airfield_next_heal_frame: std::collections::HashMap<ObjectId, u32>,
-
 
     /// C++ FlightDeckBehavior runtime stalls / launch-wave / designated orders.
     pub(crate) flight_decks: std::collections::HashMap<
         ObjectId,
         crate::game_logic::host_flight_deck::HostFlightDeckState,
     >,
-
 
     /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
@@ -862,7 +854,6 @@ pub struct GameLogic {
 
     /// Host residual: China Red Guard gun + bayonet + horde / nationalism honesty.
     /// Fail-closed: not full WeaponSet tertiary auto-choose matrix.
-
     pub(super) red_guard_residual_fires: u32,
     pub(super) red_guard_residual_bayonet_kills: u32,
     pub(super) red_guard_residual_nationalism_upgrades: u32,
@@ -1051,7 +1042,6 @@ pub struct GameLogic {
     /// Map spawn repeats the same decorative names; do not re-scan archives.
     pub(super) unresolved_spawn_templates: HashSet<String>,
 
-
     /// Map data
     pub(super) map_name: String,
     pub(super) map_loaded: bool,
@@ -1063,7 +1053,7 @@ pub struct GameLogic {
     pub(crate) pathfinding_system: PathfindingSystem,
 
     /// AI Management System
-    pub(super) ai_manager: AIManager,
+    pub(crate) ai_manager: AIManager,
 
     /// Script execution tracking
     pub scripts_loaded: bool,
@@ -1320,14 +1310,12 @@ pub struct GameLogic {
     pub(super) install_multiplayer_scripts: bool,
 }
 
-
 #[derive(Debug, Clone)]
 pub(crate) struct PathfindingHeightSamples {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) values: Vec<f32>,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct RuntimeWeatherState {

@@ -130,7 +130,7 @@ pub fn honesty_executable_overlay_stamp_gate_source() -> bool {
 pub fn simulate_live_gameworld_entity_view_deepen_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        ensure_gate_damage_authority, presentation_view_from_shadow, GameWorldShadow,
+        GameWorldShadow, ensure_gate_damage_authority, presentation_view_from_shadow,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;

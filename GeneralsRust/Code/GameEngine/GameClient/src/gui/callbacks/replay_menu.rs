@@ -3,10 +3,10 @@
 use crate::game_text::GameText;
 use crate::gui::shell::replay_menu::ReplayMenu as ShellReplayMenu;
 use crate::gui::{
-    message_box_ok, message_box_ok_cancel, message_box_yes_no, queue_shell_pop,
-    queue_shell_shutdown_complete, show_shell_map_if_available, with_shell_ref,
-    with_window_manager, write_input_focus_response, Color as WindowColor, GameWindow,
-    KeyModifiers, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
+    Color as WindowColor, GLM_DOUBLE_CLICKED, GameWindow, KeyModifiers, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled, message_box_ok, message_box_ok_cancel,
+    message_box_yes_no, queue_shell_pop, queue_shell_shutdown_complete,
+    show_shell_map_if_available, with_shell_ref, with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
@@ -561,11 +561,7 @@ pub fn residual_replay_menu_last_action() -> ResidualReplayMenuAction {
 /// Residual: last selected replay list slot (-1 if none).
 pub fn residual_replay_menu_selected_slot() -> Option<i32> {
     let slot = RESIDUAL_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 {
-        None
-    } else {
-        Some(slot)
-    }
+    if slot < 0 { None } else { Some(slot) }
 }
 
 fn ensure_replay_control_ids(state: &mut ReplayMenuState) {

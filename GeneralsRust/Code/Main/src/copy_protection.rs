@@ -830,9 +830,11 @@ mod tests {
             ProtectionStatus::Bypassed
         );
         assert!(provider.check_for_message().unwrap().is_none());
-        assert!(provider
-            .notify_launcher(LauncherMessage::Heartbeat { process_id: 123 })
-            .is_ok());
+        assert!(
+            provider
+                .notify_launcher(LauncherMessage::Heartbeat { process_id: 123 })
+                .is_ok()
+        );
         assert!(provider.shutdown().is_ok());
     }
 
@@ -850,9 +852,11 @@ mod tests {
             ProtectionStatus::Valid
         );
         assert!(provider.check_for_message().unwrap().is_none());
-        assert!(provider
-            .notify_launcher(LauncherMessage::Heartbeat { process_id: 123 })
-            .is_ok());
+        assert!(
+            provider
+                .notify_launcher(LauncherMessage::Heartbeat { process_id: 123 })
+                .is_ok()
+        );
         assert!(provider.shutdown().is_ok());
     }
 

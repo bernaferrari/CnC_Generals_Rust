@@ -88,7 +88,8 @@ pub fn tick_live_dock_approach_ex(
     let Some(slot) = queue.reserve_approach_position(docker_id) else {
         return DockApproachTick::Blocked;
     };
-    let goal = queue.approach_world_position(slot as usize, docker_pos, dock_pos, dock_major_radius);
+    let goal =
+        queue.approach_world_position(slot as usize, docker_pos, dock_pos, dock_major_radius);
     if docker_pos.distance(goal) > DOCK_APPROACH_ARRIVAL_SLOP {
         queue.clear_wait_started(docker_id);
         return DockApproachTick::PathTo(goal);
@@ -188,7 +189,6 @@ pub fn is_live_dock_ai_state(state: &crate::game_logic::AIState) -> bool {
 pub fn cancel_live_dock_for_docker(docker_id: ObjectId) {
     cancel_all_live_dock_reservations_for(docker_id);
 }
-
 
 /// C++ `DockUpdate::isClearToApproach` against the live approach-queue.
 /// A dock that has never been reserved is clear (every slot still free).
@@ -509,7 +509,7 @@ pub fn warehouse_too_far_2d(
     let gap = (center
         - docker_bounding_circle_radius.max(0.0)
         - warehouse_bounding_circle_radius.max(0.0))
-        .max(0.0);
+    .max(0.0);
     gap * gap > close * close
 }
 
@@ -745,7 +745,8 @@ pub fn supply_draw_bones_to_show(total_bones: u32, current_supply: u32, max_supp
     if total_bones == 0 || max_supply == 0 {
         return 0;
     }
-    let shown = ((total_bones as f32) * (current_supply as f32) / (max_supply as f32)).ceil() as u32;
+    let shown =
+        ((total_bones as f32) * (current_supply as f32) / (max_supply as f32)).ceil() as u32;
     shown.min(total_bones)
 }
 
@@ -800,9 +801,8 @@ pub fn supply_draw_hide_directives(
 
 /// C++ `setCashValue` → host stored cash (`boxes * ValuePerSupplyBox`).
 pub fn warehouse_stored_supplies_from_cash(cash: i32) -> u32 {
-    let boxes = crate::game_logic::host_structure_economy_residual::supply_warehouse_boxes_from_cash(
-        cash,
-    );
+    let boxes =
+        crate::game_logic::host_structure_economy_residual::supply_warehouse_boxes_from_cash(cash);
     let value = crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX;
     let value = if value > 0 { value as u32 } else { 75 };
     (boxes.max(0) as u32).saturating_mul(value)
@@ -867,9 +867,7 @@ pub fn snapshot_live_warehouse_crippling_states() -> Vec<(ObjectId, WarehouseCri
 }
 
 /// Replace process-global heal clocks so a load cannot leak the previous session.
-pub fn restore_live_warehouse_crippling_states(
-    entries: Vec<(ObjectId, WarehouseCripplingState)>,
-) {
+pub fn restore_live_warehouse_crippling_states(entries: Vec<(ObjectId, WarehouseCripplingState)>) {
     if let Ok(mut map) = WAREHOUSE_CRIPPLING_STATES.lock() {
         map.clear();
         for (id, state) in entries {
@@ -905,7 +903,6 @@ pub fn warehouse_crippling_heal_amount(
     *next_healing_frame = current_frame.saturating_add(SUPPLY_WAREHOUSE_SELF_HEAL_DELAY_FRAMES);
     SUPPLY_WAREHOUSE_SELF_HEAL_AMOUNT
 }
-
 
 /// Retail GLA SupplyCenterDock `GrantTemporaryStealth = 20000` ms → 600 frames.
 /// America / China omit the field → module default 0.
@@ -1010,7 +1007,6 @@ pub fn collector_supply_lines_boost(
     }
 }
 
-
 impl crate::game_logic::GameLogic {
     /// C++ `SupplyWarehouseCripplingBehavior` + `WAREHOUSE_SET_VALUE` drain.
     pub fn update_supply_warehouse_crippling(&mut self) {
@@ -1021,8 +1017,7 @@ impl crate::game_logic::GameLogic {
             .iter()
             .filter(|(_, o)| {
                 o.is_alive()
-                    && o.thing.template.dock_kind
-                        == crate::game_logic::DockKind::SupplyWarehouse
+                    && o.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
             })
             .map(|(id, _)| *id)
             .collect();
@@ -1081,7 +1076,6 @@ impl crate::game_logic::GameLogic {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1096,25 +1090,12 @@ mod tests {
     #[test]
     fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
         // Last remaining box + full collector: C++ take-back, warehouse stays.
-        assert_eq!(
-            warehouse_action_transfer_one_box(1, 4, 4),
-            (1, 4, false)
-        );
-        assert_eq!(
-            warehouse_action_transfer_one_box(10, 4, 4),
-            (10, 4, false)
-        );
+        assert_eq!(warehouse_action_transfer_one_box(1, 4, 4), (1, 4, false));
+        assert_eq!(warehouse_action_transfer_one_box(10, 4, 4), (10, 4, false));
         // Room for one more: debit and credit.
-        assert_eq!(
-            warehouse_action_transfer_one_box(1, 3, 4),
-            (0, 4, true)
-        );
-        assert_eq!(
-            warehouse_action_transfer_one_box(0, 2, 4),
-            (0, 2, false)
-        );
+        assert_eq!(warehouse_action_transfer_one_box(1, 3, 4), (0, 4, true));
+        assert_eq!(warehouse_action_transfer_one_box(0, 2, 4), (0, 2, false));
     }
-
 
     #[test]
     fn warehouse_drawable_boxes_follow_cash() {
@@ -1136,7 +1117,6 @@ mod tests {
         assert!(!collector_carrying_from_boxes(0));
         assert!(collector_carrying_from_boxes(1));
     }
-
 
     #[test]
     fn gla_stash_grants_temporary_stealth_america_does_not() {
@@ -1238,16 +1218,26 @@ mod tests {
         let mut suppressed = 0;
         let mut next = 0;
         // Damage at frame 10 from 1000 → 200.
-        let first = warehouse_crippling_heal_amount(10, 200.0, 1000.0, 1000.0, &mut suppressed, &mut next);
+        let first =
+            warehouse_crippling_heal_amount(10, 200.0, 1000.0, 1000.0, &mut suppressed, &mut next);
         assert_eq!(first, 0.0);
         assert_eq!(suppressed, 100);
         assert_eq!(next, 100);
-        let mid = warehouse_crippling_heal_amount(99, 200.0, 1000.0, 200.0, &mut suppressed, &mut next);
+        let mid =
+            warehouse_crippling_heal_amount(99, 200.0, 1000.0, 200.0, &mut suppressed, &mut next);
         assert_eq!(mid, 0.0);
-        let heal = warehouse_crippling_heal_amount(100, 200.0, 1000.0, 200.0, &mut suppressed, &mut next);
+        let heal =
+            warehouse_crippling_heal_amount(100, 200.0, 1000.0, 200.0, &mut suppressed, &mut next);
         assert!((heal - 5.0).abs() < 0.01);
         assert_eq!(next, 115);
-        let full = warehouse_crippling_heal_amount(200, 1000.0, 1000.0, 1000.0, &mut suppressed, &mut next);
+        let full = warehouse_crippling_heal_amount(
+            200,
+            1000.0,
+            1000.0,
+            1000.0,
+            &mut suppressed,
+            &mut next,
+        );
         assert_eq!(full, 0.0);
     }
 
@@ -1345,7 +1335,11 @@ mod tests {
         assert_eq!(q.reserve_approach_position(ghost), Some(0));
         q.on_approach_reached(ghost);
         q.evict_dead(|_| true);
-        assert_eq!(q.owners[0], Some(ghost), "alive predicate must keep the slot");
+        assert_eq!(
+            q.owners[0],
+            Some(ghost),
+            "alive predicate must keep the slot"
+        );
         q.evict_dead(|_| false);
         assert_eq!(q.owners[0], None);
         assert!(!q.reached[0]);
@@ -1394,12 +1388,7 @@ mod tests {
     #[test]
     fn boneless_bias_is_half_major_radius_toward_docker() {
         let q = HostDockApproachQueue::new(5);
-        let goal = q.approach_world_position(
-            0,
-            Vec3::new(100.0, 0.0, 0.0),
-            Vec3::ZERO,
-            40.0,
-        );
+        let goal = q.approach_world_position(0, Vec3::new(100.0, 0.0, 0.0), Vec3::ZERO, 40.0);
         assert!((goal.x - 20.0).abs() < 0.01);
         assert!(goal.z.abs() < 0.01);
     }
@@ -1414,22 +1403,51 @@ mod tests {
         let bone_b = Vec3::new(20.0, 0.0, 0.0);
         assert_eq!(
             tick_live_dock_approach(
-                dock, a, 5, true, None, false, bone_a, Vec3::ZERO, 10.0,
-                &[bone_a, bone_b], 0, |_| true,
+                dock,
+                a,
+                5,
+                true,
+                None,
+                false,
+                bone_a,
+                Vec3::ZERO,
+                10.0,
+                &[bone_a, bone_b],
+                0,
+                |_| true,
             ),
             DockApproachTick::ClearToAct
         );
         assert_eq!(
             tick_live_dock_approach(
-                dock, b, 5, true, Some(a), true, bone_b, Vec3::ZERO, 10.0,
-                &[bone_a, bone_b], 10, |_| true,
+                dock,
+                b,
+                5,
+                true,
+                Some(a),
+                true,
+                bone_b,
+                Vec3::ZERO,
+                10.0,
+                &[bone_a, bone_b],
+                10,
+                |_| true,
             ),
             DockApproachTick::Blocked
         );
         assert_eq!(
             tick_live_dock_approach(
-                dock, b, 5, true, Some(a), true, bone_b, Vec3::ZERO, 10.0,
-                &[bone_a, bone_b], 10 + WAIT_FOR_CLEARANCE_FRAMES,
+                dock,
+                b,
+                5,
+                true,
+                Some(a),
+                true,
+                bone_b,
+                Vec3::ZERO,
+                10.0,
+                &[bone_a, bone_b],
+                10 + WAIT_FOR_CLEARANCE_FRAMES,
                 |_| true,
             ),
             DockApproachTick::TimedOut
@@ -1444,13 +1462,21 @@ mod tests {
         let dock = ObjectId(6);
         let a = ObjectId(7);
         let _ = tick_live_dock_approach(
-            dock, a, 5, true, Some(ObjectId(8)), true,
-            Vec3::new(100.0, 0.0, 0.0), Vec3::ZERO, 20.0,
-            &[], 0, |_| true,
+            dock,
+            a,
+            5,
+            true,
+            Some(ObjectId(8)),
+            true,
+            Vec3::new(100.0, 0.0, 0.0),
+            Vec3::ZERO,
+            20.0,
+            &[],
+            0,
+            |_| true,
         );
         cancel_all_live_dock_reservations_for(a);
         assert!(live_dock_is_clear_to_approach(dock, ObjectId(9)));
         reset_live_dock_queues();
     }
 }
-

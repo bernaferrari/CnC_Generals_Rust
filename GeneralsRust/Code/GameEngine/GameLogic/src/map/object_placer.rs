@@ -348,8 +348,10 @@ mod tests {
         ObjectPlacer::clear_all();
 
         let system = TheMapSystem.read().unwrap();
-        assert!(system
-            .find_map_object("TestClear_TempWP_unique_9200")
-            .is_none());
+        assert!(
+            system
+                .find_map_object("TestClear_TempWP_unique_9200")
+                .is_none()
+        );
     }
 }

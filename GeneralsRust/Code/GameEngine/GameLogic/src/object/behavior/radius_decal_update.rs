@@ -6,16 +6,16 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, CoordOrigin, ModuleData, ObjectID, ObjectStatusTypes, RadiusDecal,
-    RadiusDecalTemplate, Real, UnsignedInt, XferVersion, INVALID_ID,
+    AsciiString, Coord3D, CoordOrigin, INVALID_ID, ModuleData, ObjectID, ObjectStatusTypes,
+    RadiusDecal, RadiusDecalTemplate, Real, UnsignedInt, XferVersion,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
-    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_FOREVER,
-    UPDATE_SLEEP_NONE,
+    BehaviorModuleInterface, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::player::ThePlayerList;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};

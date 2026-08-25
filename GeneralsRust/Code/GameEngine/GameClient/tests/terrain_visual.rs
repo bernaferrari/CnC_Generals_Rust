@@ -1,12 +1,14 @@
 use game_client_rust::{
     system::SubsystemInterface,
     terrain::{
+        TILE_BYTES_PER_PIXEL, TREE_TILE_DATA_LEN, TerrainTrackHeightProvider, TerrainTracksConfig,
+        TreeModuleData, TreeRegion2D, TreeSphere, TreeTgaHeader, TreeTileImageSpec, TreeTypeMesh,
         add_terrain_scorch, blit_tree_tile_into_atlas, do_lighting, do_tree_atlas_mip,
-        generate_box_mip_chain, height_map::HeightMap, terrain_scorch_count,
+        generate_box_mip_chain,
+        height_map::HeightMap,
+        terrain_scorch_count,
         terrain_visual::{TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl},
-        textures::{BlendTileInfo, TileData, FLIPPED_MASK},
-        TerrainTrackHeightProvider, TerrainTracksConfig, TreeModuleData, TreeRegion2D, TreeSphere,
-        TreeTgaHeader, TreeTileImageSpec, TreeTypeMesh, TILE_BYTES_PER_PIXEL, TREE_TILE_DATA_LEN,
+        textures::{BlendTileInfo, FLIPPED_MASK, TileData},
     },
 };
 use glam::{Mat4, Vec2, Vec3};
@@ -364,7 +366,11 @@ fn skybox_candidates_swap_tga_to_dds_and_search_art_and_map_dir() {
     // W3DFileSystem.cpp:197-201 looks in TGA_DIR_PATH ("Art/Textures/").
     let mut visual = TerrainVisualImpl::new();
     visual
-        .load_heightmap_from_data(HeightMap::new(4, 4, 255.0, 1.0), Some(std::path::Path::new("maps/Alpine/Alpine.map")), None)
+        .load_heightmap_from_data(
+            HeightMap::new(4, 4, 255.0, 1.0),
+            Some(std::path::Path::new("maps/Alpine/Alpine.map")),
+            None,
+        )
         .expect("heightmap load sets map directory");
     let candidates = visual.skybox_texture_search_candidates("TSMorningN.tga");
     let as_str: Vec<String> = candidates
@@ -372,19 +378,29 @@ fn skybox_candidates_swap_tga_to_dds_and_search_art_and_map_dir() {
         .map(|p| p.to_string_lossy().replace('\\', "/"))
         .collect();
     assert!(
-        as_str.iter().any(|c| c.ends_with("Art/Textures/TSMorningN.tga") || c == "Art/Textures/TSMorningN.tga"),
+        as_str
+            .iter()
+            .any(|c| c.ends_with("Art/Textures/TSMorningN.tga")
+                || c == "Art/Textures/TSMorningN.tga"),
         "missing Art/Textures candidate: {as_str:?}"
     );
     assert!(
-        as_str.iter().any(|c| c.contains("art/textures/TSMorningN.tga")),
+        as_str
+            .iter()
+            .any(|c| c.contains("art/textures/TSMorningN.tga")),
         "missing art/textures candidate: {as_str:?}"
     );
     assert!(
-        as_str.iter().any(|c| c.ends_with("Art/Textures/TSMorningN.dds") || c == "Art/Textures/TSMorningN.dds"),
+        as_str
+            .iter()
+            .any(|c| c.ends_with("Art/Textures/TSMorningN.dds")
+                || c == "Art/Textures/TSMorningN.dds"),
         "missing tga→dds swap candidate: {as_str:?}"
     );
     assert!(
-        as_str.iter().any(|c| c.contains("maps/Alpine") && c.ends_with("TSMorningN.tga")),
+        as_str
+            .iter()
+            .any(|c| c.contains("maps/Alpine") && c.ends_with("TSMorningN.tga")),
         "missing map-directory candidate: {as_str:?}"
     );
 }
@@ -562,11 +578,13 @@ fn water_tracks_flush_is_called_from_live_water_record() {
     );
     visual.flush_water_tracks();
     let flush = visual.last_water_tracks_flush();
-    assert!(!flush.vertices.is_empty(), "live water record must flush wakes");
+    assert!(
+        !flush.vertices.is_empty(),
+        "live water record must flush wakes"
+    );
     assert!(!flush.indices.is_empty());
     assert_eq!(flush.ranges[0].texture_name, "wave256.tga");
 }
-
 
 #[test]
 fn water_grid_height_returns_none_when_disabled() {

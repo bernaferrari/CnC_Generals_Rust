@@ -11,8 +11,8 @@
 //! (and after SPCD / BPPL / SUBD / HSQD / BTRY) so older decoders ignore the
 //! extra bytes. No world snapshot version bump.
 
-use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -43,10 +43,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load remaining bombs.
     game_logic.carpet_bomb_flight_reg.clear();
     let Some(suffix) = find_cbpd_suffix(bytes) else {
@@ -136,15 +133,16 @@ mod tests {
 
         let mut restored = GameLogic::new();
         // Stale queue must be replaced, not merged.
-        restored.carpet_bomb_flight_reg.pending_drops.push(
-            PendingCarpetBombDrop {
+        restored
+            .carpet_bomb_flight_reg
+            .pending_drops
+            .push(PendingCarpetBombDrop {
                 drop_frame: 1,
                 target: Vec3::ZERO,
                 source_id: 0,
                 bomb_index: 0,
                 transport_id: 99,
-            },
-        );
+            });
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
@@ -166,13 +164,16 @@ mod tests {
     #[test]
     fn absent_suffix_clears_stale_pending_drops() {
         let mut logic = GameLogic::new();
-        logic.carpet_bomb_flight_reg.pending_drops.push(PendingCarpetBombDrop {
-            drop_frame: 10,
-            target: Vec3::ZERO,
-            source_id: 1,
-            bomb_index: 0,
-            transport_id: 2,
-        });
+        logic
+            .carpet_bomb_flight_reg
+            .pending_drops
+            .push(PendingCarpetBombDrop {
+                drop_frame: 10,
+                target: Vec3::ZERO,
+                source_id: 1,
+                bomb_index: 0,
+                transport_id: 2,
+            });
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         assert!(logic.carpet_bomb_flight_reg.pending_drops.is_empty());
     }

@@ -4,8 +4,8 @@
 //! produce C++-matching combo/slot data that LAN/WOL menus apply to gadgets.
 
 use crate::game_info::{
-    lookup_game_text, lookup_multiplayer_settings, GameInfo, Money, MAX_SLOTS,
-    PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
+    GameInfo, MAX_SLOTS, Money, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, lookup_game_text,
+    lookup_multiplayer_settings,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 

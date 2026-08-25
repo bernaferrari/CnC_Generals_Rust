@@ -19,7 +19,7 @@ use super::font::{
     Color, GameFont, Image, Point2D, WindowDrawData, WindowInstanceData, WindowRegion, WindowState,
     WindowTextColors,
 };
-use super::messages::{WindowMessage, WindowMsgHandled, WindowStatus, WINDOW_ID_INVALID};
+use super::messages::{WINDOW_ID_INVALID, WindowMessage, WindowMsgHandled, WindowStatus};
 use super::payload::{WindowId, WindowMsgData};
 
 /// Callback function types

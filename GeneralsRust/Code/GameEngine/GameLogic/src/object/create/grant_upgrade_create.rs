@@ -8,8 +8,8 @@ use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
 
 use crate::object::create::{CreateModule, CreateModuleData};
 use crate::player::PlayerArcExt;
-use crate::upgrade::{center::with_upgrade_center, UpgradeStatus, UpgradeType};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::upgrade::{UpgradeStatus, UpgradeType, center::with_upgrade_center};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, ModuleData, Thing as ThingTrait};

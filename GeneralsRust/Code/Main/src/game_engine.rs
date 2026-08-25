@@ -20,9 +20,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::command_line::CommandLineArgs;
-use crate::debug_system::{get_debug_system, initialize_debug_system, DebugConfig};
+use crate::debug_system::{DebugConfig, get_debug_system, initialize_debug_system};
 use crate::engine_factory::{DefaultSubsystemFactory, GameEngine};
-use crate::single_instance::{initialize_single_instance_protection, SingleInstanceGuard};
+use crate::single_instance::{SingleInstanceGuard, initialize_single_instance_protection};
 use crate::subsystem_interfaces::SubsystemManager;
 use crate::util::profiler::InitTimer;
 use crate::version::{get_version_info, initialize_version_system};

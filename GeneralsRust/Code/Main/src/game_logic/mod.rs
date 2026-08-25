@@ -21,6 +21,13 @@ pub mod combat_particles;
 pub mod game_logic;
 pub(crate) use game_logic::PathfindingHeightSamples;
 
+#[cfg(test)]
+pub(in crate) fn evaluate_and_execute_scripts_for_test(
+    logic: &mut game_logic::GameLogic,
+    dt: f32,
+) {
+    logic.evaluate_and_execute_scripts(dt);
+}
 
 mod host_types;
 pub use host_types::*;
@@ -47,15 +54,18 @@ pub use host_mods_logs_c::*;
 
 use host_mods_combat::host_bone_fx_damage;
 use host_mods_combat::host_command_button_hunt;
+pub(crate) use host_mods_combat::host_command_button_hunt::{
+    HUNT_CMD_FROM_AI, HUNT_CMD_FROM_PLAYER, HUNT_CMD_FROM_SCRIPT,
+};
 use host_mods_combat::host_create_object_die;
 use host_mods_combat::host_crush_die;
-use host_mods_combat::host_instant_death;
 use host_mods_combat::host_dam_die;
 use host_mods_combat::host_deploy_style;
 use host_mods_combat::host_fire_weapon_power;
 use host_mods_combat::host_fire_weapon_when_dead;
 use host_mods_combat::host_fx_list_die;
 use host_mods_combat::host_highlander_body;
+use host_mods_combat::host_instant_death;
 use host_mods_combat::host_keep_object_die;
 use host_mods_combat::host_squish_collide;
 use host_mods_combat::host_status_damage;
@@ -76,17 +86,17 @@ pub mod locomotor_bootstrap;
 pub mod mission_scripts;
 pub mod object;
 pub use object::{
-    calc_slow_down_dist, is_same_position_residual, AttackSubState, LocomotorAppearance,
-    LocomotorBehaviorZ, PhysicsTurningType, DEFAULT_AERO_FRICTION_RESIDUAL,
-    DEFAULT_FORWARD_FRICTION_RESIDUAL, DEFAULT_LATERAL_FRICTION_RESIDUAL,
-    DEFAULT_Z_FRICTION_RESIDUAL, MAX_FRICTION_RESIDUAL, MIN_AERO_FRICTION_RESIDUAL,
+    AttackSubState, DEFAULT_AERO_FRICTION_RESIDUAL, DEFAULT_FORWARD_FRICTION_RESIDUAL,
+    DEFAULT_LATERAL_FRICTION_RESIDUAL, DEFAULT_Z_FRICTION_RESIDUAL, LocomotorAppearance,
+    LocomotorBehaviorZ, MAX_FRICTION_RESIDUAL, MIN_AERO_FRICTION_RESIDUAL,
     MIN_NON_AERO_FRICTION_RESIDUAL, MIN_RECOMPUTE_TIME_RESIDUAL, MOTIVE_FRAMES_RESIDUAL,
-    PATHFIND_CELL_SIZE_F_RESIDUAL,
+    PATHFIND_CELL_SIZE_F_RESIDUAL, PhysicsTurningType, calc_slow_down_dist,
+    is_same_position_residual,
 };
-pub mod partition_manager;
-pub mod partition_coi;
-pub mod pathfinding;
 pub mod host_radar;
+pub mod partition_coi;
+pub mod partition_manager;
+pub mod pathfinding;
 pub mod radar_notifications;
 pub mod resources;
 pub mod script_events;
@@ -104,12 +114,12 @@ pub use buildings::*;
 pub use combat::*;
 pub use combat_particles::{CombatParticleKind, CombatParticleRegistry, CombatParticleSystemEntry};
 pub use game_logic::*;
-pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
 pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave92;
+pub use locomotor_bootstrap::honesty_locomotor_residual_expand_wave103;
 pub use locomotor_bootstrap::{
-    ensure_host_locomotor_store, locomotor_name_for_unit, resolve_host_movement,
     BASIC_HUMAN_LOCOMOTOR, BATTLE_MASTER_LOCOMOTOR, CRUSADER_LOCOMOTOR, HUMVEE_LOCOMOTOR,
-    REDGUARD_LOCOMOTOR, SCORPION_LOCOMOTOR, TECHNICAL_LOCOMOTOR,
+    REDGUARD_LOCOMOTOR, SCORPION_LOCOMOTOR, TECHNICAL_LOCOMOTOR, ensure_host_locomotor_store,
+    locomotor_name_for_unit, resolve_host_movement,
 };
 pub use mission_scripts::*;
 pub use object::*;
@@ -129,15 +139,15 @@ pub use thing::*;
 pub use units::*;
 pub use victory::*;
 pub use victory_conditions::*;
-pub use weapon_bootstrap::honesty_weapon_store_deepen_residual_wave103;
 pub use weapon_bootstrap::honesty_weapon_store_deepen_residual_wave92;
+pub use weapon_bootstrap::honesty_weapon_store_deepen_residual_wave103;
 pub use weapon_bootstrap::{
-    ensure_host_weapon_store, honesty_weapon_store_host_seed_residual_wave77,
-    primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
     GATTLING_BUILDING_PRIMARY_WEAPON as HOST_GATTLING_BUILDING_PRIMARY_WEAPON,
     GLA_REBEL_PRIMARY_WEAPON, HOST_WEAPON_STORE_CORE_SEED_NAMES, HUMVEE_PRIMARY_WEAPON,
     HUMVEE_SECONDARY_WEAPON, PATRIOT_PRIMARY_WEAPON as HOST_PATRIOT_PRIMARY_WEAPON,
     RANGER_PRIMARY_WEAPON, RANGER_SECONDARY_WEAPON, REDGUARD_PRIMARY_WEAPON,
+    ensure_host_weapon_store, honesty_weapon_store_host_seed_residual_wave77,
+    primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
 };
 
 mod host_reexports;

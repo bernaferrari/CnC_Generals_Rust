@@ -212,10 +212,11 @@ impl GameLogic {
         // separate MOAB command.
         if kind == HostSuperweaponKind::DaisyCutter {
             use crate::game_logic::host_daisy_cutter_flight::DaisyFlightPayloadTier;
-            let tmpl = crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(
-                kind.label(),
-            )
-            .unwrap_or("SuperweaponDaisyCutter");
+            let tmpl =
+                crate::game_logic::host_ocl_special_power::special_power_template_for_host_kind(
+                    kind.label(),
+                )
+                .unwrap_or("SuperweaponDaisyCutter");
             let plan = self.plan_ocl_special_power(tmpl, source_object, target_position);
             let tier = plan
                 .as_ref()
@@ -247,12 +248,8 @@ impl GameLogic {
                         .get(&source_object)
                         .map(|o| o.get_position())
                         .unwrap_or(target_position);
-                    let spawned = self.execute_ocl_fire_weapon(
-                        ocl,
-                        source_object,
-                        primary,
-                        target_position,
-                    );
+                    let spawned =
+                        self.execute_ocl_fire_weapon(ocl, source_object, primary, target_position);
                     // C++ one NeutronMissileSlowDeath on the flying missile.
                     // Registry delayed blast is only a fallback when spawn fails.
                     if kind == HostSuperweaponKind::NuclearMissile {
@@ -315,7 +312,6 @@ impl GameLogic {
         self.notify_script_engine_special_power_event(source_object, power, true, false);
         // C++ SpecialPowerModule.cpp:454/462 createViewObject (range 250 / 30-40s).
         self.create_special_power_view_object(source_object, target_position, kind);
-
 
         // C++ SpecialPowerModule.cpp:622-628 getInitiateAtTargetSound at click.
         // Distinct from source InitiateSound (CommandXlat / hq-yip5e).
@@ -431,7 +427,6 @@ impl GameLogic {
         use crate::game_logic::{KindOf, ThingTemplate};
         use gamelogic::common::Coord3D;
 
-
         const VIEW_OBJECT_TEMPLATE: &str = "SpecialPowerViewObject";
         if range <= 0.0 || duration == 0 {
             return false;
@@ -450,8 +445,7 @@ impl GameLogic {
             t.add_kind_of(KindOf::Unattackable)
                 .set_health(1.0)
                 .set_cost(0, 0);
-            self.templates
-                .insert(VIEW_OBJECT_TEMPLATE.to_string(), t);
+            self.templates.insert(VIEW_OBJECT_TEMPLATE.to_string(), t);
         }
 
         let object_id = self.create_object(VIEW_OBJECT_TEMPLATE, team, target_position);
@@ -520,7 +514,6 @@ impl GameLogic {
             });
         fow_reveal_ok || object_id.is_some()
     }
-
 
     /// Advance pending host superweapon strikes to impact and apply area damage.
     /// NuclearMissile residual also ticks radiation fields after impact.
@@ -593,7 +586,8 @@ impl GameLogic {
                     .special_power_strikes
                     .get(plan.strike_id)
                     .is_some_and(|s| s.live_anthrax_delivery);
-            if !skip_registry_nuke_blast && !skip_a10_consolidated_blast && !skip_anthrax_live_blast {
+            if !skip_registry_nuke_blast && !skip_a10_consolidated_blast && !skip_anthrax_live_blast
+            {
                 // Impact feedback residual: explosion particle + audio at epicenter.
                 let _ = self.combat_particles.spawn(
                     CombatParticleKind::DeathExplosion,
@@ -712,7 +706,6 @@ impl GameLogic {
                     );
                 }
             }
-
         }
 
         // NuclearMissile residual radiation field ticks (after impact blasts).
@@ -783,7 +776,7 @@ impl GameLogic {
     /// C++ NeutronMissileSlowDeathBehavior multi-blast residual.
     pub(in super::super) fn update_neutron_slow_death_fields(&mut self) {
         use crate::game_logic::host_neutron_missile_slow_death::{
-            neutron_blast_can_topple, plan_neutron_frame, MC_BIT_BURNED,
+            MC_BIT_BURNED, neutron_blast_can_topple, plan_neutron_frame,
         };
 
         let n = self.special_power_strikes.neutron_slow_death_field_count();
@@ -819,8 +812,7 @@ impl GameLogic {
             let epicenter = (meta.position.x, meta.position.y, meta.position.z);
             let xyz: Vec<(f32, f32, f32)> =
                 objects.iter().map(|(_, x, y, z, _)| (*x, *y, *z)).collect();
-            let (hits, place_scorch, done) =
-                plan_neutron_frame(&mut state, frame, epicenter, &xyz);
+            let (hits, place_scorch, done) = plan_neutron_frame(&mut state, frame, epicenter, &xyz);
 
             // C++ SlowDeath MIDPOINT OCL_NukeRadiationField residual.
             if state.take_radiation_ocl_request(frame) {
@@ -906,16 +898,15 @@ impl GameLogic {
 
     /// C++ WaveGuideUpdate residual — flood wave motion + damage after DamDie.
     pub(in super::super) fn update_wave_guides(&mut self) {
+        use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
         use crate::game_logic::host_topple::{
             HostToppleData, TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX,
         };
-        use crate::game_logic::host_wave_guide::{
-            is_wave_guide_template, wave_damage_at_distance, MC_BIT_FLOODED, WAVE_DAMAGE_RADIUS,
-            WAVE_TOPPLE_FORCE,
-        };
         use crate::game_logic::host_usa_pilot::HostDeathType;
-        use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
-
+        use crate::game_logic::host_wave_guide::{
+            MC_BIT_FLOODED, WAVE_DAMAGE_RADIUS, WAVE_TOPPLE_FORCE, is_wave_guide_template,
+            wave_damage_at_distance,
+        };
 
         let frame = self.frame;
         // C++ WaveGuideUpdate.cpp:93-101 ctor m_needDisable; update:739-743
@@ -992,10 +983,7 @@ impl GameLogic {
             };
             let (looping, splash) =
                 crate::game_logic::host_wave_guide::leftover_wave_guide_audio_tick(
-                    wg,
-                    &template,
-                    gid.0,
-                    frame,
+                    wg, &template, gid.0, frame,
                 );
             if let Some(name) = looping {
                 audio_jobs.push((*gid, name, true, *gpos));
@@ -1042,8 +1030,7 @@ impl GameLogic {
                             Some(gamelogic::terrain::WaveGuide1Bind::InvalidPath) => {
                                 wg.mark_done();
                             }
-                            Some(gamelogic::terrain::WaveGuide1Bind::MissingWaypoint)
-                            | None => {
+                            Some(gamelogic::terrain::WaveGuide1Bind::MissingWaypoint) | None => {
                                 wg.final_destination = Some((0.0, 0.0));
                                 wg.facing = gori;
                             }
@@ -1224,7 +1211,6 @@ impl GameLogic {
             }
         }
 
-
         for (id, team) in destroy_ids {
             self.mark_object_for_destruction(id, Some(team));
         }
@@ -1253,8 +1239,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target
-                        .take_radiation_field_tick(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_radiation_field_tick(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1368,9 +1354,9 @@ impl GameLogic {
                 if !object.is_alive() || object.is_disabled() {
                     return None;
                 }
-                object.special_power_override_destination.map(|destination| {
-                    (*id, destination, object.producer_id)
-                })
+                object
+                    .special_power_override_destination
+                    .map(|destination| (*id, destination, object.producer_id))
             })
             .collect();
         for (id, destination, producer) in pending {
@@ -1380,11 +1366,8 @@ impl GameLogic {
             // sourced from the command-center caster that spawned the gunship.
             if let Some(producer) = producer {
                 if producer != id {
-                    self.special_power_strikes.apply_source_override_destination(
-                        producer,
-                        destination,
-                        frame,
-                    );
+                    self.special_power_strikes
+                        .apply_source_override_destination(producer, destination, frame);
                 }
             }
         }
@@ -1440,7 +1423,7 @@ impl GameLogic {
             (obj.producer_id == Some(source)
                 && obj.spectre_gunship_update.is_some()
                 && obj.is_alive())
-                .then(|| obj.get_position())
+            .then(|| obj.get_position())
         })
     }
 
@@ -1494,9 +1477,7 @@ impl GameLogic {
                 tgt_inst,
             ) == gamelogic::common::Relationship::Enemies;
         }
-        target_team != source_team
-            && target_team != Team::Neutral
-            && source_team != Team::Neutral
+        target_team != source_team && target_team != Team::Neutral && source_team != Team::Neutral
     }
 
     /// C++ `StealthUpdate::getDisguisedPlayerIndex` → `getNthPlayer`.
@@ -1559,7 +1540,6 @@ impl GameLogic {
         )
     }
 
-
     /// C++ `PartitionFilterFreeOfFog`: `getShroudedStatus == OBJECTSHROUD_CLEAR`.
     /// No FOW / no grid / no PartitionData → CLEAR (Object.cpp:1786-1788).
     fn spectre_orbit_fog_clear(&self, viewer_player_id: Option<u32>, target_id: ObjectId) -> bool {
@@ -1616,12 +1596,7 @@ impl GameLogic {
             );
         crate::game_logic::special_power_strikes::spectre_orbit_target_passes_partition_filters(
             alive,
-            self.spectre_orbit_relationship_enemies_ids(
-                source_id,
-                source_team,
-                target_id,
-                team,
-            ),
+            self.spectre_orbit_relationship_enemies_ids(source_id, source_team, target_id, team),
             stealthed_undetected,
             is_air,
             self.spectre_orbit_fog_clear(source_player_id, target_id),
@@ -1650,7 +1625,11 @@ impl GameLogic {
         self.spectre_orbit_relationship_enemies_ids(source_id, source_team, target_id, target_team)
     }
 
-    fn spectre_orbit_source_viewer(&self, source_object: ObjectId, source_team: Team) -> Option<u32> {
+    fn spectre_orbit_source_viewer(
+        &self,
+        source_object: ObjectId,
+        source_team: Team,
+    ) -> Option<u32> {
         self.objects
             .get(&source_object)
             .and_then(|o| o.owner_player_id)
@@ -1689,8 +1668,6 @@ impl GameLogic {
             })
             .collect()
     }
-
-
 
     /// Tick residual Spectre orbit fields spawned at orbit insertion.
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
@@ -1739,7 +1716,6 @@ impl GameLogic {
             .advance_orbit_shoot_at(self.frame);
 
         let object_positions = self.spectre_orbit_filtered_positions();
-
 
         let plans = self
             .special_power_strikes
@@ -1847,7 +1823,6 @@ impl GameLogic {
             );
         }
     }
-
 
     /// Tick residual Particle Uplink continuous beam fields after charge residual.
     /// Manual drive + WidthGrow grow/hold/decay + outer-node honesty residual closed.

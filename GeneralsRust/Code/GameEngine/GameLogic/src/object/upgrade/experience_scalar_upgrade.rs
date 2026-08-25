@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
 
 /// Module data describing the experience scalar upgrade.
 #[derive(Debug, Clone)]
@@ -192,9 +193,8 @@ fn parse_add_xp_scalar_field(
 
 crate::impl_upgrade_mux_field_parsers!(ExperienceScalarUpgradeModuleData);
 
-const EXPERIENCE_SCALAR_UPGRADE_FIELDS: &[FieldParse<ExperienceScalarUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
+const EXPERIENCE_SCALAR_UPGRADE_FIELDS: &[FieldParse<ExperienceScalarUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!(FieldParse {
         token: "AddXPScalar",
         parse: parse_add_xp_scalar_field,
-    },
-);
+    },);

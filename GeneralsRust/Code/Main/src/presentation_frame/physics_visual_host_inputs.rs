@@ -5,11 +5,11 @@
 //! carry those fields; this module samples the presentation-time sources that
 //! do exist without inventing KindOf variants or geometry on Object/Thing.
 
-use crate::game_logic::host_partition_collision_physics_residual::{
-    geometry_bounding_circle_radius, geometry_max_height_above_position, GEOMETRY_BOX_RESIDUAL,
-    GEOMETRY_CYLINDER_RESIDUAL, GEOMETRY_SPHERE_RESIDUAL,
-};
 use crate::game_logic::Object;
+use crate::game_logic::host_partition_collision_physics_residual::{
+    GEOMETRY_BOX_RESIDUAL, GEOMETRY_CYLINDER_RESIDUAL, GEOMETRY_SPHERE_RESIDUAL,
+    geometry_bounding_circle_radius, geometry_max_height_above_position,
+};
 use glam::Vec3;
 use std::cell::RefCell;
 use std::collections::HashMap;

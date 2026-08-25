@@ -45,8 +45,8 @@ pub const RUNTIME_HOST_LIVE_FIRE_WEAPON_WHEN_DEAD_BEHAVIOR_DUAL_WORLD_EMPTY_GATE
     ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_names_residual_wave427(
-) -> bool {
+pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_names_residual_wave427()
+-> bool {
     LIVE_FIRE_WEAPON_WHEN_DEAD_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE427.len() == 6
         && residual_name_index(
             LIVE_FIRE_WEAPON_WHEN_DEAD_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE427,
@@ -63,8 +63,8 @@ pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_commands_residual_wave427(
-) -> bool {
+pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_commands_residual_wave427()
+-> bool {
     LIVE_FIRE_WEAPON_WHEN_DEAD_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE427.len() == 4
         && residual_name_index(
             LIVE_FIRE_WEAPON_WHEN_DEAD_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE427,
@@ -80,8 +80,8 @@ pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_com
 }
 
 /// Wave 427 composite residual honesty pack.
-pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_residual_pack_wave427(
-) -> bool {
+pub fn honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_residual_pack_wave427()
+-> bool {
     honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_names_residual_wave427()
         && honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_commands_residual_wave427()
 }

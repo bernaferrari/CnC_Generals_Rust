@@ -13,15 +13,15 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 mod game_info_port;
 
 pub use game_info_port::{
-    game_info_to_ascii_string, parse_ascii_string_to_game_info, FirewallBehaviorType, GameInfo,
-    GameSlot, Money, SkirmishGameInfo, SlotState, MAX_SLOTS, PLAYERTEMPLATE_MIN,
-    PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
+    FirewallBehaviorType, GameInfo, GameSlot, MAX_SLOTS, Money, PLAYERTEMPLATE_MIN,
+    PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SkirmishGameInfo, SlotState,
+    game_info_to_ascii_string, parse_ascii_string_to_game_info,
 };
 
 pub mod game_info {
     pub use super::game_info_port::{
-        FirewallBehaviorType, GameInfo, GameSlot, Money, SkirmishGameInfo, SlotState, MAX_SLOTS,
-        PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
+        FirewallBehaviorType, GameInfo, GameSlot, MAX_SLOTS, Money, PLAYERTEMPLATE_MIN,
+        PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM, SkirmishGameInfo, SlotState,
     };
 
     pub mod serialization {
@@ -78,7 +78,7 @@ pub fn get_network() -> Option<Arc<NetworkFacade>> {
 }
 
 pub mod network {
-    use super::{get_network, NetworkFacade};
+    use super::{NetworkFacade, get_network};
     use std::sync::Arc;
 
     pub struct Network;

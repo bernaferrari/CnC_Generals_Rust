@@ -426,7 +426,6 @@ impl WW3D {
             .expect("WW3D state poisoned")
             .prelit_mode
     }
-
 }
 
 // Re-export for compatibility with legacy naming.

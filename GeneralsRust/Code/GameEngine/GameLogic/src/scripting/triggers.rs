@@ -4,7 +4,6 @@
 //! lists and ScriptEvaluator/ScriptActions execute them. This module is
 //! leftover-only and must not run as a second evaluator on the live host.
 
-
 use super::core::*;
 use super::engine::ScriptEngine;
 use super::evaluator::ScriptEvaluator;
@@ -396,7 +395,10 @@ impl TriggerSystem {
         let flag_name = flag_param.get_string();
         let expected_value = expected_param.get_int() != 0;
 
-        let flag_value = engine.get_flag(flag_name).map(|flag| flag.value).unwrap_or(false);
+        let flag_value = engine
+            .get_flag(flag_name)
+            .map(|flag| flag.value)
+            .unwrap_or(false);
         Ok(flag_value == expected_value || engine.has_ui_interaction(flag_name))
     }
 

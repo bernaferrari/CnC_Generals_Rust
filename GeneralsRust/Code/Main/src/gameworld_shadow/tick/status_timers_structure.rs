@@ -172,7 +172,7 @@ impl GameWorldShadow {
         // Wave 778: FireWeaponWhenDamagedBehavior continuous residual.
         if e.fwwd_active {
             use crate::game_logic::host_enum_table_residual::{
-                host_calc_body_damage_state, HostBodyDamageType,
+                HostBodyDamageType, host_calc_body_damage_state,
             };
             let reload = e.fwwd_continuous_reload_frames.max(1);
             // C++ ctor reloadAmmo: first observation starts the clip-reload clock.
@@ -206,7 +206,7 @@ impl GameWorldShadow {
         // Wave 780: BaseRegenerateUpdate residual (structure auto-heal).
         if e.base_regen_active && !e.base_regen_done_sold {
             use crate::game_logic::host_base_regenerate::{
-                base_regen_heal_amount, BASE_REGEN_HEAL_RATE_FRAMES,
+                BASE_REGEN_HEAL_RATE_FRAMES, base_regen_heal_amount,
             };
             if e.base_regen_pending_damage {
                 // C++ onDamage non-healing: delay wake.

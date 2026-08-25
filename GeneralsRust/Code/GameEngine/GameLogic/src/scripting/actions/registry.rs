@@ -3,7 +3,7 @@
 //! C++ `executeAction` is `scripting/executor/dispatch.rs`. This HashMap
 //! registry is leftover-only and must not run as a second action brain.
 
-
+use super::ScriptAction;
 use super::building::*;
 use super::camera_ui::*;
 use super::leftover::*;
@@ -16,7 +16,6 @@ use super::science_special::*;
 use super::team_command::*;
 use super::unit_actions::*;
 use super::weather_radar::*;
-use super::ScriptAction;
 
 use std::collections::HashMap;
 

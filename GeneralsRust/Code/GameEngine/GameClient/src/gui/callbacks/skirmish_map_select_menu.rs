@@ -8,10 +8,9 @@ use crate::display::image::get_mapped_image_collection;
 use crate::gui::gadgets::{KeyModifiers, ListBoxItemData};
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_shell, get_skirmish_setup, with_window_manager, with_window_manager_ref,
-    write_input_focus_response, GameWindow, WindowInstanceData, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowStatus, GLM_DOUBLE_CLICKED, GLM_SELECTED,
-    WIN_COLOR_UNDEFINED,
+    GLM_DOUBLE_CLICKED, GLM_SELECTED, GameWindow, WIN_COLOR_UNDEFINED, WindowInstanceData,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus, get_shell,
+    get_skirmish_setup, with_window_manager, with_window_manager_ref, write_input_focus_response,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image,

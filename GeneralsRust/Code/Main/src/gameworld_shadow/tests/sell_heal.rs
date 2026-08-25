@@ -138,10 +138,7 @@ fn explosion_detonation_damage_source_authority_source() {
             "fn update_sneak_attacks",
             "take_damage_from_immediate(pulse.damage, Some(pulse.source_object))",
         ),
-        (
-            "fn update_overcharge_drain",
-            "take_damage_from_typed(",
-        ),
+        ("fn update_overcharge_drain", "take_damage_from_typed("),
         (
             "fn apply_host_hive_damage_from",
             "take_damage_from(damage, source_id)",
@@ -236,10 +233,10 @@ fn cancel_production_refund_economy_authority_writeback() {
         .expect("fac");
     // Queue a unit with cost via building_data if available.
     {
+        use crate::game_logic::Resources;
         use crate::game_logic::buildings::{
             BuildingData, BuildingType, ProductionItem, ProductionKind,
         };
-        use crate::game_logic::Resources;
         let o = logic.host_object_mut(fac).expect("f");
         if o.building_data.is_none() {
             o.building_data = Some(BuildingData::new(BuildingType::Barracks));

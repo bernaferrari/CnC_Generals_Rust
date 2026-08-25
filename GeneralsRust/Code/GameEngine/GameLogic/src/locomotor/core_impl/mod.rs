@@ -9,7 +9,7 @@
 use crate::ai::pathfinding_system::{MovementCapabilities, PathfindLayerEnum};
 use crate::common::*;
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
+    TheGameLogic, TheTerrainLogic, get_game_logic_random_value, get_game_logic_random_value_real,
 };
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::PATHFIND_CELL_SIZE_F;

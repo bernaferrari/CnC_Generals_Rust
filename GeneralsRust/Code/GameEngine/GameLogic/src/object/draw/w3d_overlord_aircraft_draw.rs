@@ -4,12 +4,10 @@ use crate::common::*;
 use crate::drawable::Drawable as DrawableTrait;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::drawable::TintStatus;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
-
-
 
 #[derive(Debug, Clone, Default)]
 pub struct W3DOverlordAircraftDrawModuleData {
@@ -80,7 +78,6 @@ impl W3DOverlordAircraftDraw {
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.owner_id.or_else(|| self.base.owner_id())
     }
-
 }
 impl Module for W3DOverlordAircraftDraw {
     fn on_object_created(&mut self) {
@@ -200,5 +197,4 @@ mod tests {
         draw.do_draw_module(&Matrix3D::IDENTITY);
         draw.set_hidden(true);
     }
-
 }

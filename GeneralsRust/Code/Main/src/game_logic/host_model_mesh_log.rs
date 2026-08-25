@@ -35,9 +35,7 @@ pub(crate) fn take_for_world_stage() -> Vec<HostModelMeshEvent> {
 }
 
 /// Restore or install the queue owned by a whole-world staging boundary.
-pub(crate) fn replace_for_world_stage(
-    next: Vec<HostModelMeshEvent>,
-) -> Vec<HostModelMeshEvent> {
+pub(crate) fn replace_for_world_stage(next: Vec<HostModelMeshEvent>) -> Vec<HostModelMeshEvent> {
     LOG.with(|log| std::mem::replace(&mut *log.borrow_mut(), next))
 }
 

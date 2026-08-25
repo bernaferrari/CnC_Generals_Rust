@@ -11,12 +11,12 @@
 //! - Multiple desyncs can be recovered from
 
 use game_network::{
+    DesyncManager,
     commands::GameCommandData,
     integration::{
         DesyncHandler, DesyncStatus, DesyncStrategy, EntitySnapshot, GameState, GameStateCRC,
         MultiPlayerCRCValidator, ResourceState,
     },
-    DesyncManager,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};

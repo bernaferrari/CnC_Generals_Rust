@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostRebuildSpawnRequiresGwBindAction) {
 pub fn residual_host_rebuild_spawn_requires_gw_bind_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_rebuild_spawn_requires_gw_bind_last_action(
-) -> ResidualHostRebuildSpawnRequiresGwBindAction {
+pub fn residual_host_rebuild_spawn_requires_gw_bind_last_action()
+-> ResidualHostRebuildSpawnRequiresGwBindAction {
     ResidualHostRebuildSpawnRequiresGwBindAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

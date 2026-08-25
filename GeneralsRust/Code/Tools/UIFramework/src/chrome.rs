@@ -322,18 +322,9 @@ impl MenuBar {
             .item(MenuItem::new("view.zoom_out", "Zoom Out").shortcut("Ctrl+-"))
             .item(MenuItem::new("view.zoom_reset", "Reset Zoom").shortcut("Ctrl+0"))
             .separator()
-            .item(
-                MenuItem::new("view.palette", "Tool Palette")
-                    .checked(true),
-            )
-            .item(
-                MenuItem::new("view.properties", "Properties")
-                    .checked(true),
-            )
-            .item(
-                MenuItem::new("view.hot_reload", "Hot Reload")
-                    .checked(true),
-            );
+            .item(MenuItem::new("view.palette", "Tool Palette").checked(true))
+            .item(MenuItem::new("view.properties", "Properties").checked(true))
+            .item(MenuItem::new("view.hot_reload", "Hot Reload").checked(true));
 
         let help = Menu::new("help", "Help")
             .item(MenuItem::new("help.documentation", "Documentation"))
@@ -775,7 +766,10 @@ mod tests {
         assert_eq!(palette.selected_id(), Some("select"));
         assert!(palette.select("move"));
         assert_eq!(palette.selected_id(), Some("move"));
-        assert_eq!(palette.selected_tool().map(|t| t.name.as_str()), Some("Move"));
+        assert_eq!(
+            palette.selected_tool().map(|t| t.name.as_str()),
+            Some("Move")
+        );
 
         let mut chrome = Chrome::default();
         assert!(chrome.tool_palette.select("rotate"));

@@ -9,19 +9,20 @@
 use super::integration::with_ai_integration_mut;
 use super::pathfind::PathfindLayerEnum;
 use super::{
-    resolve_attack_priority_info_for_object, search_qualifiers, vision_factors, AiCommandInterface,
-    AiCommandParams, AiCommandType, AiError, AttitudeType, GuardMode, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, AiCommandType, AiError, AttitudeType, GuardMode,
+    PartitionFilter, THE_AI, resolve_attack_priority_info_for_object, search_qualifiers,
+    vision_factors,
 };
 use crate::ai::native::{NativeState, NativeStateMachine, WaypointGraph, WaypointNode};
 use crate::ai::object_registry::get_legacy_object;
 use crate::ai::squad::Squad;
 use crate::common::types::{Coord2D, Coord3D, Real};
 use crate::common::{
-    BodyDamageType, CoordOrigin, KindOf, ModelConditionFlags, ObjectID, INVALID_ID,
-    LOGICFRAMES_PER_SECOND,
+    BodyDamageType, CoordOrigin, INVALID_ID, KindOf, LOGICFRAMES_PER_SECOND, ModelConditionFlags,
+    ObjectID,
 };
-use crate::helpers::{game_logic_random_value, TheAudio, TheGameLogic};
-use crate::object::object_factory::{get_object_factory, GameObjectInstance};
+use crate::helpers::{TheAudio, TheGameLogic, game_logic_random_value};
+use crate::object::object_factory::{GameObjectInstance, get_object_factory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::{SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER};
 use crate::team::get_team_factory;
@@ -2600,9 +2601,9 @@ pub fn dispatch_host_move_attack(
     let mut machines = host_move_attack_machines()
         .lock()
         .map_err(|_| AiError::LockFailed)?;
-    let machine = machines.entry(owner_id).or_insert_with(|| {
-        AiStateMachine::new(owner_id, format!("host-move-attack-{owner_id}"))
-    });
+    let machine = machines
+        .entry(owner_id)
+        .or_insert_with(|| AiStateMachine::new(owner_id, format!("host-move-attack-{owner_id}")));
     machine.set_state(kind.to_crate_state())?;
     if let Some(pos) = goal_position {
         machine.set_goal_position(pos);
@@ -2616,7 +2617,9 @@ pub fn dispatch_host_move_attack(
 /// Inspect the last crate state recorded by [`dispatch_host_move_attack`].
 pub fn host_move_attack_state(owner_id: ObjectID) -> Option<AiStateType> {
     let machines = host_move_attack_machines().lock().ok()?;
-    machines.get(&owner_id).map(|machine| machine.get_current_state())
+    machines
+        .get(&owner_id)
+        .map(|machine| machine.get_current_state())
 }
 
 #[cfg(test)]
@@ -2625,7 +2628,6 @@ fn reset_host_move_attack_machines_for_test() {
         machines.clear();
     }
 }
-
 
 impl AiCommandInterface for AiStateMachine {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), AiError> {
@@ -2768,8 +2770,8 @@ mod tests {
     use super::*;
     use crate::locomotor::core::{Locomotor, LocomotorTemplate};
     use crate::modules::AIUpdateInterface;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::{Arc, Mutex, RwLock};
 
     #[derive(Debug, Default, Clone)]
@@ -3055,23 +3057,14 @@ mod tests {
         reset_host_move_attack_machines_for_test();
         let owner = 9_001;
         let dest = Coord3D::new(12.0, 0.0, 34.0);
-        let state = dispatch_host_move_attack(
-            owner,
-            HostMoveAttackKind::MoveTo,
-            Some(dest),
-            None,
-        )
-        .expect("move");
+        let state = dispatch_host_move_attack(owner, HostMoveAttackKind::MoveTo, Some(dest), None)
+            .expect("move");
         assert_eq!(state, AiStateType::MoveTo);
         assert_eq!(host_move_attack_state(owner), Some(AiStateType::MoveTo));
 
-        let state = dispatch_host_move_attack(
-            owner,
-            HostMoveAttackKind::AttackObject,
-            None,
-            Some(77),
-        )
-        .expect("attack");
+        let state =
+            dispatch_host_move_attack(owner, HostMoveAttackKind::AttackObject, None, Some(77))
+                .expect("attack");
         assert_eq!(state, AiStateType::AttackObject);
 
         let state = dispatch_host_move_attack(
@@ -3082,18 +3075,18 @@ mod tests {
         )
         .expect("attack-move");
         assert_eq!(state, AiStateType::AttackMoveTo);
-        assert_eq!(host_move_attack_state(owner), Some(AiStateType::AttackMoveTo));
+        assert_eq!(
+            host_move_attack_state(owner),
+            Some(AiStateType::AttackMoveTo)
+        );
 
         // Guard / Hunt / the remaining 45 states are intentionally not dispatched.
         let src = include_str!("state_machine.rs");
-        let start = src
-            .find("fn dispatch_host_move_attack(")
-            .expect("adapter");
+        let start = src.find("fn dispatch_host_move_attack(").expect("adapter");
         let window = &src[start..start + 700.min(src.len() - start)];
         assert!(window.contains("kind.to_crate_state()"));
         assert!(!window.contains("AiStateType::Guard"));
         assert!(!window.contains("AiStateType::Hunt"));
         reset_host_move_attack_machines_for_test();
     }
-
 }

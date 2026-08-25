@@ -1,6 +1,4 @@
-use super::partition_coi::{
-    cells_touched_for_footprint, do_circle_fill, HostPartitionFootprint,
-};
+use super::partition_coi::{HostPartitionFootprint, cells_touched_for_footprint, do_circle_fill};
 
 use std::collections::{HashMap, HashSet};
 
@@ -51,8 +49,6 @@ pub struct HostPartitionLookStamp {
     pub range: f32,
     pub mask: u32,
 }
-
-
 
 /// Minimal partition manager mirroring WW3D map reveal + collide broadphase residual.
 #[derive(Debug, Default)]
@@ -212,7 +208,6 @@ impl PartitionManager {
         self.object_cells.contains_key(&id)
     }
 
-
     pub fn cell_count(&self) -> usize {
         self.cells.len()
     }
@@ -267,7 +262,10 @@ mod tests {
         // Centers are two 40wu cells apart — 9-cell from the tank center misses
         // a selection-radius stamp of the building, but COI cells overlap.
         let n = pm.neighbor_object_ids_of(2);
-        assert!(n.contains(&1), "hull-sharing pair must be a collide candidate");
+        assert!(
+            n.contains(&1),
+            "hull-sharing pair must be a collide candidate"
+        );
         let near = pm.ids_in_radius(80.0, 0.0, 15.0);
         assert!(
             near.contains(&1),
@@ -286,6 +284,4 @@ mod tests {
         pm.reveal_map_for_player_permanently(1);
         assert!(pm.has_revealed_map(1));
     }
-
-
 }

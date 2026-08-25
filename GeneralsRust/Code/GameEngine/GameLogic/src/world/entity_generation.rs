@@ -202,8 +202,8 @@ fn primary_entity_id(mutation: &WorldMutation) -> Option<EntityId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::entities::Transform;
     use crate::world::GameWorld;
+    use crate::world::entities::Transform;
 
     fn spawn_store() -> (EntityStore, EntityId) {
         let mut store = EntityStore::new();
@@ -246,9 +246,11 @@ mod tests {
         assert_ne!(fresh.generation(), stale.generation());
         assert!(store.resolve(stale).is_none());
         assert!(store.resolve(fresh).is_some());
-        assert!(store
-            .spawn_at(id, TemplateRef::new("Dup"), None, Transform::default(), 1.0)
-            .is_none());
+        assert!(
+            store
+                .spawn_at(id, TemplateRef::new("Dup"), None, Transform::default(), 1.0)
+                .is_none()
+        );
     }
 
     #[test]

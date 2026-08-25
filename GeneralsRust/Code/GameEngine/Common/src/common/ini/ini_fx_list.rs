@@ -181,7 +181,7 @@ fn labelled_vec3(value: &str) -> FXListResult<(f32, f32, f32)> {
                     return Err(FXListError::ParseError(format!(
                         "unknown vector component '{}'",
                         label
-                    )))
+                    )));
                 }
             }
         }
@@ -259,7 +259,7 @@ pub fn parse_fx_nugget_definition(
                     return Err(FXListError::ParseError(format!(
                         "unknown view shake type '{}'",
                         other
-                    )))
+                    )));
                 }
             };
             Ok(FXNugget::ViewShake { shake_type })
@@ -280,7 +280,7 @@ pub fn parse_fx_nugget_definition(
                     return Err(FXListError::ParseError(format!(
                         "unknown terrain scorch type '{}'",
                         other
-                    )))
+                    )));
                 }
             };
             Ok(FXNugget::TerrainScorch {

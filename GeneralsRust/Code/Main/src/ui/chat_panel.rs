@@ -10,7 +10,7 @@
 //! - System notifications (player disconnected, low power, etc.)
 //! - EVA notifications (voice-line text equivalents)
 
-use super::{layout, utils, Interactive, KeyCode, MouseButton, Renderable, UIRenderContext};
+use super::{Interactive, KeyCode, MouseButton, Renderable, UIRenderContext, layout, utils};
 use crate::localization;
 use std::time::Duration;
 

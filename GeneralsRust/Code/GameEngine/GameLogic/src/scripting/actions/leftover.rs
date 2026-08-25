@@ -6,27 +6,27 @@
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
-use super::helpers::*;
 use super::ScriptAction;
+use super::helpers::*;
 use crate::action_manager::TheActionManager;
 use crate::ai::integration::with_ai_integration_mut;
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
 use crate::commands::command::CommandType;
-use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
+use crate::commands::{Command, CommandPriority, QueuedCommand, get_command_queue_manager};
 use crate::common::PlayerIndex;
 use crate::common::{
-    AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
-    INVALID_OBJECT_ID,
+    AsciiString, CommandSourceType, Coord3D, INVALID_OBJECT_ID, LocomotorSetType, Real,
+    Relationship,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{TheGameLogic, TheVictoryConditions};
 use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
-use crate::object::object_factory::{get_object_factory, GameObjectInstance};
+use crate::object::object_factory::{GameObjectInstance, get_object_factory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
-use crate::object_manager::{get_object_manager, ObjectCreationFlags};
-use crate::player::{player_list, PlayerType};
+use crate::object_manager::{ObjectCreationFlags, get_object_manager};
+use crate::player::{PlayerType, player_list};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::{get_named_object_tracker, get_script_engine};
 use crate::scripting::{ScriptContext, ScriptResult, ScriptValue};
@@ -35,7 +35,7 @@ use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::radar::{get_radar_system, RadarEventType};
+use game_engine::common::system::radar::{RadarEventType, get_radar_system};
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -238,9 +238,7 @@ impl ScriptAction for WaitAction {
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
         let duration = get_float_param(parameters, "duration")?;
-        log::debug!(
-            "Leftover wait ({duration}s) skipped; C++ sequential waits are executor-only"
-        );
+        log::debug!("Leftover wait ({duration}s) skipped; C++ sequential waits are executor-only");
         Ok(ScriptResult::Skipped)
     }
 

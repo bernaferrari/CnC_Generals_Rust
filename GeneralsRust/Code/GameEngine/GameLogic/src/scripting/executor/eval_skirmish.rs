@@ -24,10 +24,9 @@ impl ScriptConditionEvaluator {
         );
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(ready) = crate::scripting::host_eval_skirmish_special_power_ready(
-                &player_name,
-                &power_name,
-            ) {
+            if let Some(ready) =
+                crate::scripting::host_eval_skirmish_special_power_ready(&player_name, &power_name)
+            {
                 return Ok(if ready {
                     ScriptConditionResult::True
                 } else {
@@ -35,7 +34,6 @@ impl ScriptConditionEvaluator {
                 });
             }
         }
-
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
@@ -115,7 +113,6 @@ impl ScriptConditionEvaluator {
                 });
             }
         }
-
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
@@ -232,7 +229,6 @@ impl ScriptConditionEvaluator {
             // playerFromParam / missing trigger / no warehouses is false.
             return Ok(ScriptConditionResult::False);
         }
-
 
         let player_arc = player_list()
             .read()
@@ -361,8 +357,8 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         }
 
-        let player_arc = leftover_player
-            .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
+        let player_arc =
+            leftover_player.ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
         let player_guard = player_arc
             .read()
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
@@ -532,7 +528,6 @@ impl ScriptConditionEvaluator {
             }
         }
 
-
         let neutral_player = player_list()
             .read()
             .ok()
@@ -592,7 +587,6 @@ impl ScriptConditionEvaluator {
             .get_parameter(1)
             .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 1 not found".to_string()))?;
 
-
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_prerequisite_to_build(
                 &player_name,
@@ -643,8 +637,7 @@ impl ScriptConditionEvaluator {
         let target_count = self.get_condition_int_param(condition, 2)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            if let Some(count) =
-                crate::scripting::host_eval_skirmish_garrisoned_count(&player_name)
+            if let Some(count) = crate::scripting::host_eval_skirmish_garrisoned_count(&player_name)
             {
                 let result = Self::compare_i32(comparison, count, target_count);
                 return Ok(if result {
@@ -654,7 +647,6 @@ impl ScriptConditionEvaluator {
                 });
             }
         }
-
 
         let player_arc = player_list()
             .read()
@@ -729,7 +721,6 @@ impl ScriptConditionEvaluator {
                 });
             }
         }
-
 
         let player_arc = player_list()
             .read()
@@ -825,7 +816,6 @@ impl ScriptConditionEvaluator {
                 });
             }
         }
-
 
         let Ok(terrain) = get_terrain_logic().read() else {
             return Ok(ScriptConditionResult::False);
@@ -1253,11 +1243,9 @@ impl ScriptConditionEvaluator {
 
         // Live host never registers crate objects, so Player::get_all_objects is empty.
         // C++ evaluatePlayerHasUnitKindInArea walks live Team member lists.
-        if let Some(count) = crate::scripting::host_count_player_kind_in_area(
-            &player_name,
-            &trigger_name,
-            kind,
-        ) {
+        if let Some(count) =
+            crate::scripting::host_count_player_kind_in_area(&player_name, &trigger_name, kind)
+        {
             let comparison_result = Self::compare_i32(comparison, count, target_count);
             // Match C++: this writes frame object count into custom_data (legacy quirk).
             if let Some(frame) =
@@ -1403,8 +1391,7 @@ pub(crate) fn leftover_command_button_ready_for_object(
     };
     let player_guard = player_arc.read().ok()?;
 
-    if player_guard.has_upgrade_complete(upgrade)
-        || player_guard.has_upgrade_in_production(upgrade)
+    if player_guard.has_upgrade_complete(upgrade) || player_guard.has_upgrade_in_production(upgrade)
     {
         return Some(false);
     }
@@ -1416,9 +1403,9 @@ pub(crate) fn leftover_command_button_ready_for_object(
 mod tech_building_latch_tests {
     use super::*;
     use crate::scripting::{
-        clear_host_script_query_snapshot, set_host_script_query_snapshot, Condition,
-        ConditionType, HostScriptQuerySnapshot, HostTechBuildingCensus, Parameter,
-        ParameterType, ScriptConditionResult,
+        Condition, ConditionType, HostScriptQuerySnapshot, HostTechBuildingCensus, Parameter,
+        ParameterType, ScriptConditionResult, clear_host_script_query_snapshot,
+        set_host_script_query_snapshot,
     };
     use std::sync::{Arc, RwLock};
     fn tech_condition() -> Condition {
@@ -1484,5 +1471,3 @@ mod tech_building_latch_tests {
         );
     }
 }
-
-

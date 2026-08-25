@@ -4,8 +4,8 @@
 //! through commands, similar to the original C++ interface.
 
 use profile::{
-    execute_command_to_string, execute_command_with_stdout, CommandMode, Profile,
-    ProfileCommandExecutor, ProfileCommandParser,
+    CommandMode, Profile, ProfileCommandExecutor, ProfileCommandParser, execute_command_to_string,
+    execute_command_with_stdout,
 };
 use std::io::Write;
 

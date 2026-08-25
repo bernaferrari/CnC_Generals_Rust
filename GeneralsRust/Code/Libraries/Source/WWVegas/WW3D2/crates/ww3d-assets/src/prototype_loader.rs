@@ -11,13 +11,14 @@
 use glam::{Vec2, Vec4};
 use std::{collections::HashMap, f32::consts::TAU};
 use ww3d_core::{
+    W3D_CHUNK_ANIMATION, W3D_CHUNK_COMPRESSED_ANIMATION, W3D_CHUNK_HIERARCHY, W3D_CHUNK_HMODEL,
+    W3D_CHUNK_MESH, W3DChunkType, W3DError,
     w3d_format::{
         W3dMaterialInfoStruct, W3dMeshHeader3Struct, W3dRGBAStruct, W3dShaderStruct,
         W3dTexCoordStruct, W3dTextureInfoStruct, W3dTextureStruct, W3dTriangleStruct,
         W3dVectorStruct, W3dVertexMaterialNameStruct, W3dVertexMaterialStruct,
     },
-    w3d_string_from_bytes, W3DChunkType, W3DError, W3D_CHUNK_ANIMATION,
-    W3D_CHUNK_COMPRESSED_ANIMATION, W3D_CHUNK_HIERARCHY, W3D_CHUNK_HMODEL, W3D_CHUNK_MESH,
+    w3d_string_from_bytes,
 };
 
 use crate::assets::Prototype;
@@ -1519,16 +1520,51 @@ mod tests {
         assert!(loaders.iter().any(|l| l.can_load(W3D_CHUNK_HMODEL)));
         assert!(loaders.iter().any(|l| l.can_load(W3D_CHUNK_HIERARCHY)));
         assert!(loaders.iter().any(|l| l.can_load(W3D_CHUNK_ANIMATION)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_COLLECTION)));
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_COLLECTION))
+        );
         assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_BOX)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_HLOD)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_LODMODEL)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_AGGREGATE)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_NULL_OBJECT)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_DAZZLE)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_RING)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_SPHERE)));
-        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_EMITTER)));
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_HLOD))
+        );
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_LODMODEL))
+        );
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_AGGREGATE))
+        );
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_NULL_OBJECT))
+        );
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_DAZZLE))
+        );
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_RING))
+        );
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_SPHERE))
+        );
+        assert!(
+            loaders
+                .iter()
+                .any(|l| l.can_load(ww3d_core::W3D_CHUNK_EMITTER))
+        );
     }
-
 }

@@ -533,11 +533,7 @@ pub fn compress_thumbnail_data(data: &[u8]) -> Vec<u8> {
     raw.extend_from_slice(&(data.len() as u32).to_le_bytes());
     raw.extend_from_slice(data);
 
-    if rle.len() < raw.len() {
-        rle
-    } else {
-        raw
-    }
+    if rle.len() < raw.len() { rle } else { raw }
 }
 
 /// Decompress thumbnail data

@@ -14,7 +14,7 @@ pub enum CanAttackResult {
 
 // Re-export canonical AbleToAttackType from Common (C++ bitmask: FORCED=0x01, CONTINUED=0x02, TUNNEL=0x04)
 pub use game_engine::common::game_common::{
-    is_continued_attack, is_forced_attack, AbleToAttackType,
+    AbleToAttackType, is_continued_attack, is_forced_attack,
 };
 
 // Attack result constants

@@ -67,8 +67,7 @@ pub fn honesty_host_selection_stamp_nav_commands_residual_wave866() -> bool {
 
 pub fn honesty_host_selection_stamp_residual_pack_wave866() -> bool {
     let cnc = cnc_source();
-    let ok = cnc
-        .contains("Wave 579")
+    let ok = cnc.contains("Wave 579")
         && (cnc.contains("self.host_match_selected_ids = Some(ids)")
             || cnc.contains("self.host_match_selected_ids = Some(ids.clone())"))
         && cnc.contains("self.selected_objects = ids.clone()");

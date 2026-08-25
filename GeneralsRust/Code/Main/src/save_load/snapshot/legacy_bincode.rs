@@ -12,7 +12,7 @@ use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use bincode::Options;
 use gamelogic::system::shroud_manager::ShroudSnapshot;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
@@ -925,12 +925,6 @@ impl From<PreV20WorldSnapshot> for WorldSnapshot {
     }
 }
 
-
-
-
-
-
-
 /// Complete v7 world record before the v8 source-keyed temporary-Weapon
 /// behavior tail was appended to each object.  This mirror intentionally
 /// includes the v7 normal-Weapon suspend-FX vector.
@@ -1249,7 +1243,8 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1390,7 +1385,8 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1477,7 +1473,8 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1531,7 +1528,8 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1585,7 +1583,8 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1635,7 +1634,8 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1685,7 +1685,8 @@ impl From<PreV10WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1735,7 +1736,8 @@ impl From<PreV11WorldSnapshot> for WorldSnapshot {
             player_ranks: snapshot.player_ranks,
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1785,7 +1787,8 @@ impl From<PreV12WorldSnapshot> for WorldSnapshot {
             player_ranks: snapshot.player_ranks,
             object_instance_guards: snapshot.object_instance_guards,
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -1835,7 +1838,8 @@ impl From<PreV13WorldSnapshot> for WorldSnapshot {
             player_ranks: snapshot.player_ranks,
             object_instance_guards: snapshot.object_instance_guards,
             overcharge_active: snapshot.overcharge_active,
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -2056,9 +2060,6 @@ impl From<PreV17WorldSnapshot> for WorldSnapshot {
     }
 }
 
-
-
-
 impl From<PreV8ObjectSnapshot> for ObjectSnapshot {
     fn from(snapshot: PreV8ObjectSnapshot) -> Self {
         Self {
@@ -2125,7 +2126,8 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),
@@ -2212,7 +2214,8 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
-            cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
+            cia_intelligence:
+                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new(),
             vision_spied: Vec::new(),
             builder_tasks: Vec::new(),
             sell_list: Vec::new(),

@@ -3,9 +3,9 @@
 
 use crate::common::{ObjectID, ObjectStatusTypes};
 use crate::drawable::Drawable;
-use crate::helpers::{game_client_random_value_real, TheGameLogic};
+use crate::helpers::{TheGameLogic, game_client_random_value_real};
 use crate::object::drawable::DrawableArcExt;
-use crate::scripting::engine::{get_script_engine, BreezeInfo};
+use crate::scripting::engine::{BreezeInfo, get_script_engine};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
 use glam::Mat4;

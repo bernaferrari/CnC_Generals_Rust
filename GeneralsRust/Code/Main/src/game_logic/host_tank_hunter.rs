@@ -36,8 +36,8 @@
 use super::Weapon;
 use crate::game_logic::host_battlemaster::has_nationalism_upgrade;
 use crate::game_logic::host_red_guard::{
-    delay_frames_to_reload_secs, is_in_infantry_horde, INFANTRY_HORDE_ROF_MULT,
-    INFANTRY_NATIONALISM_ROF_MULT,
+    INFANTRY_HORDE_ROF_MULT, INFANTRY_NATIONALISM_ROF_MULT, delay_frames_to_reload_secs,
+    is_in_infantry_horde,
 };
 use glam::Vec3;
 
@@ -242,9 +242,9 @@ pub fn tank_hunter_weapon(in_horde: bool, has_nationalism: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: splash,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Splash residual damage at distance from impact.

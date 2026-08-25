@@ -11,10 +11,10 @@ use std::net::SocketAddr;
 
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
+use super::LanGameInfo;
 use super::chat::ChatMessage;
 use super::lobby::LobbyEvent;
 use super::messages::LanMessage;
-use super::LanGameInfo;
 
 /// Event emitted by LAN subsystems for consumption by [`LanApi`].
 #[derive(Debug, Clone)]

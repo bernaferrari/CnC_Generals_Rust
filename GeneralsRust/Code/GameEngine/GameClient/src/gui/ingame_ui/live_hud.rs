@@ -222,8 +222,7 @@ fn step_subtitle(hud: &mut LiveHud, frame: u32) {
                 subtitle.display_lines.push(String::new());
             }
             subtitle.block_drawn = true;
-            subtitle.increment_on_frame =
-                frame + super::InGameUI::military_caption_delay_frames();
+            subtitle.increment_on_frame = frame + super::InGameUI::military_caption_delay_frames();
         }
     } else {
         if subtitle.display_lines.is_empty() {
@@ -235,7 +234,8 @@ fn step_subtitle(hud: &mut LiveHud, frame: u32) {
             .min(subtitle.display_lines.len().saturating_sub(1));
         subtitle.display_lines[line].push(ch);
         let printed = subtitle.display_lines[line].chars().count();
-        subtitle.block_pos.0 = subtitle.position.0 + printed as f32 * hud.caption_point_size.max(1) as f32 * 0.6;
+        subtitle.block_pos.0 =
+            subtitle.position.0 + printed as f32 * hud.caption_point_size.max(1) as f32 * 0.6;
         subtitle.increment_on_frame = frame + hud.caption_speed.max(1) as u32;
         play_typing_sound();
     }
@@ -256,7 +256,9 @@ fn step_named_timers(hud: &mut LiveHud, frame: u32) {
         let script_frames = script_counter_value(&timer.name);
         let frames_left = if let Some(frames) = script_frames {
             frames
-        } else if frame != timer.last_tick_frame && timer.is_countdown && timer.remaining_frames >= 0
+        } else if frame != timer.last_tick_frame
+            && timer.is_countdown
+            && timer.remaining_frames >= 0
         {
             timer.remaining_frames.saturating_sub(1)
         } else {
@@ -313,7 +315,9 @@ fn step_to_frame(hud: &mut LiveHud, frame: u32) {
 }
 
 /// Typed caption + blinking block for the live postDraw path.
-pub fn live_military_subtitle_draw(frame: u32) -> Option<(String, bool, u32, (f32, f32), (f32, f32))> {
+pub fn live_military_subtitle_draw(
+    frame: u32,
+) -> Option<(String, bool, u32, (f32, f32), (f32, f32))> {
     let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
     step_to_frame(&mut hud, frame);
     hud.subtitle.as_ref().map(|s| {

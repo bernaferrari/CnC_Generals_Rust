@@ -4,10 +4,9 @@
 
 use std::sync::Arc;
 
-
 use crate::object::create::{CreateModule, CreateModuleData};
 use crate::weapon::{WeaponLockType, WeaponSlotType};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, ModuleData, Thing as ThingTrait};
 

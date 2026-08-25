@@ -3,6 +3,7 @@
 use glam::{Mat4, Vec3, Vec4};
 use std::sync::Arc;
 use ww3d_core::WW3D;
+use ww3d_renderer_3d::Renderer;
 use ww3d_renderer_3d::core::error::RendererResult;
 use ww3d_renderer_3d::math_utilities::Vector4;
 use ww3d_renderer_3d::render_object_system::{
@@ -14,7 +15,6 @@ use ww3d_renderer_3d::render_object_system::{
 use ww3d_renderer_3d::rendering::mesh_system::{MeshClass, SORT_LEVEL_NONE};
 use ww3d_renderer_3d::rendering::shader_system::shader::ShaderClass;
 use ww3d_renderer_3d::seglinerenderer::SegLineRenderer;
-use ww3d_renderer_3d::Renderer;
 
 /// Helper function to transpose a 3x3 basis matrix represented as [Vec3; 3]
 /// Basis vectors are stored as columns, so we transpose to get rows for transformation
@@ -263,7 +263,7 @@ impl RenderObjClass for SegLineRenderObj {
             // Fill in raytest result
             raytest.result.fraction = fraction2;
             raytest.result.surface_type = 0; // SURFACE_TYPE_DEFAULT
-                                             // Contact point is the point on the line segment
+            // Contact point is the point on the line segment
             raytest.result.contact_point = p0;
             return true;
         }

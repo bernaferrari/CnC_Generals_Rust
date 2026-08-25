@@ -211,5 +211,4 @@ impl GameLogic {
         self.attach_overlord_portable_occupant(host_id, addon_id);
         Some(addon_id)
     }
-
 }

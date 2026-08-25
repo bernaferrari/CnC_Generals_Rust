@@ -143,9 +143,9 @@ mod tests {
     #[test]
     fn simulate_score_prepare_finish_residual_live() {
         use game_client::gui::callbacks::{
-            residual_score_screen_is_finish_campaign, residual_score_screen_last_action,
-            simulate_score_screen_prepare_finish, simulate_score_screen_prepare_ok,
-            ResidualScoreScreenAction,
+            ResidualScoreScreenAction, residual_score_screen_is_finish_campaign,
+            residual_score_screen_last_action, simulate_score_screen_prepare_finish,
+            simulate_score_screen_prepare_ok,
         };
         assert!(
             simulate_score_screen_prepare_finish(),

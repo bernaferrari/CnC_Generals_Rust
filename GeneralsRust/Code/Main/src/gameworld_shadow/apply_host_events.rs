@@ -921,8 +921,8 @@ impl GameWorldShadow {
         if !gameworld_special_power_sole_tick_enabled() || dt <= 0.0 {
             return 0;
         }
-        use gamelogic::world::entities::EntityId;
         use gamelogic::world::WorldMutation;
+        use gamelogic::world::entities::EntityId;
         let mut n = 0usize;
         let mut updates: Vec<(EntityId, bool, f32, f32)> = Vec::new();
         let host_ids: Vec<(u32, EntityId)> = self

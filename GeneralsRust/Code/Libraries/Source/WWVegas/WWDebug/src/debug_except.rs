@@ -1,5 +1,5 @@
 use crate::debug_debug::Debug;
-use crate::debug_stack::{write_signature, DebugStackwalk, Signature};
+use crate::debug_stack::{DebugStackwalk, Signature, write_signature};
 use once_cell::sync::OnceCell;
 use std::panic::{self, PanicInfo};
 

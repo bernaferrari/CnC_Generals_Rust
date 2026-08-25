@@ -8,8 +8,8 @@
 use crate::combo::{HAnimCombo, HAnimComboData};
 use crate::manager::HAnimManager;
 use crate::{
-    embedded_sound_bone, has_embedded_sounds, trigger_sound, AnimationChannel, HAnimClass,
-    HTreeClass,
+    AnimationChannel, HAnimClass, HTreeClass, embedded_sound_bone, has_embedded_sounds,
+    trigger_sound,
 };
 use glam::Mat4;
 // Avoid a circular dep on ww3d-renderer-3d (which depends on this crate).

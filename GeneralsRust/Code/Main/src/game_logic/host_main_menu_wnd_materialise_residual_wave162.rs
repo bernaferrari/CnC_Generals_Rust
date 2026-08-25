@@ -101,8 +101,8 @@ pub fn honesty_main_menu_wnd_materialise_residual_pack_wave162() -> bool {
 /// Residual: materialisation peel — require load when assets resolve.
 pub fn simulate_main_menu_wnd_materialise_honesty() -> bool {
     use crate::gameplay_layout::{
-        main_menu_wnd_honesty_with_load, simulate_main_menu_wnd_prepare_load_honesty,
-        MAIN_MENU_WND_NAMED_COUNT_RESIDUAL,
+        MAIN_MENU_WND_NAMED_COUNT_RESIDUAL, main_menu_wnd_honesty_with_load,
+        simulate_main_menu_wnd_prepare_load_honesty,
     };
     if !simulate_main_menu_wnd_prepare_load_honesty() {
         return false;

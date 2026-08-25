@@ -77,8 +77,8 @@ pub fn residual_pathfind_midframe_stub_removed_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_pathfind_midframe_stub_removed_last_action(
-) -> ResidualPathfindMidframeStubRemovedAction {
+pub fn residual_pathfind_midframe_stub_removed_last_action()
+-> ResidualPathfindMidframeStubRemovedAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPathfindMidframeStubRemovedAction::MethodNames,
         2 => ResidualPathfindMidframeStubRemovedAction::SourceMarkers,

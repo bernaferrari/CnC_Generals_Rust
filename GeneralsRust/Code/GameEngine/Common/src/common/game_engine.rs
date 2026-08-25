@@ -21,10 +21,10 @@ use parking_lot::Mutex;
 use std::sync::OnceLock;
 
 use crate::common::audio::game_audio::{
-    initialize_global_audio_manager, AudioAffect, AudioManager,
+    AudioAffect, AudioManager, initialize_global_audio_manager,
 };
-use crate::common::ini::{get_global_data, INILoadType, INI};
-use crate::common::message_stream::{get_message_stream, GameMessageType};
+use crate::common::ini::{INI, INILoadType, get_global_data};
+use crate::common::message_stream::{GameMessageType, get_message_stream};
 use crate::common::random_value::init_random_with_seed;
 use crate::common::recorder::init_recorder;
 use crate::common::system::radar::get_radar_system;
@@ -171,7 +171,6 @@ fn hide_blank_window_overlay() {
         hide();
     }
 }
-
 
 pub trait AudioManagerInterface: Send + Sync {
     fn init(&mut self) -> SubsystemResult<()>;
@@ -415,7 +414,6 @@ impl GameEngine {
         self.bootstrap_global_data_from_ini();
         self.parse_command_line()?;
         crate::common::game_lod::load_game_lod_ini_presets_and_options();
-
 
         // Initialize asset system
         info!("Initializing asset system");
@@ -839,7 +837,7 @@ impl GameEngine {
 
     /// C++ `W3DDisplay::draw` (1652-1659): find+set, or force VERY_HIGH when off.
     pub fn apply_draw_dynamic_lod(average_fps: f32) {
-        use crate::common::ini::{set_dynamic_lod_level, DynamicGameLODLevel};
+        use crate::common::ini::{DynamicGameLODLevel, set_dynamic_lod_level};
         let enable = global_data::read_safe()
             .map(|data| data.writable.enable_dynamic_lod)
             .unwrap_or(true);
@@ -1580,8 +1578,8 @@ mod tests {
     use crate::common::ini::ini_game_data::init_global_data;
     use crate::common::message_stream::get_message_stream;
     use crate::common::recorder::init_recorder;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -2014,15 +2012,15 @@ mod tests {
 
     #[test]
     fn find_dynamic_lod_level_matches_cpp_min_fps_walk() {
-        use crate::common::ini::{
-            get_game_lod_manager_mut, DynamicGameLODLevel,
-        };
+        use crate::common::ini::{DynamicGameLODLevel, get_game_lod_manager_mut};
         {
             let mut manager = get_game_lod_manager_mut();
-            manager.dynamic_game_lod_info[DynamicGameLODLevel::Low.to_index().unwrap()].min_fps = 10;
-            manager.dynamic_game_lod_info[DynamicGameLODLevel::Medium.to_index().unwrap()].min_fps =
-                20;
-            manager.dynamic_game_lod_info[DynamicGameLODLevel::High.to_index().unwrap()].min_fps = 30;
+            manager.dynamic_game_lod_info[DynamicGameLODLevel::Low.to_index().unwrap()].min_fps =
+                10;
+            manager.dynamic_game_lod_info[DynamicGameLODLevel::Medium.to_index().unwrap()]
+                .min_fps = 20;
+            manager.dynamic_game_lod_info[DynamicGameLODLevel::High.to_index().unwrap()].min_fps =
+                30;
             manager.dynamic_game_lod_info[DynamicGameLODLevel::VeryHigh.to_index().unwrap()]
                 .min_fps = 40;
         }

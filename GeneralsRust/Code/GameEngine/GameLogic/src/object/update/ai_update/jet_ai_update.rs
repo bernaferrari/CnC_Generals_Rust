@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::ai::states::AICommandParmsStorage;
 use crate::ai::{AiCommandParams, AiCommandType};
-use crate::common::audio::AudioEventRts;
 use crate::common::SECONDS_PER_LOGICFRAME_REAL;
+use crate::common::audio::AudioEventRts;
 use crate::common::{
-    AsciiString, Bool, Coord3D, DrawableID, KindOf, LocomotorSetType, Matrix3D,
+    AsciiString, Bool, Coord3D, DrawableID, INVALID_ID, KindOf, LocomotorSetType, Matrix3D,
     ModelConditionFlags, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt,
-    INVALID_ID, WEAPONSLOT_COUNT,
+    WEAPONSLOT_COUNT,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheAudio, TheGameClient, TheGameLogic, TheTerrainLogic, TheThingFactory};
@@ -27,7 +27,7 @@ use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::Waypoint;
 use crate::weapon::{WeaponReloadType, WeaponSlotType, WeaponStatus};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -81,11 +81,7 @@ fn taxi_intermediate_point(info: &PPInfo) -> Option<Coord3D> {
     if std_angle_diff(orient, info.parking_orientation).abs() <= std::f32::consts::PI / 128.0 {
         return None;
     }
-    let mut pt = Coord3D::new(
-        0.0,
-        0.0,
-        (info.parking_space.z + info.runway_prep.z) * 0.5,
-    );
+    let mut pt = Coord3D::new(0.0, 0.0, (info.parking_space.z + info.runway_prep.z) * 0.5);
     if intersect_infinite_line_2d(
         info.parking_space.x,
         info.parking_space.y,
@@ -729,21 +725,27 @@ impl JetStateMachine {
                 self.waited_for_taxi_id = INVALID_ID;
                 self.reset_timer = false;
                 self.pause_afterburners = false;
-                self.skip_current = jet_ai.with_producer_parking_place(|pp| {
-                    let mut info = PPInfo::default();
-                    if !pp.reserve_space(jet_ai.object_id, jet_ai.data.parking_offset, &mut info) {
-                        return true;
-                    }
-                    if let Some(obj) = jet_ai.get_object() {
-                        if let Ok(guard) = obj.read() {
-                            let pos = *guard.get_position();
-                            let angle = (info.runway_end.y - pos.y).atan2(info.runway_end.x - pos.x);
-                            ai.set_locomotor_goal_orientation(angle);
+                self.skip_current = jet_ai
+                    .with_producer_parking_place(|pp| {
+                        let mut info = PPInfo::default();
+                        if !pp.reserve_space(
+                            jet_ai.object_id,
+                            jet_ai.data.parking_offset,
+                            &mut info,
+                        ) {
+                            return true;
                         }
-                    }
-                    false
-                })
-                .unwrap_or(true);
+                        if let Some(obj) = jet_ai.get_object() {
+                            if let Ok(guard) = obj.read() {
+                                let pos = *guard.get_position();
+                                let angle =
+                                    (info.runway_end.y - pos.y).atan2(info.runway_end.x - pos.x);
+                                ai.set_locomotor_goal_orientation(angle);
+                            }
+                        }
+                        false
+                    })
+                    .unwrap_or(true);
             }
             Some(JetAIStateType::TakingOff) | Some(JetAIStateType::Landing) => {
                 let landing = matches!(assume, Some(JetAIStateType::Landing));
@@ -1145,9 +1147,7 @@ impl JetStateMachine {
                                     {
                                         let misc_audio = misc_audio.read();
                                         let mut sound = AudioEventRts::new(
-                                            misc_audio
-                                                .aircraft_wheel_screech
-                                                .playable_event_name(),
+                                            misc_audio.aircraft_wheel_screech.playable_event_name(),
                                         );
                                         sound.set_position(&(pos.x, pos.y, pos.z));
                                         audio.add_audio_event(&sound);
@@ -1407,12 +1407,8 @@ impl JetStateMachine {
             let taxi_locations = pp.get_taxi_locations(jet_ai.object_id).cloned();
             let creation_locations = pp.get_creation_locations(jet_ai.object_id).cloned();
             let mut best_parking = Coord3D::ZERO;
-            let has_best = pp.calc_best_parking_assignment(
-                jet_ai.object_id,
-                &mut best_parking,
-                None,
-                None,
-            );
+            let has_best =
+                pp.calc_best_parking_assignment(jet_ai.object_id, &mut best_parking, None, None);
             let mut path = vec![start];
             match state {
                 JetAIStateType::TaxiFromLanding => {
@@ -1577,7 +1573,8 @@ impl JetStateMachine {
                     self.heli_parking_loc = pos;
                 }
                 landing_approach = self.heli_parking_loc;
-                landing_approach.z += pp.get_approach_height() + pp.get_landing_deck_height_offset();
+                landing_approach.z +=
+                    pp.get_approach_height() + pp.get_landing_deck_height_offset();
             } else {
                 let mut info = PPInfo::default();
                 if !pp.reserve_space(jet_ai.object_id, jet_ai.data.parking_offset, &mut info) {
@@ -1625,7 +1622,6 @@ impl JetStateMachine {
         }
         StateReturnType::Continue
     }
-
 }
 
 /// JetAIUpdate runtime state (port of C++ JetAIUpdate fields).
@@ -2351,7 +2347,10 @@ impl JetAIUpdate {
     }
 
     pub fn is_taxiing_to_takeoff(&self) -> bool {
-        matches!(self.state_machine.state, Some(JetAIStateType::TaxiToTakeoff))
+        matches!(
+            self.state_machine.state,
+            Some(JetAIStateType::TaxiToTakeoff)
+        )
     }
 
     pub fn parking_offset(&self) -> Real {
@@ -2483,9 +2482,8 @@ impl JetAIUpdate {
                 if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio()
                 {
                     let misc_audio = misc_audio.read();
-                    let mut lockon_sound = AudioEventRts::new(
-                        misc_audio.lockon_tick_sound.playable_event_name(),
-                    );
+                    let mut lockon_sound =
+                        AudioEventRts::new(misc_audio.lockon_tick_sound.playable_event_name());
                     lockon_sound.set_object_id(self.object_id);
                     audio.add_audio_event(&lockon_sound);
                 }
@@ -2945,7 +2943,10 @@ impl Snapshotable for JetAIUpdate {
                 12 => Some(JetAIStateType::CirclingDeadAirfield),
                 _ => None,
             };
-            if matches!(self.state_machine.state, Some(JetAIStateType::TaxiToTakeoff)) {
+            if matches!(
+                self.state_machine.state,
+                Some(JetAIStateType::TaxiToTakeoff)
+            ) {
                 register_taxi_to_takeoff(self.object_id);
             }
         }
@@ -2984,7 +2985,6 @@ impl Snapshotable for JetAIUpdate {
         Ok(())
     }
 }
-
 
 /// Module wrapper for JetAIUpdate to align with module system expectations.
 #[derive(Debug)]
@@ -3259,5 +3259,4 @@ mod tests {
         let jet = JetAIUpdate::new(JetAIUpdateModuleData::default(), 1);
         assert!(!jet.has_pending_command());
     }
-
 }

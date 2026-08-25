@@ -8,8 +8,8 @@ use crate::platform::GraphicsContext;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
 };
 use thiserror::Error;
 

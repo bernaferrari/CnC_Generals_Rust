@@ -6,6 +6,7 @@ mod helpers;
 use helpers::*;
 
 mod base_defenses;
+mod cave_bridge;
 mod combat_particles_and_economy;
 mod crates_and_salvage;
 mod network_and_scripts;
@@ -22,7 +23,6 @@ mod strategy_and_stealth;
 mod superweapon_initiate_at_location;
 mod superweapons_and_plans;
 mod unit_residuals;
-mod cave_bridge;
 mod vehicles_and_lasers;
 
 #[test]
@@ -83,12 +83,14 @@ fn global_terrain_load_map_data_does_not_deadlock_on_bridge() {
     map_data.width = 4;
     map_data.height = 4;
     map_data.heightmap = vec![10; 16];
-    map_data.bridges.push(gamelogic::system::map_loader::BridgeData::new(
-        gamelogic::system::map_loader::Coord3D::new(0.0, 0.0, 20.0),
-        gamelogic::system::map_loader::Coord3D::new(40.0, 0.0, 20.0),
-        10.0,
-        "TestBridge".to_string(),
-    ));
+    map_data
+        .bridges
+        .push(gamelogic::system::map_loader::BridgeData::new(
+            gamelogic::system::map_loader::Coord3D::new(0.0, 0.0, 20.0),
+            gamelogic::system::map_loader::Coord3D::new(40.0, 0.0, 20.0),
+            10.0,
+            "TestBridge".to_string(),
+        ));
     let started = std::time::Instant::now();
     {
         let mut terrain = gamelogic::terrain::get_terrain_logic()
@@ -198,9 +200,7 @@ fn skirmish_razing_last_enemy_building_defeats_player_with_units_left() {
         obj.status.effectively_dead = true;
     }
     assert!(
-        logic
-            .get_object(gla_cc)
-            .is_some_and(|obj| !obj.is_alive()),
+        logic.get_object(gla_cc).is_some_and(|obj| !obj.is_alive()),
         "razed building must be effectively dead for hasAnyBuildings"
     );
     assert!(
@@ -247,4 +247,3 @@ fn campaign_does_not_run_multiplayer_annihilation() {
     );
     let _ = VictoryCondition::Draw;
 }
-

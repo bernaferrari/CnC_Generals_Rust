@@ -263,7 +263,6 @@ pub(crate) fn leftover_special_power_is_no_target(power_type: &SpecialPowerType)
     gamelogic::action_manager::TheActionManager::special_power_is_no_target(leftover)
 }
 
-
 /// Resolve an exact retail `CommandButton.ini` `SpecialPower` name.
 ///
 /// Command buttons carry the INI identity as text, whereas the authoritative

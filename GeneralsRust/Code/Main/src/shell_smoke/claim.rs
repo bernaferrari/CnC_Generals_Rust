@@ -16,11 +16,7 @@ pub(super) const fn playable_claim() -> bool {
 }
 
 pub(super) fn map_requirement_ok(map_resolved: bool, map_loaded: bool) -> bool {
-    if map_resolved {
-        map_loaded
-    } else {
-        true
-    }
+    if map_resolved { map_loaded } else { true }
 }
 
 pub(super) fn host_path_ok(

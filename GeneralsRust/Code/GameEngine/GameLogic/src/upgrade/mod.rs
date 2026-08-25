@@ -22,7 +22,7 @@ pub use effects::{
     UpgradeEffect, UpgradeEffectApplicator, UpgradeEffectRegistry, UpgradeEffectType,
 };
 pub use instance::{Upgrade, UpgradeStatus};
-pub use mask::{upgrade_mask_for_name, UpgradeMask};
+pub use mask::{UpgradeMask, upgrade_mask_for_name};
 pub use modules::*;
 pub use player_upgrade_manager::PlayerUpgradeManager;
 pub use prerequisites::{

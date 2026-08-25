@@ -413,8 +413,11 @@ mod tests {
         assert!(forward.contains("projected_shroud_uploader.sync("));
         assert!(forward.contains(".renderer_binding(projected_shroud)"));
         assert!(forward.contains("renderer.set_projected_shroud(projected_shroud_binding)"));
-        assert!(forward
-            .contains("mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass())"));
+        assert!(
+            forward.contains(
+                "mesh.set_projected_shroud_eligible(item.pushes_projected_shroud_pass())"
+            )
+        );
         assert!(!forward.contains("get_shroud_manager"));
     }
 }

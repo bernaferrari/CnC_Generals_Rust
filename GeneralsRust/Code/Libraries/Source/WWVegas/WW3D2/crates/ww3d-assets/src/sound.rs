@@ -1,4 +1,4 @@
-use ww3d_core::w3d_format::{w3d_string_from_bytes, W3dSoundRObjHeaderStruct};
+use ww3d_core::w3d_format::{W3dSoundRObjHeaderStruct, w3d_string_from_bytes};
 
 /// Sound render object metadata captured from W3D assets.
 #[derive(Debug, Clone)]

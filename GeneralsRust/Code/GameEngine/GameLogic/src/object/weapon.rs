@@ -3,4 +3,4 @@
 //! WeaponStore). Leftover `weapon/weapon.rs` is a private module, not a
 //! second public type.
 
-pub use crate::weapon::{Weapon, WeaponTemplate, WeaponStore};
+pub use crate::weapon::{Weapon, WeaponStore, WeaponTemplate};

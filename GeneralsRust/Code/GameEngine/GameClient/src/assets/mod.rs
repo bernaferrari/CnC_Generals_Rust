@@ -17,7 +17,7 @@ use nalgebra::Vector3;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::fs::{metadata, File, OpenOptions};
+use std::fs::{File, OpenOptions, metadata};
 use std::io::{self, BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ use tokio::sync::{Notify, RwLock as AsyncRwLock, Semaphore};
 
 use crate::audio::*;
 use crate::display::texture_system::{TextureHandle, TextureManager};
-use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
+use crate::drawable::drawable_draw_pipeline::{MeshVertex, with_drawable_pipeline};
 use crate::effects::particle_renderer::with_particle_renderer;
 use crate::system::SubsystemInterface;
 use image::GenericImageView;

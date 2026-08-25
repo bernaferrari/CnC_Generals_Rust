@@ -28,8 +28,8 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::common::ini::{INIError, INIResult, INI};
-use crate::common::rts::science::{get_science_store, ScienceType, SCIENCE_INVALID};
+use crate::common::ini::{INI, INIError, INIResult};
+use crate::common::rts::science::{SCIENCE_INVALID, ScienceType, get_science_store};
 
 /// Result type for rank operations
 pub type RankResult<T> = Result<T, RankError>;
@@ -267,9 +267,7 @@ impl RankInfoStore {
             new_info.next_override = None;
             self.parse_rank_fields(ini, &mut new_info)?;
             new_info.mark_as_override();
-            self.rank_infos[idx]
-                .get_final_override_mut()
-                .next_override = Some(Box::new(new_info));
+            self.rank_infos[idx].get_final_override_mut().next_override = Some(Box::new(new_info));
         } else {
             // In normal mode, ranks must increase monotonically
             // Matches C++ RankInfo.cpp lines 130-147

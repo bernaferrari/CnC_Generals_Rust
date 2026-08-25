@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostCrushFailclosedNoDamageAuthHpStompAction
 pub fn residual_host_crush_failclosed_no_damage_auth_hp_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_crush_failclosed_no_damage_auth_hp_stomp_last_action(
-) -> ResidualHostCrushFailclosedNoDamageAuthHpStompAction {
+pub fn residual_host_crush_failclosed_no_damage_auth_hp_stomp_last_action()
+-> ResidualHostCrushFailclosedNoDamageAuthHpStompAction {
     ResidualHostCrushFailclosedNoDamageAuthHpStompAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )
@@ -80,8 +80,8 @@ pub fn honesty_host_crush_failclosed_no_damage_auth_hp_stomp_method_names_residu
     residual_action_store(ResidualHostCrushFailclosedNoDamageAuthHpStompAction::MethodNames);
     ok
 }
-pub fn honesty_host_crush_failclosed_no_damage_auth_hp_stomp_source_markers_residual_wave746(
-) -> bool {
+pub fn honesty_host_crush_failclosed_no_damage_auth_hp_stomp_source_markers_residual_wave746()
+-> bool {
     let gl = gl_source();
     let ok = gl.contains("Wave 746")
         && gl.contains("crush sweep leaves no standing unit residual")

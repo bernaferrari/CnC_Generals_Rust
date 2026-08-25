@@ -7,14 +7,14 @@
 use super::{DieModule, DieModuleData, DieModuleInterface};
 use crate::common::{DisabledType, KindOf};
 use crate::damage::DamageInfo;
+use crate::object::Object;
 use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
 };
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
 use crate::system::game_logic::get_game_logic;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 

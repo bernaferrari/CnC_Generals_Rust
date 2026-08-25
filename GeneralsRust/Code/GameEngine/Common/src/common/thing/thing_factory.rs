@@ -9,7 +9,7 @@
 
 use crate::common::{
     global_data,
-    ini::{INILoadType as IniLoadType, INI},
+    ini::{INI, INILoadType as IniLoadType},
     random_value::get_game_logic_random_value,
     rts::{AsciiString, UnsignedShort},
     system::{
@@ -137,9 +137,7 @@ static OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY: LazyLock<
     RwLock<Option<ObjectCreateOverridesLiveOverlay>>,
 > = LazyLock::new(|| RwLock::new(None));
 
-pub fn register_object_create_overrides_live_overlay(
-    overlay: ObjectCreateOverridesLiveOverlay,
-) {
+pub fn register_object_create_overrides_live_overlay(overlay: ObjectCreateOverridesLiveOverlay) {
     if let Ok(mut guard) = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.write() {
         *guard = Some(overlay);
     }
@@ -395,7 +393,6 @@ fn canonical_object_field(field: &str) -> String {
     }
 }
 
-
 fn is_module_override_field(field: &str) -> bool {
     matches!(
         field.to_ascii_lowercase().as_str(),
@@ -405,11 +402,7 @@ fn is_module_override_field(field: &str) -> bool {
 
 fn insert_object_property(properties: &mut HashMap<String, String>, key: &str, value: &str) {
     if object_field_is_repeatable_property(key) {
-        insert_repeated_property(
-            properties,
-            canonical_object_field(key),
-            value.to_string(),
-        );
+        insert_repeated_property(properties, canonical_object_field(key), value.to_string());
     } else {
         properties.insert(key.to_string(), value.to_string());
     }
@@ -795,7 +788,6 @@ impl ThingFactory {
             set_locomotor_overrides_allowed(false);
             parse_result?;
 
-
             self.template_hash_map
                 .insert(AsciiString::from(name), thing_template.clone());
             if ini.get_load_type() == IniLoadType::CreateOverrides {
@@ -1005,7 +997,6 @@ pub fn apply_stored_locomotors_to_all_templates() {
     }
 }
 
-
 /// Initialize the global thing factory
 pub fn init_thing_factory() -> Result<(), String> {
     let mut factory = ThingFactory::new();
@@ -1212,7 +1203,6 @@ impl ThingFactory {
                         {
                             let tmpl_ref = Arc::make_mut(&mut tmpl);
                             if let Err(err) = tmpl_ref.parse_reskin_fields_from_ini(&properties) {
-
                                 warn!("Skipping object reskin '{}': {}", name, err);
                                 index = end_idx;
                                 continue;
@@ -1632,7 +1622,7 @@ fn skip_ini_block(lines: &[&str], mut index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_object_block_properties, parse_object_declarations, ObjectDeclaration, ThingFactory,
+        ObjectDeclaration, ThingFactory, parse_object_block_properties, parse_object_declarations,
     };
 
     #[test]
@@ -2108,7 +2098,7 @@ mod tests {
 
     #[test]
     fn object_reskin_copies_parent_then_applies_block() {
-        use crate::common::ini::{INIError, INI};
+        use crate::common::ini::{INI, INIError};
 
         let mut factory = ThingFactory::new();
         let mut parent_ini = INI::new();
@@ -2149,13 +2139,13 @@ mod tests {
     fn new_object_draws_logic_rng_for_single_variation() {
         // C++ ThingFactory::newObject (ThingFactory.cpp:289) always draws
         // GameLogicRandomValue(0, size-1), even when size == 1.
-        use crate::common::ini::{INIError, INI};
+        use crate::common::ini::{INI, INIError};
         use crate::common::random_value::{
             get_game_logic_random_seed_state, get_game_logic_random_value, init_random_with_seed,
         };
         use crate::common::thing::module::Object;
         use crate::common::thing::thing_factory::{
-            set_object_creator, ObjectCreator, ThingCreationError,
+            ObjectCreator, ThingCreationError, set_object_creator,
         };
         use std::sync::Arc;
 
@@ -2221,7 +2211,7 @@ mod tests {
     fn duplicate_object_name_continues_into_existing_template() {
         // C++ ThingFactory::parseObjectDefinition (ThingFactory.cpp:367-375):
         // DEBUG_CRASH then keep parsing into the existing template.
-        use crate::common::ini::{INIError, INI};
+        use crate::common::ini::{INI, INIError};
 
         let mut factory = ThingFactory::new();
         let mut first = INI::new();
@@ -2249,7 +2239,7 @@ mod tests {
     #[test]
     fn create_overrides_new_template_is_marked_override() {
         // C++ ThingFactory.cpp:360-365 markAsOverride for new CREATE_OVERRIDES templates
-        use crate::common::ini::{INIError, INILoadType, INI};
+        use crate::common::ini::{INI, INIError, INILoadType};
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let nanos = SystemTime::now()

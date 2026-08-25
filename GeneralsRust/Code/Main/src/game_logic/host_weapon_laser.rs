@@ -139,7 +139,6 @@ impl ResidualWeaponLaser {
             self.expires_frame = until;
         }
     }
-
 }
 
 /// Advance residual scroll and drop expired beams.
@@ -170,7 +169,6 @@ pub fn special_ability_laser_endpoints(
         glam::Vec3::new(target_pos.x, target_pos.y + lift, target_pos.z),
     )
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -229,5 +227,4 @@ mod tests {
         assert!(laser.is_active_at(54));
         assert!(!laser.is_active_at(55));
     }
-
 }

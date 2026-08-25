@@ -3,16 +3,16 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use crate::common::{Coord3D, INVALID_ID};
-use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
+use crate::common::Relationship;
+use crate::common::{Coord3D, INVALID_ID};
 use crate::common::{KindOf, LocomotorSetType, PathfindLayerEnum};
 use crate::common::{Matrix3D, ObjectStatusTypes, TurretType};
 use crate::damage::{DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
-    TheThingFactory,
+    TheGameLogic, TheTerrainLogic, TheThingFactory, get_game_logic_random_value,
+    get_game_logic_random_value_real,
 };
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::collide::GameObject;
@@ -20,15 +20,15 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::update::MissileAIUpdateModuleData;
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::projectile_launch_cast::{
-    module_projectile_launch_kind, ProjectileLaunchKindMut,
+    ProjectileLaunchKindMut, module_projectile_launch_kind,
 };
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
 use super::helpers::{
-    ammo_count_for_clip_size, dual_world_registry_unavailable, map_weapon_slot_to_common, ObjectId,
-    INVALID_OBJECT_ID,
+    INVALID_OBJECT_ID, ObjectId, ammo_count_for_clip_size, dual_world_registry_unavailable,
+    map_weapon_slot_to_common,
 };
 use super::masks_enums::*;
 use super::store::with_weapon_store_mut;
@@ -117,7 +117,8 @@ impl Weapon {
         target_object_type: ObjectType,
     ) -> (Coord3D, f32) {
         let mut scatter_radius = self.template.scatter_radius;
-        if target_object_type == ObjectType::Infantry && self.template.infantry_inaccuracy_dist > 0.0
+        if target_object_type == ObjectType::Infantry
+            && self.template.infantry_inaccuracy_dist > 0.0
         {
             scatter_radius += self.template.infantry_inaccuracy_dist;
         }
@@ -136,7 +137,10 @@ impl Weapon {
     }
 
     /// C++ Weapon.cpp:2584-2609 — one unused scatter index per shot.
-    pub(crate) fn take_scatter_target_pos(&mut self, primary_target_pos: &Coord3D) -> Option<Coord3D> {
+    pub(crate) fn take_scatter_target_pos(
+        &mut self,
+        primary_target_pos: &Coord3D,
+    ) -> Option<Coord3D> {
         if self.scatter_targets_unused.is_empty() {
             return None;
         }
@@ -156,7 +160,11 @@ impl Weapon {
     }
 
     /// C++ Weapon.cpp:2896-2910 processRequestAssistance.
-    pub(crate) fn process_request_assistance(&self, source_obj_id: ObjectId, victim_obj_id: ObjectId) {
+    pub(crate) fn process_request_assistance(
+        &self,
+        source_obj_id: ObjectId,
+        victim_obj_id: ObjectId,
+    ) {
         if dual_world_registry_unavailable() {
             return;
         }
@@ -261,7 +269,8 @@ impl Weapon {
         let damage_source_guard = damage_source_arc.as_ref().and_then(|arc| arc.read().ok());
 
         let mut impact_pos = *impact_pos;
-        self.template.apply_historic_bonus(source_obj_id, &impact_pos);
+        self.template
+            .apply_historic_bonus(source_obj_id, &impact_pos);
         let mut primary_victim_id = None;
         if let Some(target_id) = target_obj_id {
             if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
@@ -1131,7 +1140,6 @@ impl Weapon {
 
         let _ = (damage_per_frame, duration);
 
-
         let client_modules = laser_guard.client_update_modules();
         drop(laser_guard);
 
@@ -1392,9 +1400,9 @@ fn report_missile_for_countermeasures(projectile_id: ObjectId, victim_id: Option
     let supersonic = victim_guard
         .get_ai()
         .and_then(|ai| {
-            ai.lock()
-                .ok()
-                .map(|ai_guard| ai_guard.get_cur_locomotor_set_type() == LocomotorSetType::Supersonic)
+            ai.lock().ok().map(|ai_guard| {
+                ai_guard.get_cur_locomotor_set_type() == LocomotorSetType::Supersonic
+            })
         })
         .unwrap_or(false);
     if supersonic {

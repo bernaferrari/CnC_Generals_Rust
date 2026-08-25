@@ -869,7 +869,6 @@ fn science_ini_prereq_names(name: &str) -> Option<Vec<String>> {
     )
 }
 
-
 /// C++ `ScienceStore::playerHasPrereqsForScience` (Science.cpp:257-274).
 ///
 /// Missing Science.ini / residual row → **false** (fail-closed).
@@ -898,7 +897,6 @@ pub fn science_prereqs_met_residual(
     // C++ Science.cpp:271-273 — unknown science has no prereq info → false.
     false
 }
-
 
 /// C++ `Player::isCapableOfPurchasingScience` residual.
 pub fn is_capable_of_purchasing_science_residual(
@@ -954,11 +952,7 @@ pub fn first_capable_purchase_science_residual(
         if !science_is_purchasable_residual(row.point_cost) {
             continue;
         }
-        if is_capable_of_purchasing_science_residual(
-            unlocked,
-            science_purchase_points,
-            row.name,
-        ) {
+        if is_capable_of_purchasing_science_residual(unlocked, science_purchase_points, row.name) {
             return Some(row.name.to_string());
         }
     }
@@ -1021,9 +1015,9 @@ fn first_capable_from_live_science_store(
                 return false;
             }
             let key = normalize_science_name_residual(&name).to_ascii_lowercase();
-            self.0.iter().any(|owned| {
-                normalize_science_name_residual(owned).to_ascii_lowercase() == key
-            })
+            self.0
+                .iter()
+                .any(|owned| normalize_science_name_residual(owned).to_ascii_lowercase() == key)
         }
     }
     let store = game_engine::common::rts::get_science_store()?;
@@ -1036,11 +1030,7 @@ fn first_capable_from_live_science_store(
         if name.is_empty() {
             continue;
         }
-        if is_capable_of_purchasing_science_residual(
-            unlocked,
-            science_purchase_points,
-            &name,
-        ) {
+        if is_capable_of_purchasing_science_residual(unlocked, science_purchase_points, &name) {
             return Some(name);
         }
     }
@@ -1057,9 +1047,9 @@ pub fn host_command_button_science_vec_met(
             return true;
         }
         let want = normalize_science_name_residual(req).to_ascii_lowercase();
-        unlocked.iter().any(|owned| {
-            normalize_science_name_residual(owned).to_ascii_lowercase() == want
-        })
+        unlocked
+            .iter()
+            .any(|owned| normalize_science_name_residual(owned).to_ascii_lowercase() == want)
     })
 }
 
@@ -1115,7 +1105,6 @@ pub fn sync_host_spp_to_crate_player(player_id: u32, spp: i32) -> bool {
     true
 }
 
-
 /// C++ `Player::isScienceDisabled` / `isScienceHidden` from leftover Player
 /// written by `PLAYER_SCIENCE_AVAILABILITY` (ScriptActions).
 pub fn leftover_science_hidden_or_disabled(player_id: u32, science_name: &str) -> bool {
@@ -1158,7 +1147,6 @@ fn science_type_from_name(name: &str) -> game_engine::common::rts::ScienceType {
     game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(name)
         as game_engine::common::rts::ScienceType
 }
-
 
 /// Lookup Science residual store row by name.
 pub fn science_store_row_wave109(name: &str) -> Option<&'static ScienceStoreResidualRowWave109> {
@@ -2142,7 +2130,6 @@ mod tests {
             &["SCIENCE_StealthFighter"]
         ));
     }
-
 
     #[test]
     fn upgrade_store_residual_deepen_honesty_wave109() {

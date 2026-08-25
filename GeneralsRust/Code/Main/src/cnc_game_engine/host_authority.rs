@@ -1128,11 +1128,8 @@ impl CnCGameEngine {
             .queue_client_drawable_restore(client_drawables);
         self.invalidate_presentation_terrain_cache();
         if let Some(camera) = crate::save_load::snapshot::take_pending_camera() {
-            self.camera_position = glam::Vec3::new(
-                camera.position[0],
-                camera.position[1],
-                camera.position[2],
-            );
+            self.camera_position =
+                glam::Vec3::new(camera.position[0], camera.position[1], camera.position[2]);
             self.camera_target =
                 glam::Vec3::new(camera.target[0], camera.target[1], camera.target[2]);
             if camera.zoom.is_finite() && camera.zoom > 0.05 {
@@ -1148,9 +1145,7 @@ impl CnCGameEngine {
                 .map(|(slot, ids)| {
                     (
                         slot,
-                        ids.into_iter()
-                            .map(crate::game_logic::ObjectId)
-                            .collect(),
+                        ids.into_iter().map(crate::game_logic::ObjectId).collect(),
                     )
                 })
                 .collect();
@@ -1174,22 +1169,20 @@ impl CnCGameEngine {
         // is renderer-local and immutable here; an empty/unresolved cache is
         // intentionally a valid fail-closed companion.
         let offset = self.camera_position - self.camera_target;
-        crate::save_load::snapshot::set_pending_camera(
-            crate::save_load::snapshot::CameraPersist {
-                angle: offset.x.atan2(offset.z),
-                position: [
-                    self.camera_position.x,
-                    self.camera_position.y,
-                    self.camera_position.z,
-                ],
-                target: [
-                    self.camera_target.x,
-                    self.camera_target.y,
-                    self.camera_target.z,
-                ],
-                zoom: self.camera_zoom,
-            },
-        );
+        crate::save_load::snapshot::set_pending_camera(crate::save_load::snapshot::CameraPersist {
+            angle: offset.x.atan2(offset.z),
+            position: [
+                self.camera_position.x,
+                self.camera_position.y,
+                self.camera_position.z,
+            ],
+            target: [
+                self.camera_target.x,
+                self.camera_target.y,
+                self.camera_target.z,
+            ],
+            zoom: self.camera_zoom,
+        });
         crate::save_load::snapshot::set_pending_control_groups(
             self.control_groups
                 .iter()
@@ -1281,7 +1274,8 @@ impl CnCGameEngine {
         save_info: &SaveGameInfo,
     ) -> Result<crate::game_logic::GameMode, String> {
         use crate::game_logic::GameMode;
-        if matches!(save_info.save_type, SaveFileType::Mission) || save_info.mission_number.is_some()
+        if matches!(save_info.save_type, SaveFileType::Mission)
+            || save_info.mission_number.is_some()
         {
             Ok(GameMode::SinglePlayer)
         } else {
@@ -1519,12 +1513,9 @@ impl CnCGameEngine {
             GameDifficulty::Medium => 1,
             GameDifficulty::Hard => 2,
         };
-        if let Ok(mut stream) =
-            game_engine::common::message_stream::get_message_stream().write()
-        {
-            let msg = stream.append_message(
-                game_engine::common::message_stream::GameMessageType::NewGame,
-            );
+        if let Ok(mut stream) = game_engine::common::message_stream::get_message_stream().write() {
+            let msg = stream
+                .append_message(game_engine::common::message_stream::GameMessageType::NewGame);
             msg.append_integer_argument(0); // GAME_SINGLE_PLAYER
             msg.append_integer_argument(difficulty);
             msg.append_integer_argument(rank_points);
@@ -2033,7 +2024,9 @@ mod staged_restore_tests {
             .find("fn surface_load_game_ui_feedback")
             .expect("load error UI");
         let body = &source[start..];
-        assert!(body.contains("GUI:ErrorLoadingGame") || body.contains("format_error_loading_game"));
+        assert!(
+            body.contains("GUI:ErrorLoadingGame") || body.contains("format_error_loading_game")
+        );
         assert!(body.contains("message_box_ok"));
         let authority = source
             .find("pub(super) fn host_load_game_authority")
@@ -2060,8 +2053,6 @@ mod staged_restore_tests {
         assert_eq!(mode, GameMode::SinglePlayer);
         crate::save_load::store_loaded_game_state_map_mode_for_test(None);
     }
-
-
 
     #[test]
     fn staged_restore_rejects_unavailable_map_before_snapshot_restore() {

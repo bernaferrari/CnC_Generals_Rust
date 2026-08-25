@@ -125,11 +125,7 @@ impl HostFloatUpdateData {
 
     /// When enabled, return water surface Y to snap to (host Y-up).
     pub fn snap_height_y(&self, water_y: Option<f32>) -> Option<f32> {
-        if self.enabled {
-            water_y
-        } else {
-            None
-        }
+        if self.enabled { water_y } else { None }
     }
 }
 

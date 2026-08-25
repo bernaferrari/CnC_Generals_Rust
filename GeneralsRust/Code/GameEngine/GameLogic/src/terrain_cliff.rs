@@ -214,5 +214,4 @@ mod tests {
         // Off-map clamps to [0, extent-2] instead of rejecting.
         assert!(!is_cliff_cell(-1000.0, -1000.0, &bits, 4, 4, 1));
     }
-
 }

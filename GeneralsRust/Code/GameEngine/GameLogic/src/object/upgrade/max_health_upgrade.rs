@@ -4,11 +4,13 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
+use crate::object::INVALID_ID;
 use crate::object::body::body_module::MaxHealthChangeType;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::INVALID_ID;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -536,8 +538,8 @@ const MAX_HEALTH_UPGRADE_FIELDS: &[FieldParse<MaxHealthUpgradeModuleData>] = cra
 mod tests {
     use super::*;
     use crate::common::UpgradeMaskType;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use crate::upgrade::UpgradeTemplate;
     use game_engine::common::thing::module::NameKeyType;
     use once_cell::sync::Lazy;

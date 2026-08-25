@@ -1,6 +1,6 @@
 //! Palette utilities (ported from WWLib palette.cpp/h).
 
-use crate::rgb::{RGBClass, BLACK_COLOR};
+use crate::rgb::{BLACK_COLOR, RGBClass};
 
 pub const COLOR_COUNT: usize = 256;
 

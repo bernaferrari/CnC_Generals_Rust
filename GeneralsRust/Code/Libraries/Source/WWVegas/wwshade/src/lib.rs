@@ -80,7 +80,7 @@ pub use error::{ShdError, ShdResult};
 pub use class_ids::*;
 pub use def::ShdDefClass;
 pub use embedded_shaders::{DirectXVersion, EmbeddedShaders, ShaderKey, ShaderSource, ShaderType};
-pub use interface::{RenderInfo, ShdInterface, MAX_PASSES};
+pub use interface::{MAX_PASSES, RenderInfo, ShdInterface};
 pub use mesh::ShdMesh;
 
 // Re-export the API demo to show compatibility

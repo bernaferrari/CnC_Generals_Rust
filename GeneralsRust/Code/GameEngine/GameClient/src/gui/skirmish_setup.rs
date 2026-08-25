@@ -1,6 +1,6 @@
 //! Shared skirmish setup state for menu coordination.
 
-use game_engine::System::{ChallengeGameInfoXfer, ChallengeSlotXfer, CHALLENGE_MAX_SLOTS};
+use game_engine::System::{CHALLENGE_MAX_SLOTS, ChallengeGameInfoXfer, ChallengeSlotXfer};
 use game_network::{GameSlot, Money, SkirmishGameInfo, SlotState};
 use std::sync::{Mutex, OnceLock};
 

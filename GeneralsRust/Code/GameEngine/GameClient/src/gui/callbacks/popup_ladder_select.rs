@@ -6,13 +6,13 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 use crate::game_text::GameText;
+use crate::gamespy_overlay::{GameSpyOverlayType, close_overlay};
 use crate::gui::callbacks::online_callback_support::packed_ui_color;
-use crate::gamespy_overlay::{close_overlay, GameSpyOverlayType};
 use crate::gui::callbacks::popup_host_game::custom_match_hide_host_popup;
 use crate::gui::gadgets::{ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    write_input_focus_response,
 };
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::ascii_string::AsciiString;
@@ -21,9 +21,9 @@ use game_engine::common::preferences::{
     CustomMatchPreferences, LadderPreferences, QuickmatchPreferences,
 };
 use game_engine::common::system::encrypt::encrypt_string;
-use game_network::gamespy::ladder_defs::{get_ladder_list, LadderInfo};
+use game_network::gamespy::ladder_defs::{LadderInfo, get_ladder_list};
 use game_network::gamespy::peer_defs::{
-    default_gamespy_colors, get_gamespy_info, make_color, GameSpyColor,
+    GameSpyColor, default_gamespy_colors, get_gamespy_info, make_color,
 };
 use game_network::gamespy::persistent_storage_thread::get_ps_message_queue;
 
@@ -240,7 +240,12 @@ fn update_ladder_details(
     let _ = static_text.borrow_mut().set_text(&name_line);
 
     if !info.location.is_empty() {
-        listbox.add_item_with_data_and_color(-1, &info.location, None, Some(packed_ui_color(caption_color)));
+        listbox.add_item_with_data_and_color(
+            -1,
+            &info.location,
+            None,
+            Some(packed_ui_color(caption_color)),
+        );
     }
 
     // C++ always adds the homepage URL line, even if empty
@@ -249,7 +254,12 @@ fn update_ladder_details(
     listbox.add_item_with_data_and_color(-1, &url_line, None, Some(packed_ui_color(caption_color)));
 
     if !info.description.is_empty() {
-        listbox.add_item_with_data_and_color(-1, &info.description, None, Some(packed_ui_color(color)));
+        listbox.add_item_with_data_and_color(
+            -1,
+            &info.description,
+            None,
+            Some(packed_ui_color(color)),
+        );
     }
 
     if !info.crypted_password.is_empty() {
@@ -295,7 +305,12 @@ fn update_ladder_details(
     for map_name in &info.valid_maps {
         if let Some(meta) = cache_guard.find_map(map_name.as_str()) {
             let display_name = meta.display_name.as_str().to_string();
-            listbox.add_item_with_data_and_color(-1, &display_name, None, Some(packed_ui_color(color)));
+            listbox.add_item_with_data_and_color(
+                -1,
+                &display_name,
+                None,
+                Some(packed_ui_color(color)),
+            );
         }
     }
 }
@@ -809,10 +824,7 @@ fn handle_ladder_selection(ladder_id: i32) {
     let _ = handle_custom_ladder_selection(ladder_id);
 }
 
-pub fn popup_ladder_select_init(
-    _layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn popup_ladder_select_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = popup_state();
     let mut state = state_slot.borrow_mut();
 
@@ -855,11 +867,7 @@ pub fn popup_ladder_select_init(
     populate_ladder_listbox(&mut state);
 }
 
-pub fn popup_ladder_select_update(
-    _layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
-}
+pub fn popup_ladder_select_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {}
 
 pub fn popup_ladder_select_shutdown(
     _layout: &WindowLayout,
@@ -1022,11 +1030,7 @@ pub fn popup_ladder_select_system(
     }
 }
 
-pub fn rc_game_details_menu_init(
-    _layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
-}
+pub fn rc_game_details_menu_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {}
 
 pub fn rc_game_details_menu_system(
     window: &GameWindow,
@@ -1059,10 +1063,12 @@ pub fn rc_game_details_menu_system(
                 with_window_manager(|manager| manager.destroy_layout(&layout));
             }
 
-            let Some(room) = crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
-                info.find_staging_room_by_id(selected_id).cloned()
-            })
-            .flatten() else {
+            let Some(room) =
+                crate::gui::callbacks::online_callback_support::with_gamespy_info(|info| {
+                    info.find_staging_room_by_id(selected_id).cloned()
+                })
+                .flatten()
+            else {
                 return WindowMsgHandled::Handled;
             };
 

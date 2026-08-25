@@ -13,9 +13,9 @@ use super::{ContainerIniParse, ContainerInterface};
 use crate::ai::THE_AI;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, Matrix3D, ModelConditionFlags,
+    CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, LOGICFRAMES_PER_SECOND,
+    MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING, Matrix3D, ModelConditionFlags,
     ObjectID, PathfindLayerEnum, PlayerMaskType, ThingTemplate, TurretType, UnsignedInt,
-    LOGICFRAMES_PER_SECOND, MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
@@ -24,15 +24,15 @@ use crate::modules::{
     AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType, PhysicsBehaviorExt,
     UpdateSleepTime,
 };
+use crate::object::Object;
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::die::{
-    parse_death_type_flags_tokens, parse_object_status_mask_tokens,
-    parse_veterancy_level_flags_tokens, DieMuxData,
+    DieMuxData, parse_death_type_flags_tokens, parse_object_status_mask_tokens,
+    parse_veterancy_level_flags_tokens,
 };
 use crate::object::drawable::DrawableArcExt;
-use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 type ObjectId = ObjectID;
@@ -73,8 +73,6 @@ thread_local! {
     static LIVE_DOOR_CLOSE_COUNTDOWN: RefCell<HashMap<ObjectID, u32>> =
         RefCell::new(HashMap::new());
 }
-
-
 
 const LEFTOVER_CONTAIN_MODULE_NAMES: &[&str] = &[
     "OpenContain",
@@ -287,7 +285,10 @@ pub fn leftover_template_sound_falling(template_name: &str) -> Option<String> {
     )
 }
 
-fn leftover_play_template_audio_event(event_name: Option<&str>, object_id: ObjectID) -> Option<String> {
+fn leftover_play_template_audio_event(
+    event_name: Option<&str>,
+    object_id: ObjectID,
+) -> Option<String> {
     let name = event_name.filter(|n| leftover_contain_sound_name_is_playable(n))?;
     let mut event = AudioEventRts::new(name);
     if object_id != 0 {
@@ -556,8 +557,6 @@ pub fn leftover_open_contain_update_exit_doors() -> Vec<(ObjectID, LeftoverOpenC
         pulses
     })
 }
-
-
 
 /// Configuration data for OpenContain module
 #[derive(Debug, Clone)]
@@ -1514,12 +1513,11 @@ impl OpenContain {
             }
         }
 
-
         // C++ OpenContain::onContaining: template SoundEnter (gated by load-sounds-enabled).
         if self.load_sounds_enabled {
-            if let Some((object_id, mut event)) = self.with_object(|owner| {
-                (owner.get_id(), owner.get_template().get_sound_enter())
-            }) {
+            if let Some((object_id, mut event)) =
+                self.with_object(|owner| (owner.get_id(), owner.get_template().get_sound_enter()))
+            {
                 event.set_object_id(object_id);
                 if let Some(audio) = TheAudio::get() {
                     audio.add_audio_event(&event);
@@ -1558,9 +1556,9 @@ impl OpenContain {
 
         // C++ OpenContain::onRemoving: template SoundExit on the container
         // plus the rider's SoundFalling.
-        if let Some((object_id, mut event)) = self.with_object(|owner| {
-            (owner.get_id(), owner.get_template().get_sound_exit())
-        }) {
+        if let Some((object_id, mut event)) =
+            self.with_object(|owner| (owner.get_id(), owner.get_template().get_sound_exit()))
+        {
             event.set_object_id(object_id);
             if let Some(audio) = TheAudio::get() {
                 audio.add_audio_event(&event);
@@ -1625,7 +1623,11 @@ impl OpenContain {
                 .read()
                 .ok()
                 .and_then(|guard| guard.get_body_module())
-                .and_then(|body| body.lock().ok().map(|body_guard| body_guard.get_max_health()))
+                .and_then(|body| {
+                    body.lock()
+                        .ok()
+                        .map(|body_guard| body_guard.get_max_health())
+                })
                 .unwrap_or(0.0);
             let mut damage_info = DamageInfo::with_simple(
                 max_health * percent_damage,
@@ -1635,7 +1637,8 @@ impl OpenContain {
             );
             if let Ok(mut passenger) = obj.write() {
                 let _ = passenger.attempt_damage(&mut damage_info);
-                if !passenger.is_effectively_dead() && (percent_damage - 1.0).abs() <= f32::EPSILON {
+                if !passenger.is_effectively_dead() && (percent_damage - 1.0).abs() <= f32::EPSILON
+                {
                     passenger.kill(None, None);
                 }
             }
@@ -1660,7 +1663,8 @@ impl OpenContain {
             return Ok(());
         };
 
-        let angle = crate::helpers::get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+        let angle =
+            crate::helpers::get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
         let max_radius = min_radius + min_radius / 2.0;
         let dist = crate::helpers::get_game_logic_random_value_real(min_radius, max_radius);
         let mut pos = Coord3D::new(
@@ -2545,12 +2549,8 @@ impl OpenContain {
 
     /// C++ OpenContain::onSelling: order everyone out.
     pub fn on_selling(&mut self) -> GameResult<()> {
-        ContainModuleInterface::order_all_passengers_to_exit(
-            self,
-            CommandSourceType::FromAi,
-            false,
-        )
-        .map_err(|e| GameError::ModuleError(e.to_string()).into())
+        ContainModuleInterface::order_all_passengers_to_exit(self, CommandSourceType::FromAi, false)
+            .map_err(|e| GameError::ModuleError(e.to_string()).into())
     }
 }
 

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::common::{AsciiString, Bool, Int, Real, UnsignedInt};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use game_engine::common::ini::{FieldParse, INIError, INILoadType, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError, INILoadType};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 

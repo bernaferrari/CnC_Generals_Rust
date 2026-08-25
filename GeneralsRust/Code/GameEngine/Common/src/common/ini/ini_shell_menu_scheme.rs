@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-use super::ini::{INIError, INILoadType, INIResult, INI};
+use super::ini::{INI, INIError, INILoadType, INIResult};
 use log::warn;
 
 /// Integer coordinate 2D

@@ -81,8 +81,8 @@ pub fn residual_production_sole_tick_no_progress_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_production_sole_tick_no_progress_stomp_last_action(
-) -> ResidualProductionSoleTickNoProgressStompAction {
+pub fn residual_production_sole_tick_no_progress_stomp_last_action()
+-> ResidualProductionSoleTickNoProgressStompAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualProductionSoleTickNoProgressStompAction::MethodNames,
         2 => ResidualProductionSoleTickNoProgressStompAction::SourceMarkers,

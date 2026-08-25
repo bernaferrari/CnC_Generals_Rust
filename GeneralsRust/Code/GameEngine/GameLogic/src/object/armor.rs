@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use thiserror::Error;
 
 use crate::common::{AsciiString, Real};
-use crate::damage::{DamageType, DAMAGE_TYPE_COUNT};
+use crate::damage::{DAMAGE_TYPE_COUNT, DamageType};
 
 /// Per-damage-type coefficient table describing how incoming damage is reduced.
 #[derive(Debug, Clone)]
@@ -60,11 +60,7 @@ impl ArmorTemplate {
             DamageType::Unresistable | DamageType::SubdualUnresistable => amount,
             _ => {
                 let scaled = amount * self.coefficients[damage_type as usize];
-                if scaled < 0.0 {
-                    0.0
-                } else {
-                    scaled
-                }
+                if scaled < 0.0 { 0.0 } else { scaled }
             }
         }
     }

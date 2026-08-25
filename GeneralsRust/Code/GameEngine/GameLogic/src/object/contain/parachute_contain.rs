@@ -7,24 +7,24 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
-use crate::ai::pathfind_astar::PathfindCellType;
 use crate::ai::THE_AI;
+use crate::ai::pathfind_astar::PathfindCellType;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    Coord3D, DisabledType, GameResult, KindOf, LocomotorSetType, Matrix3D, ModelConditionFlags,
-    ObjectID, ObjectStatusMaskType, PathfindLayerEnum, PlayerMaskType, CommandSourceType,
+    CommandSourceType, Coord3D, DisabledType, GameResult, KindOf, LocomotorSetType, Matrix3D,
+    ModelConditionFlags, ObjectID, ObjectStatusMaskType, PathfindLayerEnum, PlayerMaskType,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::helpers::{
-    get_game_logic_random_value_real, TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic,
+    TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, get_game_logic_random_value_real,
 };
 use crate::modules::{
     AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, PhysicsBehaviorExt, UpdateSleepTime,
 };
+use crate::object::Object;
 use crate::object::contain::OpenContain;
 use crate::object::drawable::DrawableArcExt;
-use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 const NO_START_Z: f32 = 1e10;
@@ -341,7 +341,8 @@ impl ParachuteContain {
                     } else {
                         self.para_sway_bone = Coord3D::new(0.0, 0.0, 0.0);
                     }
-                    if let Some(pos) = draw.get_pristine_bone_positions("PARA_ATTCH", 0, 1).first() {
+                    if let Some(pos) = draw.get_pristine_bone_positions("PARA_ATTCH", 0, 1).first()
+                    {
                         self.para_attach_bone = *pos;
                     } else {
                         self.para_attach_bone = Coord3D::new(0.0, 0.0, 0.0);
@@ -404,20 +405,17 @@ impl ParachuteContain {
         if let Some(rider) = self.resolve_rider() {
             if let Ok(rider_guard) = rider.read() {
                 let rider_pos = *rider_guard.get_position();
-                let mtx = rider_guard
-                    .convert_bone_pos_to_world_pos(Some(&self.rider_attach_bone), None);
+                let mtx =
+                    rider_guard.convert_bone_pos_to_world_pos(Some(&self.rider_attach_bone), None);
                 let (_, _, world) = mtx.to_scale_rotation_translation();
                 self.rider_attach_offset = Coord3D::new(
                     world.x - rider_pos.x,
                     world.y - rider_pos.y,
                     world.z - rider_pos.z,
                 );
-                self.rider_attach_offset.x =
-                    self.para_attach_offset.x - self.rider_attach_offset.x;
-                self.rider_attach_offset.y =
-                    self.para_attach_offset.y - self.rider_attach_offset.y;
-                self.rider_attach_offset.z =
-                    self.para_attach_offset.z - self.rider_attach_offset.z;
+                self.rider_attach_offset.x = self.para_attach_offset.x - self.rider_attach_offset.x;
+                self.rider_attach_offset.y = self.para_attach_offset.y - self.rider_attach_offset.y;
+                self.rider_attach_offset.z = self.para_attach_offset.z - self.rider_attach_offset.z;
                 self.rider_sway_offset.x = self.para_sway_offset.x - self.rider_attach_offset.x;
                 self.rider_sway_offset.y = self.para_sway_offset.y - self.rider_attach_offset.y;
                 self.rider_sway_offset.z = self.para_sway_offset.z - self.rider_attach_offset.z;
@@ -573,8 +571,12 @@ impl ParachuteContain {
             let mut water_z = 0.0;
             let mut terrain_z = 0.0;
             if let Some(terrain) = TheTerrainLogic::get() {
-                if terrain.is_underwater(rider_pos.x, rider_pos.y, Some(&mut water_z), Some(&mut terrain_z))
-                    && rider_pos.z <= water_z + self.module_data.kill_when_landing_in_water_slop
+                if terrain.is_underwater(
+                    rider_pos.x,
+                    rider_pos.y,
+                    Some(&mut water_z),
+                    Some(&mut terrain_z),
+                ) && rider_pos.z <= water_z + self.module_data.kill_when_landing_in_water_slop
                     && rider.get_layer() == PathfindLayerEnum::Ground
                 {
                     let mut damage_info = DamageInfo::with_simple(
@@ -628,7 +630,9 @@ impl ParachuteContain {
                         let max_health = rider
                             .get_body_module()
                             .and_then(|body| {
-                                body.lock().ok().map(|body_guard| body_guard.get_max_health())
+                                body.lock()
+                                    .ok()
+                                    .map(|body_guard| body_guard.get_max_health())
                             })
                             .unwrap_or(0.0);
                         let source = damage_info
@@ -658,9 +662,7 @@ impl ParachuteContain {
         if other.is_some() {
             return Ok(());
         }
-        let contained_by = self
-            .with_owner(|owner| owner.get_contained_by())
-            .flatten();
+        let contained_by = self.with_owner(|owner| owner.get_contained_by()).flatten();
         if contained_by.is_some() {
             return Ok(());
         }

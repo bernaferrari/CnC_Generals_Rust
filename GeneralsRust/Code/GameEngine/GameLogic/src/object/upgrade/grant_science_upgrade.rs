@@ -2,10 +2,12 @@ use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
-use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
+use crate::object::upgrade::upgrade_module::{
+    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
+};
+use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
@@ -218,9 +220,8 @@ fn parse_grant_science_field(
 
 crate::impl_upgrade_mux_field_parsers!(GrantScienceUpgradeModuleData);
 
-const GRANT_SCIENCE_UPGRADE_FIELDS: &[FieldParse<GrantScienceUpgradeModuleData>] = crate::upgrade_mux_field_table!(
-    FieldParse {
-    token: "GrantScience",
-    parse: parse_grant_science_field,
-},
-);
+const GRANT_SCIENCE_UPGRADE_FIELDS: &[FieldParse<GrantScienceUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!(FieldParse {
+        token: "GrantScience",
+        parse: parse_grant_science_field,
+    },);

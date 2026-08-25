@@ -94,8 +94,16 @@ fn non_comment_code(window: &str) -> String {
 
 fn enclosing_fn_name(src: &str, at: usize) -> String {
     let head = &src[..at];
-    let markers = ["\n    pub(super) fn ", "\n    pub(crate) fn ", "\n    pub fn ", "\n    fn "];
-    let at = markers.iter().filter_map(|m| head.rfind(m).map(|i| (i, *m))).max_by_key(|(i, _)| *i);
+    let markers = [
+        "\n    pub(super) fn ",
+        "\n    pub(crate) fn ",
+        "\n    pub fn ",
+        "\n    fn ",
+    ];
+    let at = markers
+        .iter()
+        .filter_map(|m| head.rfind(m).map(|i| (i, *m)))
+        .max_by_key(|(i, _)| *i);
     match at {
         Some((i, marker)) => {
             let s = &head[i + marker.len()..];

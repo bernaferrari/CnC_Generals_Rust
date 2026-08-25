@@ -10,7 +10,7 @@ use crate::common::{DisabledType, KindOf, ObjectID};
 use crate::helpers::TheGameLogic;
 use crate::modules::{AIUpdateInterface, AIUpdateInterfaceExt};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 

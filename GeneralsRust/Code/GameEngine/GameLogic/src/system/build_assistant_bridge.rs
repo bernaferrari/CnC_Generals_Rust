@@ -7,8 +7,8 @@ use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::object::production::construction::FoundationValidator;
 use crate::player::player_list;
 use game_engine::common::system::build_assistant::{
-    set_build_assistant_backend, BuildAssistantBackend, Coord3D, LegalBuildCode,
-    LocalLegalToBuildOptions, ObjectID,
+    BuildAssistantBackend, Coord3D, LegalBuildCode, LocalLegalToBuildOptions, ObjectID,
+    set_build_assistant_backend,
 };
 
 #[derive(Debug, Default)]

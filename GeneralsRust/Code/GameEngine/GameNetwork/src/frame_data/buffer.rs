@@ -73,9 +73,7 @@ impl FrameBuffer {
 
         trace!(
             "Adding command type {:?} to frame {} (index {})",
-            command.command_type,
-            frame_number,
-            index
+            command.command_type, frame_number, index
         );
 
         // Get the frame data

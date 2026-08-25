@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use zlib_compression::{deflate_raw, CompressionLevel};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use zlib_compression::{CompressionLevel, deflate_raw};
 
 fn deflate_only(c: &mut Criterion) {
     let data = vec![0_u8; 128 * 1024];

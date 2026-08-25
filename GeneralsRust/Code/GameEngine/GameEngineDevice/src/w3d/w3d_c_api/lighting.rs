@@ -2,6 +2,10 @@
 //!
 //! Split from `w3d_c_api.rs`. Public names stay identical for C ABI / parity.
 
+use super::constants::*;
+use super::leftover::*;
+use super::materials::*;
+use super::types::*;
 use crate::w3d::renderer::{batch_material_params, batch_priority};
 use crate::w3d::w3d_device::RenderObject;
 use crate::w3d::{
@@ -10,18 +14,14 @@ use crate::w3d::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
-use super::constants::*;
-use super::leftover::*;
-use super::materials::*;
-use super::types::*;
 
 /// Set light - legacy compatibility entry point.
 #[no_mangle]
@@ -139,14 +139,19 @@ pub unsafe extern "C" fn W3DDevice_GetLightEnable(device: W3D_DEVICE, index: u32
     }
     0
 }
-pub(super) async fn set_lights_internal(device: &Arc<RwLock<W3DDevice>>, lights: Vec<Light>) -> Result<()> {
+pub(super) async fn set_lights_internal(
+    device: &Arc<RwLock<W3DDevice>>,
+    lights: Vec<Light>,
+) -> Result<()> {
     let device_lock = device.read().await;
     let mut scene = device_lock.get_scene().await;
     scene.lights = lights;
     device_lock.set_scene(scene).await?;
     Ok(())
 }
-pub(super) fn current_fixed_function_lighting_state(device: &W3DDeviceC) -> FixedFunctionLightingState {
+pub(super) fn current_fixed_function_lighting_state(
+    device: &W3DDeviceC,
+) -> FixedFunctionLightingState {
     FixedFunctionLightingState {
         lighting_enabled: render_state_value(device, W3D_RENDER_STATE::W3DRS_LIGHTING) != 0,
         specular_enabled: render_state_value(device, W3D_RENDER_STATE::W3DRS_SPECULARENABLE) != 0,
@@ -202,7 +207,9 @@ pub(super) fn default_fixed_function_lighting_state() -> FixedFunctionLightingSt
     }
 }
 
-pub(super) fn current_fixed_function_surface_state(device: &W3DDeviceC) -> FixedFunctionSurfaceState {
+pub(super) fn current_fixed_function_surface_state(
+    device: &W3DDeviceC,
+) -> FixedFunctionSurfaceState {
     FixedFunctionSurfaceState {
         alpha_test_enabled: render_state_value(device, W3D_RENDER_STATE::W3DRS_ALPHATESTENABLE)
             != 0,

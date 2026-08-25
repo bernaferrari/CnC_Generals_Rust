@@ -9,8 +9,8 @@
 
 use super::*;
 use game_client::gui::control_bar::{
-    take_host_control_bar_published_requests, HostControlBarRequest, HostControlBarTarget,
-    QueueProductionType,
+    HostControlBarRequest, HostControlBarTarget, QueueProductionType,
+    take_host_control_bar_published_requests,
 };
 use gamelogic::commands::CommandType as LegacyCommandType;
 
@@ -99,9 +99,7 @@ fn host_control_bar_request_allowed_in_state(
 /// `ControlBar::processCommand` (ControlBarCommandProcessing.cpp) appends
 /// the same `MSG_*` for every mode — Rust only hosts the offline world.
 #[inline]
-fn host_control_bar_bridge_is_network_or_replay(
-    mode: Option<crate::game_logic::GameMode>,
-) -> bool {
+fn host_control_bar_bridge_is_network_or_replay(mode: Option<crate::game_logic::GameMode>) -> bool {
     matches!(
         mode,
         Some(
@@ -119,10 +117,7 @@ fn host_control_bar_bridge_is_offline_product_mode(
 ) -> bool {
     matches!(
         mode,
-        Some(
-            crate::game_logic::GameMode::SinglePlayer
-                | crate::game_logic::GameMode::Skirmish
-        )
+        Some(crate::game_logic::GameMode::SinglePlayer | crate::game_logic::GameMode::Skirmish)
     )
 }
 
@@ -571,7 +566,6 @@ impl CnCGameEngine {
             );
             return;
         }
-
 
         if let Some(special_power_name) = special_power_name {
             let special_key = host_control_bar_key(special_power_name);
@@ -1276,7 +1270,6 @@ fn host_control_bar_generic_target_action(
     }
 }
 
-
 /// Case-insensitive comparison remains faithful to INI identifiers while
 /// deliberately refusing punctuation-stripped or substring aliases.
 fn host_control_bar_is_exact_retail_button(value: &str, retail_name: &str) -> bool {
@@ -1345,7 +1338,6 @@ pub(crate) fn resolve_host_queue_cancel_index(
     }
     (queue_index < queue_len).then_some(queue_index)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1472,9 +1464,7 @@ mod tests {
             .find("pub(crate) fn host_tick_control_bar_bridge")
             .expect("host_tick_control_bar_bridge");
         let body = &tick[start..];
-        let end = body
-            .find("\n    fn ")
-            .unwrap_or(body.len().min(2500));
+        let end = body.find("\n    fn ").unwrap_or(body.len().min(2500));
         let body = &body[..end];
         assert!(
             body.contains("host_control_bar_bridge_is_network_or_replay"),
@@ -1667,14 +1657,16 @@ mod tests {
                 },
             ))
         );
-        assert!(host_control_bar_generic_target_action(
-            LegacyCommandType::DoAttackObject,
-            "Command_ChinaJetMIGFireNapalmMissile",
-            Some(0),
-            options,
-            None,
-        )
-        .is_err());
+        assert!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::DoAttackObject,
+                "Command_ChinaJetMIGFireNapalmMissile",
+                Some(0),
+                options,
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1793,7 +1785,9 @@ mod tests {
         ));
         assert!(matches!(
             host_control_bar_direct_action(LegacyCommandType::Sell, "Command_Sell", None),
-            Ok(HostControlBarDirectAction::Queue(HostCommandType::Sell { .. }))
+            Ok(HostControlBarDirectAction::Queue(
+                HostCommandType::Sell { .. }
+            ))
         ));
         assert!(matches!(
             host_control_bar_direct_action(
@@ -1803,12 +1797,14 @@ mod tests {
             ),
             Ok(HostControlBarDirectAction::LockWeapon(2))
         ));
-        assert!(host_control_bar_direct_action(
-            LegacyCommandType::SwitchWeapons,
-            "Command_SetDemoTrapManualDetonation",
-            Some(3),
-        )
-        .is_err());
+        assert!(
+            host_control_bar_direct_action(
+                LegacyCommandType::SwitchWeapons,
+                "Command_SetDemoTrapManualDetonation",
+                Some(3),
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1853,28 +1849,34 @@ mod tests {
             Some(PendingUnitAbility::ConvertToCarbomb)
         );
 
-        assert!(host_control_bar_generic_target_action(
-            LegacyCommandType::Enter,
-            "Command_Enter",
-            None,
-            0,
-            None,
-        )
-        .is_err());
-        assert!(host_control_bar_generic_target_action(
-            LegacyCommandType::Enter,
-            "Command-GLAInfantryHijack",
-            None,
-            0,
-            None,
-        )
-        .is_err());
-        assert!(host_control_bar_direct_action(
-            LegacyCommandType::ConvertToCarBomb,
-            "Command_ConvertToCarBomb",
-            None,
-        )
-        .is_err());
+        assert!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::Enter,
+                "Command_Enter",
+                None,
+                0,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            host_control_bar_generic_target_action(
+                LegacyCommandType::Enter,
+                "Command-GLAInfantryHijack",
+                None,
+                0,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            host_control_bar_direct_action(
+                LegacyCommandType::ConvertToCarBomb,
+                "Command_ConvertToCarBomb",
+                None,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1954,9 +1956,13 @@ mod tests {
             .find("fn host_apply_control_bar_cancel")
             .expect("cancel apply");
         let apply = &src[start..];
-        let apply = apply.split("\n    fn host_control_bar_local_selection").next().unwrap();
+        let apply = apply
+            .split("\n    fn host_control_bar_local_selection")
+            .next()
+            .unwrap();
         assert!(
-            apply.contains("resolve_host_queue_cancel_index(production_id, queue_index, queue_len)")
+            apply
+                .contains("resolve_host_queue_cancel_index(production_id, queue_index, queue_len)")
                 && apply.contains("host_cancel_production_at_index(producer, cancel_index)")
                 && !apply.contains("host_cancel_production_and_sync_hud"),
             "live cancel must keep productionID/index identity, not template first-match"
@@ -1991,5 +1997,4 @@ mod tests {
             "DirectCommand must not discard exit_object_id"
         );
     }
-
 }

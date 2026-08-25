@@ -32,7 +32,7 @@
 //! Not full SAGE dirty-rect streaming / multi-player simultaneous grid parity.
 
 use crate::game_logic::ObjectId as ObjectID;
-use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
+use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
 use log::{trace, warn};
 
 fn shroud_runtime_active(
@@ -745,10 +745,7 @@ impl FOWRenderingBridge {
 
             trace!(
                 "FOW visibility for object {}: alpha={}, explored={}, visible={}",
-                object_id,
-                visibility.visibility_alpha,
-                is_explored,
-                is_visible
+                object_id, visibility.visibility_alpha, is_explored, is_visible
             );
         } else {
             trace!(
@@ -1248,8 +1245,8 @@ mod tests {
     #[test]
     fn projected_shroud_enable_disable_border_override_is_frozen() {
         use game_client::core::script_action_handler::{
-            clear_script_display_border_shroud_level, script_display_border_shroud_level,
-            GameClientScriptActionHandler,
+            GameClientScriptActionHandler, clear_script_display_border_shroud_level,
+            script_display_border_shroud_level,
         };
         use gamelogic::scripting::engine::ScriptActionHandler;
 

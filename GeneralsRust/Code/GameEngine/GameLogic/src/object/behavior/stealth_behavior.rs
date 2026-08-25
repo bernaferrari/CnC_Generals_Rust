@@ -7,9 +7,9 @@ use super::advanced_behavior_system::{
     AdvancedBehavior, BehaviorContext, BehaviorEvent, BehaviorOutcome, BehaviorPriority,
     BehaviorState,
 };
+use crate::GameLogicResult;
 use crate::common::*;
 use crate::object::{Object, ObjectId};
-use crate::GameLogicResult;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

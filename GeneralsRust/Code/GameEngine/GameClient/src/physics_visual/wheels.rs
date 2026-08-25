@@ -1,11 +1,11 @@
 //! C++ `Drawable::calcPhysicsXformWheels` (`Drawable.cpp:1895-2186`).
 
+use super::PhysicsVisualXform;
 use super::loco_state::PhysicsVisualLocoState;
 use super::rng::ClientVisualRng;
 use super::spring::{finish_accel_totals, ground_pitch_roll};
-use super::types::{LocomotorVisualParams, PhysicsVisualBody, CPP_PI};
+use super::types::{CPP_PI, LocomotorVisualParams, PhysicsVisualBody};
 use super::wheels_suspension::{apply_airborne_rear_extension, apply_grounded_suspension};
-use super::PhysicsVisualXform;
 
 /// Wheels: airborne early-return, bounce, ground spring, suspension, Z divisor.
 pub fn calc_wheels(

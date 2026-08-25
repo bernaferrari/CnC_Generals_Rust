@@ -56,8 +56,8 @@ fn cb_source() -> &'static str {
 }
 
 // 2026-08-15: widen post-split scan window to the rest of the concat.
-pub fn honesty_host_production_interface_presentation_residual_method_names_residual_wave997(
-) -> bool {
+pub fn honesty_host_production_interface_presentation_residual_method_names_residual_wave997()
+-> bool {
     let names = LIVE_HOST_PRODUCTION_INTERFACE_PRESENTATION_RESIDUAL_METHOD_NAMES_WAVE997;
     let ok = residual_name_index(names, "get_object_has_production").is_some()
         && residual_name_index(names, "Wave 997").is_some();
@@ -66,8 +66,8 @@ pub fn honesty_host_production_interface_presentation_residual_method_names_resi
     ok
 }
 
-pub fn honesty_host_production_interface_presentation_residual_nav_commands_residual_wave997(
-) -> bool {
+pub fn honesty_host_production_interface_presentation_residual_nav_commands_residual_wave997()
+-> bool {
     let steps = LIVE_HOST_PRODUCTION_INTERFACE_PRESENTATION_RESIDUAL_NAV_STEPS_WAVE997;
     let ok = residual_name_index(
         steps,

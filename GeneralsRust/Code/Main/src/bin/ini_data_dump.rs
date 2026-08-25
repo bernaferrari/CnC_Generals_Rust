@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use generals_main::assets::ini_parser::{IniParser, ObjectDefinition};
 use serde::Serialize;
 use std::collections::BTreeMap;

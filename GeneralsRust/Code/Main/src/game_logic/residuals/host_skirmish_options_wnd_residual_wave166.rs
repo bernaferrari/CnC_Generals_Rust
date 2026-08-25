@@ -95,9 +95,9 @@ pub fn honesty_click_skirmish_start_source() -> bool {
 /// Live residual: resolve/validate Skirmish options WND + Start button latch.
 pub fn simulate_skirmish_options_wnd_honesty() -> bool {
     use crate::gameplay_layout::{
-        simulate_skirmish_options_wnd_prepare_honesty, skirmish_options_wnd_honesty,
         SKIRMISH_OPTIONS_WND_KEY_NAMES_RESIDUAL, SKIRMISH_OPTIONS_WND_NAMED_COUNT_RESIDUAL,
         SKIRMISH_OPTIONS_WND_WINDOW_TOKEN_COUNT_RESIDUAL,
+        simulate_skirmish_options_wnd_prepare_honesty, skirmish_options_wnd_honesty,
     };
 
     if !honesty_skirmish_options_wnd_residual_pack_wave166() {

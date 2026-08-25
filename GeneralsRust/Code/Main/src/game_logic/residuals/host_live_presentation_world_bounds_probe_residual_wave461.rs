@@ -77,8 +77,8 @@ pub fn residual_presentation_world_bounds_probe_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_world_bounds_probe_last_action(
-) -> ResidualPresentationWorldBoundsProbeAction {
+pub fn residual_presentation_world_bounds_probe_last_action()
+-> ResidualPresentationWorldBoundsProbeAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationWorldBoundsProbeAction::MethodNames,
         2 => ResidualPresentationWorldBoundsProbeAction::SourceMarkers,

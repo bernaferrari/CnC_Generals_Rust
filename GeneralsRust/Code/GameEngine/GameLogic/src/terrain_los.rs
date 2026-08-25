@@ -120,7 +120,15 @@ mod tests {
         data[2 + 3] = 80;
         let a = Coord3D::new(0.0, 0.0, 1.0);
         let b = Coord3D::new(20.0, 0.0, 1.0);
-        assert!(!is_clear_line_of_sight(&a, &b, &data, 3, 2, 0, 80.0 * MAP_HEIGHT_SCALE));
+        assert!(!is_clear_line_of_sight(
+            &a,
+            &b,
+            &data,
+            3,
+            2,
+            0,
+            80.0 * MAP_HEIGHT_SCALE
+        ));
     }
 
     #[test]

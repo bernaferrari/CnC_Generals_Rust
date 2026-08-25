@@ -6,11 +6,11 @@
 
 #[path = "core_impl/mod.rs"]
 pub mod core;
-pub mod path_following;
 pub mod ini_bridge;
+pub mod path_following;
 
 // Re-export main types
 pub use core::*;
 pub use path_following::{
-    update_movement_with_pathfinding, PathFollowingController, PathFollowingState,
+    PathFollowingController, PathFollowingState, update_movement_with_pathfinding,
 };

@@ -599,26 +599,29 @@ mod tests {
         let mut sm = ConnectionStateMachine::new();
 
         // Valid connection sequence
-        assert!(sm
-            .transition_to(
+        assert!(
+            sm.transition_to(
                 DetailedConnectionState::ConnectingInitiate,
                 TransitionReason::UserAction
             )
-            .is_ok());
+            .is_ok()
+        );
 
-        assert!(sm
-            .transition_to(
+        assert!(
+            sm.transition_to(
                 DetailedConnectionState::ConnectingResolving,
                 TransitionReason::Protocol
             )
-            .is_ok());
+            .is_ok()
+        );
 
-        assert!(sm
-            .transition_to(
+        assert!(
+            sm.transition_to(
                 DetailedConnectionState::ConnectingTcp,
                 TransitionReason::Protocol
             )
-            .is_ok());
+            .is_ok()
+        );
 
         assert_eq!(sm.current_state(), DetailedConnectionState::ConnectingTcp);
         assert_eq!(sm.transition_history.len(), 3);
@@ -629,12 +632,13 @@ mod tests {
         let mut sm = ConnectionStateMachine::new();
 
         // Invalid: can't go directly from Uninitialized to InGame
-        assert!(sm
-            .transition_to(
+        assert!(
+            sm.transition_to(
                 DetailedConnectionState::InGame,
                 TransitionReason::UserAction
             )
-            .is_err());
+            .is_err()
+        );
 
         // State should remain unchanged
         assert_eq!(sm.current_state(), DetailedConnectionState::Uninitialized);
@@ -663,12 +667,13 @@ mod tests {
         .unwrap();
 
         // Error transitions should always be allowed
-        assert!(sm
-            .transition_to(
+        assert!(
+            sm.transition_to(
                 DetailedConnectionState::ErrorNetwork,
                 TransitionReason::Error("Connection failed".to_string())
             )
-            .is_ok());
+            .is_ok()
+        );
 
         assert_eq!(sm.current_state(), DetailedConnectionState::ErrorNetwork);
     }

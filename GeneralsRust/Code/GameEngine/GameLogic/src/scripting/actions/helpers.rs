@@ -10,13 +10,13 @@ use crate::common::{Coord3D, Relationship};
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::player_list;
+use crate::scripting::ScriptValue;
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
 use crate::scripting::engine::get_script_engine;
-use crate::scripting::ScriptValue;
 use crate::team::get_team_factory;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::radar::{get_radar_system, RadarEventType};
+use game_engine::common::system::radar::{RadarEventType, get_radar_system};
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

@@ -128,7 +128,6 @@ impl Object {
             .unwrap_or(0.0)
     }
 
-
     /// C++ Object::setWeaponBonusCondition(PLAYER_UPGRADE) residual.
     pub fn set_weapon_bonus_player_upgrade(&mut self, enabled: bool) {
         self.weapon_bonus_player_upgrade = enabled;
@@ -151,9 +150,7 @@ impl Object {
 
     /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.
     pub fn set_terrain_decal_chemsuit(&mut self, enabled: bool) {
-        use crate::game_logic::host_battlemaster::{
-            TERRAIN_DECAL_CHEMSUIT, TERRAIN_DECAL_NONE,
-        };
+        use crate::game_logic::host_battlemaster::{TERRAIN_DECAL_CHEMSUIT, TERRAIN_DECAL_NONE};
         self.terrain_decal_chemsuit = enabled;
         if enabled {
             self.set_terrain_decal(TERRAIN_DECAL_CHEMSUIT);
@@ -233,8 +230,8 @@ impl Object {
 
     /// C++ `Drawable::friend_bindToObject` / `changedTeam` for `KINDOF_FS_FAKE`.
     pub fn apply_fake_building_terrain_decal(&mut self) {
-        use crate::game_logic::host_battlemaster::TERRAIN_DECAL_SHADOW_TEXTURE;
         use crate::game_logic::KindOf;
+        use crate::game_logic::host_battlemaster::TERRAIN_DECAL_SHADOW_TEXTURE;
         if !self.is_kind_of(KindOf::FSFake) {
             return;
         }
@@ -259,12 +256,11 @@ impl Object {
         draw_icon_ui: bool,
     ) {
         use crate::game_logic::host_battlemaster::{
-            has_fanaticism_upgrade, hide_leftover_horde_flag_subobjects,
+            TERRAIN_DECAL_NONE, has_fanaticism_upgrade, hide_leftover_horde_flag_subobjects,
             is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
             leftover_horde_fanaticism_bonus, leftover_horde_major_radius,
             leftover_infantry_horde_decal_size_or_bbox, leftover_template_shadow_size,
             leftover_unit_has_horde_flag_subobjects, leftover_vehicle_horde_decal_size,
-            TERRAIN_DECAL_NONE,
         };
         if leftover_unit_has_horde_flag_subobjects(&self.template_name) {
             hide_leftover_horde_flag_subobjects(&mut self.sub_object_visibility);
@@ -323,8 +319,6 @@ impl Object {
         }
     }
 
-
-
     /// C++ SpecialPowerCompletionDie::setCreator residual.
     pub fn set_special_power_completion(
         &mut self,
@@ -359,7 +353,6 @@ impl Object {
         };
         self.set_special_power_completion(power, creator_id);
     }
-
 
     /// C++ SpecialPowerModule::startPowerRecharge residual (non-SharedNSync path).
     ///
@@ -429,7 +422,7 @@ impl Object {
             &self.template_name,
         )
         .as_ref()
-        == Some(power)
+            == Some(power)
         {
             if let Some(data) = self.missile_launcher_building.as_mut() {
                 data.pending_initiate = true;
@@ -569,7 +562,6 @@ impl Object {
         self.guard_chase_phase = 0;
         self.guard_chase_give_up_frame = 0;
     }
-
 
     /// C++ AIUpdateInterface::privateGuardRetaliate residual.
     ///
@@ -728,13 +720,7 @@ impl Object {
         }
         // C++ HealContain: barracks/hospital OpenContain, not a garrison.
         if self.thing.template.contain_module.kind.is_heal_contain() {
-            return self
-                .thing
-                .template
-                .contain_module
-                .slots
-                .unwrap_or(0)
-                > 0
+            return self.thing.template.contain_module.slots.unwrap_or(0) > 0
                 || self
                     .building_data
                     .as_ref()
@@ -1297,7 +1283,6 @@ impl Object {
         self.refresh_model_condition_bits();
     }
 
-
     /// True when portable gattling residual is active on this host.
     pub fn has_overlord_gattling_residual(&self) -> bool {
         self.has_overlord_gattling_addon
@@ -1345,8 +1330,8 @@ impl Object {
     /// C++ UndeadBody::startSecondLife + BattleBus first-death begin residual.
     pub fn start_battle_bus_second_life(&mut self) {
         use crate::game_logic::host_battle_bus::{
-            battle_bus_start_undeath_fx_name, HostBattleBusBodyData, BATTLE_BUS_MC_BIT_SECOND_LIFE,
-            BATTLE_BUS_SECOND_LIFE_MAX_HEALTH, BATTLE_BUS_THROW_FORCE,
+            BATTLE_BUS_MC_BIT_SECOND_LIFE, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH,
+            BATTLE_BUS_THROW_FORCE, HostBattleBusBodyData, battle_bus_start_undeath_fx_name,
         };
         let frame = crate::game_logic::host_historic_bonus::logic_frame();
         let body = self
@@ -1364,11 +1349,7 @@ impl Object {
         self.status.effectively_dead = false;
         // C++ applyShock throwForce.z (up). Host is Y-up, so +Y.
         // scrubVelocity2D then throw — do not stop_moving (that zeroes the hop).
-        let _ = self.apply_shock_wave_impulse(glam::Vec3::new(
-            0.0,
-            BATTLE_BUS_THROW_FORCE,
-            0.0,
-        ));
+        let _ = self.apply_shock_wave_impulse(glam::Vec3::new(0.0, BATTLE_BUS_THROW_FORCE, 0.0));
         self.apply_shock_random_rotation(frame);
         self.movement.velocity.x = 0.0;
         self.movement.velocity.z = 0.0;
@@ -1398,7 +1379,7 @@ impl Object {
         passenger_count: usize,
     ) -> (bool, bool) {
         use crate::game_logic::host_battle_bus::{
-            battle_bus_hit_ground_fx_name, BATTLE_BUS_MC_BIT_SECOND_LIFE,
+            BATTLE_BUS_MC_BIT_SECOND_LIFE, battle_bus_hit_ground_fx_name,
         };
         if self.battle_bus_body.is_none() {
             return (false, false);
@@ -1480,7 +1461,6 @@ impl Object {
             .map(|b| b.is_second_life)
             .unwrap_or(false);
         !second && raw_amount >= self.health.current && self.health.current > 0.0
-
     }
 
     /// Install residual GLA Tunnel Network structure:
@@ -1656,8 +1636,7 @@ impl Object {
         {
             use game_engine::common::system::kind_of::KindOfMask;
             let contain = &mut self.thing.template.contain_module;
-            contain.allow_inside_kind_of =
-                KindOfMask::INFANTRY.bits() | KindOfMask::VEHICLE.bits();
+            contain.allow_inside_kind_of = KindOfMask::INFANTRY.bits() | KindOfMask::VEHICLE.bits();
             contain.forbid_inside_kind_of =
                 KindOfMask::AIRCRAFT.bits() | KindOfMask::HUGE_VEHICLE.bits();
         }
@@ -1684,8 +1663,7 @@ impl Object {
         {
             use game_engine::common::system::kind_of::KindOfMask;
             let contain = &mut self.thing.template.contain_module;
-            contain.allow_inside_kind_of =
-                KindOfMask::INFANTRY.bits() | KindOfMask::VEHICLE.bits();
+            contain.allow_inside_kind_of = KindOfMask::INFANTRY.bits() | KindOfMask::VEHICLE.bits();
             contain.forbid_inside_kind_of =
                 KindOfMask::AIRCRAFT.bits() | KindOfMask::HUGE_VEHICLE.bits();
         }
@@ -1702,7 +1680,6 @@ impl Object {
     pub fn is_combat_chinook_style_container(&self) -> bool {
         self.is_combat_chinook_transport
     }
-
 
     /// Install residual China Listening Outpost transport + detect residual:
     /// C++ TransportContain Slots=2, PassengersAllowedToFire=Yes,
@@ -1840,7 +1817,6 @@ impl Object {
             || self.is_technical_style_container()
             || self.is_helix_transport
     }
-
 
     /// Retained transport capacity.  Capacity comes only from an authored
     /// Contain module or an explicit specialized host transport installation;

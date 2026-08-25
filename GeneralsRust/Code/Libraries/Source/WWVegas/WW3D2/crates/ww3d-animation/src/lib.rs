@@ -24,9 +24,10 @@ pub mod wgpu_skinned_renderer;
 
 pub use animatable_object::Animatable3DObjClass;
 pub use animated_sound::{
-    embedded_sound_bone, has_embedded_sounds, initialize as initialize_animated_sound_mgr,
+    SoundLibraryBridge, embedded_sound_bone, has_embedded_sounds,
+    initialize as initialize_animated_sound_mgr,
     initialize_from_bytes as initialize_animated_sound_mgr_from_bytes, set_sound_library,
-    shutdown as shutdown_animated_sound_mgr, trigger_sound, SoundLibraryBridge,
+    shutdown as shutdown_animated_sound_mgr, trigger_sound,
 };
 pub use animation_blending::{
     AdvancedAnimatable3DObj, AnimationController, AnimationLayer, AnimationParameter,
@@ -37,7 +38,7 @@ pub use hanim::{
     AnimationEvent, AnimationMode, Axis, BitChannel, HAnimClass, MotionChannel, MotionChannelType,
 };
 pub use hcompressed_anim::{
-    HCompressedAnimClass, ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED,
+    ANIM_FLAVOR_ADAPTIVE_DELTA, ANIM_FLAVOR_TIMECODED, HCompressedAnimClass,
 };
 pub use htree::HTreeClass;
 pub use ik_system::{BoneConstraint, ConstraintType, FABRIKSolver, IKChain, IKError, IKResult};
@@ -46,9 +47,9 @@ pub use motion_channels::{
     AdaptiveDeltaMotionChannelClass, TimeCodedBitChannelClass, TimeCodedMotionChannelClass,
 };
 pub use w3d_loader::{
-    load_w3d_animation, load_w3d_animation_from_file, load_w3d_hierarchy,
-    load_w3d_hierarchy_from_file, w3d_animation_to_hanim, W3DAnimationChannel, W3DAnimationData,
-    W3DAnimationError,
+    W3DAnimationChannel, W3DAnimationData, W3DAnimationError, load_w3d_animation,
+    load_w3d_animation_from_file, load_w3d_hierarchy, load_w3d_hierarchy_from_file,
+    w3d_animation_to_hanim,
 };
 
 // Export new skeletal animation system
@@ -56,7 +57,7 @@ pub use animation_state_machine::{
     AnimationState as GameAnimationState, AnimationStateMachine, AnimationStateMachineBuilder,
     StateTransition, TransitionCondition as StateTransitionCondition,
 };
-pub use skeletal_animation::{AnimatedModel, SkeletonState, MAX_BONES};
+pub use skeletal_animation::{AnimatedModel, MAX_BONES, SkeletonState};
 pub use w3d_model_loader::{
     BoneInfluence, BoundingBox, HModelConnection, HModelData, LODLevel, LODModelData, W3DMeshData,
     W3DModel,
@@ -64,8 +65,8 @@ pub use w3d_model_loader::{
 
 #[cfg(feature = "wgpu-renderer")]
 pub use wgpu_skinned_renderer::{
-    prepare_model_for_rendering, BoneMatricesUniform, SkinnedMeshBuffer, SkinnedMeshRenderer,
-    SkinnedVertex, SKINNED_MESH_SHADER,
+    BoneMatricesUniform, SKINNED_MESH_SHADER, SkinnedMeshBuffer, SkinnedMeshRenderer,
+    SkinnedVertex, prepare_model_for_rendering,
 };
 
 /// Build a [`HAnimClass`] from an [`AnimationPrototype`] exported by the asset loader.

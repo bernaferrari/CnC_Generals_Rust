@@ -9,7 +9,7 @@
 //! Matches C++ behavior exactly for game balance
 
 use crate::ai::AiError;
-use crate::common::{Real, LOGICFRAMES_PER_SECOND};
+use crate::common::{LOGICFRAMES_PER_SECOND, Real};
 
 /// Game difficulty levels - matches C++ GameDifficulty enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

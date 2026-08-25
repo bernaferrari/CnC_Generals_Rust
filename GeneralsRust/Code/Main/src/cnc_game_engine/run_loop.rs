@@ -96,8 +96,6 @@ fn average_fps_tracker() -> std::sync::MutexGuard<'static, AverageFpsTracker> {
     TRACKER.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-
-
 /// Run the actual C&C game
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
@@ -895,13 +893,10 @@ fn host_object_shroud_to_radar(
     }
 }
 
-
 impl CnCGameEngine {
     /// C++ `GameEngine::update` (`GameEngine.cpp:732`) `TheRadar->UPDATE()`.
     pub(super) fn host_update_the_radar(&self) {
-        if let Ok(mut shroud) =
-            gamelogic::system::shroud_manager::get_shroud_manager().lock()
-        {
+        if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
             shroud.refresh_shroud_for_local_player();
         }
 
@@ -910,9 +905,7 @@ impl CnCGameEngine {
             .unwrap_or(self.current_player_id);
         let player = self.game_logic.get_player(local_id);
         // C++ `Player::isPlayerActive` = `!observer && !dead`.
-        let local_player_active = player
-            .map(|p| p.is_alive && !p.is_observer)
-            .unwrap_or(true);
+        let local_player_active = player.map(|p| p.is_alive && !p.is_observer).unwrap_or(true);
         let local_has_radar = player.map(|p| p.has_radar()).unwrap_or(false);
         let radar_forced = self.game_logic.radar_forced();
 
@@ -925,9 +918,7 @@ impl CnCGameEngine {
             // C++ `getShroudedStatus` is queried at overlay render, after
             // `Radar::update` rebuilds the object lists. Stamp after sync so
             // PARTIAL_CLEAR fog-edge blips survive provider rebuild.
-            if let Ok(shroud) =
-                gamelogic::system::shroud_manager::get_shroud_manager().lock()
-            {
+            if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
                 radar.apply_object_shrouds(|object_id| {
                     shroud
                         .get_host_object_shroud_status(local_id, object_id)
@@ -1019,9 +1010,8 @@ impl CnCGameEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::{execute_wait_deadline, DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL};
+    use super::{DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL, execute_wait_deadline};
     use std::time::{Duration, Instant};
-
 
     #[test]
     fn windowed_present_cap_is_cpp_default_max_fps_45() {
@@ -1119,11 +1109,10 @@ mod tests {
             "windowed WaitUntil must include work via execute_wait_deadline"
         );
         assert!(
-            !live.contains("Instant::now()\n                            + engine.live_present_interval()"),
+            !live.contains(
+                "Instant::now()\n                            + engine.live_present_interval()"
+            ),
             "must not add present interval after drive_frame returns"
         );
     }
-
-
 }
-

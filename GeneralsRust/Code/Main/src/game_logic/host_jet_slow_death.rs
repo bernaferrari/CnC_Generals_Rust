@@ -215,9 +215,10 @@ impl HostJetSlowDeathData {
 }
 
 fn parse_msec(raw: &str) -> Option<u32> {
-    raw.trim().parse::<f32>().ok().map(|ms| {
-        ((ms * JET_SLOW_DEATH_LOGIC_FPS) / 1000.0).ceil() as u32
-    })
+    raw.trim()
+        .parse::<f32>()
+        .ok()
+        .map(|ms| ((ms * JET_SLOW_DEATH_LOGIC_FPS) / 1000.0).ceil() as u32)
 }
 
 fn opt_name(raw: &str) -> Option<String> {

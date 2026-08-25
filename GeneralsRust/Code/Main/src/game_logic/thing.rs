@@ -278,7 +278,6 @@ pub struct ContainModuleMetadata {
     pub door_open_time: u32,
 }
 
-
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
 /// declaration.  Presence is the authority contract: a power-plant KindOf or
 /// a template spelling never fabricates this module.
@@ -540,7 +539,6 @@ impl FlightDeckMetadata {
     }
 }
 
-
 /// Exact `DeployStyleAIUpdateModuleData` retained from one Object INI
 /// `Behavior = DeployStyleAIUpdate` declaration.
 ///
@@ -611,7 +609,6 @@ pub enum SupplyTruckState {
     /// C++ `ST_REGROUPING` — wanting failed, hang out at base.
     Regrouping,
 }
-
 
 /// The production-exit interfaces carried by the bounded live producer
 /// path.  This is deliberately not inferred from a building kind or basename:
@@ -768,7 +765,6 @@ pub struct GrantUpgradeCreateMetadata {
     /// True when INI `ExemptStatus` includes UNDER_CONSTRUCTION.
     pub exempt_under_construction: bool,
 }
-
 
 /// The two retail ObjectCreationLists used by `EjectPilotDie`.
 ///
@@ -1074,7 +1070,6 @@ impl HackerDisableBuildingMetadata {
     }
 }
 
-
 /// Exact `SpecialAbilityUpdate` data for Burton C4 / Tank Hunter TNT plants.
 ///
 /// C++ `SpecialAbilityUpdate::startUnpacking` then `triggerAbilityEffect`
@@ -1114,7 +1109,11 @@ impl ChargePlantAbilityMetadata {
 /// `m_animFrames = time * GameLogicRandomValueReal(1-factor, 1+factor)`.
 /// `unit_sample` is 0..1 along that inclusive range (0 → 1-factor).
 pub fn pack_unpack_variation_multiplier(factor: f32, unit_sample: f32) -> f32 {
-    let factor = if factor.is_finite() { factor.max(0.0) } else { 0.0 };
+    let factor = if factor.is_finite() {
+        factor.max(0.0)
+    } else {
+        0.0
+    };
     let sample = if unit_sample.is_finite() {
         unit_sample.clamp(0.0, 1.0)
     } else {
@@ -1142,7 +1141,11 @@ pub fn vary_pack_unpack_duration_ms(base_ms: u32, factor: f32) -> u32 {
     if base_ms == 0 {
         return 0;
     }
-    let factor = if factor.is_finite() { factor.max(0.0) } else { 0.0 };
+    let factor = if factor.is_finite() {
+        factor.max(0.0)
+    } else {
+        0.0
+    };
     let variation = if factor <= 0.0 {
         1.0
     } else {
@@ -1384,10 +1387,9 @@ impl HostGeometryInfo {
     pub fn bounding_circle_radius(&self) -> f32 {
         match self.geom_type {
             HostGeometryType::Sphere | HostGeometryType::Cylinder => self.major_radius,
-            HostGeometryType::Box => {
-                (self.major_radius * self.major_radius + self.minor_radius * self.minor_radius)
-                    .sqrt()
-            }
+            HostGeometryType::Box => (self.major_radius * self.major_radius
+                + self.minor_radius * self.minor_radius)
+                .sqrt(),
         }
     }
 
@@ -1454,8 +1456,6 @@ impl HostGeometryInfo {
     }
 }
 
-
-
 /// Thing Template - shared configuration data for Things
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
@@ -1501,7 +1501,6 @@ pub struct ThingTemplate {
     pub asset_scale: f32,
     /// Authored DockUpdate family.  Never infer this from a template name.
     #[serde(default)]
-
     pub dock_kind: DockKind,
     /// `SupplyWarehouseDockUpdate::StartingBoxes`, when authored.  `Some(0)`
     /// is meaningful and must remain distinct from no warehouse module.
@@ -1681,8 +1680,6 @@ pub struct ThingTemplate {
     /// `SpecialAbilityUpdate::TriggerSound` for leftover steal/disable modules.
     #[serde(default)]
     pub leftover_sa_trigger_sound: Option<String>,
-
-
 
     pub special_power_cooldown: f32,
     /// C++ parity: XP awarded to the killer when this object is destroyed.
@@ -1923,9 +1920,6 @@ pub struct ThingTemplate {
     #[serde(default)]
     pub upgrade_cameo_names: [String; 5],
 
-
-
-
     /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
     #[serde(default)]
     pub geometry_info: HostGeometryInfo,
@@ -1941,10 +1935,7 @@ pub struct ThingTemplate {
     /// Leftover `ThingTemplate::m_prereqInfo` from Object INI `Prerequisites`.
     /// Template data, not instance state — re-parsed from leftover factory / INI.
     #[serde(skip)]
-    pub production_prerequisites:
-        Vec<game_engine::common::rts::ProductionPrerequisite>,
-
-
+    pub production_prerequisites: Vec<game_engine::common::rts::ProductionPrerequisite>,
 }
 
 impl ThingTemplate {
@@ -2015,12 +2006,13 @@ impl ThingTemplate {
             capture_trigger_sound: None,
             leftover_sa_trigger_sound: None,
 
-
             special_power_cooldown: 10.0,
 
             experience_value: 0.0,
             experience_values: [0.0; 4],
-            skill_point_values: [crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL; 4],
+            skill_point_values:
+                [crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL;
+                    4],
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
             is_trainable: false,
             enter_guard: false,
@@ -2091,14 +2083,11 @@ impl ThingTemplate {
             sound_ambient_rubble: None,
             upgrade_cameo_names: Default::default(),
 
-
             geometry_info: HostGeometryInfo::default(),
             structure_rubble_height: 0,
             auto_acquire_enemies_when_idle: 0,
             forbid_player_commands: false,
             production_prerequisites: Vec::new(),
-
-
         }
     }
     /// C++ `ThingTemplate::getExperienceValue(level)`. Uses the authored
@@ -2127,8 +2116,7 @@ impl ThingTemplate {
             VeterancyLevel::Heroic => 3,
         };
         let value = self.skill_point_values[idx];
-        if value
-            == crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL
+        if value == crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL
         {
             self.experience_value_for_level(level) as i32
         } else {
@@ -2147,8 +2135,6 @@ impl ThingTemplate {
             .iter()
             .find(|ability| ability.is_remote_charge_power())
     }
-
-
 
     /// Preserve a drawable authored C++ asset scale. Retail Object INIs use
     /// positive finite values; malformed values retain the default instead of
@@ -2456,7 +2442,7 @@ impl ThingTemplate {
     /// Convert a gamelogic WeaponStore template into Main host Weapon stats.
     /// Returns None if store is missing or stats are unusable (0 dmg/range).
     pub fn weapon_from_store(name: &str) -> Option<Weapon> {
-        use gamelogic::weapon::{with_weapon_store, WeaponAntiMask, WeaponBonus};
+        use gamelogic::weapon::{WeaponAntiMask, WeaponBonus, with_weapon_store};
         const FPS: f32 = 30.0;
         let wt = with_weapon_store(|store| store.find_weapon_template(name).cloned()).ok()??;
         if wt.primary_damage <= 0.0 || wt.attack_range <= 0.0 {
@@ -2535,12 +2521,18 @@ impl ThingTemplate {
         use gamelogic::weapon::with_weapon_store;
         let _ = super::weapon_bootstrap::ensure_host_weapon_store();
         with_weapon_store(|store| {
-            store.find_weapon_template(name).map(|wt| WeaponTrackerBind {
-                continuous_fire_one_shots: shots_needed_to_host(wt.continuous_fire_one_shots_needed),
-                continuous_fire_two_shots: shots_needed_to_host(wt.continuous_fire_two_shots_needed),
-                continuous_fire_coast_frames: wt.continuous_fire_coast_frames,
-                auto_reload_when_idle_frames: wt.auto_reload_when_idle_frames,
-            })
+            store
+                .find_weapon_template(name)
+                .map(|wt| WeaponTrackerBind {
+                    continuous_fire_one_shots: shots_needed_to_host(
+                        wt.continuous_fire_one_shots_needed,
+                    ),
+                    continuous_fire_two_shots: shots_needed_to_host(
+                        wt.continuous_fire_two_shots_needed,
+                    ),
+                    continuous_fire_coast_frames: wt.continuous_fire_coast_frames,
+                    auto_reload_when_idle_frames: wt.auto_reload_when_idle_frames,
+                })
         })
         .ok()
         .flatten()
@@ -2549,9 +2541,10 @@ impl ThingTemplate {
 
     /// Resolve ContinuousFire / AutoReloadWhenIdle for this template's primary.
     pub fn weapon_tracker_bind(&self) -> WeaponTrackerBind {
-        let name = self.primary_weapon_name.as_deref().or_else(|| {
-            super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name)
-        });
+        let name = self
+            .primary_weapon_name
+            .as_deref()
+            .or_else(|| super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name));
         match name {
             Some(name) => Self::weapon_tracker_from_store(name),
             None => WeaponTrackerBind::default(),
@@ -2682,7 +2675,6 @@ impl ThingTemplate {
         }
     }
 
-
     pub fn add_kind_of(&mut self, kind: KindOf) -> &mut Self {
         self.kind_of.insert(kind);
         self
@@ -2694,11 +2686,7 @@ impl ThingTemplate {
     }
 
     /// Author a `RebuildHoleExposeDie` HoleName / HoleMaxHealth pair.
-    pub fn set_rebuild_hole_expose(
-        &mut self,
-        hole_name: &str,
-        hole_max_health: f32,
-    ) -> &mut Self {
+    pub fn set_rebuild_hole_expose(&mut self, hole_name: &str, hole_max_health: f32) -> &mut Self {
         self.rebuild_hole_expose = Some(RebuildHoleExposeDieMetadata::authored(
             hole_name,
             hole_max_health,
@@ -2741,7 +2729,6 @@ impl ThingTemplate {
     ) {
         self.production_prerequisites = prereqs;
     }
-
 
     pub fn set_model(&mut self, model: &str) -> &mut Self {
         self.model_name = Some(model.to_string());
@@ -2801,7 +2788,6 @@ fn parse_auto_choose_value(value: &str) -> Option<(u8, u32)> {
     }
     Some((slot, mask))
 }
-
 
 /// C++ FiringTracker fields bound from a WeaponStore template onto a host Object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2954,7 +2940,7 @@ mod weapon_resolve_tests {
             range: 80.0,
             reload_time: 0.5,
             ..Weapon::default()
-});
+        });
         t.set_primary_weapon_name("DoesNotExistInStoreHopefully");
         let w = t.resolve_primary_weapon().expect("weapon");
         assert!((w.damage - 40.0).abs() < 0.01);
@@ -3065,7 +3051,7 @@ mod weapon_resolve_tests {
             range: 50.0,
             reload_time: 1.0,
             ..Weapon::default()
-});
+        });
         t.set_secondary_weapon_name("DoesNotExistInStoreHopefully");
         let w = t.resolve_secondary_weapon().expect("weapon");
         assert!((w.damage - 99.0).abs() < 0.01);
@@ -3097,10 +3083,8 @@ mod weapon_resolve_tests {
             "AutoChooseSources".to_string(),
             "SECONDARY NONE".to_string(),
         );
-        set.attributes.insert(
-            "WeaponLockSharedAcrossSets".to_string(),
-            "No".to_string(),
-        );
+        set.attributes
+            .insert("WeaponLockSharedAcrossSets".to_string(), "No".to_string());
         let mut t = ThingTemplate::new("AmericaVehicleComanche");
         t.apply_weapon_set_definition(&set);
         assert_eq!(t.preferred_against[0], vec![KindOf::Infantry]);
@@ -3206,8 +3190,16 @@ mod weapon_resolve_tests {
                 yardstick.is_contact_weapon(),
             )
         };
-        assert!((leftover.0 - 97.5).abs() < 1e-6, "leftover max={}", leftover.0);
-        assert!((leftover.1 - 7.5).abs() < 1e-6, "leftover min={}", leftover.1);
+        assert!(
+            (leftover.0 - 97.5).abs() < 1e-6,
+            "leftover max={}",
+            leftover.0
+        );
+        assert!(
+            (leftover.1 - 7.5).abs() < 1e-6,
+            "leftover min={}",
+            leftover.1
+        );
         assert!(!leftover.2);
         assert!(
             (weapon.range - leftover.0).abs() < 1e-6,
@@ -3231,8 +3223,12 @@ mod weapon_resolve_tests {
         let mut edge = gamelogic::weapon::WeaponTemplate::new("e".into());
         edge.attack_range = 12.5;
         assert!(!edge.is_contact_weapon());
-        assert!(super::super::weapon_bootstrap::is_contact_weapon_range(10.0));
-        assert!(!super::super::weapon_bootstrap::is_contact_weapon_range(12.5));
+        assert!(super::super::weapon_bootstrap::is_contact_weapon_range(
+            10.0
+        ));
+        assert!(!super::super::weapon_bootstrap::is_contact_weapon_range(
+            12.5
+        ));
 
         // Authored 10: leftover/C++ is contact (7.5 < 10); #else FUDGE was not.
         const CONTACT: &str = "__RustLiveContactAuthored10";
@@ -3248,16 +3244,25 @@ mod weapon_resolve_tests {
             t.attack_range = 12.5;
             store.add_weapon_template(t);
         });
-        assert!(super::super::weapon_bootstrap::host_is_contact_weapon_name(CONTACT));
+        assert!(super::super::weapon_bootstrap::host_is_contact_weapon_name(
+            CONTACT
+        ));
         assert!(!super::super::weapon_bootstrap::host_is_contact_weapon_name(EDGE));
         let w = ThingTemplate::weapon_from_store(CONTACT).expect("contact store");
         assert!((w.range - 7.5).abs() < 1e-6, "range={}", w.range);
-        assert!(super::super::weapon_bootstrap::is_contact_effective_range(w.range));
+        assert!(super::super::weapon_bootstrap::is_contact_effective_range(
+            w.range
+        ));
         let edge_w = ThingTemplate::weapon_from_store(EDGE).expect("edge store");
-        assert!((edge_w.range - 10.0).abs() < 1e-6, "edge range={}", edge_w.range);
-        assert!(!super::super::weapon_bootstrap::is_contact_effective_range(edge_w.range));
+        assert!(
+            (edge_w.range - 10.0).abs() < 1e-6,
+            "edge range={}",
+            edge_w.range
+        );
+        assert!(!super::super::weapon_bootstrap::is_contact_effective_range(
+            edge_w.range
+        ));
     }
-
 }
 
 /// Base Thing class - common functionality for all game entities

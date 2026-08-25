@@ -37,8 +37,8 @@ use crate::rendering::lighting_system::LightEnvironmentClass;
 use crate::rendering::texture_system::texture_base::{TextureAddressMode, TextureFilterMode};
 use crate::rendering::wgpu_renderer::wgpu_material_binds::WgpuMaterialBinds;
 use crate::rendering::wgpu_renderer::wgpu_pipeline_manager::{
-    VertexFormat, WgpuPipelineManager, MAX_TEXTURE_STAGES, MAX_TEXTURE_STAGE_GROUPS,
-    TEXTURES_PER_GROUP,
+    MAX_TEXTURE_STAGE_GROUPS, MAX_TEXTURE_STAGES, TEXTURES_PER_GROUP, VertexFormat,
+    WgpuPipelineManager,
 };
 use crate::texture_system::TextureClass;
 use bytemuck;
@@ -49,7 +49,7 @@ use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::sync::atomic::Ordering;
-use std::sync::{atomic::AtomicU32, Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, atomic::AtomicU32};
 use wgpu::util::DeviceExt;
 use wgpu::{
     AddressMode, FilterMode, Origin3d, SamplerDescriptor, TexelCopyBufferLayout,
@@ -57,8 +57,8 @@ use wgpu::{
     TextureViewDescriptor, TextureViewDimension,
 };
 use ww3d_assets::{
-    prototypes::{HierarchyPrototype, MeshPrototype},
     AssetManager,
+    prototypes::{HierarchyPrototype, MeshPrototype},
 };
 use ww3d_collision::bounding_volumes::obbox::OBBoxClass;
 use ww3d_core::w3d_format::{
@@ -68,21 +68,20 @@ use ww3d_core::w3d_string_from_bytes;
 use ww3d_core::*;
 use ww3d_gpu::device::GpuDevice;
 
-
-mod helpers;
-mod model_collision;
-mod model;
+mod cast_ray_aligned;
+mod collect_billboard_xform;
 mod dx8;
-mod mesh;
-mod mesh_ops;
-mod static_sort;
-mod render_manager;
+mod helpers;
 mod materials;
+mod mesh;
+mod mesh_camera_align;
+mod mesh_ops;
+mod model;
+mod model_collision;
+mod render_manager;
 mod render_obj;
 mod skin_deform;
-mod mesh_camera_align;
-mod collect_billboard_xform;
-mod cast_ray_aligned;
+mod static_sort;
 
 #[cfg(test)]
 mod tests;
@@ -91,11 +90,11 @@ mod tests;
 pub(in crate::rendering::mesh_system) use helpers::*;
 pub(in crate::rendering::mesh_system) use materials::*;
 
-pub use static_sort::{StaticSortEntry, StaticSortFlushGuard, StaticSortManager};
-pub use render_manager::{PreparedMeshModel, RenderPassResources, MeshRenderManager};
 pub use dx8::{
-    DX8PolygonRendererClass, DX8TextureCategoryClass, DX8FVFCategoryContainer, MeshRenderTask,
+    DX8FVFCategoryContainer, DX8PolygonRendererClass, DX8TextureCategoryClass, MeshRenderTask,
 };
+pub use render_manager::{MeshRenderManager, PreparedMeshModel, RenderPassResources};
+pub use static_sort::{StaticSortEntry, StaticSortFlushGuard, StaticSortManager};
 
 /// Sort levels for static sort lists (transparency sorting)
 /// CRITICAL: These values MUST match C++ w3d_file.h exactly!
@@ -132,8 +131,6 @@ pub enum BlendMode {
     Additive,
     Multiply,
 }
-
-
 
 pub struct FrustumClass {
     pub planes: [Vec4; 6], // Left, Right, Bottom, Top, Near, Far
@@ -173,7 +170,6 @@ impl FrustumClass {
         true
     }
 }
-
 
 // Material pass extensions
 impl MaterialPassClass {
@@ -220,7 +216,6 @@ impl MaterialPassClass {
 }
 
 // Using centralized RenderInfoClass and flags from render_object_system
-
 
 /// Render statistics for mesh rendering
 #[derive(Debug, Clone, Default)]
@@ -274,7 +269,6 @@ pub struct MeshModelClass {
     revision: u64,
 }
 
-
 #[derive(Debug, Clone)]
 pub(super) struct DecalRecord {
     id: u32,
@@ -284,7 +278,6 @@ pub(super) struct DecalRecord {
     texcoords: Vec<Vec2>,
     indices: Vec<u32>,
 }
-
 
 /// View of the cached bone palette, mirroring the DX8 renderer's palette versioning.
 pub struct BonePaletteView<'a> {
@@ -339,7 +332,6 @@ impl Default for FrozenFowVisibility {
     }
 }
 
-
 /// Main mesh class - equivalent to C++ MeshClass
 #[derive(Debug)]
 pub struct MeshClass {
@@ -378,7 +370,6 @@ pub struct MeshClass {
     bone_palette_version: u64,
     uv_offset_override: Option<[f32; 2]>,
 }
-
 
 /// Concatenated live sources for residual `include_str!` scans.
 pub const MESH_SYSTEM_SRC: &str = concat!(

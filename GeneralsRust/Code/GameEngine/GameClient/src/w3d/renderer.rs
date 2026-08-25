@@ -29,13 +29,13 @@ use wgpu::{
 };
 
 use super::{
+    AntiAliasing, ShadowQuality, W3DError, W3DResult,
     device::{W3DDeviceError, W3DFrameData},
     lighting::W3DLightManager,
     material::W3DMaterialType,
     shader::W3DShaderManager,
-    AntiAliasing, ShadowQuality, W3DError, W3DResult,
 };
-use crate::terrain::{terrain_visual::get_terrain_visual, TerrainVisual};
+use crate::terrain::{TerrainVisual, terrain_visual::get_terrain_visual};
 use glam::{Mat4 as GMat4, Vec4 as GVec4};
 use log::warn;
 

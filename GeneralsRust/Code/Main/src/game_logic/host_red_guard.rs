@@ -36,11 +36,11 @@
 //! - Not network horde / nationalism replication (network deferred)
 
 use super::Weapon;
-use crate::game_logic::host_battlemaster::{has_nationalism_upgrade, UPGRADE_NATIONALISM};
+use crate::game_logic::host_battlemaster::{UPGRADE_NATIONALISM, has_nationalism_upgrade};
 
 // Re-export nationalism helpers for integration call sites.
-pub use crate::game_logic::host_battlemaster::has_nationalism_upgrade as red_guard_has_nationalism;
 pub use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM as RED_GUARD_UPGRADE_NATIONALISM;
+pub use crate::game_logic::host_battlemaster::has_nationalism_upgrade as red_guard_has_nationalism;
 
 /// Logic frames per second (host fixed step).
 pub const RED_GUARD_LOGIC_FPS: f32 = 30.0;
@@ -94,7 +94,6 @@ pub const INFANTRY_HORDE_ROF_MULT: f32 = 1.5;
 pub const INFANTRY_NATIONALISM_ROF_MULT: f32 = 1.25;
 /// FANATICISM WeaponBonus RATE_OF_FIRE 125% (stacks with nationalism; Infantry General).
 pub const INFANTRY_FANATICISM_ROF_MULT: f32 = 1.25;
-
 
 /// Retail HordeUpdate Radius for China infantry (Red Guard / Tank Hunter).
 pub const INFANTRY_HORDE_RADIUS: f32 = 30.0;
@@ -276,9 +275,9 @@ pub fn red_guard_weapon(in_horde: bool, has_nationalism: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Residual bayonet Weapon (close-range one-shot).
@@ -298,9 +297,9 @@ pub fn red_guard_bayonet_weapon() -> Weapon {
         pre_attack_delay: delay_frames_to_reload_secs(BAYONET_PRE_ATTACK_FRAMES),
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Whether bayonet residual should apply for this shot.
@@ -356,7 +355,6 @@ pub fn counts_toward_infantry_horde(
 pub fn leftover_infantry_is_horde_neighbor(template_name: &str) -> bool {
     is_china_infantry_horde_unit(template_name)
 }
-
 
 /// Whether residual fire should apply Red Guard residual path (gun honesty).
 pub fn should_apply_red_guard_residual(is_red_guard: bool) -> bool {
@@ -555,16 +553,23 @@ mod tests {
     #[test]
     fn infantry_count_requires_horde_update_module() {
         assert!(leftover_infantry_is_horde_neighbor("ChinaInfantryRedguard"));
-        assert!(leftover_infantry_is_horde_neighbor("ChinaInfantryTankHunter"));
-        assert!(leftover_infantry_is_horde_neighbor("Infa_ChinaInfantryMiniGunner"));
+        assert!(leftover_infantry_is_horde_neighbor(
+            "ChinaInfantryTankHunter"
+        ));
+        assert!(leftover_infantry_is_horde_neighbor(
+            "Infa_ChinaInfantryMiniGunner"
+        ));
         assert!(!leftover_infantry_is_horde_neighbor("ChinaInfantryHacker"));
-        assert!(!leftover_infantry_is_horde_neighbor("ChinaInfantryBlackLotus"));
-        assert!(!leftover_infantry_is_horde_neighbor("AmericaInfantryRanger"));
+        assert!(!leftover_infantry_is_horde_neighbor(
+            "ChinaInfantryBlackLotus"
+        ));
+        assert!(!leftover_infantry_is_horde_neighbor(
+            "AmericaInfantryRanger"
+        ));
         assert!(!counts_toward_infantry_horde(
             true, true, true, false, 10.0, 30.0
         ));
     }
-
 
     #[test]
     fn red_guard_residual_pack_honesty_wave67() {

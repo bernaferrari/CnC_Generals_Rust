@@ -15,7 +15,7 @@ use crate::system::SubsystemInterface;
 use crate::draw_group_info::get_draw_group_info;
 use crate::game_text::GameText;
 
-use super::font::{get_font_library, FontDesc, GameFont};
+use super::font::{FontDesc, GameFont, get_font_library};
 use super::game_window::GameFont as LegacyGameFont;
 use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::{UIRect, UIRenderer};

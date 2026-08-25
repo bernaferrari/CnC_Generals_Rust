@@ -710,11 +710,7 @@ impl GameSpyInfo {
                 }
             }
         }
-        if count == 0 {
-            0
-        } else {
-            total / count
-        }
+        if count == 0 { 0 } else { total / count }
     }
 
     pub fn add_to_saved_ignore_list(&mut self, profile_id: i32, nick: AsciiString) {

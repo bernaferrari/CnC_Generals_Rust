@@ -2,19 +2,19 @@
 
 use std::sync::{Arc, RwLock};
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 
 use crate::common::{GameLogicRandomValue, ModuleData, TheFXListStore, TheObjectCreationListStore};
 use crate::damage::DamageInfo;
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{TheGameLogic, TheWeaponStore};
-use crate::object::die::{
-    parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
-    parse_die_mux_veterancy_levels, DieModule, DieModuleData, DieModuleInterface,
-};
 use crate::object::Object;
-use crate::weapon::{with_weapon_store, WeaponTemplate};
+use crate::object::die::{
+    DieModule, DieModuleData, DieModuleInterface, parse_die_mux_death_types,
+    parse_die_mux_exempt_status, parse_die_mux_required_status, parse_die_mux_veterancy_levels,
+};
+use crate::weapon::{WeaponTemplate, with_weapon_store};
 
 #[derive(Debug, Clone)]
 pub struct InstantDeathBehaviorModuleData {

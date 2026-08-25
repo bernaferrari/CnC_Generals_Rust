@@ -8,7 +8,7 @@
 //! version-tracked xfer.  No damage-specific virtuals exist at this level;
 //! derived modules (like SlowDeathBehaviorModule) override xfer/loadPostProcess.
 
-use crate::common::{ModuleData, NameKeyType, ObjectID, INVALID_ID};
+use crate::common::{INVALID_ID, ModuleData, NameKeyType, ObjectID};
 use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};

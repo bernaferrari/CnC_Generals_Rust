@@ -18,8 +18,8 @@
 //! SpecialPowerModule pausedPercent frame-slide Xfer / WeaponBonus.ini table merge.
 
 use crate::command_system::SpecialPowerType;
-use crate::game_logic::host_enum_table_residual::weapon_bonus_condition_name_index;
 use crate::game_logic::KindOf;
+use crate::game_logic::host_enum_table_residual::weapon_bonus_condition_name_index;
 use serde::{Deserialize, Serialize};
 
 /// C++ WEAPONBONUSCONDITION_PLAYER_UPGRADE residual ordinal.
@@ -462,10 +462,7 @@ pub fn locomotor_name_for_set_kind(
             _ => return None,
         });
     }
-    if t.contains("chinook")
-        || t.contains("a10")
-        || t.contains("thunderbolt")
-        || t.contains("b52")
+    if t.contains("chinook") || t.contains("a10") || t.contains("thunderbolt") || t.contains("b52")
     {
         return Some(match kind {
             HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
@@ -605,7 +602,9 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         "NuclearBattleMasterLocomotor" => (35.0, 1000.0, 180.0, 32.0, 1000.0, LOCO_BIGNUM_BRAKE),
         "BattleMasterLocomotor" => (25.0, 1000.0, 180.0, 25.0, 1000.0, LOCO_BIGNUM_BRAKE),
         "OverlordLocomotor" => (20.0, 15.0, 60.0, 20.0, 15.0, LOCO_BIGNUM_BRAKE),
-        "AirplaneTaxiingLocomotor" | "RaptorTaxiingLocomotor" => (25.0, 40.0, 90.0, 25.0, 40.0, 50.0),
+        "AirplaneTaxiingLocomotor" | "RaptorTaxiingLocomotor" => {
+            (25.0, 40.0, 90.0, 25.0, 40.0, 50.0)
+        }
         "RaptorSupersonicLocomotor" => (250.0, 180.0, 90.0, 250.0, 180.0, LOCO_BIGNUM_BRAKE),
         "AuroraSupersonicLocomotor" => (320.0, 200.0, 80.0, 320.0, 200.0, LOCO_BIGNUM_BRAKE),
         "MIGSupersonicLocomotor" => (230.0, 160.0, 90.0, 230.0, 160.0, LOCO_BIGNUM_BRAKE),
@@ -631,7 +630,6 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         braking,
         locomotor_surfaces,
     })
-
 }
 
 fn binding_to_swap(
@@ -764,11 +762,9 @@ pub fn apply_locomotor_set_upgrade(
         return false;
     }
     obj.set_locomotor_upgrade(true);
-    let swap = locomotor_set_swap_for_kind(
-        &obj.template_name,
-        HostLocomotorSetKind::NormalUpgraded,
-    )
-    .or_else(|| locomotor_upgrade_set(upgrade, &obj.template_name));
+    let swap =
+        locomotor_set_swap_for_kind(&obj.template_name, HostLocomotorSetKind::NormalUpgraded)
+            .or_else(|| locomotor_upgrade_set(upgrade, &obj.template_name));
     let Some(swap) = swap else {
         return true;
     };
@@ -1012,8 +1008,7 @@ mod tests {
             "panic speed must change"
         );
         assert!(
-            (obj.movement.acceleration - 100.0).abs() > 1.0
-                || (obj.braking - 99999.0).abs() > 1.0,
+            (obj.movement.acceleration - 100.0).abs() > 1.0 || (obj.braking - 99999.0).abs() > 1.0,
             "panic must swap accel or brake, not speed only"
         );
     }
@@ -1038,7 +1033,10 @@ mod tests {
             (dash.max_speed - cruise.max_speed).abs() > 1.0,
             "supersonic must be faster than cruise"
         );
-        assert_eq!(locomotor_set_kind_token(HostLocomotorSetKind::Taxiing), "SET_TAXIING");
+        assert_eq!(
+            locomotor_set_kind_token(HostLocomotorSetKind::Taxiing),
+            "SET_TAXIING"
+        );
         assert_eq!(
             locomotor_set_kind_token(HostLocomotorSetKind::Supersonic),
             "SET_SUPERSONIC"
@@ -1071,8 +1069,10 @@ mod tests {
         let sluggish =
             locomotor_set_swap_for_kind("GLAVehicleCombatBike", HostLocomotorSetKind::Sluggish)
                 .expect("SET_SLUGGISH");
-        assert_eq!(sluggish.locomotor_name, "CombatBikeTerroristGroundLocomotor");
+        assert_eq!(
+            sluggish.locomotor_name,
+            "CombatBikeTerroristGroundLocomotor"
+        );
         assert!((sluggish.max_speed - 40.0).abs() < 0.05);
     }
-
 }

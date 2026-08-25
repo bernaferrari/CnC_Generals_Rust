@@ -90,7 +90,10 @@ impl eframe::App for MapCacheUiApp {
                 }
                 ui.separator();
                 if let Some(err) = &self.chrome.last_error {
-                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), format!("Error: {err}"));
+                    ui.colored_label(
+                        egui::Color32::from_rgb(220, 90, 90),
+                        format!("Error: {err}"),
+                    );
                 } else {
                     ui.label(&self.chrome.status);
                 }

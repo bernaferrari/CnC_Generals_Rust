@@ -63,8 +63,8 @@ fn residual_action_store(a: ResidualHostCannonShellProjectileFlightDualPeelActio
 pub fn residual_host_cannon_shell_projectile_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_cannon_shell_projectile_dual_peel_last_action(
-) -> ResidualHostCannonShellProjectileFlightDualPeelAction {
+pub fn residual_host_cannon_shell_projectile_dual_peel_last_action()
+-> ResidualHostCannonShellProjectileFlightDualPeelAction {
     ResidualHostCannonShellProjectileFlightDualPeelAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

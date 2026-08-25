@@ -46,7 +46,9 @@ pub(super) fn compute_stage_masks(pass: &MaterialPassClass) -> StageMasks {
     }
 }
 
-pub(super) fn sampler_descriptor_for_settings(settings: &TextureStageSettings) -> SamplerDescriptor<'static> {
+pub(super) fn sampler_descriptor_for_settings(
+    settings: &TextureStageSettings,
+) -> SamplerDescriptor<'static> {
     let (mag_filter, min_filter, mipmap_filter) = match settings.filter {
         TextureFilterMode::Point | TextureFilterMode::Nearest => (
             FilterMode::Nearest,
@@ -81,7 +83,9 @@ pub(super) fn convert_address_mode(mode: TextureAddressMode) -> AddressMode {
     }
 }
 
-pub(super) fn material_properties(material: Option<&VertexMaterialClass>) -> ([f32; 4], [f32; 4], [f32; 4]) {
+pub(super) fn material_properties(
+    material: Option<&VertexMaterialClass>,
+) -> ([f32; 4], [f32; 4], [f32; 4]) {
     if let Some(mat) = material {
         (
             [mat.diffuse.x, mat.diffuse.y, mat.diffuse.z, 1.0],
@@ -155,7 +159,9 @@ pub(super) fn compute_stage_uv_info(
     (uv_sets, stage_channels)
 }
 
-pub(super) fn build_material_passes_from_prototype(prototype: &MeshPrototype) -> Vec<MaterialPassClass> {
+pub(super) fn build_material_passes_from_prototype(
+    prototype: &MeshPrototype,
+) -> Vec<MaterialPassClass> {
     if prototype.passes.is_empty() {
         return Vec::new();
     }
@@ -270,4 +276,3 @@ pub(super) fn apply_mapper_from_prototype(
         }
     }
 }
-

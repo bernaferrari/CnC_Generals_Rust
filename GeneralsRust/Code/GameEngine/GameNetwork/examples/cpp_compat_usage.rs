@@ -4,7 +4,7 @@
 //! for network communication between Rust and C++ components.
 
 use game_network::commands::cpp_compat_serialization::{
-    deserialize_command_cpp_compat, serialize_command_cpp_compat, NetCommandRef,
+    NetCommandRef, deserialize_command_cpp_compat, serialize_command_cpp_compat,
 };
 use game_network::commands::{ChatData, CommandPayload, NetCommand, NetCommandType};
 use std::collections::HashMap;

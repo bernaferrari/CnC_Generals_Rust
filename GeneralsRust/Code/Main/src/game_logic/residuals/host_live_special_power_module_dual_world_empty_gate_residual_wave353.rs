@@ -44,8 +44,8 @@ pub const RUNTIME_HOST_LIVE_SPECIAL_POWER_MODULE_DUAL_WORLD_EMPTY_GATE_CMD_NAMES
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_special_power_module_dual_world_empty_gate_method_names_residual_wave353(
-) -> bool {
+pub fn honesty_live_special_power_module_dual_world_empty_gate_method_names_residual_wave353()
+-> bool {
     LIVE_SPECIAL_POWER_MODULE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE353.len() == 6
         && residual_name_index(
             LIVE_SPECIAL_POWER_MODULE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE353,
@@ -62,8 +62,8 @@ pub fn honesty_live_special_power_module_dual_world_empty_gate_method_names_resi
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_special_power_module_dual_world_empty_gate_nav_commands_residual_wave353(
-) -> bool {
+pub fn honesty_live_special_power_module_dual_world_empty_gate_nav_commands_residual_wave353()
+-> bool {
     LIVE_SPECIAL_POWER_MODULE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE353.len() == 4
         && residual_name_index(
             LIVE_SPECIAL_POWER_MODULE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE353,

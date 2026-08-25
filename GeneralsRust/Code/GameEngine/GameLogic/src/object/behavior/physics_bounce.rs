@@ -1,9 +1,7 @@
 //! C++ PhysicsBehavior::handleBounce, doBounceSound, testStunnedUnitForDestruction.
 //! Sibling of `physics_update.rs` — keep that file from absorbing more collide/bounce logic.
 
-use super::{
-    apply_ypr_damping, FLAG_ALLOW_BOUNCE, FLAG_IS_STUNNED, PhysicsBehaviorState,
-};
+use super::{FLAG_ALLOW_BOUNCE, FLAG_IS_STUNNED, PhysicsBehaviorState, apply_ypr_damping};
 use crate::common::{Coord3D, Real};
 use crate::helpers::{TheAudio, TheTerrainLogic};
 use crate::object::Object as GameObject;

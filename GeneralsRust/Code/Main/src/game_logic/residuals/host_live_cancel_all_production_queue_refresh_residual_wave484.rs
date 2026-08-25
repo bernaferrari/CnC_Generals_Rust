@@ -80,8 +80,8 @@ pub fn residual_cancel_all_production_queue_refresh_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_cancel_all_production_queue_refresh_last_action(
-) -> ResidualCancelAllProductionQueueRefreshAction {
+pub fn residual_cancel_all_production_queue_refresh_last_action()
+-> ResidualCancelAllProductionQueueRefreshAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualCancelAllProductionQueueRefreshAction::MethodNames,
         2 => ResidualCancelAllProductionQueueRefreshAction::SourceMarkers,

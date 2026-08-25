@@ -17,8 +17,8 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::audio::launch_url_safe;
-use crate::common::ini::ini::{INIError, INIResult, INI};
-use crate::common::language::{get_current_language, Language, LanguageId};
+use crate::common::ini::ini::{INI, INIError, INIResult};
+use crate::common::language::{Language, LanguageId, get_current_language};
 
 const CPP_WEBPAGE_URL_FIELDS: &[&str] = &["URL"];
 

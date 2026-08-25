@@ -417,7 +417,6 @@ impl Object {
             }
         }
 
-
         // We have to undo our look for the old team and redo it for the new.
         // onCapture is used now, so it better be called after ownership changes and not before.
         log::debug!(

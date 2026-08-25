@@ -4,8 +4,8 @@
 //! `1820-1824` (`loadAmmoNow`), `1877-1913` (`reloadWithBonus`).
 
 use crate::game_logic::host_temporary_weapon_behavior::{
-    TemporaryWeaponConstructionDefaults, TemporaryWeaponRuntimeState, TemporaryWeaponStatus,
-    TEMPORARY_WEAPON_NO_MAX_SHOTS_LIMIT,
+    TEMPORARY_WEAPON_NO_MAX_SHOTS_LIMIT, TemporaryWeaponConstructionDefaults,
+    TemporaryWeaponRuntimeState, TemporaryWeaponStatus,
 };
 
 #[derive(Debug, Clone, Copy)]

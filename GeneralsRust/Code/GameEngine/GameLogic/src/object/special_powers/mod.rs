@@ -24,11 +24,10 @@ pub mod cleanup_area_power;
 pub mod defector_special_power;
 pub mod demoralize_special_power;
 pub mod fire_weapon_power;
+pub(crate) mod interface;
 pub mod ocl_special_power;
 pub mod special_ability;
 pub mod spy_vision_special_power;
-pub(crate) mod interface;
-
 
 pub use baikonur_launch_power::{BaikonurLaunchPower, BaikonurLaunchPowerModuleData};
 pub use cash_bounty_power::{CashBountyPower, CashBountyPowerModuleData};

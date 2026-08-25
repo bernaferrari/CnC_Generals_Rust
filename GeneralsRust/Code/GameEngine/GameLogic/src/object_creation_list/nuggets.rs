@@ -21,13 +21,13 @@
 use super::{CreationContext, CreationResult};
 use crate::common::*;
 use crate::helpers::{
-    FindPositionOptions, TheGameLogic, ThePartitionManager, FPF_USE_HIGHEST_LAYER,
+    FPF_USE_HIGHEST_LAYER, FindPositionOptions, TheGameLogic, ThePartitionManager,
 };
 use crate::modules::{
     BodyModuleInterfaceExt, ContainModuleInterfaceExt, PhysicsBehavior, PhysicsBehaviorExt,
 };
-use crate::object::drawable::{apply_debris_draw, DebrisDrawAnims, DrawableArcExt, DrawableExt};
 use crate::object::Object;
+use crate::object::drawable::{DebrisDrawAnims, DrawableArcExt, DrawableExt, apply_debris_draw};
 use crate::weapon::WeaponTemplate;
 use std::any::Any;
 use std::f32::consts::PI;
@@ -1240,13 +1240,13 @@ mod tests {
     use crate::object::draw::W3DDebrisDraw;
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object_creation_list::store::{
-        get_object_creation_list_store, load_object_creation_lists_from_str, ObjectCreationList,
+        ObjectCreationList, get_object_creation_list_store, load_object_creation_lists_from_str,
     };
     use crate::object_creation_list::{GameLogicContext, TerrainLogicContext, ThingFactoryContext};
     use crate::player::{Player, PlayerType, ThePlayerList};
     use crate::team::Team;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
     fn calc_random_force_xyz_matches_cpp_identity_and_up_pitch() {
@@ -1676,11 +1676,7 @@ mod tests {
             self.contained.len()
         }
         fn get_max_capacity(&self) -> usize {
-            if self.valid {
-                1
-            } else {
-                0
-            }
+            if self.valid { 1 } else { 0 }
         }
         fn is_valid_container_for(&self, _obj: &Object, _check_capacity: bool) -> bool {
             self.valid
@@ -1763,7 +1759,11 @@ mod tests {
         let mut nugget = object_nugget("UsefulPilot");
         nugget.requires_live_player = true;
         let pos = Coord3D::new(0.0, 0.0, 0.0);
-        assert!(nugget.create_with_angle(&ctx, None, &pos, &pos, 0.0, 0).is_none());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
+                .is_none()
+        );
         assert!(factory.created.lock().unwrap().is_empty());
     }
 
@@ -1778,9 +1778,11 @@ mod tests {
         nugget.requires_live_player = true;
         let source = Object::new_test(70_010, 100.0);
         let pos = *source.get_position();
-        assert!(nugget
-            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
-            .is_none());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+                .is_none()
+        );
         assert!(factory.created.lock().unwrap().is_empty());
     }
 
@@ -1800,9 +1802,11 @@ mod tests {
             "test setup must attach a controlling player"
         );
         let pos = *source.get_position();
-        assert!(nugget
-            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
-            .is_none());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+                .is_none()
+        );
         assert!(factory.created.lock().unwrap().is_empty());
         crate::object::registry::OBJECT_REGISTRY.unregister_object(dummy);
     }
@@ -1818,9 +1822,11 @@ mod tests {
         nugget.requires_live_player = true;
         let source = source_with_live_player(false);
         let pos = *source.get_position();
-        assert!(nugget
-            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
-            .is_some());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+                .is_some()
+        );
         assert_eq!(factory.created.lock().unwrap().len(), 1);
         crate::object::registry::OBJECT_REGISTRY.unregister_object(dummy);
     }
@@ -1922,9 +1928,11 @@ mod tests {
         nugget.extra_friction = -0.25;
         nugget.disposition_intensity = 1.0;
         let pos = Coord3D::new(0.0, 0.0, 0.0);
-        assert!(nugget
-            .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
-            .is_some());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
+                .is_some()
+        );
         assert!((*factory.extra_friction.lock().unwrap() + 0.25).abs() < f32::EPSILON);
     }
 
@@ -2059,9 +2067,11 @@ End
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("INI-driven create");
         let obj = created.read().unwrap();
-        assert!(obj
-            .with_update_behavior_downcast::<FloatUpdate, _, _>("FloatUpdate", |fu| fu.is_enabled())
-            .unwrap());
+        assert!(
+            obj.with_update_behavior_downcast::<FloatUpdate, _, _>("FloatUpdate", |fu| fu
+                .is_enabled())
+                .unwrap()
+        );
         assert!((*factory.extra_friction.lock().unwrap() + 0.01).abs() < 1e-5);
         let drawable = obj.get_drawable().unwrap();
         assert_eq!(drawable.read().unwrap().fading_mode(), Drawable::FADING_IN);
@@ -2277,9 +2287,11 @@ End
         nugget.particle_sys_name = "OclMissingParticleSystem".to_string();
         nugget.disposition = DebrisDisposition::new(DebrisDisposition::LIKE_EXISTING);
         let pos = Coord3D::new(1.0, 1.0, 1.0);
-        assert!(nugget
-            .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
-            .is_some());
+        assert!(
+            nugget
+                .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
+                .is_some()
+        );
     }
 
     #[test]
@@ -2392,5 +2404,4 @@ End
         assert_eq!(level, VeterancyLevel::Elite);
         assert_eq!(obj.get_name().as_str(), "NamedPilot");
     }
-
 }

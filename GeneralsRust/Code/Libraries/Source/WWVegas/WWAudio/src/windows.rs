@@ -3,17 +3,17 @@
 #[cfg(windows)]
 use std::ffi::CStr;
 #[cfg(windows)]
-use windows::core::PCSTR;
-#[cfg(windows)]
 use windows::Win32::Foundation::{BOOL, HWND};
 #[cfg(windows)]
 use windows::Win32::Media::Audio::{
     DirectSound::{
-        DirectSoundCreate, DirectSoundEnumerateA, IDirectSound, DSCAPS, DSCAPS_CERTIFIED,
-        DSCAPS_EMULDRIVER, DSSCL_PRIORITY,
+        DSCAPS, DSCAPS_CERTIFIED, DSCAPS_EMULDRIVER, DSSCL_PRIORITY, DirectSoundCreate,
+        DirectSoundEnumerateA, IDirectSound,
     },
-    WAVEFORMATEX, WAVE_FORMAT_PCM,
+    WAVE_FORMAT_PCM, WAVEFORMATEX,
 };
+#[cfg(windows)]
+use windows::core::PCSTR;
 
 #[cfg(windows)]
 use crate::{error::Result, formats::AudioFormat};

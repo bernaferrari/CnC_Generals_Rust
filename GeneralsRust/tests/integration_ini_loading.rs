@@ -13,7 +13,6 @@
 #![cfg(test)]
 
 use std::collections::HashMap;
-use std::io::Write;
 
 /// Test basic INI parsing
 #[test]
@@ -207,12 +206,7 @@ fn test_ini_value_conversion() {
     println!("Testing INI value type conversion...");
 
     // Test parsing different types
-    let test_values = vec![
-        ("100", 100i32),
-        ("50", 50i32),
-        ("0", 0i32),
-        ("-10", -10i32),
-    ];
+    let test_values = vec![("100", 100i32), ("50", 50i32), ("0", 0i32), ("-10", -10i32)];
 
     for (str_val, expected) in test_values {
         let parsed: i32 = str_val.parse().unwrap();
@@ -462,8 +456,6 @@ JapaneseName = 戦車
 
 #[cfg(test)]
 mod performance_tests {
-    use super::*;
-
     /// Test parsing large INI files
     #[test]
     #[ignore] // Run with: cargo test --test integration_ini_loading -- --ignored
@@ -498,12 +490,18 @@ mod performance_tests {
 
         let elapsed = start.elapsed();
 
-        println!("Parsed {} sections, {} keys in {:?}", section_count, key_count, elapsed);
+        println!(
+            "Parsed {} sections, {} keys in {:?}",
+            section_count, key_count, elapsed
+        );
         println!("Size: {} bytes", large_ini.len());
 
         assert_eq!(section_count, 100);
         assert_eq!(key_count, 10000);
-        assert!(elapsed < std::time::Duration::from_millis(100), "Should parse quickly");
+        assert!(
+            elapsed < std::time::Duration::from_millis(100),
+            "Should parse quickly"
+        );
 
         log::info!("Large INI parsing performance test passed");
     }

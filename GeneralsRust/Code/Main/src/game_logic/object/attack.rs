@@ -706,8 +706,8 @@ impl Object {
             .map(crate::game_logic::weapon_bootstrap::host_reload_type_for_weapon_name)
             .unwrap_or(crate::game_logic::weapon_bootstrap::HostReloadType::Auto)
             == crate::game_logic::weapon_bootstrap::HostReloadType::Auto;
-        let waiting_clip = weapon.reloading_clip
-            || (auto_clip && weapon.clip_size > 0 && weapon.ammo == Some(0));
+        let waiting_clip =
+            weapon.reloading_clip || (auto_clip && weapon.clip_size > 0 && weapon.ammo == Some(0));
         if waiting_clip {
             return (weapon.clip_reload_time / rof.max(0.01)).max(0.0);
         }
@@ -765,8 +765,8 @@ impl Object {
         }
         let last = self.weapon_scatter_targets_unused[index].len() as i32 - 1;
         let seed = self.id.0.wrapping_add(self.last_fire_frame);
-        let pick = crate::game_logic::host_rng_residual::pure_logic_random_int(seed, 0, 0, last)
-            as usize;
+        let pick =
+            crate::game_logic::host_rng_residual::pure_logic_random_int(seed, 0, 0, last) as usize;
         let target_index = self.weapon_scatter_targets_unused[index][pick] as usize;
         let (offset_x, offset_y) = *targets.get(target_index)?;
         let scalar =
@@ -785,11 +785,11 @@ impl Object {
             return;
         };
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-        let Some(template) = gamelogic::weapon::with_weapon_store(|store| {
-            store.find_weapon_template(name).cloned()
-        })
-        .ok()
-        .flatten() else {
+        let Some(template) =
+            gamelogic::weapon::with_weapon_store(|store| store.find_weapon_template(name).cloned())
+                .ok()
+                .flatten()
+        else {
             return;
         };
         let speed = template.weapon_speed.max(template.min_weapon_speed);
@@ -847,8 +847,6 @@ impl Object {
         bonus.set_field(Radius, rad);
         bonus
     }
-
-
 }
 
 fn leftover_projectile_object_is_empty(name: &str) -> bool {
@@ -860,7 +858,6 @@ fn leftover_coord_from_host(pos: Vec3) -> gamelogic::common::Coord3D {
     // Live host Y-up → leftover C++ Z-up (same as collide_dispatch).
     gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -877,13 +874,13 @@ mod tests {
             damage: 5.0,
             range: 100.0,
             ..Weapon::default()
-});
+        });
         attacker.tertiary_weapon = Some(Weapon {
             damage: 37.0,
             range: 250.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-});
+        });
         assert!(attacker.set_weapon_lock(2, WeaponLockType::LockedPermanently));
 
         // Simulate a stale displayed active slot.  The stored weapon lock is
@@ -970,10 +967,9 @@ mod tests {
             None,
             "projectileless fire must not queue a dummy CombatSystem projectile"
         );
-        let snaps = gamelogic::weapon::with_weapon_store(|store| {
-            store.delayed_damage_snapshot_residual()
-        })
-        .expect("leftover WeaponStore");
+        let snaps =
+            gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
+                .expect("leftover WeaponStore");
         assert!(
             snaps.iter().any(|snap| {
                 snap.weapon_name == NAME
@@ -994,13 +990,16 @@ mod tests {
             range: 150.0,
             last_fire_time: -10.0,
             ..Weapon::default()
-});
+        });
         unit.apply_grant_stealth();
         unit.stealth_breaks_on_attack = true;
         unit.stealth_delay_frames = 30;
         assert!(unit.fire_at(ObjectId(2), 1.0));
         assert!(!unit.status.stealthed);
-        assert!(unit.innate_stealth, "GPS grant CAN_STEALTH must survive fire");
+        assert!(
+            unit.innate_stealth,
+            "GPS grant CAN_STEALTH must survive fire"
+        );
         assert!(unit.stealth_delay_pending);
         assert!(unit.try_recloak_after_stealth_delay(31, false));
         assert!(unit.status.stealthed);

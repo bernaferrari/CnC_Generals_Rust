@@ -4,7 +4,6 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-
 /// C++ ParachuteContain default `KillWhenLandingInWaterSlop`.
 const PARACHUTE_KILL_WHEN_LANDING_IN_WATER_SLOP: f32 = 10.0;
 
@@ -162,11 +161,11 @@ impl GameLogic {
     /// Fail-closed: not full same-map PartitionFilterSameMapStatus.
     pub(in super::super) fn try_pilot_find_vehicle_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
+            PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
             is_pilot_find_vehicle_collide_target, is_recrewable_unmanned_vehicle,
             pilot_collide_would_like_to_collide_with, pilot_find_vehicle_scan_eligible,
             pilot_find_vehicle_scan_frame, pilot_levels_to_gain, should_pilot_base_center_fallback,
             vehicle_can_gain_exp_for_levels, vehicle_meets_pilot_find_min_health,
-            PILOT_FIND_VEHICLE_MIN_HEALTH, PILOT_FIND_VEHICLE_SCAN_RANGE,
         };
 
         if !pilot_find_vehicle_scan_frame(self.frame) {
@@ -362,8 +361,8 @@ impl GameLogic {
     pub(crate) fn tick_eject_parachute_residual(&mut self, pilot_id: ObjectId) {
         use crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME;
         use crate::game_logic::host_usa_pilot::{
-            is_pilot_template, should_open_parachute, tick_parachute_height_with_state,
-            tick_parachute_sway, PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO,
+            PILOT_PARACHUTE_LAND_AUDIO, PILOT_PARACHUTE_OPEN_AUDIO, is_pilot_template,
+            should_open_parachute, tick_parachute_height_with_state, tick_parachute_sway,
         };
 
         let (
@@ -465,9 +464,9 @@ impl GameLogic {
         let mut resolved_override = landing_override;
         if just_opened && resolved_override.is_none() {
             use crate::game_logic::host_ocl_special_power::find_ocl_passable_around;
-            if let Some(found) = find_ocl_passable_around(pos, 100.0, |p| {
-                self.parachute_open_lz_clear(p)
-            }) {
+            if let Some(found) =
+                find_ocl_passable_around(pos, 100.0, |p| self.parachute_open_lz_clear(p))
+            {
                 resolved_override = Some(found);
             }
         }
@@ -479,7 +478,7 @@ impl GameLogic {
         if open && !landed {
             if let Some(target) = resolved_override {
                 use crate::game_logic::host_usa_pilot::{
-                    step_parachute_landing_override, PARACHUTE_LANDING_OVERRIDE_SPEED,
+                    PARACHUTE_LANDING_OVERRIDE_SPEED, step_parachute_landing_override,
                 };
                 let (sx, sz, moved) = step_parachute_landing_override(
                     pos.x,
@@ -495,7 +494,6 @@ impl GameLogic {
                 }
             }
         }
-
 
         let land_pos = Vec3::new(nx, if landed { ground } else { new_y }, nz);
         let riders_to_release: Vec<ObjectId> = if is_chute && landed {
@@ -546,9 +544,7 @@ impl GameLogic {
             // C++ ParachuteContain::onRemoving water/cliff/impassable/off-map.
             self.apply_parachute_landing_legality_kill(pilot_id, land_pos);
             self.apply_parachute_land_ai(pilot_id);
-
         }
-
 
         // Sync contained riders to chute while descending.
         if is_chute && !landed {
@@ -773,9 +769,11 @@ impl GameLogic {
         {
             return false;
         }
-        if self.terrain.as_ref().is_some_and(|t| {
-            t.is_cliff_at_world(pos) || t.is_underwater_at_world(pos)
-        }) {
+        if self
+            .terrain
+            .as_ref()
+            .is_some_and(|t| t.is_cliff_at_world(pos) || t.is_underwater_at_world(pos))
+        {
             return false;
         }
         let cell = self.pathfinding_system.grid.world_to_grid(pos);
@@ -920,8 +918,6 @@ impl GameLogic {
         }
     }
 
-
-
     /// AutoFindHealingUpdate residual: AI idle injured USA infantry auto-scan for HealPad.
     ///
     /// Retail ModuleTag: ScanRate 1000ms → 30 frames, ScanRange 300, NeverHeal 0.85,
@@ -932,10 +928,10 @@ impl GameLogic {
     /// nearest HealPad in range.
     pub(in super::super) fn try_auto_find_healing_residual(&mut self, unit_id: ObjectId) {
         use crate::game_logic::host_usa_pilot::{
+            AUTO_FIND_HEALING_NEVER_HEAL, AUTO_FIND_HEALING_SCAN_RANGE,
             auto_find_healing_scan_eligible, auto_find_healing_scan_frame,
             health_needs_auto_find_healing, is_auto_find_healing_target,
-            is_auto_find_healing_template, is_pilot_template, AUTO_FIND_HEALING_NEVER_HEAL,
-            AUTO_FIND_HEALING_SCAN_RANGE,
+            is_auto_find_healing_template, is_pilot_template,
         };
 
         if !auto_find_healing_scan_frame(self.frame) {
@@ -1084,9 +1080,8 @@ impl GameLogic {
         source_id: Option<ObjectId>,
     ) -> (bool, bool) {
         use crate::game_logic::host_base_defense::{
-            is_stinger_site_structure, next_stinger_slave_respawn_frame,
+            STINGER_SOLDIER_DIE_AUDIO, is_stinger_site_structure, next_stinger_slave_respawn_frame,
             resolve_hive_structure_damage_roster, sync_hive_slave_mirrors,
-            STINGER_SOLDIER_DIE_AUDIO,
         };
 
         // Snapshot flags before mutating so we can update honesty counters after
@@ -1257,9 +1252,9 @@ impl GameLogic {
     /// Advance Stinger SpawnBehavior residual slave respawns (SpawnReplaceDelay).
     pub fn update_stinger_hive_respawns(&mut self) {
         use crate::game_logic::host_base_defense::{
-            count_alive_hive_slaves, is_stinger_site_structure, next_stinger_slave_respawn_frame,
-            respawn_one_hive_slave, should_respawn_stinger_slave, sync_hive_slave_mirrors,
-            STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER,
+            STINGER_SOLDIER_MAX_HEALTH, STINGER_SPAWN_NUMBER, count_alive_hive_slaves,
+            is_stinger_site_structure, next_stinger_slave_respawn_frame, respawn_one_hive_slave,
+            should_respawn_stinger_slave, sync_hive_slave_mirrors,
         };
 
         let frame = self.frame;
@@ -1448,8 +1443,8 @@ impl GameLogic {
         profile: crate::game_logic::host_bomb_truck_detonate::BombTruckDetonationProfile,
     ) -> bool {
         use crate::game_logic::host_bomb_truck_detonate::{
-            bomb_truck_blast_damage_at, BOMB_TRUCK_DAMAGE_TYPE, BOMB_TRUCK_DEATH_TYPE,
-            BOMB_TRUCK_POISON_AUDIO,
+            BOMB_TRUCK_DAMAGE_TYPE, BOMB_TRUCK_DEATH_TYPE, BOMB_TRUCK_POISON_AUDIO,
+            bomb_truck_blast_damage_at,
         };
 
         let max_radius = profile.secondary_radius();

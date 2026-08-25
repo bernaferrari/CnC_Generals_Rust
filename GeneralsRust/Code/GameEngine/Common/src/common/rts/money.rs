@@ -8,10 +8,9 @@
 //! - `/GeneralsMD/Code/GameEngine/Include/Common/Money.h`
 
 use std::collections::HashSet;
-use std::sync::{Mutex, LazyLock};
+use std::sync::{LazyLock, Mutex};
 
-static PENDING_INCOME: LazyLock<Mutex<HashSet<i32>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static PENDING_INCOME: LazyLock<Mutex<HashSet<i32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
 fn play_money_sound(player_index: i32, withdraw: bool) {
     use crate::common::audio::audio_event_rts::AudioEventRts;
@@ -143,7 +142,6 @@ impl Money {
         if play_sound {
             play_money_sound(self.player_index, true);
         }
-
 
         // C++ Money.cpp line 39: Deduct the money
         self.money -= actual_withdrawal;

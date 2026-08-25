@@ -6,11 +6,11 @@ use crate::{
         VoiceDescriptor, VoiceHandle, VoiceParams, VoicePlaybackState, VoiceSpatialMode,
         VoiceSpatialParams, VoiceTimelineState,
     },
-    sound3d::Sound3D,
     sound_pseudo3d::SoundPseudo3D,
     sound_scene::SceneSound,
     sound_scene_obj::SoundObjectId,
     sound_types::SoundClassId,
+    sound3d::Sound3D,
 };
 
 #[derive(Debug, Clone, Default)]

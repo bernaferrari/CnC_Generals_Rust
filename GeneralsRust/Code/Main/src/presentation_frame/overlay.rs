@@ -238,8 +238,7 @@ impl PresentationFrame {
                 dirty = true;
             }
             if crate::assets::authored_draw_adjusts_height_by_construction(&obj.draw_models) {
-                let cpp_percent = if obj.under_construction
-                    || obj.construction_percent + 1e-4 < 1.0
+                let cpp_percent = if obj.under_construction || obj.construction_percent + 1e-4 < 1.0
                 {
                     obj.construction_percent * 100.0
                 } else {
@@ -1272,8 +1271,8 @@ impl PresentationFrame {
             self.local_unlocked_sciences = p.unlocked_sciences.clone();
             {
                 use crate::game_logic::host_rank_ui_residual::{
-                    rank_level_down_threshold_residual, rank_level_up_threshold_residual,
-                    rank_progress_percent_residual, RankSkillStateResidual,
+                    RankSkillStateResidual, rank_level_down_threshold_residual,
+                    rank_level_up_threshold_residual, rank_progress_percent_residual,
                 };
                 let state = RankSkillStateResidual {
                     rank_level: self.local_rank_level,
@@ -1720,7 +1719,7 @@ impl PresentationFrame {
             applied_upgrades: ent.applied_upgrade_names.clone(),
             sub_object_visibility: {
                 use crate::game_logic::host_sub_objects_upgrade::{
-                    sub_objects_for_upgrade_tags, HostSubObjectVisibility,
+                    HostSubObjectVisibility, sub_objects_for_upgrade_tags,
                 };
                 let tags: std::collections::HashSet<String> =
                     ent.applied_upgrade_names.iter().cloned().collect();
@@ -2314,7 +2313,6 @@ impl PresentationFrame {
                 dirty = true;
             }
 
-
             if dirty {
                 stamped += 1;
             }
@@ -2660,4 +2658,3 @@ mod overlay_sw_owner_tests {
         );
     }
 }
-

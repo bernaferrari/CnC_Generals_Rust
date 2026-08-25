@@ -11,7 +11,7 @@ use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Luma};
 
-use super::textures::{BlendTileInfo, TileData, FLIPPED_MASK, INVERTED_MASK};
+use super::textures::{BlendTileInfo, FLIPPED_MASK, INVERTED_MASK, TileData};
 use super::utils::calculate_normal;
 use super::{TerrainError, TerrainResult};
 
@@ -451,7 +451,6 @@ impl HeightMap {
         hm_x = hm_x.clamp(0.0, max_x);
         hm_y = hm_y.clamp(0.0, max_y);
 
-
         // Get integer coordinates and fractional parts
         let x0 = hm_x.floor() as u32;
         let y0 = hm_y.floor() as u32;
@@ -515,7 +514,6 @@ impl HeightMap {
     /// Neighbor samples go through `get_height_at`, so off-map taps clamp to
     /// the edge cell instead of inventing a 0.0 cliff.
     pub fn get_normal_at(&self, world_x: f32, world_y: f32) -> Vec3 {
-
         let step = self.scale;
 
         // Sample heights at neighboring points
@@ -690,22 +688,10 @@ impl HeightMap {
         if ndx + width + 1 >= self.heights.len() {
             return uv;
         }
-        let h0 = self.get_raw_height(
-            (ndx % width) as i32,
-            (ndx / width) as i32,
-        ) as i32;
-        let h1 = self.get_raw_height(
-            (ndx % width) as i32 + 1,
-            (ndx / width) as i32,
-        ) as i32;
-        let h2 = self.get_raw_height(
-            (ndx % width) as i32 + 1,
-            (ndx / width) as i32 + 1,
-        ) as i32;
-        let h3 = self.get_raw_height(
-            (ndx % width) as i32,
-            (ndx / width) as i32 + 1,
-        ) as i32;
+        let h0 = self.get_raw_height((ndx % width) as i32, (ndx / width) as i32) as i32;
+        let h1 = self.get_raw_height((ndx % width) as i32 + 1, (ndx / width) as i32) as i32;
+        let h2 = self.get_raw_height((ndx % width) as i32 + 1, (ndx / width) as i32 + 1) as i32;
+        let h3 = self.get_raw_height((ndx % width) as i32, (ndx / width) as i32 + 1) as i32;
         let min_h = h0.min(h1).min(h2).min(h3);
         let max_h = h0.max(h1).max(h2).max(h3);
         let delta_h = max_h - min_h;
@@ -724,7 +710,9 @@ impl HeightMap {
             .iter()
             .filter(|h| **h > above_limit)
             .count();
-        if above != 1 && below != 1 && (above != 2 || below != 2)
+        if above != 1
+            && below != 1
+            && (above != 2 || below != 2)
             && (delta_h as f32) * height_scale < DIAMOND_STRETCH_LIMIT
         {
             return uv;
@@ -900,7 +888,6 @@ impl HeightMap {
         }
         tiles
     }
-
 
     /// Match C++ `WorldHeightMap::getTerrainColorAt`: floor/clamp the world
     /// position, unpack the 4-grid terrain tile index, sample the source tile
@@ -1830,8 +1817,7 @@ mod tests {
         // C++ getClipHeight: OOB clamps to the edge cell, never a synthetic 0.
         assert!((heightmap.get_height_at(3.001, 3.0) - 75.0).abs() < 0.001);
         assert!(
-            (heightmap.get_height_at(-1.0, -1.0) - heightmap.get_height_at(0.0, 0.0)).abs()
-                < 0.001
+            (heightmap.get_height_at(-1.0, -1.0) - heightmap.get_height_at(0.0, 0.0)).abs() < 0.001
         );
     }
 

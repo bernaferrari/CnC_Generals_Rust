@@ -8,9 +8,9 @@
 //! This module handles creating players from map data, setting colors,
 //! resources, alliances, and handicaps.
 
-use game_engine::common::rts::player_template::PlayerTemplate;
 use game_engine::common::rts::Money;
 use game_engine::common::rts::NameKeyType;
+use game_engine::common::rts::player_template::PlayerTemplate;
 use std::collections::HashMap;
 
 /// Maximum number of player slots
@@ -359,7 +359,6 @@ impl PlayerList {
 
         // C++ PlayerList.cpp:160-200 only overlays named Enemies/Allies.
         // Unmapped pairs stay unset so get_relationship returns Neutral.
-
 
         for i in 0..player_count {
             let allies = self.players[i].template.player_allies.clone();
@@ -751,7 +750,11 @@ mod tests {
     fn test_unlisted_relationships_default_neutral() {
         let mut player_list = PlayerList::new();
         player_list.add_player(Player::new(0, make_player_template("USA", "USA"), true));
-        player_list.add_player(Player::new(1, make_player_template("China", "China"), false));
+        player_list.add_player(Player::new(
+            1,
+            make_player_template("China", "China"),
+            false,
+        ));
         let mut civilian = make_player_template("Civilian", "Civilian");
         civilian.playable = false;
         player_list.add_player(Player::new(2, civilian, false));

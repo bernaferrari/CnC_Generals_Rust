@@ -3,15 +3,15 @@
 use super::helpers::{
     compare_f64, compare_i64, dual_world_registry_unavailable, event_type_from_name,
     get_player_arc, get_str_param, get_str_param_optional, host_eval_team_has_object_status,
-    lookup_named_object_id,
-    parse_nested_condition, parse_object_status_mask, perform_comparison, with_script_engine_mut,
+    lookup_named_object_id, parse_nested_condition, parse_object_status_mask, perform_comparison,
+    with_script_engine_mut,
 };
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
-use crate::common::{Coord3D, KindOf, Relationship, LOGICFRAMES_PER_SECOND};
+use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Relationship};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
-use crate::player::{player_list, Player, PlayerType};
+use crate::player::{Player, PlayerType, player_list};
 use crate::scripting::engine::{
     get_area_tracker, get_event_manager, get_named_object_tracker, get_script_engine,
 };
@@ -21,7 +21,7 @@ use crate::terrain::get_terrain_logic;
 use crate::upgrade::center::get_upgrade_center;
 use crate::{GameLogicError, GameLogicResult};
 use async_trait::async_trait;
-use game_engine::common::rts::{get_science_store, SCIENCE_INVALID};
+use game_engine::common::rts::{SCIENCE_INVALID, get_science_store};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -196,7 +196,7 @@ impl ScriptCondition for TeamDestroyedCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         if dual_world_registry_unavailable() {
@@ -252,7 +252,7 @@ impl ScriptCondition for TeamHasUnitsCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         if dual_world_registry_unavailable() {
@@ -305,7 +305,7 @@ impl ScriptCondition for TeamStateIsCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let state_name = get_str_param(parameters, "state")?;
@@ -399,7 +399,7 @@ impl ScriptCondition for TeamOwnedByPlayerCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let factory = get_team_factory();
@@ -465,7 +465,7 @@ impl ScriptCondition for TeamDiscoveredCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let factory = get_team_factory();
@@ -539,7 +539,7 @@ impl ScriptCondition for TeamCreatedCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         if dual_world_registry_unavailable() {
@@ -592,7 +592,7 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let area_name = get_str_param(parameters, "area_name")?;
@@ -676,7 +676,7 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let area_name = get_str_param(parameters, "area_name")?;
@@ -686,7 +686,9 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
             else {
                 return Ok(false);
             };
-            return Ok(super::helpers::host_team_all_inside(&team_name, &trigger, 1));
+            return Ok(super::helpers::host_team_all_inside(
+                &team_name, &trigger, 1,
+            ));
         }
 
         let factory = get_team_factory();
@@ -796,20 +798,17 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let status_str = get_str_param(parameters, "status")?;
         let status_mask = parse_object_status_mask(&status_str);
         if dual_world_registry_unavailable() {
-            return Ok(host_eval_team_has_object_status(
-                &team_name,
-                status_mask.bits(),
-                true,
-            )
-            .unwrap_or(false));
+            return Ok(
+                host_eval_team_has_object_status(&team_name, status_mask.bits(), true)
+                    .unwrap_or(false),
+            );
         }
-
 
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -868,20 +867,17 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let status_str = get_str_param(parameters, "status")?;
         let status_mask = parse_object_status_mask(&status_str);
         if dual_world_registry_unavailable() {
-            return Ok(host_eval_team_has_object_status(
-                &team_name,
-                status_mask.bits(),
-                false,
-            )
-            .unwrap_or(false));
+            return Ok(
+                host_eval_team_has_object_status(&team_name, status_mask.bits(), false)
+                    .unwrap_or(false),
+            );
         }
-
 
         let factory = get_team_factory();
         let mut guard = factory.lock().map_err(|e| {
@@ -939,7 +935,7 @@ impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let area_name = get_str_param(parameters, "area_name")?;
@@ -1005,7 +1001,7 @@ impl ScriptCondition for TeamEnteredAreaPartiallyCondition {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Missing 'team' parameter".to_string(),
-                ))
+                ));
             }
         };
         let area_name = get_str_param(parameters, "area_name")?;

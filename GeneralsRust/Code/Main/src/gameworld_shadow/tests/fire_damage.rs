@@ -34,7 +34,7 @@ fn fire_at_records_fire_intent_residual() {
             range: 200.0,
             reload_time: 0.0,
             ..Weapon::default()
-});
+        });
         o.status.weapons_jammed = false;
         let fired = o.fire_at(vid, 1.0);
         assert!(fired, "close-range fire_at should discharge");
@@ -494,7 +494,7 @@ fn special_power_tick_records_host_special_power_log() {
     let prev = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "0");
 
-    use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
     host_special_power_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpTick");
@@ -532,7 +532,7 @@ fn special_power_tick_records_host_special_power_log() {
 
 #[test]
 fn special_power_session_writeback_after_tick() {
-    use crate::game_logic::{host_special_power_log, KindOf, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_special_power_log};
     host_special_power_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("SpWb");
@@ -631,7 +631,6 @@ fn damage_authority_writeback_is_last_writer() {
         pre - 25.0
     );
     assert!(host_final < pre);
-
 }
 
 #[test]

@@ -1,10 +1,10 @@
 //! C++ `Drawable::calcPhysicsXformTreads` (`Drawable.cpp:1637-1891`).
 
+use super::PhysicsVisualXform;
 use super::loco_state::PhysicsVisualLocoState;
 use super::rng::ClientVisualRng;
 use super::spring::{cross3, finish_accel_totals, ground_pitch_roll, normalize3};
-use super::types::{LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualBody, CPP_PI};
-use super::PhysicsVisualXform;
+use super::types::{CPP_PI, LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualBody};
 
 const OVERLAP_SHRINK_FACTOR: f32 = 0.8;
 const FLATTENED_OBJECT_HEIGHT: f32 = 0.5;

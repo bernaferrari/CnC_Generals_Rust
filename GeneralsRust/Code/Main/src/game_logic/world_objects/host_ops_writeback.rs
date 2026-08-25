@@ -110,10 +110,9 @@ impl GameLogic {
             self.client_visible_contained_flash_as_selected(object_id);
         }
 
-
-        let any_local = player_ids.iter().any(|&id| {
-            self.players.get(&id).map(|p| p.is_local).unwrap_or(false)
-        });
+        let any_local = player_ids
+            .iter()
+            .any(|&id| self.players.get(&id).map(|p| p.is_local).unwrap_or(false));
 
         for &pid in &player_ids {
             if let Some(player) = self.players.get_mut(&pid) {
@@ -173,7 +172,6 @@ impl GameLogic {
         }
     }
 
-
     /// C++ `Drawable::onSelected` → `contain->clientVisibleContainedFlashAsSelected`.
     /// `OpenContain` default is empty. Overlord walks contained
     /// `KINDOF_PORTABLE_STRUCTURE`; Helix flashes `getPortableStructure()`.
@@ -207,7 +205,6 @@ impl GameLogic {
         }
     }
 
-
     /// C++ CommandXlat.cpp:3490-3516 `MSG_CREATE_SELECTED_GROUP` / `SELECT_TEAM`
     /// pickAndPlay after weeding to `isLocallyControlled()`.
     pub fn queue_create_selected_group_voice(&mut self, unit_ids: &[ObjectId]) {
@@ -224,7 +221,6 @@ impl GameLogic {
             crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Select,
         );
     }
-
 
     /// Issue move command to selected objects (with pathfinding)
     pub fn command_move(&mut self, player_id: u32, target_position: Vec3) {
@@ -562,9 +558,7 @@ impl GameLogic {
                         None,
                         crate::game_logic::combat::DamageType::Unresistable,
                         death_type,
-                        Some(
-                            crate::game_logic::host_poisoned_behavior::poison_dot_fx_override(),
-                        ),
+                        Some(crate::game_logic::host_poisoned_behavior::poison_dot_fx_override()),
                     );
                 }
             }
@@ -1679,7 +1673,6 @@ impl GameLogic {
         o.contained_units()
     }
 
-
     /// Authoritative move destination (GameWorld when coupled).
     ///
     /// If a fat view is mapped, `None` dest is authoritative (stopped unit).
@@ -1933,12 +1926,12 @@ impl GameLogic {
         forced_slot: Option<u8>,
     ) {
         use crate::game_logic::audio_dispatch_impl::{
-            pick_specialty_attack_voice, AttackVoiceWeapon, UnitVoiceSlot,
+            AttackVoiceWeapon, UnitVoiceSlot, pick_specialty_attack_voice,
         };
         let air = target_id.is_some_and(|tid| {
-            self.objects.get(&tid).is_some_and(|t| {
-                t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target
-            })
+            self.objects
+                .get(&tid)
+                .is_some_and(|t| t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target)
         });
         let structure = target_id.is_some_and(|tid| {
             self.objects
@@ -1964,13 +1957,8 @@ impl GameLogic {
                 Some(AttackVoiceWeapon { name, slot })
             })
             .collect();
-        let slot = pick_specialty_attack_voice(
-            default,
-            weapons,
-            structure,
-            specialty_weapon,
-            at_location,
-        );
+        let slot =
+            pick_specialty_attack_voice(default, weapons, structure, specialty_weapon, at_location);
         self.queue_picked_unit_voice(unit_ids, slot);
     }
 
@@ -1991,8 +1979,8 @@ impl GameLogic {
     pub fn try_queue_picked_voice_move_upgraded(&mut self, unit_ids: &[ObjectId]) -> bool {
         use crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound;
         use crate::game_logic::host_gla_worker::{
-            is_worker_for_voice_move_upgraded, worker_shoes_voice_upgrade_complete,
             UPGRADE_GLA_WORKER_SHOES, WORKER_VOICE_MOVE_UPGRADED,
+            is_worker_for_voice_move_upgraded, worker_shoes_voice_upgrade_complete,
         };
         for &id in unit_ids {
             let Some(obj) = self.objects.get(&id) else {
@@ -2044,8 +2032,6 @@ impl GameLogic {
         }
         false
     }
-
-
 
     /// C++ `pickAndPlayUnitVoiceResponse` — authored Voice.ini plus carbomb extra.
     pub fn queue_picked_unit_voice(
@@ -2104,7 +2090,7 @@ fn host_object_is_mass_selectable(obj: &Object) -> bool {
 mod select_object_cpp_parity_tests {
     use super::*;
     use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+        UnitVoiceSlot, clear_test_template_voices, set_test_template_voice,
     };
     use crate::game_logic::{KindOf, ObjectId, Player, Team, ThingTemplate};
     use glam::Vec3;
@@ -2192,11 +2178,7 @@ mod select_object_cpp_parity_tests {
             "C++ updateHiddenStatus deselects a hidden drawable"
         );
         assert!(
-            logic
-                .get_player(0)
-                .expect("p0")
-                .selected_objects
-                .is_empty(),
+            logic.get_player(0).expect("p0").selected_objects.is_empty(),
             "TheInGameUI->deselectDrawable must drop the player list"
         );
 
@@ -2232,11 +2214,7 @@ mod select_object_cpp_parity_tests {
             "C++ maskObject deselects when masking"
         );
         assert!(
-            logic
-                .get_player(0)
-                .expect("p0")
-                .selected_objects
-                .is_empty(),
+            logic.get_player(0).expect("p0").selected_objects.is_empty(),
             "deselectObject must drop the player list"
         );
     }
@@ -2261,8 +2239,6 @@ mod select_object_cpp_parity_tests {
             "C++ isHero is true when a contained occupant is KINDOF_HERO"
         );
     }
-
-
 
     #[test]
     fn select_object_list_loops_every_player_in_mask() {
@@ -2548,6 +2524,4 @@ mod select_object_cpp_parity_tests {
             "Helix infantry occupants must not flash"
         );
     }
-
 }
-

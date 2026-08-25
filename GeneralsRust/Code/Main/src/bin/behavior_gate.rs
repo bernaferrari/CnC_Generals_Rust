@@ -11,7 +11,7 @@ use generals_main::executable_smoke::{format_executable_smoke_report, run_execut
 use generals_main::golden_campaign::{format_campaign_report, run_golden_campaign};
 use generals_main::golden_skirmish::{format_golden_report, run_golden_skirmish};
 use generals_main::map_frame_scenario::{
-    format_map_frame_report, run_map_frame_scenario, MapFrameStatus,
+    MapFrameStatus, format_map_frame_report, run_map_frame_scenario,
 };
 use generals_main::release_candidate::{format_rc_report, run_release_candidate_package};
 use generals_main::shell_smoke::{format_shell_smoke_report, run_shell_smoke};

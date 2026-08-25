@@ -10,8 +10,8 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore replaces the live registry and never re-runs `activate`.
 
-use crate::game_logic::host_firewall::HostFireWallRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_firewall::HostFireWallRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -37,10 +37,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     game_logic.fire_walls.clear();
     let Some(suffix) = find_fwal_suffix(bytes) else {
         return Ok(());
@@ -122,7 +119,10 @@ mod tests {
         assert_eq!(restored.fire_walls.active_count(), 1);
         let wall = &restored.fire_walls.active_walls()[0];
         assert_eq!(wall.activate_frame, 5);
-        assert_eq!(wall.expires_frame, 5 + crate::game_logic::FIREWALL_DURATION_FRAMES);
+        assert_eq!(
+            wall.expires_frame,
+            5 + crate::game_logic::FIREWALL_DURATION_FRAMES
+        );
         assert!(!wall.segments.is_empty());
     }
 

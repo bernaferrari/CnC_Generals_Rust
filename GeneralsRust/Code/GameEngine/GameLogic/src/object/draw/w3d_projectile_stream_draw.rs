@@ -7,7 +7,7 @@ use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::TheGameClient;
 use crate::object::behavior::projectile_stream_update::MAX_PROJECTILE_STREAM;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};

@@ -5,16 +5,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::common::xfer::XferExt;
-use crate::common::{name_key_generate, AsciiString};
+use crate::common::{AsciiString, name_key_generate};
 use crate::damage::{DamageType, DamageTypeFlags};
 use crate::helpers::{
-    get_fx_list_manager, TheGameLogic, TheObjectCreationListStore, TheParticleSystemManager,
+    TheGameLogic, TheObjectCreationListStore, TheParticleSystemManager, get_fx_list_manager,
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_creation_list::{live_creation_context, nuggets::INVALID_ANGLE};
 use crate::prelude::*;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{BoneFxControlInterface, Module, ModuleData, NameKeyType};
@@ -107,7 +107,6 @@ impl BaseBoneListInfo {
         delay as i32
     }
 }
-
 
 /// FX list information for a bone.
 #[derive(Debug, Clone)]
@@ -1879,11 +1878,13 @@ mod tests {
             .get_bone_fx_control_interface()
             .expect("BoneFXUpdate should expose BoneFxControlInterface");
         control.stop_all_bone_fx();
-        assert!(module
-            .behavior
-            .next_fx_frame
-            .iter()
-            .flatten()
-            .all(|frame| *frame == -1));
+        assert!(
+            module
+                .behavior
+                .next_fx_frame
+                .iter()
+                .flatten()
+                .all(|frame| *frame == -1)
+        );
     }
 }

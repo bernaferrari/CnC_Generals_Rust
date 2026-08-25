@@ -19,7 +19,7 @@ use crate::object::contain::TransportContain;
 use crate::object::{Object, ObjectId};
 use crate::upgrade::modules::model_condition::parse_model_condition_flag as parse_model_condition_name;
 use crate::weapon::WeaponSetType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 277 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -357,7 +357,7 @@ mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
     use crate::messages::{
-        drain_messages, MessageArgument, MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP,
+        MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP, MessageArgument, drain_messages,
     };
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
@@ -413,10 +413,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(
-            &mut self,
-            _snapshot: &mut dyn Snapshotable,
-        ) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 
@@ -1669,11 +1666,7 @@ impl ContainModuleInterface for RiderChangeContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.base.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
@@ -1780,7 +1773,6 @@ impl ContainModuleInterface for RiderChangeContain {
     fn is_rider_change_contain(&self) -> bool {
         true
     }
-
 }
 
 impl ContainerInterface for RiderChangeContain {

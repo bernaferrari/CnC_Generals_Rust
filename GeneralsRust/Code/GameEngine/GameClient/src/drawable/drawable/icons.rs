@@ -3,7 +3,7 @@
 use super::*;
 use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::ini::{get_anim2d_collection, Anim2DTemplate};
+use game_engine::common::ini::{Anim2DTemplate, get_anim2d_collection};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;

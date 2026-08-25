@@ -5,12 +5,12 @@ use bitflags::bitflags;
 use std::cell::RefCell;
 use std::rc::Weak;
 
+use crate::gui::MAX_DRAW_DATA;
 use crate::gui::display_string::DisplayStringHandle;
 use crate::gui::font::FontDesc;
-use crate::gui::MAX_DRAW_DATA;
 use crate::video_buffer::VideoBufferHandle;
 
-use super::messages::{WindowStatus, WINDOW_ID_INVALID, WIN_COLOR_UNDEFINED};
+use super::messages::{WIN_COLOR_UNDEFINED, WINDOW_ID_INVALID, WindowStatus};
 use super::payload::WindowId;
 
 /// 2D coordinate point

@@ -3,7 +3,7 @@ use game_engine::common::ini::ini::INI;
 use game_engine::common::language::Language;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::{
-    get_player_template_store, get_player_template_store_mut, PlayerTemplate, MAX_MP_STARTING_UNITS,
+    MAX_MP_STARTING_UNITS, PlayerTemplate, get_player_template_store, get_player_template_store_mut,
 };
 use std::sync::Mutex;
 
@@ -217,11 +217,17 @@ End
         let tank_key = NameKeyGenerator::name_to_key("AmericaTank");
         let ranger_key = NameKeyGenerator::name_to_key("AmericaRanger");
         assert_eq!(
-            america.get_production_cost_changes().get(&tank_key).copied(),
+            america
+                .get_production_cost_changes()
+                .get(&tank_key)
+                .copied(),
             Some(0.8)
         );
         assert_eq!(
-            america.get_production_time_changes().get(&tank_key).copied(),
+            america
+                .get_production_time_changes()
+                .get(&tank_key)
+                .copied(),
             Some(0.5)
         );
         assert_eq!(

@@ -1,7 +1,6 @@
 use super::*;
 include!("command_set_strip.rs");
 
-
 impl PresentationFrame {
     /// Selected unit identity (health/name/type) from snapshot only.
     ///
@@ -15,9 +14,7 @@ impl PresentationFrame {
         // masked (not only destroyed). C++ ControlBarCommand.cpp:1048-1078 still
         // shows a disabled completed structure so Sell/Stop/Rally stay reachable.
         // Under-construction is combat-disabled but must keep CancelConstruction.
-        let usable = |o: &RenderableObject| {
-            !o.destroyed && !o.sold && !o.unselectable && !o.masked
-        };
+        let usable = |o: &RenderableObject| !o.destroyed && !o.sold && !o.unselectable && !o.masked;
         let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
             self.objects.iter().map(|o| (o.id, o)).collect();
         let mut selected_infos = Vec::with_capacity(self.selected.len().max(1));
@@ -111,7 +108,7 @@ impl PresentationFrame {
             })
             .collect();
         use crate::game_logic::victory::PlayerOutcome;
-        use crate::ui::{color_for_player, BuildQueueEntry, MinimapDot};
+        use crate::ui::{BuildQueueEntry, MinimapDot, color_for_player};
 
         ui.current_game_time = self.total_play_time_seconds;
         ui.credits = self.local_supplies as i32;
@@ -242,7 +239,7 @@ impl PresentationFrame {
         if self.beacons.is_empty() {
             ui.minimap_beacons.clear();
         } else {
-            use crate::ui::{color_for_player, MinimapDot};
+            use crate::ui::{MinimapDot, color_for_player};
             // Wave 1110: beacon bounds residual excludes sold.
             let (min_x, max_x, min_z, max_z) = {
                 let alive: Vec<_> = self
@@ -283,12 +280,7 @@ impl PresentationFrame {
                         })
                         .and_then(|o| o.owner_player_id)
                         .unwrap_or(self.local_player_id);
-                    MinimapDot::normalized(
-                        nx,
-                        ny,
-                        color_for_player(owner.min(255) as u8),
-                        4.0,
-                    )
+                    MinimapDot::normalized(nx, ny, color_for_player(owner.min(255) as u8), 4.0)
                 })
                 .collect();
         }
@@ -453,8 +445,7 @@ impl PresentationFrame {
     /// C++ `W3DRadar::renderObjectList`: skip when `getShroudedStatus > PARTIAL_CLEAR`.
     #[inline]
     fn minimap_fow_allows(o: &RenderableObject) -> bool {
-        (o.drawable_shroud.raw_status as u8)
-            <= (PresentationObjectShroudStatus::PartialClear as u8)
+        (o.drawable_shroud.raw_status as u8) <= (PresentationObjectShroudStatus::PartialClear as u8)
     }
 
     /// Units list for GameHud minimap: (id, x, z, team_color_index).
@@ -550,9 +541,11 @@ impl PresentationFrame {
                 .copied()
                 .or_else(|| self.objects.iter().find(usable).map(|o| o.id))
             {
-                if let Some(ro) = self.objects.iter().find(|o| {
-                    o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
-                }) {
+                if let Some(ro) = self
+                    .objects
+                    .iter()
+                    .find(|o| o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked)
+                {
                     if self.is_owned_by_local(ro) {
                         for p in &ro.production_queue {
                             queue_items.push((
@@ -676,9 +669,7 @@ impl PresentationFrame {
                 } else {
                     sound.as_str()
                 };
-                let mut req = AudioEventRequest::new(name)
-                    .with_object(*unit)
-                    .stopping();
+                let mut req = AudioEventRequest::new(name).with_object(*unit).stopping();
                 if let Some(pos) = pose_by_id.get(unit) {
                     req = req.with_position(*pos);
                 }
@@ -742,7 +733,8 @@ impl PresentationFrame {
 
         // C++ Object::setDisabledUntil / clearDisabled MiscAudio.
         for ev in crate::game_logic::host_disable_timers_log::take_audio() {
-            let name = crate::game_logic::host_economy_log::resolve_misc_audio_event(&ev.event_name);
+            let name =
+                crate::game_logic::host_economy_log::resolve_misc_audio_event(&ev.event_name);
             let pos = glam::Vec3::new(ev.position[0], ev.position[1], ev.position[2]);
             out.push(
                 AudioEventRequest::new(name.as_str())
@@ -751,7 +743,6 @@ impl PresentationFrame {
                     .with_priority(160),
             );
         }
-
 
         // Wave 530: capture/hijack ownership transfer audio residual.
         for ev in &self.events {
@@ -781,7 +772,6 @@ impl PresentationFrame {
         // Wave 533: EvaAlert { name } is HUD/chat only. C++ Eva::update plays
         // Eva.ini SideSounds (EvaUSA_BuildingLost / EvaChina_LowPower / …).
         // Do not push generic EVA_* onto the SFX drain.
-
 
         // Wave 535: combat particle spawn → presentation audio residual (snapshot pose).
         // Fail-closed: not full FXList/FXParticleSystemNames Miles matrix — kind→name map only.
@@ -1044,9 +1034,11 @@ impl PresentationFrame {
         // Wave 1108: fail-closed on sold/unusable primary (belt-and-suspenders after
         // selected_unit_display_infos Wave 1106).
         if let Some(id) = panel.primary_object_id {
-            if let Some(ro) = self.objects.iter().find(|o| {
-                o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
-            }) {
+            if let Some(ro) = self
+                .objects
+                .iter()
+                .find(|o| o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked)
+            {
                 panel.production_queue = ro
                     .production_queue
                     .iter()
@@ -1187,12 +1179,10 @@ impl PresentationFrame {
             },
             controllable && panel.production_paused,
         );
-        let beacon = primary.is_some_and(|o| {
-            o.template_name.to_ascii_lowercase().contains("beacon")
-        });
-        let neutral_garrison = primary.is_some_and(|o| {
-            o.team == crate::game_logic::Team::Neutral && o.max_garrison > 0
-        });
+        let beacon =
+            primary.is_some_and(|o| o.template_name.to_ascii_lowercase().contains("beacon"));
+        let neutral_garrison = primary
+            .is_some_and(|o| o.team == crate::game_logic::Team::Neutral && o.max_garrison > 0);
         let garrison_max = if controllable || neutral_garrison {
             panel.max_garrison
         } else {
@@ -1239,20 +1229,19 @@ impl PresentationFrame {
             }
         }
         {
-            let mut residual =
-                game_client::gui::control_bar::PresentationAvailabilityResidual {
-                    completed_upgrades: completed_upgrades.clone(),
-                    object_applied_upgrades: panel.applied_upgrades.clone(),
-                    player_completed_upgrades: self.local_completed_upgrades.clone(),
-                    object_unaffected_upgrades:
-                        crate::game_logic::host_slave_drones::slave_drone_unaffected_upgrade_names(
-                            panel.applied_upgrades.iter().map(String::as_str),
-                        )
-                        .into_iter()
-                        .map(str::to_string)
-                        .collect(),
-                    ..Default::default()
-                };
+            let mut residual = game_client::gui::control_bar::PresentationAvailabilityResidual {
+                completed_upgrades: completed_upgrades.clone(),
+                object_applied_upgrades: panel.applied_upgrades.clone(),
+                player_completed_upgrades: self.local_completed_upgrades.clone(),
+                object_unaffected_upgrades:
+                    crate::game_logic::host_slave_drones::slave_drone_unaffected_upgrade_names(
+                        panel.applied_upgrades.iter().map(String::as_str),
+                    )
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                ..Default::default()
+            };
             if let Some(ro) = primary.filter(|_| controllable) {
                 residual.moving = ro.moving;
                 residual.has_production = !ro.production_queue.is_empty();
@@ -1264,8 +1253,8 @@ impl PresentationFrame {
                 residual.weapon_fire_status = ro.weapon_fire_status;
                 residual.has_primary_weapon = ro.has_weapon;
                 residual.has_secondary_weapon = ro.has_secondary_weapon;
-                residual.has_tertiary_weapon = ro.projectile_clip_statuses[2].is_some()
-                    || ro.active_weapon_slot == 2;
+                residual.has_tertiary_weapon =
+                    ro.projectile_clip_statuses[2].is_some() || ro.active_weapon_slot == 2;
                 residual.active_weapon_slot = ro.active_weapon_slot;
                 residual.battle_plan_bombardment = ro.weapon_bonus_battle_plan_bombardment;
                 residual.battle_plan_hold_the_line = ro.weapon_bonus_battle_plan_hold_the_line;
@@ -1289,7 +1278,11 @@ impl PresentationFrame {
         control_bar.sync_upgrade_cameos_from_presentation(
             &authored_cameos,
             &completed_upgrades,
-            if controllable { panel.rally_point } else { None },
+            if controllable {
+                panel.rally_point
+            } else {
+                None
+            },
             controllable && panel.special_power_ready,
             if controllable {
                 panel.special_power_cooldown_remaining
@@ -1380,9 +1373,9 @@ impl PresentationFrame {
         // Wave 1106: consumer selection residual filters sold/unusable ids even
         // when the frozen selected list still holds them.
         let usable_id = |id: &ObjectId| {
-            self.objects.iter().any(|o| {
-                o.id == *id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
-            })
+            self.objects
+                .iter()
+                .any(|o| o.id == *id && !o.destroyed && !o.sold && !o.unselectable && !o.masked)
         };
         let mut ids: Vec<ObjectId> = self.selected.iter().copied().filter(usable_id).collect();
         if ids.is_empty() {
@@ -1422,15 +1415,18 @@ impl PresentationFrame {
     /// C++ ControlBarCommand.cpp:1048-1078 — disabled completed structures
     /// still populate their command set (Sell/Stop/Rally stay evaluable).
     fn command_set_name_including_disabled(&self) -> Option<&str> {
-        let usable = |o: &&RenderableObject| {
-            !o.destroyed && !o.sold && !o.unselectable && !o.masked
-        };
-        let primary = self
-            .selected
-            .first()
-            .copied()
-            .or_else(|| self.objects.iter().find(|o| o.selected && usable(o)).map(|o| o.id))?;
-        let o = self.objects.iter().find(|o| o.id == primary && usable(&o))?;
+        let usable =
+            |o: &&RenderableObject| !o.destroyed && !o.sold && !o.unselectable && !o.masked;
+        let primary = self.selected.first().copied().or_else(|| {
+            self.objects
+                .iter()
+                .find(|o| o.selected && usable(o))
+                .map(|o| o.id)
+        })?;
+        let o = self
+            .objects
+            .iter()
+            .find(|o| o.id == primary && usable(&o))?;
         if !o.command_set_name.is_empty() {
             Some(o.command_set_name.as_str())
         } else if !o.command_set_override.is_empty() {
@@ -1443,21 +1439,18 @@ impl PresentationFrame {
     fn host_rappeller_count(&self, ro: &RenderableObject) -> usize {
         ro.garrisoned_units
             .iter()
-            .filter(|id| {
-                match self.objects.iter().find(|o| o.id == **id) {
-                    Some(o) => {
-                        !o.destroyed
-                            && (o.kind_of.contains(&crate::game_logic::KindOf::Infantry)
-                                || o.is_unit)
-                    }
-                    None => true,
+            .filter(|id| match self.objects.iter().find(|o| o.id == **id) {
+                Some(o) => {
+                    !o.destroyed
+                        && (o.kind_of.contains(&crate::game_logic::KindOf::Infantry) || o.is_unit)
                 }
+                None => true,
             })
             .count()
     }
 
     fn host_need_special_power_science_owned(&self, command_name: &str) -> bool {
-        use crate::command_system::{command_type_from_button_name, CommandType};
+        use crate::command_system::{CommandType, command_type_from_button_name};
         use crate::game_logic::host_special_power_enum_residual::special_power_required_science;
         let Some(CommandType::DoSpecialPower { power_type, .. }) =
             command_type_from_button_name(command_name)

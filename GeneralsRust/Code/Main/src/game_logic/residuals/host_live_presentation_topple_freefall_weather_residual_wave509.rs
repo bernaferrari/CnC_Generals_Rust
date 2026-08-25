@@ -78,8 +78,8 @@ pub fn residual_presentation_topple_freefall_weather_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_topple_freefall_weather_last_action(
-) -> ResidualPresentationToppleFreefallWeatherAction {
+pub fn residual_presentation_topple_freefall_weather_last_action()
+-> ResidualPresentationToppleFreefallWeatherAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationToppleFreefallWeatherAction::MethodNames,
         2 => ResidualPresentationToppleFreefallWeatherAction::SourceMarkers,

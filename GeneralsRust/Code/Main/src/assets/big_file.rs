@@ -6,7 +6,7 @@
 
 // BIG file format implementation - exact port of C++ Win32BIGFile system
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{error, info};
 use std::collections::HashMap;
 use std::path::Path;
@@ -157,7 +157,7 @@ impl BIGFile {
         let mut count_bytes = [0u8; 4];
         file.read_exact(&mut count_bytes).await?;
         self.file_count = u32::from_be_bytes(count_bytes); // ntohl equivalent
-                                                           // BIG file count (logging disabled)
+        // BIG file count (logging disabled)
 
         // Skip to directory listing at offset 0x10 (as per C++ code)
         file.seek(SeekFrom::Start(0x10)).await?;

@@ -1,12 +1,12 @@
 //! Host present-path physics visual regressions.
 
 use super::physics_visual_host::{
-    apply_to_world_matrix, body_for_object_with_height_samples, insert_facts_for_test, loco_state,
-    reset_host_physics_visual_state, HostPhysicsVisualFacts,
+    HostPhysicsVisualFacts, apply_to_world_matrix, body_for_object_with_height_samples,
+    insert_facts_for_test, loco_state, reset_host_physics_visual_state,
 };
 use super::physics_visual_host_inputs::{
-    clear_test_object_visual_ini, set_test_object_visual_ini,
-    terrain_normal_zup_from_height_samples, ObjectVisualIni,
+    ObjectVisualIni, clear_test_object_visual_ini, set_test_object_visual_ini,
+    terrain_normal_zup_from_height_samples,
 };
 use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
 use game_client::physics_visual::{

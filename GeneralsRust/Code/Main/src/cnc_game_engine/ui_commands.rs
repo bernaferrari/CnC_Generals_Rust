@@ -40,7 +40,7 @@ fn resolve_pending_weapon_command(
         weapon_slot: weapon.weapon_slot,
         max_shots_to_fire: weapon.max_shots_to_fire,
         target,
-}
+    }
 }
 
 /// Convert an armed `COMBATDROP` button using C++'s target precedence.
@@ -66,7 +66,6 @@ fn resolve_pending_combat_drop_command(
         },
     )
 }
-
 
 /// C++ PlaceEventTranslator illegal place: VoiceNoBuild + NoCanDoSound.
 fn play_host_illegal_place_feedback(
@@ -169,7 +168,6 @@ fn leftover_special_template_name_for_power(
     .copied()
 }
 
-
 /// Whether a shared ControlBar superweapon button can arm this exact parsed
 /// module power.
 ///
@@ -218,9 +216,7 @@ impl CnCGameEngine {
             if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_command() {
                 return Some(pending.options);
             }
-            if let Some(pending) =
-                game_client::helpers::TheInGameUI::get_pending_special_power()
-            {
+            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
                 return Some(pending.options);
             }
         }
@@ -425,8 +421,9 @@ impl CnCGameEngine {
     const NEED_TARGET_NEUTRAL_OBJECT: u32 = 0x0000_0002;
     const NEED_TARGET_ALLY_OBJECT: u32 = 0x0000_0004;
     const NEED_TARGET_POS: u32 = 0x0000_0020;
-    const NEED_OBJECT_TARGET: u32 =
-        Self::NEED_TARGET_ENEMY_OBJECT | Self::NEED_TARGET_NEUTRAL_OBJECT | Self::NEED_TARGET_ALLY_OBJECT;
+    const NEED_OBJECT_TARGET: u32 = Self::NEED_TARGET_ENEMY_OBJECT
+        | Self::NEED_TARGET_NEUTRAL_OBJECT
+        | Self::NEED_TARGET_ALLY_OBJECT;
 
     fn filter_pending_map_target(
         &self,
@@ -498,9 +495,7 @@ impl CnCGameEngine {
             if needs_neutral && obj.team == crate::game_logic::Team::Neutral {
                 return true;
             }
-            if needs_enemy
-                && obj.team != local_team
-                && obj.team != crate::game_logic::Team::Neutral
+            if needs_enemy && obj.team != local_team && obj.team != crate::game_logic::Team::Neutral
             {
                 return true;
             }
@@ -612,11 +607,7 @@ impl CnCGameEngine {
             "GUARD_AREA" => self.radius_cursor_guard_range(seed),
             _ => {
                 let special = self.leftover_special_power_radius_cursor(cursor_type);
-                if special > 0.0 {
-                    special
-                } else {
-                    0.0
-                }
+                if special > 0.0 { special } else { 0.0 }
             }
         }
     }
@@ -940,7 +931,6 @@ impl CnCGameEngine {
         })
     }
 
-
     /// Presentation-owned object identity for UI/command residual (InGame).
     /// Live GameLogic is boot residual only when no frame is installed.
     #[inline]
@@ -1075,9 +1065,7 @@ impl CnCGameEngine {
         if crate::command_system::host_recorder_is_playback() {
             return;
         }
-        let newly_selected = new_ids
-            .iter()
-            .any(|id| !self.selected_objects.contains(id));
+        let newly_selected = new_ids.iter().any(|id| !self.selected_objects.contains(id));
         let deselected_all = new_ids.is_empty() && !self.selected_objects.is_empty();
         if !newly_selected && !deselected_all {
             return;
@@ -1091,7 +1079,6 @@ impl CnCGameEngine {
             game_client::helpers::TheInGameUI::clear_pending_special_power();
         }
     }
-
 
     /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
@@ -1426,9 +1413,8 @@ impl CnCGameEngine {
         if self.game_paused != paused {
             self.game_paused = paused;
         }
-        self.host_game_logic_mut().apply_session_control_op(
-            crate::game_logic::SessionControlOp::SetPaused { paused },
-        );
+        self.host_game_logic_mut()
+            .apply_session_control_op(crate::game_logic::SessionControlOp::SetPaused { paused });
 
         // Compose freeze residual without dual-read when presentation freeze owns
         // script time (InGame). Boot path still probes live is_time_frozen once.
@@ -1851,8 +1837,7 @@ impl CnCGameEngine {
                         .game_hud_mut()
                         .construction_panel
                         .clear_structure_placement();
-                    let placement_angle =
-                        game_client::helpers::TheInGameUI::get_placement_angle();
+                    let placement_angle = game_client::helpers::TheInGameUI::get_placement_angle();
                     self.host_queue_and_process_command_silent(
                         crate::command_system::GameCommand {
                             command_type: crate::command_system::CommandType::DoSpecialPower {
@@ -1879,7 +1864,8 @@ impl CnCGameEngine {
         if let Some(id) = builder_id {
             if let Some(builder) = gamelogic::helpers::TheGameLogic::find_object_by_id(id.0) {
                 if let Ok(guard) = builder.read() {
-                    if let Some(tmpl) = gamelogic::helpers::TheThingFactory::find_template(&template)
+                    if let Some(tmpl) =
+                        gamelogic::helpers::TheThingFactory::find_template(&template)
                     {
                         let pending =
                             game_client::helpers::TheInGameUI::get_pending_special_power();
@@ -1907,7 +1893,6 @@ impl CnCGameEngine {
                 }
             }
         }
-
 
         let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
         if lbc != LBC_OK {
@@ -2151,9 +2136,7 @@ impl CnCGameEngine {
         }
         let panel = &mut self.game_hud.construction_panel;
         if let Some(idx) = panel.building_queue.iter().position(|q| {
-            q.is_upgrade
-                && q.production_id == production_id
-                && q.queue_index == queue_index
+            q.is_upgrade && q.production_id == production_id && q.queue_index == queue_index
         }) {
             panel.building_queue.remove(idx);
         }
@@ -2213,10 +2196,7 @@ impl CnCGameEngine {
 
         // C++ ControlBarCommandProcessing.cpp:183-189 — every command-button
         // activation plays UnitSpecificSound with the local player index.
-        play_named_command_button_unit_specific_sound(
-            command_name,
-            self.local_player_id_for_ui(),
-        );
+        play_named_command_button_unit_specific_sound(command_name, self.local_player_id_for_ui());
 
         // C++ ControlBar: AttackMove/Guard/SetRally wait for map click residual.
         match command_type {
@@ -2544,7 +2524,8 @@ fn named_command_is_single_use(command_name: &str) -> bool {
 /// C++ CommandXlat.cpp:3473 — `TheAudio->addAudioEvent(&m_allCheerSound)`.
 fn play_all_cheer_sound() {
     if let Some(audio) = gamelogic::helpers::TheAudio::get() {
-        let _ = audio.add_audio_event(&gamelogic::helpers::TheAudio::get_misc_audio().all_cheer_sound);
+        let _ =
+            audio.add_audio_event(&gamelogic::helpers::TheAudio::get_misc_audio().all_cheer_sound);
         return;
     }
     let name = game_engine::common::ini::ini_misc_audio::get_misc_audio()
@@ -2608,7 +2589,7 @@ mod tests {
                 weapon_slot: crate::command_system::WeaponSlot::Primary,
                 max_shots_to_fire: 1,
                 target: crate::command_system::WeaponTarget::Location(click),
-}
+            }
         );
     }
 
@@ -2682,7 +2663,7 @@ mod tests {
     #[test]
     fn retail_superweapon_button_family_keeps_exact_parsed_variant_and_cursor() {
         use crate::command_system::{
-            special_power_type_from_template_name, SpecialPowerType as Power,
+            SpecialPowerType as Power, special_power_type_from_template_name,
         };
 
         let supw_particle =
@@ -2746,7 +2727,10 @@ mod tests {
             !msg.starts_with("GUI:MaxSelectionSize"),
             "live warning must not show the raw GameText key, got {msg:?}"
         );
-        assert!(msg.contains("25"), "localized warning must include the cap, got {msg:?}");
+        assert!(
+            msg.contains("25"),
+            "localized warning must include the cap, got {msg:?}"
+        );
     }
 
     #[test]

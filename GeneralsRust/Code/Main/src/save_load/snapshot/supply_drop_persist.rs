@@ -11,8 +11,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload so
 //! older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -47,10 +47,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep a pre-load drop clock.
     game_logic.supply_drop_zones.clear();
     let Some(suffix) = find_oclt_suffix(bytes) else {
@@ -136,7 +133,12 @@ mod tests {
             "ControlBar OCL timer must keep remaining seconds"
         );
         assert_eq!(restored.supply_drop_zones.flights_started(), 2);
-        assert!(restored.supply_drop_zones.peek_next_drop(ObjectId(99)).is_none());
+        assert!(
+            restored
+                .supply_drop_zones
+                .peek_next_drop(ObjectId(99))
+                .is_none()
+        );
     }
 
     #[test]
@@ -144,6 +146,11 @@ mod tests {
         let mut logic = GameLogic::new();
         logic.supply_drop_zones.set_next_drop(ObjectId(3), 100);
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
-        assert!(logic.supply_drop_zones.peek_next_drop(ObjectId(3)).is_none());
+        assert!(
+            logic
+                .supply_drop_zones
+                .peek_next_drop(ObjectId(3))
+                .is_none()
+        );
     }
 }

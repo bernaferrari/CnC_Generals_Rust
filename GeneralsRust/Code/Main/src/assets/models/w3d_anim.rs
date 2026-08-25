@@ -1,13 +1,13 @@
 //! Mechanical split from `assets/models.rs`. No behavior change.
 #![allow(dead_code, unused_imports)]
 use super::prelude::*;
-use super::*;
 use super::w3d_format::*;
 use super::w3d_loader::*;
 use super::w3d_loader_parse::*;
 use super::w3d_mesh::*;
 use super::w3d_mesh_build::*;
 use super::w3d_model::*;
+use super::*;
 
 /// Build a column-major 4x4 matrix from a pivot's translation + quaternion rotation.
 /// Same logic as W3DLoader::mat4_from_tr_quat but operates on W3dPivot directly.
@@ -15,7 +15,10 @@ pub(super) fn mat4_from_pivot(pivot: &W3dPivot) -> [f32; 16] {
     mat4_from_translation_and_quaternion(pivot.translation, pivot.rotation)
 }
 
-pub(super) fn mat4_from_translation_and_quaternion(translation: [f32; 3], rotation: [f32; 4]) -> [f32; 16] {
+pub(super) fn mat4_from_translation_and_quaternion(
+    translation: [f32; 3],
+    rotation: [f32; 4],
+) -> [f32; 16] {
     let x = rotation[0];
     let y = rotation[1];
     let z = rotation[2];
@@ -128,7 +131,10 @@ pub(super) fn raw_motion_channel_slot(flags: u16) -> Option<usize> {
 /// `MotionChannelClass::Get_Vector` returns scalar zero outside an authored
 /// range. A malformed scalar record is not source-usable, so fail the pose
 /// rather than treating a truncated payload as a real zero channel.
-pub(super) fn raw_scalar_channel_value(channel: Option<&W3dAnimChannel>, frame: i32) -> Option<f32> {
+pub(super) fn raw_scalar_channel_value(
+    channel: Option<&W3dAnimChannel>,
+    frame: i32,
+) -> Option<f32> {
     let Some(channel) = channel else {
         return Some(0.0);
     };
@@ -146,7 +152,10 @@ pub(super) fn raw_scalar_channel_value(channel: Option<&W3dAnimChannel>, frame: 
 
 /// `MotionChannelClass::Get_Vector_As_Quat` returns the identity quaternion
 /// outside an authored range and does not normalize authored raw values.
-pub(super) fn raw_quaternion_channel_value(channel: Option<&W3dAnimChannel>, frame: i32) -> Option<[f32; 4]> {
+pub(super) fn raw_quaternion_channel_value(
+    channel: Option<&W3dAnimChannel>,
+    frame: i32,
+) -> Option<[f32; 4]> {
     let Some(channel) = channel else {
         return Some([0.0, 0.0, 0.0, 1.0]);
     };
@@ -195,7 +204,13 @@ pub(super) fn mat4_from_quaternion(rotation: [f32; 4]) -> [f32; 16] {
 /// Preserve the pre-existing generic compressed-HAnim behavior verbatim.
 /// Raw HAnim deliberately uses local post-composition instead; this helper is
 /// not part of Generals' specialized raw path.
-pub(super) fn replace_rotation_preserving_translation(m: &mut [f32; 16], qx: f32, qy: f32, qz: f32, qw: f32) {
+pub(super) fn replace_rotation_preserving_translation(
+    m: &mut [f32; 16],
+    qx: f32,
+    qy: f32,
+    qz: f32,
+    qw: f32,
+) {
     let xx = qx * qx;
     let yy = qy * qy;
     let zz = qz * qz;
@@ -419,8 +434,9 @@ pub(super) fn compute_htree_global_transforms_from_locals(
 /// Both static rigid HLOD children and animation sampling use the same hierarchy
 /// convention.  Keeping this outside `W3DLoader` prevents a render-time HLOD
 /// binding from accidentally depending on loader-only state.
-pub(super) fn compute_bind_pose_global_transforms(hierarchy: &W3dHierarchy) -> Option<Vec<[f32; 16]>> {
+pub(super) fn compute_bind_pose_global_transforms(
+    hierarchy: &W3dHierarchy,
+) -> Option<Vec<[f32; 16]>> {
     let locals: Vec<[f32; 16]> = hierarchy.pivots.iter().map(mat4_from_pivot).collect();
     compute_htree_global_transforms_from_locals(hierarchy, &locals)
 }
-

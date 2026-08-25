@@ -16,8 +16,8 @@
 //! - Particle IDs tracked so previous-state systems are destroyed
 //! - Leftover DamageFXTypes / DamageOCLTypes / DamageParticleTypes gate play
 
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::ObjectId;
+use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use serde::{Deserialize, Serialize};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -76,9 +76,8 @@ fn parse_leftover_damage_type_flags(raw: &str) -> Option<u64> {
                 (false, entry)
             };
             if let Ok(damage_type) = gamelogic::damage::DamageType::from_str(name) {
-                let flag = gamelogic::damage::DamageTypeFlags::from_bits_truncate(
-                    1 << damage_type as u64,
-                );
+                let flag =
+                    gamelogic::damage::DamageTypeFlags::from_bits_truncate(1 << damage_type as u64);
                 if remove {
                     flags.remove(flag);
                 } else {
@@ -174,7 +173,6 @@ impl HostTransitionLoc {
         }
     }
 }
-
 
 impl HostTransitionDamageFxData {
     pub fn generic_structure_residual() -> Self {
@@ -291,7 +289,6 @@ fn authored_fx_slots_for_state(
     }
     (names, locs)
 }
-
 
 /// Build residual event when state worsens.
 pub fn transition_event(
@@ -425,8 +422,6 @@ pub fn on_body_damage_state_change_for_damage(
     })
 }
 
-
-
 pub fn transition_damage_fx_config_for_template(
     name: &str,
     is_structure: bool,
@@ -464,10 +459,7 @@ fn overlay_authored_transition_slots(data: &mut HostTransitionDamageFxData, name
         return;
     };
     for module in &definition.behavior_modules {
-        if !module
-            .class_name
-            .eq_ignore_ascii_case("TransitionDamageFX")
-        {
+        if !module.class_name.eq_ignore_ascii_case("TransitionDamageFX") {
             continue;
         }
         for (state, prefix) in [
@@ -592,8 +584,7 @@ pub fn parse_transition_named_attr(raw: &str, tag: &str) -> Option<String> {
 
 /// Leftover `parse_fx_loc_info` for FXList / OCL / PSys loc tokens.
 pub fn parse_transition_loc_attr(raw: &str) -> HostTransitionLoc {
-    let p = parse_transition_particle_attr(&format!("{raw} PSys:_"))
-        .unwrap_or_default();
+    let p = parse_transition_particle_attr(&format!("{raw} PSys:_")).unwrap_or_default();
     HostTransitionLoc {
         bone: p.bone,
         loc: p.loc,
@@ -620,13 +611,10 @@ pub fn leftover_named_slot_world_pos(
         .unwrap_or(yaw);
     let leftover_local = {
         let leftover_drawable_handle = leftover_guard.as_ref().and_then(|obj| obj.get_drawable());
-        let leftover_drawable = leftover_drawable_handle.as_ref().and_then(|d| d.read().ok());
-        leftover_local_effect_pos_live(
-            &particle,
-            leftover_drawable.as_deref(),
-            model,
-            scale,
-        )
+        let leftover_drawable = leftover_drawable_handle
+            .as_ref()
+            .and_then(|d| d.read().ok());
+        leftover_local_effect_pos_live(&particle, leftover_drawable.as_deref(), model, scale)
     };
     if let Some(obj) = leftover_guard.as_deref() {
         let world = obj.convert_bone_pos_to_world_pos(Some(&leftover_local), None);
@@ -656,14 +644,8 @@ pub fn play_transition_event_fx_ocl(
     scale: f32,
 ) {
     if let Some(fx) = ev.fx_name.as_deref() {
-        let world = leftover_named_slot_world_pos(
-            ev.fx_locs.first(),
-            owner,
-            host_pos,
-            yaw,
-            model,
-            scale,
-        );
+        let world =
+            leftover_named_slot_world_pos(ev.fx_locs.first(), owner, host_pos, yaw, model, scale);
         let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, world);
     }
     for (i, fx) in ev.extra_fx_names.iter().enumerate() {
@@ -678,14 +660,8 @@ pub fn play_transition_event_fx_ocl(
         let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, world);
     }
     for (i, ocl) in ev.ocl_names.iter().enumerate() {
-        let world = leftover_named_slot_world_pos(
-            ev.ocl_locs.get(i),
-            owner,
-            host_pos,
-            yaw,
-            model,
-            scale,
-        );
+        let world =
+            leftover_named_slot_world_pos(ev.ocl_locs.get(i), owner, host_pos, yaw, model, scale);
         play_authored_transition_ocl(ocl, owner, world);
     }
 }
@@ -704,7 +680,6 @@ pub fn take_played_transition_event_fx_ocl(
     ev.extra_fx_names.clear();
     ev.ocl_names.clear();
 }
-
 
 /// Play leftover OCL at a live-host pose (C++ `ObjectCreationList::create`).
 ///
@@ -775,12 +750,10 @@ pub fn parse_transition_particle_attr(raw: &str) -> Option<HostTransitionParticl
             };
             bone = Some(b);
         } else if key.eq_ignore_ascii_case("randombone") {
-            let v = val
-                .map(|s| s.to_string())
-                .or_else(|| {
-                    i += 1;
-                    tokens.get(i).map(|s| s.to_string())
-                })?;
+            let v = val.map(|s| s.to_string()).or_else(|| {
+                i += 1;
+                tokens.get(i).map(|s| s.to_string())
+            })?;
             random_bone = v.eq_ignore_ascii_case("yes") || v.eq_ignore_ascii_case("true");
         } else if key.eq_ignore_ascii_case("psys") {
             let v = if let Some(v) = val.filter(|s| !s.is_empty()) {
@@ -911,14 +884,12 @@ pub fn spawn_transition_particles_at_pose(
             continue;
         }
         let leftover_drawable_handle = leftover_guard.as_ref().and_then(|obj| obj.get_drawable());
-        let leftover_drawable = leftover_drawable_handle.as_ref().and_then(|d| d.read().ok());
+        let leftover_drawable = leftover_drawable_handle
+            .as_ref()
+            .and_then(|d| d.read().ok());
 
-        let leftover_local = leftover_local_effect_pos_live(
-            p,
-            leftover_drawable.as_deref(),
-            model,
-            scale,
-        );
+        let leftover_local =
+            leftover_local_effect_pos_live(p, leftover_drawable.as_deref(), model, scale);
         let host_local = leftover_to_host_local(leftover_local);
         if let Some(id) = registry.attach_named_to_object_local(
             owner,
@@ -1029,15 +1000,18 @@ pub fn clear_test_template_audio() {
 }
 
 /// C++ `ActiveBody.cpp:625-631` yellow-health VoiceFear gate + 25% roll.
-pub fn voice_fear_should_play(prev_health: f32, current_health: f32, max_health: f32, roll_0_99: i32) -> bool {
+pub fn voice_fear_should_play(
+    prev_health: f32,
+    current_health: f32,
+    max_health: f32,
+    roll_0_99: i32,
+) -> bool {
     if max_health <= 0.0 || current_health <= 0.0 {
         return false;
     }
     let prev_ratio = prev_health / max_health;
     let cur_ratio = current_health / max_health;
-    prev_ratio > YELLOW_DAMAGE_PERCENT
-        && cur_ratio < YELLOW_DAMAGE_PERCENT
-        && roll_0_99 < 25
+    prev_ratio > YELLOW_DAMAGE_PERCENT && cur_ratio < YELLOW_DAMAGE_PERCENT && roll_0_99 < 25
 }
 
 pub fn set_test_voice_fear_roll(roll: Option<i32>) {
@@ -1045,9 +1019,9 @@ pub fn set_test_voice_fear_roll(roll: Option<i32>) {
 }
 
 pub fn take_voice_fear_roll() -> i32 {
-    VOICE_FEAR_ROLL.get().unwrap_or_else(|| {
-        game_engine::common::random_value::get_game_logic_random_value(0, 99)
-    })
+    VOICE_FEAR_ROLL
+        .get()
+        .unwrap_or_else(|| game_engine::common::random_value::get_game_logic_random_value(0, 99))
 }
 
 /// Best ArmorSet `DamageFX =` name for live flags (C++ `validateArmorAndDamageFX`).
@@ -1183,7 +1157,8 @@ pub fn dispatch_armor_damage_fx(
     actual_damage: f32,
 ) -> Option<String> {
     let flags = crate::game_logic::host_armor_residual::live_armor_set_flags(obj);
-    let Some(dfx_name) = find_best_armor_set_damage_fx(&obj.thing.template.armor_sets, flags) else {
+    let Some(dfx_name) = find_best_armor_set_damage_fx(&obj.thing.template.armor_sets, flags)
+    else {
         return None;
     };
     let now = crate::game_logic::host_historic_bonus::logic_frame();
@@ -1214,7 +1189,9 @@ pub fn dispatch_armor_damage_fx(
     // C++ DamageFX.cpp:61-93 — throttle + major/minor list use SOURCE veterancy.
     // Missing source → LEVEL_REGULAR. Victim stays primary FX object.
     let source = peek_damage_fx_source();
-    let source_ref = source.as_ref().map(|s| s as &dyn game_engine::common::ini::ini_damage_fx::Object);
+    let source_ref = source
+        .as_ref()
+        .map(|s| s as &dyn game_engine::common::ini::ini_damage_fx::Object);
     let (list_name, throttle) = {
         let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()?;
         let dfx = store.find_damage_fx(&dfx_name)?;
@@ -1268,6 +1245,11 @@ pub fn apply_victim_attacked_by(victim_player: i32, attacker_player: i32) {
         }
         return;
     }
+}
+
+#[cfg(test)]
+pub fn take_attacked_by_log() -> Vec<(i32, i32)> {
+    ATTACKED_BY_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
 /// Queue C++ VoiceFear when health crosses yellow (ActiveBody.cpp:624-637).
@@ -1325,12 +1307,14 @@ mod tests {
     #[test]
     fn worse_transition_does_not_invent_structure_smoke() {
         let d = HostTransitionDamageFxData::generic_structure_residual();
-        assert!(transition_event(
-            &d,
-            HostBodyDamageType::Damaged,
-            HostBodyDamageType::Pristine
-        )
-        .is_none());
+        assert!(
+            transition_event(
+                &d,
+                HostBodyDamageType::Damaged,
+                HostBodyDamageType::Pristine
+            )
+            .is_none()
+        );
         // Unauthored TransitionDamageFX: no invented BuildingDamageSmoke/Fire.
         assert!(
             transition_event(
@@ -1382,10 +1366,8 @@ mod tests {
 
     #[test]
     fn parse_damaged_particle_bone_psys() {
-        let p = parse_transition_particle_attr(
-            "Bone:Fire01 RandomBone:No PSys:BuildingDamageFire",
-        )
-        .expect("parse");
+        let p = parse_transition_particle_attr("Bone:Fire01 RandomBone:No PSys:BuildingDamageFire")
+            .expect("parse");
         assert_eq!(p.name, "BuildingDamageFire");
         assert_eq!(p.bone.as_deref(), Some("Fire01"));
         assert!(!p.random_bone);
@@ -1402,11 +1384,8 @@ mod tests {
             Some("FX_AuthoredDamaged")
         );
         assert_eq!(
-            parse_transition_named_attr(
-                "Loc: X:0 Y:0 Z:8 OCL:OCL_AuthoredDebris",
-                "ocl"
-            )
-            .as_deref(),
+            parse_transition_named_attr("Loc: X:0 Y:0 Z:8 OCL:OCL_AuthoredDebris", "ocl")
+                .as_deref(),
             Some("OCL_AuthoredDebris")
         );
     }
@@ -1618,5 +1597,4 @@ mod tests {
         assert_eq!(fallback.y, 3.0);
         assert_eq!(fallback.z, 2.0);
     }
-
 }

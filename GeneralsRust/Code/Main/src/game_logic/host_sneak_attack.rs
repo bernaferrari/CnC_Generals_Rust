@@ -737,9 +737,10 @@ mod tests {
             SNEAK_ATTACK_SPAWN_DELAY_FRAMES
         );
 
-        assert!(reg
-            .plan_due_spawns(SNEAK_ATTACK_SPAWN_DELAY_FRAMES - 1)
-            .is_empty());
+        assert!(
+            reg.plan_due_spawns(SNEAK_ATTACK_SPAWN_DELAY_FRAMES - 1)
+                .is_empty()
+        );
         let plans = reg.plan_due_spawns(SNEAK_ATTACK_SPAWN_DELAY_FRAMES);
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].tunnel_template, SNEAK_ATTACK_RESIDUAL_TEMPLATE);
@@ -772,7 +773,6 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert!((plans[0].placement_angle - angle).abs() < 1.0e-6);
     }
-
 
     #[test]
     fn shockwave_radius_and_target_filter() {

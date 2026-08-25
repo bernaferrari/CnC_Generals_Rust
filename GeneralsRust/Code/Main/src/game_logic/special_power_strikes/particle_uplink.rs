@@ -1340,8 +1340,7 @@ fn leftover_puc_authored_types(
         if let Some(data) = entry
             .data
             .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
-            )
-        {
+        ) {
             return Some((
                 crate::game_logic::combat::DamageType::from_store(data.damage_type),
                 crate::game_logic::host_usa_pilot::HostDeathType::from_store(data.death_type),

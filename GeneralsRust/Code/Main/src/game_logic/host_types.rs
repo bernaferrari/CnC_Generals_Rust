@@ -6,7 +6,9 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for game objects
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default,
+)]
 pub struct ObjectId(pub u32);
 
 impl std::fmt::Display for ObjectId {
@@ -279,8 +281,6 @@ pub enum KindOf {
     /// C++ `KINDOF_HUGE_VEHICLE` (KindOf.h:35). Overlord / Helix class.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     HugeVehicle,
-
-
 }
 
 impl KindOf {
@@ -314,7 +314,6 @@ impl KindOf {
             "INERT" => Some(Self::Inert),
             "BLAST_CRATER" | "BLASTCRATER" => Some(Self::BlastCrater),
             "HUGE_VEHICLE" | "HUGEVEHICLE" => Some(Self::HugeVehicle),
-
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -567,7 +566,6 @@ pub struct ObjectStatus {
     /// C++ OBJECT_STATUS_MISSILE_KILLING_SELF (MissileAIUpdate::detonate → KillSelf).
     #[serde(default)]
     pub missile_killing_self: bool,
-
 }
 
 /// Basic geometry information for objects
@@ -835,10 +833,7 @@ mod tests {
             KindOf::from_ini_token("AUTO_RALLYPOINT"),
             Some(KindOf::AutoRallypoint)
         );
-        assert_eq!(
-            KindOf::from_ini_token("MOB_NEXUS"),
-            Some(KindOf::MobNexus)
-        );
+        assert_eq!(KindOf::from_ini_token("MOB_NEXUS"), Some(KindOf::MobNexus));
         assert_eq!(
             KindOf::from_ini_token("NO_COLLIDE"),
             Some(KindOf::NoCollide)
@@ -847,10 +842,7 @@ mod tests {
             KindOf::from_ini_token("FORCEATTACKABLE"),
             Some(KindOf::ForceAttackable)
         );
-        assert_eq!(
-            KindOf::from_ini_token("SHRUBBERY"),
-            Some(KindOf::Shrubbery)
-        );
+        assert_eq!(KindOf::from_ini_token("SHRUBBERY"), Some(KindOf::Shrubbery));
         assert_eq!(
             KindOf::from_ini_token("CLEARED_BY_BUILD"),
             Some(KindOf::ClearedByBuild)
@@ -864,7 +856,6 @@ mod tests {
             KindOf::from_ini_token("HUGE_VEHICLE"),
             Some(KindOf::HugeVehicle)
         );
-
 
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }

@@ -5,8 +5,8 @@ use std::rc::Rc;
 
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
@@ -62,18 +62,12 @@ pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&dyn s
     state.button_quickmatch = button_quickmatch;
 }
 
-pub fn wol_qm_score_screen_shutdown(
-    layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_qm_score_screen_shutdown(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     layout.hide(true);
     let _ = get_shell().shutdown_complete(None, false);
 }
 
-pub fn wol_qm_score_screen_update(
-    _layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn wol_qm_score_screen_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     // WOL update hooks are handled elsewhere in the Rust port.
 }
 

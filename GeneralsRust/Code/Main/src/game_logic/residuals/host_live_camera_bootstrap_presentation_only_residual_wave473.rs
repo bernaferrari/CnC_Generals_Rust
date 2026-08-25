@@ -79,8 +79,8 @@ pub fn residual_camera_bootstrap_presentation_only_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_camera_bootstrap_presentation_only_last_action(
-) -> ResidualCameraBootstrapPresentationOnlyAction {
+pub fn residual_camera_bootstrap_presentation_only_last_action()
+-> ResidualCameraBootstrapPresentationOnlyAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualCameraBootstrapPresentationOnlyAction::MethodNames,
         2 => ResidualCameraBootstrapPresentationOnlyAction::SourceMarkers,

@@ -4,17 +4,17 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::game_text::GameText;
+use crate::gamespy_overlay::{GameSpyOverlayType, check_reopen_player_info, close_overlay};
 use crate::gui::callbacks::online_callback_support::packed_ui_color;
-use crate::gamespy_overlay::{check_reopen_player_info, close_overlay, GameSpyOverlayType};
 use crate::gui::{
-    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
+    with_window_manager, write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
-use game_network::gamespy::peer_defs::{default_gamespy_colors, get_gamespy_info, GameSpyColor};
+use game_network::gamespy::peer_defs::{GameSpyColor, default_gamespy_colors, get_gamespy_info};
 use game_network::gamespy::persistent_storage_thread::{
-    get_ps_message_queue, PSRequest, PSRequestType, PSResponse, PSResponseType, LOC_MAX, LOC_MIN,
+    LOC_MAX, LOC_MIN, PSRequest, PSRequestType, PSResponse, PSResponseType, get_ps_message_queue,
 };
 
 #[derive(Default)]
@@ -38,7 +38,8 @@ fn wol_locale_state() -> Rc<RefCell<WolLocaleSelectState>> {
 pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = wol_locale_state();
     let mut state = state_slot.borrow_mut();
-    state.parent_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ParentLocaleSelect") as i32;
+    state.parent_id =
+        NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ParentLocaleSelect") as i32;
     state.button_ok_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ButtonOk") as i32;
     state.listbox_locale_id =
         NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ListBoxLocaleSelect") as i32;
@@ -108,7 +109,7 @@ pub fn wol_locale_select_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let state_slot = wol_locale_state();
-    let mut state = state_slot.borrow_mut();
+            let mut state = state_slot.borrow_mut();
             if control_id != state.button_ok_id {
                 return WindowMsgHandled::Handled;
             }

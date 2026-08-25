@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use lzh_compression::{compress, decompress, CompressionLevel};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use lzh_compression::{CompressionLevel, compress, decompress};
 
 fn lzh_round_trip(c: &mut Criterion) {
     let data = vec![0_u8; 64 * 1024];

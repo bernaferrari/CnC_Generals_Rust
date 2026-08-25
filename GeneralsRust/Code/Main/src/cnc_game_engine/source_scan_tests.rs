@@ -98,9 +98,7 @@ fn escape_in_handle_key_press_opens_quit_menu_residual() {
     let hk = src
         .find("fn handle_key_press(&mut self, key: &Key)")
         .expect("handle_key_press");
-    let esc = src[hk..]
-        .find("NamedKey::Escape")
-        .expect("Escape arm");
+    let esc = src[hk..].find("NamedKey::Escape").expect("Escape arm");
     let window = &src[hk + esc..src.len().min(hk + esc + 1800)];
     assert!(
         window.contains("ToggleQuitMenu") || window.contains("host_toggle_retail_quit_menu"),
@@ -134,7 +132,6 @@ fn beacon_and_control_bar_hotkeys_residual() {
             && src.contains("MSG_META_TOGGLE_CONTROL_BAR"),
         "F9 must TOGGLE_CONTROL_BAR via WND ToggleControlBar (C++ CommandXlat.cpp:3144)"
     );
-
 }
 
 #[test]
@@ -142,13 +139,11 @@ fn wnd_control_bar_is_live_gameplay_hud_not_only_soft_ui_manager() {
     // C++ HideControlBar / ShowControlBar / ToggleControlBar (ControlBarCallback.cpp:477-549).
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("fn hide_gameplay_layouts")
-            && src.contains("hide_control_bar(true)"),
+        src.contains("fn hide_gameplay_layouts") && src.contains("hide_control_bar(true)"),
         "shell hide must call live WND HideControlBar"
     );
     assert!(
-        src.contains("fn ensure_gameplay_layouts")
-            && src.contains("show_control_bar"),
+        src.contains("fn ensure_gameplay_layouts") && src.contains("show_control_bar"),
         "InGame enter must ShowControlBar on live WND tree"
     );
     let hud = include_str!("../ui/hud.rs");
@@ -157,7 +152,6 @@ fn wnd_control_bar_is_live_gameplay_hud_not_only_soft_ui_manager() {
         "GameHUD info messages must fan into live TheInGameUI (InGameUI.cpp:1993)"
     );
 }
-
 
 fn camera_bookmarks_and_delete_beacon_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
@@ -617,7 +611,9 @@ fn empty_lmb_does_not_force_select_can_select_rejects() {
         .find("\n    fn ")
         .map(|i| press + 1 + i)
         .unwrap_or(press + 2500);
-    let release = src.find("fn handle_left_release").expect("handle_left_release");
+    let release = src
+        .find("fn handle_left_release")
+        .expect("handle_left_release");
     let release_end = src[release..]
         .find("fn handle_right_click")
         .map(|i| release + i)
@@ -801,7 +797,6 @@ fn sneak_attack_place_keeps_placement_angle() {
         "sneak-attack place must emit DoSpecialPower with placement facing"
     );
 }
-
 
 #[test]
 fn deploy_d_key_not_shadowed_by_debug_defeat_residual() {
@@ -1455,8 +1450,7 @@ fn idle_harvesters_and_cancel_all_production_residual() {
         "Ctrl+Alt+I must select idle harvesters residual without HUD toast"
     );
     assert!(
-        src.contains("fn cancel_all_selected_production")
-            && src.contains("ctrl_down && !shift"),
+        src.contains("fn cancel_all_selected_production") && src.contains("ctrl_down && !shift"),
         "Ctrl+Delete must cancel all production residual"
     );
     assert!(
@@ -1538,8 +1532,7 @@ fn attacking_select_and_stop_all_residual() {
 fn debug_producer_and_guarding_select_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("fn toggle_debug_info_hotkey")
-            && !src.contains("Debug overlay: ON"),
+        src.contains("fn toggle_debug_info_hotkey") && !src.contains("Debug overlay: ON"),
         "debug overlay residual helper must remain (not bound to retail Ctrl+F1) without HUD toast"
     );
     assert!(
@@ -2274,9 +2267,7 @@ fn menu_transition_applies_product_title_and_tears_down_loading_overlay() {
 
     let types = include_str!("types.rs");
     assert!(
-        types.contains(
-            "SHELL_MENU_WINDOW_TITLE: &str = \"Command & Conquer Generals Zero Hour\""
-        ),
+        types.contains("SHELL_MENU_WINDOW_TITLE: &str = \"Command & Conquer Generals Zero Hour\""),
         "product window title must stay Command & Conquer Generals Zero Hour"
     );
 }
@@ -2321,7 +2312,6 @@ fn menu_to_menu_does_not_hide_shell_or_shutdown_main_menu() {
         "show_shell_menu must inspect the live stack like C++ startNewGame: {show}"
     );
 }
-
 
 #[cfg(test)]
 mod world_scene_skip_residual_tests {
@@ -2470,7 +2460,6 @@ mod runtime_host_windowed_bridge_tests {
         );
     }
 
-
     #[test]
     fn runtime_host_enabled_uses_active_not_only_headless() {
         let src = crate::cnc_game_engine::ENGINE_SRC;
@@ -2525,7 +2514,6 @@ mod runtime_host_windowed_bridge_tests {
                 && src.contains("apply_runtime_host_window_visibility"),
             "boot residual must publish the honest winit query after set_visible"
         );
-
     }
 
     #[test]
@@ -2817,12 +2805,10 @@ mod runtime_host_windowed_bridge_tests {
             "live run_loop must not hardcode 60 Hz 16_667 µs"
         );
         assert!(
-            src.contains("HEADLESS_LOGIC_INTERVAL")
-                && src.contains("from_nanos(33_333_333)"),
+            src.contains("HEADLESS_LOGIC_INTERVAL") && src.contains("from_nanos(33_333_333)"),
             "headless logic must remain a separate 30 Hz path"
         );
     }
-
 }
 
 #[cfg(test)]

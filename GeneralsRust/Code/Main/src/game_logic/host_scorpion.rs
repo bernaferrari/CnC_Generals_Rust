@@ -105,7 +105,6 @@ pub const SCORPION_MISSILE_DAMAGE_TYPE: &str = "EXPLOSION";
 /// Retail ScorpionMissileWeapon DeathType residual.
 pub const SCORPION_MISSILE_DEATH_TYPE: &str = "EXPLODED";
 
-
 /// Residual fire audio (gun).
 pub const SCORPION_GUN_FIRE_AUDIO: &str = "ScorpionTankWeapon";
 /// Residual fire audio (missile).
@@ -296,9 +295,9 @@ pub fn scorpion_gun_weapon(tier: ScorpionSalvageTier) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Missile primary/secondary ring damage with optional AP mult.
@@ -331,9 +330,9 @@ pub fn scorpion_missile_weapon(has_ap: bool, dual_clip: bool) -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
-                reloading_clip: false,
-            last_bonus_rof: 0.0,
-}
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+    }
 }
 
 /// Primary gun splash residual damage at distance from impact.

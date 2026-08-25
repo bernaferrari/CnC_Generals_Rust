@@ -5,14 +5,14 @@ use crate::common::coord::*;
 use crate::common::types::ModelConditionFlags;
 use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::game_logic::game_logic::TheGameLogic;
 use crate::helpers::{TheAudio, ThePartitionManager};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::*;
 use crate::state_machine::*;
 use crate::team::TeamID;
-use crate::terrain::{get_terrain_logic, BridgeAttackInfo};
+use crate::terrain::{BridgeAttackInfo, get_terrain_logic};
 use crate::weapon::{Weapon, WeaponChoiceCriteria, WeaponSlotType};
 use game_engine::common::system::Snapshotable;
 use log::warn;
@@ -271,7 +271,10 @@ impl TurretAI {
 
     /// Set current target by stable object ID.
     pub fn set_current_target(&mut self, target: Option<ObjectID>) {
-        if target.filter(|&id| id != crate::common::INVALID_ID).is_none() {
+        if target
+            .filter(|&id| id != crate::common::INVALID_ID)
+            .is_none()
+        {
             self.remove_self_as_targeter();
         }
         self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
@@ -294,7 +297,10 @@ impl TurretAI {
 
     /// Set current target from idle mood selection
     pub fn set_current_target_from_idle_mood(&mut self, target: Option<ObjectID>) {
-        if target.filter(|&id| id != crate::common::INVALID_ID).is_none() {
+        if target
+            .filter(|&id| id != crate::common::INVALID_ID)
+            .is_none()
+        {
             self.remove_self_as_targeter();
         }
         self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
@@ -341,7 +347,10 @@ impl TurretAI {
         target: Option<ObjectID>,
         force_attacking: bool,
     ) {
-        if target.filter(|&id| id != crate::common::INVALID_ID).is_none() {
+        if target
+            .filter(|&id| id != crate::common::INVALID_ID)
+            .is_none()
+        {
             self.remove_self_as_targeter();
         }
         self.current_target = target.filter(|&id| id != crate::common::INVALID_ID);
@@ -503,9 +512,8 @@ impl TurretAI {
                 if clear_dead {
                     let dead = id
                         .and_then(|tid| {
-                            OBJECT_REGISTRY.with_object(tid, |t| {
-                                t.is_effectively_dead() || t.is_destroyed()
-                            })
+                            OBJECT_REGISTRY
+                                .with_object(tid, |t| t.is_effectively_dead() || t.is_destroyed())
                         })
                         .unwrap_or(true);
                     if dead {
@@ -648,8 +656,7 @@ impl TurretAI {
         if self.turret_rot_or_pitch_sound.is_currently_playing() {
             return;
         }
-        self.turret_rot_or_pitch_sound
-            .set_object_id(self.owner_id);
+        self.turret_rot_or_pitch_sound.set_object_id(self.owner_id);
         if let Some(audio) = TheAudio::get() {
             let handle = audio.add_audio_event(&self.turret_rot_or_pitch_sound);
             self.turret_rot_or_pitch_sound.set_playing_handle(handle);
@@ -719,7 +726,6 @@ impl TurretAI {
         self.current_pitch = Self::normalize_angle(actual);
         self.current_pitch == desired_pitch
     }
-
 
     /// Get current angle
     pub fn get_current_angle(&self) -> f32 {
@@ -1581,12 +1587,8 @@ impl TurretAI {
 
         let mut pitch_aligned = true;
         if self.allows_pitch {
-            let desired = self.compute_desired_aim_pitch(
-                &owner_pos,
-                &aim_pos,
-                owner_height,
-                attack_range,
-            );
+            let desired =
+                self.compute_desired_aim_pitch(&owner_pos, &aim_pos, owner_height, attack_range);
             pitch_aligned = self.friend_turn_towards_pitch(desired, 1.0);
         }
 
@@ -2222,7 +2224,11 @@ impl ClassicState for TurretAIFireWeaponState {
         let pos_only = self
             .base
             .turret_ai_lock()?
-            .and_then(|t| t.lock().ok().map(|g| g.target_kind == TurretTargetKind::Position))
+            .and_then(|t| {
+                t.lock()
+                    .ok()
+                    .map(|g| g.target_kind == TurretTargetKind::Position)
+            })
             .unwrap_or(false);
         if !pos_only && dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -2353,11 +2359,10 @@ impl ClassicState for TurretAIFireWeaponState {
                         next_state = Some(TurretStateType::Hold);
                     }
                 }
-            } else if let Some(pos) = turret_ai_arc
-                .lock()
-                .ok()
-                .and_then(|t| t.target_position.filter(|_| t.target_kind == TurretTargetKind::Position))
-            {
+            } else if let Some(pos) = turret_ai_arc.lock().ok().and_then(|t| {
+                t.target_position
+                    .filter(|_| t.target_kind == TurretTargetKind::Position)
+            }) {
                 if let Some(owner_arc) = self.base.state().get_machine_owner() {
                     if let Ok(mut owner_guard) = owner_arc.try_write() {
                         let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
@@ -2899,7 +2904,9 @@ mod tests {
         turret.set_ground_unit_pitch(0.25);
         let origin = Coord3D::new(0.0, 0.0, 0.0);
         let target = Coord3D::new(100.0, 0.0, 50.0);
-        assert!((turret.compute_desired_aim_pitch(&origin, &target, 20.0, 200.0) - 0.5).abs() < 1e-5);
+        assert!(
+            (turret.compute_desired_aim_pitch(&origin, &target, 20.0, 200.0) - 0.5).abs() < 1e-5
+        );
     }
 
     #[test]

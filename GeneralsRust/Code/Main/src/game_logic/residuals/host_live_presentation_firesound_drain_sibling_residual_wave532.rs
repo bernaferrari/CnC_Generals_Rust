@@ -83,8 +83,8 @@ pub fn residual_presentation_firesound_drain_sibling_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_firesound_drain_sibling_last_action(
-) -> ResidualPresentationFiresoundDrainSiblingAction {
+pub fn residual_presentation_firesound_drain_sibling_last_action()
+-> ResidualPresentationFiresoundDrainSiblingAction {
     ResidualPresentationFiresoundDrainSiblingAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 
@@ -137,8 +137,7 @@ pub fn honesty_presentation_firesound_drain_sibling_source_markers_residual_wave
     };
     // Must not contain nested pattern: attack drain body immediately contains fire drain
     // without closing first (historical bug).
-    let nested_bug = "host_attack_log::take_last_drain() {\n            if ev.target.is_some() {\n                events.push(PresentationEvent::AttackTargeted {\n                    attacker: ev.attacker,\n                    target: ev.target,\n                });\n            }\n\n            for ev in crate::game_logic::host_fire_sound_loop_log::take_last_drain()"
-        ;
+    let nested_bug = "host_attack_log::take_last_drain() {\n            if ev.target.is_some() {\n                events.push(PresentationEvent::AttackTargeted {\n                    attacker: ev.attacker,\n                    target: ev.target,\n                });\n            }\n\n            for ev in crate::game_logic::host_fire_sound_loop_log::take_last_drain()";
     let ok = wave
         && sibling_doc
         && order_ok

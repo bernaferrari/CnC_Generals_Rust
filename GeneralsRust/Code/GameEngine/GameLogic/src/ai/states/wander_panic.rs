@@ -31,23 +31,23 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers, AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction,
-    PartitionFilter, THE_AI,
+    search_qualifiers,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
-use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePartitionManager};
+use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, PhysicsBehaviorExt, FAST_AS_POSSIBLE,
+    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -62,7 +62,7 @@ use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
-    Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT,
+    NO_MAX_SHOTS_LIMIT, Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus,
 };
 use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 
@@ -238,7 +238,10 @@ impl ClassicState for AIWanderState {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
                 ai_guard.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    self.core
+                        .prior_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id),
                 );
                 return Ok(StateReturnType::Success);
             }
@@ -433,7 +436,10 @@ impl ClassicState for AIPanicState {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
                 ai_guard.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    self.core
+                        .prior_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id),
                 );
                 return Ok(StateReturnType::Success);
             }

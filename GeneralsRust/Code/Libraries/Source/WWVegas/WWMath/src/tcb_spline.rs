@@ -6,9 +6,9 @@
 //! - Continuity: Controls the rate of change in direction
 //! - Bias: Controls the direction of the curve as it passes through a keyframe
 
+use crate::Vector3;
 use crate::curve::{Curve1D, Curve3D};
 use crate::hermite_spline::{HermiteSpline1D, HermiteSpline3D};
-use crate::Vector3;
 
 /// TCB parameters for a single keyframe
 #[derive(Debug, Clone, PartialEq, Default)]

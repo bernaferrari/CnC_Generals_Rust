@@ -11,8 +11,8 @@ use crate::video_buffer::{VideoBuffer, VideoBufferType};
 use game_engine::common::ini::ini_game_data::get_global_data;
 use glam::Vec2;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::time::Instant;
 
 const SHADOW_COLOR_ARGB: u32 = 0x7f_a0_a0_a0;
@@ -143,7 +143,13 @@ pub fn present_copyright_overlay(screen_w: u32, screen_h: u32) -> bool {
     if overlay.text.is_empty() {
         return false;
     }
-    draw_copyright_hint(screen_w, screen_h, &overlay.text, overlay.width, overlay.height);
+    draw_copyright_hint(
+        screen_w,
+        screen_h,
+        &overlay.text,
+        overlay.width,
+        overlay.height,
+    );
     true
 }
 
@@ -404,7 +410,12 @@ pub fn draw_copyright_hint(screen_w: u32, screen_h: u32, text: &str, text_w: f32
     let x = (screen_w as f32 - text_w) * 0.5;
     let y = screen_h as f32 - text_h - 20.0;
     let _ = with_ui_renderer_mut(|renderer| {
-        let _ = renderer.draw_text_simple(text, Vec2::new(x, y), text_h.max(12.0), [0.0, 0.0, 0.0, 1.0]);
+        let _ = renderer.draw_text_simple(
+            text,
+            Vec2::new(x, y),
+            text_h.max(12.0),
+            [0.0, 0.0, 0.0, 1.0],
+        );
     });
 }
 
@@ -512,10 +523,7 @@ pub fn store_movie_frame(width: u32, height: u32, rgba: Vec<u8>) {
 }
 
 pub fn current_movie_frame() -> Option<(u32, u32, Vec<u8>)> {
-    LAST_MOVIE_FRAME
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
+    LAST_MOVIE_FRAME.lock().ok().and_then(|g| g.clone())
 }
 
 pub fn clear_movie_frame() {
@@ -582,10 +590,7 @@ pub fn note_presented_frame(width: u32, height: u32, rgba: Vec<u8>) {
 }
 
 pub fn current_presented_frame() -> Option<(u32, u32, Vec<u8>)> {
-    LAST_PRESENTED_FRAME
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
+    LAST_PRESENTED_FRAME.lock().ok().and_then(|g| g.clone())
 }
 
 /// Write a screenshot from the presented backbuffer (never the stale movie buffer
@@ -716,19 +721,8 @@ pub fn queue_draw_image_mesh(
 ) -> bool {
     with_ui_renderer_mut(|renderer| {
         queue_draw_image_mesh_on(
-            renderer,
-            texture,
-            start_x,
-            start_y,
-            end_x,
-            end_y,
-            uv_left,
-            uv_top,
-            uv_right,
-            uv_bottom,
-            color,
-            mode,
-            rotated_90,
+            renderer, texture, start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right,
+            uv_bottom, color, mode, rotated_90,
         )
     })
     .unwrap_or(false)
@@ -794,7 +788,9 @@ pub fn clip_image_quad(
     rotated_90: bool,
 ) -> Option<(f32, f32, f32, f32, f32, f32, f32, f32)> {
     let Some([clip_lo_x, clip_lo_y, clip_hi_x, clip_hi_y]) = clip_region() else {
-        return Some((start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right, uv_bottom));
+        return Some((
+            start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right, uv_bottom,
+        ));
     };
     if end_x <= clip_lo_x || end_y <= clip_lo_y {
         return None;
@@ -961,8 +957,8 @@ mod tests {
     fn clip_image_quad_remaps_uv() {
         enable_clipping(true);
         set_clip_region(10.0, 10.0, 50.0, 50.0);
-        let clipped = clip_image_quad(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 1.0, 1.0, false)
-            .expect("visible");
+        let clipped =
+            clip_image_quad(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 1.0, 1.0, false).expect("visible");
         assert!((clipped.0 - 10.0).abs() < 0.01);
         assert!((clipped.4 - 0.1).abs() < 0.01);
         enable_clipping(false);

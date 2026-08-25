@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{protocol::Message, Error as TungsteniteError},
+    tungstenite::{Error as TungsteniteError, protocol::Message},
 };
 use tracing::{debug, error, info, trace, warn};
 use url::Url;

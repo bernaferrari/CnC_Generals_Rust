@@ -63,7 +63,6 @@ pub const AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC: f32 = 25.0;
 /// Retail TransportContain DamagePercentToUnits residual (honesty pack).
 pub const AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS: f32 = 0.10;
 
-
 /// Retail `ModuleTag_DefaultAutoHealBehavior` HealingAmount residual.
 pub const DEFAULT_AUTO_HEAL_AMOUNT: f32 = 2.0;
 /// Retail DefaultAutoHeal HealingDelay = 1000 ms.
@@ -173,7 +172,6 @@ impl HostDefaultAutoHealData {
         self.pending_damage = false;
     }
 
-
     /// Pulse amount this frame, or 0 if sleeping / full health / stopped.
     /// Garrisoned / HELD units still heal (C++ DISABLED_HELD).
     pub fn tick_heal_amount(
@@ -276,10 +274,7 @@ pub fn leftover_transport_health_regen_percent(template_name: &str) -> f32 {
 }
 
 /// HP/sec from leftover TransportContain HealthRegen%PerSec.
-pub fn leftover_transport_embarked_heal_hp_per_sec(
-    max_health: f32,
-    percent_per_sec: f32,
-) -> f32 {
+pub fn leftover_transport_embarked_heal_hp_per_sec(max_health: f32, percent_per_sec: f32) -> f32 {
     if max_health <= 0.0 || percent_per_sec == 0.0 {
         return 0.0;
     }
@@ -429,7 +424,6 @@ impl GameLogic {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,10 +526,22 @@ mod tests {
         assert!((ambulance_embarked_heal_hp_per_sec(240.0) - 60.0).abs() < 0.001);
         assert_eq!(ambulance_embarked_heal_hp_per_sec(0.0), 0.0);
         assert!((AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS - 0.10).abs() < 0.001);
-        assert!((leftover_transport_health_regen_percent("AmericaVehicleAmbulance") - 25.0).abs() < 0.001);
-        assert!((leftover_transport_health_regen_percent("ChinaVehicleTroopCrawler") - 10.0).abs() < 0.001);
-        assert!((leftover_transport_health_regen_percent("ChinaVehicleListeningOutpost") - 10.0).abs() < 0.001);
-        assert_eq!(leftover_transport_health_regen_percent("AmericaVehicleHumvee"), 0.0);
+        assert!(
+            (leftover_transport_health_regen_percent("AmericaVehicleAmbulance") - 25.0).abs()
+                < 0.001
+        );
+        assert!(
+            (leftover_transport_health_regen_percent("ChinaVehicleTroopCrawler") - 10.0).abs()
+                < 0.001
+        );
+        assert!(
+            (leftover_transport_health_regen_percent("ChinaVehicleListeningOutpost") - 10.0).abs()
+                < 0.001
+        );
+        assert_eq!(
+            leftover_transport_health_regen_percent("AmericaVehicleHumvee"),
+            0.0
+        );
         // 10% of 100 max HP * 1/30s leftover frame → C++ TransportContain::update.
         assert!(
             (leftover_transport_embarked_heal_amount(100.0, 10.0, 1.0 / 30.0)
@@ -580,7 +586,10 @@ mod tests {
     fn default_auto_heal_on_damage_then_pulse() {
         let mut d = HostDefaultAutoHealData::new();
         assert!(HostDefaultAutoHealData::for_trainable_template("USA_Ranger", true).is_some());
-        assert!(HostDefaultAutoHealData::for_trainable_template("AmericaCommandCenter", false).is_none());
+        assert!(
+            HostDefaultAutoHealData::for_trainable_template("AmericaCommandCenter", false)
+                .is_none()
+        );
 
         d.on_damage(10);
         assert_eq!(d.wake_frame, 10 + DEFAULT_AUTO_HEAL_START_DELAY_FRAMES);
@@ -613,5 +622,4 @@ mod tests {
         assert!(ambulance_heal_is_ally(false, Some(true)));
         assert!(!ambulance_heal_is_ally(true, Some(false)));
     }
-
 }

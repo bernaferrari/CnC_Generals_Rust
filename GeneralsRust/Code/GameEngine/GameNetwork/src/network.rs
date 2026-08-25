@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::{
-    get_network, init_network, shutdown_network, NetworkConfig, NetworkInterface, NetworkStats,
+    NetworkConfig, NetworkInterface, NetworkStats, get_network, init_network, shutdown_network,
 };
 
 /// Resolve a host name or dotted-quad string into a host-order IPv4 address.

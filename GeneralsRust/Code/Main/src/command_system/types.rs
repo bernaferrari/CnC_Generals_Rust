@@ -183,7 +183,7 @@ pub enum CommandType {
         #[serde(default = "default_weapon_max_shots_cmd")]
         max_shots_to_fire: i32,
         target: WeaponTarget,
-},
+    },
 
     // Transport and container
     Enter {
@@ -362,7 +362,6 @@ pub enum CommandType {
         destination: Vec3,
     },
 
-
     // Invalid command placeholder
     Invalid,
 }
@@ -380,7 +379,10 @@ pub enum PowerTarget {
     Location(Vec3),
     /// C++ `MSG_DO_SPECIAL_POWER_AT_LOCATION` location + placement angle
     /// (`PlaceEventTranslator` sneak-attack construct).
-    LocationFacing { pos: Vec3, angle: f32 },
+    LocationFacing {
+        pos: Vec3,
+        angle: f32,
+    },
     Object(ObjectId),
     None,
 }

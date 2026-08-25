@@ -1,6 +1,6 @@
 //! Production `Radar::newMap` ingest when GameLogic/TerrainLogic load a map.
 
-use super::{Coord3D, RadarSystem, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH};
+use super::{Coord3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH, RadarSystem};
 use std::sync::{Arc, OnceLock};
 
 /// Terrain sample used to seed `m_xSample` / averages / per-cell heights.

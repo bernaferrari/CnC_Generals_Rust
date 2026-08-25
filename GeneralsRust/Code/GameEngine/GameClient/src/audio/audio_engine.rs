@@ -11,12 +11,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use kira::Volume;
 use kira::manager::{AudioManager as KiraManager, AudioManagerSettings};
+use kira::sound::PlaybackRate;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use kira::sound::streaming::StreamingSoundSettings;
-use kira::sound::PlaybackRate;
 use kira::tween::Tween;
-use kira::Volume;
 
 use crate::system::{SubsystemInterface, TimeOfDay};
 

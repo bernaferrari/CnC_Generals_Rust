@@ -13,8 +13,8 @@
 //! Restore always replaces live orders so a load cannot leak the previous
 //! session's dest.
 
-use crate::game_logic::host_cleanup_area::HostCleanupAreaOrder;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_cleanup_area::HostCleanupAreaOrder;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -40,10 +40,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep the previous dest.
     game_logic.cleanup_areas.restore_orders(Vec::new());
     let Some(suffix) = find_clha_suffix(bytes) else {

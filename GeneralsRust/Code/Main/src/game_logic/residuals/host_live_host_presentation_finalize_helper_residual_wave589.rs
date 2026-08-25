@@ -85,8 +85,8 @@ pub fn residual_host_presentation_finalize_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_presentation_finalize_helper_last_action(
-) -> ResidualHostPresentationFinalizeHelperAction {
+pub fn residual_host_presentation_finalize_helper_last_action()
+-> ResidualHostPresentationFinalizeHelperAction {
     ResidualHostPresentationFinalizeHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

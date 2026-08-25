@@ -4,17 +4,17 @@
 //! Original C++ Author: Matthew D. Campbell, May 2002
 //! Rust conversion: 2025
 
-use super::{xfer_die_module_base_versions, DieModule, DieModuleData, DieModuleInterface};
+use super::{DieModule, DieModuleData, DieModuleInterface, xfer_die_module_base_versions};
 use crate::common::xfer::XferExt;
 use crate::common::{Bool, ObjectID};
 use crate::damage::DamageInfo;
+use crate::object::Object;
 use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
 };
-use crate::object::Object;
 use crate::scripting::engine::get_script_engine;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 

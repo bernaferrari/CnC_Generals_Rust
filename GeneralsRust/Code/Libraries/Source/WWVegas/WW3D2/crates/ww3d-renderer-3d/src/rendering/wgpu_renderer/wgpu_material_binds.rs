@@ -57,7 +57,6 @@ pub struct WgpuMaterialBinds;
 
 const MAX_LIGHTS: usize = 8;
 
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct CameraUniform {

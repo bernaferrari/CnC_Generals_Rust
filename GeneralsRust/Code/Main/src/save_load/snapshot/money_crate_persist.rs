@@ -12,8 +12,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::host_money_crate::HostMoneyCrateRegistry;
 use crate::game_logic::GameLogic;
+use crate::game_logic::host_money_crate::HostMoneyCrateRegistry;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -39,10 +39,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Fail-closed: a reused GameLogic must not keep pre-load crate ids.
     game_logic.host_money_crates.clear();
     let Some(suffix) = find_mcrt_suffix(bytes) else {
@@ -96,15 +93,17 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_money_crate::MONEY_CRATE_DELETION_MIN_FRAMES;
     use crate::game_logic::ObjectId;
+    use crate::game_logic::host_money_crate::MONEY_CRATE_DELETION_MIN_FRAMES;
 
     #[test]
     fn snapshot_round_trips_money_crate_expire_and_pickup() {
         let mut source = GameLogic::new();
         let money_id = ObjectId(42);
         let salvage_id = ObjectId(43);
-        source.host_money_crates.register_supply_drop_crate(money_id);
+        source
+            .host_money_crates
+            .register_supply_drop_crate(money_id);
         source
             .host_money_crates
             .arm_default_deletion(money_id, 10, 0);
@@ -138,17 +137,17 @@ mod tests {
         ids.sort_by_key(|id| id.0);
         assert_eq!(ids, vec![money_id, salvage_id]);
         let money = reg.get(money_id).expect("money crate");
-        assert_eq!(
-            money.expires_frame,
-            10 + MONEY_CRATE_DELETION_MIN_FRAMES
-        );
+        assert_eq!(money.expires_frame, 10 + MONEY_CRATE_DELETION_MIN_FRAMES);
         assert!(!money.is_salvage);
         let salvage = reg.get(salvage_id).expect("salvage crate");
         assert!(salvage.is_salvage);
         assert_eq!(salvage.money_provided, 50);
         assert!(salvage.expires_frame > 20);
         assert!(reg.contains(money_id));
-        assert!(reg.expired_ids(10 + MONEY_CRATE_DELETION_MIN_FRAMES).contains(&money_id));
+        assert!(
+            reg.expired_ids(10 + MONEY_CRATE_DELETION_MIN_FRAMES)
+                .contains(&money_id)
+        );
     }
 
     #[test]

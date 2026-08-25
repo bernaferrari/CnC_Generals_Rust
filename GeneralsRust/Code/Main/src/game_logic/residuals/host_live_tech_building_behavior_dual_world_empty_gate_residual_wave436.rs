@@ -43,8 +43,8 @@ pub const RUNTIME_HOST_LIVE_TECH_BUILDING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_CMD_NAM
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_tech_building_behavior_dual_world_empty_gate_method_names_residual_wave436(
-) -> bool {
+pub fn honesty_live_tech_building_behavior_dual_world_empty_gate_method_names_residual_wave436()
+-> bool {
     LIVE_TECH_BUILDING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE436.len() == 4
         && residual_name_index(
             LIVE_TECH_BUILDING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE436,
@@ -61,8 +61,8 @@ pub fn honesty_live_tech_building_behavior_dual_world_empty_gate_method_names_re
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_tech_building_behavior_dual_world_empty_gate_nav_commands_residual_wave436(
-) -> bool {
+pub fn honesty_live_tech_building_behavior_dual_world_empty_gate_nav_commands_residual_wave436()
+-> bool {
     LIVE_TECH_BUILDING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE436.len() == 4
         && residual_name_index(
             LIVE_TECH_BUILDING_BEHAVIOR_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE436,

@@ -14,7 +14,7 @@
 
 use super::{BoundingBox, Result, W3DError, W3DVertex};
 use crate::video::{ColorFormat, Resolution};
-use bytemuck::{cast_slice, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, cast_slice};
 use glam::{Mat4, Quat, Vec2, Vec3, Vec4, Vec4Swizzles};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
@@ -77,7 +77,6 @@ bitflags::bitflags! {
 
 #[cfg(feature = "w3d")]
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindingType, Buffer, BufferBindingType, BufferDescriptor,
     BufferUsages, CommandBuffer, CommandEncoder, CompareFunction, ComputePass, ComputePipeline,
@@ -89,6 +88,7 @@ use wgpu::{
     ShaderStages, StencilState, StoreOp, Texture, TextureAspect, TextureDescriptor,
     TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
     TextureViewDescriptor, TextureViewDimension, VertexBufferLayout, VertexState,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 
 // ============================================================================
@@ -1095,7 +1095,8 @@ fn default_shadow_geometry(name: &str) -> ShadowGeometry {
         [3, 7, 4],
         [3, 4, 0],
     ];
-    let cpu = crate::w3d::volumetric_shadow::ShadowGeometryMesh::new(verts.clone(), polygons.clone());
+    let cpu =
+        crate::w3d::volumetric_shadow::ShadowGeometryMesh::new(verts.clone(), polygons.clone());
     ShadowGeometry {
         name: name.to_string(),
         meshes: vec![ShadowMeshData {
@@ -1161,7 +1162,6 @@ impl Shadow for ShadowHandleObject {
 pub fn rebuild_shadows() {
     // CPU caches are invalidated; Display collects casters next frame.
 }
-
 
 // ============================================================================
 // Projected Shadow Manager - Matching C++ W3DProjectedShadowManager

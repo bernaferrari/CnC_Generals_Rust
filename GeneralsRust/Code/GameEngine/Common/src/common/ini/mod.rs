@@ -76,141 +76,139 @@ pub mod ini_webpage_url;
 
 // Re-export main types from the batch 1 modules
 pub use ini::{
-    register_block_parser, register_particle_system_live_overlay, FieldParse, INIError,
-    INIFieldParseProc, INILoadType, INIResult, LookupListRec, ParticleSystemLiveOverlay, INI,
+    FieldParse, INI, INIError, INIFieldParseProc, INILoadType, INIResult, LookupListRec,
+    ParticleSystemLiveOverlay, register_block_parser, register_particle_system_live_overlay,
 };
 pub use ini_ai_data::{
-    get_ai_data_store, get_ai_data_store_mut, parse_ai_data_definition, AIData, AiSideBuildList,
-    AiSideInfo, BuildListEntry, SkillSet,
+    AIData, AiSideBuildList, AiSideInfo, BuildListEntry, SkillSet, get_ai_data_store,
+    get_ai_data_store_mut, parse_ai_data_definition,
 };
 pub use ini_animation::{
-    get_anim2d_collection, parse_anim2d_definition, Anim2DCollection, Anim2DMode, Anim2DTemplate,
+    Anim2DCollection, Anim2DMode, Anim2DTemplate, get_anim2d_collection, parse_anim2d_definition,
 };
 pub use ini_audio_event_info::{
-    parse_audio_event_definition, parse_dialog_definition, parse_music_track_definition,
-    AudioEventInfo, AudioPriority, AudioType,
+    AudioEventInfo, AudioPriority, AudioType, parse_audio_event_definition,
+    parse_dialog_definition, parse_music_track_definition,
 };
-pub use ini_command_button::{parse_command_button_definition, CommandButton, ControlBar};
-pub use ini_command_set::{parse_command_set_definition, CommandSet};
+pub use ini_command_button::{CommandButton, ControlBar, parse_command_button_definition};
+pub use ini_command_set::{CommandSet, parse_command_set_definition};
 pub use ini_control_bar_scheme::{
+    ControlBarScheme, ControlBarSchemeManager, SchemeDrawFunc, SchemeImage,
     ensure_control_bar_scheme_manager, get_control_bar_scheme_manager,
-    parse_control_bar_scheme_definition, set_scheme_draw_func, ControlBarScheme,
-    ControlBarSchemeManager, SchemeDrawFunc, SchemeImage,
+    parse_control_bar_scheme_definition, set_scheme_draw_func,
 };
 pub use ini_crate::{
-    ensure_crate_system, get_crate_system, initialize_crate_system,
-    parse_crate_template_definition, ParsedCrateCreationEntry, ParsedCrateSystem,
-    ParsedCrateTemplate,
+    ParsedCrateCreationEntry, ParsedCrateSystem, ParsedCrateTemplate, ensure_crate_system,
+    get_crate_system, initialize_crate_system, parse_crate_template_definition,
 };
 
 // Re-export main types from batch 2 modules
 pub use ini_audio_settings::{
-    get_audio_settings, get_audio_settings_read, get_audio_settings_write,
-    init_global_audio_settings, parse_audio_settings_definition, AudioSettings, SpeakerType,
-    MAX_HW_PROVIDERS,
+    AudioSettings, MAX_HW_PROVIDERS, SpeakerType, get_audio_settings, get_audio_settings_read,
+    get_audio_settings_write, init_global_audio_settings, parse_audio_settings_definition,
 };
-pub use ini_damage_fx::{parse_damage_fx_definition, DamageFX, DamageFXStore, DamageType};
+pub use ini_damage_fx::{DamageFX, DamageFXStore, DamageType, parse_damage_fx_definition};
 pub use ini_draw_group_info::{
-    parse_draw_group_number_definition, Color, DrawGroupInfo, FontInfo, PositionOffset,
+    Color, DrawGroupInfo, FontInfo, PositionOffset, parse_draw_group_number_definition,
 };
 pub use ini_game_data::{
-    get_global_data, parse_game_data_definition, Coord2D, Coord3D, GlobalData, RGBColor, TimeOfDay,
-    Weather,
+    Coord2D, Coord3D, GlobalData, RGBColor, TimeOfDay, Weather, get_global_data,
+    parse_game_data_definition,
 };
 pub use ini_map_cache::{
-    parse_map_cache_definition, MapCache, MapMetaData, MapMetaDataReader, Region3D, WinTimeStamp,
+    MapCache, MapMetaData, MapMetaDataReader, Region3D, WinTimeStamp, parse_map_cache_definition,
 };
 pub use ini_map_data::{
-    parse_map_data_definition, MapBounds, MapCamera, MapData, MapEnvironment, MapLighting,
+    MapBounds, MapCamera, MapData, MapEnvironment, MapLighting, parse_map_data_definition,
 };
 pub use ini_mapped_image::{
-    get_mapped_image_collection, parse_mapped_image_definition, ICoord2D, Image, ImageCollection,
-    ImageStatus, Region2D,
+    ICoord2D, Image, ImageCollection, ImageStatus, Region2D, get_mapped_image_collection,
+    parse_mapped_image_definition,
 };
-pub use ini_misc_audio::{parse_misc_audio, AudioEventRTS, MiscAudio};
+pub use ini_misc_audio::{AudioEventRTS, MiscAudio, parse_misc_audio};
 pub use ini_model::{
-    parse_model_definition, Model, ModelAnimation, ModelLOD, ModelManager, ModelMaterial, Vector3D,
+    Model, ModelAnimation, ModelLOD, ModelManager, ModelMaterial, Vector3D, parse_model_definition,
 };
 pub use ini_player_template::parse_player_template_definition;
 
 // Re-export main types from batch 3 modules (new parsers)
 pub use ini_campaign::{
-    get_campaign_store, get_campaign_store_mut, init_campaign_store, parse_campaign_definition,
-    Campaign, CampaignStore, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
+    Campaign, CampaignStore, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES, Mission, get_campaign_store,
+    get_campaign_store_mut, init_campaign_store, parse_campaign_definition,
 };
 pub use ini_challenge_generals::{
-    challenge_generals_load_status, ensure_challenge_generals_loaded, get_challenge_generals,
-    get_challenge_generals_mut, init_challenge_generals, parse_challenge_generals_definition,
     ChallengeGenerals, ChallengeGeneralsLoadError, ChallengeGeneralsLoadStatus, GeneralPersona,
-    NUM_GENERALS,
+    NUM_GENERALS, challenge_generals_load_status, ensure_challenge_generals_loaded,
+    get_challenge_generals, get_challenge_generals_mut, init_challenge_generals,
+    parse_challenge_generals_definition,
 };
 pub use ini_credits::{
-    get_credits_manager, get_credits_manager_mut, init_credits_manager, parse_credits_definition,
-    CreditStyle, CreditsLine, CreditsManager, CREDIT_SPACE_OFFSET,
+    CREDIT_SPACE_OFFSET, CreditStyle, CreditsLine, CreditsManager, get_credits_manager,
+    get_credits_manager_mut, init_credits_manager, parse_credits_definition,
 };
 pub use ini_eva_event::{
-    get_eva_event_store, get_eva_event_store_mut, init_eva_event_store, parse_eva_event_definition,
-    EvaCheckInfo, EvaEventStore, EvaMessage, EvaSideSounds,
+    EvaCheckInfo, EvaEventStore, EvaMessage, EvaSideSounds, get_eva_event_store,
+    get_eva_event_store_mut, init_eva_event_store, parse_eva_event_definition,
 };
 pub use ini_fx_list::{
+    DispatchedFxNugget, FXList, FXListError, FXListResult, FXListStore, FXNugget, FxListObjRuntime,
     clear_fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store, get_fx_list_store_mut,
     parse_fx_list_definition, register_fx_list_obj_runtime, take_dispatched_fx_nuggets,
-    DispatchedFxNugget, FXList, FXListError, FXListResult, FXListStore, FXNugget,
-    FxListObjRuntime,
 };
 pub use ini_game_lod::{
-    get_dynamic_lod_level, get_game_lod_manager, get_game_lod_manager_mut, init_game_lod_manager,
-    is_debris_skipped, is_particle_skipped, parse_bench_profile, parse_dynamic_game_lod_definition,
-    parse_lod_preset, parse_really_low_mhz, parse_static_game_lod_definition,
-    set_dynamic_debris_skip_mask, set_dynamic_lod_level, BenchProfile, ChipsetType, CpuType,
-    DynamicGameLODInfo, DynamicGameLODLevel, GameLODManager, LODPresetInfo, ParticlePriorityType,
-    StaticGameLODInfo, StaticGameLODLevel, MAX_BENCH_PROFILES, MAX_LOD_PRESETS_PER_LEVEL,
+    BenchProfile, ChipsetType, CpuType, DynamicGameLODInfo, DynamicGameLODLevel, GameLODManager,
+    LODPresetInfo, MAX_BENCH_PROFILES, MAX_LOD_PRESETS_PER_LEVEL, ParticlePriorityType,
+    StaticGameLODInfo, StaticGameLODLevel, get_dynamic_lod_level, get_game_lod_manager,
+    get_game_lod_manager_mut, init_game_lod_manager, is_debris_skipped, is_particle_skipped,
+    parse_bench_profile, parse_dynamic_game_lod_definition, parse_lod_preset, parse_really_low_mhz,
+    parse_static_game_lod_definition, set_dynamic_debris_skip_mask, set_dynamic_lod_level,
 };
 pub use ini_language::{
-    get_global_language, get_global_language_read, get_global_language_write, init_global_language,
-    parse_language_definition, FontDesc, GlobalLanguage, LANGUAGE_FIELD_PARSE_TABLE,
+    FontDesc, GlobalLanguage, LANGUAGE_FIELD_PARSE_TABLE, get_global_language,
+    get_global_language_read, get_global_language_write, init_global_language,
+    parse_language_definition,
 };
 pub use ini_locomotor::{
+    LocomotorAppearance, LocomotorBehaviorZ, LocomotorError, LocomotorLoadError, LocomotorPriority,
+    LocomotorResult, LocomotorStore, LocomotorSurfaceTypeMask, LocomotorTemplate,
     get_locomotor_store, get_locomotor_store_mut, load_locomotors_from_str,
-    parse_locomotor_template_definition, LocomotorAppearance, LocomotorBehaviorZ, LocomotorError,
-    LocomotorLoadError, LocomotorPriority, LocomotorResult, LocomotorStore,
-    LocomotorSurfaceTypeMask, LocomotorTemplate,
+    parse_locomotor_template_definition,
 };
 pub use ini_rank::{
-    get_rank_info_store, get_rank_info_store_mut, init_rank_info_store, parse_rank_definition,
-    RankError, RankInfo, RankInfoStore, RankResult,
+    RankError, RankInfo, RankInfoStore, RankResult, get_rank_info_store, get_rank_info_store_mut,
+    init_rank_info_store, parse_rank_definition,
 };
 pub use ini_road::{
-    get_terrain_roads, get_terrain_roads_mut, parse_terrain_bridge_definition,
-    parse_terrain_road_definition, try_get_terrain_roads, BodyDamageType, BridgeTowerType,
-    TerrainRoadCollection, TerrainRoadError, TerrainRoadResult, TerrainRoadType,
+    BodyDamageType, BridgeTowerType, TerrainRoadCollection, TerrainRoadError, TerrainRoadResult,
+    TerrainRoadType, get_terrain_roads, get_terrain_roads_mut, parse_terrain_bridge_definition,
+    parse_terrain_road_definition, try_get_terrain_roads,
 };
 pub use ini_science::{
-    get_science_store, get_science_store_mut, parse_science_definition, ScienceError, ScienceInfo,
-    ScienceResult, ScienceStore, ScienceType,
+    ScienceError, ScienceInfo, ScienceResult, ScienceStore, ScienceType, get_science_store,
+    get_science_store_mut, parse_science_definition,
 };
 
 // Re-export main types from batch 4 modules (UI/Shell parsers)
 pub use ini_mouse::{
-    add_cursor_info, get_cursor_info, get_mouse_settings, get_mouse_settings_mut,
-    init_global_mouse_settings, parse_mouse_cursor_definition, parse_mouse_definition, CursorInfo,
-    MouseSettings, RGBAColorInt, RedrawMode, CURSOR_INFO_FIELD_PARSE_TABLE,
-    MOUSE_SETTINGS_FIELD_PARSE_TABLE,
+    CURSOR_INFO_FIELD_PARSE_TABLE, CursorInfo, MOUSE_SETTINGS_FIELD_PARSE_TABLE, MouseSettings,
+    RGBAColorInt, RedrawMode, add_cursor_info, get_cursor_info, get_mouse_settings,
+    get_mouse_settings_mut, init_global_mouse_settings, parse_mouse_cursor_definition,
+    parse_mouse_definition,
 };
 pub use ini_online_chat_colors::{
-    get_online_chat_colors, get_online_chat_colors_mut, init_online_chat_colors,
-    parse_online_chat_color_definition, register_online_chat_colors_parser, GSColorIndex,
-    OnlineChatColors, GSCOLOR_MAX,
+    GSCOLOR_MAX, GSColorIndex, OnlineChatColors, get_online_chat_colors,
+    get_online_chat_colors_mut, init_online_chat_colors, parse_online_chat_color_definition,
+    register_online_chat_colors_parser,
 };
 pub use ini_shell_menu_scheme::{
+    ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine, ShellMenuSchemeManager,
     get_shell_menu_scheme_manager, init_shell_menu_scheme_manager,
-    parse_shell_menu_scheme_definition, ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine,
-    ShellMenuSchemeManager,
+    parse_shell_menu_scheme_definition,
 };
 pub use ini_window_transition::{
+    TransitionGroup, TransitionStyle, TransitionWindow, WindowTransitionStore,
     get_window_transition_store, get_window_transition_store_mut, init_window_transition_store,
-    parse_window_transition_block, parse_window_transition_definition, TransitionGroup,
-    TransitionStyle, TransitionWindow, WindowTransitionStore,
+    parse_window_transition_block, parse_window_transition_definition,
 };
 
 pub use crate::common::system::Matrix3D;

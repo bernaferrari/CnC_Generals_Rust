@@ -14,15 +14,15 @@
 //! - **AIHooks**: Detection and stealth awareness for AI
 //! - **SystemManager**: Unified initialization and frame updates
 
-use crate::common::{ObjectID, UnsignedInt, MAX_PLAYER_COUNT};
+use crate::common::{MAX_PLAYER_COUNT, ObjectID, UnsignedInt};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::system::detection_manager::{
-    get_detection_manager, DetectionManager, DetectionStrength,
+    DetectionManager, DetectionStrength, get_detection_manager,
 };
-use crate::system::disguise_manager::{get_disguise_manager, DisguiseManager};
+use crate::system::disguise_manager::{DisguiseManager, get_disguise_manager};
 use crate::system::stealth_errors::{StealthError, StealthResult};
 use crate::system::stealth_manager::{
-    get_stealth_manager, StealthManager, StealthStatus, StealthStrength,
+    StealthManager, StealthStatus, StealthStrength, get_stealth_manager,
 };
 use log::{debug, info, trace};
 use std::collections::HashMap;

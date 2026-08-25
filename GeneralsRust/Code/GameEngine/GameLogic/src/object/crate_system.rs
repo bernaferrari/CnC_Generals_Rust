@@ -14,11 +14,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use crate::common::science::{ScienceType, SCIENCE_INVALID};
-use crate::common::{kind_of_indices, kindof_from_name, VeterancyLevel};
-use game_engine::common::system::kind_of::KIND_OF_BIT_NAMES;
+use crate::common::science::{SCIENCE_INVALID, ScienceType};
+use crate::common::{VeterancyLevel, kind_of_indices, kindof_from_name};
 use game_engine::common::ini::{ParsedCrateSystem, ParsedCrateTemplate};
-
+use game_engine::common::system::kind_of::KIND_OF_BIT_NAMES;
 
 /// Crate creation entry - represents one possible crate that can be created
 /// Matches C++ `crateCreationEntry` struct
@@ -76,7 +75,6 @@ pub struct CrateDropPick {
     pub is_owned_by_maker: bool,
 }
 
-
 /// Crate Template - defines conditions and types of crates that can be created.
 /// Matches C++ `CrateTemplate` class exactly.
 ///
@@ -120,7 +118,6 @@ pub struct CrateTemplate {
     /// Whether this template is an override from a secondary INI file.
     /// Used by `reset()` to strip overrides while preserving base definitions.
     pub is_override: bool,
-
 }
 
 impl CrateTemplate {
@@ -134,8 +131,8 @@ impl CrateTemplate {
             killed_by_type_kindof: 0,        // C++: CLEAR_KINDOFMASK(m_killedByTypeKindof)
             killer_science: SCIENCE_INVALID, // C++: m_killerScience = SCIENCE_INVALID
             killer_science_name: String::new(),
-            possible_crates: Vec::new(),     // C++: m_possibleCrates.clear()
-            is_owned_by_maker: false,        // C++: m_isOwnedByMaker = FALSE
+            possible_crates: Vec::new(), // C++: m_possibleCrates.clear()
+            is_owned_by_maker: false,    // C++: m_isOwnedByMaker = FALSE
             is_override: false,
         }
     }
@@ -153,7 +150,6 @@ impl CrateTemplate {
         // Note: name is NOT copied -- the caller sets the name after copy
         // Note: is_override is NOT copied
     }
-
 
     /// Add a possible crate to the weighted list.
     /// Matches C++ `CrateTemplate::parseCrateCreationEntry`
@@ -297,7 +293,6 @@ impl CrateTemplate {
             is_owned_by_maker: self.is_owned_by_maker,
         })
     }
-
 }
 
 impl Default for CrateTemplate {
@@ -388,7 +383,6 @@ impl CrateSystem {
             .map(|(_, tmpl)| tmpl)
     }
 
-
     // ---- Registration ------------------------------------------------------
 
     /// Create a new crate template. If a "DefaultCrate" template exists, its
@@ -430,7 +424,6 @@ impl CrateSystem {
         self.templates.insert(name, template);
     }
 
-
     /// Convert Common-layer `ParsedCrateTemplate` into a runtime template.
     pub fn template_from_parsed(parsed: &ParsedCrateTemplate) -> CrateTemplate {
         let mut template = CrateTemplate::new(parsed.name.clone());
@@ -465,7 +458,6 @@ impl CrateSystem {
             self.register_template(Self::template_from_parsed(tmpl));
         }
     }
-
 
     /// Insert template (C++ semantics: first one wins unless explicitly overriding).
     pub fn insert_template(&mut self, template: CrateTemplate) {
@@ -563,7 +555,6 @@ fn sync_runtime_crate_system_from_parsed() {
     }
     runtime.import_from_parsed(&parsed_guard);
 }
-
 
 // ---------------------------------------------------------------------------
 // INI Field Parsing
@@ -1101,12 +1092,12 @@ mod tests {
         parsed.creation_chance = 1.0;
         parsed.killer_science = "SCIENCE_GLA".into();
         parsed.is_owned_by_maker = true;
-        parsed.possible_crates.push(
-            game_engine::common::ini::ParsedCrateCreationEntry {
+        parsed
+            .possible_crates
+            .push(game_engine::common::ini::ParsedCrateCreationEntry {
                 crate_name: "1000DollarCrate".into(),
                 crate_chance: 1.0,
-            },
-        );
+            });
 
         let tmpl = CrateSystem::template_from_parsed(&parsed);
         assert!(tmpl.science_gate_installed());
@@ -1139,12 +1130,12 @@ mod tests {
         let mut salvage = ParsedCrateTemplate::new("SalvageCrateData".into());
         salvage.creation_chance = 1.0;
         salvage.killed_by_type_kindof = parse_kind_of_mask("SALVAGER");
-        salvage.possible_crates.push(
-            game_engine::common::ini::ParsedCrateCreationEntry {
+        salvage
+            .possible_crates
+            .push(game_engine::common::ini::ParsedCrateCreationEntry {
                 crate_name: "SalvageCrate".into(),
                 crate_chance: 1.0,
-            },
-        );
+            });
         parsed.insert(salvage);
 
         let mut system = CrateSystem::new();
@@ -1155,5 +1146,4 @@ mod tests {
         assert_eq!(tmpl.killed_by_type_kindof, 1u64 << 16);
         assert_eq!(tmpl.creation_chance, 1.0);
     }
-
 }

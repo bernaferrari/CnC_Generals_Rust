@@ -131,7 +131,7 @@ pub mod game_state;
 // Re-export main types
 pub use command_executor::{BatchCommandExecutor, CommandExecutor, ExecutionStats};
 pub use crc_validator::{
-    compute_entities_crc, compute_resources_crc, CRCComputer, GameStateCRCValidator,
+    CRCComputer, GameStateCRCValidator, compute_entities_crc, compute_resources_crc,
 };
 pub use desync_handler::{
     DesyncHandler, DesyncRecord, DesyncStatus, DesyncStrategy, MultiPlayerCRCValidator,

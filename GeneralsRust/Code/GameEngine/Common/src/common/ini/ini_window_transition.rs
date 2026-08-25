@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-use super::ini::{INIError, INIResult, INI};
+use super::ini::{INI, INIError, INIResult};
 
 /// Transition style types - matches C++ TransitionStyleNames lookup table
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -202,8 +202,8 @@ pub fn get_window_transition_store() -> std::sync::RwLockReadGuard<'static, Wind
 }
 
 /// Get the window transition store (write guard)
-pub fn get_window_transition_store_mut(
-) -> std::sync::RwLockWriteGuard<'static, WindowTransitionStore> {
+pub fn get_window_transition_store_mut()
+-> std::sync::RwLockWriteGuard<'static, WindowTransitionStore> {
     WINDOW_TRANSITION_STORE
         .get_or_init(|| RwLock::new(WindowTransitionStore::new()))
         .write()
@@ -482,9 +482,10 @@ WindowTransition BadBool
     FireOnce = true
 End
 ";
-        assert!(ini
-            .with_inline_source(invalid_bool, |ini| ini.parse_current_file())
-            .is_err());
+        assert!(
+            ini.with_inline_source(invalid_bool, |ini| ini.parse_current_file())
+                .is_err()
+        );
 
         let mut ini = INI::new();
         let invalid_frame_delay = "\
@@ -496,8 +497,9 @@ WindowTransition BadDelay
     End
 End
 ";
-        assert!(ini
-            .with_inline_source(invalid_frame_delay, |ini| ini.parse_current_file())
-            .is_err());
+        assert!(
+            ini.with_inline_source(invalid_frame_delay, |ini| ini.parse_current_file())
+                .is_err()
+        );
     }
 }

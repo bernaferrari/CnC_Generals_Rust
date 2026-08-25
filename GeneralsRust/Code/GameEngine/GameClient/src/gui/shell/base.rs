@@ -41,9 +41,9 @@ use super::super::game_window::WIN_COLOR_UNDEFINED;
 use super::super::game_window::{GameWindow, WindowStatus};
 use super::super::ime_manager::get_ime_manager;
 use super::super::window_manager::{
-    with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
+    WindowLayout as ManagerWindowLayout, with_window_manager, with_window_manager_ref,
 };
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{GameMessageType, get_message_stream};
 use crate::system::SubsystemInterface;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::random_value::init_random_with_seed;
@@ -3961,9 +3961,11 @@ End
             "Menus/MainMenu.wnd".to_string(),
         )));
 
-        assert!(shell
-            .find_screen_by_filename("menus/mainmenu.wnd")
-            .is_some());
+        assert!(
+            shell
+                .find_screen_by_filename("menus/mainmenu.wnd")
+                .is_some()
+        );
     }
 
     #[test]
@@ -4150,16 +4152,22 @@ End
 
         let event_log = events.borrow();
         assert!(event_log.iter().any(|event| event == "destroy:stack.wnd"));
-        assert!(!event_log
-            .iter()
-            .any(|event| event == "destroy:save_load.wnd"));
-        assert!(!event_log
-            .iter()
-            .any(|event| event == "destroy:popup_replay.wnd"));
+        assert!(
+            !event_log
+                .iter()
+                .any(|event| event == "destroy:save_load.wnd")
+        );
+        assert!(
+            !event_log
+                .iter()
+                .any(|event| event == "destroy:popup_replay.wnd")
+        );
         assert!(!event_log.iter().any(|event| event == "destroy:options.wnd"));
-        assert!(!event_log
-            .iter()
-            .any(|event| event == "destroy:background.wnd"));
+        assert!(
+            !event_log
+                .iter()
+                .any(|event| event == "destroy:background.wnd")
+        );
     }
 
     #[test]

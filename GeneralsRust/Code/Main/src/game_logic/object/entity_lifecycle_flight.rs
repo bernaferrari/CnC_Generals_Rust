@@ -148,7 +148,8 @@ impl LaterProjectileFlight {
         object.rocket_buggy_missile_aim = self.rocket_buggy_missile_aim;
         object.rocket_buggy_missile_intended = self.rocket_buggy_missile_intended;
         object.rocket_buggy_missile_travelled = self.rocket_buggy_missile_travelled;
-        object.rocket_buggy_missile_fuel_expires_frame = self.rocket_buggy_missile_fuel_expires_frame;
+        object.rocket_buggy_missile_fuel_expires_frame =
+            self.rocket_buggy_missile_fuel_expires_frame;
         object.neutron_cannon_shell_projectile = self.neutron_cannon_shell_projectile;
         object.neutron_shell_from = self.neutron_shell_from;
         object.neutron_shell_aim = self.neutron_shell_aim;

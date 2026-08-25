@@ -367,7 +367,7 @@ pub fn decompress_raw(input: &[u8], output_size: usize) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{compress::LzhCompressor, CompressionLevel};
+    use crate::{CompressionLevel, compress::LzhCompressor};
 
     #[test]
     fn test_decompressor_creation() {

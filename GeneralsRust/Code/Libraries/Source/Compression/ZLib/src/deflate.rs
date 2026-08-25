@@ -7,9 +7,9 @@
 //! - Optimized for various compression levels
 
 use crate::{
+    CompressionLevel, Result, ZlibError,
     huffman::{BitWriter, HuffmanCode, HuffmanEncoder},
     lz77::{LZ77Compressor, LZ77Token, MAX_MATCH, MIN_MATCH},
-    CompressionLevel, Result, ZlibError,
 };
 
 /// Block types in DEFLATE

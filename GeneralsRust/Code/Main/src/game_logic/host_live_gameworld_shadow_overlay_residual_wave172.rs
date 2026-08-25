@@ -102,10 +102,10 @@ pub fn honesty_seed_presentation_shadow_overlay_source() -> bool {
 /// Live residual: map load → shadow sync → probe → presentation overlay.
 pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
     use crate::game_logic::{
-        resolve_retail_map_path, GameLogic, GameMode, DEFAULT_SKIRMISH_MAP_WAVE169,
-        LONE_EAGLE_MAP_WAVE169,
+        DEFAULT_SKIRMISH_MAP_WAVE169, GameLogic, GameMode, LONE_EAGLE_MAP_WAVE169,
+        resolve_retail_map_path,
     };
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
     use crate::presentation_frame::PresentationFrame;
 
     if !honesty_live_gameworld_shadow_overlay_residual_pack_wave172() {
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn sync_from_host_maps_created_object_and_overlays_presentation() {
         use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-        use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
+        use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
         use crate::presentation_frame::PresentationFrame;
         use glam::Vec3;
 

@@ -8,8 +8,8 @@
 
 use crate::ai::CommandSourceType;
 use crate::common::{
-    Bool, KindOf, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion,
-    PLAYERMASK_ALL,
+    Bool, KindOf, ModuleData, ObjectID, PLAYERMASK_ALL, Real, Relationship, UnsignedInt,
+    XferVersion,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, ThePartitionManager};
@@ -17,12 +17,12 @@ use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::draw::TerrainDecalType;
-use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::draw::TerrainDecalType;
+use crate::object::registry::OBJECT_REGISTRY;
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 

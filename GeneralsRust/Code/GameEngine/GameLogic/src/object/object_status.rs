@@ -354,7 +354,6 @@ impl Object {
         &self.geometry_info
     }
 
-
     /// Mark this object as unmanned (DisabledUnmanned flag).
     pub fn set_disabled_unmanned(&mut self) {
         self.set_disabled(DisabledType::DisabledUnmanned);
@@ -436,7 +435,6 @@ impl Object {
             && !self.is_effectively_dead()
     }
 
-
     pub fn is_mass_selectable(&self) -> bool {
         self.is_selectable() && !self.is_kind_of(KindOf::Structure)
     }
@@ -490,7 +488,6 @@ impl Object {
     pub fn is_effectively_dead(&self) -> bool {
         (self.private_status & ObjectPrivateStatusBits::EffectivelyDead as u8) != 0
     }
-
 
     /// Mark object as effectively dead
     pub(crate) fn set_effectively_dead(&mut self, dead: bool) {

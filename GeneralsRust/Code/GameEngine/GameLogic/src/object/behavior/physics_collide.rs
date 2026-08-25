@@ -4,16 +4,16 @@
 
 use super::physics_crush::check_for_overlap_collision;
 use super::{
-    find_object, FLAG_ALLOW_COLLIDE_FORCE, INVALID_VEL_MAG, PhysicsBehaviorHandle,
-    PhysicsBehaviorModuleData,
+    FLAG_ALLOW_COLLIDE_FORCE, INVALID_VEL_MAG, PhysicsBehaviorHandle, PhysicsBehaviorModuleData,
+    find_object,
 };
 use crate::common::{
-    Coord3D, DisabledType, KindOf, ObjectID, ObjectStatusTypes, Real, LOGICFRAMES_PER_SECOND,
+    Coord3D, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, ObjectStatusTypes, Real,
 };
 use crate::helpers::{TheGameLogic, TheWeaponStore};
 use crate::modules::PhysicsBehaviorExt;
-use crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision;
 use crate::object::Object as GameObject;
+use crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision;
 use game_engine::common::global_data;
 
 const MIN_STIFF: Real = 0.01;
@@ -99,10 +99,8 @@ pub(super) fn on_collide(
                         other.set_captured(true);
                         other.defect(infantry_team, 0);
                     }
-                    let _ = crate::scripting::engine::transfer_object_name(
-                        &infantry_name,
-                        other_id,
-                    );
+                    let _ =
+                        crate::scripting::engine::transfer_object_name(&infantry_name, other_id);
                     let _ = TheGameLogic::destroy_object_by_id(object_id);
                 }
                 return;
@@ -153,7 +151,9 @@ pub(super) fn on_collide(
         // Continue — apply bounce unless collide force is off.
     }
 
-    let us_center = obj.get_geometry_info().get_center_position(obj.get_position());
+    let us_center = obj
+        .get_geometry_info()
+        .get_center_position(obj.get_position());
     let them_center = other
         .get_geometry_info()
         .get_center_position(other.get_position());

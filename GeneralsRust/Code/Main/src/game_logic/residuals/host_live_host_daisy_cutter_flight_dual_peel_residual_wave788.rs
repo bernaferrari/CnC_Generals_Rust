@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostDaisyCutterFlightDualPeelAction) {
 pub fn residual_host_daisy_cutter_flight_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_daisy_cutter_flight_dual_peel_last_action(
-) -> ResidualHostDaisyCutterFlightDualPeelAction {
+pub fn residual_host_daisy_cutter_flight_dual_peel_last_action()
+-> ResidualHostDaisyCutterFlightDualPeelAction {
     ResidualHostDaisyCutterFlightDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {

@@ -114,7 +114,10 @@ pub enum OclTimerButtonKind {
 }
 
 /// C++ `populateOCLTimer`: !TECH_BUILDING → Sell; TECH+AUTO_RALLYPOINT → Rally; else hide.
-pub fn ocl_timer_button_kind(is_tech_building: bool, is_auto_rallypoint: bool) -> OclTimerButtonKind {
+pub fn ocl_timer_button_kind(
+    is_tech_building: bool,
+    is_auto_rallypoint: bool,
+) -> OclTimerButtonKind {
     if !is_tech_building {
         OclTimerButtonKind::Sell
     } else if is_auto_rallypoint {
@@ -133,9 +136,7 @@ pub fn ocl_timer_kind_for_object(obj_id: u32) -> OclTimerButtonKind {
             );
         }
     }
-    if let Some(entry) =
-        crate::presentation_translator_residual::translator_catalog_entry(obj_id)
-    {
+    if let Some(entry) = crate::presentation_translator_residual::translator_catalog_entry(obj_id) {
         let is_tech = crate::presentation_translator_residual::translator_entry_has_kind(
             &entry,
             "TECH_BUILDING",
@@ -191,11 +192,7 @@ pub fn populate_ocl_timer_commands(
 }
 
 /// C++ ControlBarOCLTimer.cpp:23-49 updateOCLTimerTextDisplay + reveal CP_OCL_TIMER.
-pub fn apply_ocl_timer_windows(
-    text: &str,
-    progress_percent: f32,
-    button_kind: OclTimerButtonKind,
-) {
+pub fn apply_ocl_timer_windows(text: &str, progress_percent: f32, button_kind: OclTimerButtonKind) {
     crate::gui::with_window_manager(|wm| {
         if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerWindow") {
             let _ = win.borrow_mut().hide(false);
@@ -214,8 +211,7 @@ pub fn apply_ocl_timer_windows(
                     let _ = win.borrow_mut().hide(true);
                 }
                 OclTimerButtonKind::Sell => {
-                    win.borrow_mut()
-                        .set_user_data("Command_Sell".to_string());
+                    win.borrow_mut().set_user_data("Command_Sell".to_string());
                     let _ = win.borrow_mut().hide(false);
                     let _ = win.borrow_mut().enable(true);
                 }
@@ -229,7 +225,6 @@ pub fn apply_ocl_timer_windows(
         }
     });
 }
-
 
 /// Residual: last OCL timer action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,10 +390,7 @@ mod tests {
             ocl_timer_button_kind(false, false),
             OclTimerButtonKind::Sell
         );
-        assert_eq!(
-            ocl_timer_button_kind(false, true),
-            OclTimerButtonKind::Sell
-        );
+        assert_eq!(ocl_timer_button_kind(false, true), OclTimerButtonKind::Sell);
         assert_eq!(
             ocl_timer_button_kind(true, true),
             OclTimerButtonKind::RallyPoint

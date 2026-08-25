@@ -647,8 +647,7 @@ impl GameLogic {
             if let Some(lname) = super::super::locomotor_bootstrap::locomotor_name_for_unit(name) {
                 t.set_locomotor_name(lname);
             }
-            let set_names =
-                super::super::locomotor_bootstrap::locomotor_set_names_for_unit(name);
+            let set_names = super::super::locomotor_bootstrap::locomotor_set_names_for_unit(name);
             if set_names.len() >= 2 {
                 t.set_locomotor_set_names(&set_names);
             }
@@ -1334,13 +1333,11 @@ impl GameLogic {
         // Leftover ScriptingEngine / ActionRegistry / Rhai / TriggerSystem is
         // leftover-only (hq-8ta4n): do not construct a second script brain.
         {
-            let handler: Arc<dyn ScriptActionHandler> = Arc::new(
-                MissionScriptActionHandler::new(self.mission_scripts.clone()),
-            );
+            let handler: Arc<dyn ScriptActionHandler> = Arc::new(MissionScriptActionHandler::new(
+                self.mission_scripts.clone(),
+            ));
             let _ = gamelogic::scripting::engine::initialize_script_engine();
-            if let Ok(mut live_guard) =
-                gamelogic::scripting::engine::get_script_engine().write()
-            {
+            if let Ok(mut live_guard) = gamelogic::scripting::engine::get_script_engine().write() {
                 if let Some(live) = live_guard.as_mut() {
                     live.set_action_handler(Some(handler));
                 }

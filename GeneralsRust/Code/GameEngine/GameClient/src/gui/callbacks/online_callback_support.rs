@@ -20,7 +20,7 @@ use crate::display::image::get_mapped_image_collection;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{Color, GameWindow, WindowMessage, WindowMsgData};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_network::gamespy::peer_defs::{get_gamespy_info, GameSpyInfo};
+use game_network::gamespy::peer_defs::{GameSpyInfo, get_gamespy_info};
 
 /// C++ `TheNameKeyGenerator->nameToKey` stored as `WindowId` (`i32`).
 pub fn name_to_window_id(name: &str) -> i32 {
@@ -109,10 +109,7 @@ pub fn send_simulated_gadget_selected(target: &Rc<RefCell<GameWindow>>, control_
 
 /// Snapshot-then-dispatch so ESC handlers can drop their `RefCell` borrow
 /// before the system callback re-enters the same thread-local state.
-pub fn dispatch_esc_gadget_selected(
-    parent: Option<Rc<RefCell<GameWindow>>>,
-    control_id: i32,
-) {
+pub fn dispatch_esc_gadget_selected(parent: Option<Rc<RefCell<GameWindow>>>, control_id: i32) {
     if let Some(parent) = parent {
         send_simulated_gadget_selected(&parent, control_id);
     }

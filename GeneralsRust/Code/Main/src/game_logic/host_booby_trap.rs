@@ -270,7 +270,6 @@ impl HostBoobyTrapRegistry {
         Some(glam::Vec3::new(p.plant_x, ground_y, p.plant_z))
     }
 
-
     /// Take plant for detonation (clears residual).
     pub fn take_plant(&mut self, structure_id: ObjectId) -> Option<HostBoobyTrapPlant> {
         self.plants.remove(&structure_id.0)
@@ -359,11 +358,7 @@ pub fn distance_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
 /// C++ `StickyBombUpdate::detonate` applies the geometry weapon to every
 /// `FROM_BOUNDINGSPHERE_3D` object, including the trapped structure at dist 0
 /// (primary ring). Leftover `sticky_bomb_update.rs` already matches.
-pub fn is_legal_booby_victim(
-    is_alive: bool,
-    under_construction: bool,
-    combat_kind: bool,
-) -> bool {
+pub fn is_legal_booby_victim(is_alive: bool, under_construction: bool, combat_kind: bool) -> bool {
     is_alive && !under_construction && combat_kind
 }
 

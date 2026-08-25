@@ -1054,9 +1054,11 @@ mod tests {
         assert_eq!(count, 1);
         let registry = get_terrain_types().expect("registry not initialised");
         let guard = registry.read();
-        assert!(guard
-            .find_terrain(&AsciiString::from("TestSample"))
-            .is_some());
+        assert!(
+            guard
+                .find_terrain(&AsciiString::from("TestSample"))
+                .is_some()
+        );
 
         let _ = fs::remove_file(&path);
     }

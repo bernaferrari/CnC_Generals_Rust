@@ -110,10 +110,10 @@ pub mod wwmath_ids;
 pub use aabox::{AABox, MinMaxAABox, OverlapResult};
 pub use aaplane::{AAPlane, AxisEnum};
 pub use cardinal_spline::{CardinalSpline1D, CardinalSpline3D};
-pub use castres::{raycast_flags, CastResultStruct};
+pub use castres::{CastResultStruct, raycast_flags};
 pub use catmull_rom_spline::{CatmullRomSpline1D, CatmullRomSpline3D};
 pub use collision::{
-    CastResult, CollisionMath, CollisionStats, OverlapType, COINCIDENCE_EPSILON, COLLISION_EPSILON,
+    COINCIDENCE_EPSILON, COLLISION_EPSILON, CastResult, CollisionMath, CollisionStats, OverlapType,
 };
 pub use culling::{
     AABTreeCullSystem, AABTreeNode, CullCollection, CullStats, CullSystem, CullType, Cullable,
@@ -128,27 +128,29 @@ pub use frustum::Frustum;
 pub use hermite_spline::{HermiteSpline1D, HermiteSpline3D};
 pub use line_segment::LineSegment;
 pub use lookup_table::{
-    global_table_manager, Curve1D as LookupCurve1D, LinearCurve as LookupLinearCurve, LookupTable,
-    LookupTableManager, SineCurve,
+    Curve1D as LookupCurve1D, LinearCurve as LookupLinearCurve, LookupTable, LookupTableManager,
+    SineCurve, global_table_manager,
 };
 pub use matrix3::Matrix3;
 pub use matrix3d::Matrix3D;
 pub use matrix4::Matrix4;
 pub use matrix4::Matrix4 as Mat4;
 pub use normal_cone::NormalCone;
+pub use obbox::OBBox;
 pub use ode::{HarmonicOscillator, IntegrationSystem, ODESystem, StateVector};
 pub use plane::{Plane, PlaneSide};
 pub use pot::{find_pot, find_pot_log2, is_power_of_2, next_power_of_2, prev_power_of_2};
 pub use quat::Quaternion;
 pub use rect::Rect;
-pub use obbox::OBBox;
 
-pub use sphere::{add_spheres, spheres_intersect, transform_sphere, Sphere};
+pub use sphere::{Sphere, add_spheres, spheres_intersect, transform_sphere};
 pub use tcb_spline::{TcbParams, TcbSpline1D, TcbSpline3D};
 pub use triangle::{
-    cast_semi_infinite_axis_aligned_ray_to_triangle, point_in_triangle_2d, Triangle,
-    TRI_RAYCAST_FLAG_HIT_EDGE, TRI_RAYCAST_FLAG_NONE, TRI_RAYCAST_FLAG_START_IN_TRI,
+    TRI_RAYCAST_FLAG_HIT_EDGE, TRI_RAYCAST_FLAG_NONE, TRI_RAYCAST_FLAG_START_IN_TRI, Triangle,
+    cast_semi_infinite_axis_aligned_ray_to_triangle, point_in_triangle_2d,
 };
+pub use vector_extensions::Vec3Extensions;
+pub use vector_processor::VectorProcessor;
 pub use vector2::Vector2;
 pub use vector2i::Vector2i;
 pub use vector3::Vector3;
@@ -159,12 +161,10 @@ pub use vector3_random::{
 };
 pub use vector3i::{Vector3i, Vector3i16};
 pub use vector4::Vector4;
-pub use vector_extensions::Vec3Extensions;
-pub use vector_processor::VectorProcessor;
 pub use vehicle_curve::{ArcInfo, VehicleCurve};
 pub use wwmath::{
-    WWMath, DEG_TO_RAD, EPSILON, EPSILON2, FLOAT_MAX, FLOAT_MIN, OO_SQRT2, OO_SQRT3, PI,
-    RAD_TO_DEG, SQRT2, SQRT3,
+    DEG_TO_RAD, EPSILON, EPSILON2, FLOAT_MAX, FLOAT_MIN, OO_SQRT2, OO_SQRT3, PI, RAD_TO_DEG, SQRT2,
+    SQRT3, WWMath,
 };
 pub use wwmath_ids::*;
 

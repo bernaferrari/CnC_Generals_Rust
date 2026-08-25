@@ -8,7 +8,7 @@
 use anyhow::Result;
 use eframe::egui;
 use gui_edit::chrome::{
-    ChromeEditor, GadgetType, EDIT_MENU_LABELS, FILE_MENU_LABELS, LAYOUT_MENU_LABELS,
+    ChromeEditor, EDIT_MENU_LABELS, FILE_MENU_LABELS, GadgetType, LAYOUT_MENU_LABELS,
 };
 use log::{error, info};
 

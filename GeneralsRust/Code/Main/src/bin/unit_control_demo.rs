@@ -12,8 +12,8 @@
 // Wave 958: host_object dual-read seal.
 use game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use generals_main::{
-    game_logic::{GameLogic, GameMode, Team},
     RtsInputSystem, SelectionRenderer, UIRenderCommand, UnitInputHandler,
+    game_logic::{GameLogic, GameMode, Team},
 };
 use glam::{Mat4, Vec2, Vec3};
 use std::sync::Arc;

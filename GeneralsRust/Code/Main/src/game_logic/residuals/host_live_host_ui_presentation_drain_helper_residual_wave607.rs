@@ -85,8 +85,8 @@ pub fn residual_host_ui_presentation_drain_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_ui_presentation_drain_helper_last_action(
-) -> ResidualHostUiPresentationDrainHelperAction {
+pub fn residual_host_ui_presentation_drain_helper_last_action()
+-> ResidualHostUiPresentationDrainHelperAction {
     ResidualHostUiPresentationDrainHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

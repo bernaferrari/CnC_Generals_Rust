@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostSmartBombHomingDualPeelAction) {
 pub fn residual_host_smart_bomb_homing_dual_peel_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_smart_bomb_homing_dual_peel_last_action(
-) -> ResidualHostSmartBombHomingDualPeelAction {
+pub fn residual_host_smart_bomb_homing_dual_peel_last_action()
+-> ResidualHostSmartBombHomingDualPeelAction {
     ResidualHostSmartBombHomingDualPeelAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn sh_source() -> &'static str {

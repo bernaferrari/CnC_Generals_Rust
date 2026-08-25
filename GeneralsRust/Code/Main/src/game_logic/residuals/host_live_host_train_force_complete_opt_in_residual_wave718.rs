@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostTrainForceCompleteOptInAction) {
 pub fn residual_host_train_force_complete_opt_in_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_train_force_complete_opt_in_last_action(
-) -> ResidualHostTrainForceCompleteOptInAction {
+pub fn residual_host_train_force_complete_opt_in_last_action()
+-> ResidualHostTrainForceCompleteOptInAction {
     ResidualHostTrainForceCompleteOptInAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn eng_source() -> &'static str {

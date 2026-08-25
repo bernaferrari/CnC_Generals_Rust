@@ -3,7 +3,7 @@
 //! This module provides 3x3 matrix functionality,
 //! converted from the original C++ Matrix3x3 class.
 
-use crate::{Vector3, WWMath, EPSILON};
+use crate::{EPSILON, Vector3, WWMath};
 use std::ops::{
     Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign,
 };

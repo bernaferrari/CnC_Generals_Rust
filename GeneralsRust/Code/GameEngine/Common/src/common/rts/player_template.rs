@@ -9,7 +9,7 @@
 //! accessors used after parse.
 
 use crate::common::game_common::VeterancyLevel;
-use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType, NAMEKEY_INVALID};
+use crate::common::name_key_generator::{NAMEKEY_INVALID, NameKeyGenerator, NameKeyType};
 use crate::common::rts::Money;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -641,11 +641,17 @@ End
             let tank_key = NameKeyGenerator::name_to_key("AmericaTank");
             let ranger_key = NameKeyGenerator::name_to_key("AmericaRanger");
             assert_eq!(
-                america.get_production_cost_changes().get(&tank_key).copied(),
+                america
+                    .get_production_cost_changes()
+                    .get(&tank_key)
+                    .copied(),
                 Some(0.8)
             );
             assert_eq!(
-                america.get_production_time_changes().get(&tank_key).copied(),
+                america
+                    .get_production_time_changes()
+                    .get(&tank_key)
+                    .copied(),
                 Some(0.5)
             );
             assert_eq!(
@@ -681,9 +687,7 @@ End
             assert_eq!(found.get_name(), "FactionAmerica");
 
             let remapped = store
-                .find_player_template(NameKeyGenerator::name_to_key(
-                    "FactionAmericaTankCommand",
-                ))
+                .find_player_template(NameKeyGenerator::name_to_key("FactionAmericaTankCommand"))
                 .expect("old America namekey remaps");
             assert_eq!(remapped.get_name(), "FactionAmerica");
 
@@ -697,10 +701,7 @@ End
 
             let mut sides = Vec::new();
             store.get_all_side_strings(&mut sides);
-            assert_eq!(
-                sides,
-                vec!["America", "China", "GLA", "Observer", "Boss"]
-            );
+            assert_eq!(sides, vec!["America", "China", "GLA", "Observer", "Boss"]);
 
             // C++ splices onto the existing list rather than replacing it.
             store.get_all_side_strings(&mut sides);

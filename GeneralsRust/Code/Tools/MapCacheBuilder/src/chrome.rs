@@ -2,9 +2,7 @@
 //!
 //! Scan/Build call the shipped HeightMap v4 parse/`getExtent` path in [`crate::cache`].
 
-use crate::cache::{
-    parse_map_bytes, MapCache, CACHE_FILE_NAME, MAP_HEIGHT_SCALE, MAP_XY_FACTOR,
-};
+use crate::cache::{CACHE_FILE_NAME, MAP_HEIGHT_SCALE, MAP_XY_FACTOR, MapCache, parse_map_bytes};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};

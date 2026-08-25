@@ -158,10 +158,7 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     if n.contains("neutron") || n.contains("nuke") || n.contains("radiation") {
         return D::Radiation;
     }
-    if n.contains("buildingclearer")
-        || n.contains("killgarrison")
-        || n.contains("clearbuilding")
-    {
+    if n.contains("buildingclearer") || n.contains("killgarrison") || n.contains("clearbuilding") {
         return D::KillGarrisoned;
     }
     if n.contains("emp") || n.contains("microwave") {
@@ -216,7 +213,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 3,
             weapon_speed: 999_999.0,
-},
+        },
         // GLAInfantryRebel PRIMARY
         SeedWeapon {
             name: GLA_REBEL_PRIMARY_WEAPON,
@@ -225,7 +222,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 3,
             weapon_speed: 999_999.0,
-},
+        },
         // ChinaInfantryRedguard PRIMARY — PrimaryDamage 15, Delay 1000ms → 30 frames
         SeedWeapon {
             name: REDGUARD_PRIMARY_WEAPON,
@@ -234,7 +231,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // ChinaInfantryTankHunter PRIMARY — PrimaryDamage 40, range 175, Delay 1000ms → 30 frames
         SeedWeapon {
             name: TANK_HUNTER_PRIMARY_WEAPON,
@@ -243,7 +240,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // AmericaVehicleHumvee PRIMARY — damage 10, range 150, delay 200ms → 6 frames
         SeedWeapon {
             name: HUMVEE_PRIMARY_WEAPON,
@@ -252,7 +249,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // AmericaInfantryRanger SECONDARY — RangerFlashBangGrenadeWeapon
         // PrimaryDamage 35, AttackRange 175, ClipReload 2000ms → 60 frames
         SeedWeapon {
@@ -262,7 +259,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 1,
             weapon_speed: 120.0,
-},
+        },
         // AmericaVehicleHumvee SECONDARY — HumveeMissileWeapon
         // PrimaryDamage 30, AttackRange 150, Delay 1000ms → 30 frames
         SeedWeapon {
@@ -272,7 +269,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 1,
             weapon_speed: 600.0,
-},
+        },
         // AmericaPatriotBattery PRIMARY — PrimaryDamage 30, AttackRange 225,
         // ClipReload 2000ms residual cadence → 60 frames @ 30 FPS.
         SeedWeapon {
@@ -282,7 +279,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 4,
             weapon_speed: 600.0,
-},
+        },
         // AmericaPatriotBattery SECONDARY AA — PrimaryDamage 25, AttackRange 350.
         SeedWeapon {
             name: PATRIOT_SECONDARY_WEAPON,
@@ -291,7 +288,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 4,
             weapon_speed: 600.0,
-},
+        },
         // GLA Stinger Site residual (soldier PRIMARY) — PrimaryDamage 20, range 225,
         // ClipReload 2000ms → 60 frames. SPAWNS_ARE_THE_WEAPONS structure residual.
         SeedWeapon {
@@ -301,7 +298,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 1,
             weapon_speed: 750.0,
-},
+        },
         // GLA Stinger Site residual (soldier SECONDARY AA) — PrimaryDamage 30, range 400.
         SeedWeapon {
             name: STINGER_SECONDARY_WEAPON,
@@ -310,7 +307,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 1,
             weapon_speed: 600.0,
-},
+        },
         // ChinaGattlingCannon PRIMARY — PrimaryDamage 10, AttackRange 225,
         // DelayBetweenShots 250ms → 8 frames @ 30 FPS. Instant hit.
         SeedWeapon {
@@ -320,7 +317,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 8,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // ChinaGattlingCannon SECONDARY AA — PrimaryDamage 5, AttackRange 400,
         // DelayBetweenShots 250ms → 8 frames. Continuous-fire ramp shares structure residual.
         SeedWeapon {
@@ -330,7 +327,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 8,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // ChinaVehicleNukeCannon PRIMARY — NukeCannonGun residual seed.
         // PrimaryDamage 400 retail shell; host residual area path uses 400/50 + 20/60.
         SeedWeapon {
@@ -340,7 +337,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 300,
             clip_size: 0,
             weapon_speed: 200.0,
-},
+        },
         // NukeCannonNeutronWeapon SECONDARY — PrimaryDamage 1 (blast does work),
         // AttackRange 350, Delay 10000ms → 300 frames. Blast via host residual.
         SeedWeapon {
@@ -350,7 +347,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 300,
             clip_size: 0,
             weapon_speed: 200.0,
-},
+        },
         // PaladinPointDefenseLaser — PrimaryDamage 100, AttackRange 65,
         // DelayBetweenShots 1000ms → 30 frames. Instant laser.
         SeedWeapon {
@@ -360,7 +357,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // AvengerPointDefenseLaserOne — PrimaryDamage 100, AttackRange 100,
         // DelayBetweenShots 500ms → 15 frames.
         SeedWeapon {
@@ -370,7 +367,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 15,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // CrusaderTankGun PRIMARY — PrimaryDamage 60, AttackRange 150,
         // DelayBetweenShots 2000ms → 60 frames.
         SeedWeapon {
@@ -380,7 +377,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 400.0,
-},
+        },
         // PaladinTankGun PRIMARY — same residual stats as CrusaderTankGun.
         SeedWeapon {
             name: PALADIN_TANK_GUN,
@@ -389,7 +386,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 300.0,
-},
+        },
         // Lazr_CrusaderTankGun PRIMARY — PrimaryDamage 80, AttackRange 150,
         // DelayBetweenShots 2000ms → 60 frames. Instant laser residual.
         SeedWeapon {
@@ -399,7 +396,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 99999.0,
-},
+        },
         // Lazr_PaladinTankGun PRIMARY — PrimaryDamage 70, AttackRange 150,
         // DelayBetweenShots 1000ms → 30 frames.
         SeedWeapon {
@@ -409,7 +406,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 99999.0,
-},
+        },
         // Lazr_PatriotMissileWeapon PRIMARY — PrimaryDamage 40, Range 225,
         // ClipReload residual cadence 2000ms → 60 frames.
         SeedWeapon {
@@ -419,7 +416,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 3,
             weapon_speed: 999999.0,
-},
+        },
         // Lazr_PatriotMissileWeaponAir residual secondary — PrimaryDamage 35, Range 350.
         SeedWeapon {
             name: LAZR_PATRIOT_SECONDARY_WEAPON,
@@ -428,7 +425,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 4,
             weapon_speed: 999999.0,
-},
+        },
         // SupW_PatriotMissileWeapon PRIMARY — PrimaryDamage 15, Range 275,
         // EMP detonation residual (DISABLED_EMP r10 / 10s).
         SeedWeapon {
@@ -438,7 +435,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 4,
             weapon_speed: 600.0,
-},
+        },
         // SupW_PatriotMissileWeaponAir residual secondary — PrimaryDamage 30, Range 400.
         SeedWeapon {
             name: SUPW_PATRIOT_SECONDARY_WEAPON,
@@ -447,7 +444,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 4,
             weapon_speed: 400.0,
-},
+        },
         // TunnelNetworkGun PRIMARY — PrimaryDamage 15, Range 175,
         // DelayBetweenShots 250ms → 8 frames.
         SeedWeapon {
@@ -457,7 +454,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 8,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // AvengerTargetDesignator PRIMARY — STATUS paint residual (0 HP dmg).
         // PrimaryDamage in retail is duration ms; host residual damage=0.
         SeedWeapon {
@@ -467,7 +464,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // AvengerAirLaserOne residual secondary AA — PrimaryDamage 10, Range 300,
         // Delay 200ms → 6 frames. Anti-air only (seeded separately below).
         SeedWeapon {
@@ -477,7 +474,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // HumveeMissileWeaponAir tertiary residual — PrimaryDamage 50, Range 320,
         // Delay+ClipReload residual cycle → 90 frames. Anti-air only.
         SeedWeapon {
@@ -487,7 +484,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 90,
             clip_size: 1,
             weapon_speed: 600.0,
-},
+        },
         // InfernoCannonGun PRIMARY — PrimaryDamage 30, AttackRange 300,
         // DelayBetweenShots 4000ms → 120 frames. FireFieldSmall residual on impact.
         SeedWeapon {
@@ -497,7 +494,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 120,
             clip_size: 0,
             weapon_speed: 250.0,
-},
+        },
         // AuroraBombWeapon PRIMARY — PrimaryDamage 400, AttackRange 300,
         // ClipReload 5000ms → 150 frames. Delayed dive residual applies AOE.
         SeedWeapon {
@@ -507,7 +504,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 150,
             clip_size: 1,
             weapon_speed: 99999.0,
-},
+        },
         // AirF_AuroraBombWeapon — tiny primary; FuelAir detonation residual.
         SeedWeapon {
             name: AIRF_AURORA_BOMB_PRIMARY_WEAPON,
@@ -516,7 +513,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 150,
             clip_size: 1,
             weapon_speed: 99999.0,
-},
+        },
         // SupW_AuroraFuelBombWeapon — FuelAir residual path.
         SeedWeapon {
             name: SUPW_AURORA_FUEL_BOMB_WEAPON,
@@ -525,7 +522,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 150,
             clip_size: 1,
             weapon_speed: 99999.0,
-},
+        },
         // StealthJetMissileWeapon PRIMARY — PrimaryDamage 100, AttackRange 220,
         // Delay 200ms → 6 frames. Bunker-buster residual on impact when upgraded.
         SeedWeapon {
@@ -535,7 +532,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 2,
             weapon_speed: 1000.0,
-},
+        },
         // NapalmMissileWeapon PRIMARY — PrimaryDamage 75, Range 320, min 80,
         // Delay 300ms → 9 frames. ClipSize 2. FireField residual on impact.
         SeedWeapon {
@@ -545,7 +542,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 9,
             clip_size: 2,
             weapon_speed: 1000.0,
-},
+        },
         // BlackNapalmMissileWeapon — same primary, upgraded secondary/field residual.
         SeedWeapon {
             name: BLACK_NAPALM_MISSILE_WEAPON,
@@ -554,7 +551,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 9,
             clip_size: 2,
             weapon_speed: 1000.0,
-},
+        },
         // Nuke_MiGMissileWeapon — PrimaryDamage 100 residual.
         SeedWeapon {
             name: NUKE_MIG_MISSILE_WEAPON,
@@ -563,7 +560,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 9,
             clip_size: 2,
             weapon_speed: 1000.0,
-},
+        },
         // Nuke_NukeMissileWeapon — PrimaryDamage 150 residual.
         SeedWeapon {
             name: NUKE_NUKE_MISSILE_WEAPON,
@@ -572,7 +569,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 9,
             clip_size: 2,
             weapon_speed: 1000.0,
-},
+        },
         // FireBaseHowitzerGun PRIMARY — PrimaryDamage 75, Range 275, min 50,
         // Delay 2000ms → 60 frames.
         SeedWeapon {
@@ -582,7 +579,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 300.0,
-},
+        },
         // RaptorJetMissileWeapon PRIMARY — PrimaryDamage 100, Range 320, min 100,
         // Delay 150ms → 5 frames. ClipSize 4 honesty.
         SeedWeapon {
@@ -592,7 +589,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 5,
             clip_size: 4,
             weapon_speed: 1000.0,
-},
+        },
         // AirF_RaptorJetMissileWeapon — PrimaryDamage 125, Range 350, Delay 75ms → 3 frames.
         SeedWeapon {
             name: AIRF_RAPTOR_JET_MISSILE_WEAPON,
@@ -601,7 +598,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 6,
             weapon_speed: 1000.0,
-},
+        },
         // BattleDroneMachineGun — PrimaryDamage 1, Range 110, Delay 100ms → 3 frames.
         SeedWeapon {
             name: BATTLE_DRONE_MACHINE_GUN,
@@ -610,7 +607,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
         // AttackRange 125, DelayBetweenShots 100ms → 3 frames @ 30 FPS.
         // KILL_GARRISONED residual via host combat path.
@@ -621,7 +618,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // Comanche20mmCannonWeapon PRIMARY — PrimaryDamage 6, AttackRange 200,
         // DelayBetweenShots 100ms → 3 frames @ 30 FPS.
         SeedWeapon {
@@ -631,7 +628,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // HelixMinigunWeapon PRIMARY — PrimaryDamage 6, AttackRange 115,
         // DelayBetweenShots 100ms → 3 frames @ 30 FPS. Intended-only residual.
         SeedWeapon {
@@ -641,7 +638,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // ComancheAntiTankMissileWeapon residual SECONDARY — PrimaryDamage 50,
         // radius dual residual via host (50/5 + 30/25), Range 200, Delay 500ms → 15 frames.
         SeedWeapon {
@@ -651,7 +648,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 15,
             clip_size: 4,
             weapon_speed: 99999.0,
-},
+        },
         // ComancheRocketPodWeapon residual TERTIARY after upgrade.
         // PrimaryDamage 30, AttackRange 200, Delay 200ms → 6 frames.
         // Area damage applied by host residual (primary/secondary rings).
@@ -662,7 +659,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 20,
             weapon_speed: 99999.0,
-},
+        },
         // SentryDroneGun PRIMARY after PLAYER_UPGRADE — PrimaryDamage 8, Range 150,
         // Delay 200ms → 6 frames.
         SeedWeapon {
@@ -672,7 +669,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // USAPathfinderSniperRifle PRIMARY — PrimaryDamage 100, Range 300,
         // Delay 2000ms → 60 frames.
         SeedWeapon {
@@ -682,7 +679,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // HellfireMissileWeapon PRIMARY — PrimaryDamage 40, Range 150,
         // Delay+ClipReload ~3000ms → 90 frames.
         SeedWeapon {
@@ -692,7 +689,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 90,
             clip_size: 1,
             weapon_speed: 600.0,
-},
+        },
         // GLA Angry Mob residual aggregate fire — PrimaryDamage 20 (5 members × 4),
         // AttackRange 100, Delay 250ms → 8 frames. update_angry_mobs deals real residual.
         SeedWeapon {
@@ -702,7 +699,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 8,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // GLA Rocket Buggy BuggyRocketWeapon — PrimaryDamage 20, Range 300,
         // Delay 200ms → 6 frames, clip 6. Min range / splash residual via host.
         SeedWeapon {
@@ -712,7 +709,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 6,
             weapon_speed: 600.0,
-},
+        },
         // BuggyRocketWeaponUpgraded — same damage, clip 12 residual.
         SeedWeapon {
             name: BUGGY_ROCKET_WEAPON_UPGRADED,
@@ -721,7 +718,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 12,
             weapon_speed: 600.0,
-},
+        },
         // QuadCannonGun ground — PrimaryDamage 10, Range 150, Delay 100ms → 3 frames.
         SeedWeapon {
             name: QUAD_CANNON_GUN,
@@ -730,7 +727,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // QuadCannonGunUpgradeOne — dmg 8, Delay 50ms → 2 frames.
         SeedWeapon {
             name: QUAD_CANNON_GUN_UPGRADE_ONE,
@@ -739,7 +736,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 2,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // QuadCannonGunUpgradeTwo — dmg 8, Delay 25ms → 1 frame.
         SeedWeapon {
             name: QUAD_CANNON_GUN_UPGRADE_TWO,
@@ -748,7 +745,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 1,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // SCUDLauncherGunExplosive — PrimaryDamage 300, Range 350, clip 1,
         // ClipReload 10000ms → 300 frames. Area residual via host.
         SeedWeapon {
@@ -758,7 +755,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 300,
             clip_size: 1,
             weapon_speed: 200.0,
-},
+        },
         // SCUDLauncherGunToxin — PrimaryDamage 200, Range 350, toxin residual.
         SeedWeapon {
             name: SCUD_GUN_TOXIN,
@@ -767,7 +764,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 300,
             clip_size: 1,
             weapon_speed: 200.0,
-},
+        },
         // SCUDLauncherGunAnthrax — same blast residual as toxin; upgraded field flag.
         SeedWeapon {
             name: SCUD_GUN_ANTHRAX,
@@ -776,7 +773,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 300,
             clip_size: 1,
             weapon_speed: 200.0,
-},
+        },
         // TechnicalMachineGunWeapon — dmg 10, range 150, Delay 200ms → 6 frames.
         SeedWeapon {
             name: TECHNICAL_MACHINE_GUN,
@@ -785,7 +782,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // TechnicalCannonWeapon — dmg 45, range 150, Delay 1000ms → 30 frames.
         SeedWeapon {
             name: TECHNICAL_CANNON,
@@ -794,7 +791,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 300.0,
-},
+        },
         // TechnicalRPGWeapon — dmg 50, range 150, Delay 1000ms → 30 frames.
         SeedWeapon {
             name: TECHNICAL_RPG,
@@ -803,7 +800,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 200.0,
-},
+        },
         // ToxinTruckGun — poison stream dmg 10, range 100, Delay 40ms → 2 frames.
         SeedWeapon {
             name: TOXIN_TRUCK_GUN,
@@ -812,7 +809,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 2,
             clip_size: 30,
             weapon_speed: 600.0,
-},
+        },
         // ToxinTruckGunUpgraded — anthrax stream dmg 12.5.
         SeedWeapon {
             name: TOXIN_TRUCK_GUN_UPGRADED,
@@ -821,7 +818,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 2,
             clip_size: 30,
             weapon_speed: 600.0,
-},
+        },
         // ToxinTruckSprayer — contaminate residual (retail PrimaryDamage 0; host
         // store needs >0 to bind — spray area dmg is SecondaryDamage 2 via residual).
         SeedWeapon {
@@ -831,7 +828,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // ToxinTruckSprayerUpgraded — anthrax spray residual.
         SeedWeapon {
             name: TOXIN_TRUCK_SPRAYER_UPGRADED,
@@ -840,7 +837,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 6,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // MarauderTankGun — dmg 60, range 170, Delay 2000ms → 60 frames.
         SeedWeapon {
             name: MARAUDER_TANK_GUN,
@@ -849,7 +846,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 300.0,
-},
+        },
         // BattleMasterTankGun — dmg 60, range 150, Delay 2000ms → 60 frames.
         // UraniumShells PLAYER_UPGRADE DAMAGE 125% applied at host residual fire time.
         SeedWeapon {
@@ -859,7 +856,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 0,
             weapon_speed: 400.0,
-},
+        },
         // ScorpionTankGun — dmg 20, range 150, Delay 1000ms → 30 frames.
         SeedWeapon {
             name: SCORPION_TANK_GUN,
@@ -868,7 +865,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 400.0,
-},
+        },
         // ScorpionTankGunPlusOne — salvage dmg 25.
         SeedWeapon {
             name: SCORPION_TANK_GUN_PLUS_ONE,
@@ -877,7 +874,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 400.0,
-},
+        },
         // ScorpionMissileWeapon — dmg 100, range 150, ClipReload 15000ms → 450 frames.
         SeedWeapon {
             name: SCORPION_MISSILE_WEAPON,
@@ -886,7 +883,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 450,
             clip_size: 1,
             weapon_speed: 600.0,
-},
+        },
         // TomahawkMissileWeapon — dmg 150, range 350, ClipReload 7000ms → 210 frames.
         SeedWeapon {
             name: TOMAHAWK_MISSILE_WEAPON,
@@ -895,7 +892,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 210,
             clip_size: 1,
             weapon_speed: 200.0,
-},
+        },
         // OverlordTankGun — dmg 80, range 175, ClipReload 2000ms → 60 frames, clip 2.
         SeedWeapon {
             name: OVERLORD_TANK_GUN,
@@ -904,7 +901,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 60,
             clip_size: 2,
             weapon_speed: 300.0,
-},
+        },
         // GLAJarmenKellRifle — dmg 180, range 225, Delay 1000ms → 30 frames.
         SeedWeapon {
             name: JARMEN_KELL_RIFLE,
@@ -913,7 +910,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // MarauderTankGunUpgradeOne — same dmg, Delay 1500ms → 45 frames.
         SeedWeapon {
             name: MARAUDER_TANK_GUN_UPGRADE_ONE,
@@ -922,7 +919,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 45,
             clip_size: 0,
             weapon_speed: 400.0,
-},
+        },
         // MarauderTankGunUpgradeTwo — same dmg, Delay 750ms → 23 frames, clip 2.
         SeedWeapon {
             name: MARAUDER_TANK_GUN_UPGRADE_TWO,
@@ -931,7 +928,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 23,
             clip_size: 2,
             weapon_speed: 500.0,
-},
+        },
         // GLARebelBikerMachineGun — dmg 8, range 150, Delay 100ms → 3 frames, clip 6.
         SeedWeapon {
             name: REBEL_BIKER_MG,
@@ -940,7 +937,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 3,
             clip_size: 6,
             weapon_speed: 999_999.0,
-},
+        },
         // TunnelDefenderBikerRocketWeapon — dmg 40, range 175, Delay 1000ms → 30 frames.
         SeedWeapon {
             name: TUNNEL_DEFENDER_BIKER_ROCKET,
@@ -949,7 +946,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // GLABikerKellSniperRifle — dmg 180, range 225, Delay 750ms → 23 frames.
         SeedWeapon {
             name: BIKER_KELL_SNIPER,
@@ -958,7 +955,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 23,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // TerroristSuicideWeapon residual — host binds as short-range suicide flag.
         SeedWeapon {
             name: TERRORIST_SUICIDE_WEAPON,
@@ -967,7 +964,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 1,
             clip_size: 1,
             weapon_speed: 999_999.0,
-},
+        },
         // SuicideDynamitePack residual — FireWeaponWhenDead for infantry Terrorist.
         SeedWeapon {
             name: SUICIDE_DYNAMITE_PACK,
@@ -976,7 +973,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 1,
             clip_size: 1,
             weapon_speed: 999_999.0,
-},
+        },
         // MissileDefenderMissileWeapon — dmg 40, range 175, Delay 1000ms → 30 frames.
         SeedWeapon {
             name: MISSILE_DEFENDER_MISSILE_WEAPON,
@@ -985,7 +982,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // MissileDefenderLaserGuidedMissileWeapon — dmg 40, range 300, Delay 500ms → 15 frames.
         SeedWeapon {
             name: MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
@@ -994,7 +991,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 15,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // DragonTankFlameWeapon — dmg 10, range 75, Delay 40ms → 2 frames, splash residual.
         SeedWeapon {
             name: DRAGON_TANK_FLAME_WEAPON,
@@ -1003,7 +1000,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 2,
             clip_size: 30,
             weapon_speed: 600.0,
-},
+        },
         // DragonTankFlameWeaponUpgraded — BlackNapalm dmg 12.5.
         SeedWeapon {
             name: DRAGON_TANK_FLAME_WEAPON_UPGRADED,
@@ -1012,7 +1009,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 2,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
         // GattlingTankGun — dmg 15, range 150, Delay 400ms → 12 frames.
         SeedWeapon {
             name: GATTLING_TANK_GUN,
@@ -1021,7 +1018,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 12,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // Infa_MiniGunnerGun — dmg 10, range 125, Delay 500ms → 15 frames.
         SeedWeapon {
             name: MINIGUNNER_GUN,
@@ -1030,7 +1027,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 15,
             clip_size: 0,
             weapon_speed: 999_999.0,
-},
+        },
         // TunnelDefenderRocketWeapon — dmg 40, range 175, min 5, Delay 1000ms → 30 frames.
         SeedWeapon {
             name: TUNNEL_DEFENDER_ROCKET_WEAPON,
@@ -1039,7 +1036,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
             delay_frames: 30,
             clip_size: 0,
             weapon_speed: 600.0,
-},
+        },
     ];
 
     let mut added = 0usize;

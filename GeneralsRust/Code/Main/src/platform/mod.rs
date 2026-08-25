@@ -253,8 +253,8 @@ impl WindowMessageProcessor {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_platform_message_handler, startup_windowed_mode, ApplicationFocusState,
-        SystemCommand, WindowMessageProcessor,
+        ApplicationFocusState, SystemCommand, WindowMessageProcessor,
+        create_platform_message_handler, startup_windowed_mode,
     };
     use crate::command_line;
 

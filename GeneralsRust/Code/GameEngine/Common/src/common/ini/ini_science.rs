@@ -272,7 +272,9 @@ impl ScienceStore {
         let Some(info) = self.find_science_info(science) else {
             return false;
         };
-        info.prereq_sciences.iter().all(|&prereq| has_science(prereq))
+        info.prereq_sciences
+            .iter()
+            .all(|&prereq| has_science(prereq))
     }
 
     /// C++ ScienceStore::playerHasRootPrereqsForScience (Science.cpp:278-296).

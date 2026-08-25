@@ -1,6 +1,6 @@
 use anyhow::Result;
 use generals_main::platform::{
-    create_platform_message_handler, ApplicationFocusState, PowerEvent, WindowMessageProcessor,
+    ApplicationFocusState, PowerEvent, WindowMessageProcessor, create_platform_message_handler,
 };
 use log::info;
 use winit::event::Event;

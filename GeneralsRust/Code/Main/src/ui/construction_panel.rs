@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use crate::game_logic::ObjectId;
 use crate::localization;
+use crate::ui::KeyCode;
 use crate::ui::layout;
 use crate::ui::utils;
-use crate::ui::KeyCode;
 
 use game_engine::common::ini::ini_command_button::get_control_bar;
 use game_engine::common::thing::thing_template::BuildableStatus;
@@ -25,11 +25,7 @@ pub fn hotkey_from_text_label(label: &str) -> Option<KeyCode> {
         return None;
     }
     let (localized, exists) = game_client::game_text::GameText::fetch_with_exists(label);
-    let source = if exists {
-        localized.as_str()
-    } else {
-        label
-    };
+    let source = if exists { localized.as_str() } else { label };
     let mut chars = source.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '&' {
@@ -373,7 +369,6 @@ fn leftover_special_radius_cursor_radius(cursor_type: &str) -> Option<f32> {
     None
 }
 
-
 impl RadiusCursorOverlay {
     pub fn new(cursor_type: &str, radius: f32) -> Self {
         Self {
@@ -396,11 +391,12 @@ impl RadiusCursorOverlay {
             }
         }
         match cursor_type {
-            "ATTACK_DAMAGE_AREA" | "ATTACK_SCATTER_AREA" | "ATTACK_CONTINUE_AREA"
-            | "CLEARMINES" | "GUARD_AREA" => 0.0,
-            "FRIENDLY_SPECIALPOWER" | "OFFENSIVE_SPECIALPOWER" | "SUPERWEAPON_SCATTER_AREA" => {
-                0.0
-            }
+            "ATTACK_DAMAGE_AREA"
+            | "ATTACK_SCATTER_AREA"
+            | "ATTACK_CONTINUE_AREA"
+            | "CLEARMINES"
+            | "GUARD_AREA" => 0.0,
+            "FRIENDLY_SPECIALPOWER" | "OFFENSIVE_SPECIALPOWER" | "SUPERWEAPON_SCATTER_AREA" => 0.0,
             "EMERGENCY_REPAIR" => 100.0,
             "PARTICLECANNON" => 0.0, // SuperweaponParticleUplinkCannon omits / 0
             "A10STRIKE" => 50.0,
@@ -1043,10 +1039,11 @@ mod tests {
             .unwrap();
         assert_eq!(bi.can_make, CANMAKE_MAXED_OUT_FOR_PLAYER);
         assert!(!bi.available);
-        assert!(bi
-            .help_status
-            .as_deref()
-            .is_some_and(|s| s.contains("maximum")));
+        assert!(
+            bi.help_status
+                .as_deref()
+                .is_some_and(|s| s.contains("maximum"))
+        );
         // Affordable but unavailable residual still disabled.
         assert!(!bi.is_enabled(10_000));
     }
@@ -1156,7 +1153,10 @@ mod tests {
 
     #[test]
     fn test_radius_for_type() {
-        assert_eq!(RadiusCursorOverlay::radius_for_type("NUCLEARMISSILE"), 210.0);
+        assert_eq!(
+            RadiusCursorOverlay::radius_for_type("NUCLEARMISSILE"),
+            210.0
+        );
         assert_eq!(RadiusCursorOverlay::radius_for_type("SCUDSTORM"), 200.0);
         assert_eq!(RadiusCursorOverlay::radius_for_type("A10STRIKE"), 50.0);
         assert_eq!(RadiusCursorOverlay::radius_for_type("DAISYCUTTER"), 170.0);
@@ -1301,7 +1301,7 @@ mod tests {
     #[test]
     fn text_label_ampersand_hotkey_matches_cpp_search_hot_key() {
         // C++ HotKey.cpp:182-201 / ControlBar.cpp:2472-2476.
-        use super::{hotkey_from_text_label, KeyCode};
+        use super::{KeyCode, hotkey_from_text_label};
         assert_eq!(hotkey_from_text_label("S&top"), Some(KeyCode::T));
         assert_eq!(hotkey_from_text_label("&Guard"), Some(KeyCode::G));
         assert_eq!(

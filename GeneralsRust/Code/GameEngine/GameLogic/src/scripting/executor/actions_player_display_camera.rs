@@ -40,7 +40,6 @@ impl ScriptActionDispatcher {
             },
         );
 
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -73,7 +72,6 @@ impl ScriptActionDispatcher {
             },
         );
 
-
         Ok(ScriptActionResult::Success)
     }
 
@@ -81,7 +79,7 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
+        use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
 
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let science_name = self.get_string_param(action, 1)?;
@@ -120,12 +118,7 @@ impl ScriptActionDispatcher {
                 log::warn!("Player '{}' not found for grant science", player_name);
             }
         }
-        crate::scripting::executor::request_host_science_action(
-            &player_name,
-            &science_name,
-            true,
-        );
-
+        crate::scripting::executor::request_host_science_action(&player_name, &science_name, true);
 
         Ok(ScriptActionResult::Success)
     }
@@ -175,7 +168,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let list = player_list();
         if let Ok(list_guard) = list.read() {

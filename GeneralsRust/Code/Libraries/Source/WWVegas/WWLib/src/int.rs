@@ -30,11 +30,7 @@ impl BigInt {
 
     pub fn bit_count(&self) -> u32 {
         let mag = self.value.clone().abs().to_biguint().unwrap_or_default();
-        if mag.is_zero() {
-            0
-        } else {
-            mag.bits() as u32
-        }
+        if mag.is_zero() { 0 } else { mag.bits() as u32 }
     }
 
     pub fn byte_count(&self) -> usize {

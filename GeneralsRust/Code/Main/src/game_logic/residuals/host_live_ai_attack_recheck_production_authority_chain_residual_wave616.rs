@@ -88,8 +88,8 @@ pub fn residual_ai_attack_recheck_production_authority_chain_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_ai_attack_recheck_production_authority_chain_last_action(
-) -> ResidualAiAttackRecheckProductionAuthorityChainAction {
+pub fn residual_ai_attack_recheck_production_authority_chain_last_action()
+-> ResidualAiAttackRecheckProductionAuthorityChainAction {
     ResidualAiAttackRecheckProductionAuthorityChainAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

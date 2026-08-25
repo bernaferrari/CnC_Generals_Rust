@@ -4,7 +4,6 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-
 /// C++ `ActionManager.cpp:1652-1672` `SPECIAL_CASH_HACK`.
 fn is_legal_superweapon_cash_hack_victim(victim: &Object, caster_team: Option<Team>) -> bool {
     use crate::game_logic::host_hero_abilities::is_cash_hack_target;
@@ -18,10 +17,7 @@ fn is_legal_superweapon_cash_hack_victim(victim: &Object, caster_team: Option<Te
         return false;
     };
     // C++ relationship ENEMIES — same-team / Neutral are not enemies.
-    if victim.team == caster_team
-        || victim.team == Team::Neutral
-        || caster_team == Team::Neutral
-    {
+    if victim.team == caster_team || victim.team == Team::Neutral || caster_team == Team::Neutral {
         return false;
     }
     if !victim.thing.template.capturable || victim.thing.template.immune_to_capture {
@@ -66,7 +62,6 @@ fn looker_mask_for_controller(
     mask
 }
 
-
 impl GameLogic {
     // -----------------------------------------------------------------------
     // China Nuclear Tanks residual (death blast + radiation + speed)
@@ -105,9 +100,9 @@ impl GameLogic {
         nuke_general: bool,
     ) -> bool {
         use crate::game_logic::host_nuclear_tanks::{
-            is_legal_nuclear_death_target, nuclear_tank_death_damage_at,
-            nuclear_tank_death_splash_radius, NUCLEAR_TANK_DAMAGE_TYPE, NUCLEAR_TANK_DEATH_AUDIO,
-            NUCLEAR_TANK_DEATH_TYPE, SMALL_RADIATION_AUDIO,
+            NUCLEAR_TANK_DAMAGE_TYPE, NUCLEAR_TANK_DEATH_AUDIO, NUCLEAR_TANK_DEATH_TYPE,
+            SMALL_RADIATION_AUDIO, is_legal_nuclear_death_target, nuclear_tank_death_damage_at,
+            nuclear_tank_death_splash_radius,
         };
 
         let max_radius = nuclear_tank_death_splash_radius(nuke_general);
@@ -215,8 +210,8 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target
-                        .take_radiation_field_tick(hit.damage, Some(plan.source_object));
+                    let killed =
+                        target.take_radiation_field_tick(hit.damage, Some(plan.source_object));
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -412,8 +407,8 @@ impl GameLogic {
         via_death: bool,
     ) -> u32 {
         use crate::game_logic::host_booby_trap::{
-            booby_trap_damage_at, booby_trap_splash_radius, is_legal_booby_victim, is_planter_ally,
-            BOOBY_GEOMETRY_DAMAGE_FX,
+            BOOBY_GEOMETRY_DAMAGE_FX, booby_trap_damage_at, booby_trap_splash_radius,
+            is_legal_booby_victim, is_planter_ally,
         };
 
         let Some(plant) = self.booby_trap.take_plant(structure_id) else {
@@ -692,8 +687,8 @@ impl GameLogic {
         target_position: Vec3,
     ) -> Option<u32> {
         use crate::game_logic::host_helix_napalm::{
-            helix_napalm_unlocked, is_helix_napalm_caster, HELIX_FIRESTORM_AUDIO,
-            HELIX_NAPALM_DROP_AUDIO, UPGRADE_CHINA_BLACK_NAPALM, UPGRADE_HELIX_NAPALM_BOMB,
+            HELIX_FIRESTORM_AUDIO, HELIX_NAPALM_DROP_AUDIO, UPGRADE_CHINA_BLACK_NAPALM,
+            UPGRADE_HELIX_NAPALM_BOMB, helix_napalm_unlocked, is_helix_napalm_caster,
         };
 
         let (source_team, template_name, black_napalm, unlocked) = {
@@ -736,7 +731,7 @@ impl GameLogic {
         // Fail-closed fallback: if projectile spawn fails, keep instant blast residual.
         let (blast_hits, blast_damage) = if bomb_id.is_none() {
             use crate::game_logic::host_helix_napalm::{
-                helix_napalm_blast_damage_at, HELIX_NAPALM_SECONDARY_RADIUS,
+                HELIX_NAPALM_SECONDARY_RADIUS, helix_napalm_blast_damage_at,
             };
             let mut blast_hits = 0u32;
             let mut blast_damage = 0.0f32;
@@ -830,9 +825,7 @@ impl GameLogic {
             .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
             .collect();
 
-        let plans = self
-            .helix_napalm
-            .plan_due_ticks(frame, &object_positions);
+        let plans = self.helix_napalm.plan_due_ticks(frame, &object_positions);
 
         for plan in plans {
             let mut total_damage = 0.0_f32;
@@ -899,7 +892,7 @@ impl GameLogic {
     /// Fail-closed: not full secondary-radius NOT_SIMILAR ally filter / DeathType matrix.
     pub fn detonate_car_bomb(&mut self, car_id: ObjectId) -> bool {
         use crate::game_logic::host_car_bomb::{
-            car_bomb_damage_at_distance, CAR_BOMB_DETONATE_AUDIO, SUICIDE_CAR_BOMB_SECONDARY_RADIUS,
+            CAR_BOMB_DETONATE_AUDIO, SUICIDE_CAR_BOMB_SECONDARY_RADIUS, car_bomb_damage_at_distance,
         };
 
         let Some(car) = self.objects.get(&car_id) else {
@@ -1262,8 +1255,8 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> u32 {
         use crate::game_logic::host_deliver_payload::{
-            create_at_edge_spawn_residual, HostDeliverPayloadKind, CARGO_PLANE_PREFERRED_HEIGHT,
-            SUPPLY_DROP_CARGO_APPROACH_AUDIO, SUPPLY_DROP_CARGO_TRANSPORT,
+            CARGO_PLANE_PREFERRED_HEIGHT, HostDeliverPayloadKind, SUPPLY_DROP_CARGO_APPROACH_AUDIO,
+            SUPPLY_DROP_CARGO_TRANSPORT, create_at_edge_spawn_residual,
         };
         use crate::game_logic::host_money_crate::{
             SUPERWEAPON_CRATE_DROP_COUNT, SUPERWEAPON_CRATE_DROP_SPECIAL_POWER,
@@ -1303,7 +1296,8 @@ impl GameLogic {
         }
 
         // C++ EDGE_NEAR_SOURCE cargo plane. Prefer the live OCL transport spawn.
-        let transport_id = if let Some(caster) = caster_id.filter(|id| self.objects.contains_key(id))
+        let transport_id = if let Some(caster) =
+            caster_id.filter(|id| self.objects.contains_key(id))
         {
             self.execute_ocl_special_power(SUPERWEAPON_CRATE_DROP_SPECIAL_POWER, caster, location)
         } else {
@@ -1385,7 +1379,7 @@ impl GameLogic {
         victim_id: Option<ObjectId>,
     ) -> Option<u32> {
         use crate::game_logic::host_hero_abilities::{
-            cash_hack_money_from_sciences, CASH_HACK_ACTIVATE_AUDIO,
+            CASH_HACK_ACTIVATE_AUDIO, cash_hack_money_from_sciences,
         };
 
         let requested_owner_player_id = self
@@ -1427,8 +1421,7 @@ impl GameLogic {
         let caster_team = caster_id
             .and_then(|id| self.objects.get(&id).map(|o| o.team))
             .or_else(|| {
-                caster_owner_player_id
-                    .and_then(|id| self.players.get(&id).map(|p| p.team))
+                caster_owner_player_id.and_then(|id| self.players.get(&id).map(|p| p.team))
             });
         let Some(victim) = self.objects.get(&victim_id) else {
             return None;
@@ -1474,7 +1467,6 @@ impl GameLogic {
         self.last_cash_hack_stolen_amount = stolen;
         Some(stolen)
     }
-
 
     pub fn activate_spy_satellite(
         &mut self,
@@ -1553,14 +1545,14 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
     ) -> bool {
         use crate::game_logic::host_ocl_special_power::{
-            compute_creation_coord, default_map_extents, OclCreateLocType,
-            OCL_CREATE_ABOVE_LOCATION_HEIGHT,
+            OCL_CREATE_ABOVE_LOCATION_HEIGHT, OclCreateLocType, compute_creation_coord,
+            default_map_extents,
         };
         use crate::game_logic::host_spy_drone::{
-            spy_drone_scan_radius_after_updates, HostSpyDrone, SPY_DRONE_ACTIVATE_AUDIO,
-            SPY_DRONE_GROW_TIME_FRAMES, SPY_DRONE_LOCOMOTOR, SPY_DRONE_LOCOMOTOR_SPEED,
-            SPY_DRONE_MAX_HEALTH, SPY_DRONE_MODEL, SPY_DRONE_PREFERRED_HEIGHT,
-            SPY_DRONE_SPECIAL_POWER, SPY_DRONE_TEMPLATE, SPY_DRONE_VISION_RANGE,
+            HostSpyDrone, SPY_DRONE_ACTIVATE_AUDIO, SPY_DRONE_GROW_TIME_FRAMES,
+            SPY_DRONE_LOCOMOTOR, SPY_DRONE_LOCOMOTOR_SPEED, SPY_DRONE_MAX_HEALTH, SPY_DRONE_MODEL,
+            SPY_DRONE_PREFERRED_HEIGHT, SPY_DRONE_SPECIAL_POWER, SPY_DRONE_TEMPLATE,
+            SPY_DRONE_VISION_RANGE, spy_drone_scan_radius_after_updates,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1744,8 +1736,8 @@ impl GameLogic {
         volley_index: u32,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_countermeasures::{
-            flare_volley_motive_force, FLARE_LIFETIME_FRAMES, FLARE_MAX_HEALTH,
-            FLARE_TEMPLATE_NAME, VOLLEY_SIZE,
+            FLARE_LIFETIME_FRAMES, FLARE_MAX_HEALTH, FLARE_TEMPLATE_NAME, VOLLEY_SIZE,
+            flare_volley_motive_force,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1826,7 +1818,6 @@ impl GameLogic {
             update_countermeasures(&mut self.countermeasures, id, frame, airborne);
         }
     }
-
 
     pub fn update_countermeasure_flare_objects(&mut self) {
         let frame = self.frame;
@@ -1929,7 +1920,13 @@ impl GameLogic {
             .iter()
             .map(|s| {
                 let new_r = s.dynamic_shroud_radius(frame);
-                (s.player_id, s.location, s.last_applied_radius, new_r, s.player_mask)
+                (
+                    s.player_id,
+                    s.location,
+                    s.last_applied_radius,
+                    new_r,
+                    s.player_mask,
+                )
             })
             .collect();
         if work.is_empty() {
@@ -2016,7 +2013,13 @@ impl GameLogic {
             .iter()
             .map(|s| {
                 let new_r = s.dynamic_shroud_radius(frame);
-                (s.location, s.last_applied_radius, new_r, s.player_mask, s.player_id)
+                (
+                    s.location,
+                    s.last_applied_radius,
+                    new_r,
+                    s.player_mask,
+                    s.player_id,
+                )
             })
             .collect();
         if work.is_empty() {
@@ -2136,13 +2139,7 @@ impl GameLogic {
             only_visible_to_owner: true,
             color: 0,
         };
-        rd.create_radius_decal_for_owner(
-            tmpl,
-            radius,
-            pos,
-            frame,
-            owner.map(|id| id as i32),
-        );
+        rd.create_radius_decal_for_owner(tmpl, radius, pos, frame, owner.map(|id| id as i32));
     }
 }
 
@@ -2191,18 +2188,10 @@ mod cash_hack_target_tests {
             .create_object("ChinaCommandCenter", Team::China, Vec3::ZERO)
             .expect("cc");
         let tank = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::USA,
-                Vec3::new(40.0, 0.0, 0.0),
-            )
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::new(40.0, 0.0, 0.0))
             .expect("tank");
         let unfinished = logic
-            .create_object(
-                "AmericaSupplyCenter",
-                Team::USA,
-                Vec3::new(80.0, 0.0, 0.0),
-            )
+            .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .expect("uc");
         if let Some(o) = logic.host_object_mut(unfinished) {
             o.set_status_under_construction(true);
@@ -2216,11 +2205,7 @@ mod cash_hack_target_tests {
             )
             .expect("own");
         let hole = logic
-            .create_object(
-                "AmericaSupplyCenter",
-                Team::USA,
-                Vec3::new(160.0, 0.0, 0.0),
-            )
+            .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(160.0, 0.0, 0.0))
             .expect("hole");
         if let Some(o) = logic.host_object_mut(hole) {
             o.is_rebuild_hole = true;
@@ -2255,21 +2240,18 @@ mod cash_hack_target_tests {
             .create_object("ChinaCommandCenter", Team::China, Vec3::ZERO)
             .expect("cc");
         let victim = logic
-            .create_object(
-                "AmericaSupplyCenter",
-                Team::USA,
-                Vec3::new(80.0, 0.0, 0.0),
-            )
+            .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(80.0, 0.0, 0.0))
             .expect("depot");
         logic.queued_audio_events.clear();
         assert_eq!(
             logic.activate_cash_hack(0, Some(src), Some(victim)),
             Some(0)
         );
-        assert!(logic
-            .queued_audio_events
-            .iter()
-            .any(|e| e.event_type == CASH_HACK_ACTIVATE_AUDIO));
+        assert!(
+            logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == CASH_HACK_ACTIVATE_AUDIO)
+        );
     }
 }
-

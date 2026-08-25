@@ -435,7 +435,7 @@ impl Default for GlobalData {
             scroll_amount_cutoff: 10.0, // C++ line 956: 10.0
             camera_adjust_speed: 0.1,   // C++ line 957: 0.1
             enforce_max_camera_height: true,
-            keyboard_scroll_factor: 0.5, // C++ line 955: 0.5
+            keyboard_scroll_factor: 0.5,         // C++ line 955: 0.5
             keyboard_default_scroll_factor: 0.5, // C++ line 955: 0.5
             keyboard_camera_rotate_speed: 0.1,
             play_stats: -1,               // C++ line 574: -1
@@ -2329,7 +2329,7 @@ pub fn write() -> RwLockWriteGuard<'static, GlobalData> {
 
 /// Convenience helpers for the most common operations used by subsystems.
 pub mod access {
-    use super::{write, GlobalValue};
+    use super::{GlobalValue, write};
     use crate::common::command_line::{DebugSettings, WritableGlobalData};
 
     pub fn update_from_command_line(writable: &WritableGlobalData, debug: &DebugSettings) {
@@ -2363,7 +2363,7 @@ pub fn with_global_data_restored<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+    use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
     let _guard = test_isolation_lock()
         .lock()

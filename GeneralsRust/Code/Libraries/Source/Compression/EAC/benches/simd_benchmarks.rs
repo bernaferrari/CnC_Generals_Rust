@@ -1,7 +1,7 @@
 #![cfg(feature = "simd")]
 
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use eac_compression::{compress_parallel, CompressionType};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use eac_compression::{CompressionType, compress_parallel};
 
 fn simd_parallel(c: &mut Criterion) {
     let data = vec![0_u8; 256 * 1024];

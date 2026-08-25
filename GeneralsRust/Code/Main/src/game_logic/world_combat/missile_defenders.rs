@@ -225,7 +225,7 @@ impl GameLogic {
         tgt_pos: glam::Vec3,
     ) {
         use crate::game_logic::host_hero_abilities::{
-            leftover_sa_timings, LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
+            LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase, leftover_sa_timings,
         };
         use crate::game_logic::host_missile_defender::{
             LASER_GUIDED_ATTACH_BONE, LASER_GUIDED_INITIATE_AUDIO,
@@ -266,11 +266,11 @@ impl GameLogic {
     }
 
     pub(crate) fn update_leftover_laser_guided_channels(&mut self, dt: f32) {
+        use crate::game_logic::KindOf;
         use crate::game_logic::host_hero_abilities::{
-            leftover_sa_timings, leftover_within_abort_range, LeftoverSaKind, LeftoverSaPhase,
+            LeftoverSaKind, LeftoverSaPhase, leftover_sa_timings, leftover_within_abort_range,
         };
         use crate::game_logic::host_missile_defender::laser_guided_in_start_range;
-        use crate::game_logic::KindOf;
         const EPS: f32 = 0.000_1;
         let ids: Vec<ObjectId> = self
             .hero_abilities
@@ -381,10 +381,8 @@ impl GameLogic {
             );
             persist.special_object_id = channel.special_object_id;
             self.hero_abilities.set_leftover_channel(object_id, persist);
-
         }
     }
-
 
     #[cfg(test)]
     pub fn activate_missile_defender_laser_guided_for_test(
@@ -409,8 +407,8 @@ impl GameLogic {
         rider: crate::game_logic::host_combat_cycle::CombatCycleRider,
     ) -> bool {
         use crate::game_logic::host_combat_cycle::{
-            combat_cycle_weapon_for_rider, is_combat_cycle_template, is_kell_snipe_transfer_rider,
-            transfer_next_shot_last_fire_time, CombatCycleRider,
+            CombatCycleRider, combat_cycle_weapon_for_rider, is_combat_cycle_template,
+            is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
         };
         use crate::game_logic::thing::ThingTemplate;
 
@@ -496,14 +494,13 @@ impl GameLogic {
         true
     }
 
-
     /// Refresh Combat Cycle weapon from current occupant residual.
     ///
     /// Empty bike → PRIMARY NONE; single rider → rider weapon residual.
     pub fn refresh_combat_cycle_rider_weapon(&mut self, container_id: ObjectId) {
         use crate::game_logic::host_combat_cycle::{
-            combat_cycle_weapon_for_rider, is_combat_cycle_template, rider_from_template_name,
-            CombatCycleRider,
+            CombatCycleRider, combat_cycle_weapon_for_rider, is_combat_cycle_template,
+            rider_from_template_name,
         };
 
         let Some(container) = self.objects.get(&container_id) else {
@@ -577,11 +574,11 @@ impl GameLogic {
         intended_target: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_combat_cycle::{
+            CombatCycleRider, KELL_DAMAGE_TYPE, KELL_DEATH_TYPE, REBEL_MG_DAMAGE_TYPE,
+            REBEL_MG_DEATH_TYPE, RPG_DAMAGE, RPG_DAMAGE_TYPE, RPG_DEATH_TYPE, RPG_SPLASH,
+            SUICIDE_DAMAGE_TYPE, SUICIDE_DEATH_TYPE, SUICIDE_SECONDARY_RADIUS,
             combat_cycle_audio_for_rider, is_legal_combat_cycle_target, is_terrorist_suicide_rider,
-            rpg_splash_damage_at, suicide_bike_damage_at, CombatCycleRider, KELL_DAMAGE_TYPE,
-            KELL_DEATH_TYPE, REBEL_MG_DAMAGE_TYPE, REBEL_MG_DEATH_TYPE, RPG_DAMAGE,
-            RPG_DAMAGE_TYPE, RPG_DEATH_TYPE, RPG_SPLASH, SUICIDE_DAMAGE_TYPE, SUICIDE_DEATH_TYPE,
-            SUICIDE_SECONDARY_RADIUS,
+            rpg_splash_damage_at, suicide_bike_damage_at,
         };
 
         let (source_team, rider, bike_pos) = source
@@ -764,9 +761,7 @@ impl GameLogic {
                             true,
                         ) {
                             let (dt_name, death_name) = match rider {
-                                CombatCycleRider::JarmenKell => {
-                                    (KELL_DAMAGE_TYPE, KELL_DEATH_TYPE)
-                                }
+                                CombatCycleRider::JarmenKell => (KELL_DAMAGE_TYPE, KELL_DEATH_TYPE),
                                 CombatCycleRider::TunnelDefender => {
                                     (RPG_DAMAGE_TYPE, RPG_DEATH_TYPE)
                                 }
@@ -831,11 +826,11 @@ impl GameLogic {
         source_team: Team,
     ) -> (u32, bool) {
         use crate::game_logic::host_toxin_tractor::{
-            anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
-            toxin_death_type_name, toxin_stream_damage, toxin_stream_damage_at,
-            AnthraxResidualTier, ToxinTractorSalvageTier, TOXIN_DAMAGE_TYPE, TOXIN_STREAM_AUDIO,
-            TOXIN_STREAM_RADIUS, UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
-            UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            AnthraxResidualTier, TOXIN_DAMAGE_TYPE, TOXIN_STREAM_AUDIO, TOXIN_STREAM_RADIUS,
+            ToxinTractorSalvageTier, UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
+            UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags, is_chem_general_template,
+            is_legal_toxin_target, toxin_death_type_name, toxin_stream_damage,
+            toxin_stream_damage_at,
         };
 
         let (anthrax, tier) = source
@@ -966,10 +961,11 @@ impl GameLogic {
         source_team: Team,
     ) -> (u32, bool) {
         use crate::game_logic::host_toxin_tractor::{
-            anthrax_tier_from_flags, is_chem_general_template, is_legal_toxin_target,
-            toxin_death_type_name, toxin_spray_damage, toxin_spray_damage_at, AnthraxResidualTier,
-            TOXIN_DAMAGE_TYPE, TOXIN_POISON_AUDIO, TOXIN_SPRAY_AUDIO, TOXIN_SPRAY_RADIUS,
-            UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            AnthraxResidualTier, TOXIN_DAMAGE_TYPE, TOXIN_POISON_AUDIO, TOXIN_SPRAY_AUDIO,
+            TOXIN_SPRAY_RADIUS, UPGRADE_GLA_ANTHRAX_BETA, UPGRADE_GLA_ANTHRAX_GAMMA,
+            UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags, is_chem_general_template,
+            is_legal_toxin_target, toxin_death_type_name, toxin_spray_damage,
+            toxin_spray_damage_at,
         };
 
         let anthrax = source
@@ -1099,9 +1095,9 @@ impl GameLogic {
     /// ContinuousFireCoast, spawn MediumPoisonField with OCL lifetime peel.
     pub fn tick_fire_ocl_after_weapon_cooldown(&mut self) {
         use crate::game_logic::host_toxin_tractor::{
-            anthrax_tier_from_flags, is_chem_general_template, is_toxin_tractor_template,
             TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, UPGRADE_GLA_ANTHRAX_BETA,
-            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
+            UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT, anthrax_tier_from_flags,
+            is_chem_general_template, is_toxin_tractor_template,
         };
 
         let frame = self.frame;
@@ -1357,8 +1353,9 @@ impl GameLogic {
         source: Option<ObjectId>,
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
-            is_legal_rocket_pod_splash_target, rocket_pod_damage_at_distance, ROCKET_POD_AUDIO,
-            ROCKET_POD_DAMAGE_TYPE, ROCKET_POD_DEATH_TYPE, ROCKET_POD_SECONDARY_RADIUS,
+            ROCKET_POD_AUDIO, ROCKET_POD_DAMAGE_TYPE, ROCKET_POD_DEATH_TYPE,
+            ROCKET_POD_SECONDARY_RADIUS, is_legal_rocket_pod_splash_target,
+            rocket_pod_damage_at_distance,
         };
 
         let impact_xz = (impact.x, impact.z);
@@ -1460,7 +1457,7 @@ impl GameLogic {
     /// damage. Fail-closed: no guessed turret alignment/manual animation/LOS.
     pub(in super::super) fn try_sentry_drone_residual_fire(&mut self, sentry_id: ObjectId) {
         use crate::game_logic::host_sentry_drone::{
-            is_legal_sentry_auto_fire_target, SENTRY_GUN_AUDIO,
+            SENTRY_GUN_AUDIO, is_legal_sentry_auto_fire_target,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -1649,7 +1646,7 @@ impl GameLogic {
     /// Fail-closed: not full SlavedUpdate / LOS / projectile flight matrix.
     pub(in super::super) fn try_hellfire_drone_residual_fire(&mut self, hellfire_id: ObjectId) {
         use crate::game_logic::host_slave_drones::{
-            is_legal_hellfire_auto_fire_target, HELLFIRE_FIRE_AUDIO,
+            HELLFIRE_FIRE_AUDIO, is_legal_hellfire_auto_fire_target,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -1860,7 +1857,7 @@ impl GameLogic {
         kind: crate::game_logic::host_slave_drones::SlaveDroneKind,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_slave_drones::{
-            drone_spawn_offset_from_master, is_slave_drone_master_template, SlaveDroneKind,
+            SlaveDroneKind, drone_spawn_offset_from_master, is_slave_drone_master_template,
         };
 
         let (team, master_pos, owner_player_id) = {
@@ -1973,11 +1970,11 @@ impl GameLogic {
         attacker_id: Option<ObjectId>,
     ) -> (u32, f32, bool) {
         use crate::game_logic::host_bunker_buster::{
-            bunker_buster_structure_damage, is_bunker_structure_name, BUNKER_BUSTER_AUDIO,
-            BUNKER_BUSTER_HARM_AMOUNT, BUNKER_BUSTER_OCCUPANT_WEAPON,
+            BUNKER_BUSTER_AUDIO, BUNKER_BUSTER_HARM_AMOUNT, BUNKER_BUSTER_OCCUPANT_WEAPON,
             BUNKER_BUSTER_SHOCKWAVE_DAMAGE, BUNKER_BUSTER_SHOCKWAVE_RADIUS,
             BUNKER_BUSTER_SHOCKWAVE_WEAPON, STEALTH_JET_MISSILE_DAMAGE_TYPE,
-            STEALTH_JET_MISSILE_DEATH_TYPE,
+            STEALTH_JET_MISSILE_DEATH_TYPE, bunker_buster_structure_damage,
+            is_bunker_structure_name,
         };
 
         let (mut occupants, is_bunker, target_pos, is_tunnel, target_player) = {
@@ -2142,7 +2139,6 @@ impl GameLogic {
             }
         }
 
-
         self.bunker_buster.record_bunker_buster_blast(
             kills,
             structure_dmg,
@@ -2187,12 +2183,13 @@ impl GameLogic {
         attacker_id: Option<ObjectId>,
     ) -> u32 {
         use crate::game_logic::host_bunker_buster::{
-            kill_garrisoned_count, BUNKER_BUSTER_OCCUPANT_DAMAGE,
+            BUNKER_BUSTER_OCCUPANT_DAMAGE, kill_garrisoned_count,
         };
 
-        let immune = self.objects.get(&target_id).is_some_and(|t| {
-            !t.is_garrison_contain() || t.is_immune_to_clear_building_attacks()
-        });
+        let immune = self
+            .objects
+            .get(&target_id)
+            .is_some_and(|t| !t.is_garrison_contain() || t.is_immune_to_clear_building_attacks());
         if immune {
             return 0;
         }

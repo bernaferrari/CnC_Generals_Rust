@@ -28,7 +28,6 @@ pub struct HostMoneyAudioEvent {
     pub kind: HostMoneyAudio,
 }
 
-
 thread_local! {
     static LOG: RefCell<Vec<HostEconomyEvent>> = RefCell::new(Vec::new());
     static LAST_DRAIN: RefCell<Vec<HostEconomyEvent>> = RefCell::new(Vec::new());
@@ -49,7 +48,8 @@ pub fn record(player_id: u32, supplies: u32, power_available: i32) {
 /// Queue MiscAudio MoneyWithdrawSound / MoneyDepositSound for presentation drain.
 pub fn record_money_audio(player_id: u32, kind: HostMoneyAudio) {
     MONEY_AUDIO.with(|log| {
-        log.borrow_mut().push(HostMoneyAudioEvent { player_id, kind });
+        log.borrow_mut()
+            .push(HostMoneyAudioEvent { player_id, kind });
     });
 }
 
@@ -85,7 +85,6 @@ pub fn resolve_misc_audio_event(token: &str) -> String {
     }
 }
 
-
 pub fn has_pending(player_id: u32) -> bool {
     LOG.with(|log| log.borrow().iter().any(|e| e.player_id == player_id))
 }
@@ -103,7 +102,6 @@ pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
     MONEY_AUDIO.with(|log| log.borrow_mut().clear());
-
 }
 
 pub fn len() -> usize {
@@ -148,5 +146,4 @@ mod tests {
         assert_eq!(money_audio_token(v[1].kind), "MoneyDepositSound");
         assert!(take_money_audio().is_empty());
     }
-
 }

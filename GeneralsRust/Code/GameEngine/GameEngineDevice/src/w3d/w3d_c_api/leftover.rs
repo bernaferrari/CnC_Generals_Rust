@@ -2,6 +2,9 @@
 //!
 //! Split from `w3d_c_api.rs`.
 
+use super::constants::*;
+use super::math::*;
+use super::types::*;
 use crate::w3d::renderer::{batch_material_params, batch_priority};
 use crate::w3d::w3d_device::RenderObject;
 use crate::w3d::{
@@ -10,17 +13,14 @@ use crate::w3d::{
 };
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::{hash_map::DefaultHasher, HashMap};
-use std::ffi::{c_char, c_void, CStr, CString};
+use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
-use super::constants::*;
-use super::math::*;
-use super::types::*;
 
 /// Helper function to check if a pointer is valid
 pub(super) unsafe fn is_valid_ptr<T>(ptr: *const T) -> bool {
@@ -84,7 +84,9 @@ pub(super) fn current_vertex_declaration(device: &W3DDeviceC) -> u32 {
     }
 }
 
-pub(super) fn current_vertex_declaration_elements(device: &W3DDeviceC) -> Option<Vec<W3D_VERTEX_ELEMENT>> {
+pub(super) fn current_vertex_declaration_elements(
+    device: &W3DDeviceC,
+) -> Option<Vec<W3D_VERTEX_ELEMENT>> {
     let declaration = current_vertex_declaration(device);
     if declaration == 0 {
         return None;

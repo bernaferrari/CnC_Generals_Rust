@@ -170,7 +170,6 @@ impl ProjectileStreamRegistry {
         }
     }
 
-
     /// Drop streams idle for more than `max_idle_frames`.
     pub fn cull_idle(&mut self, frame: u32, max_idle_frames: u32) {
         self.streams
@@ -194,7 +193,6 @@ impl ProjectileStreamRegistry {
     pub fn is_empty(&self) -> bool {
         self.streams.is_empty()
     }
-
 }
 
 #[cfg(test)]

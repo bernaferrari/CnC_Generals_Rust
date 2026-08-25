@@ -9,12 +9,12 @@ use crate::connection::reliability::{ReliabilityConfig, ReliabilityLayer};
 use crate::error::{NetworkError, NetworkResult};
 use crate::file_transfer::{FileMetadata, TransferProgress};
 use crate::security::{
-    encryption::{self, EncryptedPacket},
     SecurityManager,
+    encryption::{self, EncryptedPacket},
 };
 use crate::time::NetworkInstant;
-use crate::transport_unified::UnifiedTransport as Transport;
 use crate::transport::{TransportMessage, TransportProtocol};
+use crate::transport_unified::UnifiedTransport as Transport;
 use chrono::{DateTime, Utc};
 use game_engine::common::system::compression::{decompress_data, is_data_compressed};
 use game_engine::get_game_state;
@@ -25,7 +25,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
-use tokio::sync::{broadcast, watch, Mutex as AsyncMutex, RwLock};
+use tokio::sync::{Mutex as AsyncMutex, RwLock, broadcast, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tracing::{debug, error, info, trace, warn};
@@ -2020,9 +2020,7 @@ impl ConnectionManager {
     pub async fn record_transfer_started(&self, progress: TransferProgress) {
         trace!(
             "Registering transfer {} {:?} ({} bytes)",
-            progress.transfer_id,
-            progress.direction,
-            progress.metadata.file_size
+            progress.transfer_id, progress.direction, progress.metadata.file_size
         );
         let mut participants = Vec::new();
         if let Some(addr) = progress.peer {
@@ -2053,9 +2051,7 @@ impl ConnectionManager {
     pub async fn record_transfer_progress(&self, progress: TransferProgress) {
         trace!(
             "Transfer {} progress: {}/{}",
-            progress.transfer_id,
-            progress.bytes_transferred,
-            progress.metadata.file_size
+            progress.transfer_id, progress.bytes_transferred, progress.metadata.file_size
         );
         let mut transfers = self.file_transfers.write().await;
         if let Some(record) = transfers.get_mut(&progress.transfer_id) {
@@ -2133,8 +2129,7 @@ impl ConnectionManager {
         } else {
             trace!(
                 "Delaying tag for transfer {} -> command {} until transfer starts",
-                transfer_id,
-                command_id
+                transfer_id, command_id
             );
         }
     }

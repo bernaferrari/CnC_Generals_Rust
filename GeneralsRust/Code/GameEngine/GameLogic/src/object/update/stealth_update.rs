@@ -18,7 +18,7 @@
 use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::damage::DamageType;
-use crate::helpers::{game_client_random_value_real, TheAudio, TheGameLogic};
+use crate::helpers::{TheAudio, TheGameLogic, game_client_random_value_real};
 use crate::modules::StealthControllerExt;
 use crate::modules::{UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
@@ -28,7 +28,7 @@ use crate::object::{Object, ObjectScriptStatusBit};
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use crate::system::disguise_manager::get_disguise_manager;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData, NameKeyType, StealthDisguiseControlInterface,
@@ -567,9 +567,9 @@ impl StealthUpdateController {
                                 for contained_id in contain_guard.get_contained_objects() {
                                     let attacking = OBJECT_REGISTRY
                                         .with_object(*contained_id, |rider_guard| {
-                                            rider_guard.get_status_bits().contains(
-                                                ObjectStatusMaskType::IS_ATTACKING,
-                                            )
+                                            rider_guard
+                                                .get_status_bits()
+                                                .contains(ObjectStatusMaskType::IS_ATTACKING)
                                         })
                                         .unwrap_or(false);
                                     if attacking {

@@ -13,13 +13,13 @@ use crate::command_system::{
 };
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
-    radar_notifications::RadarKind, AIState, GameLogic, KindOf, ObjectId, ObjectType,
-    PendingSpecialAbility, Resources, Team,
+    AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
+    radar_notifications::RadarKind,
 };
 use crate::localization;
 use crate::ui::audio::translate_audio_event;
-use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::common::AsciiString;
+use gamelogic::common::types::Coord3D as LogicCoord3D;
 use gamelogic::system::beacon_manager::get_beacon_manager;
 use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
@@ -126,7 +126,6 @@ impl<'a> CommandExecutor<'a> {
         // any command clears ACTIVELY_CONSTRUCTING; CMD_FROM_PLAYER default
         // arm (not Repair/ResumeConstruction) cancels getCurrentTask().
         self.apply_dozer_ai_do_command(&command);
-
 
         let result = match &command.command_type {
             // Movement commands
@@ -300,7 +299,7 @@ impl<'a> CommandExecutor<'a> {
                 weapon_slot,
                 max_shots_to_fire,
                 target,
-} => self.execute_weapon(
+            } => self.execute_weapon(
                 &command.selected_units,
                 weapon_slot,
                 *max_shots_to_fire,

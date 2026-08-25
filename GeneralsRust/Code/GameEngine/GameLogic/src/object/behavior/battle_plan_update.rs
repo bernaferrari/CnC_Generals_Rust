@@ -3,28 +3,28 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    kindof_from_name, AsciiString, CommandSourceType, Coord3D, DisabledType, KindOf, KindOfMask,
+    ALL_KIND_OF, AsciiString, CommandSourceType, Coord3D, DisabledType, KindOf, KindOfMask,
     ModelConditionFlag, ModuleData, ObjectID, SpecialPowerTemplateId, TurretType, UnsignedInt,
-    ALL_KIND_OF,
+    kindof_from_name,
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheGameText, TheInGameUI, TheRadar};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, SpecialPowerCommandOptions,
     SpecialPowerUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::body::body_module::MaxHealthChangeType;
 use crate::object::special_power_template::{
-    find_or_create_special_power_template, SpecialPowerTemplate,
+    SpecialPowerTemplate, find_or_create_special_power_template,
 };
-use crate::object::Object as GameObject;
 use crate::player::{BattlePlanType, PlayerArcExt};
 use crate::waypoint::Waypoint;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::system::radar::RadarEventType;
+use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -439,8 +439,12 @@ impl BattlePlanUpdate {
             special_power_module: None,
             bombardment_unpack: named_audio_event(&specific_data.bombardment_unpack_name),
             bombardment_pack: named_audio_event(&specific_data.bombardment_pack_name),
-            bombardment_announcement: named_audio_event(&specific_data.bombardment_announcement_name),
-            search_and_destroy_unpack: named_audio_event(&specific_data.search_and_destroy_unpack_name),
+            bombardment_announcement: named_audio_event(
+                &specific_data.bombardment_announcement_name,
+            ),
+            search_and_destroy_unpack: named_audio_event(
+                &specific_data.search_and_destroy_unpack_name,
+            ),
             search_and_destroy_idle: named_audio_event(&specific_data.search_and_destroy_idle_name),
             search_and_destroy_pack: named_audio_event(&specific_data.search_and_destroy_pack_name),
             search_and_destroy_announcement: named_audio_event(
@@ -1058,9 +1062,7 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
             .flatten()
         {
             if let Ok(mut player) = player.write() {
-                player
-                    .get_academy_stats_mut()
-                    .record_battle_plan_selected();
+                player.get_academy_stats_mut().record_battle_plan_selected();
             }
         }
 
@@ -1167,7 +1169,6 @@ impl BehaviorModuleInterface for BattlePlanUpdate {
         self.enable_turret(false);
         Ok(())
     }
-
 }
 
 impl Drop for BattlePlanUpdate {
@@ -1459,11 +1460,7 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), S
 
 fn kindof_bit(kind: KindOf) -> Option<KindOfMask> {
     let mask = kind.cpp_mask();
-    if mask == 0 {
-        None
-    } else {
-        Some(mask)
-    }
+    if mask == 0 { None } else { Some(mask) }
 }
 
 impl Snapshotable for BattlePlanUpdateModule {
@@ -1565,8 +1562,8 @@ impl Module for BattlePlanUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::registry::{test_isolation_lock, OBJECT_REGISTRY};
-    use crate::player::{player_list, Player};
+    use crate::object::registry::{OBJECT_REGISTRY, test_isolation_lock};
+    use crate::player::{Player, player_list};
     use crate::team::Team;
 
     fn make_module(
@@ -1592,12 +1589,20 @@ mod tests {
         OBJECT_REGISTRY.register_object(id, &object);
 
         let mut module = make_module(Arc::clone(&object), Some(1));
-        assert!(!object.read().unwrap().test_weapon_set_flag(WeaponSetType::Veteran));
+        assert!(
+            !object
+                .read()
+                .unwrap()
+                .test_weapon_set_flag(WeaponSetType::Veteran)
+        );
 
         Module::on_object_created(&mut module);
 
         assert!(
-            object.read().unwrap().test_weapon_set_flag(WeaponSetType::Veteran),
+            object
+                .read()
+                .unwrap()
+                .test_weapon_set_flag(WeaponSetType::Veteran),
             "Strategy Center must select WEAPONSET_VETERAN on create"
         );
 
@@ -1642,14 +1647,20 @@ mod tests {
             &module.behavior.bonuses,
         );
         assert_eq!(
-            player.read().unwrap().get_battle_plan_count(BattlePlanType::Bombard),
+            player
+                .read()
+                .unwrap()
+                .get_battle_plan_count(BattlePlanType::Bombard),
             1
         );
 
         Module::on_delete(&mut module);
 
         assert_eq!(
-            player.read().unwrap().get_battle_plan_count(BattlePlanType::Bombard),
+            player
+                .read()
+                .unwrap()
+                .get_battle_plan_count(BattlePlanType::Bombard),
             0,
             "selling/destroying Strategy Center must invert army battle-plan bonuses"
         );

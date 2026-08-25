@@ -41,7 +41,7 @@
 //! - Not full OCL ClusterMinesBomb aircraft path
 
 use super::ObjectId;
-use crate::game_logic::host_toxin_tractor::{is_chem_general_template, AnthraxResidualTier};
+use crate::game_logic::host_toxin_tractor::{AnthraxResidualTier, is_chem_general_template};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -443,8 +443,6 @@ pub struct HostMineData {
     /// C++ MinefieldBehavior m_scootAccel (host Y-up).
     #[serde(default)]
     pub scoot_accel: [f32; 3],
-
-
 }
 
 fn default_demo_trap_mode() -> DemoTrapMode {
@@ -462,8 +460,6 @@ fn default_repeat_detonate_thresh() -> f32 {
 fn default_stops_regen_after_creator_dies() -> bool {
     true
 }
-
-
 
 impl Default for HostMineData {
     fn default() -> Self {
@@ -515,7 +511,6 @@ impl HostMineData {
             scoot_frames_left: 0,
             scoot_vel: [0.0; 3],
             scoot_accel: [0.0; 3],
-
         }
     }
 
@@ -597,7 +592,10 @@ impl HostMineData {
             .default_lifetime_frames()
             .unwrap_or(300);
         data.detonate_at_frame = Some(current_frame.saturating_add(delay));
-        data.next_ping_frame = Some(sticky_next_ping_frame(current_frame, data.detonate_at_frame));
+        data.next_ping_frame = Some(sticky_next_ping_frame(
+            current_frame,
+            data.detonate_at_frame,
+        ));
         data
     }
 
@@ -620,7 +618,10 @@ impl HostMineData {
 
     pub fn with_lifetime_frames(mut self, current_frame: u32, delay_frames: u32) -> Self {
         self.detonate_at_frame = Some(current_frame.saturating_add(delay_frames));
-        self.next_ping_frame = Some(sticky_next_ping_frame(current_frame, self.detonate_at_frame));
+        self.next_ping_frame = Some(sticky_next_ping_frame(
+            current_frame,
+            self.detonate_at_frame,
+        ));
         self
     }
 
@@ -666,7 +667,11 @@ impl HostMineData {
         let dx_norm = if dist <= 0.1 { 0.0 } else { dx / dist };
         let dz_norm = if dist <= 0.1 { 0.0 } else { dz / dist };
         self.scoot_vel = [dx_norm * speed, 0.0, dz_norm * speed];
-        self.scoot_accel = [-dx_norm * accel_mag, MINE_SCOOT_GRAVITY, -dz_norm * accel_mag];
+        self.scoot_accel = [
+            -dx_norm * accel_mag,
+            MINE_SCOOT_GRAVITY,
+            -dz_norm * accel_mag,
+        ];
         self.scoot_frames_left = scoot_time;
         start
     }
@@ -697,7 +702,6 @@ impl HostMineData {
         }
         Some(next)
     }
-
 
     /// C++ onCollide early-out when m_virtualMinesRemaining == 0.
     pub fn has_virtual_charge(&self) -> bool {
@@ -809,8 +813,7 @@ impl HostMineData {
     }
 
     pub fn demo_trap_warning_ready(&self, now: u32) -> bool {
-        self.demo_trap_warning_armed()
-            && self.warning_detonate_at_frame.is_some_and(|at| now >= at)
+        self.demo_trap_warning_armed() && self.warning_detonate_at_frame.is_some_and(|at| now >= at)
     }
 
     /// C++ MinefieldBehavior::disarm for Regenerates pads: keep the object.
@@ -830,7 +833,12 @@ impl HostMineData {
     }
 
     /// C++ onDamage virtual-mine expected count (ceil damage / floor healing).
-    pub fn virtual_mines_expected_from_health(&self, health: f32, max_health: f32, healing: bool) -> u32 {
+    pub fn virtual_mines_expected_from_health(
+        &self,
+        health: f32,
+        max_health: f32,
+        healing: bool,
+    ) -> u32 {
         let max_h = max_health.max(1e-6);
         let expected_f = self.num_virtual_mines as f32 * health.max(0.0) / max_h;
         let expected = if healing {
@@ -841,8 +849,6 @@ impl HostMineData {
         expected.min(self.num_virtual_mines)
     }
 }
-
-
 
 /// One step of C++ MinefieldBehavior::onDamage virtual-sync loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -990,7 +996,6 @@ pub const CLUSTER_MINE_RING_RADIUS: f32 = 40.0;
 
 /// Retail ChinaClusterMine MinefieldBehavior NumVirtualMines residual.
 pub const CLUSTER_MINE_NUM_VIRTUAL: u32 = 8;
-
 
 /// C++ MinefieldBehavior ctor DetonatedBy = ENEMIES | NEUTRAL.
 pub fn land_mine_proximity_trips(is_enemies: bool, is_neutral: bool) -> bool {
@@ -1254,7 +1259,6 @@ pub fn clip_point_to_mine_footprint(mine_pos: Vec3, victim_pos: Vec3, radius: f3
     let s = radius / dist;
     Vec3::new(mine_pos.x + dx * s, mine_pos.y, mine_pos.z + dz * s)
 }
-
 
 /// Residual kinds that can be disarmed (DAMAGE_DISARM → destroy without detonation).
 ///
@@ -1663,7 +1667,6 @@ pub fn mine_spot_under_structure(
     dx * dx + dz * dz <= reach * reach
 }
 
-
 /// Wave 51 residual honesty: DemoTrap DefaultProximity / trigger / death fuse constants.
 pub fn honesty_demo_trap_mode_residual_ok() -> bool {
     DEMO_TRAP_DEFAULT_PROXIMITY_MODE
@@ -1770,7 +1773,6 @@ pub fn honesty_mines_residual_pack_ok() -> bool {
         && HostMineData::land_mine_for_template("ChinaStandardMine").scoot_from_starting_point_time
             == MINE_SCOOT_FROM_STARTING_POINT_FRAMES
         && HostMineData::land_mine().scoot_from_starting_point_time == 0
-
 }
 
 /// Wave 78 residual honesty: ClusterMines DeliveryDecal / ViewObject / science residual deepen.
@@ -2003,7 +2005,6 @@ mod tests {
                 .demo_trap_profile,
             DemoTrapProfile::ChemGamma
         );
-
     }
 
     #[test]
@@ -2088,10 +2089,18 @@ mod tests {
         assert!(DOZER_MINE_CLEAR_RANGE > 0.0);
         assert!(DOZER_MINE_CLEAR_SCAN_RANGE > DOZER_MINE_CLEAR_RANGE);
         // C++ DemoTrapUpdate.cpp:181-191 — idle dozer is not skipped.
-        assert!(!demo_trap_skips_dozer_disarm_while_attacking(true, true, false));
-        assert!(!demo_trap_skips_dozer_disarm_while_attacking(true, false, true));
-        assert!(demo_trap_skips_dozer_disarm_while_attacking(true, true, true));
-        assert!(!demo_trap_skips_dozer_disarm_while_attacking(false, true, true));
+        assert!(!demo_trap_skips_dozer_disarm_while_attacking(
+            true, true, false
+        ));
+        assert!(!demo_trap_skips_dozer_disarm_while_attacking(
+            true, false, true
+        ));
+        assert!(demo_trap_skips_dozer_disarm_while_attacking(
+            true, true, true
+        ));
+        assert!(!demo_trap_skips_dozer_disarm_while_attacking(
+            false, true, true
+        ));
         // C++ DemoTrapUpdate.cpp:196 — ENEMIES only.
         assert!(demo_trap_proximity_requires_enemies(true));
         assert!(!demo_trap_proximity_requires_enemies(false));
@@ -2328,7 +2337,9 @@ mod tests {
             .iter()
             .map(|p| (p.x * p.x + p.z * p.z).sqrt())
             .fold(0.0_f32, f32::max);
-        assert!(max_r + 0.01 >= CLUSTER_MINES_DISTANCE_AROUND_OBJECT - LAND_MINE_GEOMETRY_RADIUS * 2.0);
+        assert!(
+            max_r + 0.01 >= CLUSTER_MINES_DISTANCE_AROUND_OBJECT - LAND_MINE_GEOMETRY_RADIUS * 2.0
+        );
         assert!(
             max_r < CLUSTER_MINES_DISTANCE_AROUND_OBJECT,
             "SmartBorder must not place a ring at expanded radius beyond DistanceAroundObject, max_r={max_r}"
@@ -2446,7 +2457,10 @@ mod tests {
         assert!(!d.begin_or_ready_clear_pre_attack(cid, 10, 36));
         assert!(!d.begin_or_ready_clear_pre_attack(cid, 45, 36));
         assert!(d.begin_or_ready_clear_pre_attack(cid, 46, 36));
-        assert_eq!(mine_clear_pre_attack_frames(false, "AmericaVehicleDozer"), 36);
+        assert_eq!(
+            mine_clear_pre_attack_frames(false, "AmericaVehicleDozer"),
+            36
+        );
         assert_eq!(mine_clear_pre_attack_frames(true, "GLAInfantryWorker"), 30);
         assert_eq!(mine_clear_pre_attack_frames(true, "TestDozer"), 36);
     }
@@ -2466,9 +2480,7 @@ mod tests {
     #[test]
     fn china_pad_geometry_radius_is_retail_30() {
         assert!((LAND_MINE_GEOMETRY_RADIUS - 30.0).abs() < f32::EPSILON);
-        assert!(
-            (HostMineKind::LandMine.default_trigger_range() - 30.0).abs() < f32::EPSILON
-        );
+        assert!((HostMineKind::LandMine.default_trigger_range() - 30.0).abs() < f32::EPSILON);
         assert!(land_mine_geometry_contacts(
             Vec3::ZERO,
             LAND_MINE_GEOMETRY_RADIUS,
@@ -2540,6 +2552,4 @@ mod tests {
             NeutronMineVictimEffect::None
         );
     }
-
-
 }

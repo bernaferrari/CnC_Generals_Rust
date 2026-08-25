@@ -60,8 +60,8 @@ fn residual_action_store(a: ResidualHostRebuildSpawnEntityFirstAction) {
 pub fn residual_host_rebuild_spawn_entity_first_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_rebuild_spawn_entity_first_last_action(
-) -> ResidualHostRebuildSpawnEntityFirstAction {
+pub fn residual_host_rebuild_spawn_entity_first_last_action()
+-> ResidualHostRebuildSpawnEntityFirstAction {
     ResidualHostRebuildSpawnEntityFirstAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

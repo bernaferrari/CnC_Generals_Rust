@@ -12,8 +12,8 @@ use std::collections::HashMap;
 #[path = "../entity_lifecycle.rs"]
 pub mod entity_lifecycle;
 pub use entity_lifecycle::{
-    EntityLifecycleCodecError, EntityLifecycleEnvelope, EntityModuleState,
-    ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+    ENTITY_LIFECYCLE_ENVELOPE_VERSION, EntityLifecycleCodecError, EntityLifecycleEnvelope,
+    EntityModuleState,
 };
 
 /// One installed module participant (tag + crate handle name).
@@ -1514,7 +1514,6 @@ impl Entity {
             || self.disabled_held
             || self.under_construction
     }
-
 
     /// Store the envelope verbatim. Header destroyed timing stays aligned with
     /// the deferred-destroy mark frame (`GameLogic.cpp:3932-3967`).

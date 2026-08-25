@@ -5,8 +5,8 @@
 //! Matches C++ Player and Team relationship systems.
 
 use crate::common::*;
-use crate::player::{Player, PlayerIndex, PLAYER_INDEX_INVALID};
-use crate::team::{Team, TeamID, TEAM_ID_INVALID};
+use crate::player::{PLAYER_INDEX_INVALID, Player, PlayerIndex};
+use crate::team::{TEAM_ID_INVALID, Team, TeamID};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 

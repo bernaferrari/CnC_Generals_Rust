@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::gameworld_shadow::{
-    probe_host_vs_gameworld, shadow_session_after_host_tick, GAMEWORLD_AUTHORITY_ENV_NAMES,
+    GAMEWORLD_AUTHORITY_ENV_NAMES, probe_host_vs_gameworld, shadow_session_after_host_tick,
 };
 
 #[test]

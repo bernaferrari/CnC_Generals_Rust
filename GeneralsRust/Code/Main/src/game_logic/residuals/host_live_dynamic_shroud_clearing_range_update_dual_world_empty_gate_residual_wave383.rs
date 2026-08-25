@@ -45,8 +45,8 @@ pub const RUNTIME_HOST_LIVE_DYNAMIC_SHROUD_CLEARING_RANGE_UPDATE_DUAL_WORLD_EMPT
 ];
 
 /// Honesty: method names residual pack.
-pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_method_names_residual_wave383(
-) -> bool {
+pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_method_names_residual_wave383()
+-> bool {
     LIVE_DYNAMIC_SHROUD_CLEARING_RANGE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE383.len() == 5
         && residual_name_index(
             LIVE_DYNAMIC_SHROUD_CLEARING_RANGE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE383,
@@ -63,8 +63,8 @@ pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_m
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
-pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_nav_commands_residual_wave383(
-) -> bool {
+pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_nav_commands_residual_wave383()
+-> bool {
     LIVE_DYNAMIC_SHROUD_CLEARING_RANGE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE383.len() == 4
         && residual_name_index(
             LIVE_DYNAMIC_SHROUD_CLEARING_RANGE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE383,
@@ -80,8 +80,8 @@ pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_n
 }
 
 /// Wave 383 composite residual honesty pack.
-pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_residual_pack_wave383(
-) -> bool {
+pub fn honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_residual_pack_wave383()
+-> bool {
     honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_method_names_residual_wave383()
         && honesty_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_nav_commands_residual_wave383()
 }
@@ -183,8 +183,8 @@ mod tests {
     }
 
     #[test]
-    fn simulate_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_honesty_residual_live(
-    ) {
+    fn simulate_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_honesty_residual_live()
+     {
         assert!(
             simulate_live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_honesty(),
             "dynamic shroud clearing range update dual-world empty gate residual must latch"

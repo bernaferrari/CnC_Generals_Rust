@@ -7,7 +7,7 @@
 ** Win32 implementation of the GameEngine (equivalent to Win32GameEngine.cpp)
 */
 
-use crate::assets::{get_asset_manager, init_asset_manager, load_cnc_unit_model, W3DModel};
+use crate::assets::{W3DModel, get_asset_manager, init_asset_manager, load_cnc_unit_model};
 use crate::engine_factory::GameEngine;
 use crate::game_logic::*;
 use anyhow::Result;

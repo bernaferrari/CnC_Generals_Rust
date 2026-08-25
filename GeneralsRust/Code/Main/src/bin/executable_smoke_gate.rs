@@ -64,8 +64,16 @@ fn main() {
         "success" | "success_partial_exit" | "success_forced_exit" if r.executable_host_ok => {
             println!(
                 "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} gameplay_cmd={} skirmish_menu={} frames={} new_game={} presentation_ok={} live_fallback_ok={} render_items={} render_stable={})",
-                r.reached_ingame, r.reached_menu, r.gameplay_cmd_ok, r.skirmish_menu_ok, r.frames_observed, r.new_game_path,
-                r.presentation_frame_ok, r.presentation_live_fallback_ok, r.max_render_item_count, r.render_items_stable_ok
+                r.reached_ingame,
+                r.reached_menu,
+                r.gameplay_cmd_ok,
+                r.skirmish_menu_ok,
+                r.frames_observed,
+                r.new_game_path,
+                r.presentation_frame_ok,
+                r.presentation_live_fallback_ok,
+                r.max_render_item_count,
+                r.render_items_stable_ok
             );
             std::process::exit(0);
         }

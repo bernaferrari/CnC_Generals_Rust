@@ -14,8 +14,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::host_slave_drones::{
-    is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
     UPGRADE_AMERICA_BATTLE_DRONE, UPGRADE_AMERICA_HELLFIRE_DRONE, UPGRADE_AMERICA_SCOUT_DRONE,
+    is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
 };
 
 /// Per-object UpgradeDie residual payload.

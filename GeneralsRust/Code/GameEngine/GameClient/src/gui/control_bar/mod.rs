@@ -33,76 +33,74 @@ pub mod control_bar_command_processing;
 pub mod control_bar_multi_select;
 mod host_command_bridge;
 pub use control_bar_multi_select::{
-    residual_multi_select_actionable_count, residual_multi_select_attack_move_kept,
-    residual_multi_select_common_command_count, residual_multi_select_last_action,
-    residual_multi_select_portrait_agrees, residual_multi_select_selected_count,
-    simulate_multi_select_clear, simulate_multi_select_populate,
-    simulate_multi_select_prepare_divergent, simulate_multi_select_prepare_same_commands,
-    ResidualMultiSelectAction, ResidualMultiSelectUnit, MULTI_SELECT_MAX_COMMANDS_PER_SET,
-    MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT,
+    MULTI_SELECT_MAX_COMMANDS_PER_SET, MULTI_SELECT_OK_FOR_MULTI_SELECT_BIT,
+    ResidualMultiSelectAction, ResidualMultiSelectUnit, residual_multi_select_actionable_count,
+    residual_multi_select_attack_move_kept, residual_multi_select_common_command_count,
+    residual_multi_select_last_action, residual_multi_select_portrait_agrees,
+    residual_multi_select_selected_count, simulate_multi_select_clear,
+    simulate_multi_select_populate, simulate_multi_select_prepare_divergent,
+    simulate_multi_select_prepare_same_commands,
 };
 pub mod control_bar_observer;
 pub mod control_bar_ocl_timer;
 pub use control_bar_ocl_timer::{
-    format_ocl_timer_display, ocl_frames_to_display, residual_ocl_timer_last_action,
-    residual_ocl_timer_progress_milli, residual_ocl_timer_seconds, should_update_timer_text,
-    simulate_ocl_timer_format, simulate_ocl_timer_frames_to_display,
-    simulate_ocl_timer_prepare_display, simulate_ocl_timer_should_update, OCLTimerDisplayState,
-    ResidualOclTimerAction,
+    OCLTimerDisplayState, ResidualOclTimerAction, format_ocl_timer_display, ocl_frames_to_display,
+    residual_ocl_timer_last_action, residual_ocl_timer_progress_milli, residual_ocl_timer_seconds,
+    should_update_timer_text, simulate_ocl_timer_format, simulate_ocl_timer_frames_to_display,
+    simulate_ocl_timer_prepare_display, simulate_ocl_timer_should_update,
 };
 pub mod control_bar_print_positions;
 pub use control_bar_print_positions::{
-    residual_control_bar_print_positions_last_action,
+    CONTROL_BAR_PRINT_HIDDEN_SCRIPT, CONTROL_BAR_PRINT_OUTPUT_FILE, CONTROL_BAR_PRINT_PARENT_NAME,
+    ResidualControlBarPrintPositionsAction, residual_control_bar_print_positions_last_action,
     residual_control_bar_print_positions_line_len,
     simulate_control_bar_print_positions_format_line,
     simulate_control_bar_print_positions_parent_name,
     simulate_control_bar_print_positions_prepare_sample,
-    simulate_control_bar_print_positions_script_names, ResidualControlBarPrintPositionsAction,
-    CONTROL_BAR_PRINT_HIDDEN_SCRIPT, CONTROL_BAR_PRINT_OUTPUT_FILE, CONTROL_BAR_PRINT_PARENT_NAME,
+    simulate_control_bar_print_positions_script_names,
 };
 pub mod control_bar_resizer;
 pub use control_bar_resizer::{
+    IniControlBarResizer, ResidualControlBarResizerAction, ResizerWindow,
     residual_control_bar_resizer_base_resolution, residual_control_bar_resizer_last_action,
     residual_control_bar_resizer_window_count, simulate_control_bar_resizer_add_window,
     simulate_control_bar_resizer_clear, simulate_control_bar_resizer_get_optimal_size,
     simulate_control_bar_resizer_prepare_default, simulate_control_bar_resizer_resize,
-    simulate_control_bar_resizer_set_base_resolution, IniControlBarResizer,
-    ResidualControlBarResizerAction, ResizerWindow,
+    simulate_control_bar_resizer_set_base_resolution,
 };
 pub mod control_bar_scheme;
 pub mod control_bar_structure_inventory;
 pub use control_bar_structure_inventory::{
-    occupant_from_presentation, residual_structure_inventory_evacuate_visible,
-    residual_structure_inventory_exit_visible, residual_structure_inventory_garrisoned_count,
-    residual_structure_inventory_last_action, residual_structure_inventory_max_garrison,
-    residual_structure_inventory_stop_visible, simulate_structure_inventory_clear,
-    simulate_structure_inventory_evacuate_command_name,
-    simulate_structure_inventory_exit_command_name, simulate_structure_inventory_populate,
-    simulate_structure_inventory_prepare_occupied, simulate_structure_inventory_stop_command_name,
-    ResidualStructureInventoryAction, StructureInventoryOccupant, MAX_STRUCTURE_INVENTORY_BUTTONS,
+    MAX_STRUCTURE_INVENTORY_BUTTONS, ResidualStructureInventoryAction,
     STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME, STRUCTURE_INVENTORY_EVACUATE_ID,
     STRUCTURE_INVENTORY_EXIT_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_COMMAND_NAME,
-    STRUCTURE_INVENTORY_STOP_ID,
+    STRUCTURE_INVENTORY_STOP_ID, StructureInventoryOccupant, occupant_from_presentation,
+    residual_structure_inventory_evacuate_visible, residual_structure_inventory_exit_visible,
+    residual_structure_inventory_garrisoned_count, residual_structure_inventory_last_action,
+    residual_structure_inventory_max_garrison, residual_structure_inventory_stop_visible,
+    simulate_structure_inventory_clear, simulate_structure_inventory_evacuate_command_name,
+    simulate_structure_inventory_exit_command_name, simulate_structure_inventory_populate,
+    simulate_structure_inventory_prepare_occupied, simulate_structure_inventory_stop_command_name,
 };
 pub mod control_bar_under_construction;
 pub use control_bar_under_construction::{
+    ResidualUnderConstructionAction, UNDER_CONSTRUCTION_CANCEL_COMMAND_NAME,
     format_under_construction_percent_text, residual_under_construction_cancel_visible,
     residual_under_construction_is_completed, residual_under_construction_last_action,
     residual_under_construction_percent, simulate_under_construction_cancel_command_name,
     simulate_under_construction_complete, simulate_under_construction_populate,
     simulate_under_construction_prepare_cycle, simulate_under_construction_update_percent,
-    ResidualUnderConstructionAction, UNDER_CONSTRUCTION_CANCEL_COMMAND_NAME,
 };
 pub mod multi_select;
 pub mod observer;
 pub mod resizer;
 pub mod scheme;
 pub use scheme::{
+    CONTROL_BAR_SCHEME_NAMES_8X6, DefaultControlBarSchemeManager, ResidualControlBarSchemeAction,
     residual_control_bar_scheme_has_current, residual_control_bar_scheme_last_action,
     residual_control_bar_scheme_loaded_count, simulate_control_bar_scheme_clear,
     simulate_control_bar_scheme_get_current, simulate_control_bar_scheme_load,
-    simulate_control_bar_scheme_prepare_default, DefaultControlBarSchemeManager,
-    ResidualControlBarSchemeAction, CONTROL_BAR_SCHEME_NAMES_8X6,
+    simulate_control_bar_scheme_prepare_default,
 };
 pub mod structure_inventory;
 pub mod under_construction;
@@ -114,19 +112,19 @@ pub use control_bar_print_positions::*;
 #[cfg(test)]
 pub(crate) use host_command_bridge::acquire_host_control_bar_bridge_test_guard;
 pub use host_command_bridge::{
+    HostControlBarInputProvenance, HostControlBarPublishedRequest, HostControlBarRequest,
+    HostControlBarTarget, HostMinimapInteraction, HostMinimapMouseButton,
     clear_host_control_bar_requests, clear_host_dismiss_in_game_popup_message_requests,
     host_control_bar_bridge_enabled, set_host_control_bar_bridge_enabled,
     take_host_control_bar_published_requests, take_host_control_bar_requests,
     take_host_minimap_interactions, with_host_control_bar_input_provenance,
-    HostControlBarInputProvenance, HostControlBarPublishedRequest, HostControlBarRequest,
-    HostControlBarTarget, HostMinimapInteraction, HostMinimapMouseButton,
 };
 pub(crate) use host_command_bridge::{
-    host_control_bar_input_provenance_for_current_dispatch, host_request_from_button,
-    host_request_from_button_with_weapon_slot, publish_host_cancel_structure_placement,
-    publish_host_control_bar_request, publish_host_dismiss_in_game_popup_message,
-    publish_host_minimap_interaction, publish_host_production_pause, publish_host_queue_cancel,
-    publish_host_select_next_idle_worker, HostMinimapInteractionRequest,
+    HostMinimapInteractionRequest, host_control_bar_input_provenance_for_current_dispatch,
+    host_request_from_button, host_request_from_button_with_weapon_slot,
+    publish_host_cancel_structure_placement, publish_host_control_bar_request,
+    publish_host_dismiss_in_game_popup_message, publish_host_minimap_interaction,
+    publish_host_production_pause, publish_host_queue_cancel, publish_host_select_next_idle_worker,
 };
 pub use multi_select::*;
 pub use observer::*;

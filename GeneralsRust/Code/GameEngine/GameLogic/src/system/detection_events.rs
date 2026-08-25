@@ -893,14 +893,18 @@ mod detection_event_tests {
         assert!(manager.register_detection(1, 2, 100, 0, 8).is_err());
 
         // Invalid player ID for Eva message
-        assert!(manager
-            .create_eva_message(EvaMessageType::EnemyDetected, 8, 5)
-            .is_err());
+        assert!(
+            manager
+                .create_eva_message(EvaMessageType::EnemyDetected, 8, 5)
+                .is_err()
+        );
 
         // Invalid detected unit ID (0)
-        assert!(manager
-            .create_eva_message(EvaMessageType::EnemyDetected, 0, 0)
-            .is_err());
+        assert!(
+            manager
+                .create_eva_message(EvaMessageType::EnemyDetected, 0, 0)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1043,9 +1047,11 @@ mod detection_event_tests {
         let mut manager = DetectionEventManager::new();
 
         // Directly queue an Eva event
-        assert!(manager
-            .queue_eva_event(0, EvaMessageType::EnemyDetected, 5)
-            .is_ok());
+        assert!(
+            manager
+                .queue_eva_event(0, EvaMessageType::EnemyDetected, 5)
+                .is_ok()
+        );
 
         // Should appear in both queues
         assert_eq!(manager.pending_eva_event_count(), 1);
@@ -1130,15 +1136,21 @@ mod detection_event_tests {
         let mut manager = DetectionEventManager::new();
 
         // Queue multiple Eva events
-        assert!(manager
-            .queue_eva_event(0, EvaMessageType::EnemyDetected, 1)
-            .is_ok());
-        assert!(manager
-            .queue_eva_event(1, EvaMessageType::OwnUnitDetected, 2)
-            .is_ok());
-        assert!(manager
-            .queue_eva_event(2, EvaMessageType::StealthDiscovered, 3)
-            .is_ok());
+        assert!(
+            manager
+                .queue_eva_event(0, EvaMessageType::EnemyDetected, 1)
+                .is_ok()
+        );
+        assert!(
+            manager
+                .queue_eva_event(1, EvaMessageType::OwnUnitDetected, 2)
+                .is_ok()
+        );
+        assert!(
+            manager
+                .queue_eva_event(2, EvaMessageType::StealthDiscovered, 3)
+                .is_ok()
+        );
 
         // Should all be queued
         assert_eq!(manager.pending_eva_event_count(), 3);
@@ -1164,12 +1176,16 @@ mod detection_event_tests {
         let mut manager = DetectionEventManager::new();
 
         // Queue some Eva events
-        assert!(manager
-            .queue_eva_event(0, EvaMessageType::EnemyDetected, 5)
-            .is_ok());
-        assert!(manager
-            .queue_eva_event(1, EvaMessageType::OwnUnitDetected, 10)
-            .is_ok());
+        assert!(
+            manager
+                .queue_eva_event(0, EvaMessageType::EnemyDetected, 5)
+                .is_ok()
+        );
+        assert!(
+            manager
+                .queue_eva_event(1, EvaMessageType::OwnUnitDetected, 10)
+                .is_ok()
+        );
 
         // Get without removing
         let pending = manager.get_pending_eva_events();
@@ -1177,12 +1193,16 @@ mod detection_event_tests {
         assert_eq!(manager.pending_eva_event_count(), 2);
 
         // Verify content
-        assert!(pending
-            .iter()
-            .any(|e| e.player_id == 0 && e.detected_unit_id == 5));
-        assert!(pending
-            .iter()
-            .any(|e| e.player_id == 1 && e.detected_unit_id == 10));
+        assert!(
+            pending
+                .iter()
+                .any(|e| e.player_id == 0 && e.detected_unit_id == 5)
+        );
+        assert!(
+            pending
+                .iter()
+                .any(|e| e.player_id == 1 && e.detected_unit_id == 10)
+        );
     }
 
     #[test]

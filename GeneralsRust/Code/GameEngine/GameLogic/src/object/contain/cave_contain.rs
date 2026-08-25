@@ -4,9 +4,9 @@
 //! entries. Changing entry is a script or ini command. All queries about capacity and
 //! contents are also redirected.
 
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
-use std::cell::UnsafeCell;
 
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
 use crate::common::{GameError, GameResult, ObjectID, PlayerMaskType};
@@ -18,9 +18,9 @@ use crate::object::{Object, ObjectId};
 use crate::player::{Player, ThePlayerList};
 use crate::system::cave_system::CaveSystem;
 use crate::system::game_logic::GameLogic;
-use crate::team::{Team, TeamID, TheTeamFactory, TEAM_ID_INVALID};
+use crate::team::{TEAM_ID_INVALID, Team, TeamID, TheTeamFactory};
 use crate::tunnel_tracker::TunnelTracker;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Wave 279 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -1003,11 +1003,7 @@ impl ContainModuleInterface for CaveContain {
     fn get_max_capacity(&self) -> usize {
         let max = CaveContain::get_contain_max(self).unwrap_or(self.base.get_contain_max());
         // C++ getContainMax is TheGlobalData->m_maxTunnelCapacity; 0 admits nobody.
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1183,7 +1179,7 @@ mod tests {
     use super::*;
     use crate::common::{Color, DefaultThingTemplate, ObjectStatusMaskType};
     use crate::damage::{
-        set_death_type_flag, DamageInfo, DamageType, DeathType, DEATH_TYPE_FLAGS_NONE,
+        DEATH_TYPE_FLAGS_NONE, DamageInfo, DamageType, DeathType, set_death_type_flag,
     };
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
@@ -1478,12 +1474,14 @@ mod tests {
 
         let accepted = DamageInfo::with_simple(1.0, 0, DamageType::Explosion, DeathType::Exploded);
         cave.on_die(Some(&accepted)).expect("accepted death");
-        assert!(tracker
-            .read()
-            .expect("tracker read")
-            .get_container_list()
-            .expect("container list")
-            .is_empty());
+        assert!(
+            tracker
+                .read()
+                .expect("tracker read")
+                .get_container_list()
+                .expect("container list")
+                .is_empty()
+        );
         assert_eq!(
             tracker
                 .read()

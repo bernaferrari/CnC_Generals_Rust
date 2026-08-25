@@ -891,7 +891,6 @@ pub fn create_thread_safe_partition(
     Arc::new(RwLock::new(PartitionSolver::new(width, height, cell_size)))
 }
 
-
 /// C++ `SolutionType` from PartitionSolver.h.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SolutionType {

@@ -7,7 +7,7 @@
 //! survive save/load.
 
 use crate::terrain::scorch_mesh::{
-    add_terrain_scorch, clear_terrain_scorches, terrain_scorch_marks, ScorchMark,
+    ScorchMark, add_terrain_scorch, clear_terrain_scorches, terrain_scorch_marks,
 };
 use crate::terrain::terrain_visual::get_terrain_visual;
 use game_engine::common::system::xfer::Xfer as CommonXfer;

@@ -39,7 +39,7 @@ pub use self::crate_collide::*;
 use super::*;
 pub use super::{CollisionError, Coord3D, GameObject};
 use game_engine::common::ini::INIError;
-use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
+use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
 use std::sync::{Arc, RwLock};
 
 /// Marker trait for crate collide modules (mirrors C++ interface hierarchy).

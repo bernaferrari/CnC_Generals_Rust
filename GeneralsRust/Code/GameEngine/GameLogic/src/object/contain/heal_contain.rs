@@ -12,7 +12,7 @@ use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::TheGameLogic;
 use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
 use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 370 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -379,11 +379,7 @@ impl ContainModuleInterface for HealContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.base.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -559,10 +555,7 @@ mod tests {
             Ok(())
         }
 
-        fn xfer_snapshot(
-            &mut self,
-            _snapshot: &mut dyn Snapshotable,
-        ) -> Result<(), XferStatus> {
+        fn xfer_snapshot(&mut self, _snapshot: &mut dyn Snapshotable) -> Result<(), XferStatus> {
             Ok(())
         }
 

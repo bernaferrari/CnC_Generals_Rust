@@ -62,8 +62,8 @@ fn residual_action_store(a: ResidualHostConstructionSameFrameReadyCompleteAction
 pub fn residual_host_construction_same_frame_ready_complete_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_construction_same_frame_ready_complete_last_action(
-) -> ResidualHostConstructionSameFrameReadyCompleteAction {
+pub fn residual_host_construction_same_frame_ready_complete_last_action()
+-> ResidualHostConstructionSameFrameReadyCompleteAction {
     ResidualHostConstructionSameFrameReadyCompleteAction::from_u8(
         RESIDUAL_ACTION.load(Ordering::SeqCst),
     )

@@ -239,8 +239,8 @@ pub fn test_isolation_lock() -> &'static std::sync::Mutex<()> {
 mod tests {
     use super::*;
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
-    use crate::object::crate_registry_bind::bind_crate_object;
     use crate::object::Object;
+    use crate::object::crate_registry_bind::bind_crate_object;
     use std::sync::{Arc, RwLock};
 
     fn crate_test_object(id: ObjectID) -> Arc<RwLock<Object>> {

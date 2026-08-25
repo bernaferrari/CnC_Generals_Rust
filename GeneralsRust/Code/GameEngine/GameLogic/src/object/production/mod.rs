@@ -33,8 +33,8 @@ pub use build_cost_calculator::{
     BuildCostCalculator, BuildFacilityContext, GlobalBuildModifiers, PlayerBuildModifiers,
 };
 pub use construction::{
-    get_construction_manager, ConstructionInterruption, ConstructionManager, ConstructionProgress,
-    ConstructionState, DozerConstructionTask, FoundationValidator,
+    ConstructionInterruption, ConstructionManager, ConstructionProgress, ConstructionState,
+    DozerConstructionTask, FoundationValidator, get_construction_manager,
 };
 pub use dock_update::{
     DockUpdate, DockUpdateData, RepairDockUpdate, RepairDockUpdateData, RepairDockUpdateModule,

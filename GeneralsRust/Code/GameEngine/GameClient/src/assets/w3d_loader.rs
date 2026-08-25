@@ -11,7 +11,7 @@
 //! - Particle system attachments
 //! - Sound and light attachments
 
-use bytemuck::{cast_slice, from_bytes, Pod, Zeroable};
+use bytemuck::{Pod, Zeroable, cast_slice, from_bytes};
 use nalgebra::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector3, Vector4};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};

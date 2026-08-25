@@ -110,7 +110,6 @@ pub struct PlayNowAudioQueries {
     pub violates_limit: bool,
 }
 
-
 impl SoundManagerImpl {
     pub fn new() -> Self {
         SoundManagerImpl {

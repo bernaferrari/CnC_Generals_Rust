@@ -81,8 +81,8 @@ pub fn residual_production_sole_tick_exit_delay_arm_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_production_sole_tick_exit_delay_arm_last_action(
-) -> ResidualProductionSoleTickExitDelayArmAction {
+pub fn residual_production_sole_tick_exit_delay_arm_last_action()
+-> ResidualProductionSoleTickExitDelayArmAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualProductionSoleTickExitDelayArmAction::MethodNames,
         2 => ResidualProductionSoleTickExitDelayArmAction::SourceMarkers,

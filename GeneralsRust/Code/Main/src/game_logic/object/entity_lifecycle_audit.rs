@@ -7,12 +7,11 @@ use super::entity_lifecycle_tags::INVENTORY_TAGS;
 use crate::game_logic::object::Object;
 use crate::game_logic::{ObjectId, Team, ThingTemplate};
 use gamelogic::world::entities::{
-    EntityLifecycleEnvelope, EntityModuleState, EntityStore, TemplateRef, Transform,
-    ENTITY_LIFECYCLE_ENVELOPE_VERSION,
+    ENTITY_LIFECYCLE_ENVELOPE_VERSION, EntityLifecycleEnvelope, EntityModuleState, EntityStore,
+    TemplateRef, Transform,
 };
 
 const EXPECTED_INVENTORY_LEN: usize = 59;
-
 
 const ENTITY_ONLY_GROUPS: &[&str] = &[
     "health",
@@ -93,11 +92,7 @@ fn attach_preserves_every_envelope_tag_including_unknown() {
     let entity = store.get_mut(id).expect("spawned");
     entity.attach_envelope(envelope);
     let taken = entity.take_envelope().expect("attached");
-    let tags: Vec<&str> = taken
-        .module_states
-        .iter()
-        .map(|m| m.tag.as_str())
-        .collect();
+    let tags: Vec<&str> = taken.module_states.iter().map(|m| m.tag.as_str()).collect();
     assert_eq!(tags.len(), EXPECTED_INVENTORY_LEN + 1);
     for (idx, expected) in INVENTORY_TAGS.iter().enumerate() {
         assert_eq!(tags[idx], *expected, "envelope tag {idx} dropped on attach");

@@ -15,15 +15,15 @@ fn dual_world_registry_unavailable() -> bool {
 
 // Forward declarations
 use crate::common::TheGameLogic;
-use crate::damage::{BodyDamageType, DamageInfo, BODY_REALLYDAMAGED};
+use crate::damage::{BODY_REALLYDAMAGED, BodyDamageType, DamageInfo};
 use crate::modules::{
     BehaviorModuleInterface, BodyModuleInterface, DamageModuleInterface, DockUpdateInterface,
-    UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DAMAGE, MODULEINTERFACE_UPDATE,
-    UPDATE_SLEEP_FOREVER,
+    MODULEINTERFACE_DAMAGE, MODULEINTERFACE_UPDATE, UPDATE_SLEEP_FOREVER, UpdateModuleInterface,
+    UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};

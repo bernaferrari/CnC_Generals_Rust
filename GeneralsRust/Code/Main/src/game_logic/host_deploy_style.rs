@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 /// Logic FPS residual.
 pub const DEPLOY_STYLE_LOGIC_FPS: f32 = 30.0;
 
-
 /// C++ DeployStyleAIUpdate PerUnitSound slots (resolve before queue).
 pub const DEPLOY_STYLE_DEPLOY_AUDIO: &str = "Deploy";
 pub const DEPLOY_STYLE_UNDEPLOY_AUDIO: &str = "Undeploy";
@@ -52,7 +51,6 @@ pub struct HostDeployStyleData {
 }
 
 impl HostDeployStyleData {
-
     /// Construct live deploy state from the Object INI module data carried by
     /// the object's template.  `DeployStyleMetadata` already stores C++
     /// `parseDurationUnsignedInt` values in logic frames.
@@ -86,7 +84,6 @@ impl HostDeployStyleData {
     pub fn is_aligning_turrets(&self) -> bool {
         matches!(self.state, HostDeployStyleState::AligningTurrets)
     }
-
 
     /// C++ `setMyState(..., reverseDeploy)` leftover: `now + unpackTime - framesLeft`.
     fn reverse_ready_frame(&self, current_frame: u32) -> u32 {
@@ -270,7 +267,6 @@ pub fn leftover_stamp_deploy_style_conditions(bits: &mut u128, state: HostDeploy
     }
 }
 
-
 pub fn deploy_style_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
         return 0;
@@ -306,7 +302,6 @@ pub fn leftover_host_turret_is_in_natural_position(
     (angle_deg.to_radians() - natural_angle_deg.to_radians()).abs() < 0.0001
         && (pitch_deg.to_radians() - natural_pitch_deg.to_radians()).abs() < 0.0001
 }
-
 
 #[cfg(test)]
 mod tests {

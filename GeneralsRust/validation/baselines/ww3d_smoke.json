@@ -1,14 +1,18 @@
 {
   "assets": {
-    "CBChalet3": {
+    "fixture_mesh": {
+      "prototype_names": [
+        "fixture_mesh",
+        "fixturemesh"
+      ],
       "meshes": {
-        "CBCHALET3": {
-          "vertex_count": 0,
-          "triangle_count": 0,
-          "bounding_sphere_radius": 0.0,
+        "fixture_mesh": {
+          "vertex_count": 3,
+          "triangle_count": 1,
+          "bounding_sphere_radius": 0.809017,
           "bounding_sphere_center": [
-            0.0,
-            0.0,
+            0.3618034,
+            0.2763932,
             0.0
           ],
           "aabb_min": [
@@ -17,18 +21,22 @@
             0.0
           ],
           "aabb_max": [
-            0.0,
-            0.0,
+            1.0,
+            1.0,
             0.0
-          ]
+          ],
+          "texture_order": [],
+          "vertex_material_order": [],
+          "material_info": null,
+          "material_passes": []
         },
-        "CBCHALET3A": {
-          "vertex_count": 0,
-          "triangle_count": 0,
-          "bounding_sphere_radius": 0.0,
+        "fixturemesh": {
+          "vertex_count": 3,
+          "triangle_count": 1,
+          "bounding_sphere_radius": 0.809017,
           "bounding_sphere_center": [
-            0.0,
-            0.0,
+            0.3618034,
+            0.2763932,
             0.0
           ],
           "aabb_min": [
@@ -37,17 +45,24 @@
             0.0
           ],
           "aabb_max": [
-            0.0,
-            0.0,
+            1.0,
+            1.0,
             0.0
-          ]
+          ],
+          "texture_order": [],
+          "vertex_material_order": [],
+          "material_info": null,
+          "material_passes": []
         }
       },
-      "total_vertices": 0,
-      "total_triangles": 0
+      "total_vertices": 6,
+      "total_triangles": 2,
+      "texture_order": []
     }
   },
   "lod_models": {},
   "collections": {},
-  "hlods": {}
+  "hlods": {},
+  "animations": {},
+  "hierarchies": {}
 }

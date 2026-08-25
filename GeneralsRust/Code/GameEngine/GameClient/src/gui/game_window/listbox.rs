@@ -2,8 +2,8 @@
 //! Observable window behavior is unchanged.
 
 use super::font::Color;
-use super::messages::{WindowMessage, GLM_GET_SELECTION};
-use super::payload::{pop_payload, push_payload, WindowMsgData, WindowMsgPayload};
+use super::messages::{GLM_GET_SELECTION, WindowMessage};
+use super::payload::{WindowMsgData, WindowMsgPayload, pop_payload, push_payload};
 use super::window_struct::{GameWindow, WindowWidget};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

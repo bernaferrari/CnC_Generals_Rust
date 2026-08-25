@@ -510,7 +510,10 @@ impl KeyboardState {
         }
         self.key_sequences.insert(
             key,
-            now.wrapping_sub(self.repeat_delay_frames.saturating_add(self.repeat_interval_frames)),
+            now.wrapping_sub(
+                self.repeat_delay_frames
+                    .saturating_add(self.repeat_interval_frames),
+            ),
         );
         vec![key]
     }

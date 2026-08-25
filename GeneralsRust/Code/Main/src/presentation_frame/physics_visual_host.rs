@@ -11,9 +11,9 @@ use crate::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, ObjectId, PhysicsTurningType,
 };
 use game_client::physics_visual::{
-    calc_physics_visual_xform, glam_yup_physics_visual_local, LiveClientRng, LocomotorVisualParams,
-    OverlapVisualTarget, PhysicsVisualAppearance, PhysicsVisualBody, PhysicsVisualInput,
-    PhysicsVisualLocoState,
+    LiveClientRng, LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualAppearance,
+    PhysicsVisualBody, PhysicsVisualInput, PhysicsVisualLocoState, calc_physics_visual_xform,
+    glam_yup_physics_visual_local,
 };
 use game_engine::common::ini::get_global_data;
 use glam::Mat4;

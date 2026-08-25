@@ -12,9 +12,7 @@ pub(super) use super::GAMEWORLD_SHADOW_SRC;
 pub(super) use crate::game_logic::object::OBJECT_SRC as GAME_LOGIC_OBJECT_SRC;
 
 mod harness;
-pub(super) use harness::{
-    last_rust_fn_body, rust_fn_body, AuthorityEnvGuard, GAME_LOGIC_HOST_SRC,
-};
+pub(super) use harness::{AuthorityEnvGuard, GAME_LOGIC_HOST_SRC, last_rust_fn_body, rust_fn_body};
 
 pub(super) fn authority_env_lock() -> std::sync::MutexGuard<'static, ()> {
     super::authority_env_lock()
@@ -35,8 +33,8 @@ mod authority_dry_run;
 mod authority_writeback;
 mod combat_status;
 mod command_authority;
-mod deferred_destroy;
 mod continue_attack;
+mod deferred_destroy;
 mod economy_construction;
 mod entity_channels;
 mod entity_modules;

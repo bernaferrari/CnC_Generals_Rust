@@ -7,8 +7,8 @@
 //! - Implements LZ77 back-reference expansion
 
 use crate::{
-    huffman::{BitReader, HuffmanDecoder},
     Result, ZlibError,
+    huffman::{BitReader, HuffmanDecoder},
 };
 
 /// Maximum window size for INFLATE
@@ -380,8 +380,8 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deflate::Compressor;
     use crate::CompressionLevel;
+    use crate::deflate::Compressor;
 
     #[test]
     fn test_inflate_empty() {

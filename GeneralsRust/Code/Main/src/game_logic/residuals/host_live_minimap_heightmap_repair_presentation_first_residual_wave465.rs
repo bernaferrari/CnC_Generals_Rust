@@ -77,8 +77,8 @@ pub fn residual_minimap_heightmap_repair_presentation_first_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_minimap_heightmap_repair_presentation_first_last_action(
-) -> ResidualMinimapHeightmapRepairPresentationFirstAction {
+pub fn residual_minimap_heightmap_repair_presentation_first_last_action()
+-> ResidualMinimapHeightmapRepairPresentationFirstAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualMinimapHeightmapRepairPresentationFirstAction::MethodNames,
         2 => ResidualMinimapHeightmapRepairPresentationFirstAction::SourceMarkers,

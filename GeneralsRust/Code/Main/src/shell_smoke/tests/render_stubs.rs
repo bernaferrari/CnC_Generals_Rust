@@ -45,25 +45,34 @@ fn render_execute_passes_none_game_logic_when_presentation_installed() {
 fn defeat_alliance_prefer_presentation_no_live_dual_read_when_frame_installed() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-            src.contains(
-                "Boot residual only — no live dual-read when a presentation frame is installed"
-            ) && src.contains(
-                "Presentation installed but roster miss — fail-closed id-only residual"
-            ) && src.contains(
-                "Prefer presentation roster team when installed; live only if no frame"
-            ) && src.contains("else if self.last_presentation_frame.is_none()")
-                && src.contains("Boot residual only — presentation local_team owns InGame Ctrl+A")
-                && src.contains("Boot residual only — presentation local_team owns InGame Tab cycle")
-                && src.contains("Boot residual only — presentation local_team owns InGame similar-select")
-                && src.contains("Boot residual only — presentation local_team owns InGame box-select")
-                && src.contains("Boot residual only — presentation local_team owns InGame attack-click")
-                && src.contains("Boot residual only — presentation local_team owns InGame control-group select")
-                && src.contains("Boot residual only — presentation filter_alive_selectable_ids owns InGame")
-                && src.contains("Boot residual only — presentation centroid_of_ids owns InGame double-tap")
-                && src.contains("Boot residual only — presentation box_select_unit_ids owns InGame path")
-                && src.contains("Boot residual only — presentation similar_unit_ids owns InGame path"),
-            "defeat/alliance/selection must not dual-read get_player when presentation frame is installed"
-        );
+        src.contains(
+            "Boot residual only — no live dual-read when a presentation frame is installed"
+        ) && src.contains("Presentation installed but roster miss — fail-closed id-only residual")
+            && src
+                .contains("Prefer presentation roster team when installed; live only if no frame")
+            && src.contains("else if self.last_presentation_frame.is_none()")
+            && src.contains("Boot residual only — presentation local_team owns InGame Ctrl+A")
+            && src.contains("Boot residual only — presentation local_team owns InGame Tab cycle")
+            && src.contains(
+                "Boot residual only — presentation local_team owns InGame similar-select"
+            )
+            && src.contains("Boot residual only — presentation local_team owns InGame box-select")
+            && src
+                .contains("Boot residual only — presentation local_team owns InGame attack-click")
+            && src.contains(
+                "Boot residual only — presentation local_team owns InGame control-group select"
+            )
+            && src.contains(
+                "Boot residual only — presentation filter_alive_selectable_ids owns InGame"
+            )
+            && src.contains(
+                "Boot residual only — presentation centroid_of_ids owns InGame double-tap"
+            )
+            && src
+                .contains("Boot residual only — presentation box_select_unit_ids owns InGame path")
+            && src.contains("Boot residual only — presentation similar_unit_ids owns InGame path"),
+        "defeat/alliance/selection must not dual-read get_player when presentation frame is installed"
+    );
 }
 
 fn legacy_render_stubs_prefer_presentation_identity() {

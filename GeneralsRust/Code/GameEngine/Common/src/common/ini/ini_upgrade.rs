@@ -371,7 +371,9 @@ impl UpgradeCenter {
 
     /// C++ `UpgradeCenter::findVeterancyUpgrade`.
     pub fn find_veterancy_upgrade(&self, level: &str) -> Option<&UpgradeTemplate> {
-        self.find_template(&AsciiString::from(format!("Upgrade_Veterancy_{level}").as_str()))
+        self.find_template(&AsciiString::from(
+            format!("Upgrade_Veterancy_{level}").as_str(),
+        ))
     }
 
     fn assign_new_template_mask(&mut self, template: &mut UpgradeTemplate) {
@@ -711,7 +713,6 @@ mod tests {
         center.init();
         assert_eq!(center.get_template_count(), 3);
     }
-
 
     #[test]
     fn test_upgrade_center() {

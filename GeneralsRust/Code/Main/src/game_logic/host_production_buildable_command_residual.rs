@@ -447,7 +447,8 @@ impl Default for ProductionDoorIni {
             opening_frames: PRODUCTION_DOOR_OPENING_TIME_DEFAULT,
             wait_open_frames: PRODUCTION_DOOR_WAIT_OPEN_TIME_DEFAULT,
             close_frames: PRODUCTION_DOOR_CLOSING_TIME_DEFAULT,
-            construction_complete_duration_frames: PRODUCTION_CONSTRUCTION_COMPLETE_DURATION_DEFAULT,
+            construction_complete_duration_frames:
+                PRODUCTION_CONSTRUCTION_COMPLETE_DURATION_DEFAULT,
         }
     }
 }
@@ -583,12 +584,13 @@ fn authored_production_door_ini(template_name: &str) -> Option<ProductionDoorIni
     let definition = manager
         .get_object_definition(template_name)
         .or_else(|| manager.resolve_object_definition(template_name, None))?;
-    let module = definition.behavior_modules.iter().find(|module| {
-        module
-            .class_name
-            .eq_ignore_ascii_case("ProductionUpdate")
-    })?;
-    Some(parse_production_door_ini_fields(|field| module.attribute(field)))
+    let module = definition
+        .behavior_modules
+        .iter()
+        .find(|module| module.class_name.eq_ignore_ascii_case("ProductionUpdate"))?;
+    Some(parse_production_door_ini_fields(|field| {
+        module.attribute(field)
+    }))
 }
 
 /// C++ `ProductionUpdateModuleData` door fields for a producer template.
@@ -599,7 +601,8 @@ pub fn producer_door_ini(template_name: &str) -> ProductionDoorIni {
     if template_name.len() >= 4 && template_name[..4].eq_ignore_ascii_case("test") {
         return ProductionDoorIni::default();
     }
-    authored_production_door_ini(template_name).unwrap_or_else(|| retail_production_door_ini(template_name))
+    authored_production_door_ini(template_name)
+        .unwrap_or_else(|| retail_production_door_ini(template_name))
 }
 
 /// Retail ProductionUpdate `NumDoorAnimations` for a producer template.
@@ -615,7 +618,11 @@ pub fn producer_num_door_animations(template_name: &str) -> i32 {
 /// Templates with no authored door times keep the C++ module-data default of 0.
 pub fn producer_door_phase_frames(template_name: &str) -> (u32, u32, u32) {
     let door = producer_door_ini(template_name);
-    (door.opening_frames, door.wait_open_frames, door.close_frames)
+    (
+        door.opening_frames,
+        door.wait_open_frames,
+        door.close_frames,
+    )
 }
 
 /// Frames to remain in a production-door phase (0 = advance next comparison).
@@ -636,7 +643,6 @@ pub fn producer_door_phase_duration(template_name: &str, phase: u8) -> u32 {
 pub fn producer_construction_complete_duration_frames(template_name: &str) -> u32 {
     producer_door_ini(template_name).construction_complete_duration_frames
 }
-
 
 /// C++ ProductionUpdate: spawn waits for WAITING_OPEN (phase 2) when doors exist.
 pub fn production_door_allows_spawn(num_door_animations: i32, door_phase: u8) -> bool {
@@ -1819,18 +1825,26 @@ mod tests {
     fn lbc_help_message_residual_covers_codes() {
         use super::*;
         assert!(lbc_help_message_residual(LBC_OK).is_empty());
-        assert!(lbc_help_message_residual(LBC_SHROUD)
-            .to_ascii_lowercase()
-            .contains("shroud"));
-        assert!(lbc_help_message_residual(LBC_OBJECTS_IN_THE_WAY)
-            .to_ascii_lowercase()
-            .contains("objects"));
-        assert!(lbc_help_message_residual(LBC_NOT_FLAT_ENOUGH)
-            .to_ascii_lowercase()
-            .contains("flat"));
-        assert!(lbc_help_message_residual(LBC_NO_CLEAR_PATH)
-            .to_ascii_lowercase()
-            .contains("path"));
+        assert!(
+            lbc_help_message_residual(LBC_SHROUD)
+                .to_ascii_lowercase()
+                .contains("shroud")
+        );
+        assert!(
+            lbc_help_message_residual(LBC_OBJECTS_IN_THE_WAY)
+                .to_ascii_lowercase()
+                .contains("objects")
+        );
+        assert!(
+            lbc_help_message_residual(LBC_NOT_FLAT_ENOUGH)
+                .to_ascii_lowercase()
+                .contains("flat")
+        );
+        assert!(
+            lbc_help_message_residual(LBC_NO_CLEAR_PATH)
+                .to_ascii_lowercase()
+                .contains("path")
+        );
     }
 
     use super::*;
@@ -1880,7 +1894,10 @@ mod tests {
         let parsed = parse_production_door_ini_fields(|k| fields.get(k).copied());
         assert_eq!(parsed.num_door_animations, 1);
         assert_eq!(parsed.opening_frames, structure_economy_ms_to_frames(2000));
-        assert_eq!(parsed.wait_open_frames, structure_economy_ms_to_frames(3000));
+        assert_eq!(
+            parsed.wait_open_frames,
+            structure_economy_ms_to_frames(3000)
+        );
         assert_eq!(parsed.close_frames, structure_economy_ms_to_frames(2000));
 
         assert_eq!(producer_num_door_animations("GLAArmsDealer"), 1);

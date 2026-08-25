@@ -139,8 +139,7 @@ impl Object {
                     } else {
                         max_health
                     };
-                    let _ = body_guard
-                        .set_max_health(new_max, MaxHealthChangeType::PreserveRatio);
+                    let _ = body_guard.set_max_health(new_max, MaxHealthChangeType::PreserveRatio);
                 }
             }
         }

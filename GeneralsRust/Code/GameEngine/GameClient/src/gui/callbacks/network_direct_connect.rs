@@ -9,12 +9,12 @@ use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected
 use crate::gui::callbacks::{set_lan_button_pushed, set_lan_is_shutting_down};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
+    GameWindow, LanPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
-    write_input_focus_response, GameWindow, LanPreferences, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_network::lan_api::{ensure_the_lan, the_lan, LanApi, LanConfig};
+use game_network::lan_api::{LanApi, LanConfig, ensure_the_lan, the_lan};
 use gamelogic::helpers::TheGameText;
 
 const KEY_ESC: usize = 0x1B;
@@ -323,10 +323,7 @@ fn handle_back(state: &mut NetworkDirectConnectState) {
     let _ = try_with_shell_mut(|shell| shell.pop());
 }
 
-pub fn network_direct_connect_init(
-    layout: &WindowLayout,
-    _user_data: Option<&dyn std::any::Any>,
-) {
+pub fn network_direct_connect_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_slot = network_direct_connect_state();
     let mut state = state_slot.borrow_mut();
 
@@ -464,7 +461,11 @@ pub fn network_direct_connect_input(
             let (button_pushed, parent, back_id) = {
                 let slot = network_direct_connect_state();
                 let state = slot.borrow();
-                (state.button_pushed, state.parent.clone(), state.button_back_id)
+                (
+                    state.button_pushed,
+                    state.parent.clone(),
+                    state.button_back_id,
+                )
             };
             if button_pushed {
                 return WindowMsgHandled::Handled;

@@ -81,8 +81,8 @@ pub fn residual_host_stored_supplies_ready_log_helper_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_host_stored_supplies_ready_log_helper_last_action(
-) -> ResidualHostStoredSuppliesReadyLogHelperAction {
+pub fn residual_host_stored_supplies_ready_log_helper_last_action()
+-> ResidualHostStoredSuppliesReadyLogHelperAction {
     ResidualHostStoredSuppliesReadyLogHelperAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 

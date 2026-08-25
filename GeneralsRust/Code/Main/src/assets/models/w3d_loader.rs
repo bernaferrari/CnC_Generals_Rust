@@ -1,13 +1,13 @@
 //! Mechanical split from `assets/models.rs`. No behavior change.
 #![allow(dead_code, unused_imports)]
 use super::prelude::*;
-use super::*;
 use super::w3d_anim::*;
 use super::w3d_format::*;
 use super::w3d_loader_parse::*;
 use super::w3d_mesh::*;
 use super::w3d_mesh_build::*;
 use super::w3d_model::*;
+use super::*;
 
 pub struct W3DLoader;
 
@@ -173,7 +173,6 @@ pub(super) fn w3d_companion_hierarchy_archive_path_variants(hierarchy_name: &str
     }
     paths
 }
-
 
 impl W3DLoader {
     /// Create new W3D loader
@@ -379,7 +378,6 @@ impl W3DLoader {
         }
     }
 
-
     /// Parse W3D binary data using the legacy chunk parser path for strict C++ parity.
     pub(super) fn parse_w3d_data(&self, data: &[u8], model_name: String) -> Result<W3DModel> {
         self.parse_w3d_data_legacy(data, model_name, false)
@@ -388,7 +386,11 @@ impl W3DLoader {
     /// Parse an HAnim companion stream. Retail raw-animation W3Ds commonly
     /// contain no mesh chunks at all, unlike a geometry model, so the normal
     /// model parser's no-mesh rejection is not applicable here.
-    pub(super) fn parse_w3d_animation_data(&self, data: &[u8], model_name: String) -> Result<W3DModel> {
+    pub(super) fn parse_w3d_animation_data(
+        &self,
+        data: &[u8],
+        model_name: String,
+    ) -> Result<W3DModel> {
         self.parse_w3d_data_legacy(data, model_name, true)
     }
 
@@ -714,7 +716,9 @@ impl W3DLoader {
                     );
                     if !is_container_chunk {
                         model.hlod_parse_failed = true;
-                        warn!("HLOD chunk is not marked as a container; suppressing unsafe mesh fallback");
+                        warn!(
+                            "HLOD chunk is not marked as a container; suppressing unsafe mesh fallback"
+                        );
                     } else {
                         match self.parse_hlod_chunk(chunk_data) {
                             Ok(hlod) => model.hlods.push(hlod),
@@ -726,7 +730,8 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_EMITTER => {
-                    if let Some(emitter) = super::w3d_emitter_loader::parse_emitter_chunk(chunk_data)
+                    if let Some(emitter) =
+                        super::w3d_emitter_loader::parse_emitter_chunk(chunk_data)
                     {
                         model.emitters.push(emitter);
                     }
@@ -737,7 +742,8 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_BOX => {
-                    if let Some(box_proto) = super::w3d_primitive_protos::parse_box_chunk(chunk_data)
+                    if let Some(box_proto) =
+                        super::w3d_primitive_protos::parse_box_chunk(chunk_data)
                     {
                         model.boxes.push(box_proto);
                     }
@@ -748,7 +754,8 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_SPHERE => {
-                    if let Some(sphere) = super::w3d_primitive_protos::parse_sphere_chunk(chunk_data)
+                    if let Some(sphere) =
+                        super::w3d_primitive_protos::parse_sphere_chunk(chunk_data)
                     {
                         model.spheres.push(sphere);
                     }
@@ -968,7 +975,8 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_EMITTER => {
-                    if let Some(emitter) = super::w3d_emitter_loader::parse_emitter_chunk(chunk_data)
+                    if let Some(emitter) =
+                        super::w3d_emitter_loader::parse_emitter_chunk(chunk_data)
                     {
                         model.emitters.push(emitter);
                     }
@@ -979,7 +987,8 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_BOX => {
-                    if let Some(box_proto) = super::w3d_primitive_protos::parse_box_chunk(chunk_data)
+                    if let Some(box_proto) =
+                        super::w3d_primitive_protos::parse_box_chunk(chunk_data)
                     {
                         model.boxes.push(box_proto);
                     }
@@ -990,7 +999,8 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_SPHERE => {
-                    if let Some(sphere) = super::w3d_primitive_protos::parse_sphere_chunk(chunk_data)
+                    if let Some(sphere) =
+                        super::w3d_primitive_protos::parse_sphere_chunk(chunk_data)
                     {
                         model.spheres.push(sphere);
                     }
@@ -1983,7 +1993,10 @@ impl W3DLoader {
     ///         then [timecode(u32) + vector_len * f32] per timecode.
     /// Timecode MSB = binary (step) flag; lower 31 bits = frame index.
     /// Produces a densified per-frame W3dAnimChannel matching the uncompressed layout.
-    pub(super) fn parse_timecoded_channel(chunk_data: &[u8], num_frames: u32) -> Option<W3dAnimChannel> {
+    pub(super) fn parse_timecoded_channel(
+        chunk_data: &[u8],
+        num_frames: u32,
+    ) -> Option<W3dAnimChannel> {
         if chunk_data.len() < 8 {
             return None;
         }
@@ -2113,7 +2126,10 @@ impl W3DLoader {
     ///         then blocks of 16 frames each, where each block contains vector_len packets.
     ///         Each packet: 1 byte (filter_idx in lower 7 bits) + 8 bytes (16 4-bit nibbles).
     ///         Delta decoding with adaptive filter table.
-    pub(super) fn parse_adaptive_delta_channel(chunk_data: &[u8], hdr_num_frames: u32) -> Vec<W3dAnimChannel> {
+    pub(super) fn parse_adaptive_delta_channel(
+        chunk_data: &[u8],
+        hdr_num_frames: u32,
+    ) -> Vec<W3dAnimChannel> {
         if chunk_data.len() < 12 {
             return Vec::new();
         }
@@ -2275,11 +2291,11 @@ impl W3DLoader {
 
 #[cfg(test)]
 mod companion_htree_tests {
-    use super::super::w3d_format::{
-        W3dHlod, W3dHlodLod, W3dHlodSubObject, W3D_CHUNK_HIERARCHY, W3D_CHUNK_HIERARCHY_HEADER,
-        W3D_CHUNK_PIVOTS, W3D_CURRENT_HTREE_VERSION, W3D_NAME_LEN,
-    };
     use super::super::W3DModel;
+    use super::super::w3d_format::{
+        W3D_CHUNK_HIERARCHY, W3D_CHUNK_HIERARCHY_HEADER, W3D_CHUNK_PIVOTS,
+        W3D_CURRENT_HTREE_VERSION, W3D_NAME_LEN, W3dHlod, W3dHlodLod, W3dHlodSubObject,
+    };
     use super::*;
     fn chunk(chunk_type: u32, payload: Vec<u8>, container: bool) -> Vec<u8> {
         let mut out = Vec::with_capacity(8 + payload.len());
@@ -2372,8 +2388,10 @@ mod companion_htree_tests {
             &companion_hierarchy_bytes("comptree"),
         ));
         assert!(model.missing_named_hlod_hierarchy_names().is_empty());
-        assert!(model
-            .source_hierarchy_for_hlod(&model.hlods[0])
-            .is_some_and(|hierarchy| hierarchy.name.eq_ignore_ascii_case("comptree")));
+        assert!(
+            model
+                .source_hierarchy_for_hlod(&model.hlods[0])
+                .is_some_and(|hierarchy| hierarchy.name.eq_ignore_ascii_case("comptree"))
+        );
     }
 }

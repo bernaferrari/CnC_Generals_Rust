@@ -91,10 +91,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     let Some(suffix) = find_oxfr_suffix(bytes) else {
         return Ok(());
     };
@@ -172,7 +169,9 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
             });
         }
 
-        if object.radar_active || object.radar_extend_complete || object.radar_extend_done_frame != 0
+        if object.radar_active
+            || object.radar_extend_complete
+            || object.radar_extend_done_frame != 0
         {
             radar.push(RadarPersist {
                 object_id: id.0,
@@ -338,18 +337,10 @@ mod tests {
         source.add_player(Player::new(1, Team::GLA, "GLA", false));
 
         let stunned = source
-            .create_object(
-                "AmericaInfantryRanger",
-                Team::USA,
-                Vec3::new(0.0, 0.0, 0.0),
-            )
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("stunned");
         let bus = source
-            .create_object(
-                "GLAVehicleBattleBus",
-                Team::GLA,
-                Vec3::new(20.0, 0.0, 0.0),
-            )
+            .create_object("GLAVehicleBattleBus", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
             .expect("bus");
         let dying = source
             .create_object(

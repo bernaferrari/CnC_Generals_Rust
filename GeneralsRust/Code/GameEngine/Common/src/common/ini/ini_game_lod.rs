@@ -11,7 +11,7 @@
 use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::common::ini::{INIError, INIResult, INI};
+use crate::common::ini::{INI, INIError, INIResult};
 
 // ============================================================================
 // Constants
@@ -724,8 +724,8 @@ impl GameLODManager {
                 let Some(preset) = self.lod_presets[level_index][j].as_ref() else {
                     continue;
                 };
-                let mhz_ok = preset.mhz > 0
-                    && (cpu_mhz as f32) / (preset.mhz as f32) >= PROFILE_ERROR_LIMIT;
+                let mhz_ok =
+                    preset.mhz > 0 && (cpu_mhz as f32) / (preset.mhz as f32) >= PROFILE_ERROR_LIMIT;
                 let ram_ok = preset.memory > 0
                     && (ram_mb as f32) / (preset.memory as f32) >= PROFILE_ERROR_LIMIT;
                 let video_ok = (video as i32) >= (preset.video_type as i32);
@@ -740,7 +740,6 @@ impl GameLODManager {
         }
         StaticGameLODLevel::Low
     }
-
 
     /// Add a new LOD preset
     /// Matches C++ GameLODManager::newLODPreset

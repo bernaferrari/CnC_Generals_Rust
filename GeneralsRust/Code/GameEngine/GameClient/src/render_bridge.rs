@@ -23,16 +23,16 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
+use crate::drawable::drawable_draw_pipeline::{MeshVertex, with_drawable_pipeline};
 use gamelogic::helpers::{ModelDrawSourceIdentity, ModelDrawState, ModelDrawWeaponBoneBindings};
 use gamelogic::object::w3d_ghost_object::{
-    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, RenderObjectClass, RenderObjectState,
-    RenderSubObjectSnapshot, W3DGhostSceneId, W3DGhostSnapshotCapture,
-    W3DGhostSnapshotCaptureSource, W3DGhostSnapshotKey, W3DRenderObjectSnapshot,
-    INVALID_DRAWABLE_ID, INVALID_OBJECT_ID,
+    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, INVALID_DRAWABLE_ID, INVALID_OBJECT_ID,
+    RenderObjectClass, RenderObjectState, RenderSubObjectSnapshot, W3DGhostSceneId,
+    W3DGhostSnapshotCapture, W3DGhostSnapshotCaptureSource, W3DGhostSnapshotKey,
+    W3DRenderObjectSnapshot,
 };
-use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_assets::AssetManager;
+use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_core::animation::{AnimationController, AnimationMode, Hierarchy, Pivot};
 use ww3d_core::lighting::{Light, LightEnvironment, LightType};
 use ww3d_core::material::{BlendMode, MaterialInfo, Shader, ShaderType, VertexMaterial};
@@ -597,7 +597,6 @@ impl RenderBridge {
     pub fn take_pending(&mut self) -> Vec<DrawSubmission> {
         std::mem::take(&mut self.pending)
     }
-
 
     /// Expose an exact ghost payload for one already-resolved live W3D draw.
     ///
@@ -2309,9 +2308,11 @@ mod tests {
         // freezes every child name/visibility/transform, and disables UV and
         // muzzle state.  The active wrapper has no equivalent live child-state
         // query, so a static HLOD prototype must never be persisted as a ghost.
-        assert!(bridge
-            .materialize_exact_w3d_render_object_snapshot(&submission)
-            .is_none());
+        assert!(
+            bridge
+                .materialize_exact_w3d_render_object_snapshot(&submission)
+                .is_none()
+        );
     }
 
     #[test]
@@ -2785,16 +2786,20 @@ mod tests {
         register_test_model(&mut bridge, "GhostMesh");
 
         let mismatched = exact_mesh_ghost_source(37, exact_mesh_ghost_model_draw(38));
-        assert!(bridge
-            .materialize_exact_mesh_w3d_ghost_capture(&mismatched)
-            .is_none());
+        assert!(
+            bridge
+                .materialize_exact_mesh_w3d_ghost_capture(&mismatched)
+                .is_none()
+        );
 
         let mut animated = exact_mesh_ghost_model_draw(37);
         animated.animation_name = Some("Idle".to_string());
         let animated_source = exact_mesh_ghost_source(37, animated);
-        assert!(bridge
-            .materialize_exact_mesh_w3d_ghost_capture(&animated_source)
-            .is_none());
+        assert!(
+            bridge
+                .materialize_exact_mesh_w3d_ghost_capture(&animated_source)
+                .is_none()
+        );
     }
 
     #[test]
@@ -2843,12 +2848,16 @@ mod tests {
 
         let mut stale = source.clone();
         stale.model_draws[0].source.runtime_draw_ordinal = 1;
-        assert!(bridge
-            .capture_window_generation_for_source(&stale)
-            .is_none());
-        assert!(bridge
-            .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation.wrapping_add(1))
-            .is_none());
+        assert!(
+            bridge
+                .capture_window_generation_for_source(&stale)
+                .is_none()
+        );
+        assert!(
+            bridge
+                .materialize_exact_mesh_w3d_ghost_capture_at(&source, generation.wrapping_add(1))
+                .is_none()
+        );
     }
 
     #[test]

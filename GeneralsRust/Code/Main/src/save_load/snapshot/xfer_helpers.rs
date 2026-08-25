@@ -106,13 +106,11 @@ where
         *value = if bytes.is_empty() {
             T::default()
         } else {
-            bincode::deserialize(&bytes)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+            bincode::deserialize(&bytes).map_err(|e| SaveLoadError::Serialization(e.to_string()))?
         };
     }
     Ok(())
 }
-
 
 pub(super) fn xfer_vec_f32(xfer: &mut dyn Xfer, data: &mut Vec<f32>) -> SaveLoadResult<()> {
     let mut len = data.len() as u32;
@@ -386,7 +384,7 @@ impl XferData for VeterancyLevel {
             _ => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid VeterancyLevel: {disc}"
-                )))
+                )));
             }
         };
         Ok(())

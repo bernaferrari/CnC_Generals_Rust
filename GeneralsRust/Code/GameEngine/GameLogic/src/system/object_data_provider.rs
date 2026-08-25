@@ -4,13 +4,13 @@
 //! queries read `OBJECT_REGISTRY` / `GameLogic.objects` instead of the
 //! fail-closed dead/immobile/neutral defaults.
 
-use crate::common::{KindOf, ObjectID, ObjectStatusTypes, Relationship, INVALID_ID};
-use crate::object::registry::OBJECT_REGISTRY;
+use crate::common::{INVALID_ID, KindOf, ObjectID, ObjectStatusTypes, Relationship};
 use crate::object::Object;
-use crate::player::{player_list, PlayerType};
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::player::{PlayerType, player_list};
 use game_engine::common::rts::action_manager::{
-    kind_of_bit, set_object_data_provider, ObjectDataProvider, ObjectShroudStatus,
-    PlayerType as CommonPlayerType,
+    ObjectDataProvider, ObjectShroudStatus, PlayerType as CommonPlayerType, kind_of_bit,
+    set_object_data_provider,
 };
 use game_engine::common::rts::handles::ObjectHandle;
 use std::sync::{Arc, RwLock};
@@ -42,11 +42,7 @@ fn kind_of_from_cpp_bit(kind_of: u32) -> Option<KindOf> {
 
 fn object_id(handle: ObjectHandle) -> Option<ObjectID> {
     let id = handle.value();
-    if id == INVALID_ID {
-        None
-    } else {
-        Some(id)
-    }
+    if id == INVALID_ID { None } else { Some(id) }
 }
 
 fn object_arc(handle: ObjectHandle) -> Option<Arc<RwLock<Object>>> {

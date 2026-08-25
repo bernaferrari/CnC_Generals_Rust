@@ -4,7 +4,7 @@
 //! Validates that UV mapper operations maintain 60+ FPS performance.
 
 use bytemuck::Pod;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use glam::Vec2;
 
 /// Benchmark LinearOffset mapper performance

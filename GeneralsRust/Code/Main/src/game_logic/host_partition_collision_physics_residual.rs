@@ -617,8 +617,9 @@ pub fn vehicle_crash_into_immobile_outcome(
 /// Weapon template name for crash outcome residual.
 pub fn vehicle_crash_weapon_name(outcome: VehicleCrashImmobileOutcome) -> Option<&'static str> {
     match outcome {
-        VehicleCrashImmobileOutcome::None
-        | VehicleCrashImmobileOutcome::DestroyWithoutWeapon => None,
+        VehicleCrashImmobileOutcome::None | VehicleCrashImmobileOutcome::DestroyWithoutWeapon => {
+            None
+        }
         VehicleCrashImmobileOutcome::DestroyWithBuildingWeapon => {
             Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
         }

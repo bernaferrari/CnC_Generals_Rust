@@ -3,7 +3,7 @@
 //! Corresponds to C++ ScriptEngine::parseScriptAction and ScriptEngine::parseScriptCondition
 //! Parses script action and condition templates for the scripting system.
 
-use crate::common::ini::{ini, FieldParse, INIError, INIResult, INI};
+use crate::common::ini::{FieldParse, INI, INIError, INIResult, ini};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
@@ -156,26 +156,26 @@ pub fn init_script_template_stores() {
 }
 
 /// Get a read reference to the script action template store
-pub fn get_script_action_templates(
-) -> Option<std::sync::RwLockReadGuard<'static, ScriptActionTemplateStore>> {
+pub fn get_script_action_templates()
+-> Option<std::sync::RwLockReadGuard<'static, ScriptActionTemplateStore>> {
     SCRIPT_ACTION_TEMPLATES.get()?.read().ok()
 }
 
 /// Get a write reference to the script action template store
-pub fn get_script_action_templates_mut(
-) -> Option<std::sync::RwLockWriteGuard<'static, ScriptActionTemplateStore>> {
+pub fn get_script_action_templates_mut()
+-> Option<std::sync::RwLockWriteGuard<'static, ScriptActionTemplateStore>> {
     SCRIPT_ACTION_TEMPLATES.get()?.write().ok()
 }
 
 /// Get a read reference to the script condition template store
-pub fn get_script_condition_templates(
-) -> Option<std::sync::RwLockReadGuard<'static, ScriptConditionTemplateStore>> {
+pub fn get_script_condition_templates()
+-> Option<std::sync::RwLockReadGuard<'static, ScriptConditionTemplateStore>> {
     SCRIPT_CONDITION_TEMPLATES.get()?.read().ok()
 }
 
 /// Get a write reference to the script condition template store
-pub fn get_script_condition_templates_mut(
-) -> Option<std::sync::RwLockWriteGuard<'static, ScriptConditionTemplateStore>> {
+pub fn get_script_condition_templates_mut()
+-> Option<std::sync::RwLockWriteGuard<'static, ScriptConditionTemplateStore>> {
     SCRIPT_CONDITION_TEMPLATES.get()?.write().ok()
 }
 

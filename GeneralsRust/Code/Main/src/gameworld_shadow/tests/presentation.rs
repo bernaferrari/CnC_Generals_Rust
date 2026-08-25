@@ -431,8 +431,7 @@ fn cycle_stop_presentation_source() {
 #[test]
 fn snap_camera_presentation_source() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
-    let body =
-        rust_fn_body(eng, "snap_camera_to_local_units_if_needed").expect("snap_camera");
+    let body = rust_fn_body(eng, "snap_camera_to_local_units_if_needed").expect("snap_camera");
     assert!(
         body.contains("last_presentation_frame")
             && (body.contains("PresentationBuildingType::CommandCenter")
@@ -515,23 +514,35 @@ fn runtime_host_upgrade_construct_presentation_source() {
 fn runtime_host_empty_pick_batch_presentation_source() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let checks = [
-        ("runtime_host_cmd_scatter", "alive_selectable_friendly_mobile_ids"),
+        (
+            "runtime_host_cmd_scatter",
+            "alive_selectable_friendly_mobile_ids",
+        ),
         (
             "runtime_host_cmd_return_supplies",
             "alive_selectable_friendly_harvester_ids",
         ),
-        ("runtime_host_cmd_set_rally", "alive_upgrade_producer_structure_ids"),
+        (
+            "runtime_host_cmd_set_rally",
+            "alive_upgrade_producer_structure_ids",
+        ),
         (
             "runtime_host_cmd_cancel_production",
             "alive_upgrade_producer_structure_ids",
         ),
         ("runtime_host_cmd_toggle_overcharge", "PowerPlant"),
-        ("runtime_host_cmd_formation", "alive_selectable_friendly_mobile_ids"),
+        (
+            "runtime_host_cmd_formation",
+            "alive_selectable_friendly_mobile_ids",
+        ),
         (
             "runtime_host_cmd_select_similar",
             "alive_selectable_friendly_mobile_ids",
         ),
-        ("runtime_host_cmd_attack_move", "alive_selectable_friendly_mobile_ids"),
+        (
+            "runtime_host_cmd_attack_move",
+            "alive_selectable_friendly_mobile_ids",
+        ),
     ];
     for (cmd, helper) in checks {
         let body = rust_fn_body(eng, cmd).unwrap_or_else(|| panic!("missing {cmd}"));
@@ -545,14 +556,12 @@ fn runtime_host_empty_pick_batch_presentation_source() {
 #[test]
 fn runtime_host_force_attack_presentation_source() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
-    let body =
-        rust_fn_body(eng, "runtime_host_cmd_force_attack_object").expect("force_attack");
+    let body = rust_fn_body(eng, "runtime_host_cmd_force_attack_object").expect("force_attack");
     assert!(
         body.contains("first_enemy_force_attack_id") || body.contains("last_presentation_frame"),
         "force_attack_object must pick enemy from presentation"
     );
-    let body =
-        rust_fn_body(eng, "runtime_host_cmd_attack_nearest_enemy").expect("attack_nearest");
+    let body = rust_fn_body(eng, "runtime_host_cmd_attack_nearest_enemy").expect("attack_nearest");
     assert!(
         body.contains("first_enemy_force_attack_id")
             || body.contains("alive_selectable_friendly_combat_ids"),
@@ -648,8 +657,8 @@ fn runtime_host_status_snapshot_presentation_source() {
 
 #[test]
 fn residual_hitscan_zeros_fire_spawn_damage_on_apply() {
-    use crate::game_logic::host_fire_spawn_log;
     use crate::game_logic::ObjectId;
+    use crate::game_logic::host_fire_spawn_log;
 
     host_fire_spawn_log::clear();
     host_fire_spawn_log::record_residual_hitscan(ObjectId(1), ObjectId(2));
@@ -667,8 +676,8 @@ fn residual_hitscan_zeros_fire_spawn_damage_on_apply() {
         body.contains("drain_residual_hitscans") && body.contains("ev.damage = 0.0"),
         "apply must zero residual-hitscan spawn damage"
     );
-    let hbody = last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage")
-        .expect("helper");
+    let hbody =
+        last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
     assert!(
         hbody.contains("record_residual_hitscan") && hbody.contains("fire_spawn_authority_live"),
         "residual auto-fire must mark hitscan pairs for shadow (live gate)"
@@ -677,8 +686,8 @@ fn residual_hitscan_zeros_fire_spawn_damage_on_apply() {
 
 #[test]
 fn residual_auto_fire_records_ai_decision_source() {
-    let body = last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage")
-        .expect("helper");
+    let body =
+        last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
     assert!(
         body.contains("host_ai_decision_log::record_attack")
             && body.contains("gameworld_ai_decision_authority")
@@ -689,7 +698,8 @@ fn residual_auto_fire_records_ai_decision_source() {
 
 #[test]
 fn residual_auto_fire_ai_decision_writeback_behavioral_source() {
-    let src = include_str!("../../game_logic/world_tests/ocl_and_bombs.rs");
+    let src =
+        include_str!("../../game_logic/world_tests/ocl_and_bombs/transport_mines_and_defenses.rs");
     assert!(
         src.contains("fn residual_auto_fire_ai_decision_writeback_sets_host_target"),
         "behavioral residual decision writeback test required"
@@ -741,7 +751,8 @@ fn residual_acquire_query_source() {
             .find("fn find_object_at_position")
             .expect("engine find_object_at_position");
         // Prefer the InGame/engine pick (not test helpers): scan for boot residual marker.
-        let body = rust_fn_body(eng, "find_object_at_position").expect("engine find_object_at_position");
+        let body =
+            rust_fn_body(eng, "find_object_at_position").expect("engine find_object_at_position");
         assert!(
             body.contains("pick_object_id_at_world_from_presentation")
                 || body.contains("pick_best_priority_residual_target"),

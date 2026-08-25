@@ -116,7 +116,7 @@ pub fn simulate_live_host_hacker_income_dual_peel_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_hacker_income_log::{clear, drain, record, HackerIncomeEvent};
+    use crate::game_logic::host_hacker_income_log::{HackerIncomeEvent, clear, drain, record};
     use crate::game_logic::{ObjectId, Team};
 
     #[test]

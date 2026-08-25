@@ -3,8 +3,8 @@ use std::sync::{RwLock, RwLockReadGuard};
 
 use crate::command_button::{CommandButton, CommandButtonId, CommandSet, MAX_COMMANDS_PER_SET};
 use crate::commands::command::CommandType;
-use crate::common::types::ControlBarInterface;
 use crate::common::KindOf;
+use crate::common::types::ControlBarInterface;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use game_engine::common::ini::ini_command_button::get_control_bar;
@@ -12,7 +12,7 @@ use game_engine::common::ini::ini_command_set::get_command_set_manager;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::{CommandSetHandle, PlayerHandle, ThingTemplateHandle};
 use game_engine::rts::academy_stats::{
-    set_academy_template_context_provider, AcademyTemplateContext,
+    AcademyTemplateContext, set_academy_template_context_provider,
 };
 use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex};

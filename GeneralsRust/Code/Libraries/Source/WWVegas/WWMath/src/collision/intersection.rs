@@ -96,12 +96,15 @@ impl CollisionMath {
 
     /// C++ CollisionMath::Intersection_Test(OBBox, Tri)
     pub fn intersection_test_obbox_triangle(box_ref: &OBBox, tri: &Triangle) -> bool {
-        let local_v0 =
-            box_ref.basis.transpose_rotate_vector(tri.vertices[0] - box_ref.center);
-        let local_v1 =
-            box_ref.basis.transpose_rotate_vector(tri.vertices[1] - box_ref.center);
-        let local_v2 =
-            box_ref.basis.transpose_rotate_vector(tri.vertices[2] - box_ref.center);
+        let local_v0 = box_ref
+            .basis
+            .transpose_rotate_vector(tri.vertices[0] - box_ref.center);
+        let local_v1 = box_ref
+            .basis
+            .transpose_rotate_vector(tri.vertices[1] - box_ref.center);
+        let local_v2 = box_ref
+            .basis
+            .transpose_rotate_vector(tri.vertices[2] - box_ref.center);
         let local_box = AABox::new(Vector3::ZERO, box_ref.extent);
         let local_tri = Triangle::new(local_v0, local_v1, local_v2);
         Self::intersection_test_aabox_triangle(&local_box, &local_tri)
@@ -158,7 +161,9 @@ impl CollisionMath {
 
     /// C++ CollisionMath::Intersection_Test(Sphere, OBBox)
     pub fn intersection_test_sphere_obbox(sphere: &Sphere, box_ref: &OBBox) -> bool {
-        let local = box_ref.basis.transpose_rotate_vector(sphere.center - box_ref.center);
+        let local = box_ref
+            .basis
+            .transpose_rotate_vector(sphere.center - box_ref.center);
         let local_box = AABox::new(Vector3::ZERO, box_ref.extent);
         let local_sphere = Sphere {
             center: local,
@@ -166,7 +171,6 @@ impl CollisionMath {
         };
         Self::intersection_test_sphere_aabox(&local_sphere, &local_box)
     }
-
 }
 
 /// Context structure for AABox-Triangle intersection tests

@@ -324,8 +324,7 @@ mod tests {
         );
         let beside = OBBoxClass::from_center_extent(Vec3::new(1.5, 0.0, 0.0), Vec3::splat(0.2));
         assert!(!thin.intersects_obbox(&beside));
-        let along_diag =
-            OBBoxClass::from_center_extent(Vec3::new(1.0, 1.0, 0.0), Vec3::splat(0.2));
+        let along_diag = OBBoxClass::from_center_extent(Vec3::new(1.0, 1.0, 0.0), Vec3::splat(0.2));
         assert!(thin.intersects_obbox(&along_diag));
     }
 }

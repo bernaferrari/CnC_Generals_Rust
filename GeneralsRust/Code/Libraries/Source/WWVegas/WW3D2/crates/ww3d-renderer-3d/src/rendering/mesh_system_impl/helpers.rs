@@ -98,7 +98,10 @@ pub(super) fn clip_polygon_against_plane(
     output
 }
 
-pub(super) fn clip_polygon_to_projector(polygon: Vec<ClipVertex>, extents: Vec3) -> Vec<ClipVertex> {
+pub(super) fn clip_polygon_to_projector(
+    polygon: Vec<ClipVertex>,
+    extents: Vec3,
+) -> Vec<ClipVertex> {
     if polygon.len() < 3 {
         return Vec::new();
     }
@@ -254,7 +257,10 @@ pub(super) use math_utilities::{
 /// Compute index ranges for each material pass
 /// This maps each pass index to its start index and triangle count
 /// Returns a vector where index i contains (start_index, count) for pass i
-pub(super) fn compute_pass_index_ranges(model: &MeshModelClass, index_data: &[u32]) -> Vec<(u32, u32)> {
+pub(super) fn compute_pass_index_ranges(
+    model: &MeshModelClass,
+    index_data: &[u32],
+) -> Vec<(u32, u32)> {
     // If we have polygon renderers organized by pass, preserve per-pass ranges.
     if !model.polygon_renderer_list.is_empty() {
         let mut ranges: Vec<(u32, u32)> = vec![(0, 0); model.material_passes.len()];

@@ -108,9 +108,9 @@ pub fn simulate_live_gameworld_construction_writeback_honesty() -> bool {
     use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick, ensure_gate_damage_authority,
-        gameworld_construction_authority_enabled, gameworld_construction_sole_tick_enabled,
-        gameworld_shadow_enabled, GameWorldShadow,
+        GameWorldShadow, begin_shadow_coupled_tick, end_shadow_coupled_tick,
+        ensure_gate_damage_authority, gameworld_construction_authority_enabled,
+        gameworld_construction_sole_tick_enabled, gameworld_shadow_enabled,
     };
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 

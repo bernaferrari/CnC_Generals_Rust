@@ -9,7 +9,7 @@ use ww3d_renderer_3d::render_object_system::{
     MaterialInfoClass, OBBoxCollisionTestClass, OBBoxIntersectionTestClass, RayCollisionTestClass,
     RenderInfoClass, RenderObjClass, RenderObjClassId, SpecialRenderInfoClass, SphereClass,
 };
-use ww3d_renderer_3d::{core::error::RendererResult, MeshClass};
+use ww3d_renderer_3d::{MeshClass, core::error::RendererResult};
 
 /// Higher level handle that lets systems in the effects crate work with the renderer mesh type.
 #[derive(Debug, Clone)]

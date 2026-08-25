@@ -14,9 +14,7 @@ use glam::Vec3;
 pub fn is_authored_fx_list_name(name: &str) -> bool {
     let raw = strip_fx_list_prefix(name);
     !raw.is_empty()
-        && (raw.starts_with("FX_")
-            || raw.starts_with("WeaponFX_")
-            || name.starts_with("FX:"))
+        && (raw.starts_with("FX_") || raw.starts_with("WeaponFX_") || name.starts_with("FX:"))
 }
 
 fn strip_fx_list_prefix(name: &str) -> &str {
@@ -108,11 +106,7 @@ pub fn dispatch_fx_list_at_pos_oriented(
 ///
 /// Passes the primary object so ParticleSystem nuggets get the object transform
 /// (`OrientToObject` / `AttachToObject` / `FXListAtBonePos`).
-pub fn dispatch_fx_list_at_object(
-    name: &str,
-    primary_id: u32,
-    secondary_id: Option<u32>,
-) -> bool {
+pub fn dispatch_fx_list_at_object(name: &str, primary_id: u32, secondary_id: Option<u32>) -> bool {
     let name = strip_fx_list_prefix(name);
     if is_none_fx_list(name) {
         return false;
@@ -212,14 +206,16 @@ pub fn refresh_host_fx_object_poses_from_presentation(
             object.id.0,
             object.position,
             object.orientation,
-            object.owner_player_id.map(|player| player as i32).unwrap_or(-1),
+            object
+                .owner_player_id
+                .map(|player| player as i32)
+                .unwrap_or(-1),
             0.0,
             is_shrouded,
         );
     }
     gamelogic::helpers::retain_host_fx_object_poses(|id| seen.contains(&id));
 }
-
 
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
     crate::game_logic::host_supply_gather::host_bounding_circle_radius(
@@ -261,7 +257,6 @@ impl crate::game_logic::GameLogic {
     }
 }
 
-
 /// Sound nugget names (`m_soundName`) authored inside `name`.
 ///
 /// Prefers the live GameClient FXList store (the runner's source of truth).
@@ -282,7 +277,7 @@ pub fn sound_names_for_fx_list(name: &str) -> Vec<String> {
 }
 
 fn common_ini_sound_names(name: &str) -> Vec<String> {
-    use game_engine::common::ini::ini_fx_list::{get_fx_list_store, FXNugget};
+    use game_engine::common::ini::ini_fx_list::{FXNugget, get_fx_list_store};
     let store = get_fx_list_store();
     let Some(fx) = store.find_fx_list(name) else {
         return Vec::new();
@@ -316,7 +311,7 @@ pub fn particle_template_names_for_fx_list(name: &str) -> Vec<String> {
 }
 
 fn common_ini_particle_names(name: &str) -> Vec<String> {
-    use game_engine::common::ini::ini_fx_list::{get_fx_list_store, FXNugget};
+    use game_engine::common::ini::ini_fx_list::{FXNugget, get_fx_list_store};
     let store = get_fx_list_store();
     let Some(fx) = store.find_fx_list(name) else {
         return Vec::new();
@@ -439,9 +434,7 @@ mod tests {
         let body = &particles[start..start + 3200];
         assert!(body.contains("dispatch_fx_list_at_pos_oriented"));
         assert!(body.contains("drawable_matrix"));
-        let leftover = include_str!(
-            "../../../GameEngine/GameLogic/src/helpers/particles.rs"
-        );
+        let leftover = include_str!("../../../GameEngine/GameLogic/src/helpers/particles.rs");
         let start = leftover
             .find("pub fn do_fx_at_position_ex")
             .expect("do_fx_at_position_ex");
@@ -489,9 +482,7 @@ mod tests {
         assert!(regs.contains("leftover_combat_drop_kill_fx_name"));
         assert!(regs.contains("dispatch_fx_list_at_host_object(&fx, bldg_id, None)"));
         let gps = include_str!("world_combat/gps_and_fields.rs");
-        let pulse = gps
-            .find("if do_fx {")
-            .expect("propaganda pulse");
+        let pulse = gps.find("if do_fx {").expect("propaganda pulse");
         let pulse_body = &gps[pulse..pulse + 450];
         assert!(
             pulse_body.contains("dispatch_fx_list_at_host_object(fx, tower.id, None)"),
@@ -523,7 +514,7 @@ mod tests {
 
     #[test]
     fn garrison_hit_kill_fx_uses_do_fx_obj_on_building() {
-        let combat = include_str!("combat.rs");
+        let combat = include_str!("combat/resolution.rs");
         let helper = combat
             .find("fn play_garrison_hit_kill_fx(")
             .expect("garrison doFXObj helper");
@@ -562,10 +553,8 @@ mod tests {
             "../../../GameEngine/GameLogic/src/object/behavior/dumb_projectile_behavior.rs"
         );
         assert!(leftover_dumb.contains("do_fx_obj_ids(other_id, None, None)"));
-        let leftover_missile = include_str!(
-            "../../../GameEngine/GameLogic/src/object/update/missile_ai_update.rs"
-        );
+        let leftover_missile =
+            include_str!("../../../GameEngine/GameLogic/src/object/update/missile_ai_update.rs");
         assert!(leftover_missile.contains("do_fx_obj(&other_arc, None)"));
     }
-
 }

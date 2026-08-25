@@ -436,8 +436,7 @@ fn physical_winit_mouse_input_drives_retail_menus_with_provenance_gates() {
         "menu-nav evidence latches only for Physical origin"
     );
     assert!(
-        body.contains("MouseInputOrigin::Injected")
-            || input.contains("MouseInputOrigin::Injected"),
+        body.contains("MouseInputOrigin::Injected") || input.contains("MouseInputOrigin::Injected"),
         "injected control-file clicks must remain a distinct origin"
     );
 }
@@ -485,7 +484,7 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         "Gather proof must carry actual press+release mouse provenance into the RMB command"
     );
 
-    let mouse = include_str!("mouse.rs");
+    let mouse = super::ENGINE_SRC;
     assert!(
         mouse.contains("PhysicalGatherAttempt")
             && mouse.contains("MouseInputOrigin::Physical")
@@ -518,8 +517,7 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         .expect("Gather executor authority");
     let gather = &executor[gather_start..];
     assert!(
-        gather.contains("unit.is_resource_collector()")
-            && !gather.contains("unit.is_worker()"),
+        gather.contains("unit.is_resource_collector()") && !gather.contains("unit.is_worker()"),
         "accepted Gather carriers must use semantic HARVESTER capability, not a builder/name heuristic"
     );
 
@@ -530,7 +528,7 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         "presentation-frozen and boot command classification must agree on HARVESTER"
     );
 
-    let template_parse = include_str!("../game_logic/world_objects/spawn_templates.rs");
+    let template_parse = include_str!("../game_logic/world_objects/spawn_templates/definition.rs");
     assert!(
         template_parse.contains("let is_harvester = has_kind(\"harvester\")")
             && template_parse.contains("has_kind(\"harvestable\")")
@@ -538,7 +536,7 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         "HARVESTER must not be conflated with HARVESTABLE or a Resource template"
     );
 
-    let deposit = include_str!("../game_logic/world_objects/support_states.rs");
+    let deposit = include_str!("../game_logic/world_objects/support_states/update.rs");
     let returning = deposit
         .find("AIState::ReturningResources")
         .expect("ReturningResources deposit branch");
@@ -730,7 +728,7 @@ fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evide
             "host_control_bar_evidence_eligible",
         ),
         (
-            include_str!("mouse.rs"),
+            super::ENGINE_SRC,
             "host_physical_gather_evidence_eligible",
         ),
         (

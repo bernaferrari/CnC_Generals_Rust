@@ -7,10 +7,10 @@ use crate::common::audio::AudioEventRts;
 use crate::common::{AsciiString, Coord3D, ParticleSystemTemplate};
 
 // use game_engine::ini::IniField;
-use crate::common::science::{ScienceType, SCIENCE_INVALID};
+use crate::common::science::{SCIENCE_INVALID, ScienceType};
 use crate::common::types::SpecialPowerType as CommonSpecialPowerType;
 use crate::common::types::{
-    ModelConditionFlags, ModuleData, ObjectID, Real, UnsignedInt, INVALID_ID, PI,
+    INVALID_ID, ModelConditionFlags, ModuleData, ObjectID, PI, Real, UnsignedInt,
 };
 use crate::object::special_power_module::Waypoint;
 use crate::object::update::special_power_update::SpecialPowerCommandOption;
@@ -29,14 +29,14 @@ use crate::modules::{
     BehaviorModuleInterface, PhysicsBehaviorExt, SpecialPowerCommandOptions,
     SpecialPowerModuleInterface, SpecialPowerUpdateInterface, UpdateModuleInterface,
 };
-use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 // use crate::object::behavior::ObjectBehavior;
 use crate::command_button::CommandButton;
 use crate::helpers::TheThingFactory;
 use crate::helpers::{
-    get_game_logic_random_value_real, TheAudio, TheGameLogic, TheGameText, TheInGameUI,
-    TheParticleSystemManager, ThePartitionManager, TheRadar,
+    TheAudio, TheGameLogic, TheGameText, TheInGameUI, TheParticleSystemManager,
+    ThePartitionManager, TheRadar, get_game_logic_random_value_real,
 };
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::update::special_power_update::SpecialPowerUpdateModule;
@@ -50,7 +50,7 @@ use crate::common::Color;
 use crate::common::ObjectStatusTypes;
 use crate::common::Relationship;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

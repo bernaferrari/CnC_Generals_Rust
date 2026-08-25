@@ -59,8 +59,8 @@ fn residual_action_store(a: ResidualHostEjectPilotDieDeathStartAction) {
 pub fn residual_host_eject_pilot_die_death_start_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
-pub fn residual_host_eject_pilot_die_death_start_last_action(
-) -> ResidualHostEjectPilotDieDeathStartAction {
+pub fn residual_host_eject_pilot_die_death_start_last_action()
+-> ResidualHostEjectPilotDieDeathStartAction {
     ResidualHostEjectPilotDieDeathStartAction::from_u8(RESIDUAL_ACTION.load(Ordering::SeqCst))
 }
 fn gl_source() -> &'static str {

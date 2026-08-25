@@ -16,8 +16,7 @@ impl Object {
         // Keep compatibility shadow in sync (many call sites still read `position`).
         self.position = position;
         let new_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
-            position.x,
-            position.z,
+            position.x, position.z,
         );
         if old_cell != new_cell {
             self.restamp_partition_value_threat();
@@ -41,7 +40,6 @@ impl Object {
             );
         }
     }
-
 
     /// C++ `TheGameClient->notifyTerrainObjectMoved` → `W3DTreeBuffer::unitMoved`.
     pub fn notify_terrain_trees_on_unit_move(&self) {
@@ -263,7 +261,6 @@ impl Object {
         true
     }
 
-
     /// C++ ProductionUpdate::setHoldDoorOpen residual.
     ///
     /// Door 0 wrapper for factory / save callers. Hangar stalls use
@@ -359,11 +356,7 @@ impl Object {
     pub fn production_door_count(&self) -> usize {
         use crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations;
         let n = producer_num_door_animations(&self.template_name);
-        if n <= 0 {
-            1
-        } else {
-            (n as usize).min(4)
-        }
+        if n <= 0 { 1 } else { (n as usize).min(4) }
     }
 
     /// First idle hangar among authored doors.
@@ -514,8 +507,6 @@ impl Object {
             _ => {}
         }
     }
-
-
 
     pub fn extend_radar(&mut self, done_frame: u32) {
         use crate::game_logic::host_enum_table_residual::radar_extending_model_bit;
@@ -823,7 +814,7 @@ impl Object {
         state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
     ) {
         use crate::game_logic::host_enum_table_residual::{
-            host_apply_body_damage_model_bits, HostBodyDamageType,
+            HostBodyDamageType, host_apply_body_damage_model_bits,
         };
         self.body_damage_state = state;
         if old_state != state {
@@ -893,8 +884,8 @@ impl Object {
 
     pub fn refresh_model_condition_bits(&mut self) {
         use crate::game_logic::host_enum_table_residual::{
-            host_apply_body_damage_model_bits, host_calc_body_damage_state, HostBodyDamageType,
-            MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING,
+            HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING,
+            host_apply_body_damage_model_bits, host_calc_body_damage_state,
         };
         let health = self.health.current;
         let max_h = self.health.maximum.max(0.0);
@@ -1198,7 +1189,8 @@ impl Object {
             }
         }
         if self.model_condition_bits != bits {
-            self.visual_draw_state_revision = self.visual_draw_state_revision.saturating_add(1).max(1);
+            self.visual_draw_state_revision =
+                self.visual_draw_state_revision.saturating_add(1).max(1);
         }
         self.model_condition_bits = bits;
         self.sync_overlord_addon_body_damage();

@@ -20,7 +20,6 @@ pub fn host_shows_ammo_pips_for_weapon_name(name: &str) -> bool {
     .unwrap_or(false)
 }
 
-
 /// C++ Weapon.ini CapableOfFollowingWaypoints / WeaponTemplate::m_capableOfFollowingWaypoint.
 ///
 /// Leftover store is source of truth. Default false when the template is
@@ -40,7 +39,6 @@ pub fn host_capable_of_following_waypoint_for_weapon_name(name: &str) -> bool {
     .flatten()
     .unwrap_or(false)
 }
-
 
 /// C++ Weapon.ini ProjectileStreamName residual.
 ///
@@ -140,8 +138,6 @@ pub fn host_damage_dealt_at_self_position_for_weapon_name(name: &str) -> bool {
     .flatten()
     .unwrap_or(false)
 }
-
-
 
 /// C++ Weapon.ini DamageType=STATUS residual.
 pub fn host_weapon_is_status_damage(name: &str) -> bool {
@@ -306,7 +302,6 @@ fn object_status_bit_name(status: gamelogic::common::ObjectStatusTypes) -> Optio
         Deployed => Some("DEPLOYED"),
     }
 }
-
 
 /// C++ STATUS damage duration: PrimaryDamage is msec → logic frames @ 30 FPS.
 pub fn host_status_damage_frames_from_primary_damage(primary_damage_msec: f32) -> u32 {

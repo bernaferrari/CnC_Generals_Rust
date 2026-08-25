@@ -363,8 +363,6 @@ fn nonempty_fx_list_name(name: &str) -> Option<String> {
     }
 }
 
-
-
 /// Residual `ListeningOutpostUpgradedDummyWeapon` bound when armed riders
 /// upgrade weapon set (PLAYER_UPGRADE set). Negligible damage — passengers
 /// deal real residual fire; this enables attack range / CAN_ATTACK residual.
@@ -386,9 +384,8 @@ pub fn listening_outpost_upgraded_dummy_weapon() -> Weapon {
         splash_radius: 0.0,
         suspend_fx_frame: 0,
         ..Weapon::default()
+    }
 }
-}
-
 
 /// Residual AirF_PointDefenseLaser weapon (Combat Chinook PDL residual).
 pub fn combat_chinook_pdl_weapon() -> Weapon {
@@ -409,9 +406,8 @@ pub fn combat_chinook_pdl_weapon() -> Weapon {
         splash_radius: 0.0,
         suspend_fx_frame: 0,
         ..Weapon::default()
+    }
 }
-}
-
 
 /// Residual of C++ TransportContain `letRidersUpgradeWeaponSet`
 /// (TransportContain.cpp:226-229): only infantry with a non-contact damage
@@ -550,7 +546,6 @@ pub fn honesty_combat_chinook_residual_pack_ok() -> bool {
         && honesty_combat_chinook_ai_body_residual_ok()
 }
 
-
 /// C++ `ChinookTakeoffOrLandingState` / `ChinookMoveToBldgState` 3-unit threshold.
 pub const HOST_CHINOOK_ARRIVE_THRESH: f32 = 3.0;
 
@@ -673,7 +668,6 @@ pub struct HostRappelJob {
     pub dest_y: f32,
 }
 
-
 fn host_chinook_dist_sqr(a: [f32; 3], b: [f32; 3]) -> f32 {
     let dx = a[0] - b[0];
     let dy = a[1] - b[1];
@@ -726,7 +720,6 @@ impl HostChinookAI {
             rappel_into_jobs: Vec::new(),
         }
     }
-
 
     /// C++ `SupplyTruckAIUpdate::loseOneBox` (ChinookAIUpdate inherits).
     pub fn lose_one_box(&mut self) -> bool {
@@ -792,7 +785,6 @@ impl HostChinookAI {
             now.saturating_add(COMBAT_CHINOOK_PER_ROPE_DELAY_MIN_FRAMES);
     }
 
-
     /// C++ idle + `hasObjectsWantingToEnterOrExit` + not landed → `LANDING`.
     /// Combat-drop hover must not auto-land (`MOVE_TO_COMBAT_DROP` / `DO_COMBAT_DROP`).
     pub fn tick_idle_auto_land(&mut self) {
@@ -850,7 +842,6 @@ impl HostChinookAI {
         self.wanting_enter_or_exit = false;
         self.enter_state(HostChinookAIState::TakeoffAndExit);
     }
-
 
     /// C++ `privateGetRepaired` → `MOVE_TO_AND_LAND` (not immediate LANDING).
     pub fn command_repair(&mut self, depot: [f32; 3], depot_id: u32) {
@@ -922,7 +913,6 @@ impl HostChinookAI {
                 self.combat_drop_next_release_frame = 0;
                 self.combat_drop_releases = 0;
             }
-
         }
     }
 
@@ -940,7 +930,11 @@ impl HostChinookAI {
             self.pad_search_applied = true;
             self.dest = [self.pos[0], self.pos[1], 0.0];
         } else {
-            self.dest = [self.pos[0], self.pos[1], self.pos[2].max(0.0) + self.preferred_height];
+            self.dest = [
+                self.pos[0],
+                self.pos[1],
+                self.pos[2].max(0.0) + self.preferred_height,
+            ];
             self.layer_is_ground = true;
         }
     }
@@ -1059,7 +1053,8 @@ impl HostChinookAI {
             HostChinookAIState::MoveToCombatDrop => {
                 let hover = [self.dest[0], self.dest[1], self.combat_drop_dest_z];
                 self.step_toward(hover, step);
-                if self.arrived_2d(hover) && (self.pos[2] - self.combat_drop_dest_z).abs() <= HOST_CHINOOK_ARRIVE_THRESH
+                if self.arrived_2d(hover)
+                    && (self.pos[2] - self.combat_drop_dest_z).abs() <= HOST_CHINOOK_ARRIVE_THRESH
                 {
                     self.succeed();
                 }
@@ -1121,7 +1116,8 @@ pub fn honesty_host_chinook_ai_cpp_residual_ok() -> bool {
         && (drop.combat_drop_dest_z - 120.0).abs() < 0.01;
     drop.pos = [20.0, 0.0, 120.0];
     drop.tick(1.0);
-    let drop_ok = drop_moves && drop.state == HostChinookAIState::DoCombatDrop
+    let drop_ok = drop_moves
+        && drop.state == HostChinookAIState::DoCombatDrop
         && drop.flight_status == HostChinookFlightStatus::DoingCombatDrop
         && (drop.apply_rappel_speed() - COMBAT_CHINOOK_RAPPEL_SPEED).abs() < 0.01;
     let mut repair = HostChinookAI::new_combat([0.0, 0.0, 5.0]);
@@ -1163,15 +1159,28 @@ mod tests {
         assert!(is_regular_chinook_template("USA_Chinook"));
         assert!(!is_regular_chinook_template("AirF_AmericaVehicleChinook"));
         assert!(combat_drop_into_allowed(
-            true, false, false, "AmericaCivilianBunker", true, false, false, false
+            true,
+            false,
+            false,
+            "AmericaCivilianBunker",
+            true,
+            false,
+            false,
+            false
         ));
         assert!(!combat_drop_into_allowed(
-            true, false, false, "AmericaCommandCenter", true, false, false, true
+            true,
+            false,
+            false,
+            "AmericaCommandCenter",
+            true,
+            false,
+            false,
+            true
         ));
         assert!(!combat_drop_into_allowed(
             true, false, false, "Tree", false, false, false, false
         ));
-
     }
 
     #[test]
@@ -1259,10 +1268,7 @@ mod tests {
     fn host_chinook_ai_auto_lands_for_load_unload() {
         let mut ai = HostChinookAI::new_combat([0.0, 0.0, 100.0]);
         ai.wanting_enter_or_exit = true;
-        assert_eq!(
-            ai.ai_free_to_exit(false),
-            HostChinookFreeToExit::WaitToExit
-        );
+        assert_eq!(ai.ai_free_to_exit(false), HostChinookFreeToExit::WaitToExit);
         ai.tick_idle_auto_land();
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
         assert!(ai.pad_search_applied);
@@ -1271,10 +1277,7 @@ mod tests {
         ai.dest = [0.0, 0.0, 0.0];
         ai.tick(1.0);
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landed);
-        assert_eq!(
-            ai.ai_free_to_exit(false),
-            HostChinookFreeToExit::FreeToExit
-        );
+        assert_eq!(ai.ai_free_to_exit(false), HostChinookFreeToExit::FreeToExit);
     }
 
     #[test]
@@ -1375,7 +1378,9 @@ mod tests {
         tpl.add_kind_of(KindOf::Vehicle);
         tpl.add_kind_of(KindOf::Attackable);
         tpl.set_health(350.0);
-        logic.templates.insert("AirF_AmericaVehicleChinook".into(), tpl);
+        logic
+            .templates
+            .insert("AirF_AmericaVehicleChinook".into(), tpl);
         let id = logic
             .create_object(
                 "AirF_AmericaVehicleChinook",
@@ -1455,7 +1460,6 @@ mod tests {
     }
     #[test]
     fn landed_evac_keeps_dest_across_takeoff() {
-
         let mut ai = HostChinookAI::new_combat([0.0, 0.0, 0.0]);
         ai.flight_status = HostChinookFlightStatus::Landed;
         ai.command_evac([80.0, 0.0, 0.0], false);
@@ -1511,7 +1515,9 @@ mod tests {
             center_delay_frames: 0,
             upgraded_supply_boost: 60,
         });
-        logic.templates.insert("AirF_AmericaVehicleChinook".into(), tpl);
+        logic
+            .templates
+            .insert("AirF_AmericaVehicleChinook".into(), tpl);
         let id = logic
             .create_object(
                 "AirF_AmericaVehicleChinook",
@@ -1535,9 +1541,18 @@ mod tests {
         assert_eq!(logic.host_object(id).unwrap().drawable_supply_boxes, 8);
         logic.tick_chinook_ai(1.0);
         let obj = logic.host_object(id).expect("obj");
-        assert_eq!(obj.chinook_ai.as_ref().unwrap().flight_status, HostChinookFlightStatus::Landing);
-        assert_eq!(obj.stored_resources.supplies, 0, "diverted landing must dump cash crates");
-        assert_eq!(obj.drawable_supply_boxes, 0, "diverted landing must dump crate visuals");
+        assert_eq!(
+            obj.chinook_ai.as_ref().unwrap().flight_status,
+            HostChinookFlightStatus::Landing
+        );
+        assert_eq!(
+            obj.stored_resources.supplies, 0,
+            "diverted landing must dump cash crates"
+        );
+        assert_eq!(
+            obj.drawable_supply_boxes, 0,
+            "diverted landing must dump crate visuals"
+        );
         assert_eq!(obj.chinook_ai.as_ref().unwrap().supply_boxes, 0);
 
         {
@@ -1557,8 +1572,14 @@ mod tests {
             obj.chinook_ai.as_ref().unwrap().flight_status,
             HostChinookFlightStatus::DoingCombatDrop
         );
-        assert_eq!(obj.stored_resources.supplies, 0, "combat drop must dump cash crates");
-        assert_eq!(obj.drawable_supply_boxes, 0, "combat drop must dump crate visuals");
+        assert_eq!(
+            obj.stored_resources.supplies, 0,
+            "combat drop must dump cash crates"
+        );
+        assert_eq!(
+            obj.drawable_supply_boxes, 0,
+            "combat drop must dump crate visuals"
+        );
     }
 
     #[test]
@@ -1571,6 +1592,4 @@ mod tests {
         assert_eq!(ai.supply_boxes, 0);
         assert!(!ai.lose_one_box());
     }
-
-
 }

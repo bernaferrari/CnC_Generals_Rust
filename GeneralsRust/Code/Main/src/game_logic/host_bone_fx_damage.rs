@@ -10,8 +10,8 @@
 
 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use gamelogic::object::update::bone_fx_update::{
-    parse_fx_list_attr, parse_ocl_attr, parse_particle_attr, BONE_FX_MAX_BONES,
-    BODY_DAMAGE_TYPE_COUNT,
+    BODY_DAMAGE_TYPE_COUNT, BONE_FX_MAX_BONES, parse_fx_list_attr, parse_ocl_attr,
+    parse_particle_attr,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -207,10 +207,7 @@ impl HostBoneFxDamageData {
     }
 
     /// C++ `lastDamageInfo->in.m_damageType` stamp.
-    pub fn stamp_last_damage_type(
-        &mut self,
-        dtype: Option<crate::game_logic::combat::DamageType>,
-    ) {
+    pub fn stamp_last_damage_type(&mut self, dtype: Option<crate::game_logic::combat::DamageType>) {
         self.last_damage_type = dtype.map(|d| d.to_store() as u32);
     }
 
@@ -222,7 +219,6 @@ impl HostBoneFxDamageData {
     pub fn running_particle_count(&self) -> usize {
         self.particle_system_ids.len()
     }
-
 
     /// C++ `BoneFXUpdate::killRunningParticleSystems`.
     pub fn kill_running_particle_systems(&mut self) {
@@ -255,12 +251,7 @@ impl HostBoneFxDamageData {
         }
     }
 
-    fn tick_due(
-        &mut self,
-        now: i32,
-        old_state: HostBodyDamageType,
-        new_state: HostBodyDamageType,
-    ) {
+    fn tick_due(&mut self, now: i32, old_state: HostBodyDamageType, new_state: HostBodyDamageType) {
         let idx = self.cur_state as usize;
         if idx >= BODY_DAMAGE_TYPE_COUNT {
             return;
@@ -426,8 +417,8 @@ fn peel_leftover_factory_bone_fx(template_name: &str) -> Option<HostBoneFxAuthor
         }
         if let Some(data) = entry
             .data
-            .downcast_ref::<gamelogic::object::update::bone_fx_update::BoneFXUpdateModuleData>()
-        {
+            .downcast_ref::<gamelogic::object::update::bone_fx_update::BoneFXUpdateModuleData>(
+        ) {
             if let Some(authored) = authored_from_leftover_module_data(data) {
                 return Some(authored);
             }
@@ -751,7 +742,10 @@ mod tests {
                 HostBodyDamageType::Damaged,
             )
             .expect("fx");
-        assert_eq!(ev.fx_list.as_deref(), Some("FX_ScudLauncherDamageTransition"));
+        assert_eq!(
+            ev.fx_list.as_deref(),
+            Some("FX_ScudLauncherDamageTransition")
+        );
         assert_eq!(ev.bone, "FXBone01");
         assert_eq!(d.transitions, 1);
         assert_eq!(d.drain_pending().len(), 1);
@@ -760,26 +754,28 @@ mod tests {
     #[test]
     fn non_peel_skipped() {
         let mut d = HostBoneFxDamageData::default();
-        assert!(d
-            .on_body_damage_state_change(
+        assert!(
+            d.on_body_damage_state_change(
                 "AmericaTankCrusader",
                 HostBodyDamageType::Pristine,
                 HostBodyDamageType::Damaged,
             )
-            .is_none());
+            .is_none()
+        );
     }
 
     #[test]
     fn leftover_parse_keeps_only_once_and_delay() {
-        let info = parse_fx_list_attr(
-            "Bone:Smoke01 OnlyOnce:No 15 45 FXList:FX_BuildingFireMedium",
-        )
-        .expect("parse");
+        let info =
+            parse_fx_list_attr("Bone:Smoke01 OnlyOnce:No 15 45 FXList:FX_BuildingFireMedium")
+                .expect("parse");
         assert_eq!(info.base.loc_info.bone_name, "Smoke01");
         assert!(!info.base.only_once);
         assert_eq!(info.fx_name, "FX_BuildingFireMedium");
-        assert!((info.base.game_logic_delay.min - 15.0).abs() < f32::EPSILON
-            || info.base.game_logic_delay.min > 0.0);
+        assert!(
+            (info.base.game_logic_delay.min - 15.0).abs() < f32::EPSILON
+                || info.base.game_logic_delay.min > 0.0
+        );
     }
 
     #[test]
@@ -820,13 +816,14 @@ mod tests {
         authored.damage_fx_types = parse_damage_type_flags_attr("FLAME").bits();
         let mut d = HostBoneFxDamageData::from_authored(authored);
         d.stamp_last_damage_type(Some(DamageType::Bullet));
-        assert!(d
-            .on_body_damage_state_change(
+        assert!(
+            d.on_body_damage_state_change(
                 "GLAVehicleScudLauncher",
                 HostBodyDamageType::Pristine,
                 HostBodyDamageType::Damaged,
             )
-            .is_none());
+            .is_none()
+        );
         assert!(d.drain_pending().is_empty());
     }
 
@@ -844,7 +841,10 @@ mod tests {
                 HostBodyDamageType::Damaged,
             )
             .expect("flame-gated fx");
-        assert_eq!(ev.fx_list.as_deref(), Some("FX_ScudLauncherDamageTransition"));
+        assert_eq!(
+            ev.fx_list.as_deref(),
+            Some("FX_ScudLauncherDamageTransition")
+        );
     }
 
     #[test]

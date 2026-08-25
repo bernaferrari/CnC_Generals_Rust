@@ -2,8 +2,8 @@
 //!
 //! Ported from `ControlBarUnderConstruction.cpp`.
 
-use super::control_bar::ControlBar;
 use super::ControlBarContext;
+use super::control_bar::ControlBar;
 use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 
 /// Populate command buttons for an under-construction selection.

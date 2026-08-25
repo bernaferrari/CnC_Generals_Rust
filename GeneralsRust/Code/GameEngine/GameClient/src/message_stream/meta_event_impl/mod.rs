@@ -9,29 +9,29 @@ use std::sync::{OnceLock, RwLock};
 use std::time::Instant;
 
 use game_engine::common::audio::game_audio::{
-    get_global_audio_manager, initialize_global_audio_manager, AudioAffect,
+    AudioAffect, get_global_audio_manager, initialize_global_audio_manager,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::ini::{
-    get_global_data, register_block_parser, DynamicGameLODLevel, INIError, INILoadType, INIResult,
-    TimeOfDay, INI,
+    DynamicGameLODLevel, INI, INIError, INILoadType, INIResult, TimeOfDay, get_global_data,
+    register_block_parser,
 };
-use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
+use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
 use log::debug;
 
 use super::game_message::{
-    build_region, Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D,
-    IRegion2D,
+    Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D, IRegion2D,
+    build_region,
 };
-use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
+use super::message_stream::{GameMessageDisposition, GameMessageTranslator, emit_message};
 use crate::core::script_action_handler::{
     get_script_display_debug_callback, script_set_3d_wireframe_mode,
     set_script_display_debug_callback, stop_script_display_movie, toggle_script_display_letter_box,
     toggle_script_display_movie_capture,
 };
 use crate::display::display::DebugDisplayCallback;
-use crate::display::view::{with_tactical_view, FilterMode, FilterType};
+use crate::display::view::{FilterMode, FilterType, with_tactical_view};
 use crate::drawable::drawable_manager::with_drawable_manager_ref;
 use crate::gui::shell::get_shell;
 use crate::gui::window_video_manager::with_window_video_manager;
@@ -45,15 +45,15 @@ use crate::presentation_translator_residual::{
 use crate::system::DebugDisplay;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
+use gamelogic::common::ModelConditionFlags;
 use gamelogic::common::audio::TimeOfDay as LogicTimeOfDay;
 use gamelogic::common::types::{GeometryExtentModType, GeometryInfo, KindOf};
-use gamelogic::common::ModelConditionFlags;
 use gamelogic::helpers::{
     TheAudio, TheGameClient, TheGameLogic, TheThingFactory, TheVictoryConditions,
 };
 use gamelogic::object::drawable::Drawable;
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{PlayerType, ThePlayerList, PLAYER_INDEX_INVALID};
+use gamelogic::player::{PLAYER_INDEX_INVALID, PlayerType, ThePlayerList};
 use gamelogic::scripting::engine::get_script_engine;
 
 // Live `meta_event` module via `#[path = "meta_event_impl/mod.rs"]`.

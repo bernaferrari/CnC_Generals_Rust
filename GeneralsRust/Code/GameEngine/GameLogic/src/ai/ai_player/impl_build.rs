@@ -391,12 +391,14 @@ impl AIPlayer {
             {
                 continue;
             }
-            let is_enemy = obj_guard.get_team().and_then(|team_arc| {
-                team_arc.read().ok().map(|team| {
-                    player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+            let is_enemy = obj_guard
+                .get_team()
+                .and_then(|team_arc| {
+                    team_arc.read().ok().map(|team| {
+                        player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                    })
                 })
-            })
-            .unwrap_or(false);
+                .unwrap_or(false);
             let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
                 continue;
             };
@@ -1100,11 +1102,7 @@ impl AIPlayer {
         // C++: if (valid) location=newPos success; else location.zero() fail.
         // Note: when initial_ok, valid stays false → None (C++ shipped behavior).
         let _ = initial_ok;
-        if valid {
-            Ok(Some(new_pos))
-        } else {
-            Ok(None)
-        }
+        if valid { Ok(Some(new_pos)) } else { Ok(None) }
     }
 
     /// Convenience: search near base center when no seed location given.

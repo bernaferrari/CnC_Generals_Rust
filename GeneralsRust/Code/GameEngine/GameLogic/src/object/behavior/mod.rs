@@ -175,9 +175,9 @@ pub use grant_stealth_behavior::{
 };
 pub use spy_vision_update::*;
 pub use stealth_detector_update::{
+    StealthDetectorUpdate, StealthDetectorUpdateFactory, StealthDetectorUpdateModuleData,
     stealth_detector_ctor_wake_frames, stealth_detector_kindof_allows,
-    stealth_or_detector_update_processes, StealthDetectorUpdate, StealthDetectorUpdateFactory,
-    StealthDetectorUpdateModuleData,
+    stealth_or_detector_update_processes,
 };
 pub use stealth_update::{StealthUpdate, StealthUpdateFactory, StealthUpdateModuleData};
 
@@ -189,8 +189,8 @@ pub use base_regenerate_update::{
 pub use base_renerate_update::*;
 pub use bone_fx_update::*;
 pub use bunker_buster_behavior::{
-    BunkerBusterBehavior, BunkerBusterBehaviorFactory, BunkerBusterBehaviorModule,
-    BunkerBusterBehaviorModuleData, BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT,
+    BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT, BunkerBusterBehavior, BunkerBusterBehaviorFactory,
+    BunkerBusterBehaviorModule, BunkerBusterBehaviorModuleData,
 };
 pub use command_button_hunt_update::*;
 pub use default_production_exit_behavior::{
@@ -400,17 +400,17 @@ pub use sticky_bomb_update::{
     StickyBombUpdate, StickyBombUpdateFactory, StickyBombUpdateModule, StickyBombUpdateModuleData,
 };
 pub use structure_topple_update::{
+    StructureToppleUpdate, StructureToppleUpdateFactory, StructureToppleUpdateModuleData,
     leftover_apply_crushing_damage_js, leftover_do_damage_line_offsets,
     leftover_structure_topple_crush_points, leftover_structure_topple_facing_width,
-    leftover_structure_topple_max_crush_distance, StructureToppleUpdate,
-    StructureToppleUpdateFactory, StructureToppleUpdateModuleData,
+    leftover_structure_topple_max_crush_distance,
 };
 pub use wave_guide_update::{
-    leftover_play_wave_guide_audio_event, leftover_play_wave_guide_named_audio,
-    leftover_wave_guide_audio_from_template, leftover_wave_guide_splash_due,
-    leftover_wave_guide_splash_roll, LeftoverWaveGuideAudio, WAVE_GUIDE_LOOPING_SOUND,
-    WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY, WAVE_GUIDE_RANDOM_SPLASH_SOUND, WaveGuideUpdate,
-    WaveGuideUpdateFactory, WaveGuideUpdateModuleData,
+    LeftoverWaveGuideAudio, WAVE_GUIDE_LOOPING_SOUND, WAVE_GUIDE_RANDOM_SPLASH_FREQUENCY,
+    WAVE_GUIDE_RANDOM_SPLASH_SOUND, WaveGuideUpdate, WaveGuideUpdateFactory,
+    WaveGuideUpdateModuleData, leftover_play_wave_guide_audio_event,
+    leftover_play_wave_guide_named_audio, leftover_wave_guide_audio_from_template,
+    leftover_wave_guide_splash_due, leftover_wave_guide_splash_roll,
 };
 pub use weapon_bonus_update::{
     WeaponBonusUpdate, WeaponBonusUpdateFactory, WeaponBonusUpdateModule,

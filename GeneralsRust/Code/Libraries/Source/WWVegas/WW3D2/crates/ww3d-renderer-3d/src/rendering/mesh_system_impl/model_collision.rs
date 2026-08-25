@@ -214,7 +214,6 @@ impl MeshModelClass {
         false
     }
 
-
     pub fn intersect_obbox(&self, boxtest: &OBBoxIntersectionTestClass) -> bool {
         let center = MuVec3::new(
             boxtest.box_obj.center.x,

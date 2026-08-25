@@ -73,14 +73,24 @@ pub fn position_additional_images(
 
     // C++ `push_front` while walking begin→end: last map pos is first in the list.
     for pos in meta.supply_positions.iter().rev() {
-        overlay
-            .supply_positions
-            .push(project_marker_in_window(pos, meta, ul.x, ul.y, small_width, small_height));
+        overlay.supply_positions.push(project_marker_in_window(
+            pos,
+            meta,
+            ul.x,
+            ul.y,
+            small_width,
+            small_height,
+        ));
     }
     for pos in meta.tech_positions.iter().rev() {
-        overlay
-            .tech_positions
-            .push(project_marker_in_window(pos, meta, ul.x, ul.y, small_width, small_height));
+        overlay.tech_positions.push(project_marker_in_window(
+            pos,
+            meta,
+            ul.x,
+            ul.y,
+            small_width,
+            small_height,
+        ));
     }
 }
 

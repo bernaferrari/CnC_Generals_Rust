@@ -76,7 +76,6 @@ pub const SNIPE_VEHICLE_AUDIO: &str = "UnitSniped";
 /// C++ `SpecialAbilityUpdate` INI `TriggerSound` for Lotus steal/disable/capture.
 /// Cash/disable/capture cases add EVA + floating text only — no extra SFX names.
 
-
 // --- Special power template names residual ---
 
 pub const SPECIAL_ABILITY_BLACK_LOTUS_CAPTURE: &str = "SpecialAbilityBlackLotusCaptureBuilding";
@@ -448,12 +447,7 @@ pub fn horizontal_distance(a: Vec3, b: Vec3) -> f32 {
 }
 
 /// C++ `FROM_BOUNDINGSPHERE_2D` leftover: 2D center distance minus both radii.
-pub fn leftover_bounding_sphere_2d(
-    a: Vec3,
-    a_radius: f32,
-    b: Vec3,
-    b_radius: f32,
-) -> f32 {
+pub fn leftover_bounding_sphere_2d(a: Vec3, a_radius: f32, b: Vec3, b_radius: f32) -> f32 {
     (horizontal_distance(a, b) - a_radius.max(0.0) - b_radius.max(0.0)).max(0.0)
 }
 
@@ -476,9 +470,10 @@ pub fn leftover_snipe_in_killpilot_range(
 
 /// C++ `SpecialAbilityUpdate.cpp:1394` `setSystemLifetime(effectDuration * interleave)`.
 pub fn leftover_disable_fx_system_lifetime(effect_duration_frames: u32, interleave: u32) -> u32 {
-    effect_duration_frames.saturating_mul(interleave.max(1)).max(1)
+    effect_duration_frames
+        .saturating_mul(interleave.max(1))
+        .max(1)
 }
-
 
 /// C++ `isWithinAbilityAbortRange` (no start-range undersize).
 pub fn leftover_within_abort_range(edge_distance: f32, abort_range: f32) -> bool {
@@ -531,7 +526,6 @@ pub fn leftover_tank_hunter_tnt_target_ok(
 ) -> bool {
     alive && (is_structure || (is_vehicle && !is_aircraft))
 }
-
 
 /// C++ `isFacing` complete residual (~3 deg, matches `Object::face_position`).
 pub const LEFTOVER_SA_FACING_EPSILON: f32 = 0.05;
@@ -624,10 +618,12 @@ pub fn leftover_disable_fx_footprint_offset(
     glam::Vec3::new(x, 0.0, y)
 }
 
-
 /// C++ `LoseStealthOnTrigger` + `PreTriggerUnstealthTime` during unpack.
 /// `m_animFrames < preTriggerUnstealthFrames` → remaining seconds < 5.0s.
-pub fn leftover_should_unstealth_during_unpack(remaining_seconds: f32, pre_trigger_ms: u32) -> bool {
+pub fn leftover_should_unstealth_during_unpack(
+    remaining_seconds: f32,
+    pre_trigger_ms: u32,
+) -> bool {
     remaining_seconds * 1000.0 < pre_trigger_ms as f32
 }
 
@@ -677,7 +673,6 @@ pub fn saturate_selection_flash_rgb(color: [f32; 3], factor: f32) -> [f32; 3] {
         color[2] * factor - half,
     ]
 }
-
 
 /// C++ `continuePreparation` DoCaptureFX flash edge (odd→even falling).
 pub fn leftover_capture_fx_should_flash(
@@ -790,7 +785,6 @@ pub fn leftover_sa_trigger_sound(kind: LeftoverSaKind) -> Option<&'static str> {
     }
 }
 
-
 /// Persistent leftover SpecialAbilityUpdate channel (steal/disable/plant/laser).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LeftoverSaChannel {
@@ -885,9 +879,6 @@ pub struct HostHeroAbilityRegistry {
     /// C++ DisableFX system lifetime: (particle id, expires_frame).
     #[serde(default)]
     pub leftover_disable_fx_until: Vec<(u32, u32)>,
-
-
-
 }
 
 impl HostHeroAbilityRegistry {
@@ -991,7 +982,8 @@ impl HostHeroAbilityRegistry {
     }
 
     pub fn record_leftover_binary_stream(&mut self) {
-        self.leftover_binary_streams_spawned = self.leftover_binary_streams_spawned.saturating_add(1);
+        self.leftover_binary_streams_spawned =
+            self.leftover_binary_streams_spawned.saturating_add(1);
     }
 
     pub fn honesty_leftover_binary_stream_ok(&self) -> bool {
@@ -1004,7 +996,8 @@ impl HostHeroAbilityRegistry {
 
     /// C++ `setSystemLifetime` residual: keep the shower until EffectDuration.
     pub fn record_leftover_disable_fx_until(&mut self, particle_id: u32, expires_frame: u32) {
-        self.leftover_disable_fx_until.push((particle_id, expires_frame));
+        self.leftover_disable_fx_until
+            .push((particle_id, expires_frame));
     }
 
     /// Particle ids whose C++ system lifetime has elapsed.
@@ -1021,7 +1014,6 @@ impl HostHeroAbilityRegistry {
         expired
     }
 
-
     pub fn honesty_leftover_disable_fx_ok(&self) -> bool {
         self.leftover_disable_fx_spawned > 0
     }
@@ -1033,7 +1025,6 @@ impl HostHeroAbilityRegistry {
     pub fn honesty_leftover_infiltration_ok(&self) -> bool {
         self.leftover_infiltration_events > 0
     }
-
 
     /// Combined hero residual path honesty (any hero ability observed).
     pub fn honesty_any_ok(&self) -> bool {
@@ -1062,7 +1053,6 @@ impl HostHeroAbilityRegistry {
     pub fn clear_capture_flash(&mut self, id: ObjectId) {
         self.capture_flash_phase.remove(&id);
     }
-
 }
 
 // --- Wave 57 residual honesty packs ---
@@ -1319,8 +1309,14 @@ mod tests {
     #[test]
     fn leftover_sa_range_flee_and_flash() {
         assert!((PLANT_START_ABILITY_RANGE - 5.0).abs() < 0.01);
-        assert!(leftover_within_start_ability_range(5.0, PLANT_START_ABILITY_RANGE));
-        assert!(!leftover_within_start_ability_range(5.1, PLANT_START_ABILITY_RANGE));
+        assert!(leftover_within_start_ability_range(
+            5.0,
+            PLANT_START_ABILITY_RANGE
+        ));
+        assert!(!leftover_within_start_ability_range(
+            5.1,
+            PLANT_START_ABILITY_RANGE
+        ));
         let edge = leftover_bounding_sphere_2d(
             Vec3::new(0.0, 0.0, 0.0),
             2.0,
@@ -1330,13 +1326,7 @@ mod tests {
         assert!((edge - 5.0).abs() < 1e-4);
         assert!(leftover_should_unstealth_during_unpack(4.9, 5_000));
         assert!(!leftover_should_unstealth_during_unpack(5.0, 5_000));
-        let flee = leftover_flee_position(
-            Vec3::new(0.0, 0.0, 0.0),
-            (1.0, 0.0),
-            100.0,
-            true,
-            None,
-        );
+        let flee = leftover_flee_position(Vec3::new(0.0, 0.0, 0.0), (1.0, 0.0), 100.0, true, None);
         assert!((flee.x - 100.0).abs() < 1e-4);
         let mut phase = 1.4_f32;
         let flashed = leftover_capture_fx_should_flash(&mut phase, 1.0, 6_000);
@@ -1408,15 +1398,9 @@ mod tests {
             true, false, false, false, false
         ));
         // C++ TankHunter arm allows Structure including KINDOF_BRIDGE.
-        assert!(leftover_tank_hunter_tnt_target_ok(
-            true, true, false, false
-        ));
-        assert!(leftover_tank_hunter_tnt_target_ok(
-            true, false, true, false
-        ));
-        assert!(!leftover_tank_hunter_tnt_target_ok(
-            true, false, true, true
-        ));
+        assert!(leftover_tank_hunter_tnt_target_ok(true, true, false, false));
+        assert!(leftover_tank_hunter_tnt_target_ok(true, false, true, false));
+        assert!(!leftover_tank_hunter_tnt_target_ok(true, false, true, true));
         assert!(!leftover_tank_hunter_tnt_target_ok(
             false, true, false, false
         ));

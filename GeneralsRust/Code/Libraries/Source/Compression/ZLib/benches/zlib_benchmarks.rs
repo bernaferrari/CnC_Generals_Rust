@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use zlib_compression::{compress, decompress, CompressionLevel};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use zlib_compression::{CompressionLevel, compress, decompress};
 
 fn compress_round_trip(c: &mut Criterion) {
     let data = vec![0_u8; 64 * 1024];

@@ -31,23 +31,23 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers, AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction,
-    PartitionFilter, THE_AI,
+    search_qualifiers,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
-use crate::helpers::{get_game_logic_random_value, TheAudio, TheGameLogic, ThePartitionManager};
+use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, PhysicsBehaviorExt, FAST_AS_POSSIBLE,
+    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -62,7 +62,7 @@ use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
-    Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT,
+    NO_MAX_SHOTS_LIMIT, Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus,
 };
 use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 
@@ -113,7 +113,6 @@ pub(crate) fn idle_pathfinder_restake_plan(
     }
 }
 
-
 impl AIIdleState {
     /// Create new idle state
     /// C++ constructor from AIStates.cpp line 1249
@@ -129,7 +128,6 @@ impl AIIdleState {
     pub fn is_idle(&self) -> bool {
         true
     }
-
 
     /// Initialize idle state - C++ AIIdleState::doInitIdleState() from AIStates.cpp line 1311
     pub(crate) fn do_init_idle_state(&mut self) {
@@ -173,13 +171,10 @@ impl AIIdleState {
                                 }
                                 _ => crate::ai::pathfind::PathfindLayerEnum::Top,
                             };
-                            let _ = crate::ai::pathfind::update_goal_for_object(
-                                owner_id, &pos, layer,
-                            );
+                            let _ =
+                                crate::ai::pathfind::update_goal_for_object(owner_id, &pos, layer);
                             if plan.snap {
-                                if let Some(snapped) =
-                                    crate::ai::pathfind::goal_position(&pos)
-                                {
+                                if let Some(snapped) = crate::ai::pathfind::goal_position(&pos) {
                                     let frame = TheGameLogic::get_frame();
                                     if frame <= 1 {
                                         drop(owner_guard);
@@ -481,4 +476,3 @@ mod tests {
         assert!(!zero.first_restake);
     }
 }
-

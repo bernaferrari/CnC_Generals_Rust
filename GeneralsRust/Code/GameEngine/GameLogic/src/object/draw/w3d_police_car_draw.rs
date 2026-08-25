@@ -2,15 +2,14 @@ use super::draw_module::*;
 use super::w3d_truck_draw::*;
 use crate::common::*;
 use crate::helpers::{
-    create_scene_point_light, fade_scene_point_light, game_client_random_value_real,
-    update_scene_point_light, TheGameClient, TheGameLogic,
+    TheGameClient, TheGameLogic, create_scene_point_light, fade_scene_point_light,
+    game_client_random_value_real, update_scene_point_light,
 };
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
-
 
 #[derive(Debug, Clone, Default)]
 pub struct W3DPoliceCarDrawModuleData {
@@ -106,7 +105,6 @@ impl W3DPoliceCarDraw {
             );
         }
     }
-
 }
 impl Module for W3DPoliceCarDraw {
     fn on_object_created(&mut self) {
@@ -234,11 +232,7 @@ thread_local! {
 
 /// C++ `W3DPoliceCarDraw::doDrawModule` flashing ground light, leftover-ticked
 /// with the live host pose (leftover `TheGameLogic` may not own live objects).
-pub fn tick_live_host_police_car_light(
-    owner_id: ObjectID,
-    position: [f32; 3],
-    hidden: bool,
-) {
+pub fn tick_live_host_police_car_light(owner_id: ObjectID, position: [f32; 3], hidden: bool) {
     LIVE_POLICE_CAR.with(|map| {
         let mut map = map.borrow_mut();
         let draw = map.entry(owner_id).or_insert_with(|| {

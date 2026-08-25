@@ -111,7 +111,7 @@ impl GameWorldShadow {
         frame: u32,
     ) {
         use crate::game_logic::host_enum_table_residual::{
-            host_calc_body_damage_state, HostBodyDamageType,
+            HostBodyDamageType, host_calc_body_damage_state,
         };
         let Some(eid) = self.entity_for_host(host) else {
             return;
@@ -328,7 +328,9 @@ impl GameWorldShadow {
     }
 
     fn weapon_slot_parity(&self, eid: EntityId, host_obj: &crate::game_logic::Object) -> bool {
-        use gamelogic::world::{WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY};
+        use gamelogic::world::{
+            WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_SECONDARY, WEAPON_SLOT_TERTIARY,
+        };
         let slots = [
             (WEAPON_SLOT_SECONDARY, host_obj.secondary_weapon.as_ref()),
             (WEAPON_SLOT_TERTIARY, host_obj.tertiary_weapon.as_ref()),

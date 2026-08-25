@@ -1,12 +1,17 @@
-use crate::ai::{AiCommandParams, AiCommandType, GUICommandType};
 use crate::ai::ai_group::{
-    clamp_waypoint_position, get_helicopter_offset, STD_AIRCRAFT_EXTRA_MARGIN,
-    STD_WAYPOINT_CLAMP_MARGIN,
+    STD_AIRCRAFT_EXTRA_MARGIN, STD_WAYPOINT_CLAMP_MARGIN, clamp_waypoint_position,
+    get_helicopter_offset,
 };
+use crate::ai::{AiCommandParams, AiCommandType, GUICommandType};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 
+use crate::action_manager::TheActionManager;
+use crate::ai::THE_AI;
+use crate::common::Snapshot;
 use crate::common::command::*;
 use crate::common::coord::*;
+use crate::common::science::SCIENCE_INVALID;
+use crate::common::xfer::{Xfer, XferExt};
 use crate::common::*;
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::*;
@@ -16,24 +21,19 @@ use crate::formation::{
 use crate::helpers::TheGameLogic;
 use crate::modules::{AIAttitudeType, AIUpdateInterfaceExt, ContainModuleInterfaceExt};
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::special_power_module::SpecialPowerCommandOptions;
 use crate::object::special_power_template::get_special_power_store;
+use crate::object::special_power_types::SpecialPowerType;
 use crate::object::*;
+use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::path::*;
 use crate::player::Player;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::special_power::*;
 use crate::team::Team;
-use crate::upgrade::center::THE_UPGRADE_CENTER;
-use crate::ai::THE_AI;
-use crate::action_manager::TheActionManager;
-use crate::common::science::SCIENCE_INVALID;
-use crate::object::special_power_module::SpecialPowerCommandOptions;
-use crate::object::special_power_types::SpecialPowerType;
 use crate::terrain::get_terrain_logic;
-use crate::common::xfer::{Xfer, XferExt};
-use crate::common::Snapshot;
-use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::upgrade::UpgradeTemplate;
+use crate::upgrade::center::THE_UPGRADE_CENTER;
 use crate::waypoint::*;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
 use game_engine::common::system::build_assistant;
@@ -609,7 +609,6 @@ impl AIGroup {
         // C++ AIGroup.cpp:1592-1593 — clamp click onto playable map.
         clamp_waypoint_position(&mut goal, STD_WAYPOINT_CLAMP_MARGIN + extra_margin);
 
-
         if tighten_group {
             is_formation = false;
             if !add_waypoint {
@@ -769,7 +768,6 @@ impl AIGroup {
         }
     }
 
-
     pub fn group_move_to_and_evacuate(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
         // Wave 253: empty dual-world / empty group short-circuit.
         if self.is_empty() || Self::dual_world_registry_unavailable() {
@@ -786,7 +784,11 @@ impl AIGroup {
     }
 
     /// C++ `AIGroup::groupMoveToAndEvacuateAndExit`.
-    pub fn group_move_to_and_evacuate_and_exit(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
+    pub fn group_move_to_and_evacuate_and_exit(
+        &self,
+        pos: &Coord3D,
+        cmd_source: CommandSourceType,
+    ) {
         if self.is_empty() || Self::dual_world_registry_unavailable() {
             return;
         }
@@ -1018,7 +1020,13 @@ impl AIGroup {
         target_id: ObjectID,
         command_options: u32,
     ) {
-        self.do_special_power_common(special_power_id, command_options, None, Some(target_id), 0.0);
+        self.do_special_power_common(
+            special_power_id,
+            command_options,
+            None,
+            Some(target_id),
+            0.0,
+        );
     }
 
     /// C++ `AIGroup::groupOverrideSpecialPowerDestination`.
@@ -1081,7 +1089,10 @@ impl AIGroup {
                             return false;
                         }
                     }
-                    if obj_ref.get_special_power_module(template.get_id()).is_none() {
+                    if obj_ref
+                        .get_special_power_module(template.get_id())
+                        .is_none()
+                    {
                         return false;
                     }
                     match (location, target) {
@@ -1119,22 +1130,18 @@ impl AIGroup {
             if !allowed {
                 continue;
             }
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                match (location, target) {
-                    (Some(loc), _) => {
-                        obj_ref.do_special_power_at_location(
-                            &template_name,
-                            &loc,
-                            crate::object_creation_list::nuggets::INVALID_ANGLE,
-                            options,
-                            false,
-                        )
-                    }
-                    (None, Some(tid)) => {
-                        obj_ref.do_special_power_at_object(&template_name, tid, options, false)
-                    }
-                    (None, None) => obj_ref.do_special_power(&template_name, options, false),
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| match (location, target) {
+                (Some(loc), _) => obj_ref.do_special_power_at_location(
+                    &template_name,
+                    &loc,
+                    crate::object_creation_list::nuggets::INVALID_ANGLE,
+                    options,
+                    false,
+                ),
+                (None, Some(tid)) => {
+                    obj_ref.do_special_power_at_object(&template_name, tid, options, false)
                 }
+                (None, None) => obj_ref.do_special_power(&template_name, options, false),
             });
             let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 obj_ref.friend_set_undetected_defector(false);
@@ -1275,7 +1282,6 @@ impl AIGroup {
             });
         }
     }
-
 
     /// Tell all things in the group to toggle overcharge (matches C++ AIGroup::groupToggleOvercharge).
     pub fn group_toggle_overcharge(&self, _cmd_source: CommandSourceType) {
@@ -1705,7 +1711,6 @@ impl AIGroup {
         }
     }
 
-
     pub fn group_guard_position(
         &self,
         pos: &Coord3D,
@@ -2116,7 +2121,6 @@ impl AIGroup {
         }
     }
 
-
     /// Break formation (units move independently)
     pub fn break_formation(&mut self) {
         if let Some(formation_id) = self.formation_id {
@@ -2211,9 +2215,10 @@ impl AIGroup {
         let mut dist_sqr_center = dist_sqr * 10.0;
 
         for &member_id in &self.member_list {
-            let Some((kind_inf, kind_veh, kind_air, unit_pos)) =
-                OBJECT_REGISTRY.with_object(member_id, |obj| {
-                    if obj.is_disabled_by_type(DisabledType::Held) || obj.get_ai_update_interface().is_none()
+            let Some((kind_inf, kind_veh, kind_air, unit_pos)) = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    if obj.is_disabled_by_type(DisabledType::Held)
+                        || obj.get_ai_update_interface().is_none()
                     {
                         return None;
                     }
@@ -2265,7 +2270,8 @@ impl AIGroup {
         if dist_sqr < min_dist * min_dist {
             return None;
         }
-        let mut close_enough = dist_sqr > require_dist * require_dist || num_infantry > 6 || num_vehicles > 4;
+        let mut close_enough =
+            dist_sqr > require_dist * require_dist || num_infantry > 6 || num_vehicles > 4;
         if !close_enough {
             let mut passable = true;
             for &member_id in &self.member_list {
@@ -2287,14 +2293,16 @@ impl AIGroup {
                             .read()
                             .ok()
                             .and_then(|ai| ai.pathfinder())
-                            .and_then(|pf| pf.read().ok().map(|p| {
-                                p.is_line_passable_for_surfaces(
-                                    obj.get_position(),
-                                    &center,
-                                    set.get_valid_surfaces(),
-                                    None,
-                                )
-                            }))
+                            .and_then(|pf| {
+                                pf.read().ok().map(|p| {
+                                    p.is_line_passable_for_surfaces(
+                                        obj.get_position(),
+                                        &center,
+                                        set.get_valid_surfaces(),
+                                        None,
+                                    )
+                                })
+                            })
                             .unwrap_or(true)
                     })
                     .unwrap_or(true);
@@ -2369,8 +2377,8 @@ impl AIGroup {
             .unwrap_or(if infantry { 3 } else { 4 });
 
         const PATH_DIAMETER_IN_CELLS: f32 = 6.0;
-        let far_enough_sqr =
-            (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F) * (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F);
+        let far_enough_sqr = (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F)
+            * (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F);
         let start_point = path[0];
         let end_point = *path.last().unwrap();
         let Some(start_node) = path.iter().find(|n| {
@@ -2388,7 +2396,8 @@ impl AIGroup {
             return false;
         };
 
-        let mut start_vector = Coord2D::new(start_node.x - start_point.x, start_node.y - start_point.y);
+        let mut start_vector =
+            Coord2D::new(start_node.x - start_point.x, start_node.y - start_point.y);
         normalize_coord2(&mut start_vector);
         let mut end_vector = Coord2D::new(end_point.x - end_node.x, end_point.y - end_node.y);
         normalize_coord2(&mut end_vector);
@@ -2521,8 +2530,8 @@ impl AIGroup {
             return;
         };
         const PATH_DIAMETER_IN_CELLS: f32 = 6.0;
-        let far_enough_sqr =
-            (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F) * (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F);
+        let far_enough_sqr = (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F)
+            * (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F);
         let (start_node, end_point) = if let Some(path) = path.filter(|p| p.len() >= 2) {
             let start_point = path[0];
             let end_point = *path.last().unwrap();
@@ -2551,7 +2560,9 @@ impl AIGroup {
                         let mut started = false;
                         for node in path {
                             if !started {
-                                if (node.x - start.x).abs() < 0.01 && (node.y - start.y).abs() < 0.01 {
+                                if (node.x - start.x).abs() < 0.01
+                                    && (node.y - start.y).abs() < 0.01
+                                {
                                     started = true;
                                 } else {
                                     continue;
@@ -2567,7 +2578,8 @@ impl AIGroup {
                     ));
                     ai.ai_follow_path(&dests, None, cmd_source);
                 } else {
-                    let dest = Coord3D::new(end_point.x + offset.x, end_point.y + offset.y, end_point.z);
+                    let dest =
+                        Coord3D::new(end_point.x + offset.x, end_point.y + offset.y, end_point.z);
                     ai.ai_move_to_position(&dest, false, cmd_source);
                 }
                 let _ = center;

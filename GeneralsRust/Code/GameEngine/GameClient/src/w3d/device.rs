@@ -11,7 +11,7 @@
 //! - **Debug Integration**: Advanced debugging and profiling tools
 
 use bytemuck::{Pod, Zeroable};
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use dashmap::DashMap;
 use slotmap::{DefaultKey, SlotMap};
 use std::collections::{HashMap, VecDeque};
@@ -19,23 +19,24 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use ultraviolet::{Mat4, Rotor3, Vec3, Vec4};
 use wgpu::{
-    util::DeviceExt, Adapter, Backends, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, CommandEncoder,
-    CompositeAlphaMode, ComputePipeline, Device, DeviceDescriptor, Dx12Compiler, Features,
-    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, MemoryHints,
-    PowerPreference, PresentMode, Queue, RenderPipeline, RequestAdapterOptions, SamplerBindingType,
-    ShaderStages, Surface, SurfaceConfiguration, SurfaceError, TextureFormat, TextureSampleType,
-    TextureUsages, TextureView, TextureViewDimension,
+    Adapter, Backends, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
+    BindingType, Buffer, BufferBindingType, BufferUsages, CommandEncoder, CompositeAlphaMode,
+    ComputePipeline, Device, DeviceDescriptor, Dx12Compiler, Features, Gles3MinorVersion, Instance,
+    InstanceDescriptor, InstanceFlags, Limits, MemoryHints, PowerPreference, PresentMode, Queue,
+    RenderPipeline, RequestAdapterOptions, SamplerBindingType, ShaderStages, Surface,
+    SurfaceConfiguration, SurfaceError, TextureFormat, TextureSampleType, TextureUsages,
+    TextureView, TextureViewDimension, util::DeviceExt,
 };
 use winit::{
     dpi::PhysicalSize,
     event_loop::EventLoop,
-    window::{Fullscreen, Window, WindowBuilder},
+    window::{Fullscreen, Window},
 };
 use ww3d_core::ww3d::WW3D;
 use ww3d_gpu::device::GpuDevice;
 
 use super::{
+    W3DConfig, W3DError, W3DProfiler, W3DQuality, W3DResult, W3DStats,
     format::W3DLoader,
     material::W3DMaterialManager,
     memory::W3DMemoryManager,
@@ -44,7 +45,6 @@ use super::{
     renderer::{W3DRenderSettings, W3DRenderer},
     shader::W3DShaderManager,
     texture::W3DTextureManager,
-    W3DConfig, W3DError, W3DProfiler, W3DQuality, W3DResult, W3DStats,
 };
 
 /// W3D Device specific errors
@@ -312,15 +312,19 @@ impl W3DDevice {
 
         // Create window
         let window = Arc::new(
-            WindowBuilder::new()
-                .with_title("W3D Revolutionary Engine - Command & Conquer Generals Zero Hour")
-                .with_inner_size(PhysicalSize::new(settings.width, settings.height))
-                .with_fullscreen(if settings.windowed {
-                    None
-                } else {
-                    Some(Fullscreen::Borderless(None))
-                })
-                .build(event_loop)
+            event_loop
+                .create_window(
+                    Window::default_attributes()
+                        .with_title(
+                            "W3D Revolutionary Engine - Command & Conquer Generals Zero Hour",
+                        )
+                        .with_inner_size(PhysicalSize::new(settings.width, settings.height))
+                        .with_fullscreen(if settings.windowed {
+                            None
+                        } else {
+                            Some(Fullscreen::Borderless(None))
+                        }),
+                )
                 .map_err(|e| W3DDeviceError::SurfaceCreation(e.to_string()))?,
         );
 

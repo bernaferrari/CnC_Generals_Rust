@@ -2,22 +2,22 @@
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
 use crate::ai::integration::with_ai_integration_mut;
-use crate::common::xfer::XferExt;
 use crate::common::GameLogicRandomValueReal;
+use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, BodyDamageType, Bool, Coord3D, ICoord2D, KindOf, ModuleData, ObjectID, Real,
-    UnsignedInt, INVALID_ID,
+    AsciiString, BodyDamageType, Bool, Coord3D, ICoord2D, INVALID_ID, KindOf, ModuleData, ObjectID,
+    Real, UnsignedInt,
 };
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic};
 use crate::modules::{
-    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::AudioEventRts;
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
-use crate::path::{grid_to_world, world_to_grid, PathfindLayerEnum, PATHFIND_CELL_SIZE_F};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
+use crate::path::{PATHFIND_CELL_SIZE_F, PathfindLayerEnum, grid_to_world, world_to_grid};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{

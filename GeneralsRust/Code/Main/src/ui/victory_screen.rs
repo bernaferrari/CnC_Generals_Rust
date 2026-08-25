@@ -5,8 +5,8 @@
 use super::{Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext};
 use crate::{
     game_logic::{
-        victory::{format_duration, PlayerOutcome, PlayerResult, VictorySummary},
         Team,
+        victory::{PlayerOutcome, PlayerResult, VictorySummary, format_duration},
     },
     localization,
 };

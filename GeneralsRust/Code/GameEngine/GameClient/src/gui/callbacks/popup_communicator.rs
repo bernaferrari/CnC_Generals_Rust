@@ -1,8 +1,8 @@
 //! PopupCommunicator.cpp callback port.
 
 use crate::gui::{
-    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, with_window_manager,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;

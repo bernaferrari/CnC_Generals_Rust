@@ -11,14 +11,14 @@ use crate::assets::{
     archive::{ArchiveFileSystem, ArchiveStatistics},
     audio::AudioManager,
     models::{
-        get_common_cnc_units, split_w3d_draw_animation_identity, W3DLoader, W3DMesh, W3DModel,
-        W3dAnimation, W3dAnimationBinding,
+        W3DLoader, W3DMesh, W3DModel, W3dAnimation, W3dAnimationBinding, get_common_cnc_units,
+        split_w3d_draw_animation_identity,
     },
     textures::{GPUTexture, RawTexture, TextureManager},
     ww3d_asset_manager::WW3DAssetManager,
 };
 use crate::localization;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{HashMap, HashSet};
@@ -262,9 +262,9 @@ impl W3dRenderObjectPrototypeRegistry {
                 crate::assets::models::W3dExtraPrototypeKind::Null { null_index } => {
                     W3dRenderObjectPrototypeKind::Null { null_index }
                 }
-                crate::assets::models::W3dExtraPrototypeKind::Collection {
-                    collection_index,
-                } => W3dRenderObjectPrototypeKind::Collection { collection_index },
+                crate::assets::models::W3dExtraPrototypeKind::Collection { collection_index } => {
+                    W3dRenderObjectPrototypeKind::Collection { collection_index }
+                }
                 crate::assets::models::W3dExtraPrototypeKind::Aggregate { aggregate_index } => {
                     W3dRenderObjectPrototypeKind::Aggregate { aggregate_index }
                 }
@@ -292,12 +292,14 @@ impl W3dRenderObjectPrototypeRegistry {
         // `Load_Prototype` calls `Render_Obj_Exists` before `Add_Prototype`.
         // Preserve the first exact source record rather than silently replacing
         // it with a later W3D file's conflicting definition.
-        self.prototypes.entry(key).or_insert(W3dRenderObjectPrototype {
-            full_name,
-            source_file_stem: source_file_stem.to_string(),
-            source_model_key: source_model_key.to_string(),
-            kind,
-        });
+        self.prototypes
+            .entry(key)
+            .or_insert(W3dRenderObjectPrototype {
+                full_name,
+                source_file_stem: source_file_stem.to_string(),
+                source_model_key: source_model_key.to_string(),
+                kind,
+            });
     }
 }
 
@@ -342,7 +344,9 @@ fn w3d_render_object_identity_key(full_name: &str) -> Option<String> {
 /// file access.
 fn w3d_render_object_source_stem(full_name: &str) -> Option<&str> {
     w3d_render_object_identity_key(full_name)?;
-    let source_stem = full_name.split_once('.').map_or(full_name, |(stem, _)| stem);
+    let source_stem = full_name
+        .split_once('.')
+        .map_or(full_name, |(stem, _)| stem);
     (!source_stem.is_empty()
         && !source_stem.contains('/')
         && !source_stem.contains('\\')
@@ -423,12 +427,14 @@ fn load_exact_w3d_render_object_source(
         // Once C++ finds a source file it loads that file, rather than using a
         // later alias/path as a fallback for malformed prototype contents.
         let mut bytes = Vec::new();
-        reader
-            .read_to_end(&mut bytes)
-            .map_err(|error| anyhow!("failed reading strict W3D source '{archive_path}': {error}"))?;
+        reader.read_to_end(&mut bytes).map_err(|error| {
+            anyhow!("failed reading strict W3D source '{archive_path}': {error}")
+        })?;
         return model_loader
             .load_model_from_bytes(&bytes, source_stem)
-            .map_err(|error| anyhow!("failed parsing strict W3D source '{archive_path}': {error}"));
+            .map_err(|error| {
+                anyhow!("failed parsing strict W3D source '{archive_path}': {error}")
+            });
     }
 
     Err(anyhow!(
@@ -705,7 +711,10 @@ impl AssetManager {
         info!("🎮 Initializing WW3D Asset Manager for object definitions and texture lookup");
         let init_start = SystemTime::now();
         if let Err(e) = self.ww3d_manager.initialize(&mut self.archive_system).await {
-            warn!("Failed to initialize WW3D asset manager: {}. Continuing without object definitions.", e);
+            warn!(
+                "Failed to initialize WW3D asset manager: {}. Continuing without object definitions.",
+                e
+            );
         }
         let init_elapsed = init_start.elapsed().unwrap_or_default();
         info!(
@@ -1608,7 +1617,6 @@ impl AssetManager {
             .overlay_object_create_overrides(name, reskin_from, properties);
     }
 
-
     /// Get all texture filenames from WW3D Asset Manager for preloading
     pub fn get_all_texture_filenames(&self) -> Vec<String> {
         self.ww3d_manager.get_all_texture_filenames()
@@ -1650,7 +1658,6 @@ impl AssetManager {
             .play_sound_effect_scaled(&mut self.archive_system, sound_name, volume_scale)
             .await
     }
-
 
     /// Toggle background music
     pub fn toggle_background_music(&self) {
@@ -2466,7 +2473,6 @@ pub fn apply_live_draw_transition_playback_for_object(
     definition.apply_live_draw_transition_playback(object_id, dest_models)
 }
 
-
 /// Resolve Draw models then play any authored `TransitionState` for this live
 /// object (C++ `setModelState` / `findTransitionForSig`).
 pub fn resolve_presentation_draw_models_for_live_object(
@@ -2592,7 +2598,6 @@ pub async fn play_cnc_sound_effect_scaled(sound_name: &str, volume_scale: f32) -
     .map_err(|e| anyhow!("sound task join failed: {e}"))?
 }
 
-
 pub fn toggle_cnc_music() {
     if let Some(manager_arc) = get_asset_manager() {
         // We need to spawn a task for the async lock
@@ -2675,11 +2680,7 @@ mod tests {
         }
     }
 
-    fn prototype_source_model(
-        mesh_container: &str,
-        mesh_name: &str,
-        hlod_name: &str,
-    ) -> W3DModel {
+    fn prototype_source_model(mesh_container: &str, mesh_name: &str, hlod_name: &str) -> W3DModel {
         let mut model = W3DModel::new("strict_source".to_string());
         let mut mesh = W3DMesh::new(mesh_name.to_string());
         mesh.container_name = mesh_container.to_string();
@@ -2712,13 +2713,19 @@ mod tests {
             .expect("C++ Find_Prototype is case-insensitive for the complete mesh identity");
         assert_eq!(mesh.full_name(), "ATTACHED_MODEL.Body");
         assert_eq!(mesh.source_file_stem(), "ATTACHED_MODEL");
-        assert_eq!(mesh.kind(), W3dRenderObjectPrototypeKind::Mesh { mesh_index: 0 });
+        assert_eq!(
+            mesh.kind(),
+            W3dRenderObjectPrototypeKind::Mesh { mesh_index: 0 }
+        );
         assert!(registry.source_model(&mesh).is_some());
 
         let hlod = registry
             .lookup("attached_model")
             .expect("source HLOD header name is also an exact prototype identity");
-        assert_eq!(hlod.kind(), W3dRenderObjectPrototypeKind::Hlod { hlod_index: 0 });
+        assert_eq!(
+            hlod.kind(),
+            W3dRenderObjectPrototypeKind::Hlod { hlod_index: 0 }
+        );
 
         assert!(registry.lookup("Body").is_none(), "no bare mesh alias");
         assert!(
@@ -2814,14 +2821,8 @@ mod tests {
     #[test]
     fn strict_render_object_registry_preserves_the_first_duplicate_name() {
         let mut registry = W3dRenderObjectPrototypeRegistry::default();
-        registry.register_source_model(
-            "FIRST",
-            prototype_source_model("DUPLICATE", "Mesh", ""),
-        );
-        registry.register_source_model(
-            "SECOND",
-            prototype_source_model("DUPLICATE", "Mesh", ""),
-        );
+        registry.register_source_model("FIRST", prototype_source_model("DUPLICATE", "Mesh", ""));
+        registry.register_source_model("SECOND", prototype_source_model("DUPLICATE", "Mesh", ""));
 
         let prototype = registry
             .lookup("duplicate.mesh")
@@ -2842,18 +2843,17 @@ mod tests {
             "ATTACHED_MODEL.Body.extra",
             |source_stem| {
                 requested_stems.push(source_stem.to_string());
-                Some(prototype_source_model(
-                    "ATTACHED_MODEL",
-                    "Body.extra",
-                    "",
-                ))
+                Some(prototype_source_model("ATTACHED_MODEL", "Body.extra", ""))
             },
         )
         .expect("the full name must be re-looked up after the exact stem source loads");
 
         assert_eq!(requested_stems, ["ATTACHED_MODEL"]);
         assert_eq!(prototype.full_name(), "ATTACHED_MODEL.Body.extra");
-        assert_eq!(prototype.kind(), W3dRenderObjectPrototypeKind::Mesh { mesh_index: 0 });
+        assert_eq!(
+            prototype.kind(),
+            W3dRenderObjectPrototypeKind::Mesh { mesh_index: 0 }
+        );
     }
 
     #[test]

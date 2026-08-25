@@ -12,7 +12,7 @@ use super::body_module::{
     DamageInfo, DamageInfoInput, MaxHealthChangeType, ObjectId, VeterancyLevel,
 };
 use crate::common::INVALID_ID;
-use game_engine::common::ini::{INIError, INI};
+use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data specific to structure bodies  
@@ -375,9 +375,10 @@ mod tests {
         assert_eq!(body.get_previous_health(), 200.0);
 
         // Max health operations
-        assert!(body
-            .set_max_health(300.0, MaxHealthChangeType::PreserveRatio)
-            .is_ok());
+        assert!(
+            body.set_max_health(300.0, MaxHealthChangeType::PreserveRatio)
+                .is_ok()
+        );
         assert_eq!(body.get_max_health(), 300.0);
         assert_eq!(body.get_health(), 225.0); // Should preserve ratio (75%)
 
@@ -438,9 +439,14 @@ mod tests {
         let initial_health = body.get_health();
         let initial_max_health = body.get_max_health();
 
-        assert!(body
-            .on_veterancy_level_changed(VeterancyLevel::Regular, VeterancyLevel::Veteran, false)
-            .is_ok());
+        assert!(
+            body.on_veterancy_level_changed(
+                VeterancyLevel::Regular,
+                VeterancyLevel::Veteran,
+                false
+            )
+            .is_ok()
+        );
 
         // Should have veteran armor flag set
         assert!(body.test_armor_set_flag(ArmorSetType::Veteran));

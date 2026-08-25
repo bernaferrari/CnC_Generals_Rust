@@ -140,7 +140,6 @@ pub fn command_set_override_for_upgrade(
         return china_structure_command_set_upgrade(&t);
     }
 
-
     // Overlord / Helix addon command sets.
     if u.contains("overlordgattling") {
         return Some("ChinaTankOverlordGattlingCannonCommandSet");
@@ -288,5 +287,4 @@ mod tests {
             None
         );
     }
-
 }

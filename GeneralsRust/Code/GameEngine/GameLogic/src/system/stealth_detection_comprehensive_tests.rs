@@ -15,20 +15,20 @@
 mod stealth_detection_comprehensive_tests {
     use crate::common::ObjectID;
     use crate::system::detection_events::{
-        get_detection_events_manager, AudioEventType, DetectionEventManager, DetectionEventType,
-        EvaMessageType,
+        AudioEventType, DetectionEventManager, DetectionEventType, EvaMessageType,
+        get_detection_events_manager,
     };
     use crate::system::detection_manager::{
-        get_detection_manager, DetectionManager, DetectionModifier, DetectionStrength,
+        DetectionManager, DetectionModifier, DetectionStrength, get_detection_manager,
     };
     use crate::system::stealth_conditions::{
-        get_stealth_conditions_manager, StealthCondition, StealthConditionsManager,
+        StealthCondition, StealthConditionsManager, get_stealth_conditions_manager,
     };
     use crate::system::stealth_manager::{
-        get_stealth_manager, StealthManager, StealthStatus, StealthStrength,
+        StealthManager, StealthStatus, StealthStrength, get_stealth_manager,
     };
     use crate::system::stealth_special_power::{
-        get_stealth_special_power_manager, Coord3D, StealthSpecialPowerManager, PERMANENT_STEALTH,
+        Coord3D, PERMANENT_STEALTH, StealthSpecialPowerManager, get_stealth_special_power_manager,
     };
 
     // ============================================================================
@@ -181,12 +181,16 @@ mod stealth_detection_comprehensive_tests {
 
         // Standard detector at close range should have full 60.0 effectiveness
         assert!((effectiveness - 60.0).abs() < 0.01);
-        assert!(detection
-            .can_detect_stealth(1, 50.0, close_modifier)
-            .unwrap());
-        assert!(!detection
-            .can_detect_stealth(1, 70.0, close_modifier)
-            .unwrap());
+        assert!(
+            detection
+                .can_detect_stealth(1, 50.0, close_modifier)
+                .unwrap()
+        );
+        assert!(
+            !detection
+                .can_detect_stealth(1, 70.0, close_modifier)
+                .unwrap()
+        );
     }
 
     /// Test 2b: Detection at distance (reduced effectiveness)
@@ -207,12 +211,16 @@ mod stealth_detection_comprehensive_tests {
 
         // Standard detector at distance: 60.0 * 0.5 = 30.0
         assert!((effectiveness - 30.0).abs() < 0.01);
-        assert!(detection
-            .can_detect_stealth(1, 20.0, distant_modifier)
-            .unwrap());
-        assert!(!detection
-            .can_detect_stealth(1, 40.0, distant_modifier)
-            .unwrap());
+        assert!(
+            detection
+                .can_detect_stealth(1, 20.0, distant_modifier)
+                .unwrap()
+        );
+        assert!(
+            !detection
+                .can_detect_stealth(1, 40.0, distant_modifier)
+                .unwrap()
+        );
     }
 
     /// Test 2c: Detection of moving unit (easier)
@@ -230,9 +238,11 @@ mod stealth_detection_comprehensive_tests {
 
         // Stealth: 50.0, Detection: 60.0
         // Should detect moving unit
-        assert!(detection
-            .can_detect_stealth(1, 50.0, moving_modifier)
-            .unwrap());
+        assert!(
+            detection
+                .can_detect_stealth(1, 50.0, moving_modifier)
+                .unwrap()
+        );
     }
 
     /// Test 2d: Detection of stationary unit (harder)
@@ -253,12 +263,16 @@ mod stealth_detection_comprehensive_tests {
 
         // Standard detector vs stationary: 60.0 * 0.5 = 30.0
         assert!((effectiveness - 30.0).abs() < 0.01);
-        assert!(detection
-            .can_detect_stealth(1, 20.0, stationary_modifier)
-            .unwrap());
-        assert!(!detection
-            .can_detect_stealth(1, 40.0, stationary_modifier)
-            .unwrap());
+        assert!(
+            detection
+                .can_detect_stealth(1, 20.0, stationary_modifier)
+                .unwrap()
+        );
+        assert!(
+            !detection
+                .can_detect_stealth(1, 40.0, stationary_modifier)
+                .unwrap()
+        );
     }
 
     // ============================================================================
@@ -367,12 +381,16 @@ mod stealth_detection_comprehensive_tests {
             .unwrap();
 
         // No detection capability should never detect
-        assert!(!detection
-            .can_detect_stealth(1, 0.0, DetectionModifier::default())
-            .unwrap());
-        assert!(!detection
-            .can_detect_stealth(1, 50.0, DetectionModifier::default())
-            .unwrap());
+        assert!(
+            !detection
+                .can_detect_stealth(1, 0.0, DetectionModifier::default())
+                .unwrap()
+        );
+        assert!(
+            !detection
+                .can_detect_stealth(1, 50.0, DetectionModifier::default())
+                .unwrap()
+        );
     }
 
     // ============================================================================
@@ -976,9 +994,11 @@ mod stealth_detection_comprehensive_tests {
             .unwrap();
 
         // Check: strong detector (90) > weak stealth (30)
-        assert!(detection
-            .can_detect_stealth(2, 30.0, DetectionModifier::default())
-            .unwrap());
+        assert!(
+            detection
+                .can_detect_stealth(2, 30.0, DetectionModifier::default())
+                .unwrap()
+        );
     }
 
     /// Test 9c: Events fire (radar, audio, Eva)
@@ -1115,16 +1135,20 @@ mod stealth_detection_comprehensive_tests {
         stealth.register_object(1).unwrap();
 
         // Invalid player ID (> 7)
-        assert!(stealth
-            .set_stealth_status(1, 8, StealthStatus::Invisible)
-            .is_err());
+        assert!(
+            stealth
+                .set_stealth_status(1, 8, StealthStatus::Invisible)
+                .is_err()
+        );
         assert!(stealth.get_stealth_status(1, 255).is_err());
 
         // Event manager with invalid player
         assert!(events.register_detection(1, 2, 100, 8, 0).is_err());
-        assert!(events
-            .create_eva_message(EvaMessageType::EnemyDetected, 255, 2)
-            .is_err());
+        assert!(
+            events
+                .create_eva_message(EvaMessageType::EnemyDetected, 255, 2)
+                .is_err()
+        );
     }
 
     /// Test 10b: Unregistered objects return errors
@@ -1140,9 +1164,11 @@ mod stealth_detection_comprehensive_tests {
 
         // Unregistered in detection
         assert!(detection.get_detection_strength(999).is_err());
-        assert!(detection
-            .can_detect_stealth(999, 50.0, DetectionModifier::default())
-            .is_err());
+        assert!(
+            detection
+                .can_detect_stealth(999, 50.0, DetectionModifier::default())
+                .is_err()
+        );
 
         // Unregistered in conditions
         assert!(conditions.get_condition_flags(999).is_err());

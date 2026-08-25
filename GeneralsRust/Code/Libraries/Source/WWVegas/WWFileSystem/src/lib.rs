@@ -115,7 +115,7 @@ pub mod file_system;
 pub mod search_string;
 
 // Re-export main types for convenience
-pub use archive_file::{open_big_archive, ArchiveFile, ArchiveFileTrait, FilenameList};
+pub use archive_file::{ArchiveFile, ArchiveFileTrait, FilenameList, open_big_archive};
 pub use archive_file_system::ArchiveFileSystem;
 pub use archived_file_info::ArchivedFileInfo;
 pub use big_file_parser::{BigFileEntry, BigFileHeader, BigFileParser};

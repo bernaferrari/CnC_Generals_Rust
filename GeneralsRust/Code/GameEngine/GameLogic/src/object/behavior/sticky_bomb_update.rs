@@ -3,8 +3,8 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, KindOf, ModuleData, ObjectID, ObjectStatusMaskType, PlayerMaskType, Real,
-    UnsignedInt, LOGICFRAMES_PER_SECOND,
+    AsciiString, Coord3D, KindOf, LOGICFRAMES_PER_SECOND, ModuleData, ObjectID,
+    ObjectStatusMaskType, PlayerMaskType, Real, UnsignedInt,
 };
 use crate::damage::DamageInfo;
 use crate::effects::FXList;
@@ -14,11 +14,11 @@ use crate::helpers::{
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
-use crate::weapon::{with_weapon_store, WeaponBonus, WeaponTemplate};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
+use crate::weapon::{WeaponBonus, WeaponTemplate, with_weapon_store};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{

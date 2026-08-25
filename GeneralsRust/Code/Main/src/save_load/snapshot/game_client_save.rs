@@ -13,8 +13,7 @@ pub const CHUNK_GAME_CLIENT: &str = "CHUNK_GameClient";
 static PENDING_GAME_CLIENT_XFER: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
 pub fn capture_game_client_xfer_bytes() -> SaveLoadResult<Vec<u8>> {
-    game_client::core::capture_live_game_client_xfer_bytes()
-        .map_err(SaveLoadError::Serialization)
+    game_client::core::capture_live_game_client_xfer_bytes().map_err(SaveLoadError::Serialization)
 }
 
 pub fn stash_loaded_game_client_xfer(bytes: Vec<u8>) {
@@ -35,9 +34,7 @@ pub fn restore_game_client_from_xfer_bytes(bytes: &[u8]) -> SaveLoadResult<()> {
         .map_err(SaveLoadError::Serialization)
 }
 
-pub fn restore_objectless_from_client_drawables(
-    snapshot: &super::ClientDrawableWorldSnapshot,
-) {
+pub fn restore_objectless_from_client_drawables(snapshot: &super::ClientDrawableWorldSnapshot) {
     let Some(client) = gamelogic::helpers::TheGameClient::get() else {
         return;
     };

@@ -61,8 +61,6 @@ pub use common::*;
 
 // Re-export System components for convenience
 pub use System::{
-    get_game_state,
-    init_game_state,
     AvailableGameInfo,
     // Save/Load system
     GameState,
@@ -79,4 +77,6 @@ pub use System::{
     XferMode,
     XferSave,
     XferStatus,
+    get_game_state,
+    init_game_state,
 };

@@ -1,4 +1,4 @@
-use game_engine::common::system::radar::{get_radar_system, Coord3D, RadarEventType};
+use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
 use generals_main::game_logic::host_radar::{
     host_world_to_radar_coord, last_the_radar_event_host_position,
 };

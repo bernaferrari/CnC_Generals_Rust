@@ -43,13 +43,13 @@ use crate::chunk_reader::{ChunkReader, ChunkResult};
 use glam::{Vec2, Vec3, Vec4};
 use std::io::{Read, Seek};
 use ww3d_core::{
+    PrelitMode, W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS, W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE,
+    W3D_CHUNK_PRELIT_UNLIT, W3D_CHUNK_PRELIT_VERTEX, W3DChunkType, WW3D,
     w3d_format::{
         W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS, W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_TEXTURE,
         W3D_MESH_FLAG_PRELIT_MASK, W3D_MESH_FLAG_PRELIT_UNLIT, W3D_MESH_FLAG_PRELIT_VERTEX,
     },
     w3d_obsolete::*,
-    PrelitMode, W3DChunkType, WW3D, W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS,
-    W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE, W3D_CHUNK_PRELIT_UNLIT, W3D_CHUNK_PRELIT_VERTEX,
 };
 
 /// W3D Mesh Header structure
@@ -273,7 +273,6 @@ impl MeshLoader {
         let prelit_chunk_id = Self::select_prelit_chunk_id(mesh.header.attributes);
         Self::read_chunks(reader, &mut mesh, prelit_chunk_id)?;
 
-
         Ok(mesh)
     }
 
@@ -441,7 +440,6 @@ impl MeshLoader {
         Ok(())
     }
 
-
     /// Load vertex positions
     ///
     /// # C++ Reference
@@ -542,7 +540,6 @@ impl MeshLoader {
 
         Ok(())
     }
-
 
     /// Load shader IDs for polygons
     ///
@@ -1185,7 +1182,6 @@ mod tests {
         assert!((mesh.vertex_influences[0][0].weight - 1.0).abs() < f32::EPSILON);
         assert_eq!(mesh.vertex_influences[1][0].bone_index, 7);
     }
-
 
     #[test]
     fn test_load_simple_cube_mesh() {

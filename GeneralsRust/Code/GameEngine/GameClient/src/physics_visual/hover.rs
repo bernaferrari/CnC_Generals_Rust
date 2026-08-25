@@ -1,11 +1,11 @@
 //! C++ `Drawable::calcPhysicsXformHoverOrWings` (`Drawable.cpp:1525-1633`).
 
+use super::PhysicsVisualXform;
 use super::loco_state::PhysicsVisualLocoState;
 use super::spring::{
     apply_motive_accel_kick, clamp_accel_pitch_roll, integrate_accel_axis, integrate_chassis_axis,
 };
 use super::types::{LocomotorVisualParams, PhysicsVisualBody};
-use super::PhysicsVisualXform;
 
 /// Hover / wings spring + motive vel/accel + rudder/elevator modulators.
 pub fn calc_hover_or_wings(

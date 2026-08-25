@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -395,7 +395,6 @@ impl OclSpecialPower {
         // DeliverPayload reuses the firing object instead of spawning a transport.
         let _ = ocl.create_with_owner_flag(&ctx, Some(&*owner_guard), &pos, &pos, false, 0);
         Ok(())
-
     }
 
     fn dispatch_do_special_power(
@@ -456,7 +455,6 @@ impl OclSpecialPower {
 
     fn dispatch_on_special_power_creation(&mut self) {}
 }
-
 
 /// Try to find a passable position near the given coordinate.
 /// Simplified version - the full C++ version uses PartitionManager::findPositionAround

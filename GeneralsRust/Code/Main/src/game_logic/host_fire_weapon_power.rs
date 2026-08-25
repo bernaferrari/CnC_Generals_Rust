@@ -11,10 +11,8 @@
 //! Fail-closed: not full turret slot matrix / SpecialPowerModule base recharge
 //! beyond host special power registry.
 
-
 use super::ObjectId;
 use serde::{Deserialize, Serialize};
-
 
 /// Retail MaxShotsToFire residual for common FireWeaponPower peels.
 pub const FIRE_WEAPON_POWER_DEFAULT_SHOTS: u32 = 1;
@@ -30,7 +28,6 @@ pub struct HostFireWeaponPowerRequest {
     #[serde(default)]
     pub target_object_id: Option<ObjectId>,
 }
-
 
 impl HostFireWeaponPowerRequest {
     pub fn at_self(shots: u32) -> Self {

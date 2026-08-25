@@ -22,11 +22,11 @@ pub mod hud;
 pub mod hud_state;
 pub mod layout_manager;
 pub use layout_manager::{
-    residual_main_menu_layout_button_count, residual_main_menu_layout_element_count,
-    residual_main_menu_layout_last_action, simulate_main_menu_layout_clear,
-    simulate_main_menu_layout_create, simulate_main_menu_layout_hit_test_single_player,
-    simulate_main_menu_layout_prepare_default, ResidualMainMenuLayoutAction, UILayoutManager,
-    MAIN_MENU_LAYOUT_BUTTON_NAMES, MAIN_MENU_LAYOUT_CHROME_NAMES,
+    MAIN_MENU_LAYOUT_BUTTON_NAMES, MAIN_MENU_LAYOUT_CHROME_NAMES, ResidualMainMenuLayoutAction,
+    UILayoutManager, residual_main_menu_layout_button_count,
+    residual_main_menu_layout_element_count, residual_main_menu_layout_last_action,
+    simulate_main_menu_layout_clear, simulate_main_menu_layout_create,
+    simulate_main_menu_layout_hit_test_single_player, simulate_main_menu_layout_prepare_default,
 };
 pub mod loading_screen;
 pub mod main_menu;
@@ -56,14 +56,15 @@ pub use events::{InputEvent, KeyEvent, MouseEvent, UIEventHandler};
 pub use faction_selection::{Faction, FactionSelectionScreen};
 pub use hud::{ConstructionTab, GameHUD, MiniMap, ResourceDisplay};
 pub use hud_state::{
-    color_for_player, default_minimap_view_box, default_minimap_viewport, normalized_minimap_rect, BuildQueueEntry,
-    CanMakeCameoUi, ControlBarSelectionPanelState, DiagnosticsOverlayStats, GameUIState,
-    MinimapActionKind, MinimapDot, MinimapInteraction, RadarMessageEntry, RadarPing, RadarPingKind,
-    UiColor, UiPos2, UiRect, UiTextureId, UiVec2, UnitDisplayInfo, VictoryOverlayAction,
+    BuildQueueEntry, CanMakeCameoUi, ControlBarSelectionPanelState, DiagnosticsOverlayStats,
+    GameUIState, MinimapActionKind, MinimapDot, MinimapInteraction, RadarMessageEntry, RadarPing,
+    RadarPingKind, UiColor, UiPos2, UiRect, UiTextureId, UiVec2, UnitDisplayInfo,
+    VictoryOverlayAction, color_for_player, default_minimap_view_box, default_minimap_viewport,
+    normalized_minimap_rect,
 };
 pub use loading_screen::LoadingScreen;
 pub use main_menu::{MainMenu, MainMenuState};
-pub use minimap_panel::{update_minimap_state, BeaconDot, MinimapClickEvent, MinimapUIState};
+pub use minimap_panel::{BeaconDot, MinimapClickEvent, MinimapUIState, update_minimap_state};
 pub use options_menu::{GraphicsQuality, OptionsMenu, OptionsTab, Resolution};
 pub use pause_menu::{PauseMenu, PauseMenuAction};
 pub use quit_dialog::QuitDialog;
@@ -71,7 +72,7 @@ pub use rts_interface::{
     BuildingInterface, RTSInterface, UnitCommandAvailability, UnitCommandButton, UnitCommandPanel,
 };
 pub use save_load_menu::{SaveGameEntry, SaveLoadDialogState, SaveLoadMenu, SaveLoadMode};
-pub use skirmish_menu::{GameRules, GameSlot, PlayerColor, PlayerType, SkirmishMenu, MAX_SLOTS};
+pub use skirmish_menu::{GameRules, GameSlot, MAX_SLOTS, PlayerColor, PlayerType, SkirmishMenu};
 pub use themes::{Colors, GeneralsTheme, UITheme};
 pub use ui_manager::{UIEvent, UIManager, UIState};
 pub use victory_screen::{VictoryScreen, VictoryScreenType};
@@ -679,7 +680,7 @@ pub struct TextureData {
 
 #[cfg(test)]
 mod tests {
-    use super::{utils, Screen, *};
+    use super::{Screen, utils, *};
     use game_engine::global_data;
     use game_engine::global_data::with_global_data_restored as with_global_data_snapshot_restored;
 

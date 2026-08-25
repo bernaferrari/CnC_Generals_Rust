@@ -27,7 +27,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Look up both objects
         let tracker = get_named_object_tracker();
         let unit_id = tracker.get_object_id(&unit_name).ok().flatten();
@@ -79,7 +78,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         // Look up object and issue Evacuate command
         let tracker = get_named_object_tracker();
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
@@ -127,7 +125,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let tracker = get_named_object_tracker();
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
@@ -186,7 +183,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
 
@@ -238,7 +234,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
             Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
@@ -310,7 +305,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         if self.get_team_by_name(&team_name).is_err() {
             log::warn!(
@@ -431,11 +425,7 @@ impl ScriptActionDispatcher {
         }
         let attitude = self.attitude_from_script_int(mood);
 
-        log::info!(
-            "Unit '{}' setting attitude to {:?}",
-            unit_name,
-            attitude
-        );
+        log::info!("Unit '{}' setting attitude to {:?}", unit_name, attitude);
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();
@@ -550,7 +540,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -624,7 +613,6 @@ impl ScriptActionDispatcher {
             );
             return Ok(ScriptActionResult::Success);
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
@@ -721,7 +709,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -817,7 +804,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
@@ -918,7 +904,6 @@ impl ScriptActionDispatcher {
         }
 
         Ok(ScriptActionResult::Success)
-
     }
 
     pub(crate) fn do_named_start_special_power_countdown(
@@ -941,7 +926,6 @@ impl ScriptActionDispatcher {
         }
 
         Ok(ScriptActionResult::Success)
-
     }
 
     pub(crate) fn do_named_set_special_power_countdown(
@@ -965,11 +949,11 @@ impl ScriptActionDispatcher {
             sp_module.set_ready_frame(ready_frame);
         });
         if let Some(handler) = current_script_action_handler() {
-            let _ = handler.set_named_special_power_countdown(&unit_name, &special_power, countdown);
+            let _ =
+                handler.set_named_special_power_countdown(&unit_name, &special_power, countdown);
         }
 
         Ok(ScriptActionResult::Success)
-
     }
 
     pub(crate) fn do_named_add_special_power_countdown(
@@ -996,7 +980,6 @@ impl ScriptActionDispatcher {
         }
 
         Ok(ScriptActionResult::Success)
-
     }
 
     pub(crate) fn do_named_fire_special_power_at_waypoint(
@@ -1246,7 +1229,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -1307,7 +1289,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -1366,7 +1347,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -1416,7 +1396,6 @@ impl ScriptActionDispatcher {
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -1714,7 +1693,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -1762,7 +1740,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
@@ -2195,7 +2172,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -2300,7 +2276,6 @@ impl ScriptActionDispatcher {
         // Live host path: leftover OBJECT_REGISTRY is empty. Queue by script name.
         super::request_host_object_panel_flag(&unit_name, &flag_name, enable);
 
-
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
@@ -2380,7 +2355,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let team_arc = match self.get_or_create_team_by_name(&team_name) {
             Ok(team) => team,

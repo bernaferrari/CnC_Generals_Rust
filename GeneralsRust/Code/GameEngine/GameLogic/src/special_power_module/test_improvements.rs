@@ -6,8 +6,8 @@ mod tests {
     use crate::common::*;
     use crate::effects::ObjectCreationList;
     use crate::helpers::TheObjectCreationListStore;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::{Arc, RwLock};
 
     fn register_test_owner(owner_id: ObjectID) -> Arc<RwLock<Object>> {

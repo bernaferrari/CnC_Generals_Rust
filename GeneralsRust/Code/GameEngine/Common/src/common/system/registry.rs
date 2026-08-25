@@ -311,7 +311,6 @@ pub fn get_registry_user_data() -> Option<String> {
         .or_else(|| get_string_from_registry("", "UserDataLeafName"))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

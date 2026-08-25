@@ -74,8 +74,8 @@ pub fn residual_presentation_multi_door_smolder_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_presentation_multi_door_smolder_last_action(
-) -> ResidualPresentationMultiDoorSmolderAction {
+pub fn residual_presentation_multi_door_smolder_last_action()
+-> ResidualPresentationMultiDoorSmolderAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualPresentationMultiDoorSmolderAction::MethodNames,
         2 => ResidualPresentationMultiDoorSmolderAction::SourceMarkers,

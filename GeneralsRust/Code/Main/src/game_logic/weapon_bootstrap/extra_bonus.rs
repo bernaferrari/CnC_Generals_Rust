@@ -10,7 +10,6 @@ use gamelogic::weapon::{
     WeaponBonusSet,
 };
 
-
 /// C++ `Weapon::computeBonus` extra-set append for the named leftover template.
 pub fn append_extra_weapon_bonus(
     name: &str,
@@ -28,8 +27,6 @@ pub fn append_extra_weapon_bonus(
     });
 }
 
-
-
 /// Seed Ranger ACR extra set when Weapon.ini is not on disk.
 ///
 /// Retail `RangerAdvancedCombatRifle`:
@@ -46,4 +43,3 @@ pub fn seed_ranger_drone_spotting_extra(template: &mut WeaponTemplate) {
     set.set_bonus(WeaponBonusConditionType::DroneSpotting, bonus);
     template.extra_bonus = Some(set);
 }
-

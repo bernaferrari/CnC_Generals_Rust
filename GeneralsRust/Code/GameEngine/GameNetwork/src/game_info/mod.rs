@@ -1058,7 +1058,7 @@ impl Default for GameInfo {
 // Re-exports
 pub use serialization::{game_info_to_ascii_string, parse_ascii_string_to_game_info};
 pub use snapshot::{
-    GameInfoSnapshot, GameSlotSnapshot, SkirmishGameInfo, SKIRMISH_GAME_INFO_VERSION,
+    GameInfoSnapshot, GameSlotSnapshot, SKIRMISH_GAME_INFO_VERSION, SkirmishGameInfo,
 };
 
 mod serialization;

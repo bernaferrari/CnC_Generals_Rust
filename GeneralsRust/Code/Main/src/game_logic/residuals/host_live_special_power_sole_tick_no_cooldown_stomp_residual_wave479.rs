@@ -80,8 +80,8 @@ pub fn residual_special_power_sole_tick_no_cooldown_stomp_ok() -> bool {
     RESIDUAL_OK.load(Ordering::SeqCst)
 }
 
-pub fn residual_special_power_sole_tick_no_cooldown_stomp_last_action(
-) -> ResidualSpecialPowerSoleTickNoCooldownStompAction {
+pub fn residual_special_power_sole_tick_no_cooldown_stomp_last_action()
+-> ResidualSpecialPowerSoleTickNoCooldownStompAction {
     match LAST_ACTION.load(Ordering::SeqCst) {
         1 => ResidualSpecialPowerSoleTickNoCooldownStompAction::MethodNames,
         2 => ResidualSpecialPowerSoleTickNoCooldownStompAction::SourceMarkers,

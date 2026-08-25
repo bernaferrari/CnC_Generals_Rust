@@ -4,7 +4,6 @@ pub use crate::upgrade::modules::upgrade_mux::{
     UpgradeModuleInterface, UpgradeMux, UpgradeMuxData,
 };
 
-
 use crate::common::{ObjectID, UpgradeMaskType};
 use crate::object::Object;
 use crate::upgrade::UpgradeMask;
@@ -52,7 +51,6 @@ pub fn mux_reset_upgrade(
     }
 }
 
-
 /// Look up the owning object and run `giveSelfUpgrade` bookkeeping.
 pub fn mux_give_self_upgrade_for_object(data: &UpgradeMuxData, object_id: ObjectID) {
     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
@@ -90,7 +88,8 @@ macro_rules! impl_upgrade_mux_field_parsers {
             data: &mut $data_ty,
             tokens: &[&str],
         ) -> Result<(), game_engine::common::ini::INIError> {
-            data.upgrade_mux_data.parse_requires_all_triggers_tokens(tokens)
+            data.upgrade_mux_data
+                .parse_requires_all_triggers_tokens(tokens)
         }
         fn parse_mux_fx_list_upgrade(
             _ini: &mut game_engine::common::ini::INI,
@@ -131,7 +130,6 @@ macro_rules! upgrade_mux_field_table {
         ]
     };
 }
-
 
 pub(crate) fn xfer_upgrade_module_state(
     xfer: &mut dyn Xfer,
@@ -226,5 +224,4 @@ mod tests {
         assert!(!applied);
         assert!(!mux_reset_upgrade(&data, &mut applied, mask));
     }
-
 }

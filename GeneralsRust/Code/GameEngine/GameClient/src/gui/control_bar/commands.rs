@@ -3,13 +3,13 @@
 
 use super::{CommandAvailability, CommandButton, CommandOption, CommandSourceType};
 use crate::helpers::TheInGameUI;
-use crate::message_stream::{get_message_stream, Coord3D as MsgCoord3D, GameMessageType};
+use crate::message_stream::{Coord3D as MsgCoord3D, GameMessageType, get_message_stream};
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheThingFactory;
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{player_list as logic_player_list, PlayerIndex, PLAYER_INDEX_INVALID};
+use gamelogic::player::{PLAYER_INDEX_INVALID, PlayerIndex, player_list as logic_player_list};
 
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
@@ -183,18 +183,13 @@ impl ControlBarCommandProcessor {
             CommandType::Exit => {
                 let obj_id = button
                     .exit_object_id
-                    .or_else(|| {
-                        selected_objects_for_local_player()
-                            .first()
-                            .copied()
-                    })
+                    .or_else(|| selected_objects_for_local_player().first().copied())
                     .unwrap_or(0);
                 if let Ok(mut stream) = get_message_stream().write() {
                     stream.append_message(GameMessageType::Exit(obj_id));
                 }
                 true
             }
-
 
             // C++ parity: GUI_COMMAND_EVACUATE -> MSG_EVACUATE
             CommandType::Evacuate => {

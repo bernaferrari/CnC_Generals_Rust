@@ -5,32 +5,32 @@ use crate::command_button::CommandButton;
 use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Coord3D, DisabledType, DrawableID, Matrix3D, ModelConditionFlags,
-    ModuleData, ObjectID, ObjectShroudStatus, ObjectStatusTypes, ParticleSystemID, PlayerMaskType,
-    Real, UnsignedInt, LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, Coord3D, DisabledType, DrawableID, LOGICFRAMES_PER_SECOND, Matrix3D,
+    ModelConditionFlags, ModuleData, ObjectID, ObjectShroudStatus, ObjectStatusTypes,
+    ParticleSystemID, PlayerMaskType, Real, UnsignedInt,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheParticleSystemManager;
 use crate::helpers::{
-    game_client_random_value, game_logic_random_value, TheAudio, TheFXListStore, TheGameClient,
-    TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory,
+    TheAudio, TheFXListStore, TheGameClient, TheGameLogic, ThePartitionManager, TheTerrainLogic,
+    TheThingFactory, game_client_random_value, game_logic_random_value,
 };
 use crate::modules::{
     BehaviorModuleInterface, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
+use crate::object::DrawableArcExt;
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::special_power_module::SpecialPowerCommandOptions;
 use crate::object::special_power_module::Waypoint;
 use crate::object::special_power_template::{
-    find_or_create_special_power_template, SpecialPowerTemplate,
+    SpecialPowerTemplate, find_or_create_special_power_template,
 };
-use crate::object::DrawableArcExt;
 use crate::object::{Object as GameObject, ObjectId};
 use crate::player::ThePlayerList;
 use crate::system::shroud_manager::get_shroud_manager;
 use crate::weapon::{DamageType, DeathType};
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -852,12 +852,12 @@ impl ParticleUplinkCannonUpdate {
                                 ModelConditionFlags::Packing | ModelConditionFlags::DEPLOYED,
                                 ModelConditionFlags::Unpacking,
                             ),
-                            PUCStatus::AlmostReady
-                            | PUCStatus::ReadyToFire
-                            | PUCStatus::Firing => (
-                                ModelConditionFlags::Packing | ModelConditionFlags::Unpacking,
-                                ModelConditionFlags::DEPLOYED,
-                            ),
+                            PUCStatus::AlmostReady | PUCStatus::ReadyToFire | PUCStatus::Firing => {
+                                (
+                                    ModelConditionFlags::Packing | ModelConditionFlags::Unpacking,
+                                    ModelConditionFlags::DEPLOYED,
+                                )
+                            }
                             PUCStatus::Packing => (
                                 ModelConditionFlags::Unpacking | ModelConditionFlags::DEPLOYED,
                                 ModelConditionFlags::Packing,
@@ -1307,10 +1307,7 @@ impl ParticleUplinkCannonUpdate {
                         } else {
                             self.module_data.width_grow_frames
                         };
-                        client.set_drawable_laser_decay_frames(
-                            self.ground_to_orbit_beam_id,
-                            decay,
-                        );
+                        client.set_drawable_laser_decay_frames(self.ground_to_orbit_beam_id, decay);
                     }
                     let now = TheGameLogic::get_frame();
                     self.ground_to_orbit_decay_end_frame =
@@ -1564,8 +1561,8 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         speed = dist;
                         if self.scripted_waypoint_mode {
                             if let Some(terrain) = TheTerrainLogic::get() {
-                                if let Some((next_id, next_pos)) =
-                                    terrain.random_outgoing_waypoint_link(self.next_dest_waypoint_id)
+                                if let Some((next_id, next_pos)) = terrain
+                                    .random_outgoing_waypoint_link(self.next_dest_waypoint_id)
                                 {
                                     self.next_dest_waypoint_id = next_id;
                                     self.override_target_destination = next_pos;
@@ -2034,8 +2031,8 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::object::special_power_types::SpecialPowerType;
     use crate::object::Object;
+    use crate::object::special_power_types::SpecialPowerType;
 
     fn test_object_at(position: Coord3D) -> Arc<RwLock<GameObject>> {
         let object = Arc::new(RwLock::new(Object::new_test(98_001, 100.0)));
@@ -2133,7 +2130,6 @@ mod tests {
         behavior.kill_everything();
         assert_eq!(behavior.orbit_to_target_beam_id, INVALID_DRAWABLE_ID);
     }
-
 }
 
 pub struct ParticleUplinkCannonUpdateFactory;

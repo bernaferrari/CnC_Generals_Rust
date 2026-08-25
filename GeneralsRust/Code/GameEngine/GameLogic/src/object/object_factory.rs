@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::common::*;
 use crate::common::{DefaultThingTemplate, ThingTemplate};
 use crate::error::GameLogicError as GameError;
-use crate::helpers::{get_game_logic_random_value, TheGameLogic, TheThingFactory};
+use crate::helpers::{TheGameLogic, TheThingFactory, get_game_logic_random_value};
 use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
 use crate::object::simple_object::{SimpleObject, SimpleObjectExt};
 use crate::object::structure::{Structure, StructureExt};
@@ -41,7 +41,7 @@ use game_engine::common::thing::module::{
     Module, ModuleData, ModuleInterfaceType, ModuleType, Thing as ModuleThing,
 };
 use game_engine::common::thing::module_factory::{
-    get_module_factory, init_module_factory, ModuleFactory,
+    ModuleFactory, get_module_factory, init_module_factory,
 };
 use log::warn;
 
@@ -690,9 +690,8 @@ impl ObjectFactory {
                             .map(|data| data.base.clone())
                     });
 
-                    let ai_update_module_data = ai_update_module_data.or_else(|| {
-                        wander_ai_module_data.as_ref().map(|data| data.base.clone())
-                    });
+                    let ai_update_module_data = ai_update_module_data
+                        .or_else(|| wander_ai_module_data.as_ref().map(|data| data.base.clone()));
 
                     let ai_update = Arc::new(Mutex::new(UnitAIUpdate::new(
                         object_id,
@@ -1014,7 +1013,6 @@ impl ObjectFactory {
                     continue;
                 }
 
-
                 if factory.find_module_interface_mask(&module_name, ModuleType::Draw)
                     == ModuleInterfaceType::NONE
                 {
@@ -1058,8 +1056,7 @@ impl ObjectFactory {
                 {
                     warn!(
                         "Descriptor for client-update module '{}' missing during drawable init (object {})",
-                        module_name,
-                        object_id
+                        module_name, object_id
                     );
                     continue;
                 }
@@ -1105,7 +1102,9 @@ impl ObjectFactory {
                         if let Some(factory) = factory_guard.as_ref() {
                             install_drawable_modules(factory);
                         } else {
-                            warn!("ModuleFactory still not initialised after retry while creating draw modules");
+                            warn!(
+                                "ModuleFactory still not initialised after retry while creating draw modules"
+                            );
                         }
                     }
                     Err(_) => warn!(

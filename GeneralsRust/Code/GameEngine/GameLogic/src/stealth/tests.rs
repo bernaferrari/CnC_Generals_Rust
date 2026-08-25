@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod integration_tests {
     use crate::common::*;
-    use crate::object::{registry::OBJECT_REGISTRY, Object};
+    use crate::object::{Object, registry::OBJECT_REGISTRY};
     use crate::stealth::*;
     use std::sync::{Arc, RwLock};
 

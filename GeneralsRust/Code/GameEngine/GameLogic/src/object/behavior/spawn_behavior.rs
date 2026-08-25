@@ -6,12 +6,12 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Byte, Coord3D, DisabledType, Int, KindOf, ModuleData, ObjectID,
-    PlayerMaskType, Real, TheObjectFactory, UnsignedInt, VeterancyLevel, INVALID_ID,
-    LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, Byte, Coord3D, DisabledType, INVALID_ID, Int, KindOf,
+    LOGICFRAMES_PER_SECOND, ModuleData, ObjectID, PlayerMaskType, Real, TheObjectFactory,
+    UnsignedInt, VeterancyLevel,
 };
 use crate::object::behavior::behavior_module::{
-    xfer_behavior_module_base_versions, BehaviorModuleData,
+    BehaviorModuleData, xfer_behavior_module_base_versions,
 };
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -23,34 +23,34 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 // Forward declarations
+use crate::MAKE_OBJECT_STATUS_MASK;
 use crate::attack::{
-    AbleToAttackType, CanAttackResult, ATTACKRESULT_INVALID_SHOT, ATTACKRESULT_NOT_POSSIBLE,
-    ATTACKRESULT_POSSIBLE, ATTACKRESULT_POSSIBLE_AFTER_MOVING,
+    ATTACKRESULT_INVALID_SHOT, ATTACKRESULT_NOT_POSSIBLE, ATTACKRESULT_POSSIBLE,
+    ATTACKRESULT_POSSIBLE_AFTER_MOVING, AbleToAttackType, CanAttackResult,
 };
 use crate::common::CommandSourceType;
 use crate::common::DamageTypeFlags;
 use crate::common::{
-    TheGameLogic, TheInGameUI, TheMessageStream, ThePartitionManager, FROM_CENTER_2D,
-    OBJECT_STATUS_CAN_STEALTH, OBJECT_STATUS_MASKED, OBJECT_STATUS_RECONSTRUCTING,
-    OBJECT_STATUS_SOLD, OBJECT_STATUS_UNDER_CONSTRUCTION,
+    FROM_CENTER_2D, OBJECT_STATUS_CAN_STEALTH, OBJECT_STATUS_MASKED, OBJECT_STATUS_RECONSTRUCTING,
+    OBJECT_STATUS_SOLD, OBJECT_STATUS_UNDER_CONSTRUCTION, TheGameLogic, TheInGameUI,
+    TheMessageStream, ThePartitionManager,
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType};
 use crate::experience::ExperienceTracker;
 use crate::messages::{GameMessage, MSG_CREATE_SELECTED_GROUP};
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModule, BehaviorModuleInterface,
-    BodyModuleInterface, DamageModuleInterface, DieModuleInterface, ExitDoorType, ExitInterface,
-    ModuleInterface, SlavedUpdateInterface, SpawnBehaviorInterface as ModuleSpawnBehaviorInterface,
-    UpdateModule, UpdateModuleInterface, UpdateSleepTime, DOOR_NONE_AVAILABLE,
-    MODULEINTERFACE_DAMAGE, MODULEINTERFACE_DIE, MODULEINTERFACE_UPDATE, UPDATE_SLEEP,
-    UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+    BodyModuleInterface, DOOR_NONE_AVAILABLE, DamageModuleInterface, DieModuleInterface,
+    ExitDoorType, ExitInterface, MODULEINTERFACE_DAMAGE, MODULEINTERFACE_DIE,
+    MODULEINTERFACE_UPDATE, ModuleInterface, SlavedUpdateInterface,
+    SpawnBehaviorInterface as ModuleSpawnBehaviorInterface, UPDATE_SLEEP, UPDATE_SLEEP_FOREVER,
+    UPDATE_SLEEP_NONE, UpdateModule, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::drawable::DrawableExt;
 use crate::object::{Object, ObjectStatusTypes};
-use crate::player::{Player, CMD_FROM_AI};
+use crate::player::{CMD_FROM_AI, Player};
 use crate::team::Team;
 use crate::template::ObjectTemplate;
-use crate::MAKE_OBJECT_STATUS_MASK;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{
@@ -61,7 +61,7 @@ use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens,
 };
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use std::str::FromStr;
 
 // Constants

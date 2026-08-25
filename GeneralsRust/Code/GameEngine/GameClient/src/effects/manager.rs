@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use super::{
-    calculate_effects_lod, particles::ParticleType, DecalId, DecalManager, DecalSettings,
-    EffectsConfig, EffectsError, EffectsLOD, EffectsStats, GenericParticleRenderer,
-    GenericParticleSystem, GenericParticleSystemId, ParticleSystemDesc, WeatherSystem, WeatherType,
+    DecalId, DecalManager, DecalSettings, EffectsConfig, EffectsError, EffectsLOD, EffectsStats,
+    GenericParticleRenderer, GenericParticleSystem, GenericParticleSystemId, ParticleSystemDesc,
+    WeatherSystem, WeatherType, calculate_effects_lod, particles::ParticleType,
 };
 use crate::system::SubsystemInterface;
 

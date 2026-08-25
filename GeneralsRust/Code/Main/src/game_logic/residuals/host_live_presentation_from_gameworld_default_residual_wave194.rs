@@ -120,11 +120,11 @@ pub fn honesty_executable_tracks_gameworld_rebuilt_source() -> bool {
 /// Live residual: default enabled + rebuild latches object roster from GameWorld.
 pub fn simulate_live_presentation_from_gameworld_default_honesty() -> bool {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{ensure_gate_damage_authority, GameWorldShadow};
-    use crate::presentation_frame::{presentation_from_gameworld_enabled, PresentationFrame};
+    use crate::gameworld_shadow::{GameWorldShadow, ensure_gate_damage_authority};
+    use crate::presentation_frame::{PresentationFrame, presentation_from_gameworld_enabled};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-    use gamelogic::world::entities::TemplateRef;
     use gamelogic::world::PlayerId;
+    use gamelogic::world::entities::TemplateRef;
     use glam::Vec3;
 
     if !honesty_live_presentation_from_gameworld_default_residual_pack_wave194() {

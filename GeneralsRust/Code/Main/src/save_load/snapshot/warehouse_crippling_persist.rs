@@ -15,8 +15,8 @@
 //! the previous session's heal cadence.
 
 use crate::game_logic::host_supply_gather::{
-    restore_live_warehouse_crippling_states, snapshot_live_warehouse_crippling_states,
-    WarehouseCripplingState,
+    WarehouseCripplingState, restore_live_warehouse_crippling_states,
+    snapshot_live_warehouse_crippling_states,
 };
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
@@ -52,10 +52,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(
-    bytes: &[u8],
-    _game_logic: &mut GameLogic,
-) -> SaveLoadResult<()> {
+pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> SaveLoadResult<()> {
     // Always drop the previous session first (C++ module state is per-object).
     restore_live_warehouse_crippling_states(Vec::new());
     let Some(suffix) = find_whcr_suffix(bytes) else {

@@ -16,9 +16,9 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::game_logic::special_power_strikes::{
-    A10StrikeScienceTier, A10_DELIVERY_DISTANCE, A10_DIVE_END_DISTANCE, A10_DIVE_START_DISTANCE,
+    A10_DELIVERY_DISTANCE, A10_DIVE_END_DISTANCE, A10_DIVE_START_DISTANCE,
     A10_FORMATIONION_SPACING, A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS,
-    A10_PAYLOAD_TEMPLATE, A10_TRANSPORT,
+    A10_PAYLOAD_TEMPLATE, A10_TRANSPORT, A10StrikeScienceTier,
 };
 
 /// C++ DeliverPayloadAIUpdate `DIVESTATE_PREDIVE`.
@@ -154,7 +154,6 @@ pub struct HostA10StrikeFlightData {
     pub map_min: Vec3,
     #[serde(default)]
     pub map_max: Vec3,
-
 }
 
 fn host_a10_prev_dist_sq_default() -> f32 {
@@ -465,8 +464,10 @@ mod tests {
             }
         }
         assert!(left, "jet must leave the target, pos={pos:?}");
-        assert!(destroyed, "C++ isOffMap must destroy the transport, pos={pos:?}");
+        assert!(
+            destroyed,
+            "C++ isOffMap must destroy the transport, pos={pos:?}"
+        );
         assert!(pos.x > 200.0 || pos.x < 0.0 || pos.z < 0.0 || pos.z > 200.0);
     }
-
 }

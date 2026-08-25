@@ -1,10 +1,10 @@
 use super::*;
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
-use crate::display::view::{with_tactical_view_ref, Point3};
+use crate::display::view::{Point3, with_tactical_view_ref};
 use crate::draw_group_info::get_draw_group_info;
 use crate::drawable_info::DrawableInfo;
 use crate::gui::display_string::get_display_string_manager;
-use crate::gui::font::{get_font_library, FontDesc};
+use crate::gui::font::{FontDesc, get_font_library};
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
@@ -14,15 +14,15 @@ use game_engine::common::audio::audio_event_rts::AudioEventRts;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::get_global_audio_manager;
 use game_engine::common::bit_flags::{
-    create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
+    ModelConditionBitFlags, ModelConditionFlags, create_model_condition_flags,
 };
-use game_engine::common::ini::{get_anim2d_collection, get_global_data, TimeOfDay as IniTimeOfDay};
+use game_engine::common::ini::{TimeOfDay as IniTimeOfDay, get_anim2d_collection, get_global_data};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
+use gamelogic::common::types::{FormationID, INVALID_ID, ObjectID, WeaponSlotType};
 use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
+use gamelogic::player::{NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS, Player};
 use parking_lot::Mutex;
 use std::error::Error;
 use std::sync::Arc;

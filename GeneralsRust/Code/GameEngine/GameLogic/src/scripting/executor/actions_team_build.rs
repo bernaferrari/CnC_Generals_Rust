@@ -73,8 +73,7 @@ impl ScriptActionDispatcher {
                 super::request_host_recruit_team(&owner_name, &team_name, recruit_radius);
             } else {
                 self.with_named_player_ai(&owner_name, |ai_player| {
-                    if let Err(err) =
-                        ai_player.recruit_specific_ai_team(&team_name, recruit_radius)
+                    if let Err(err) = ai_player.recruit_specific_ai_team(&team_name, recruit_radius)
                     {
                         log::debug!(
                             "RecruitTeam '{}' failed for player '{}': {}",
@@ -159,7 +158,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         // Keep compatibility for custom scripts that used a non-C++ extension:
         // `CREATE_REINFORCEMENT_TEAM TeamName UnitType Coord Count`.
@@ -999,7 +997,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-
         match self.create_ai_group_from_team(&team_name) {
             Ok(group_arc) => {
                 if let Ok(mut group) = group_arc.write() {
@@ -1030,7 +1027,6 @@ impl ScriptActionDispatcher {
             });
             return Ok(ScriptActionResult::Success);
         }
-
 
         let Some(team_arc) = get_team_factory()
             .lock()

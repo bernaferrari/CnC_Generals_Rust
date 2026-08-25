@@ -254,7 +254,7 @@ impl GameLogic {
         source_object: ObjectId,
         target_position: Vec3,
     ) -> Option<u32> {
-        use crate::game_logic::host_ambush::{resolve_ambush_ocl_payload, HostAmbushKind};
+        use crate::game_logic::host_ambush::{HostAmbushKind, resolve_ambush_ocl_payload};
         let kind = HostAmbushKind::from_command_power(power)?;
         let (source_team, source_owner_player_id) = {
             let source = self.objects.get(&source_object)?;
@@ -522,19 +522,18 @@ impl GameLogic {
             // C++ LeafletDropBehavior::doDisableAttack:
             //   if (curVictim->getRelationship(object) != ENEMIES) continue;
             // Player relationship, not faction Team equality (FFA / 2v2).
-            let (source_owner, source_inst) = if let Some(src) =
-                self.objects.get(&plan.source_object)
-            {
-                (
-                    self.player_owner_for_host_object(src),
-                    src.team_instance_name.clone(),
-                )
-            } else {
-                (
-                    self.unique_player_id_for_team(plan.source_team),
-                    String::new(),
-                )
-            };
+            let (source_owner, source_inst) =
+                if let Some(src) = self.objects.get(&plan.source_object) {
+                    (
+                        self.player_owner_for_host_object(src),
+                        src.team_instance_name.clone(),
+                    )
+                } else {
+                    (
+                        self.unique_player_id_for_team(plan.source_team),
+                        String::new(),
+                    )
+                };
             let candidates: Vec<(ObjectId, bool, bool, bool, bool)> = self
                 .objects
                 .iter()
@@ -680,7 +679,6 @@ impl GameLogic {
         // C++ SuperweaponLaunched Sneak Attack EVA residual.
         self.try_eva_special_launched_misc_owned(source_owner_player_id, source_team, "sneak");
 
-
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())
                 .with_object(source_object)
@@ -726,8 +724,8 @@ impl GameLogic {
     /// TunnelStart object residual closed; fail-closed vs full Start animation / TunnelContain.
     pub fn update_sneak_attacks(&mut self) {
         use crate::game_logic::host_sneak_attack::{
-            in_sneak_shockwave_radius_2d, is_legal_sneak_shockwave_target,
-            SNEAK_ATTACK_RESIDUAL_TEMPLATE,
+            SNEAK_ATTACK_RESIDUAL_TEMPLATE, in_sneak_shockwave_radius_2d,
+            is_legal_sneak_shockwave_target,
         };
 
         self.host_sneak_attacks.clear_frame_events();
@@ -912,19 +910,13 @@ impl GameLogic {
         self.skirmish_rules.limit_superweapons = limited;
     }
 
-
     /// Replace the live CaveSystem from a world snapshot tail.
-    pub fn restore_cave_system(
-        &mut self,
-        system: crate::game_logic::HostCaveSystem,
-    ) {
+    pub fn restore_cave_system(&mut self, system: crate::game_logic::HostCaveSystem) {
         self.cave_system = system;
     }
 
     /// Mutable CaveSystem for snapshot tests / restore helpers.
-    pub fn cave_system_residual_mut(
-        &mut self,
-    ) -> &mut crate::game_logic::HostCaveSystem {
+    pub fn cave_system_residual_mut(&mut self) -> &mut crate::game_logic::HostCaveSystem {
         &mut self.cave_system
     }
 
@@ -942,7 +934,6 @@ impl GameLogic {
     ) -> &mut crate::game_logic::HostTunnelNetworkRegistry {
         &mut self.tunnel_network
     }
-
 
     pub fn world_dimensions(&self) -> (f32, f32) {
         (self.world_width, self.world_height)
@@ -1107,12 +1098,13 @@ impl GameLogic {
     /// C++ `Object::isHero` includes contained KINDOF_HERO occupants.
     #[inline]
     pub fn unit_is_hero(&self, id: ObjectId) -> bool {
-        self.objects.get(&id).is_some_and(|o| self.host_object_is_hero(o))
+        self.objects
+            .get(&id)
+            .is_some_and(|o| self.host_object_is_hero(o))
     }
 
     /// leftover `Object::is_hero` plus live occupant KindOf residual.
     pub(crate) fn host_object_is_hero(&self, o: &crate::game_logic::object::Object) -> bool {
-
         o.is_hero()
             || o.contained_units().iter().any(|oid| {
                 self.objects
@@ -1120,7 +1112,6 @@ impl GameLogic {
                     .is_some_and(|u| u.is_kind_of(KindOf::Hero))
             })
     }
-
 
     /// Wave 244: KindOf probe without exposing `&Object`.
     #[inline]

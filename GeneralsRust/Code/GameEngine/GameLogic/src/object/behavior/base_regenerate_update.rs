@@ -4,17 +4,17 @@
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, DamageInfo, DisabledMaskType, ModuleData, ObjectID, Real, UnsignedInt,
-    XferVersion, LOGICFRAMES_PER_SECOND,
+    AsciiString, DamageInfo, DisabledMaskType, LOGICFRAMES_PER_SECOND, ModuleData, ObjectID, Real,
+    UnsignedInt, XferVersion,
 };
 use crate::damage::{DamageInfoInput, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheGlobalData};
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};

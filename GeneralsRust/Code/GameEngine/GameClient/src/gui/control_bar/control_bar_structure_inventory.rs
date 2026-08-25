@@ -10,7 +10,6 @@ use gamelogic::commands::CommandType;
 use gamelogic::common::types::DisabledType;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
-
 /// C++ `MAX_STRUCTURE_INVENTORY_BUTTONS` (ControlBar.h:389).
 pub const MAX_STRUCTURE_INVENTORY_BUTTONS: usize = 10;
 /// C++ `STOP_ID` / `EVACUATE_ID` (ControlBarStructureInventory.cpp:29-30).
@@ -44,9 +43,7 @@ fn button_image_from_template_name(template_name: &str) -> String {
         .unwrap_or_default()
 }
 
-fn veterancy_overlay_for_level(
-    level: gamelogic::common::types::VeterancyLevel,
-) -> Option<String> {
+fn veterancy_overlay_for_level(level: gamelogic::common::types::VeterancyLevel) -> Option<String> {
     match level {
         gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
         gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
@@ -192,7 +189,6 @@ pub(super) fn do_transport_inventory_ui(
     residual_si_action_store(ResidualStructureInventoryAction::Populate);
     Ok(())
 }
-
 
 /// Append inventory commands for garrison/contain structures.
 ///
