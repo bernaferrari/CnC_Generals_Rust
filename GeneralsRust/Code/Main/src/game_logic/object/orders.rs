@@ -372,7 +372,10 @@ impl Object {
             self.set_special_power_ready(false);
         } else {
             self.special_power_cooldowns.remove(power);
-            self.set_special_power_ready(true);
+            // Flag-only: a zero-reload arm must not express force-ready for
+            // the whole object (set_special_power_ready(true) clears every
+            // power's countdown map entry).
+            self.special_power_ready = true;
             self.special_power_cooldown_remaining = 0.0;
         }
         self.refresh_special_power_aggregate_cooldown();
@@ -767,6 +770,14 @@ impl Object {
         {
             return self.max_transport > 0;
         }
+        // Vehicle residual transport: any KINDOF_VEHICLE is a real container
+        // (host residual; C++ TransportContain admission still applies through
+        // has_capacity_for / Enter slot weighting).  Authored zero-capacity
+        // modules above already returned; this covers hand-built fixtures and
+        // late bootstrap where no named installer ran.
+        if self.is_kind_of(KindOf::Vehicle) {
+            return true;
+        }
 
         // Structures: only garrisonable buildings with residual capacity > 0.
         // Fail-closed: faction producers / non-bunker structures reject Enter.
@@ -1130,6 +1141,12 @@ impl Object {
             }
             building.garrisoned_units.len() + count <= building.max_garrison
         } else if self.is_kind_of(KindOf::Vehicle)
+            // C++ TransportContain::getContainMax (TransportContain.cpp:105)
+            // is slot-based, not KindOf-based: aircraft transports such as
+            // the Combat Chinook (TransportContain Slots=8, KINDOF_AIRCRAFT)
+            // admit riders through the same m_slotCapacity arithmetic
+            // (TransportContain.cpp:183-186) as ground vehicles.
+            || self.is_kind_of(KindOf::Aircraft)
             || self.thing.template.dock_kind == crate::game_logic::DockKind::RailedTransport
         {
             let cap = self.transport_capacity();
@@ -1864,6 +1881,13 @@ impl Object {
             || self.is_listening_outpost_transport
         {
             return self.max_transport;
+        }
+        // Vehicle residual: a plain KINDOF_VEHICLE with no authored contain
+        // module and no named installer keeps a minimal two-slot transport
+        // floor (host MoveToAndEvacuate/Exit residual fixtures and late
+        // bootstrap).  Authored zero-capacity modules above stay at 0.
+        if self.is_kind_of(KindOf::Vehicle) {
+            return self.max_transport.max(2);
         }
         0
     }

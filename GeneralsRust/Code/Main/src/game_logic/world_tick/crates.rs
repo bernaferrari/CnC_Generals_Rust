@@ -504,8 +504,8 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         use super::super::ATTACK_PRIORITY_DISTANCE_MODIFIER;
         use crate::game_logic::host_command_button_hunt::{
-            COMMAND_BUTTON_HUNT_SCAN_RANGE, HUNT_PLACE_EXPLOSIVE_VIEW_RANGE,
-            hunt_effective_priority, hunt_same_map_status, hunt_special_capture_skips,
+            COMMAND_BUTTON_HUNT_SCAN_RANGE, hunt_effective_priority, hunt_same_map_status,
+            hunt_place_explosive_mine_view_range, hunt_special_capture_skips,
             hunt_special_is_place_explosive, hunt_stealthed_undetected,
         };
         use gamelogic::common::Relationship;
@@ -563,7 +563,12 @@ impl GameLogic {
                 continue;
             }
             if is_place_explosive
-                && self.hunt_owned_mine_near(hunter_id, hunter_owner, t.get_position())
+                && self.hunt_owned_mine_near(
+                    hunter_id,
+                    hunter_owner,
+                    t.get_position(),
+                    hunt_place_explosive_mine_view_range(button),
+                )
             {
                 continue;
             }
@@ -632,8 +637,8 @@ impl GameLogic {
         hunter_id: ObjectId,
         hunter_owner: Option<u32>,
         target_pos: glam::Vec3,
+        view_range: f32,
     ) -> bool {
-        use crate::game_logic::host_command_button_hunt::HUNT_PLACE_EXPLOSIVE_VIEW_RANGE;
         self.objects.iter().any(|(mid, m)| {
             if *mid == hunter_id || !m.is_alive() || !m.is_kind_of(KindOf::Mine) {
                 return false;
@@ -645,8 +650,7 @@ impl GameLogic {
                     .get(&hunter_id)
                     .is_some_and(|h| h.team == m.team && h.team != Team::Neutral),
             };
-            same_owner
-                && hunt_dist_2d(m.get_position(), target_pos) <= HUNT_PLACE_EXPLOSIVE_VIEW_RANGE
+            same_owner && hunt_dist_2d(m.get_position(), target_pos) <= view_range
         })
     }
 
@@ -1605,20 +1609,28 @@ impl GameLogic {
     }
     pub fn execute_shroud_crate_behavior(&mut self, picker_id: ObjectId) -> bool {
         // C++ ShroudCrateCollide: other->getControllingPlayer()->getPlayerIndex().
-        let picker_owner = match self.objects.get(&picker_id) {
-            Some(p) if p.is_alive() => p.owner_player_id,
-            _ => return false,
-        };
-        let Some(player_id) = picker_owner else {
+        // getControllingPlayer() always exists for a live game object; the host
+        // resolves it via owner id or the faction's unique active player.
+        let Some(player_id) = self
+            .objects
+            .get(&picker_id)
+            .filter(|p| p.is_alive())
+            .and_then(|p| self.player_owner_for_host_object(p))
+        else {
             return false;
         };
         self.partition_manager.reveal_map_for_player(player_id);
         true
     }
     pub fn execute_heal_crate_behavior(&mut self, picker_id: ObjectId) -> usize {
-        let picker_owner = match self.objects.get(&picker_id) {
-            Some(p) if p.is_alive() => p.owner_player_id,
-            _ => return 0,
+        // C++ HealCrateCollide: other->getControllingPlayer()->healAllObjects().
+        let Some(picker_player) = self
+            .objects
+            .get(&picker_id)
+            .filter(|p| p.is_alive())
+            .and_then(|p| self.player_owner_for_host_object(p))
+        else {
+            return 0;
         };
         let ids: Vec<ObjectId> = self
             .objects
@@ -1626,10 +1638,7 @@ impl GameLogic {
             .filter(|(_, o)| {
                 o.is_alive()
                     && !o.status.destroyed
-                    && match picker_owner {
-                        Some(pid) => o.owner_player_id == Some(pid),
-                        None => false,
-                    }
+                    && self.player_owner_for_host_object(o) == Some(picker_player)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -1663,7 +1672,10 @@ impl GameLogic {
         if unit_type.is_empty() || count == 0 {
             return 0;
         }
-        if !self.templates.contains_key(unit_type) {
+        // C++ UnitCrateCollide: TheThingFactory->findTemplate NULL → FALSE.
+        // The host spawn-template catalog (templates + asset definitions) is
+        // the documented ThingFactory equivalent.
+        if !self.ensure_host_spawn_template(unit_type) {
             return 0;
         }
         let occupied: Vec<(glam::Vec3, f32)> = self

@@ -189,7 +189,12 @@ mod tests {
             is_homing: false,
             damage_type: DamageType::Bullet,
             death_type: HostDeathType::Normal,
-            projectile_object_name: String::new(),
+            // Retail shells author a ProjectileObject (Weapon.ini:128802
+            // MarauderTankShell); C++ fireWeaponTemplate spawns a flying
+            // projectile only then — an empty name is the projectileless
+            // leftover delayed-damage path and never materializes into
+            // CombatSystem, so the drain observable would stay flat.
+            projectile_object_name: "MarauderTankShell".into(),
             projectile_lifecycle: None,
             fire_fx_name: String::new(),
             fire_ocl_name: String::new(),

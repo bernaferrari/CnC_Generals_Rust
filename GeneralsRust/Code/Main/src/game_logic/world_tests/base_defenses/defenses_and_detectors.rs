@@ -13,6 +13,15 @@ fn technical_residual_transport_and_salvage_weapon() {
     ensure_host_weapon_store();
 
     let mut game_logic = GameLogic::new();
+    // C++ TransportContain::isValidContainerFor accepts only the same
+    // controlling player.  The host authority resolves ownerless fixtures
+    // only through a unique live player for the team
+    // (object_queries.rs normal_enter_controller_matches), so boarding the
+    // technical needs a GLA player in the world.  The player is non-local:
+    // C++ ActionManager applies isObjectShroudedForAction only to human
+    // commands, and this scripted residual enter must not depend on the
+    // global shroud manager's cross-test fog state for player 0.
+    game_logic.add_player(Player::new(0, Team::GLA, "GLA", false));
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_tank_template(&mut game_logic);
 
@@ -163,7 +172,7 @@ fn technical_residual_transport_and_salvage_weapon() {
     // Unload residual honesty via Exit command path.
     game_logic.queue_command(GameCommand {
         command_type: CommandType::Exit,
-        player_id: 2,
+        player_id: 0,
         command_id: 2,
         timestamp: std::time::SystemTime::now(),
         selected_units: vec![infantry_id],
@@ -759,9 +768,15 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             "SentryDroneGun damage residual 8, got {}",
             w.damage
         );
+        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
+        // RATIONALIZE_ATTACK_RANGE) binds retail SentryDroneGun AttackRange
+        // 150 (Weapon.ini:129356+) as 147.5.
         assert!(
-            (w.range - 150.0).abs() < 0.1,
-            "SentryDroneGun range residual 150, got {}",
+            (w.range
+                - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 0.1,
+            "SentryDroneGun bound range 147.5, got {}",
             w.range
         );
         let _ = SENTRY_DRONE_GUN_WEAPON;
@@ -790,13 +805,16 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             "late SentryDroneGun damage residual 8, got {}",
             w.damage
         );
+        // Retail AttackRange 150 binds as 147.5 (Weapon.cpp:437-451).
         assert!(
-            (w.range - 150.0).abs() < 0.1,
-            "late SentryDroneGun range residual 150, got {}",
+            (w.range
+                - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 0.1,
+            "late SentryDroneGun bound range 147.5, got {}",
             w.range
         );
     }
-
     // Detected enemy becomes targetable; place in gun range and idle for auto-fire.
     if game_logic.host_object(stealth_id).is_none() {
         stealth_id = game_logic
@@ -1093,9 +1111,15 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
             "sniper dmg 100, got {}",
             w.damage
         );
+        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
+        // RATIONALIZE_ATTACK_RANGE) binds retail USAPathfinderSniperRifle
+        // AttackRange 300 (Weapon.ini:129674+) as 297.5.
         assert!(
-            (w.range - 300.0).abs() < 0.1,
-            "sniper range 300, got {}",
+            (w.range
+                - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 0.1,
+            "sniper bound range 297.5, got {}",
             w.range
         );
     }
@@ -1286,9 +1310,15 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
             "hellfire dmg 40, got {}",
             w.damage
         );
+        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
+        // RATIONALIZE_ATTACK_RANGE) binds retail HellfireMissileWeapon
+        // AttackRange 150 (Weapon.ini:129470+) as 147.5.
         assert!(
-            (w.range - 150.0).abs() < 0.1,
-            "hellfire range 150, got {}",
+            (w.range
+                - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 0.1,
+            "hellfire bound range 147.5, got {}",
             w.range
         );
         let _ = HELLFIRE_MISSILE_WEAPON;

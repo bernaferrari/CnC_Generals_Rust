@@ -115,7 +115,7 @@ pub fn honesty_host_main_dual_read_free_seal_residual_pack_wave961() -> bool {
         crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC,
         crate::presentation_frame::PRESENTATION_FRAME_SRC,
         crate::cnc_game_engine::ENGINE_SRC,
-        include_str!("../../executable_smoke.rs"),
+        crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC,
         include_str!("../../golden_skirmish.rs"),
         super::GAME_LOGIC_HOST_SRC,
     ];

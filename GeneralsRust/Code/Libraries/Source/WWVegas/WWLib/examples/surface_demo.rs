@@ -221,6 +221,7 @@ fn demo_memory_locking() -> Result<(), SurfaceError> {
         println!("Lock stride: {} bytes", lock.stride());
 
         // Demonstrate safe pixel pointer access
+        // SAFETY: [Category 3 — dangling] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; it is only printed as an address, never dereferenced.
         unsafe {
             if let Some(_ptr) = lock.get_pixel_ptr(Point2D::new(32, 32)) {
                 println!("Successfully got pixel pointer for (32, 32)");

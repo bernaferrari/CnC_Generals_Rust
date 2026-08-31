@@ -243,6 +243,11 @@ impl GameLogic {
             end_hunt_on_player_parent_order(unit);
         }
         self.hunt_next_enemy_scan.remove(&id);
+        // C++ GameLogicDispatch.cpp:104-106 (doMoveTo): a player move order
+        // releases any temporary weapon lock before aiMoveToPosition.
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.release_weapon_lock(crate::game_logic::WeaponLockType::LockedTemporarily);
+        }
         self.assign_unit_path(id, destination, waypoints)
     }
 
@@ -390,6 +395,13 @@ impl GameLogic {
     /// rider (`AIUpdate.cpp:3067-3090`) so Humvee/Chinook Stop parks
     /// PassengersAllowedToFire infantry.
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+        // C++ AIGroup::groupIdle / AICommandInterface::idle: stop clears the
+        // latched target and guard anchors up front, then runs the idle state.
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.set_guard_position(None);
+            unit.end_guard_retaliate();
+            unit.set_target(None);
+        }
         self.stamp_player_command_source(id);
         let occupants = self
             .objects
@@ -1977,8 +1989,12 @@ impl GameLogic {
             unit.set_special_power_overridable_destination(location, None);
             if let Some(flight) = unit.spectre_gunship_update.as_mut() {
                 if flight.status.overridable_destination_active() {
+                    // C++ setSpecialPowerOverridableDestination
+                    // (SpectreGunshipUpdate.cpp:268-282) stores the click
+                    // UNCLAMPED. The AttackAreaRadius - TargetingReticleRadius
+                    // constraint applies in the update tick, which already runs
+                    // constrain_override against the steered initial target.
                     flight.override_target = location;
-                    flight.constrain_override();
                 }
             }
             unit.producer_id

@@ -1898,6 +1898,20 @@ impl ShroudManager {
         self.shroud_grid = None;
     }
 
+    /// Full new-game reset. C++ tears per-world shroud down with the world:
+    /// `TheGameLogic::clearGameData` resets ThePartitionManager (PartitionData
+    /// `m_shroudedness` / `m_everSeenByPlayer` die with the partition data)
+    /// and ThePlayerList, destroying each Player's Shroud and its
+    /// SightingInfo records. No object-shroud entry may outlive its GameLogic
+    /// world — stale entries from a previous world would fog unrelated
+    /// objects in the next world (Object IDs are recycled from 1).
+    /// `clear_all` covers the per-player object sets and the terrain grid.
+    /// The pre-grid reveal queues are session-level queued player intents
+    /// (reveal map for player N at next grid init); a same-session world
+    /// reset must retain them so queued full reveals still apply.
+    pub fn reset_for_new_game(&mut self) {
+        self.clear_all();
+    }
     /// Update explored territory from current visibility
     ///
     /// Adds all currently visible objects to the explored set

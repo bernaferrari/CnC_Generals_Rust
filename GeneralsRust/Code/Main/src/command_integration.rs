@@ -1602,8 +1602,10 @@ End
             bike_sluggish.rider_change_locomotor_name.as_deref(),
             Some("CombatBikeTerroristGroundLocomotor")
         );
+        // INIZH Locomotor.ini CombatBikeTerroristGroundLocomotor Speed=90
+        // (";25% slower" than the 120 ground member bound by Rider2 above).
         assert!(
-            (bike_sluggish.movement.max_speed - 40.0).abs() < 0.05,
+            (bike_sluggish.movement.max_speed - 90.0).abs() < 0.05,
             "SET_SLUGGISH must install the slow bike table, got {}",
             bike_sluggish.movement.max_speed
         );

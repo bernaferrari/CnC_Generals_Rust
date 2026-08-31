@@ -7,9 +7,7 @@ impl Object {
     /// - Auto: empty clip becomes ready after clip reload (refill on fire).
     /// - Manual / ReturnToBase: empty stays OUT_OF_AMMO until `rearm_weapon_full`.
     pub fn weapon_ready(weapon: &Weapon, current_time: f32) -> bool {
-        // Without a name peel, treat as Auto (legacy).
-        current_time - weapon.last_fire_time >= weapon.reload_time
-            && Self::weapon_has_ammo_for_shot(weapon, None)
+        Self::weapon_ready_named(weapon, current_time, None, weapon.reload_time)
     }
 
     /// Name-aware ready check (preferred).
@@ -20,8 +18,21 @@ impl Object {
         weapon_name: Option<&str>,
         effective_reload: f32,
     ) -> bool {
+        if !Self::weapon_has_ammo_for_shot(weapon, weapon_name) {
+            return false;
+        }
+        // C++ Weapon.cpp reloadWithBonus / fireWeapon: an emptied Auto-reload
+        // clip holds fire for ClipReloadTime from the last shot
+        // (m_whenWeCanFireAgain = m_whenLastReloadStarted + getClipReloadTime,
+        // Weapon.cpp:1889-1893); DelayBetweenShots only gates rounds inside a
+        // clip. Manual/ReturnToBase never auto-ready an empty clip via
+        // weapon_has_ammo_for_shot above.
+        if weapon.ammo == Some(0)
+            && current_time - weapon.last_fire_time < weapon.clip_reload_time
+        {
+            return false;
+        }
         current_time - weapon.last_fire_time >= effective_reload
-            && Self::weapon_has_ammo_for_shot(weapon, weapon_name)
     }
 
     pub fn weapon_has_ammo_for_shot(weapon: &Weapon, weapon_name: Option<&str>) -> bool {

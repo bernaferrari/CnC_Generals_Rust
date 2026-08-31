@@ -2268,11 +2268,20 @@ fn supply_warehouse_create_seeds_starting_boxes() {
 
 #[test]
 fn china_mines_upgrade_places_structure_minefield() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::{HostGeometryInfo, HostGeometryType, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("ChinaBarracks");
     t.set_health(1000.0);
     t.add_kind_of(KindOf::Structure);
+    // Retail ChinaBarracks footprint (FactionUnit.ini): BOX 36 x 44.
+    t.geometry_info = HostGeometryInfo {
+        geom_type: HostGeometryType::Box,
+        is_small: false,
+        height: 30.0,
+        major_radius: 36.0,
+        minor_radius: 44.0,
+        authored: true,
+    };
     logic.templates.insert("ChinaBarracks".into(), t);
     let id = logic
         .create_object(
@@ -2284,17 +2293,20 @@ fn china_mines_upgrade_places_structure_minefield() {
     let before = logic.objects.len();
     logic.apply_upgrade_to_object(id, "Upgrade_ChinaMines");
     let after = logic.objects.len();
+    // C++ SmartBorder do/while (GenerateMinefieldBehavior.cpp:366-419):
+    // bounding circle of the 36x44 box = sqrt(36^2+44^2) ~= 56.85, ring at
+    // +30 -> ceil(2*pi*86.85/60) = 10 mines, then the diameter expand stops.
     assert!(
-        after >= before + 8,
-        "mine ring should place 8 mines, before={before} after={after}"
+        after >= before + 10,
+        "SmartBorder ring should place 10 mines, before={before} after={after}"
     );
-    assert!(logic.structure_minefield_placements >= 8);
+    assert!(logic.structure_minefield_placements >= 10);
     let mines = logic
         .objects
         .values()
         .filter(|o| o.template_name == "ChinaStandardMine")
         .count();
-    assert!(mines >= 8, "mines={mines}");
+    assert!(mines >= 10, "mines={mines}");
 }
 
 #[test]

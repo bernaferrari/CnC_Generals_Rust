@@ -36,11 +36,10 @@ impl Object {
     pub(super) fn on_die_unit_lost_fake_radar(&self) {
         let pos = *self.get_position();
         if let Some(radar) = crate::helpers::TheRadar::get() {
-            radar.create_event(
-                &pos,
-                game_engine::common::system::radar::RadarEventType::Fake,
-                4.0,
-            );
+            // C++ Radar.cpp:1269-1315 — the FAKE ping goes through tryEvent, so a
+            // same-type event within 10s suppresses creation and lastRadarEvent
+            // (the spacebar last-event jump target) stays on the accepted event.
+            radar.try_event(game_engine::common::system::radar::RadarEventType::Fake, &pos);
         }
     }
 

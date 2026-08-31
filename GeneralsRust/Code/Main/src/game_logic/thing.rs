@@ -2375,6 +2375,13 @@ impl ThingTemplate {
                 return Some(w);
             }
         }
+        // C++ dozers carry only MINE_CLEARING_DETAIL (Object.cpp:160-497 arms
+        // ThingTemplate WeaponSet data; a Dozer template has no primary gun).
+        // The kind-based Weapon::default() last resort must not hand
+        // Dozer-kind templates an attack weapon or can_attack flips true.
+        if self.is_kind_of(KindOf::Dozer) {
+            return None;
+        }
         if self.is_kind_of(KindOf::Infantry)
             || self.is_kind_of(KindOf::Vehicle)
             || self.is_kind_of(KindOf::Aircraft)

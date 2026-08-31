@@ -42,6 +42,7 @@ impl DebugIOInterface for DebugIONet {
             }
 
             let mut mode = PIPE_READMODE_MESSAGE | PIPE_NOWAIT;
+            // SAFETY: [Category 8 — FFI] sets pipe mode on an open pipe handle; remaining args are null per API contract.
             unsafe {
                 SetNamedPipeHandleState(
                     pipe,
@@ -51,6 +52,7 @@ impl DebugIOInterface for DebugIONet {
                 );
             }
             let mut read = 0u32;
+            // SAFETY: [Category 8 — FFI] reads into a local buffer whose exact length is passed; bytes-written slot is valid.
             let ok = unsafe {
                 ReadFile(
                     pipe,
@@ -61,6 +63,7 @@ impl DebugIOInterface for DebugIONet {
                 )
             };
             mode = PIPE_READMODE_MESSAGE | PIPE_WAIT;
+            // SAFETY: [Category 8 — FFI] sets pipe mode on an open pipe handle; remaining args are null per API contract.
             unsafe {
                 SetNamedPipeHandleState(
                     pipe,
@@ -70,6 +73,7 @@ impl DebugIOInterface for DebugIONet {
                 );
             }
             if ok == 0 {
+                // SAFETY: [Category 8 — FFI] closes an open pipe handle exactly once before clearing state.
                 unsafe {
                     CloseHandle(pipe);
                 }
@@ -108,6 +112,7 @@ impl DebugIOInterface for DebugIONet {
             }
             let mut written = 0u32;
             let kind_byte = kind as u8;
+            // SAFETY: [Category 8 — FFI] writes from a local buffer of the stated size to an open pipe handle.
             unsafe {
                 WriteFile(
                     pipe,
@@ -119,6 +124,7 @@ impl DebugIOInterface for DebugIONet {
             }
             let src_bytes = src.unwrap_or("").as_bytes();
             let src_len = src_bytes.len() as u32;
+            // SAFETY: [Category 8 — FFI] writes from a local buffer of the stated size to an open pipe handle.
             unsafe {
                 WriteFile(
                     pipe,
@@ -139,6 +145,7 @@ impl DebugIOInterface for DebugIONet {
             }
             let msg_bytes = message.as_bytes();
             let msg_len = msg_bytes.len() as u32;
+            // SAFETY: [Category 8 — FFI] writes from a local buffer of the stated size to an open pipe handle.
             unsafe {
                 WriteFile(
                     pipe,
@@ -199,6 +206,7 @@ impl DebugIOInterface for DebugIONet {
 
                 let pipe_name = format!(r"\\{machine}\pipe\ea_debug_v1");
                 let pipe_name = CString::new(pipe_name).unwrap();
+                // SAFETY: [Category 8 — FFI] named-pipe Win32 call on handles/buffers owned by this struct.
                 let handle = unsafe {
                     CreateFileA(
                         pipe_name.as_ptr(),
@@ -215,6 +223,7 @@ impl DebugIOInterface for DebugIONet {
                     return;
                 }
                 let mut mode = PIPE_READMODE_MESSAGE;
+                // SAFETY: [Category 8 — FFI] sets pipe mode on an open pipe handle; remaining args are null per API contract.
                 unsafe {
                     SetNamedPipeHandleState(
                         handle,

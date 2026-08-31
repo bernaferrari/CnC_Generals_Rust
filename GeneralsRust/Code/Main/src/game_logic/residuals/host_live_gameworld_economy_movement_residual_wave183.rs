@@ -137,6 +137,9 @@ pub fn simulate_live_gameworld_economy_movement_honesty() -> bool {
 
     ensure_gate_damage_authority();
     // Wave 757: restore authority env if earlier tests forced off (process-global).
+    // SAFETY: env mutation funnels through env_compat wrappers; serialized
+    // by the repo --test-threads=1 / authority_env_lock convention and
+    // caches are refreshed immediately below.
     unsafe {
         crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");

@@ -52,7 +52,7 @@ fn iss_source() -> &'static str {
     include_str!("../../input_system_simple.rs")
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 
 pub fn honesty_host_presentation_is_attackable_status_method_names_residual_wave1093() -> bool {

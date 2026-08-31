@@ -236,6 +236,8 @@ impl Xfer for XferSave {
         self.xfer_unsigned_byte(&mut len)?;
 
         if len > 0 {
+                        // SAFETY: bytes is a live String slice of exactly this length;
+                        // save path only reads.
             unsafe { self.xfer_user(bytes.as_ptr() as *mut u8, bytes.len())? };
         }
 
@@ -257,6 +259,8 @@ impl Xfer for XferSave {
         // Save string data
         if len > 0 {
             // Write as raw bytes (u16 array)
+                        // SAFETY: utf16 is an owned Vec; the byte view spans exactly its
+                        // allocation, read-only for the save.
             let byte_slice = unsafe {
                 std::slice::from_raw_parts(
                     utf16.as_ptr() as *const u8,
@@ -275,6 +279,8 @@ impl Xfer for XferSave {
     /// # Safety
     /// The caller must ensure that `data` points to a valid buffer
     /// of at least `data_size` bytes.
+        // SAFETY: caller contract — data valid for reads of data_size;
+        // write_all consumes exactly that many bytes.
     unsafe fn xfer_implementation(
         &mut self,
         data: *mut u8,

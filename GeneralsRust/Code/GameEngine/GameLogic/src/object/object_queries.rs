@@ -951,19 +951,36 @@ impl Object {
     }
 
     /// Get the number of transport slots this object has
-    /// C++ Reference: Object.cpp - Transport capacity query
+    /// C++ Reference: Object::getTransportSlotCount (Object.cpp:700-717)
     ///
-    /// # Returns
-    /// The number of transport slots available in this object
+    /// Returns the template's raw TransportSlotCount, except for special
+    /// zero-slot containers (parachutes), which report the sum of their
+    /// riders' transport slot counts instead.
     pub fn get_transport_slot_count(&self) -> usize {
-        // Check contain module for transport capacity
-        // Matches C++ Object::getTransportSlotCount() behavior
-        if let Some(contain) = &self.contain {
-            if let Ok(guard) = contain.lock() {
-                return guard.get_max_capacity();
+        let mut count = self.thing_template.get_raw_transport_slot_count() as usize;
+
+        let zero_slot_riders: Option<Vec<ObjectID>> = self.contain.as_ref().and_then(|contain| {
+            let guard = contain.lock().ok()?;
+            if !guard.is_special_zero_slot_container() {
+                return None;
+            }
+            Some(guard.get_contained_objects().to_vec())
+        });
+
+        if let Some(rider_ids) = zero_slot_riders {
+            count = 0;
+            for rider_id in rider_ids {
+                if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                {
+                    if let Ok(rider_guard) = rider.read() {
+                        count += rider_guard.get_transport_slot_count();
+                    }
+                }
             }
         }
-        0
+
+        count
     }
 
     /// Get the container this object is inside

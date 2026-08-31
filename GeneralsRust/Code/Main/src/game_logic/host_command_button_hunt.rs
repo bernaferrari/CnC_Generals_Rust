@@ -46,8 +46,24 @@ pub fn hunt_stealthed_undetected(stealthed: bool, detected: bool) -> bool {
     stealthed && !detected
 }
 
-/// C++ TimedCharges / TankHunterTNT ViewObjectRange residual (Burton 100).
-pub const HUNT_PLACE_EXPLOSIVE_VIEW_RANGE: f32 = 100.0;
+/// C++ CommandButtonHuntUpdate.cpp:310-319 place-explosive already-mined
+/// rejection scans `spTemplate->getViewObjectRange()` around the candidate.
+/// Retail SpecialPower.ini authors ViewObjectRange only for the Burton/Demo
+/// TIMED_CHARGES family (100); SpecialAbilityTankHunterTNTAttack authors none
+/// and SpecialPower.cpp:202 defaults m_viewObjectRange to 0 — only a mine
+/// overlapping the candidate rejects it.
+pub fn hunt_place_explosive_mine_view_range(button: &str) -> f32 {
+    let n: String = button
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect();
+    if n.contains("timedcharge") || n.contains("timeddemo") || n.contains("burton") {
+        100.0
+    } else {
+        0.0
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostCommandButtonHuntMode {

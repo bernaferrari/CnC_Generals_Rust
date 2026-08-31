@@ -66,6 +66,11 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_fence_x_offset(&self) -> Real {
         0.0
     }
+    /// C++ `ThingTemplate::getRawTransportSlotCount` — the parsed
+    /// `TransportSlotCount` INI field.
+    fn get_raw_transport_slot_count(&self) -> UnsignedByte {
+        0
+    }
     /// C++ `ThingTemplate::getShadowType` bits (`SHADOW_NONE` = 0).
     fn get_shadow_type_bits(&self) -> u32 {
         0

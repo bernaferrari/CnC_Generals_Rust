@@ -75,6 +75,8 @@ fn test_encryption_initial_mask() {
 #[test]
 fn test_transport_message_create() {
     let msg = TransportMessage::new();
+    // SAFETY: `msg` is a live local; the header is `repr(C, packed)` so the
+    // `magic` field must be read unaligned.
     let magic = unsafe { std::ptr::addr_of!(msg.header.magic).read_unaligned() };
     assert_eq!(magic, GENERALS_MAGIC_NUMBER);
     assert_eq!(msg.length, 0);
@@ -205,6 +207,8 @@ fn test_binary_compatibility_packet_size() {
 
     // TransportMessage should have the header at offset 0
     let msg = TransportMessage::new();
+    // SAFETY: both pointers reference live locals; computing their address
+    // difference performs no dereference and no unaligned read.
     let header_offset = unsafe {
         let msg_ptr = &msg as *const TransportMessage as usize;
         let header_ptr = &msg.header as *const TransportMessageHeader as usize;

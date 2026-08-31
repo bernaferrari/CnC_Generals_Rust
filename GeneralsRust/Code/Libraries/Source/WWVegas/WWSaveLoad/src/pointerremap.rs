@@ -269,6 +269,11 @@ impl PointerRemapClass {
             update_callback: Box::new(move |new_addr| {
                 let new_ptr = new_addr as *const T;
                 if !new_ptr.is_null() {
+                    // SAFETY: new_addr is the remapped address from the load-time
+                    // pointer fixup table (old save-path address -> live object),
+                    // mirroring C++ PointerRemapClass::Process_Request_Table with
+                    // refcount=true: on a successful lookup new_ptr is a valid,
+                    // initialized T; add_ref only bumps its refcount; null is skipped.
                     unsafe {
                         (*new_ptr).add_ref();
                     }
@@ -295,6 +300,11 @@ impl PointerRemapClass {
             update_callback: Box::new(move |new_addr| {
                 let new_ptr = new_addr as *const T;
                 if !new_ptr.is_null() {
+                    // SAFETY: Same contract as the debug variant above: new_addr is
+                    // the remapped address from the load-time fixup table (old
+                    // save-path address -> live object, C++ Process_Request_Table
+                    // refcount=true); on lookup success new_ptr is a valid,
+                    // initialized T; add_ref only bumps its refcount; null skipped.
                     unsafe {
                         (*new_ptr).add_ref();
                     }

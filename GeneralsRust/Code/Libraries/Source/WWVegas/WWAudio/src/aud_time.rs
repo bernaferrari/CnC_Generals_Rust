@@ -149,6 +149,10 @@ fn failsafe_get_time() -> TimeStamp {
 
         // Get current system time (equivalent to timeGetTime())
         // On Windows, we can use GetTickCount64 for better precision
+        // SAFETY: Windows-only FFI (`cfg(windows)` above): GetTickCount64 is a
+        // plain, argument-less winapi call with no pointer or handle
+        // parameters; it cannot fail and imposes no lifetime or ownership
+        // requirements on the caller.
         let now = unsafe { winapi::um::sysinfoapi::GetTickCount64() as u32 };
 
         let mut new_hw = hw;

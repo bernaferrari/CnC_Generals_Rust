@@ -152,8 +152,9 @@ fn try_idle_repulse_flees_flagged_repulsor() {
     assert_eq!(civ.move_away_from, Some(eid));
     assert!(civ.move_away_frames > 0);
     assert!(civ.is_panicking, "flee must set MODELCONDITION_PANICKING");
+    // INIZH Locomotor.ini PanicHumanLocomotor Speed = 25 (patched ";30").
     assert!(
-        (civ.movement.max_speed - 50.0).abs() < 0.05,
+        (civ.movement.max_speed - 25.0).abs() < 0.05,
         "flee must swap PanicHumanLocomotor speed, got {}",
         civ.movement.max_speed
     );
@@ -248,8 +249,9 @@ fn team_panic_swaps_panic_locomotor_set() {
     assert_eq!(logic.set_team_panic_by_name("GLA"), 1);
     let u = &logic.objects[&id];
     assert!(u.is_panicking);
+    // INIZH Locomotor.ini PanicHumanLocomotor Speed = 25 (patched ";30").
     assert!(
-        (u.movement.max_speed - 50.0).abs() < 0.05,
+        (u.movement.max_speed - 25.0).abs() < 0.05,
         "TeamPanic must install PanicHumanLocomotor, got {}",
         u.movement.max_speed
     );
@@ -270,7 +272,8 @@ fn named_unit_panic_is_not_a_noop() {
     assert!(logic.set_named_unit_panic("CivA"));
     let u = &logic.objects[&id];
     assert!(u.is_panicking);
-    assert!((u.movement.max_speed - 50.0).abs() < 0.05);
+    // INIZH Locomotor.ini PanicHumanLocomotor Speed = 25 (patched ";30").
+    assert!((u.movement.max_speed - 25.0).abs() < 0.05);
 }
 
 #[test]
@@ -818,9 +821,13 @@ fn get_next_mood_target_finds_nearby_enemy() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
         o.set_position(Vec3::ZERO);
+        // C++ AIUpdate.cpp:4484-4490 — calledDuringIdle acquisition requires
+        // AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle & AAS_Idle; the C++
+        // module default is 0 (AIUpdate.cpp:64), so the fixture opts in.
+        o.auto_acquire_idle_bits =
+            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         o.ai_attitude = 0; // Normal
         o.vision_range = 200.0;
-        o.next_mood_check_time = 0;
         o.weapon = Some(Weapon {
             range: 80.0,
             damage: 10.0,
@@ -894,6 +901,11 @@ fn get_next_mood_target_passive_uses_last_damage_source() {
         o.ai_attitude = -1; // Passive
         o.last_damage_source = Some(enemy);
         o.vision_range = 200.0;
+        // C++ AIUpdate.cpp:4484-4490 — calledDuringIdle requires AAS_Idle
+        // (module default 0, AIUpdate.cpp:64); passive mood still passes
+        // through this gate before the last-damage-source branch.
+        o.auto_acquire_idle_bits =
+            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         o.weapon = Some(Weapon {
             range: 100.0,
             damage: 5.0,
@@ -934,6 +946,10 @@ fn try_mood_auto_acquire_enters_attack() {
         o.ai_attitude = 2; // Aggressive
         o.vision_range = 200.0;
         o.next_mood_check_time = 0;
+        // C++ AIIdleState::update → getNextMoodTarget(TRUE, TRUE) is gated on
+        // AAS_Idle (AIUpdate.cpp:4484-4490; module default 0, AIUpdate.cpp:64).
+        o.auto_acquire_idle_bits =
+            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         o.weapon = Some(Weapon {
             range: 100.0,
             damage: 10.0,
@@ -1275,6 +1291,9 @@ fn host_direct_attack_authority_does_not_bypass_weaponset_target_legality() {
     logic.objects.insert(attacker_id, {
         let mut object = Object::new(attacker_template, attacker_id, Team::USA);
         object.set_position(Vec3::ZERO);
+        // C++ commands only reach units whose controlling player issued them
+        // (command_attack filters selection by owner_player_id).
+        object.owner_player_id = Some(0);
         object.weapon = Some(Weapon {
             range: 100.0,
             damage: 10.0,
@@ -2293,7 +2312,7 @@ fn request_attack_path_rate_limits() {
 
 #[test]
 fn private_attack_object_sets_target_and_shots() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("PA");
@@ -2302,6 +2321,15 @@ fn private_attack_object_sets_target_and_shots() {
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::USA);
         o.set_position(Vec3::ZERO);
+        // C++ AIUpdateInterface::privateAttackObject → Object::isAbleToAttack
+        // (Object.cpp:3167) requires a live WeaponSet; a weaponless unit can
+        // never enter the attack machine.
+        o.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
         o
     });
     let mut vt = ThingTemplate::new("PV");

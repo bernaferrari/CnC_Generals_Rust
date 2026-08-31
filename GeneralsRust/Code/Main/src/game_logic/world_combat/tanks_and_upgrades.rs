@@ -2092,6 +2092,10 @@ mod horde_allies_tests {
                     .expect("a extra"),
             );
         }
+        // C++ HordeUpdate.cpp:146-147 initial wake sleeps UpdateRate, then
+        // :253 infantry re-evaluates membership when the module wakes. The
+        // wake gate is frame-based, so re-scan at the wake frame.
+        logic.frame = crate::game_logic::host_red_guard::INFANTRY_HORDE_UPDATE_FRAMES;
         logic.update_china_infantry_horde_status();
         assert!(
             logic.host_object(a_ids[0]).expect("a0").weapon_bonus_horde,

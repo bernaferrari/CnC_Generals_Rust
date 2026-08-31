@@ -143,6 +143,7 @@ impl BasicDrawable {
 
         let use_presentation = dual_world_registry_unavailable() || self.object_id.is_none();
         let (health, max_health, under_construction, disabled_not_held) = if use_presentation {
+            // Wave 1114: dual health-bar residual fail-closed on dead presentation.
             if self.presentation_health_pct <= 0.0 {
                 return;
             }
@@ -489,6 +490,7 @@ impl BasicDrawable {
             return;
         }
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual ammo residual fail-closed on dead presentation.
             if self.presentation_health_pct <= 0.0 || self.presentation_effectively_stealthed {
                 self.overlay_data.show_ammo = false;
                 return;
@@ -540,6 +542,7 @@ impl BasicDrawable {
             return;
         }
         if dual_world_registry_unavailable() {
+            // Wave 1114: dual contain residual fail-closed on dead presentation.
             if self.presentation_health_pct <= 0.0 || self.presentation_effectively_stealthed {
                 self.overlay_data.show_contained = false;
                 return;

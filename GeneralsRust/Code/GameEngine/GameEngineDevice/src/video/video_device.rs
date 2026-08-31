@@ -774,9 +774,14 @@ impl VideoDevice {
             return -1;
         }
 
+        // SAFETY: c_draw_primitive's contract: vertices_ptr is non-null (checked above)
+        // SAFETY: and readable for vertex_count Vertex elements for the duration of the
+        // SAFETY: draw; contents are consumed synchronously without retention.
         let vertices = unsafe { std::slice::from_raw_parts(vertices_ptr, vertex_count as usize) };
 
         let indices = if !indices_ptr.is_null() && index_count > 0 {
+            // SAFETY: indices_ptr checked non-null with index_count > 0 above; readable for
+            // SAFETY: index_count u16s during the synchronous draw call only.
             Some(unsafe { std::slice::from_raw_parts(indices_ptr, index_count as usize) })
         } else {
             None

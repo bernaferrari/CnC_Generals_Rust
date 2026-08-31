@@ -500,7 +500,10 @@ impl RayRenderData {
 }
 
 // Ensure proper alignment for GPU buffers
+// SAFETY: RayRenderData is `#[repr(C)]` all-f32 (with explicit _padding), so any
+// SAFETY: bit pattern is a valid value and GPU upload treats it as raw bytes.
 unsafe impl bytemuck::Pod for RayRenderData {}
+// SAFETY: All-zero f32 bits are valid values; no pointers, niches, or invariants.
 unsafe impl bytemuck::Zeroable for RayRenderData {}
 
 #[cfg(test)]

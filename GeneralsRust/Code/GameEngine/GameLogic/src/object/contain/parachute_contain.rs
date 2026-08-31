@@ -289,11 +289,6 @@ impl ParachuteContain {
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
-    /// C++ isSpecialZeroSlotContainer — parachute itself takes no transport slots.
-    pub fn is_special_zero_slot_container(&self) -> bool {
-        true
-    }
-
     pub fn process_damage_to_contained(&mut self, percent_damage: f32) -> GameResult<()> {
         self.base.process_damage_to_contained(percent_damage)
     }
@@ -331,7 +326,7 @@ impl ParachuteContain {
             * Matrix3D::from_translation(-t)
     }
 
-    fn update_bone_positions(&mut self) {
+    fn update_bone_positions(&mut self, rider: Option<&Object>) {
         if self.need_to_update_para_bones {
             self.need_to_update_para_bones = false;
             if let Some(drawable) = self.with_owner(|owner| owner.get_drawable()).flatten() {
@@ -352,21 +347,22 @@ impl ParachuteContain {
         }
 
         if self.need_to_update_rider_bones {
-            self.need_to_update_rider_bones = false;
-            if let Some(rider) = self.resolve_rider() {
-                if let Ok(rider_guard) = rider.read() {
-                    if let Some(drawable) = rider_guard.get_drawable() {
-                        if let Ok(draw) = drawable.read() {
-                            if let Some(pos) =
-                                draw.get_pristine_bone_positions("PARA_MAN", 0, 1).first()
-                            {
-                                self.rider_attach_bone = *pos;
-                            } else {
-                                let height = rider_guard
-                                    .get_geometry_info()
-                                    .get_max_height_above_position();
-                                self.rider_attach_bone = Coord3D::new(0.0, 0.0, height);
-                            }
+            // Callers holding the rider's write lock (position_rider) pass the
+            // rider reference directly; re-locking the same RwLock here would
+            // self-deadlock. Lock-free callers resolve the rider first and pass
+            // the guard as `rider`.
+            if let Some(rider_guard) = rider {
+                if let Some(drawable) = rider_guard.get_drawable() {
+                    if let Ok(draw) = drawable.read() {
+                        if let Some(pos) =
+                            draw.get_pristine_bone_positions("PARA_MAN", 0, 1).first()
+                        {
+                            self.rider_attach_bone = *pos;
+                        } else {
+                            let height = rider_guard
+                                .get_geometry_info()
+                                .get_max_height_above_position();
+                            self.rider_attach_bone = Coord3D::new(0.0, 0.0, height);
                         }
                     }
                 }
@@ -374,7 +370,7 @@ impl ParachuteContain {
         }
     }
 
-    fn update_offsets_from_bones(&mut self) {
+    fn update_offsets_from_bones(&mut self, rider: Option<&Object>) {
         let Some(obj_pos) = self.with_owner(|owner| *owner.get_position()) else {
             return;
         };
@@ -402,30 +398,31 @@ impl ParachuteContain {
             );
         }
 
-        if let Some(rider) = self.resolve_rider() {
-            if let Ok(rider_guard) = rider.read() {
-                let rider_pos = *rider_guard.get_position();
-                let mtx =
-                    rider_guard.convert_bone_pos_to_world_pos(Some(&self.rider_attach_bone), None);
-                let (_, _, world) = mtx.to_scale_rotation_translation();
-                self.rider_attach_offset = Coord3D::new(
-                    world.x - rider_pos.x,
-                    world.y - rider_pos.y,
-                    world.z - rider_pos.z,
-                );
-                self.rider_attach_offset.x = self.para_attach_offset.x - self.rider_attach_offset.x;
-                self.rider_attach_offset.y = self.para_attach_offset.y - self.rider_attach_offset.y;
-                self.rider_attach_offset.z = self.para_attach_offset.z - self.rider_attach_offset.z;
-                self.rider_sway_offset.x = self.para_sway_offset.x - self.rider_attach_offset.x;
-                self.rider_sway_offset.y = self.para_sway_offset.y - self.rider_attach_offset.y;
-                self.rider_sway_offset.z = self.para_sway_offset.z - self.rider_attach_offset.z;
-            }
+        // Same re-entry rule as update_bone_positions: callers holding the
+        // rider's write lock pass the reference; lock-free callers resolve the
+        // rider first and pass the guard as `rider`.
+        if let Some(rider_guard) = rider {
+            let rider_pos = *rider_guard.get_position();
+            let mtx =
+                rider_guard.convert_bone_pos_to_world_pos(Some(&self.rider_attach_bone), None);
+            let (_, _, world) = mtx.to_scale_rotation_translation();
+            self.rider_attach_offset = Coord3D::new(
+                world.x - rider_pos.x,
+                world.y - rider_pos.y,
+                world.z - rider_pos.z,
+            );
+            self.rider_attach_offset.x = self.para_attach_offset.x - self.rider_attach_offset.x;
+            self.rider_attach_offset.y = self.para_attach_offset.y - self.rider_attach_offset.y;
+            self.rider_attach_offset.z = self.para_attach_offset.z - self.rider_attach_offset.z;
+            self.rider_sway_offset.x = self.para_sway_offset.x - self.rider_attach_offset.x;
+            self.rider_sway_offset.y = self.para_sway_offset.y - self.rider_attach_offset.y;
+            self.rider_sway_offset.z = self.para_sway_offset.z - self.rider_attach_offset.z;
         }
     }
 
     fn position_rider(&mut self, rider: &mut Object) {
-        self.update_bone_positions();
-        self.update_offsets_from_bones();
+        self.update_bone_positions(Some(rider));
+        self.update_offsets_from_bones(Some(rider));
 
         let Some(mut pos) = self.with_owner(|owner| *owner.get_position()) else {
             return;
@@ -833,8 +830,8 @@ impl ParachuteContain {
                 }
 
                 if let Some(drawable) = self.with_owner(|owner| owner.get_drawable()).flatten() {
-                    self.update_bone_positions();
-                    self.update_offsets_from_bones();
+                    self.update_bone_positions(None);
+                    self.update_offsets_from_bones(None);
                     let mtx = self.calc_sway_mtx(&self.para_sway_offset);
                     drawable.set_instance_matrix(Some(&mtx));
                 }
@@ -848,7 +845,7 @@ impl ParachuteContain {
                 self.with_owner_mut(|owner| owner.set_layer(new_layer));
                 if let Some(rider) = self.resolve_rider() {
                     if let Ok(mut rider_guard) = rider.write() {
-                        rider_guard.set_layer(new_layer);
+                        self.position_rider(&mut rider_guard);
                     }
                 }
 
@@ -1009,6 +1006,10 @@ impl ContainModuleInterface for ParachuteContain {
     fn get_max_capacity(&self) -> usize {
         // C++ isSpecialZeroSlotContainer — transport unwraps this container.
         0
+    }
+
+    fn is_special_zero_slot_container(&self) -> bool {
+        true
     }
 
     fn is_enclosing_container_for(&self, _obj: &Object) -> bool {

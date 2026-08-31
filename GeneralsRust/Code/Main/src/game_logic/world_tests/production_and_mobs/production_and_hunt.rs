@@ -69,7 +69,6 @@ fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
             .is_some_and(|building| building.production_queue.is_empty())
     );
 }
-
 #[test]
 fn cancel_production_refunds_controlling_player_not_first_same_team() {
     // C++ ProductionUpdate.cpp:316 / :456 — cancelUpgrade / cancelUnitCreate
@@ -421,6 +420,30 @@ fn overlord_gattling_addon_residual_install_and_fire() {
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_tank_template(&mut game_logic);
+    // The synthetic victim models a C++ armor-less object: no ArmorSet rows ->
+    // ActiveBody keeps the default all-1.0 coefficients (Armor.h:56-58 passes
+    // damage through), so the passenger gattling contributes its full 10.
+    // The Rust residual resolves retail TankArmor by KindOf for armor-less
+    // templates (GATTLING 10%, Armor.ini:127) — stamp the all-ones armor like
+    // shells_and_missiles::stamp_cpp_armorless_dummy_armor does.
+    {
+        use gamelogic::common::AsciiString;
+        use gamelogic::object::armor::{ArmorTemplate, TheArmorStore};
+        const TEST_DUMMY_ALL_ONES_ARMOR: &str = "TestDummyAllOnesArmor";
+        if TheArmorStore::find_template(&AsciiString::from(TEST_DUMMY_ALL_ONES_ARMOR)).is_none() {
+            TheArmorStore::register_template(
+                &AsciiString::from(TEST_DUMMY_ALL_ONES_ARMOR),
+                ArmorTemplate::new(),
+            );
+        }
+        if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
+            tpl.armor_sets.push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some(TEST_DUMMY_ALL_ONES_ARMOR.to_string()),
+                damage_fx: None,
+            });
+        }
+    }
 
     let mut overlord_tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
     overlord_tpl
@@ -493,17 +516,20 @@ fn overlord_gattling_addon_residual_install_and_fire() {
     );
 
     // Ground passenger fire residual: primary path + gattling ground dmg.
-    let infantry_id = game_logic
-        .create_object("TestInfantry", Team::USA, Vec3::new(50.0, 0.0, 0.0))
-        .expect("infantry");
+    // Non-Infantry victim: OverlordTankGun carries retail
+    // ScatterRadiusVsInfantry and typed armor vs HumanArmor, which the
+    // naive 80+10 expectation ignores (C++ ActiveBody adjustDamage).
+    let victim_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("victim");
     let hp_before = game_logic
-        .host_object(infantry_id)
+        .host_object(victim_id)
         .map(|i| i.health.current)
         .unwrap_or(0.0);
     {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
         o.active_weapon_slot = 0;
-        o.attack_target(infantry_id);
+        o.attack_target(victim_id);
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
@@ -511,10 +537,10 @@ fn overlord_gattling_addon_residual_install_and_fire() {
         }
     }
     game_logic.set_current_frame(30);
-    game_logic.update_combat(&[overlord_id, infantry_id], LOGIC_FRAME_TIMESTEP);
+    game_logic.update_combat(&[overlord_id, victim_id], LOGIC_FRAME_TIMESTEP);
 
     let hp_after = game_logic
-        .host_object(infantry_id)
+        .host_object(victim_id)
         .map(|i| i.health.current)
         .unwrap_or(0.0);
     let dealt = hp_before - hp_after;
@@ -522,7 +548,7 @@ fn overlord_gattling_addon_residual_install_and_fire() {
     assert!(
         dealt + 0.01 >= 80.0 + OVERLORD_GATTLING_GROUND_DAMAGE - 1.0
             || !game_logic
-                .host_object(infantry_id)
+                .host_object(victim_id)
                 .map(|i| i.is_alive())
                 .unwrap_or(true),
         "expected primary+passenger gattling residual damage, dealt={dealt} before={hp_before} after={hp_after}"
@@ -988,7 +1014,13 @@ fn battle_bus_residual_enter_sets_docked_and_upgrades_weapon_set() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // C++ objects always have a controlling player; register GLA so
+    // create_object stamps owner and Enter resolves Allies.  Author the
+    // TestInfantry metadata (KindOf + TransportSlotCount=1): C++
+    // Object::getTransportSlotCount (Object.cpp:700-717) is the raw INI value
+    // and a zero-slot source can never board a capacity-checked transport.
     ensure_test_infantry_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let infantry_id = game_logic
         .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
@@ -1049,8 +1081,8 @@ fn battle_bus_residual_load_two_unload_both_free() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-
     let unit_a = game_logic
         .create_object("TestInfantry", Team::GLA, Vec3::new(1.0, 0.0, 0.0))
         .expect("unit a");
@@ -1100,6 +1132,17 @@ fn battle_bus_residual_load_two_unload_both_free() {
     });
     game_logic.process_commands();
 
+    // C++ TransportContain does not dump riders synchronously: Evacuate calls
+    // orderAllPassengersToExit → aiExit per rider (OpenContain.cpp:1353-1371)
+    // and each exit is paced by the transport exit door (TransportContain
+    // ExitDelay). Advance frames so the exit door cycles both riders out and
+    // their exit walks settle, matching the C++ stream and the Combat Chinook
+    // residual twin below.
+    for _ in 0..60 {
+        game_logic.frame += 1;
+        game_logic.update_movement_for_test(&[bus_id, unit_a, unit_b], 1.0 / 30.0);
+        game_logic.update_ai(&[bus_id, unit_a, unit_b], 1.0 / 30.0);
+    }
     let bus = game_logic.host_object(bus_id).expect("bus empty");
     assert!(
         bus.contained_units().is_empty(),
@@ -1113,8 +1156,14 @@ fn battle_bus_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("freed unit");
-        assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
-        assert!(unit.contained_by.is_none(), "contained_by must clear");
+        // C++ OpenContain::exitObjectViaDoor places the rider at ExitStart and
+        // issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020); the freed
+        // rider walks its exit path instead of Idling in place.
+        assert_eq!(
+            unit.ai_state,
+            AIState::Moving,
+            "unloaded unit must walk its exit path (C++ aiFollowPath)"
+        );
         assert!(unit.can_move(), "unloaded unit must be free to move");
     }
 
@@ -1206,8 +1255,8 @@ fn battle_bus_residual_capacity_full_rejects_enter() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     let bus_id = create_test_battle_bus(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
-
     // Fill all 8 residual slots.
     let mut loaded = Vec::new();
     for i in 0..crate::game_logic::host_battle_bus::BATTLE_BUS_TRANSPORT_SLOTS {
@@ -1460,7 +1509,7 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     }
     let killed = {
         let o = game_logic.host_object_mut(id).unwrap();
-        o.take_damage_from_typed(999.0, None, crate::game_logic::combat::DamageType::Bullet)
+        o.take_damage_from_typed(999.0, None, crate::game_logic::combat::DamageType::Explosive)
     };
     assert!(!killed);
     let o = game_logic.host_object(id).unwrap();
@@ -2046,17 +2095,26 @@ fn deploy_style_must_center_turret_before_pack() {
 
 #[test]
 fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
-
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
     af_tmpl
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSAirfield)
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0);
+    af_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
     logic.templates.insert("AmericaAirfield".into(), af_tmpl);
 
     let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
@@ -2141,15 +2199,25 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
 #[test]
 fn jet_airfield_rearm_waits_clip_reload_frames() {
     use crate::game_logic::host_raptor::{RAPTOR_CLIP_RELOAD_FRAMES, RAPTOR_CLIP_SIZE};
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
     af_tmpl
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSAirfield)
         .set_health(1000.0);
+    af_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
     logic.templates.insert("AmericaAirfield".into(), af_tmpl);
     let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
     jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
@@ -2230,19 +2298,33 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
     use crate::game_logic::audio_dispatch_impl::{
         clear_test_template_voices, set_test_per_unit_sound,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     clear_test_template_voices();
+    // C++ JetOrHeliCirclingDeadAirfieldState::onEnter plays
+    // getPerUnitSound("VoiceLowFuel") — retail RaptorUnit authors
+    // VoiceLowFuel = RaptorVoiceLowFuel; the resolver is override-or-factory.
     set_test_per_unit_sound("AmericaJetRaptor", "VoiceLowFuel", "RaptorVoiceLowFuel");
-
     let mut logic = GameLogic::new();
+    // C++ airfields always author ParkingPlaceBehavior; JetAI RTB reservation
+    // additionally needs the exact-controller owner pair (airfield.rs:1262).
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
     af_tmpl
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSAirfield)
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0);
+    af_tmpl.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
     logic.templates.insert("AmericaAirfield".into(), af_tmpl);
     let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
     jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
@@ -2786,8 +2868,19 @@ fn command_button_hunt_tnt_and_booby_reject_neutral() {
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
-    logic.add_player(Player::new(0, Team::China, "China", false));
-    logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+    // C++ players are always live controlling players at scan time; the host
+    // ownership resolution filters dead players out (get_player().filter
+    // is_alive), which would turn every relationship Neutral and reject both
+    // scan candidates.
+    // Distinct alliance teams model skirmish diplomacy: no shared
+    // alliance_team between live controlling players resolves Enemies
+    // (player_relationship_from_map, object_queries.rs:445-451).
+    let mut china = Player::new(0, Team::China, "China", true);
+    china.alliance_team = 0;
+    let mut gla = Player::new(1, Team::GLA, "GLA", true);
+    gla.alliance_team = 1;
+    logic.add_player(china);
+    logic.add_player(gla);
     ensure_test_infantry_template(&mut logic);
     let mut bldg = ThingTemplate::new("TestBuilding");
     bldg.add_kind_of(KindOf::Structure).set_health(500.0);

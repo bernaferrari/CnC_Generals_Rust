@@ -48,11 +48,20 @@ impl WgpuSurfaceManager {
     where
         W: HasWindowHandle + HasDisplayHandle + Send + Sync,
     {
+        // SAFETY: `from_window` copies the raw handles out of `window`, whose
+        // HasWindowHandle/HasDisplayHandle bounds guarantee they are valid
+        // (non-dangling); the caller must keep the window alive and not show
+        // it via another graphics API while any surface from this target
+        // exists.
         let surface_target = unsafe {
             // SAFETY: window must be valid for the duration of the surface
             wgpu::SurfaceTargetUnsafe::from_window(window)
         }
         .map_err(|e| Error::GenericError(format!("Failed to get window handle: {}", e)))?;
+        // SAFETY: `surface_target` came from `from_window` on this same
+        // `instance` two lines above, is still alive and unconsumed, and its
+        // raw handles are valid per `window`'s HasWindowHandle/HasDisplayHandle
+        // impls — the precondition `create_surface_unsafe` demands.
         let surface = unsafe { instance.create_surface_unsafe(surface_target) }
             .map_err(|e| Error::GenericError(format!("Failed to create surface: {}", e)))?;
 

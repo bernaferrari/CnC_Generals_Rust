@@ -203,7 +203,14 @@ impl GameLogic {
         }
         // C++ A10Thunderbolt DeliverPayload residual (jet + staggered missiles).
         if kind == HostSuperweaponKind::A10Strike {
-            let _ = self.spawn_a10_strike_flight(source_object, target_position, a10_tier);
+            if self
+                .spawn_a10_strike_flight(source_object, target_position, a10_tier)
+                .is_some()
+            {
+                if let Some(s) = self.special_power_strikes.get_mut(id) {
+                    s.live_a10_delivery = true;
+                }
+            }
         }
         // C++ DaisyCutter / MOAB DeliverPayload residual (B52 or JetB3 + bomb).
         // C++ OCLSpecialPower::findOCL: first owned UpgradeOCL science wins.
@@ -822,6 +829,15 @@ impl GameLogic {
                     meta.position,
                     frame,
                     meta.parent_strike_id,
+                );
+                // The field's ambient cue starts with the field (the strike-
+                // registry cue only fires on the fallback blob path).
+                use crate::game_logic::special_power_strikes::NUKE_RADIATION_AUDIO;
+                self.queue_audio_event(
+                    AudioEventRequest::new(NUKE_RADIATION_AUDIO)
+                        .with_object(meta.source_object)
+                        .with_position(meta.position)
+                        .with_priority(150),
                 );
             }
 
@@ -2110,9 +2126,25 @@ impl GameLogic {
             };
             if !self.templates.contains_key(&tmpl) {
                 let mut t = ThingTemplate::new(&tmpl);
+                // C++ retail poison fields (PoisonFieldAnthraxBomb / Large /
+                // UpgradedLarge) carry KindOf IMMOBILE CLEANUP_HAZARD INERT
+                // NO_COLLIDE (host_toxin_tractor TOXIN_FIELD_KINDOF_CLEANUP_HAZARD)
+                // + ArmorSet HazardousMaterialArmor (HAZARD_CLEANUP 100%, FLAME
+                // 0% — flame cannot clean) instead of the StructureArmor fallback.
                 t.add_kind_of(KindOf::Immobile)
+                    .add_kind_of(KindOf::CleanupHazard)
+                    .add_kind_of(KindOf::Inert)
+                    .add_kind_of(KindOf::NoCollide)
                     .set_health(max_hp)
                     .set_cost(0, 0);
+                t.armor_sets.push(crate::game_logic::HostArmorSet {
+                    conditions: 0,
+                    armor: Some(
+                        crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR
+                            .to_string(),
+                    ),
+                    damage_fx: None,
+                });
                 self.templates.insert(tmpl.clone(), t);
             }
             let expires = self.frame.saturating_add(lifetime.max(1));
@@ -2189,9 +2221,26 @@ impl GameLogic {
         }
         if !self.templates.contains_key(NUKE_RADIATION_OBJECT_NAME) {
             let mut t = ThingTemplate::new(NUKE_RADIATION_OBJECT_NAME);
+            // C++ NukeRadiationFieldWeapon retail Object residual
+            // (radiation.rs NUKE_RADIATION_KIND_OF / NUKE_RADIATION_ARMOR):
+            // KindOf IMMOBILE CLEANUP_HAZARD INERT NO_COLLIDE so the ambulance
+            // CleanupHazardUpdate partition scan targets the field, and
+            // ArmorSet HazardousMaterialArmor (HAZARD_CLEANUP 100%, FLAME 0% —
+            // flame cannot clean) instead of the StructureArmor fallback.
             t.add_kind_of(KindOf::Immobile)
+                .add_kind_of(KindOf::CleanupHazard)
+                .add_kind_of(KindOf::Inert)
+                .add_kind_of(KindOf::NoCollide)
                 .set_health(NUKE_RADIATION_FIELD_MAX_HEALTH)
                 .set_cost(0, 0);
+            t.armor_sets.push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some(
+                    crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR
+                        .to_string(),
+                ),
+                damage_fx: None,
+            });
             self.templates
                 .insert(NUKE_RADIATION_OBJECT_NAME.to_string(), t);
         }

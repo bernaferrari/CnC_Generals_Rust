@@ -19,6 +19,12 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn get_contained_count(&self) -> usize;
     fn get_max_capacity(&self) -> usize;
 
+    /// C++ `ContainModuleInterface::isSpecialZeroSlotContainer` — parachute-style
+    /// containers whose riders do not consume the holder's transport slots.
+    fn is_special_zero_slot_container(&self) -> bool {
+        false
+    }
+
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let _ = xfer;
         Ok(())

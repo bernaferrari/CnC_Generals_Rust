@@ -459,6 +459,18 @@ impl Object {
                 );
             power_provided = p;
             power_consumed = c;
+        } else if let Some(energy) = crate::game_logic::host_superweapon_kindof::superweapon_energy_production_for_template(&template_name)
+        {
+            // Retail Object INI EnergyProduction residual for the Superweapon
+            // link-key structures (PUC / Nuke drain 10, Scud Storm 0). Applied
+            // when the live template carries no parsed energy so map-placed
+            // and test-spawned SW structures still match retail team power.
+            let (p, c) =
+                crate::game_logic::host_superweapon_kindof::apply_energy_production_to_power(
+                    energy,
+                );
+            power_provided = p;
+            power_consumed = c;
         }
 
         let mut template = template;

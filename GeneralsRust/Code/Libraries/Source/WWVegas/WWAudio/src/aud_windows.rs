@@ -132,7 +132,14 @@ pub struct AudThread {
     cpu_profile: Mutex<ProfileCPU>,
 }
 
+// SAFETY: AudThread's mutable state is confined to atomics and `Mutex`
+// fields (data, update, cpu_profile, critical_section); the raw `*mut c_void`
+// in `data` is only ever dereferenced by the service thread that owns the
+// pointed-to context, so moving the handle across threads is sound.
 unsafe impl Send for AudThread {}
+// SAFETY: Every interior-mutable field sits behind a Mutex or atomic, so
+// `&AudThread` cannot mutate the raw `data` pointer or callback except
+// through those locks.
 unsafe impl Sync for AudThread {}
 
 /// RIFF header structure for wave file parsing
@@ -294,6 +301,11 @@ impl AudThread {
             data: Mutex::new(ptr::null_mut()),
             callback: Arc::new(callback),
             #[cfg(target_os = "windows")]
+            // SAFETY: All-zero bit pattern is the documented initial state of
+            // a CRITICAL_SECTION before InitializeCriticalSection; this field
+            // is never passed to winapi critical-section functions (the
+            // Mutex provides the actual locking), so no uninitialized handle
+            // is ever dereferenced.
             critical_section: Mutex::new(unsafe { mem::zeroed() }),
             #[cfg(not(target_os = "windows"))]
             critical_section: Mutex::new(()),
@@ -523,12 +535,25 @@ pub fn read_wave_file_format<R: std::io::Read + std::io::Seek>(
                 reader.read_exact(&mut format_data[..chunk_length])?;
 
                 if chunk_length >= std::mem::size_of::<WaveFormatEx>() {
+                    // SAFETY: Reads a WaveFormatEx (#[repr(C, packed)] POD)
+                    // straight from the fmt chunk; the branch guard ensures
+                    // format_data.len() >= size_of::<WaveFormatEx>(), so the
+                    // read is in bounds, initialized, and any bit pattern of
+                    // the POD struct is valid.
                     wave_format = Some(unsafe {
                         std::ptr::read(format_data.as_ptr() as *const WaveFormatEx)
                     });
                 } else {
                     // Create minimal format structure
+                    // SAFETY: mem::zeroed is valid for the all-POD
+                    // #[repr(C, packed)] WaveFormatEx; every field accepts
+                    // an all-zero bit pattern.
                     let mut wf: WaveFormatEx = unsafe { mem::zeroed() };
+                    // SAFETY: Copies chunk_length bytes from the fmt-chunk
+                    // buffer into `wf`; the enclosing else branch guarantees
+                    // chunk_length < size_of::<WaveFormatEx>() and
+                    // format_data holds chunk_length readable bytes, so both
+                    // regions are valid for read/write and non-overlapping.
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             format_data.as_ptr(),
@@ -641,6 +666,10 @@ fn read_mp3_file_format<R: std::io::Read + std::io::Seek>(
 #[cfg(target_os = "windows")]
 pub fn windows_debug_print(message: &str) {
     let c_message = CString::new(message).unwrap_or_default();
+    // SAFETY: Windows-only FFI (cfg(target_os = "windows") above):
+    // `c_message` is a live NUL-terminated allocation kept alive through the
+    // call, and the function only reads that buffer; no handle or ownership
+    // is transferred.
     unsafe {
         OutputDebugStringA(PCSTR(c_message.as_ptr() as *const u8));
     }

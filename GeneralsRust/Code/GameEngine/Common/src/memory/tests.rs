@@ -347,6 +347,8 @@ mod tests {
         assert_eq!(stride % align, 0);
 
         let slab = Slab::<u8>::new(8, requested).unwrap();
+        // SAFETY: test-only probe of slab slots 0..8 of a slab just
+        // created with capacity 8; addresses stay in bounds.
         unsafe {
             for i in 0..8 {
                 let addr = slab.slot_ptr(i) as usize;

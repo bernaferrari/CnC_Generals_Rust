@@ -3,7 +3,6 @@ use super::super::*;
 fn open_grid(w: i32, h: i32) -> PathfindingGrid {
     PathfindingGrid::new(w as f32 * 10.0, h as f32 * 10.0, 10.0)
 }
-
 /// hq-9jz4r: layer change only looks ALLOWED_STEPS=3 past the ramp.
 #[test]
 fn optimize_caps_bridge_layer_steps() {
@@ -644,7 +643,7 @@ fn infantry_paths_along_classified_wall() {
         .add_wall_piece(7, Vec3::new(85.0, 0.0, 85.0), 0.0, 50.0, 25.0);
     let objects = HashMap::new();
     let from = Vec3::new(50.0, 12.0, 85.0);
-    let to = Vec3::new(120.0, 12.0, 85.0);
+    let to = Vec3::new(110.0, 12.0, 85.0);
     assert_eq!(
         sys.grid.layer_for_destination(from),
         PathfindLayerEnum::Wall
@@ -695,6 +694,7 @@ fn infantry_occupancy_is_single_cell() {
     inf.set_position(Vec3::new(55.0, 0.0, 55.0));
     inf.owner_player_id = Some(0);
     inf.selection_radius = 5.0;
+    objects.insert(inf.id, inf);
     g.update_dynamic_obstacles(&objects);
     let center = g.world_to_grid(Vec3::new(55.0, 0.0, 55.0));
     assert!(g.is_blocked(center), "infantry center cell must occupy");

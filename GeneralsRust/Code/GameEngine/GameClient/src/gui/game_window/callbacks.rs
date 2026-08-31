@@ -203,6 +203,8 @@ pub(crate) fn read_video_frame(buffer: &VideoBufferHandle) -> Option<VideoFrameD
         guard.unlock();
         return None;
     }
+    // SAFETY: ptr from guard.lock(), null-checked above; byte_len = pitch*height
+    // SAFETY: bounds the locked backing store, and the slice dies before unlock().
     let src = unsafe { std::slice::from_raw_parts(ptr, byte_len) };
     let data = match guard.format() {
         VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),

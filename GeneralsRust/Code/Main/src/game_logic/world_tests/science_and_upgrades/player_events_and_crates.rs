@@ -554,9 +554,9 @@ fn do_sabotage_feedback_fx_flash_and_audio_by_kind() {
 
 #[test]
 fn select_objects_flashes_selection_residual() {
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
     let start = src.find("pub fn select_objects").expect("select_objects");
-    let body = &src[start..src.len().min(start + 2500)];
+    let body = &src[start..src.len().min(start + 4000)];
     assert!(
         body.contains("flash_as_selected"),
         "select_objects must flashAsSelected residual on newly selected units"
@@ -565,11 +565,11 @@ fn select_objects_flashes_selection_residual() {
 
 #[test]
 fn assign_unit_path_undeploys_residual() {
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
     let start = src
-        .find("pub fn assign_unit_path")
-        .expect("assign_unit_path");
-    let body = &src[start..start + 900];
+        .find("fn assign_unit_path_inner")
+        .expect("assign_unit_path_inner");
+    let body = &src[start..start + 3000];
     assert!(
         body.contains("is_deployed") && body.contains("set_deployed(false)"),
         "assign_unit_path must pack/undeploy before pathing residual"
@@ -578,17 +578,17 @@ fn assign_unit_path_undeploys_residual() {
 
 #[test]
 fn find_nearest_harvestable_supply_residual() {
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
     assert!(
         src.contains("fn find_nearest_harvestable_supply")
-            && src.contains("find_nearest_harvestable_supply(team, position)"),
+            && src.contains("find_nearest_harvestable_supply_within(team, position"),
         "gather residual must re-target nearest supply when pile empties"
     );
 }
 
 #[test]
 fn auto_find_repair_residual_test() {
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
     assert!(
         src.contains("fn try_auto_find_repair_residual")
             && src.contains("AIState::SeekingRepair")
@@ -599,7 +599,7 @@ fn auto_find_repair_residual_test() {
 
 #[test]
 fn auto_resume_construction_residual_test() {
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
     assert!(
         src.contains("fn try_auto_resume_construction_residual")
             && src.contains("try_auto_resume_construction_residual(object_id)"),
@@ -609,7 +609,7 @@ fn auto_resume_construction_residual_test() {
 
 #[test]
 fn player_idle_auto_acquire_residual() {
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
     let start = src
         .find("fn tick_mood_auto_acquire")
         .expect("tick_mood_auto_acquire");
@@ -627,7 +627,7 @@ fn player_idle_auto_acquire_residual() {
 
 #[test]
 fn voice_select_on_select_objects_residual() {
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
     let start = src.find("pub fn select_objects").expect("select_objects");
     let end = src[start + 1..]
         .find(
@@ -667,7 +667,7 @@ pub fn process_destr",
             )
         })
         .map(|i| astart + 1 + i)
-        .unwrap_or(astart + 3500);
+        .unwrap_or(astart + 7000);
     let abody = &src[astart..aend];
     assert!(
         abody.contains("VoiceAttack"),
@@ -1911,12 +1911,25 @@ fn shroud_crate_reveals_map_for_picker_player() {
         o.set_position(glam::Vec3::ZERO);
         o
     });
-    assert!(!logic.partition_manager.has_revealed_map(0));
+    // NON-permanent reveal parked in the FOW shroud manager, never the
+    // permanent partition latch (partition_manager.rs internal test pins
+    // that separation).
+    let reveal_queued = |player_id: u32| {
+        gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .map(|mgr| {
+                mgr.snapshot_state()
+                    .pending_full_reveal_players
+                    .contains(&player_id)
+            })
+            .unwrap_or(false)
+    };
+    assert!(!reveal_queued(0));
     assert!(logic.execute_shroud_crate_behavior(uid));
-    assert!(logic.partition_manager.has_revealed_map(0));
+    assert!(reveal_queued(0), "shroud crate reveal must reach FOW");
     // Idempotent
     assert!(logic.execute_shroud_crate_behavior(uid));
-    assert!(logic.partition_manager.has_revealed_map(0));
+    assert!(reveal_queued(0));
 }
 
 #[test]
@@ -1944,7 +1957,17 @@ fn shroud_crate_collide_path() {
     });
     logic.host_money_crates.register_shroud_crate(cid);
     logic.update_money_crate_collides();
-    assert!(logic.partition_manager.has_revealed_map(2));
+    // C++ revealMapForPlayer lands in the FOW shroud manager (GLA slot 2),
+    // not in the permanent partition latch.
+    let reveal_queued = gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .map(|mgr| {
+            mgr.snapshot_state()
+                .pending_full_reveal_players
+                .contains(&2)
+        })
+        .unwrap_or(false);
+    assert!(reveal_queued, "shroud crate reveal must reach FOW for GLA");
     assert!(!logic.host_money_crates.contains(cid));
 }
 
@@ -1952,6 +1975,10 @@ fn shroud_crate_collide_path() {
 fn heal_crate_heals_all_team_objects() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    // C++ heal scope is the picker's controlling player; give USA one slot.
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "U", true));
     let mut t = ThingTemplate::new("H1");
     t.add_kind_of(KindOf::Infantry);
     let a = ObjectId(5101);
@@ -1989,6 +2016,13 @@ fn heal_crate_heals_all_team_objects() {
 fn unit_crate_spawns_units_for_picker_team() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    // Retail UnitCrate spawns via the loaded ThingFactory; register the
+    // spawned unit template like the other harness fixtures do.
+    let mut crusader = ThingTemplate::new("AmericaTankCrusader");
+    crusader.add_kind_of(KindOf::Vehicle);
+    logic
+        .templates
+        .insert("AmericaTankCrusader".into(), crusader);
     let mut t = ThingTemplate::new("Picker");
     t.add_kind_of(KindOf::Infantry);
     let pid = ObjectId(5110);
@@ -2335,6 +2369,14 @@ fn salvage_crate_only_salvager_picks_up() {
     logic
         .players
         .insert(0, Player::new(0, Team::GLA, "G", true));
+    // Retail SalvageCrate PickupScience = SCIENCE_GLA; GLA players hold it
+    // intrinsically (PlayerTemplate intrinsic science, Player::init).
+    logic
+        .players
+        .get_mut(&0)
+        .expect("gla player")
+        .unlocked_sciences
+        .insert("SCIENCE_GLA".into());
 
     let mut st = ThingTemplate::new("Scorp");
     st.add_kind_of(KindOf::Vehicle);

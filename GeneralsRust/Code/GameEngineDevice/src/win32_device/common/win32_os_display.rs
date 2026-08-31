@@ -271,6 +271,9 @@ fn windows_message_box(
     };
     let text: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
     let caption: Vec<u16> = OsStr::new(prompt).encode_wide().chain(Some(0)).collect();
+    // SAFETY: text and caption are NUL-terminated wide buffers that outlive the
+    // SAFETY: call; the null hwnd means no owner window. MessageBoxW only reads
+    // SAFETY: the two strings and returns the pressed-button code.
     let result = unsafe { MessageBoxW(core::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), flags) };
     if result == IDOK {
         OSDisplayButtonType::Ok

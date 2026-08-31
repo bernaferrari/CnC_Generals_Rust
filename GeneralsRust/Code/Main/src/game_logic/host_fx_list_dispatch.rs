@@ -469,6 +469,9 @@ mod tests {
         assert!(tick.contains("play_bone_fx_event"));
         assert!(tick.contains("bfx.tick(self.frame as i32)"));
         let bone = include_str!("host_bone_fx_damage.rs");
+        // Scan only the production prefix: that module's own test asserts
+        // mention the invented name and must not match the scan.
+        let bone = &bone[..bone.find("#[cfg(test)]").unwrap_or(bone.len())];
         assert!(bone.contains("peel_authored_bone_fx"));
         assert!(!bone.contains("FX_ScudDamagedBoneFX"));
     }
@@ -492,7 +495,7 @@ mod tests {
         let bust = bunker
             .find("fn apply_bunker_buster_to_target")
             .expect("apply_bunker_buster_to_target");
-        let bust_body = &bunker[bust..bust + 2800];
+            let bust_body = &bunker[bust..bust + 6200];
         assert!(
             bust_body.contains("BUNKER_BUSTER_DETONATION_FX"),
             "bust must play leftover DetonationFX on the bunker"

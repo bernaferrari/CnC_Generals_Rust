@@ -134,6 +134,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.calc_shroud_clearing_range()
     }
 
+    fn get_raw_transport_slot_count(&self) -> crate::common::UnsignedByte {
+        self.inner.get_raw_transport_slot_count()
+    }
+
     fn is_enter_guard(&self) -> bool {
         self.inner.is_enter_guard()
     }
@@ -610,6 +614,24 @@ impl TheThingFactory {
         }
 
         None
+    }
+
+    /// Find template by name WITHOUT lazy-initializing the shared factory.
+    ///
+    /// C++ presentation reads TheThingFactory only after the startup INI
+    /// load (GameLogic::init); a frame-build must never bootstrap the whole
+    /// Object INI tree from a render-time lookup.  `find_template` keeps the
+    /// on-demand rebuild for script/creation paths; presentation-side helpers
+    /// use this initialized-only variant so headless logic frames neither pay
+    /// the full INI scan nor mutate process-global gating state mid-run.
+    pub fn find_template_initialized(
+        name: impl AsRef<str>,
+    ) -> Option<Arc<dyn crate::common::ThingTemplate>> {
+        let key = crate::common::AsciiString::from(name.as_ref());
+        let factory_guard = get_thing_factory().ok()?;
+        let factory = factory_guard.as_ref()?;
+        let template = factory.find_template(key.as_str(), false)?;
+        Some(Arc::new(EngineThingTemplateAdapter::new(template)))
     }
 
     /// Find template by ID using the shared ThingFactory.

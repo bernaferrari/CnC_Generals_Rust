@@ -46,7 +46,7 @@ fn pf_source() -> &'static str {
     crate::presentation_frame::PRESENTATION_FRAME_SRC
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC

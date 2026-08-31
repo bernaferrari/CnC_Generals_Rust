@@ -52,7 +52,7 @@ fn uc_source() -> &'static str {
     include_str!("../../unit_control.rs")
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 
 pub fn honesty_host_control_group_select_legality_method_names_residual_wave1095() -> bool {

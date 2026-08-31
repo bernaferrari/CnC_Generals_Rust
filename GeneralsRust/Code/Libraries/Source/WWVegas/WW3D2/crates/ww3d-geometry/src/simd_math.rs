@@ -17,6 +17,10 @@ pub mod vector_ops {
     /// Processes 4 vector pairs per SIMD operation (SSE)
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
+    // SAFETY: called only through `batch_dot_product`, which verifies the
+    // sse4.1 feature bit at runtime; all intrinsics below use unaligned
+    // loads/stores (_mm_set_ps/_mm_storeu_ps) so no 16-byte alignment is
+    // required, and every index i..i+3 is guarded by `i + 3 < len`.
     pub unsafe fn vec3_dot_simd_batch(a: &[Vec3], b: &[Vec3], output: &mut [f32]) {
         assert_eq!(a.len(), b.len());
         assert_eq!(a.len(), output.len());
@@ -72,6 +76,9 @@ pub mod vector_ops {
     /// Compute cross products for multiple vector pairs using SIMD
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
+    // SAFETY: caller checks the sse4.1 CPU feature before invoking; SIMD
+    // accesses are unaligned and lane indices stay in bounds via the
+    // `i + 3 < len` loop guard plus asserted equal slice lengths.
     pub unsafe fn vec3_cross_simd_batch(a: &[Vec3], b: &[Vec3], output: &mut [Vec3]) {
         assert_eq!(a.len(), b.len());
         assert_eq!(a.len(), output.len());
@@ -131,6 +138,9 @@ pub mod vector_ops {
     /// Normalize multiple vectors using SIMD
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
+    // SAFETY: requires sse4.1, guaranteed by the runtime detection in
+    // `batch_normalize`; all loads/stores are unaligned and element
+    // indices are bounded by `i + 3 < len` with a scalar tail.
     pub unsafe fn vec3_normalize_simd_batch(vectors: &mut [Vec3]) {
         let len = vectors.len();
         let mut i = 0;
@@ -205,6 +215,9 @@ pub mod vector_ops {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("sse4.1") {
+                // SAFETY: sse4.1 detected at runtime immediately above,
+                // satisfying vec3_dot_simd_batch's target_feature
+                // contract; slices were length-checked inside.
                 unsafe {
                     vec3_dot_simd_batch(a, b, output);
                 }
@@ -224,6 +237,8 @@ pub mod vector_ops {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("sse4.1") {
+                // SAFETY: sse4.1 was just detected at runtime, satisfying
+                // vec3_cross_simd_batch's target_feature contract.
                 unsafe {
                     vec3_cross_simd_batch(a, b, output);
                 }
@@ -243,6 +258,8 @@ pub mod vector_ops {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("sse4.1") {
+                // SAFETY: runtime feature detection above guarantees
+                // vec3_normalize_simd_batch's sse4.1 requirement.
                 unsafe {
                     vec3_normalize_simd_batch(vectors);
                 }
@@ -265,6 +282,10 @@ pub mod matrix_ops {
     /// Multiply two 4x4 matrices using SIMD
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
+    // SAFETY: must be called with sse4.1 enabled (enforced by
+    // multiply_matrices' runtime check); Mat4 columns/rows are 16 bytes of
+    // contiguous f32 read via _mm_loadu_ps (unaligned), and results go to
+    // [f32; 4] stack arrays sized exactly for 4 lanes.
     pub unsafe fn mat4_mul_simd(a: &Mat4, b: &Mat4) -> Mat4 {
         // Load matrix B columns
         let b_col0 = _mm_loadu_ps(b.col(0).as_ref().as_ptr());
@@ -305,6 +326,10 @@ pub mod matrix_ops {
     /// Transform multiple vectors by a matrix using SIMD
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
+    // SAFETY: sse4.1 required (checked by transform_points); matrix rows
+    // load unaligned from Mat4's contiguous f32 storage, points index
+    // against asserted-equal slice lengths, stores hit [f32; 4] arrays
+    // sized exactly for 4 lanes.
     pub unsafe fn mat4_transform_points_simd(matrix: &Mat4, points: &[Vec3], output: &mut [Vec3]) {
         assert_eq!(points.len(), output.len());
 
@@ -358,6 +383,8 @@ pub mod matrix_ops {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("sse4.1") {
+                // SAFETY: is_x86_feature_detected! above proves sse4.1
+                // support, meeting mat4_mul_simd's target_feature contract.
                 unsafe { mat4_mul_simd(a, b) }
             } else {
                 *a * *b
@@ -375,6 +402,8 @@ pub mod matrix_ops {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("sse4.1") {
+                // SAFETY: sse4.1 confirmed by the runtime detection above;
+                // mat4_transform_points_simd only needs that feature.
                 unsafe {
                     mat4_transform_points_simd(matrix, points, output);
                 }
@@ -408,6 +437,11 @@ pub mod skinning {
     /// Transform vertices by bone matrices using SIMD
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
+    // SAFETY: requires sse4.1 (runtime-verified by skin_vertices); despite
+    // the name this body uses only scalar glam transforms — bone_indices
+    // are range-checked against bone_matrices.len() before each indexed
+    // access, and output writes are enumerate()-bounded to vertices.len(),
+    // which equals both output slices per the asserts.
     pub unsafe fn skin_vertices_simd(
         vertices: &[SkinnedVertex],
         bone_matrices: &[Mat4],
@@ -482,6 +516,8 @@ pub mod skinning {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("sse4.1") {
+                // SAFETY: sse4.1 presence established by the feature probe
+                // above, satisfying skin_vertices_simd's requirement.
                 unsafe {
                     skin_vertices_simd(vertices, bone_matrices, output_positions, output_normals);
                 }

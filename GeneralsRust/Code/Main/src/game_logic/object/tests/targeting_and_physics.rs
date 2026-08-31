@@ -525,7 +525,9 @@ fn squish_module_crushes_default_crushable_level() {
     tank.crusher_level = 1;
     tank.set_orientation(0.0);
     tank.movement.velocity = glam::Vec3::new(5.0, 0.0, 0.0);
-    tank.set_position(glam::Vec3::new(6.0, 0.0, 0.0));
+    // C++ SquishCollide.cpp:93-99 squishes only when to·vel > 0, i.e. the
+    // crusher must sit behind the victim moving toward it.
+    tank.set_position(glam::Vec3::new(4.0, 0.0, 0.0));
     tank.selection_radius = 8.0;
 
     let mut it = ThingTemplate::new("SquishInf");
@@ -565,7 +567,6 @@ fn crush_points_use_authored_major_radius() {
     tank.selection_radius = 8.0;
 
     let mut ct = ThingTemplate::new("MajorCar");
-    ct.add_kind_of(KindOf::Vehicle);
     ct.geometry_info = crate::game_logic::HostGeometryInfo {
         geom_type: crate::game_logic::HostGeometryType::Box,
         is_small: true,
@@ -578,7 +579,10 @@ fn crush_points_use_authored_major_radius() {
     car.crushable_level = 1;
     car.crusher_level = 0;
     car.selection_radius = 20.0;
-    car.set_orientation(0.0);
+    // Crosswise crushee: front/back points sit ±offset off the crusher's ray
+    // (perp 3 each) so the on-axis center wins as TOTAL_CRUSH target
+    // (PhysicsUpdate.cpp:1588-1655 center-perp branch).
+    car.set_orientation(std::f32::consts::FRAC_PI_2);
     car.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
     car.health.current = 200.0;
     car.health.maximum = 200.0;
@@ -917,14 +921,25 @@ fn physics_wave10_held_wreck_friction_stun_shock() {
     let mut ts = ThingTemplate::new("Tossed");
     ts.add_kind_of(KindOf::Infantry);
     let mut stun = Object::new(ts, ObjectId(504), Team::USA);
+    // C++ relief gate: |vel|<STUN_RELIEF_EPSILON (PhysicsUpdate.cpp:42,674-677)
+    // OR !isSignificantlyAboveTerrain (Thing.cpp:308-311, height > 9*|gravity|;
+    // retail GameData.ini Gravity=-64/900 per frame² → 0.64wu band).
     stun.shock_stun_frames = 20;
     stun.set_position(Vec3::new(0.0, 4.0, 0.0));
     stun.ground_height = 0.0;
     stun.movement.velocity = Vec3::new(2.0, -1.0, 0.0);
     stun.tick_shock_stun();
     assert_eq!(
+        stun.shock_stun_frames, 20,
+        "height 4 (2.93 after tick) is significantly airborne: stun persists"
+    );
+    // Just under the 0.64wu 3-frame band (not the old 5cm rule): relief clears.
+    stun.set_position(Vec3::new(0.0, 0.5, 0.0));
+    stun.movement.velocity = Vec3::new(2.0, -1.0, 0.0);
+    stun.tick_shock_stun();
+    assert_eq!(
         stun.shock_stun_frames, 0,
-        "height 4 is not significantly airborne"
+        "under the 3-frame height band relief clears"
     );
 
     // Shock toss has no invented 80 cap.
@@ -1410,8 +1425,17 @@ fn shock_bounce_settles_freefall_and_switches_to_stunned() {
     let mut saw_bounce = false;
     let mut max_y = 0.0f32;
     let mut saw_stunned_after_ground = false;
-    for _ in 0..120 {
-        o.tick_shock_stun();
+    // Live frame order (world_tick/step.rs:802 tick_shock_stun_all +
+    // tick_physics_collisions_all): shock tick runs while stunned, motion step
+    // runs for every physics-active body. The motion step owns gravity once
+    // relief clears mid-air (its gravity gate is frames==0) and clamps the
+    // landing + first-ground-hit latch (PhysicsUpdate.cpp:765); driving
+    // tick_shock_stun alone freezes the fall at the relief band.
+    for i in 0..2000 {
+        if o.shock_stun_frames > 0 || o.bounce_audio_pending > 0 {
+            o.tick_shock_stun();
+        }
+        let _ = o.tick_physics_motion_step(0.0);
         let y = o.get_position().y;
         max_y = max_y.max(y);
         if y > 0.5 {
@@ -2113,9 +2137,8 @@ fn extra_friction_overlap_force_and_rest_kill() {
     inf.ground_height = 0.0;
     inf.physics_accel = Vec3::ZERO;
     inf.apply_overlap_collide_force(Vec3::new(0.0, 2.0, 0.0), 4.0);
-    // delta=(0,-8,0), dist=8, force=-4*(0,-8,0)/8 = (0, 2, 0)
-    assert!((inf.physics_accel.y - 2.0).abs() < 1e-4);
-    assert!(inf.physics_accel.x.abs() < 1e-5);
+    // force = -4 * (0,-8,0)/8 = (0, 4, 0); accel = force/mass (mass 1).
+    assert!((inf.physics_accel.y - 4.0).abs() < 1e-4);
     assert!(inf.physics_accel.z.abs() < 1e-5);
 
     // KillWhenResting uses Object::kill (UNRESISTABLE), not stun-destroy only.
@@ -2356,7 +2379,9 @@ fn blocked_by_off_angle_higher_priority_yields() {
     dozer.movement.velocity = glam::Vec3::new(8.0, 0.0, 0.0);
     // Off-angle closer pair: headings still overlap (dot>0) and distance shrinks.
     truck.set_position(glam::Vec3::new(4.0, 0.0, 8.0));
-    truck.set_orientation((-0.6f32).atan2(0.8));
+    // Engine movement convention: yaw = (-dz).atan2(dx) (unit_direction_xz),
+    // so heading (0.8,-0.6) is +atan2(0.6,0.8), not plain atan2(-0.6,0.8).
+    truck.set_orientation(0.6f32.atan2(0.8));
     truck.movement.velocity = glam::Vec3::new(6.4, 0.0, -4.8);
     assert!(
         !dozer.ai_blocked_by(&truck, true),
@@ -2367,7 +2392,6 @@ fn blocked_by_off_angle_higher_priority_yields() {
         "lower-priority truck stays blocked on leftover off-angle close"
     );
 }
-
 #[test]
 fn blocked_speed_applies_formation_crowd_factor() {
     let mut a = make_ground_unit("FormA", 6108, KindOf::Vehicle);

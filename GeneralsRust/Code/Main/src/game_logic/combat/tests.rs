@@ -12,6 +12,18 @@ mod tests {
     use crate::game_logic::{KindOf, Object, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
+    /// The characterization tests in this module share process globals (the
+    /// pending-projectile queue, the WeaponStore delayed-damage list, the
+    /// global logic frame, and env-authority flags), so the default parallel
+    /// test harness must not run them concurrently inside one process.
+    /// Mirrors the host_rng_residual RNG_TEST_LOCK precedent.
+    static COMBAT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn combat_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        COMBAT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+
     fn make_obj(
         name: &str,
         id: ObjectId,
@@ -90,6 +102,7 @@ mod tests {
 
     #[test]
     fn retail_dumb_projectile_expiry_detonates_through_pending_host_path() {
+        let _combat_serial = combat_test_guard();
         clear_pending_projectile_queue_for_test();
         let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
@@ -130,8 +143,10 @@ mod tests {
         );
     }
 
+
     #[test]
     fn retail_missile_fuel_detonation_and_target_loss_use_distinct_authored_paths() {
+        let _combat_serial = combat_test_guard();
         clear_pending_projectile_queue_for_test();
 
         // DragonTankFlameProjectile has FuelLifetime=350ms and
@@ -208,6 +223,7 @@ mod tests {
 
     #[test]
     fn coupled_missile_kill_self_removal_publishes_inactive_shadow_residual() {
+        let _combat_serial = combat_test_guard();
         let _authority_guard = crate::gameworld_shadow::authority_env_lock();
         let prior_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
         let prior_projectile = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
@@ -265,6 +281,7 @@ mod tests {
 
     #[test]
     fn projectile_hits_intervening_structure() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -341,6 +358,7 @@ mod tests {
 
     #[test]
     fn aa_projectile_detonates_on_intervening_building() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -419,6 +437,7 @@ mod tests {
 
     #[test]
     fn projectile_structure_intercept_cpp_surface() {
+        let _combat_serial = combat_test_guard();
         let src = concat!(include_str!("projectile.rs"), include_str!("resolution.rs"));
         assert!(
             src.contains("Intervening structure residual")
@@ -430,6 +449,7 @@ mod tests {
 
     #[test]
     fn projectile_skips_own_structure_unless_controlled_bit() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -549,6 +569,7 @@ mod tests {
 
     #[test]
     fn projectile_reaches_target_without_wall() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -607,6 +628,7 @@ mod tests {
 
     #[test]
     fn projectile_splash_damages_nearby() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -683,6 +705,7 @@ mod tests {
     /// primaryRadius and secondaryDamage outside it. No quadratic falloff.
     #[test]
     fn projectile_splash_is_flat_primary_not_quadratic() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -767,6 +790,7 @@ mod tests {
 
     #[test]
     fn instant_hit_laser_damages_same_frame() {
+        let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(30);
         let tgt = ObjectId(31);
@@ -823,6 +847,7 @@ mod tests {
 
     #[test]
     fn homing_projectile_tracks_moving_target() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -899,6 +924,7 @@ mod tests {
 
     #[test]
     fn instant_and_homing_cpp_surface() {
+        let _combat_serial = combat_test_guard();
         let src = concat!(include_str!("projectile.rs"), include_str!("resolution.rs"));
         assert!(src.contains("is_instant_speed"));
         assert!(src.contains("fire_projectile_ex"));
@@ -911,6 +937,7 @@ mod tests {
 
     #[test]
     fn projectile_impact_queues_detonation_fx() {
+        let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
         let shooter = ObjectId(1);
@@ -964,6 +991,7 @@ mod tests {
 
     #[test]
     fn garrison_hit_kill_fx_uses_do_fx_obj_not_detonation_pos() {
+        let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
         let shooter = ObjectId(1);
@@ -1058,6 +1086,7 @@ mod tests {
 
     #[test]
     fn missile_calls_on_die_fires_missile_fx_not_victim_death() {
+        let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
         let shooter = ObjectId(1);
@@ -1132,6 +1161,7 @@ mod tests {
 
     #[test]
     fn pending_projectile_preserves_exhaust_and_frozen_fire_effect_context() {
+        let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
         let objects = HashMap::new();
         queue_projectile(PendingProjectile {
@@ -1209,6 +1239,7 @@ mod tests {
 
     #[test]
     fn dual_ring_secondary_damage_residual() {
+        let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(40);
         let near = ObjectId(41);
@@ -1280,6 +1311,7 @@ mod tests {
 
     #[test]
     fn shock_wave_pushes_mobile_units_outward() {
+        let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(50);
         let tgt = ObjectId(51);
@@ -1335,6 +1367,7 @@ mod tests {
 
     #[test]
     fn radius_damage_affects_skips_allies_by_default() {
+        let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(60);
         let ally = ObjectId(61);
@@ -1406,6 +1439,7 @@ mod tests {
 
     #[test]
     fn radius_damage_affects_cpp_default_hits_allies() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(70);
@@ -1464,6 +1498,7 @@ mod tests {
 
     #[test]
     fn radius_damage_affects_not_airborne_skips_significantly_above() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(72);
@@ -1548,6 +1583,7 @@ mod tests {
 
     #[test]
     fn splash_uses_from_bounding_sphere_3d() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(80);
@@ -1595,6 +1631,7 @@ mod tests {
 
     #[test]
     fn splash_primary_victim_skips_radius_damage_affects() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(90);
@@ -1670,6 +1707,7 @@ mod tests {
 
     #[test]
     fn splash_damage_dealt_at_self_position_recenters_and_clears_victim() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         const NAME: &str = "HuntLiveDamageAtSelfSplash";
@@ -1757,6 +1795,7 @@ mod tests {
 
     #[test]
     fn splash_kills_self_deals_huge_damage() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         let mut objects = HashMap::new();
         let atk = ObjectId(100);
@@ -1815,6 +1854,7 @@ mod tests {
 
     #[test]
     fn projectile_collides_mask_gates_structure_intercept() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
 
         let mut objects = HashMap::new();
@@ -1893,6 +1933,7 @@ mod tests {
 
     #[test]
     fn scatter_radius_offsets_aim_and_clears_target() {
+        let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(80);
         let tgt = ObjectId(81);
@@ -1963,6 +2004,7 @@ mod tests {
 
     #[test]
     fn scale_weapon_speed_slows_close_shots() {
+        let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(90);
         let tgt = ObjectId(91);
@@ -2140,6 +2182,7 @@ mod tests {
 
     #[test]
     fn projectileless_finite_speed_queues_leftover_delayed_damage() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         clear_pending_projectile_queue_for_test();
         clear_live_projectileless_delayed_for_test();
@@ -2203,6 +2246,7 @@ mod tests {
 
     #[test]
     fn projectileless_subframe_delay_applies_same_frame() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         clear_pending_projectile_queue_for_test();
         clear_live_projectileless_delayed_for_test();
@@ -2244,9 +2288,9 @@ mod tests {
 
     #[test]
     fn fire_at_projectileless_weapon_skips_dummy_projectile() {
+        let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
         clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
         crate::game_logic::host_historic_bonus::set_logic_frame(3);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         const NAME: &str = "Hq0c9b4CombatRifleFireAt";
@@ -2265,6 +2309,11 @@ mod tests {
         tmpl.add_kind_of(KindOf::Infantry);
         tmpl.add_kind_of(KindOf::Attackable);
         let mut atk = Object::new(tmpl, ObjectId(1), Team::USA);
+        // C++ fireWeaponTemplate always fires at a live victim whose position
+        // feeds the travel vector (Weapon.cpp:998-1003).  The Object-only
+        // fire path resolves that stand-in from prev_victim_pos.
+        atk.set_position(Vec3::ZERO);
+        atk.prev_victim_pos = Some(Vec3::new(100.0, 0.0, 0.0));
         atk.weapon = Some(Weapon {
             damage: 15.0,
             range: 200.0,
@@ -2296,6 +2345,7 @@ mod tests {
 
     #[test]
     fn missile_ai_ignition_fx_plays_on_delay_zero_and_after_delay() {
+        let _combat_serial = combat_test_guard();
         use crate::game_logic::weapon_bootstrap::{
             HostMissileFlight, HostMissilePhase, HostProjectileFlight,
         };
@@ -2364,10 +2414,13 @@ mod tests {
         let start = src
             .find("fn try_enter_missile_ignition")
             .expect("ignition helper");
-        let body = &src[start..start + 1200];
+        // Window spans try_enter_missile_ignition plus its
+        // play_missile_ignition helper, where C++ MissileAIUpdate.cpp:462
+        // FXList::doFXObj(d->m_ignitionFX, getObject()) actually runs.
+        let body = &src[start..start + 2600];
         assert!(
-            body.contains("dispatch_fx_list_at_pos(&ignition_fx, self.position)"),
-            "live MissileAI ignition must play authored IgnitionFX"
+            body.contains("dispatch_fx_list_at_object(ignition_fx, self.id.0, None)"),
+            "live MissileAI ignition must play authored IgnitionFX",
         );
         assert!(body.contains("missile.ignition_fx"));
     }

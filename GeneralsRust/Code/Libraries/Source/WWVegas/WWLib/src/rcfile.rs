@@ -37,6 +37,7 @@ impl ResourceFile {
 
     #[cfg(target_os = "windows")]
     fn load(&mut self) {
+        // SAFETY: [Category 8 — FFI] FindResource/LoadResource/LockResource sequence on this module handle; the returned slice covers SizeofResource bytes of read-only resource memory valid for process lifetime.
         unsafe {
             let name = self.resource_name.clone();
             let res = FindResourceA(self.module, name.as_str(), "File");

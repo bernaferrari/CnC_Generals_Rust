@@ -211,7 +211,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
             module_source_index: 0,
             module_tag: None,
             starts_active: true,
-            death_weapon: Some("BombTruckDefaultDeathWeapon".into()),
+            death_weapon: Some("BombTruckDefaultBombDamage".into()),
             upgrade_mux: mux_default,
             death_types: Default::default(),
             veterancy_levels: Default::default(),
@@ -222,7 +222,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
             module_source_index: 1,
             module_tag: None,
             starts_active: false,
-            death_weapon: Some("BombTruckHighExplosionDeathWeapon".into()),
+            death_weapon: Some("BombTruckHighExplosionBombDamage".into()),
             upgrade_mux: mux_he,
             death_types: Default::default(),
             veterancy_levels: Default::default(),
@@ -244,6 +244,21 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     object.status.destroyed = true;
     let source = ObjectId(15);
     logic.objects.insert(source, object);
+    // Retail BombTruck death weapons are 1000/40-radius blasts; the death
+    // weapon only records hits on a LIVE victim (the dead truck itself is
+    // excluded like C++ Weapon.cpp:1330 self/producer skips).
+    let mut victim_t = ThingTemplate::new("BombTruckDeathSplashVictim");
+    victim_t.set_health(1000.0);
+    logic
+        .templates
+        .insert("BombTruckDeathSplashVictim".into(), victim_t);
+    let _victim = logic
+        .create_object(
+            "BombTruckDeathSplashVictim",
+            Team::USA,
+            glam::Vec3::new(3.0, 0.0, 0.0),
+        )
+        .expect("victim");
     let first = logic.execute_temporary_weapon_on_die(source);
     assert!(
         first > 0,
@@ -262,6 +277,15 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     object.temporary_weapon_runtime.dead[0].upgrade_executed = false;
     object.temporary_weapon_runtime.dead[1].upgrade_executed = false;
     logic.objects.insert(source, object);
+    // Phase 1's 1000-damage default blast killed the first splash victim;
+    // the HE module also needs a LIVE victim in radius to record hits.
+    let _victim2 = logic
+        .create_object(
+            "BombTruckDeathSplashVictim",
+            Team::USA,
+            glam::Vec3::new(-3.0, 0.0, 0.0),
+        )
+        .expect("second victim");
     let upgraded = logic.execute_temporary_weapon_on_die(source);
     assert!(
         upgraded > 0,
@@ -349,6 +373,21 @@ fn dead_behavior_fires_every_matching_module() {
     object.apply_upgrade_tag("Upgrade_GLABombTruckBioBomb");
     let source = ObjectId(16);
     logic.objects.insert(source, object);
+    // HE (PaladinTankGun) + Bio (CrusaderTankGun) fire only when a LIVE
+    // victim stands in the blast; the destroyed truck is excluded
+    // (C++ Weapon.cpp:1330 self skip), so seed one 3 units away.
+    let mut victim_t = ThingTemplate::new("BombTruckDeathSplashVictim2");
+    victim_t.set_health(1000.0);
+    logic
+        .templates
+        .insert("BombTruckDeathSplashVictim2".into(), victim_t);
+    let _victim = logic
+        .create_object(
+            "BombTruckDeathSplashVictim2",
+            Team::USA,
+            glam::Vec3::new(3.0, 0.0, 0.0),
+        )
+        .expect("victim");
     let hits = logic.execute_temporary_weapon_on_die(source);
     assert!(
         hits > 0,

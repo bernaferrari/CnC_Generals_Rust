@@ -58,7 +58,11 @@ fn dozer_bored_mine_clear_assigns_enemy_mine() {
     dozer_t
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Worker)
+        .add_kind_of(KindOf::Dozer)
         .set_health(200.0);
+    // Retail FactionUnit.ini WeaponSet authors MINE_CLEARING_DETAIL
+    // (DozerMineDisarmingWeapon); mine-clear authority is authored-only.
+    dozer_t.mine_clearing_primary_weapon_name = Some("DozerMineDisarmingWeapon".into());
     logic
         .templates
         .insert("AmericaVehicleDozer".into(), dozer_t);
@@ -137,6 +141,7 @@ fn dozer_bored_auto_repair_assigns_damaged_structure() {
     dozer_t
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Worker)
+        .add_kind_of(KindOf::Dozer)
         .set_health(200.0);
     logic
         .templates

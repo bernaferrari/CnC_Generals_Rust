@@ -177,8 +177,13 @@ mod native_browser {
         use objc::{class, msg_send, sel, sel_impl};
 
         #[link(name = "WebKit", kind = "framework")]
+        // SAFETY: Empty extern block exists only to link the WebKit framework; it
+        // SAFETY: declares no functions, so there is nothing unsafe to call from it.
         unsafe extern "C" {}
 
+        // SAFETY: Objective-C runtime calls on WKWebView/NSURL/NSWindow with valid
+        // SAFETY: allocations, each nil-checked before further use; all id handles
+        // SAFETY: stay live inside this scope under the owning macOS runloop.
         unsafe {
             let frame = NSRect::new(
                 NSPoint::new(x as f64, y as f64),
@@ -223,6 +228,9 @@ mod native_browser {
     fn destroy_wkwebview(handle: usize) {
         use cocoa::base::id;
         use objc::{msg_send, sel, sel_impl};
+        // SAFETY: `handle` is the NSWindow pointer stored by present_wkwebview and
+        // SAFETY: still alive per the create/destroy pairing; orderOut:/close are the
+        // SAFETY: documented teardown messages sent exactly once.
         unsafe {
             let window = handle as id;
             let _: () = msg_send![window, orderOut: cocoa::base::nil];
@@ -247,6 +255,9 @@ mod native_browser {
                 ) -> isize;
             }
             let open: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
+            // SAFETY: wide/open are NUL-terminated UTF-16 buffers outliving the
+            // SAFETY: call; null hwnd/params/dir are documented allowed values and
+            // SAFETY: the verb is the constant "open".
             let result = unsafe {
                 ShellExecuteW(
                     core::ptr::null_mut(),

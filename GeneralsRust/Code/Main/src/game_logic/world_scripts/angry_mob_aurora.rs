@@ -255,6 +255,12 @@ impl GameLogic {
                 .cia_intelligence
                 .active_scans()
                 .iter()
+                // C++ SpyVisionUpdate::update (SpyVisionUpdate.cpp:142-148):
+                // once m_deactivateFrame <= now the spy turns OFF
+                // (doActivationWork FALSE). Expired scans must NOT re-reveal;
+                // the undo queued at activation removes the looker disk this
+                // same tick.
+                .filter(|scan| !scan.is_expired(self.frame))
                 .flat_map(|scan| {
                     let remain = scan.expires_frame.saturating_sub(self.frame).max(1);
                     scan.spied_units

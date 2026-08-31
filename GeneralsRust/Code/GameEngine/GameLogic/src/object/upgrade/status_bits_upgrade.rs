@@ -780,4 +780,86 @@ mod tests {
         clear_registry_for_test();
         clear_module_registry_for_test();
     }
+
+    #[test]
+    fn player_upgrade_completion_fans_out_to_existing_object_modules() {
+        use crate::player::PlayerArcExt;
+
+        // C++ Player.cpp:3034-3039 + 3054-3081 — Player::addUpgrade(COMPLETE)
+        // ends with onUpgradeCompleted, walking every player object so
+        // StatusBits/UpgradeModules on EXISTING units re-check immediately.
+        let _guard = TEST_LOCK
+            .lock()
+            .expect("status bits upgrade test lock poisoned");
+        clear_registry_for_test();
+        clear_module_registry_for_test();
+
+        let object_id: ObjectID = 9004;
+        let object_handle = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+
+        // Player 0 owns the object through its team. Attach the team while
+        // the object is still unregistered — Object::set_team walks the
+        // registry by id and would re-lock a registered object's own guard.
+        crate::player::player_list()
+            .write()
+            .expect("player list write")
+            .clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        crate::player::player_list()
+            .write()
+            .expect("player list write")
+            .add_player(player.clone());
+        let team = Arc::new(RwLock::new(crate::team::Team::new(
+            "FanoutTeam".into(),
+            0x00A0_9004,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(0));
+        object_handle
+            .write()
+            .expect("object write")
+            .set_team(Some(team))
+            .expect("set team");
+        OBJECT_REGISTRY.register_object(object_id, &object_handle);
+        player
+            .write()
+            .expect("player write")
+            .add_owned_object(object_id);
+
+        // StatusBits module registered on the EXISTING object.
+        let mut data = StatusBitsUpgradeModuleData::default();
+        data.set_status_to_set_from_tokens(&["STEALTHED"])
+            .expect("set mask parsed");
+        data.set_status_to_clear_from_tokens(&["MASKED"])
+            .expect("clear mask parsed");
+        let _module = StatusBitsUpgrade::new(NameKeyType::default(), Arc::new(data), object_id);
+
+        {
+            let mut object = object_handle.write().expect("lock object");
+            object.set_status(ObjectStatusMaskType::MASKED, true);
+        }
+
+        // Completing the player upgrade must re-check the existing unit's
+        // module immediately (C++ onUpgradeCompleted fan-out).
+        let upgrade = UpgradeTemplate::new(AsciiString::from("TestPlayerFanoutUpgrade"));
+        player.add_upgrade(&upgrade, crate::upgrade::UpgradeStatus::Complete);
+
+        let object = object_handle.read().expect("lock object");
+        let status = object.get_status_bits();
+        assert!(
+            status.contains(ObjectStatusMaskType::STEALTHED),
+            "completing a player upgrade must re-check existing object modules"
+        );
+        assert!(!status.contains(ObjectStatusMaskType::MASKED));
+        drop(object);
+
+        OBJECT_REGISTRY.unregister_object(object_id);
+        crate::player::player_list()
+            .write()
+            .expect("player list write")
+            .clear();
+        clear_registry_for_test();
+        clear_module_registry_for_test();
+    }
 }

@@ -210,6 +210,9 @@ impl DirectInputMouse {
         }
 
         #[cfg(windows)]
+        // SAFETY: LoadCursorW shares a preallocated system cursor (null module
+        // SAFETY: + stock IDC); the returned handle is only passed back to
+        // SAFETY: SetCursor, which copies it for the calling thread.
         unsafe {
             let win32_cursor = match cursor {
                 MouseCursor::None => None,
@@ -239,6 +242,8 @@ impl DirectInputMouse {
     /// Set mouse position
     pub fn set_position(&mut self, x: i32, y: i32) -> Result<(), DirectInputMouseError> {
         #[cfg(windows)]
+        // SAFETY: point is a valid writable POINT local; ClientToScreen only
+        // SAFETY: writes it, SetCursorPos takes by-value coordinates.
         unsafe {
             let mut point = POINT { x, y };
             ClientToScreen(self.app_window, &mut point);
@@ -253,6 +258,8 @@ impl DirectInputMouse {
     /// Capture the mouse
     pub fn capture(&self) -> Result<(), DirectInputMouseError> {
         #[cfg(windows)]
+        // SAFETY: app_window is a valid window handle; SetCapture takes it
+        // SAFETY: by value.
         unsafe {
             SetCapture(self.app_window);
         }
@@ -263,6 +270,8 @@ impl DirectInputMouse {
     /// Release mouse capture
     pub fn release_capture(&self) -> Result<(), DirectInputMouseError> {
         #[cfg(windows)]
+        // SAFETY: ReleaseCapture takes no arguments and only clears the
+        // SAFETY: calling thread's capture state.
         unsafe {
             ReleaseCapture();
         }
@@ -274,6 +283,8 @@ impl DirectInputMouse {
     pub fn set_mouse_limits(&self, windowed: bool) -> Result<(), DirectInputMouseError> {
         #[cfg(windows)]
         if windowed {
+            // SAFETY: window_rect is a valid writable RECT local filled by
+            // SAFETY: GetWindowRect; ClipCursor only reads it during the call.
             unsafe {
                 let mut window_rect = RECT::default();
                 GetWindowRect(self.app_window, &mut window_rect);
@@ -281,6 +292,7 @@ impl DirectInputMouse {
                 debug!("Mouse clipped to window bounds");
             }
         } else {
+            // SAFETY: ClipCursor with a null rect simply removes clipping.
             unsafe {
                 ClipCursor(None);
                 debug!("Mouse clipping removed");
@@ -330,6 +342,9 @@ impl DirectInputMouse {
         
         // Create DirectInput interface
         let mut direct_input: Option<IDirectInput8A> = None;
+        // SAFETY: app_instance is a valid module handle and direct_input is a
+        // SAFETY: writable Option local receiving the new COM interface via
+        // SAFETY: its expected *mut c_void out-slot.
         unsafe {
             DirectInput8Create(
                 self.app_instance,
@@ -348,6 +363,8 @@ impl DirectInputMouse {
 
         // Create mouse device
         let mut mouse_device: Option<IDirectInputDevice8A> = None;
+        // SAFETY: direct_input is the live COM object created above and
+        // SAFETY: mouse_device is a writable Option local out-param.
         unsafe {
             direct_input
                 .CreateDevice(&GUID_SysMouse, &mut mouse_device, None)
@@ -361,6 +378,8 @@ impl DirectInputMouse {
             .ok_or_else(|| DirectInputMouseError::InitializationFailed("Mouse device is null".to_string()))?;
 
         // Set data format
+        // SAFETY: mouse_device is live; c_dfDIMouse is a static data-format
+        // SAFETY: template only read by the call.
         unsafe {
             mouse_device
                 .SetDataFormat(&c_dfDIMouse)
@@ -371,6 +390,8 @@ impl DirectInputMouse {
         }
 
         // Set cooperative level
+        // SAFETY: mouse_device is live and app_window is a valid window
+        // SAFETY: handle; flags are by-value.
         unsafe {
             mouse_device
                 .SetCooperativeLevel(
@@ -384,6 +405,7 @@ impl DirectInputMouse {
         }
 
         // Set buffer size
+        // SAFETY: DIPROPDWORD is plain-old-data; all-zero bits are valid.
         let mut prop: DIPROPDWORD = unsafe { std::mem::zeroed() };
         prop.diph.dwSize = std::mem::size_of::<DIPROPDWORD>() as u32;
         prop.diph.dwHeaderSize = std::mem::size_of::<DIPROPHEADER>() as u32;
@@ -391,6 +413,8 @@ impl DirectInputMouse {
         prop.diph.dwHow = DIPH_DEVICE;
         prop.dwData = MOUSE_BUFFER_SIZE as u32;
 
+        // SAFETY: prop was fully initialized above (sizes, DIPH_DEVICE) and
+        // SAFETY: mouse_device is live; the API only reads the header.
         unsafe {
             mouse_device
                 .SetProperty(&DIPROP_BUFFERSIZE, &prop.diph)
@@ -401,6 +425,8 @@ impl DirectInputMouse {
         }
 
         // Acquire the mouse
+        // SAFETY: mouse_device is a live acquired-capable COM object;
+        // SAFETY: Acquire takes no pointers.
         unsafe {
             match mouse_device.Acquire() {
                 Ok(_) => info!("Mouse acquired successfully"),
@@ -412,9 +438,13 @@ impl DirectInputMouse {
         }
 
         // Get device capabilities
+        // SAFETY: DIDEVCAPS is plain-old-data; dwSize is set right after so
+        // SAFETY: GetCapabilities knows the buffer extent.
         let mut caps: DIDEVCAPS = unsafe { std::mem::zeroed() };
         caps.dwSize = std::mem::size_of::<DIDEVCAPS>() as u32;
         
+        // SAFETY: caps is a valid writable DIDEVCAPS local with dwSize set;
+        // SAFETY: mouse_device is live and only fills that buffer.
         unsafe {
             match mouse_device.GetCapabilities(&mut caps) {
                 Ok(_) => {
@@ -443,6 +473,7 @@ impl DirectInputMouse {
     #[cfg(windows)]
     fn close_mouse(&mut self) {
         if let Some(ref mouse_device) = self.mouse_device {
+            // SAFETY: mouse_device is live; Unacquire takes no pointers.
             unsafe {
                 let _ = mouse_device.Unacquire();
             }
@@ -460,10 +491,15 @@ impl DirectInputMouse {
             .as_ref()
             .ok_or(DirectInputMouseError::DeviceNotAcquired)?;
 
+        // SAFETY: DIDEVICEOBJECTDATA is plain-old-data; all-zero bits are a
+        // SAFETY: valid empty record that GetDeviceData overwrites.
         let mut mouse_data: DIDEVICEOBJECTDATA = unsafe { std::mem::zeroed() };
         let mut num_items = 1u32;
 
         // Poll and get device data
+        // SAFETY: mouse_device is live; GetDeviceData is given the exact
+        // SAFETY: DIDEVICEOBJECTDATA stride, a writable mouse_data local and a
+        // SAFETY: writable count pointer, so all writes stay in bounds.
         unsafe {
             let _ = mouse_device.Poll();
             
@@ -554,6 +590,7 @@ impl DirectInputMouse {
     fn handle_input_lost(&mut self) -> Result<(), DirectInputMouseError> {
         debug!("Handling mouse input lost");
         if let Some(ref mouse_device) = self.mouse_device {
+            // SAFETY: mouse_device is live; Acquire takes no pointers.
             unsafe {
                 match mouse_device.Acquire() {
                     Ok(_) => {
@@ -575,6 +612,7 @@ impl DirectInputMouse {
     fn handle_not_acquired(&mut self) -> Result<(), DirectInputMouseError> {
         debug!("Handling mouse not acquired");
         if let Some(ref mouse_device) = self.mouse_device {
+            // SAFETY: mouse_device is live; Acquire takes no pointers.
             unsafe {
                 match mouse_device.Acquire() {
                     Ok(_) => {
@@ -594,6 +632,8 @@ impl DirectInputMouse {
 
     #[cfg(windows)]
     fn update_cursor_position(&mut self) {
+        // SAFETY: point is a valid writable POINT local; both APIs only write
+        // SAFETY: it and app_window is a valid window handle.
         unsafe {
             let mut point = POINT::default();
             if GetCursorPos(&mut point).is_ok() {
@@ -612,6 +652,10 @@ impl Drop for DirectInputMouse {
 }
 
 // Thread safety - DirectInput mouse is designed to be used from the main thread only
+// SAFETY: DirectInputMouse owns COM interface wrappers plus plain data and is
+// SAFETY: confined to the creating (game) thread; only exclusive access
+// SAFETY: (&mut self / owned move) ever reaches the COM objects, so Send
+// SAFETY: cannot introduce cross-thread aliasing.
 unsafe impl Send for DirectInputMouse {}
 
 #[cfg(test)]

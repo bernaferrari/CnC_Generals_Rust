@@ -167,6 +167,14 @@ struct LayerOccupancy {
     occ_infantry_mask: HashMap<(i32, i32), u16>,
     occ_fixed_max_crushable: HashMap<(i32, i32), u8>,
     occ_goal_unit: HashMap<(i32, i32), u32>,
+    /// C++ `PathfindCellInfo::m_posUnitID` single-occupant identity. 0 = none.
+    occ_pos_unit: HashMap<(i32, i32), u32>,
+    /// Owner player bit of `occ_pos_unit`.
+    occ_pos_player: HashMap<(i32, i32), u16>,
+    /// posUnit traits: bit0 moving, bit1 infantry.
+    occ_pos_flags: HashMap<(i32, i32), u8>,
+    /// CrushableLevel of `occ_pos_unit`.
+    occ_pos_crushable: HashMap<(i32, i32), u8>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -177,6 +185,16 @@ struct OccBits {
     infantry: u16,
     crushable: u8,
     goal_unit: u32,
+    /// C++ `getPosUnit()` — the cell's single occupant identity. 0 = none.
+    pos_unit: u32,
+    /// Owner player bit of `pos_unit`.
+    pos_player: u16,
+    /// posUnit is moving (UNIT_PRESENT_MOVING-style stamp).
+    pos_moving: bool,
+    /// posUnit is infantry.
+    pos_infantry: bool,
+    /// CrushableLevel of `pos_unit`.
+    pos_crushable: u8,
 }
 
 /// C++ `LAYER_WALL = LAYER_LAST = 15` (GameType.h:167).
@@ -215,6 +233,14 @@ pub struct PathfindingGrid {
     pinched_bits: Vec<u64>,
     /// Terrain-only zone ids (structures ignored). 0 = uninitialized.
     terrain_zones: Vec<u16>,
+    /// C++ `PathfindCellInfo::m_posUnitID` single-occupant identity. 0 = none.
+    occ_pos_unit: Vec<u32>,
+    /// Owner player bit of `occ_pos_unit`.
+    occ_pos_player: Vec<u16>,
+    /// posUnit traits: bit0 moving, bit1 infantry.
+    occ_pos_flags: Vec<u8>,
+    /// CrushableLevel of `occ_pos_unit`.
+    occ_pos_crushable: Vec<u8>,
     /// Players with a stopped/fixed occupant in this cell (bit i = player i).
     occ_fixed_mask: Vec<u16>,
     /// Players with a moving occupant in this cell.

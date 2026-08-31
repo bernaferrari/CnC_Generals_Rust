@@ -26,6 +26,9 @@ use tokio::sync::RwLock;
 
 /// Load texture - matches original W3DDevice::LoadTexture(filename)
 #[no_mangle]
+// SAFETY: C ABI entry. `device` live W3D_DEVICE; `filename` null-terminated UTF-8
+// SAFETY: C string, converted to &str before any await point. Returns a new or
+// SAFETY: interned W3D_TEXTURE owned by the device's texture-handle table.
 pub unsafe extern "C" fn W3DDevice_LoadTexture(
     device: W3D_DEVICE,
     filename: *const c_char,
@@ -52,6 +55,9 @@ pub unsafe extern "C" fn W3DDevice_LoadTexture(
 
 /// Bind texture to a stage - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `texture` must be null or a W3D_TEXTURE previously
+// SAFETY: returned by LoadTexture/GetTexture and still owned by the device's
+// SAFETY: handle table; only the wrapped Texture value is cloned here.
 pub unsafe extern "C" fn W3DDevice_SetTexture(
     device: W3D_DEVICE,
     stage: u32,
@@ -92,6 +98,9 @@ pub unsafe extern "C" fn W3DDevice_SetTexture(
 
 /// Get texture bound to a stage - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI query. Returns either a handle already interned in the device's
+// SAFETY: table or interns a fresh Box allocation; the pointer stays valid while
+// SAFETY: the device lives (freed by W3DDevice_Destroy).
 pub unsafe extern "C" fn W3DDevice_GetTexture(device: W3D_DEVICE, stage: u32) -> W3D_TEXTURE {
     if device.is_null() {
         return std::ptr::null_mut();
@@ -128,6 +137,8 @@ pub unsafe extern "C" fn W3DDevice_GetTexture(device: W3D_DEVICE, stage: u32) ->
 
 /// Set texture stage state - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry; only the device handle is dereferenced and stage-state
+// SAFETY: mutation happens under its Mutex. No pointers are read.
 pub unsafe extern "C" fn W3DDevice_SetTextureStageState(
     device: W3D_DEVICE,
     stage: u32,
@@ -148,6 +159,8 @@ pub unsafe extern "C" fn W3DDevice_SetTextureStageState(
 
 /// Get texture stage state - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI query; only the device handle is dereferenced under its Mutex.
+// SAFETY: Returns a by-value u32, no pointer is written.
 pub unsafe extern "C" fn W3DDevice_GetTextureStageState(
     device: W3D_DEVICE,
     stage: u32,
@@ -198,6 +211,9 @@ pub(super) async fn get_texture_internal(
     device_lock.get_texture(texture_id).await
 }
 
+// SAFETY: `texture_handle` must be null or an owning Box<W3DTextureC> raw
+// SAFETY: pointer freshly produced by Box::into_raw in this module. Duplicate ids
+// SAFETY: drop the new box so exactly one owner remains in the device table.
 pub(super) unsafe fn intern_texture_handle(
     device: &W3DDeviceC,
     texture_handle: W3D_TEXTURE,

@@ -593,11 +593,11 @@ impl AIPlayer {
             let Some(template) = game_logic.templates.get(&building.template_name) else {
                 continue;
             };
-            let geom_r = if template.geometry_info.authored {
-                template.geometry_info.bounding_circle_radius()
-            } else {
-                0.0
-            };
+            // C++ `getTemplateGeometryInfo().getBoundingCircleRadius()`:
+            // always the template geometry, never a zero fallback.
+            // Cylinder/sphere bounding circle == majorRadius (Geometry.cpp
+            // calcBoundingStuff), so major_radius is the C++ metric.
+            let geom_r = template.geometry_info.bounding_circle_radius();
             entries.push((building.position.x, building.position.z, geom_r));
         }
         let (set, cx, cz, radius) =
@@ -630,6 +630,28 @@ impl AIPlayer {
         }
         let (id, pos) = found?;
         game_logic.destroy_object(id);
+        // C++ newMap destroys the map-placed CC synchronously (destroyObject +
+        // ThePartitionManager->removeObject before applying the build list).
+        // Our StructureTopple residual defers removal to a death animation that
+        // is normally driven by world tick; drive it to completion here and
+        // flush the destroy queue so the CC leaves the host object store in
+        // this call, matching C++ newMap ordering.
+        let frame = game_logic.get_frame();
+        for step in 1..=2000u32 {
+            if let Some(obj) = game_logic.host_object_mut(id) {
+                if obj.tick_structure_topple(frame.saturating_add(step)) {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        // Topple Done lets the next destroy pass enqueue (the deferral peel
+        // swallowed the original DestructionEvent), so re-mark and flush.
+        if game_logic.host_object(id).is_some() {
+            game_logic.destroy_object(id);
+        }
+        game_logic.process_destroy_list();
         Some(pos)
     }
 

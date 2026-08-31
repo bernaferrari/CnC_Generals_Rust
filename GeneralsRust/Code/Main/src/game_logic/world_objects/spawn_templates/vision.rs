@@ -275,6 +275,19 @@ impl GameLogic {
                     shroud_mgr.set_host_object_ever_seen(pid, id.0, true);
                     continue;
                 }
+                if owner == Some(pid) {
+                    // C++ Object::getShroudedStatus (Object.cpp) resolves through
+                    // PartitionData::getShroudedStatus (PartitionManager.cpp:1582)
+                    // over the object's COI cells — and every object is a shroud
+                    // looker for its controlling player, so its own footprint is
+                    // always Visible and the status for the owner is CLEAR.  A
+                    // looker-less host world must not fog a player's own units
+                    // out of ActionManager shroud gates (ActionManager.cpp:76-102).
+                    shroud_mgr.set_host_object_shroud_status(pid, id.0, ObjectShroudStatus::Clear);
+                    shroud_mgr.mark_host_object_seen(pid, id.0);
+                    shroud_mgr.set_host_object_ever_seen(pid, id.0, true);
+                    continue;
+                }
                 let mut shrouded_cells = 0usize;
                 let mut fogged_cells = 0usize;
                 for &(cx, cz) in &cells {

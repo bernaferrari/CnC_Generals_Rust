@@ -56,7 +56,7 @@ fn cnc_source() -> &'static str {
     super::engine_scan_src()
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 fn tr_source() -> &'static str {
     game_client::message_stream::translators::TRANSLATORS_SRC

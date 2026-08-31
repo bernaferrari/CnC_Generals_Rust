@@ -468,6 +468,8 @@ mod tests {
         let leftover = [0x11u8, 0x22, 0x33, 0x44, 0xAB];
         let expected = game_engine::common::system::xfer_crc::fold_crc_bytes(0, &leftover).to_be();
         let mut system_left = LogicXferCrc::new();
+        // SAFETY: `leftover` is a fully initialized stack array that stays
+        // alive for the whole call; the CRC xfer only reads its bytes.
         unsafe {
             Xfer::xfer_implementation(
                 &mut system_left,
@@ -477,6 +479,8 @@ mod tests {
             .expect("system leftover");
         }
         let mut common_left = LogicXferCrc::new();
+        // SAFETY: same as above — initialized local array, read-only CRC
+        // fold for the duration of the call.
         unsafe {
             game_engine::common::system::xfer::Xfer::xfer_implementation(
                 &mut common_left,

@@ -631,10 +631,11 @@ impl Object {
     }
 
     pub fn set_weapon_set_mine_clearing_detail(&mut self, enabled: bool) {
+        // C++ WorkerAIUpdate.cpp:1002-1014 drops carried boxes only from the
+        // aiDoCommand tail when `isClearingMines() && m_numberBoxes > 0` —
+        // arming the WEAPONSET_MINE_CLEARING detail itself never spends them.
+        // host drop_worker_supply_boxes_for_mine_clear owns the guarded drop.
         let _ = self.set_weapon_set_flag(1, enabled);
-        if enabled && self.stored_resources.supplies > 0 {
-            self.stored_resources.supplies = 0;
-        }
     }
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.

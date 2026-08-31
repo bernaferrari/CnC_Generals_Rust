@@ -31,7 +31,11 @@ impl LinuxDevice {
         };
 
         // Use libc to set process priority
+        SAFETY: setpriority(PRIO_PROCESS, 0, nice) targets the calling process only;
+        // SAFETY: by-value scalar arguments, no pointer dereference.
         unsafe {
+            // SAFETY: setpriority(PRIO_PROCESS, 0, nice) targets the calling process only;
+            // SAFETY: by-value scalar arguments, no pointer dereference.
             if libc::setpriority(libc::PRIO_PROCESS, 0, nice_value) != 0 {
                 return Err(PlatformError::SystemCallFailed(
                     "setpriority failed".to_string(),
@@ -124,6 +128,10 @@ impl LinuxDevice {
 #[cfg(not(target_os = "linux"))]
 mod libc {
     pub const PRIO_PROCESS: i32 = 0;
+    // SAFETY: Non-native-platform stub mirroring the libc symbol signature; it
+    // SAFETY: discards its arguments and returns a fixed failure value, so no
+    // SAFETY: operation here can violate memory safety. The unsafe qualifier exists
+    // SAFETY: only to match the real libc ABI for drop-in use.
     pub unsafe fn setpriority(_which: i32, _who: u32, _prio: i32) -> i32 {
         -1
     }

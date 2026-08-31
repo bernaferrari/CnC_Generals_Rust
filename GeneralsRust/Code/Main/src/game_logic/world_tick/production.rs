@@ -1452,22 +1452,38 @@ impl GameLogic {
             Some(ignore_producer),
         );
         for &wp in path.iter().skip(1) {
+            // The A*-installed end and the authored snapped point can differ
+            // only in ground Y; C++ path cells live on the 2D ground grid
+            // (AIUpdateInterface::aiFollowExitProductionPath), so compare X/Z.
             let already_at = self.objects.get(&unit_id).is_some_and(|unit| {
+                let same_cell = |a: Vec3, b: Vec3| {
+                    let dx = a.x - b.x;
+                    let dz = a.z - b.z;
+                    dx * dx + dz * dz < 0.1 * 0.1
+                };
                 unit.movement
                     .path
                     .last()
-                    .is_some_and(|last| last.distance(wp) < 0.1)
+                    .is_some_and(|last| same_cell(*last, wp))
                     || unit
                         .movement
                         .target_position
-                        .is_some_and(|dest| dest.distance(wp) < 0.1)
+                        .is_some_and(|dest| same_cell(dest, wp))
             });
             if already_at {
                 // C++ Queue pushes the snapped natural twice so Red Guards
-                // do not stack. A* append would collapse the duplicate.
+                // do not stack. A* append would collapse the duplicate; keep
+                // the installed end's exact pose so both entries repeat it.
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    unit.movement.path.push(wp);
-                    unit.movement.target_position = Some(wp);
+                    let end = unit
+                        .movement
+                        .path
+                        .last()
+                        .copied()
+                        .or(unit.movement.target_position)
+                        .unwrap_or(wp);
+                    unit.movement.path.push(end);
+                    unit.movement.target_position = Some(end);
                 }
             } else {
                 let _ = self.append_unit_waypoint(unit_id, wp);

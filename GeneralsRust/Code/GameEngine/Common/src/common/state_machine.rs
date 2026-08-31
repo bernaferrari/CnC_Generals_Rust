@@ -71,7 +71,11 @@ struct TransitionInfo {
 
 // Condition function pointers are treated as data; the machine is not sent
 // across threads while a transition is in flight.
+// SAFETY: TransitionInfo carries only a `'static` fn pointer and a plain
+// state id plus user_data used as an opaque token by the single-threaded
 unsafe impl Send for TransitionInfo {}
+// SAFETY: same reasoning as Send — the machine never migrates threads
+// while a transition borrows user_data.
 unsafe impl Sync for TransitionInfo {}
 
 /// State machine events (legacy helper API).

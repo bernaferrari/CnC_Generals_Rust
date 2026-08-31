@@ -1,13 +1,7 @@
 {
   "hard_limit": 4000,
   "policy": "Entries are temporary ceilings: counts may decrease or disappear, never increase.",
-  "production": {
-    "Code/GameEngine/GameClient/src/gui/shell/base.rs": 4310,
-    "Code/Main/src/executable_smoke.rs": 4527,
-    "Code/Main/src/game_logic/mission_scripts.rs": 4065,
-    "Code/Main/src/game_logic/script_loader.rs": 4410,
-    "Code/Main/src/game_logic/world_save.rs": 4822
-  },
+  "production": {},
   "schema_version": 1,
   "test": {}
 }

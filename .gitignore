@@ -45,6 +45,27 @@ __pycache__/
 
 # Local retail/extracted game data — never commit
 /windows_game/
+/GeneralsRust/windows_game/
+
+# w3d_to_gltf is a normal workspace crate. Keep local retail inputs, generated
+# converter output, and the recovered standalone-repository metadata out of
+# the parent repository.
+/GeneralsRust/Code/Tools/w3d_to_gltf/W3D/
+/GeneralsRust/Code/Tools/w3d_to_gltf/out/
+/GeneralsRust/Code/Tools/w3d_to_gltf/out-image/
+/GeneralsRust/Code/Tools/.w3d_to_gltf.git-local/
+
+# Runtime/session artifacts — retain locally, never version.
+/GeneralsRust/.beads/
+/GeneralsRust/.claude/state/
+/GeneralsRust/UserData/Save/
+/GeneralsRust/UserData/Options.ini
+/GeneralsRust/Code/Main/UserData/Save/
+/GeneralsRust/Code/GameEngine/GameClient/UserData/Skirmish.ini
+/GeneralsRust/crashes/
+/GeneralsRust/omp_repo_write_probe.txt
+/GeneralsRust/aifilter-final-report.md
+/GeneralsRust/tools/safety_audit_*.py
 
 # Local agent/session scratch data — never commit
 /.omo/

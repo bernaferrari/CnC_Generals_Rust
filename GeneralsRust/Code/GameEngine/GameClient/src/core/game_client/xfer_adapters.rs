@@ -155,7 +155,12 @@ impl Xfer for RuntimeCommonXferAdapter<'_> {
             .map_err(runtime_status_to_io)
     }
 
+    // SAFETY: Trait-contract forwarding: the caller owes a writable `data` buffer
+    // SAFETY: of data_size bytes (RuntimeXfer contract); we pass it straight to the
+    // SAFETY: inner adapter which enforces the same bounds. No pointer is stored.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
+        // SAFETY: Same caller-established contract as the enclosing method; see the
+        // SAFETY: safety note on xfer_implementation above.
         unsafe { self.inner.xfer_implementation(data, data_size) }.map_err(runtime_status_to_io)
     }
 }

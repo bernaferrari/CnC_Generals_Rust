@@ -196,6 +196,9 @@ impl WgpuUIRenderer {
             ..Default::default()
         });
 
+        // SAFETY: window is a live winit window; from_window yields a
+        // valid raw target for this surface's lifetime (kept alive by
+        // the Arc'd renderer).
         let surface = Arc::new(unsafe {
             instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::from_window(window)?)
         }?);

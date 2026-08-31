@@ -30,6 +30,13 @@ QUICK_GATES = (
     ),
     ("attached_tests", ["cargo", "test", "--locked", "-p", "generals-root-tests"]),
     (
+        "common_internal_thing_factory",
+        [
+            "cargo", "test", "--locked", "-p", "game_engine", "--features", "internal",
+            "--lib", "common::thing::thing_factory::tests::", "--", "--test-threads=1",
+        ],
+    ),
+    (
         "compression_parity",
         ["cargo", "test", "--locked", "-p", "game_engine", "--test", "compression_parity_tests"],
     ),
@@ -190,6 +197,19 @@ def confidence_ladder(summary: dict[str, Any]) -> dict[str, Any]:
             "meaning": meaning,
         }
 
+    behavior_level = level(
+        int(summary.get("behavior_verified", 0)),
+        "Current machine evidence proves observable C++ behavior",
+    )
+    evidence_summary = summary.get("behavior_evidence")
+    if isinstance(evidence_summary, dict):
+        # Verified behavior must stay transparent about which oracle the
+        # evidence ran against and how exact the comparison was.
+        behavior_level["evidence"] = {
+            "scope_counts": evidence_summary.get("by_evidence_scope", {}),
+            "confidence_counts": evidence_summary.get("by_confidence", {}),
+            "rejected_records": evidence_summary.get("rejected_records", 0),
+        }
     return {
         "denominator": required,
         "reachable_candidate": level(
@@ -204,10 +224,7 @@ def confidence_ladder(summary: dict[str, Any]) -> dict[str, Any]:
             max(0, required - int(blockers.get("unreviewed_symbol_ownership", required))),
             "C++ symbols assigned to reachable Rust implementations",
         ),
-        "behavior_verified": level(
-            int(summary.get("behavior_verified", 0)),
-            "Current machine evidence proves observable C++ behavior",
-        ),
+        "behavior_verified": behavior_level,
     }
 
 

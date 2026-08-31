@@ -4,6 +4,10 @@ use crate::blitter::RLEBlitter;
 
 fn skip_leading_pixels(mut sptr: *const u8, skipper: i32) -> (*const u8, i32) {
     let mut skip = skipper;
+    // SAFETY: [Category 10 — OOB]
+    // `sptr` walks the RLE-compressed row (rlerle.h Skip_Leading_Pixels): each
+    // iteration reads at most two source bytes and stops when `skip` <= 0, so
+    // it never passes a well-formed run stream; identical to the C++ contract.
     unsafe {
         while skip > 0 {
             let value = *sptr;
@@ -38,10 +42,16 @@ impl<'a> RLEBlitter for RLEBlitTransXlat<'a, u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -69,10 +79,16 @@ impl<'a> RLEBlitter for RLEBlitTransXlat<'a, u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -100,12 +116,18 @@ impl<'a> RLEBlitter for RLEBlitTransXlat<'a, u8> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             unsafe {
                 dptr = dptr.add(transcount as usize);
             }
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -144,10 +166,16 @@ impl<'a> RLEBlitter for RLEBlitTransRemapXlat<'a, u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -176,10 +204,16 @@ impl<'a> RLEBlitter for RLEBlitTransRemapXlat<'a, u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -208,12 +242,18 @@ impl<'a> RLEBlitter for RLEBlitTransRemapXlat<'a, u8> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             unsafe {
                 dptr = dptr.add(transcount as usize);
             }
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -253,10 +293,16 @@ impl<'a> RLEBlitter for RLEBlitTransZRemapXlat<'a, u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -285,10 +331,16 @@ impl<'a> RLEBlitter for RLEBlitTransZRemapXlat<'a, u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -317,12 +369,18 @@ impl<'a> RLEBlitter for RLEBlitTransZRemapXlat<'a, u8> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             unsafe {
                 dptr = dptr.add(transcount as usize);
             }
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -361,10 +419,16 @@ impl<'a> RLEBlitter for RLEBlitTransRemapDest<'a, u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -393,10 +457,16 @@ impl<'a> RLEBlitter for RLEBlitTransRemapDest<'a, u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -425,12 +495,18 @@ impl<'a> RLEBlitter for RLEBlitTransRemapDest<'a, u8> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             unsafe {
                 dptr = dptr.add(transcount as usize);
             }
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -469,10 +545,16 @@ impl RLEBlitter for RLEBlitTransDarken<u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -500,10 +582,16 @@ impl RLEBlitter for RLEBlitTransDarken<u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -542,10 +630,16 @@ impl<'a> RLEBlitter for RLEBlitTransLucent50<'a, u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -575,10 +669,16 @@ impl<'a> RLEBlitter for RLEBlitTransLucent50<'a, u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -619,10 +719,16 @@ impl<'a> RLEBlitter for RLEBlitTransLucent25<'a, u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -652,10 +758,16 @@ impl<'a> RLEBlitter for RLEBlitTransLucent25<'a, u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -696,10 +808,16 @@ impl<'a> RLEBlitter for RLEBlitTransLucent75<'a, u16> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;
@@ -729,10 +847,16 @@ impl<'a> RLEBlitter for RLEBlitTransLucent75<'a, u32> {
         if leadskip > 0 {
             let (new_sptr, transcount) = skip_leading_pixels(sptr, leadskip);
             sptr = new_sptr;
+            // SAFETY: [Category 10 — OOB] `transcount` transparent pixels were skipped in the RLE stream, so the row cursor advances exactly that many in-bounds pixels (rlerle.h leadskip).
             dptr = unsafe { dptr.add(transcount as usize) };
             remaining -= transcount;
         }
 
+        // SAFETY: [Category 10 — OOB]
+        // `sptr` walks the well-formed RLE row stream (each run header is followed by
+        // that many payload/transparent pixels, per rlerle.h), and `dptr` advances by
+        // the same pixel count inside the locked destination row; translate/remap
+        // tables are indexed only with source bytes (0..=255).
         unsafe {
             while remaining > 0 {
                 let value = *sptr;

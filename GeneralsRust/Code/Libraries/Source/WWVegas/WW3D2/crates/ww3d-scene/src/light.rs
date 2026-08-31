@@ -433,7 +433,7 @@ impl LightEnvironment {
                         }
                     }
                 }
-                self.input_lights[light_index] = new_light;
+                self.input_lights[light_index] = new_light.clone();
                 if self.input_lights.len() > MAX_LIGHTS {
                     self.input_lights.truncate(MAX_LIGHTS);
                 }

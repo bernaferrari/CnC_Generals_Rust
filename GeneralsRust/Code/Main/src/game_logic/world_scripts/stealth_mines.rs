@@ -1749,7 +1749,7 @@ impl GameLogic {
 
         let mut count = 0u32;
         for mine_id in due {
-            if self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual) {
+            if self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual, None) {
                 count = count.saturating_add(1);
             }
         }
@@ -2207,7 +2207,7 @@ impl GameLogic {
     /// Manually detonate a residual demo trap / charge (command residual).
     pub fn manual_detonate_mine(&mut self, mine_id: ObjectId) -> bool {
         use crate::game_logic::host_mines::HostMineDetonateReason;
-        self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual)
+        self.detonate_mine_internal(mine_id, HostMineDetonateReason::Manual, None)
     }
 
     /// Advance residual mines: dozer clear + proximity scan + timed detonation.
@@ -2649,6 +2649,9 @@ impl GameLogic {
         let mut due: Vec<(ObjectId, HostMineDetonateReason)> = Vec::new();
         let mut clear_due: Vec<(ObjectId, ObjectId)> = Vec::new(); // (mine_id, clearer_id)
         let mut approach: Vec<(ObjectId, Vec3)> = Vec::new(); // clearer moves toward mine
+        // Clearers inside clear range winding up PreAttackDelay (not yet clear_due).
+        // C++ isClearingMines() && getGoalObject() != NULL keeps them immune while engaged.
+        let mut windup: Vec<(ObjectId, ObjectId)> = Vec::new();
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         for (id, obj) in &self.objects {
             let Some(data) = obj.mine_data.as_ref() else {
@@ -2834,8 +2837,12 @@ impl GameLogic {
                         .get_mut(&mine_id)
                         .and_then(|o| o.mine_data.as_mut())
                         .is_some_and(|md| md.begin_or_ready_clear_pre_attack(*cid, frame, delay));
-                    if ready && !clear_due.iter().any(|(m, _)| *m == mine_id) {
-                        clear_due.push((mine_id, *cid));
+                    if !clear_due.iter().any(|(m, _)| *m == mine_id) {
+                        if ready {
+                            clear_due.push((mine_id, *cid));
+                        } else {
+                            windup.push((mine_id, *cid));
+                        }
                     }
                 } else {
                     if let Some(obj) = self.objects.get_mut(&mine_id) {
@@ -2866,6 +2873,16 @@ impl GameLogic {
         // Clearers with a goal mine are immune to neighboring pads (MAX_IMMUNITY).
         let mut clearing_ids: Vec<ObjectId> = Vec::new();
         for (mine_id, cid) in &clear_due {
+            clearing_ids.push(*cid);
+            if let Some(obj) = self.objects.get_mut(mine_id) {
+                if let Some(md) = obj.mine_data.as_mut() {
+                    if matches!(md.kind, HostMineKind::LandMine) {
+                        md.grant_immunity(*cid, frame);
+                    }
+                }
+            }
+        }
+        for (mine_id, cid) in &windup {
             clearing_ids.push(*cid);
             if let Some(obj) = self.objects.get_mut(mine_id) {
                 if let Some(md) = obj.mine_data.as_mut() {
@@ -3052,7 +3069,7 @@ impl GameLogic {
         }
 
         for (mine_id, reason) in due {
-            let _ = self.detonate_mine_internal(mine_id, reason);
+            let _ = self.detonate_mine_internal(mine_id, reason, None);
         }
     }
 
@@ -3101,6 +3118,7 @@ impl GameLogic {
             return self.detonate_mine_internal(
                 mine_id,
                 crate::game_logic::host_mines::HostMineDetonateReason::Proximity,
+                Some(blast_pos),
             );
         }
 
@@ -3233,6 +3251,10 @@ impl GameLogic {
         &mut self,
         mine_id: ObjectId,
         reason: crate::game_logic::host_mines::HostMineDetonateReason,
+        // C++ MinefieldBehavior::detonateOnce(position): onCollide fires the
+        // detonation weapon at the clipped victim point (MinefieldBehavior.cpp:257,
+        // :422-424); DemoTrapUpdate::detonate / onDamage pass the object position.
+        blast_at: Option<Vec3>,
     ) -> bool {
         use crate::game_logic::host_mines::{HostMineDetonateReason, damage_at_distance};
 
@@ -3274,8 +3296,17 @@ impl GameLogic {
         let mine_pos = mine.get_position();
         let producer = data.producer_id;
         let frame = self.frame;
+        let blast_pos = blast_at.unwrap_or(mine_pos);
 
-        if is_demo_trap && !data.demo_trap_warning_ready(frame) {
+        // C++ DemoTrapUpdate.cpp:136-141, 240-251: selecting the detonation
+        // weapon slot (command button) calls detonate() which fires the
+        // detonation weapon and kills the trap the SAME frame — no SlowDeath
+        // warning arm. Only passive paths (proximity scan / death) ride the
+        // SlowDeath DestructionDelay residual.
+        if is_demo_trap
+            && reason != crate::game_logic::host_mines::HostMineDetonateReason::Manual
+            && !data.demo_trap_warning_ready(frame)
+        {
             if let Some(obj) = self.objects.get_mut(&mine_id) {
                 if let Some(md) = obj.mine_data.as_mut() {
                     let _ = md.arm_demo_trap_warning(frame);
@@ -3331,7 +3362,7 @@ impl GameLogic {
         let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
         let mut chain_ids: Vec<ObjectId> = Vec::new();
         if neutron_blast {
-            destroy_ids = self.apply_neutron_mine_blast(mine_id, mine_pos, mine_team);
+            destroy_ids = self.apply_neutron_mine_blast(mine_id, blast_pos, mine_team);
         } else {
             let victim_ids: Vec<ObjectId> = self.objects.keys().copied().collect();
             for vid in victim_ids {
@@ -3351,7 +3382,7 @@ impl GameLogic {
                 if victim.team == mine_team && !hit_allies && !chain_pad {
                     continue;
                 }
-                let dist = mine_splash_distance(victim, mine_pos);
+                let dist = mine_splash_distance(victim, blast_pos);
                 let dmg = if is_demo_trap {
                     crate::game_logic::host_mines::demo_trap_damage_at(demo_profile, dist)
                 } else {
@@ -3384,7 +3415,7 @@ impl GameLogic {
             let _ = self.toxin_tractor.spawn_medium_field(
                 mine_id,
                 mine_team,
-                mine_pos,
+                blast_pos,
                 self.frame,
                 demo_profile.poison_anthrax_tier(),
             );
@@ -3394,12 +3425,12 @@ impl GameLogic {
         self.queue_audio_event(
             AudioEventRequest::new(kind.detonate_audio())
                 .with_object(mine_id)
-                .with_position(mine_pos)
+                .with_position(blast_pos)
                 .with_priority(190),
         );
         let _ = self.combat_particles.spawn(
             CombatParticleKind::WeaponImpact,
-            mine_pos,
+            blast_pos,
             self.frame,
             Some(mine_id),
             None,
@@ -3682,12 +3713,26 @@ impl GameLogic {
                 if matches!(o.object_type, ObjectType::Projectile) {
                     return None;
                 }
-                let enemy = match (o.owner_player_id, v_owner) {
+                // C++ Object::getRelationship (Object.cpp:1548-1568) falls through
+                // to the controlling players' team relationship: two living
+                // players on different non-neutral teams are ENEMIES even when
+                // the lobby carries no explicit playerEnemies row. A strict
+                // player-map NEUTRAL must not hard-reject the wake.
+                let mut enemy = match (o.owner_player_id, v_owner) {
                     (Some(a), Some(b)) => {
                         self.player_relationship(a, b) == gamelogic::common::Relationship::Enemies
                     }
                     _ => o.team != v_team && o.team != Team::Neutral && v_team != Team::Neutral,
                 };
+                if !enemy
+                    && o.owner_player_id.is_some()
+                    && v_owner.is_some()
+                    && o.team != Team::Neutral
+                    && v_team != Team::Neutral
+                    && o.team != v_team
+                {
+                    enemy = true;
+                }
                 if !enemy {
                     return None;
                 }
@@ -3791,8 +3836,11 @@ impl GameLogic {
             match rel {
                 Relationship::Enemies => {
                     if has_data {
-                        let _ =
-                            self.detonate_mine_internal(mine_id, HostMineDetonateReason::Proximity);
+                        let _ = self.detonate_mine_internal(
+                            mine_id,
+                            HostMineDetonateReason::Proximity,
+                            None,
+                        );
                     } else if let Some(obj) = self.objects.get_mut(&mine_id) {
                         obj.take_damage_from_typed_death(
                             obj.health.maximum.max(1.0),

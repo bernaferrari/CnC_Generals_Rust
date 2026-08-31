@@ -10,6 +10,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 use thiserror::Error;
 
+use game_engine::common::random_value::get_game_client_random_value_real;
 use crate::core::DrawableId;
 use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
@@ -224,7 +225,9 @@ impl Default for RandomKeyframe {
 pub struct GameClientRandomVariable {
     pub min: f32,
     pub max: f32,
-    pub distribution_type: u32, // 0 = uniform, 1 = normal
+    /// C++ `GameClientRandomVariable::DistributionType`; only UNIFORM (0) is
+    /// supported by the retail stream (RandomValue.cpp:353-371).
+    pub distribution_type: u32,
 }
 
 impl Default for GameClientRandomVariable {
@@ -247,20 +250,15 @@ impl GameClientRandomVariable {
     }
 
     pub fn sample(&self) -> f32 {
-        use rand::prelude::*;
-        let mut rng = thread_rng();
-
+        // C++ GameClientRandomVariable::getValue (RandomValue.cpp:353-371):
+        // UNIFORM draws from the seeded GameClient stream via
+        // GetGameClientRandomValueReal, which returns `hi` for empty ranges so a
+        // lo==max==hi variable degenerates to CONSTANT without consuming the
+        // stream. Non-uniform distributions are unsupported in C++
+        // (DEBUG_CRASH; release returns 0.0f).
         match self.distribution_type {
-            0 => rng.gen_range(self.min..=self.max), // Uniform
-            1 => {
-                // Normal distribution (Gaussian)
-                use rand_distr::{Distribution, Normal};
-                let mean = (self.min + self.max) * 0.5;
-                let std_dev = (self.max - self.min) * 0.16667; // ~3 sigma range
-                let normal = Normal::new(mean, std_dev).unwrap();
-                normal.sample(&mut rng).clamp(self.min, self.max)
-            }
-            _ => self.min, // Fallback
+            0 => get_game_client_random_value_real(self.min, self.max),
+            _ => 0.0,
         }
     }
 }

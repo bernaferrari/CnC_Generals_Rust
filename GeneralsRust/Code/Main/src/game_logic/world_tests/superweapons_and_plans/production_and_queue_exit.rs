@@ -71,12 +71,14 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
         }
     }
 
-    // Closer Neutral 5000-cost must be ignored (ALLOW_ENEMIES only).
+    // Closer Neutral 5000-cost must be ignored (ALLOW_ENEMIES only). Placed
+    // far beyond the enemy cells so a misattributed leftover-partition entry
+    // still loses the breadth-first search to the true enemy cell.
     let n = logic
         .create_object(
             "NeutralPalace",
             Team::Neutral,
-            glam::Vec3::new(80.0, 0.0, 0.0),
+            glam::Vec3::new(801.0, 0.0, 0.0),
         )
         .expect("neutral");
     if let Some(obj) = logic.host_object_mut(n) {
@@ -84,7 +86,15 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
         obj.partition_cash_value = 5000;
         obj.shroud_clearing_range = 0.0;
     }
-
+    // The leftover partition bridge is a process-global other tests may
+    // repopulate; serialize and clear immediately before the scripted frame
+    // so the host fallback BFS decides the destination.
+    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Ok(mut pm) = gamelogic::object::collide::partition_manager::PARTITION_MANAGER.write() {
+        pm.clear();
+    }
     request_host_skirmish_attack_nearest_group("teamAmerica", 4, 50);
     logic.evaluate_and_execute_scripts(0.0);
 
@@ -97,7 +107,7 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     );
     assert_ne!(
         dest,
-        glam::Vec3::new(80.0, 0.0, 0.0),
+        glam::Vec3::new(801.0, 0.0, 0.0),
         "Neutral high-cost must not win ALLOW_ENEMIES"
     );
     assert!(
@@ -263,6 +273,23 @@ fn host_construction_completes_without_coupled_shadow() {
     let id = game_logic
         .create_object_under_construction("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 40.0))
         .expect("uc barracks");
+    // C++ DozerAIUpdate.cpp:511-517 — only a dozer docked at the ACTION dock
+    // advances construction percent; author the retail builder fixture.
+    ensure_test_dozer_template(&mut game_logic);
+    let dozer_id = game_logic
+        .create_object("TestDozer", Team::USA, Vec3::new(40.0, 0.0, 40.0))
+        .expect("builder dozer");
+    {
+        let barracks = game_logic.host_object_mut(id).expect("barracks");
+        barracks.builder_id = Some(dozer_id);
+    }
+    {
+        let dozer = game_logic.host_object_mut(dozer_id).expect("dozer");
+        dozer.set_target(Some(id));
+        dozer.set_ai_state(AIState::Constructing);
+        dozer.status.moving = false;
+        dozer.dozer_dock_action = Some(dozer.get_position());
+    }
     assert!(
         game_logic
             .host_object(id)
@@ -285,9 +312,20 @@ fn host_construction_completes_without_coupled_shadow() {
 
 #[test]
 fn host_construction_completes_when_sole_tick_unmapped() {
+    use crate::game_logic::AIState;
     // Coupled sole-tick with no live shadow map: host must store percent and
     // complete. The previous hole computed `projected` then discarded it
     // (`if !sole` never assigned), so barracks stayed UC forever.
+    // Production keeps GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY default-off
+    // (host GameLogic is the sole writer, C++ single-store); the sole-tick
+    // contract under test opts in via the retail env channel.
+    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let prev_construction =
+        std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
+    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
     crate::gameworld_shadow::begin_shadow_coupled_tick();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         assert!(crate::gameworld_shadow::gameworld_construction_sole_tick_enabled());
@@ -301,6 +339,23 @@ fn host_construction_completes_when_sole_tick_unmapped() {
         let id = game_logic
             .create_object_under_construction("TestBarracks", Team::USA, Vec3::new(40.0, 0.0, 40.0))
             .expect("uc barracks");
+        // C++ DozerAIUpdate.cpp:511-517 — even the unmapped sole-tick fail-open
+        // path is dozer-driven; author the retail builder fixture.
+        ensure_test_dozer_template(&mut game_logic);
+        let dozer_id = game_logic
+            .create_object("TestDozer", Team::USA, Vec3::new(40.0, 0.0, 40.0))
+            .expect("builder dozer");
+        {
+            let barracks = game_logic.host_object_mut(id).expect("barracks");
+            barracks.builder_id = Some(dozer_id);
+        }
+        {
+            let dozer = game_logic.host_object_mut(dozer_id).expect("dozer");
+            dozer.set_target(Some(id));
+            dozer.set_ai_state(AIState::Constructing);
+            dozer.status.moving = false;
+            dozer.dozer_dock_action = Some(dozer.get_position());
+        }
         assert!(
             !crate::gameworld_shadow::coupled_host_mapped(id),
             "this test is the unmapped fail-open path"
@@ -320,6 +375,13 @@ fn host_construction_completes_when_sole_tick_unmapped() {
         );
     }));
     crate::gameworld_shadow::end_shadow_coupled_tick();
+    match prev_construction {
+        Some(v) => {
+            crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v)
+        }
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
+    }
+    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
     result.expect("unmapped sole-tick construction test");
 }
 

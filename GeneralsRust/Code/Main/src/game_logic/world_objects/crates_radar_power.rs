@@ -399,7 +399,11 @@ impl GameLogic {
                     continue;
                 }
                 if *is_salvage {
-                    let has_science = picker_owner
+                    // C++ base isValidToExecute: md->m_pickupScience requires
+                    // other->getControllingPlayer()->hasScience(...). Resolve the
+                    // controlling player (owner id or unique faction player).
+                    let picker_player = self.player_owner_for_event(*picker_owner, *team);
+                    let has_science = picker_player
                         .and_then(|pid| self.players.get(&pid))
                         .is_some_and(|player| {
                             crate::game_logic::host_supply_gather::player_has_science(

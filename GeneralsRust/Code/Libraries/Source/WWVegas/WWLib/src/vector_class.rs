@@ -239,6 +239,7 @@ impl<T: Clone> VectorClass<T> {
         }
 
         let base_ptr = self.vector.as_ptr();
+        // SAFETY: [Category 11 — provenance] `ptr` points at an element of this same Vec allocation (caller contract), so offset_from is well-defined and range-checked right after.
         let offset = unsafe { ptr.offset_from(base_ptr) };
 
         if offset >= 0 && (offset as usize) < self.vector.len() {

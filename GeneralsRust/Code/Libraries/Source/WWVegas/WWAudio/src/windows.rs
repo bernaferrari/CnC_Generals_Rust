@@ -40,6 +40,10 @@ impl WindowsAudioDevice {
     /// Create new Windows audio device
     pub fn new() -> Result<Self> {
         // Initialize DirectSound
+        // SAFETY: Windows-only FFI (#[cfg(windows)] module). `ds` starts as
+        // the valid null-interface pattern from mem::zeroed(); the guarded
+        // success path means it is always overwritten before being stored,
+        // so no invalid COM pointer escapes.
         let direct_sound = unsafe {
             let mut ds = std::mem::zeroed();
             DirectSoundCreate(None, &mut ds, None).map_err(|e| {
@@ -65,9 +69,16 @@ impl WindowsAudioDevice {
                 crate::error::DeviceError::NotFound,
             ))?;
 
+        // SAFETY: DSCAPS is an all-integer POD struct whose documented
+        // initialization contract (dwSize set before GetCaps) is fulfilled
+        // on the next line; an all-zero bit pattern is valid for it.
         let mut caps = unsafe { std::mem::zeroed::<DSCAPS>() };
         caps.dwSize = std::mem::size_of::<DSCAPS>() as u32;
 
+        // SAFETY: caps.dwSize was set to size_of::<DSCAPS>() immediately
+        // above as GetCaps requires, and `ds` is the interface created in
+        // new() and checked non-null via ok_or; the call only writes into
+        // our stack struct.
         unsafe {
             ds.GetCaps(&mut caps).map_err(|e| {
                 crate::error::Error::Device(crate::error::DeviceError::InitializationFailed(
@@ -95,6 +106,9 @@ impl WindowsAudioDevice {
     /// Set cooperative level
     pub fn set_cooperative_level(&self, hwnd: isize) -> Result<()> {
         if let Some(ref ds) = self.direct_sound {
+            // SAFETY: Caller invariant: `hwnd` is a live window handle owned
+            // by the host application; SetCooperativeLevel only reads it and
+            // `ds` is the valid interface checked non-null before this block.
             unsafe {
                 // Set cooperative level for DirectSound
                 ds.SetCooperativeLevel(HWND(hwnd), DSSCL_PRIORITY)
@@ -132,6 +146,10 @@ impl WindowsAudioUtils {
 
     /// Get Windows audio device names
     pub fn enumerate_windows_devices() -> Result<Vec<String>> {
+        // SAFETY: The extern "system" ABI and parameter list exactly match
+        // the LPDSENUMCALLBACK signature DirectSoundEnumerateA invokes:
+        // GUID/PCSTRs are supplied by the OS for the duration of the call,
+        // and returning BOOL(0)/BOOL(1) follows the contract.
         unsafe extern "system" fn enum_callback(
             _guid: *mut windows::core::GUID,
             description: PCSTR,
@@ -142,6 +160,10 @@ impl WindowsAudioUtils {
                 return BOOL(0);
             }
 
+            // SAFETY: `context` is the pointer to our stack-local
+            // `devices: Vec<String>` passed to DirectSoundEnumerateA below;
+            // enumeration is synchronous, so the Vec outlives every callback
+            // invocation and rebuilding &mut here aliases nothing else.
             let devices = unsafe { &mut *(context as *mut Vec<String>) };
 
             if !description.is_null() {
@@ -159,6 +181,10 @@ impl WindowsAudioUtils {
 
         let mut devices = Vec::new();
 
+        // SAFETY: enum_callback has the required LPDSENUMCALLBACK ABI and
+        // `context` points at `devices`, which stays alive for this
+        // synchronous call; DirectSoundEnumerateA only reads the context and
+        // reports errors through the returned HRESULT.
         unsafe {
             let context = &mut devices as *mut Vec<String> as *const std::ffi::c_void;
             DirectSoundEnumerateA(Some(enum_callback), Some(context)).map_err(|e| {

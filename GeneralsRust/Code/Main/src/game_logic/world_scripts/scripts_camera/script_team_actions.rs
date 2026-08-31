@@ -801,7 +801,35 @@ impl GameLogic {
                 true,
             )
         }) {
-            return Some(glam::Vec3::new(loc.x, 0.0, loc.y));
+            // C++ ThePartitionManager reflects the live objects of the running
+            // game only. The leftover global bridge can still carry stale
+            // entries from other worlds, so accept the returned cell only when
+            // a live, constructed, enemy-owned object of THIS world occupies
+            // it; otherwise fall through to the host BFS like a partition miss.
+            let cx = (loc.x / CELL).floor() as i32;
+            let cz = (loc.y / CELL).floor() as i32;
+            let live_enemy_in_cell = self.objects.values().any(|obj| {
+                if !obj.is_alive()
+                    || obj.status.destroyed
+                    || obj.status.effectively_dead
+                    || obj.status.under_construction
+                {
+                    return false;
+                }
+                let Some(pid) = obj.owner_player_id else {
+                    return false;
+                };
+                if enemy_mask & (1u32 << pid.min(15)) == 0 {
+                    return false;
+                }
+                let pos = obj.get_position();
+                (pos.x / CELL).floor() as i32 == cx && (pos.z / CELL).floor() as i32 == cz
+            });
+            if live_enemy_in_cell {
+                // C++ hands back the group cell, not an object pose: the host
+                // BFS fallback also returns the cell corner.
+                return Some(glam::Vec3::new(cx as f32 * CELL, 0.0, cz as f32 * CELL));
+            }
         }
 
         let mut cells: HashMap<(i32, i32), i32> = HashMap::new();
@@ -1550,11 +1578,30 @@ impl GameLogic {
             _ => false,
         }
     }
-
     pub(super) fn host_script_team_member_ids(&self, team_name: &str) -> Vec<ObjectId> {
         let needle = team_name.trim();
         if needle.is_empty() {
             return Vec::new();
+        }
+        // C++ team lookup resolves the named team instance first; the faction
+        // fallback exists only for worlds whose objects carry no team
+        // instance identity. Once a named team has members, the faction
+        // fallback must not mix same-faction enemies into the scripted group
+        // (a USA-owned hut must not join "teamAmerica" and flip the group's
+        // controlling player).
+        let by_instance: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && !obj.status.destroyed
+                    && !obj.team_instance_name.is_empty()
+                    && obj.team_instance_name.eq_ignore_ascii_case(needle)
+            })
+            .map(|obj| obj.id)
+            .collect();
+        if !by_instance.is_empty() {
+            return by_instance;
         }
         let faction = Self::resolve_host_team_name(team_name);
         self.objects
@@ -1563,8 +1610,6 @@ impl GameLogic {
                 obj.is_alive()
                     && !obj.status.destroyed
                     && (faction.map(|t| obj.team == t).unwrap_or(false)
-                        || (!obj.team_instance_name.is_empty()
-                            && obj.team_instance_name.eq_ignore_ascii_case(needle))
                         || obj.team.get_name().eq_ignore_ascii_case(needle))
             })
             .map(|obj| obj.id)
@@ -1835,7 +1880,7 @@ impl GameLogic {
                     unit.set_max_shots_to_fire(-1);
                     unit.auto_acquire_when_idle = true;
                     unit.attack_priority_set =
-                        Some(format!("AIGroup.AttackTeam.{}", team.get_name()));
+                        Some(format!("AIGroup.AttackTeam.{}", victim_team.trim()));
                 }
             }
         }
@@ -1847,7 +1892,7 @@ impl GameLogic {
                         unit.set_max_shots_to_fire(-1);
                         unit.auto_acquire_when_idle = true;
                         unit.attack_priority_set =
-                            Some(format!("AIGroup.AttackTeam.{}", team.get_name()));
+                            Some(format!("AIGroup.AttackTeam.{}", victim_team.trim()));
                     }
                 }
             }

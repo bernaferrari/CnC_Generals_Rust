@@ -27,6 +27,15 @@ fn listening_outpost_residual_transport_load_unload() {
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
             game_logic.process_commands();
+            // C++ TransportContain files riders out over frames (door
+            // reservation, TransportContain.cpp orderAllPassengersToExit);
+            // the world tick drains pending_stream_exit each frame
+            // (world_tick/movement.rs drain_pending_transport_exits). Mirror
+            // the tick until the InitialPayload riders are all out.
+            for _ in 0..30 {
+                game_logic.frame = game_logic.frame.saturating_add(1);
+                game_logic.drain_pending_transport_exits_for_test();
+            }
         }
     }
     {
@@ -111,6 +120,28 @@ fn listening_outpost_residual_transport_load_unload() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
+    // Door-reservation residual files the second rider out over frames
+    // (drain_pending_transport_exits, world_tick/movement.rs); each exited
+    // rider then walks out its exit-door order to completion like the world
+    // tick's movement update before going Idle. C++ AIExitState hands the
+    // rider to aiFollowPath (OpenContain.cpp:915-1020 exitObjectViaDoor) and
+    // the walk-out completes into AI_IDLE only when the path finishes
+    // (AIFollowPathState SUCCESS), so tick until both riders settle.
+    for _ in 0..120 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.drain_pending_transport_exits_for_test();
+        game_logic.update_movement_for_test(&[unit_a, unit_b], 1.0 / 30.0);
+        game_logic.update_ai(&[unit_a, unit_b], 1.0 / 30.0);
+        let both_idle = [unit_a, unit_b].iter().all(|&id| {
+            game_logic
+                .host_object(id)
+                .map(|u| u.ai_state == AIState::Idle)
+                .unwrap_or(true)
+        });
+        if both_idle {
+            break;
+        }
+    }
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("free unit");
@@ -468,7 +499,16 @@ fn timed_c4_kill_sinks_xp_to_planter() {
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
-
+    // C++ Object::scoreTheKill awards XP only between ENEMIES; fresh test
+    // slots default Neutral (Player::new alliance_team=-1) — declare hostility.
+    game_logic
+        .get_player_mut(0)
+        .unwrap()
+        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    game_logic
+        .get_player_mut(2)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
     let burton_id = game_logic
         .create_object("TestInfantry", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
         .expect("burton");
@@ -525,10 +565,34 @@ fn timed_c4_kill_sinks_xp_to_planter() {
 #[test]
 fn cluster_mines_special_power_places_mines() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
-    use crate::game_logic::host_mines::CLUSTER_MINE_COUNT;
+    use crate::game_logic::{
+        SpecialPowerModuleKind, SpecialPowerModuleMetadata,
+        host_mines::CLUSTER_MINE_COUNT,
+    };
 
     let mut game_logic = GameLogic::new();
     ensure_test_structure_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308 canUseSpecialPower: the caster must carry the
+    // SpecialPowerModule for the command; stamp ClusterMines on the template.
+    if let Some(t) = game_logic.templates.get_mut("TestBuilding") {
+        t.special_power_modules
+            .push(SpecialPowerModuleMetadata {
+                source_index: 0,
+                module_tag: Some("ModuleTag_SpecialPowerClusterMines".into()),
+                module_kind: SpecialPowerModuleKind::OclSpecialPower,
+                special_power_template: "SpecialPowerClusterMines".into(),
+                special_power_template_id: 1,
+                command_power: Some(SpecialPowerType::ClusterMines),
+                reload_time_frames: 0,
+                required_science: Some("SCIENCE_ClusterMines".into()),
+                public_timer: false,
+                shared_n_sync: false,
+                shortcut_power: false,
+                update_module_starts_attack: false,
+                starts_paused: false,
+                scripted_special_power_only: false,
+            });
+    }
 
     // Ensure controlling player + science residual (SCIENCE_ClusterMines gate).
     if game_logic.get_player(0).is_none() {
@@ -540,7 +604,7 @@ fn cluster_mines_special_power_places_mines() {
 
     // Caster that can fire special powers (player_id 0 → Team::USA ownership).
     let caster_id = game_logic
-        .create_object("TestBuilding", Team::USA, Vec3::new(-100.0, 0.0, 0.0))
+        .create_object("TestBuilding", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).unwrap();
@@ -548,7 +612,10 @@ fn cluster_mines_special_power_places_mines() {
         caster.special_power_cooldown_remaining = 0.0;
     }
 
-    let target = Vec3::new(50.0, 0.0, 50.0);
+    // Mirror cluster_mines_flight_places_field geometry: the cargo bomb impact
+    // must land far enough from the caster that no SmartBorder spot is
+    // structure-skipped (mine_spot_blocked under-structure residual).
+    let target = Vec3::new(180.0, 0.0, 0.0);
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::ClusterMines,
@@ -621,17 +688,11 @@ fn demo_trap_manual_detonate_residual() {
         }
     }
 
-    assert!(game_logic.manual_detonate_mine(trap_id));
-    assert!(
-        game_logic
-            .host_object(trap_id)
-            .and_then(|t| t.mine_data.as_ref())
-            .is_some_and(|d| d.demo_trap_warning_armed()),
-        "manual detonate must arm the 1s warning"
-    );
-    game_logic.frame = game_logic
-        .frame
-        .saturating_add(crate::game_logic::host_mines::DEMO_TRAP_DESTRUCTION_DELAY_FRAMES);
+    // C++ DemoTrapUpdate::detonate (DemoTrapUpdate.cpp:240-251): the command
+    // path fires the detonation weapon and kills the trap the SAME frame.
+    // The retail SlowDeath DestructionDelay = 1000 (FX_GLADemoTrapWarning)
+    // is the visual death sequence only — it never defers damage or the
+    // detonation count.
     assert!(game_logic.manual_detonate_mine(trap_id));
     assert_eq!(game_logic.mine_residual_manual_detonations(), 1);
     let enemy = game_logic.host_object(enemy_id).unwrap();
@@ -2150,7 +2211,10 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
+    // C++ research advances on the producer's Upgrade.ini BuildTime
+    // (ProductionUpdate.cpp:686-704); tick past the 5s CamoNetting window.
     game_logic.update();
+    game_logic.update_with_dt(6.0);
 
     for id in [tunnel_id, stinger_id] {
         let o = game_logic.host_object(id).unwrap();
@@ -2352,8 +2416,11 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         // frame < allowed forbids; equal allows re-cloak residual.
         t.stealth_allowed_frame = recloak_frame;
         t.stealth_delay_pending = false;
+        // Research now advances on the producer (frame ~150), so the earlier
+        // damage-reveal stamped an absolute timestamp past this rewound frame;
+        // this block exercises idle re-cloak, not the damage window.
+        t.last_damage_timestamp = None;
     }
-
     game_logic.update_stealth_and_detection();
     assert!(
         game_logic

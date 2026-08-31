@@ -342,6 +342,9 @@ impl MmapCompressor {
 
         // Open input file
         let file = std::fs::File::open(input_path)?;
+        // SAFETY: `file` is an open read-only File handle still in scope when `mmap` is
+        // used below; Mmap::map reports failure (e.g. empty file) as Err via `?` rather
+        // than yielding an invalid memory mapping.
         let mmap = unsafe { Mmap::map(&file)? };
 
         // Compress using standard method

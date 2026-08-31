@@ -415,7 +415,10 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 let damage_type = weapon_name
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
-                    .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                    // C++ WeaponTemplate ctor defaults m_damageType to
+                    // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
+                    // weapon blasts Explosion, not Bullet.
+                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
                 let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
                     weapon_name,
                     damage_type,
@@ -518,13 +521,28 @@ impl GameLogic {
                     &shooter_template,
                     &obj.template_name,
                 );
-                let relationship = GameLogic::object_relationship_from_owners(
+                let mut relationship = GameLogic::object_relationship_from_owners(
                     players,
                     obj.owner_player_id,
                     &obj.team_instance_name,
                     attacker_owner,
                     &attacker_team_instance,
                 );
+                // C++ RadiusDamageAffects filters through Object::getRelationship,
+                // which resolves from Teams when no owner provenance exists.
+                // Same team → ALLIES (spared by ENEMIES|NEUTRALS masks).
+                if relationship == gamelogic::common::Relationship::Neutral
+                    && obj.owner_player_id.is_none()
+                    && attacker_owner.is_none()
+                {
+                    relationship = if obj.team == attacker_team {
+                        gamelogic::common::Relationship::Allies
+                    } else if obj.team != Team::Neutral {
+                        gamelogic::common::Relationship::Enemies
+                    } else {
+                        gamelogic::common::Relationship::Neutral
+                    };
+                }
                 if !radius_damage_affects_victim(
                     affects,
                     relationship,
@@ -561,7 +579,10 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 let damage_type = weapon_name
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
-                    .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                    // C++ WeaponTemplate ctor defaults m_damageType to
+                    // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
+                    // weapon blasts Explosion, not Bullet.
+                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
                 let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
                     weapon_name,
                     damage_type,
@@ -912,6 +933,26 @@ impl GameLogic {
         }
         if !self.kill_awards_unit_experience(killer_id, victim_id, team) {
             return;
+        }
+        // C++ Object::scoreTheKill → controller->addSkillPointsForKill
+        // (Object.cpp:2928, Player.cpp:2462-2475): the killer's owning player
+        // gains the victim's SkillPointValue (the helper repeats the
+        // under-construction skip at Player.cpp:2470-2472).
+        let killer_owner = self
+            .objects
+            .get(&killer_id)
+            .and_then(|killer| self.player_owner_for_host_object(killer));
+        let skill_value = self
+            .objects
+            .get(&victim_id)
+            .map(|victim| victim.kill_skill_point_value())
+            .unwrap_or(0);
+        if skill_value > 0 {
+            if let Some(owner) = killer_owner {
+                if let Some(player) = self.players.get_mut(&owner) {
+                    player.add_skill_points(skill_value);
+                }
+            }
         }
         self.award_experience(killer_id, xp);
     }

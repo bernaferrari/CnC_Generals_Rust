@@ -7,11 +7,12 @@ struct RiderChangeEnterPlan {
     /// locomotor cannot therefore strand both riders after an old rider was
     /// removed from the bike.
     active_locomotor_name: String,
-    /// The complete, surface-safe SET_NORMAL projection.  Do not reduce this
-    /// to the old three-field `Movement` bridge: C++ chooseLocomotorSet also
-    /// changes braking, damage movement, surface capability, and physics
-    /// options.
-    active_locomotor: crate::game_logic::locomotor_bootstrap::HostUniformLocomotorSetBinding,
+    /// The resolved active set member for the container's current surface
+    /// (C++ `chooseGoodLocomotorFromCurrentSet`, AIUpdate.cpp:828-853).  Do
+    /// not reduce this to the old three-field `Movement` bridge: C++
+    /// chooseLocomotorSet also changes braking, damage movement, surface
+    /// capability, and physics options.
+    active_locomotor: crate::game_logic::locomotor_bootstrap::HostLocomotorBinding,
     previous_rider: Option<ObjectId>,
     container_position: glam::Vec3,
     /// C++ `wasSelected` is an in-game/local selection fact.  Keep the
@@ -1750,19 +1751,43 @@ impl GameLogic {
             return None;
         }
 
-        let active_locomotor =
-            crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set(
+        let complete =
+            crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set(
                 &rider_metadata.active_locomotor_names,
             )?;
-        if !active_locomotor
-            .representative_name
-            .eq_ignore_ascii_case(&active_locomotor_name)
-            || active_locomotor.locomotor_surfaces != rider_metadata.active_locomotor_surfaces
+        let names_match_metadata = complete.locomotor_names.len()
+            == rider_metadata.active_locomotor_names.len()
+            && complete
+                .locomotor_names
+                .iter()
+                .zip(rider_metadata.active_locomotor_names.iter())
+                .all(|(resolved, parsed)| resolved.eq_ignore_ascii_case(parsed));
+        if !names_match_metadata
+            || !complete
+                .representative_name
+                .eq_ignore_ascii_case(&active_locomotor_name)
+            || complete.locomotor_surfaces != rider_metadata.active_locomotor_surfaces
         {
             // Do not let stale parsed metadata turn a changed/ambiguous
             // Locomotor store into a partial replacement transaction.
             return None;
         }
+        // C++ `RiderChangeContain::onContaining` calls
+        // ai->chooseLocomotorSet(SET_*) (RiderChangeContain.cpp:215) and the
+        // AI then binds the member for the current position surface
+        // (`chooseGoodLocomotorFromCurrentSet`, AIUpdate.cpp:828-853).
+        let container_cell = self
+            .pathfinding_system
+            .grid
+            .world_to_grid(container.get_position());
+        let acceptable = crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
+            self.pathfinding_system.grid.cell_type(container_cell),
+        );
+        let (active_locomotor_name, active_locomotor) =
+            crate::game_logic::locomotor_bootstrap::choose_host_locomotor_set_member_for_surfaces(
+                &complete.locomotor_names,
+                acceptable,
+            )?;
         let occupants = container.contained_units();
         if occupants.len() > 1 {
             // The source C++ module has one active rider.  A malformed/stale
@@ -1942,7 +1967,7 @@ impl GameLogic {
             }
             container.occupants.push(rider_id);
             container.record_host_model_condition();
-            apply_rider_change_locomotor_binding(container, &plan.active_locomotor.binding);
+            apply_rider_change_locomotor_binding(container, &plan.active_locomotor);
         }
         {
             let rider = self

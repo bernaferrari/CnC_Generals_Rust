@@ -23,6 +23,9 @@ use std::sync::Mutex;
 use tokio::sync::RwLock;
 
 /// Helper function to check if a pointer is valid
+// SAFETY: Reads no memory: only inspects the address value (null / low-canon
+// SAFETY: heuristic). Never dereferences, so any pointer value is tolerated;
+// SAFETY: callers still owe validity for their own dereferences.
 pub(super) unsafe fn is_valid_ptr<T>(ptr: *const T) -> bool {
     !ptr.is_null() && (ptr as usize) > 0x1000 // Basic sanity check
 }

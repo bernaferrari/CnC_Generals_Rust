@@ -139,6 +139,10 @@ impl PathfindZoneManager {
                         else {
                             continue;
                         };
+                        // SAFETY: `cell_ptr` comes from `get_cell_from_map`,
+                        // which null-checks; it points into the pathfinder
+                        // cell grid, which is stable and exclusively owned by
+                        // this call for its duration.
                         let cell_ref = unsafe { &mut *cell_ptr };
                         if cell_ref.get_zone() != UNINITIALIZED_ZONE {
                             continue;
@@ -148,6 +152,9 @@ impl PathfindZoneManager {
                             if let Some(left_ptr) =
                                 self.get_cell_from_map(map, x - 1, y, global_bounds)
                             {
+                                // SAFETY: `left_ptr` is a distinct
+                                // null-checked cell of the same stable grid;
+                                // shared read only.
                                 let left_ref = unsafe { &*left_ptr };
                                 if types_match(cell_ref, left_ref) {
                                     cell_ref.set_zone(left_ref.get_zone());
@@ -162,6 +169,8 @@ impl PathfindZoneManager {
                             if let Some(top_ptr) =
                                 self.get_cell_from_map(map, x, y - 1, global_bounds)
                             {
+                                // SAFETY: distinct null-checked cell of the
+                                // stable grid; shared read only.
                                 let top_ref = unsafe { &*top_ptr };
                                 if types_match(cell_ref, top_ref) {
                                     cell_ref.set_zone(top_ref.get_zone());
@@ -177,7 +186,11 @@ impl PathfindZoneManager {
                                 let right_ptr =
                                     self.get_cell_from_map(map, x + 1, y, global_bounds);
                                 if let (Some(diag_ptr), Some(right_ptr)) = (diag_ptr, right_ptr) {
+                                    // SAFETY: distinct null-checked cells of
+                                    // the stable grid; shared reads only.
                                     let diag_ref = unsafe { &*diag_ptr };
+                                    // SAFETY: distinct null-checked cells of
+                                    // the stable grid; shared reads only.
                                     let right_ref = unsafe { &*right_ptr };
                                     if types_match(cell_ref, diag_ref)
                                         && types_match(cell_ref, right_ref)
@@ -199,6 +212,8 @@ impl PathfindZoneManager {
                         else {
                             continue;
                         };
+                        // SAFETY: same stable-grid invariant as the forward
+                        // pass above; `&mut` deref is exclusive for this call.
                         let cell_ref = unsafe { &mut *cell_ptr };
                         if cell_ref.get_zone() != UNINITIALIZED_ZONE {
                             continue;
@@ -208,6 +223,8 @@ impl PathfindZoneManager {
                             if let Some(right_ptr) =
                                 self.get_cell_from_map(map, x + 1, y, global_bounds)
                             {
+                                // SAFETY: distinct null-checked cell of the
+                                // stable grid; shared read only.
                                 let right_ref = unsafe { &*right_ptr };
                                 if types_match(cell_ref, right_ref) {
                                     cell_ref.set_zone(right_ref.get_zone());
@@ -222,6 +239,8 @@ impl PathfindZoneManager {
                             if let Some(bottom_ptr) =
                                 self.get_cell_from_map(map, x, y + 1, global_bounds)
                             {
+                                // SAFETY: distinct null-checked cell of the
+                                // stable grid; shared read only.
                                 let bottom_ref = unsafe { &*bottom_ptr };
                                 if types_match(cell_ref, bottom_ref) {
                                     cell_ref.set_zone(bottom_ref.get_zone());
@@ -237,7 +256,11 @@ impl PathfindZoneManager {
                                 let right_ptr =
                                     self.get_cell_from_map(map, x + 1, y, global_bounds);
                                 if let (Some(diag_ptr), Some(right_ptr)) = (diag_ptr, right_ptr) {
+                                    // SAFETY: distinct null-checked cells of
+                                    // the stable grid; shared reads only.
                                     let diag_ref = unsafe { &*diag_ptr };
+                                    // SAFETY: distinct null-checked cells of
+                                    // the stable grid; shared reads only.
                                     let right_ref = unsafe { &*right_ptr };
                                     if types_match(cell_ref, diag_ref)
                                         && types_match(cell_ref, right_ref)
@@ -288,11 +311,16 @@ impl PathfindZoneManager {
                         let Some(cell_ptr) = self.get_cell_from_map(map, x, y, bounds) else {
                             continue;
                         };
+                        // SAFETY: `calculate_zones` owns the whole cell map
+                        // for its duration; `cell_ptr` is null-checked and
+                        // this mutable deref is exclusive per iteration.
                         let cell_ref = unsafe { &mut *cell_ptr };
                         cell_ref.set_zone(0);
 
                         if x > block_bounds.lo.x {
                             if let Some(left_ptr) = self.get_cell_from_map(map, x - 1, y, bounds) {
+                                // SAFETY: distinct null-checked cell from the
+                                // owned map; shared read to compare types.
                                 let left_ref = unsafe { &*left_ptr };
                                 if cell_ref.get_type() == left_ref.get_type() {
                                     apply_zone(
@@ -307,6 +335,8 @@ impl PathfindZoneManager {
 
                         if y > block_bounds.lo.y {
                             if let Some(top_ptr) = self.get_cell_from_map(map, x, y - 1, bounds) {
+                                // SAFETY: distinct null-checked cell from the
+                                // owned map; shared read to compare types.
                                 let top_ref = unsafe { &*top_ptr };
                                 if cell_ref.get_type() == top_ref.get_type() {
                                     apply_zone(
@@ -356,6 +386,8 @@ impl PathfindZoneManager {
         for y in bounds.lo.y..=bounds.hi.y {
             for x in bounds.lo.x..=bounds.hi.x {
                 if let Some(cell_ptr) = self.get_cell_from_map(map, x, y, bounds) {
+                    // SAFETY: exclusive ownership of the cell map for this
+                    // call; `cell_ptr` is null-checked and non-aliased here.
                     let cell_ref = unsafe { &mut *cell_ptr };
                     let zone = cell_ref.get_zone() as usize;
                     let collapsed = collapsed_zones.get(zone).copied().unwrap_or(0);
@@ -458,6 +490,9 @@ impl PathfindZoneManager {
                 let Some(cell_ptr) = self.get_cell_from_map(map, x, y, bounds) else {
                     continue;
                 };
+                // SAFETY: `build_equivalency_tables` reads the stable cell
+                // grid without mutating it; `cell_ptr` is null-checked and
+                // only shared borrows are taken in this loop body.
                 let cell_ref = unsafe { &*cell_ptr };
 
                 if (cell_ref.get_connect_layer() as u8) > (PathfindLayerEnum::Ground as u8)
@@ -481,6 +516,8 @@ impl PathfindZoneManager {
                     let Some(left_ptr) = self.get_cell_from_map(map, x - 1, y, bounds) else {
                         continue;
                     };
+                    // SAFETY: distinct null-checked cell of the stable grid;
+                    // shared read only.
                     let left_ref = unsafe { &*left_ptr };
                     if cell_ref.get_zone() != left_ref.get_zone() {
                         if cell_ref.get_type() == left_ref.get_type() {
@@ -527,6 +564,8 @@ impl PathfindZoneManager {
                     let Some(top_ptr) = self.get_cell_from_map(map, x, y - 1, bounds) else {
                         continue;
                     };
+                    // SAFETY: distinct null-checked cell of the stable grid;
+                    // shared read only.
                     let top_ref = unsafe { &*top_ptr };
                     if cell_ref.get_zone() != top_ref.get_zone() {
                         if cell_ref.get_type() == top_ref.get_type() {
@@ -734,6 +773,8 @@ impl PathfindZoneManager {
             return 0;
         }
 
+        // SAFETY: `cell_ptr` was null-checked above and points into the
+        // stable pathfinder cell grid; shared read of its zone.
         let zone = unsafe { (*cell_ptr).get_zone() };
         let effective = block.get_effective_zone(acceptable_surfaces, crusher, zone);
         if effective >= self.max_zone {
@@ -1130,6 +1171,9 @@ fn apply_zone(
     zone_equivalency: &mut [ZoneStorageType],
     max_zone: ZoneStorageType,
 ) {
+    // SAFETY: callers (`calculate_zones`, `build_equivalency_tables`) pass
+    // null-checked cells out of the cell map they hold for the whole call,
+    // so these raw derefs cannot dangle or race.
     let src_zone = unsafe { (*source).get_zone() };
     if src_zone == 0 || src_zone > max_zone {
         return;
@@ -1138,8 +1182,12 @@ fn apply_zone(
         .get(src_zone as usize)
         .copied()
         .unwrap_or(src_zone);
+    // SAFETY: `target` is a cell from the same caller-owned, null-checked map
+    // as `source`; these derefs are exclusive for the duration of the call.
     let target_zone = unsafe { (*target).get_zone() };
     if target_zone == 0 {
+        // SAFETY: same caller-owned, null-checked `target` cell as the
+        // read above; exclusive for this call.
         unsafe {
             (*target).set_zone(src_zone);
         }

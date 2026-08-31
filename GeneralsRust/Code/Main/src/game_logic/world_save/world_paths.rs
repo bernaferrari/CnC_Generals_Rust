@@ -328,6 +328,17 @@ impl GameLogic {
         let goal_count = goals.len();
         for (hop_i, goal) in goals.into_iter().enumerate() {
             if horiz(segment_start, goal) < 0.1 {
+                // C++ Path always terminates at its goal: an aircraft hop
+                // that only changes altitude (dest XY equals start XY, e.g.
+                // groupEvacuate descending to terrain height) still lands as
+                // a real final waypoint. Dropping it left the path empty, so
+                // arrival-gated states (AI_MOVE_AND_EVACUATE) saw a refused
+                // move instead of the descent node.
+                if is_aircraft && hop_i + 1 == goal_count && full_path.is_empty() {
+                    let mut start_at_dest = segment_start;
+                    start_at_dest.y = goal.y;
+                    full_path.push(start_at_dest);
+                }
                 segment_start = goal;
                 continue;
             }
@@ -429,6 +440,18 @@ impl GameLogic {
             // Already at goal (all segments < 0.1) is not a fail-open march.
             return None;
         }
+        // C++ Path always terminates at its goal (Path::appendGoal /
+        // adjustDestination keeps the snapped cell as the last node). A
+        // skipped short hop or a truncated segment must still deliver the
+        // requested destination so arrival-gated states (AI_MOVE_AND_EVACUATE,
+        // RTB taxi) observe a real final waypoint instead of an empty path.
+        let last = full_path
+            .last()
+            .copied()
+            .unwrap_or(segment_start);
+        if horiz(last, destination) >= 0.01 {
+            full_path.push(destination);
+        }
         Some(full_path)
     }
 
@@ -520,7 +543,6 @@ impl GameLogic {
         };
         let mut any = false;
         for &(unit_id, goal) in goals {
-            let goal = self.adjust_group_member_goal(unit_id, goal, destination);
             let Some(unit_start) = self.objects.get(&unit_id).map(|o| o.get_position()) else {
                 continue;
             };
@@ -937,6 +959,16 @@ impl GameLogic {
                         .is_some_and(|prev| prev.distance(segment_path[0]) < 0.01)
                 {
                     segment_path.remove(0);
+                }
+                // C++ Path::appendGoal: the queued waypoint is the real final
+                // node. A* ends at the goal CELL center, which would collapse
+                // distinct per-unit destinations in the same cell; keep the
+                // requested position as the terminal node.
+                if segment_path
+                    .last()
+                    .is_none_or(|last| last.distance(waypoint) >= 0.01)
+                {
+                    segment_path.push(waypoint);
                 }
                 appended.extend(segment_path);
             }

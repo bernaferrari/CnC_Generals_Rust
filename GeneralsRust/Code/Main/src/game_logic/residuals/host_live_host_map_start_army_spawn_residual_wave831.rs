@@ -53,7 +53,17 @@ fn gl_source() -> &'static str {
     super::host_logic_scan_src()
 }
 fn sl_source() -> &'static str {
-    include_str!("../script_loader.rs")
+    // 2026-08-25: scan the script_loader split fragments alongside the root.
+    concat!(
+        include_str!("../script_loader.rs"),
+        include_str!("../script_loader/map_types.rs"),
+        include_str!("../script_loader/file_resolution.rs"),
+        include_str!("../script_loader/chunk_decoding.rs"),
+        include_str!("../script_loader/map_settings.rs"),
+        include_str!("../script_loader/map_terrain.rs"),
+        include_str!("../script_loader/map_objects.rs"),
+        include_str!("../script_loader/script_records.rs"),
+    )
 }
 pub fn honesty_host_map_start_army_spawn_method_names_residual_wave831() -> bool {
     let names = LIVE_HOST_MAP_START_ARMY_SPAWN_METHOD_NAMES_WAVE831;

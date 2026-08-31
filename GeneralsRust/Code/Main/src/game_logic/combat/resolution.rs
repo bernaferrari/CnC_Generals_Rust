@@ -105,7 +105,10 @@ impl CombatSystem {
             shooter_pos,
             target_pos,
             weapon.damage,
-            DamageType::Bullet, // Default, would be set by weapon type
+            // C++ WeaponTemplate ctor defaults m_damageType to DAMAGE_EXPLOSION
+            // (Weapon.cpp:249); the host Weapon payload carries no authored
+            // type, so the direct-fire default is Explosion, not Bullet.
+            DamageType::Explosive,
             shooter_id,
             target_id,
         );
@@ -766,14 +769,14 @@ impl CombatSystem {
                     shock_wave_amount,
                     shock_wave_radius,
                     shock_wave_taper_off,
+                    shooter_id,
                     radius_damage_affects,
                     shooter_owner_player_id,
                     shooter_team_instance_name,
                     shooter_template,
-                    shooter_id,
                     primary_victim,
                     radius_damage_angle,
-                    ..
+                    shooter_team,
                 } => {
                     let splash_fx_source = objects.get(shooter_id).map(
                         crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source,
@@ -819,6 +822,13 @@ impl CombatSystem {
                                         *shooter_owner_player_id,
                                         shooter_team_instance_name,
                                     )
+                                }
+                                // C++ curVictim->getRelationship(source) is
+                                // ownership-driven; the live host falls back to
+                                // the frozen launch teams when no player
+                                // registry is wired into this combat pass.
+                                None if obj.team == *shooter_team => {
+                                    gamelogic::common::Relationship::Allies
                                 }
                                 None => gamelogic::common::Relationship::Neutral,
                             };

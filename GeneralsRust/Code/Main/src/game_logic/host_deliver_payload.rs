@@ -537,6 +537,25 @@ pub fn is_close_enough_to_target_residual(
     current_dist <= allowed
 }
 
+/// C++ `DeliverPayloadAIUpdate::isCloseEnoughToTarget` squared-distance residual
+/// (DeliverPayloadAIUpdate.cpp:348-370): while the transport is inbound
+/// (previous dist² > current), the allowed band expands to
+/// DeliveryDistance + PreOpenDistance; the boundary is strict (C++ `>`).
+pub fn is_close_enough_to_target_squared_residual(
+    current_dist_sq: f32,
+    previous_dist_sq: f32,
+    delivery_distance: f32,
+    pre_open_distance: f32,
+) -> bool {
+    let inbound = previous_dist_sq > current_dist_sq;
+    let allowed = if inbound {
+        delivery_distance + pre_open_distance
+    } else {
+        delivery_distance
+    };
+    allowed * allowed > current_dist_sq
+}
+
 /// Advance cargo plane residual position toward target at B52 residual speed.
 pub fn tick_cargo_plane_approach(
     current: Vec3,
@@ -2711,6 +2730,45 @@ mod tests {
         ));
         assert!(!is_close_enough_to_target_residual(
             600.0, 500.0, 410.0, 300.0
+        ));
+    }
+
+    #[test]
+    fn close_enough_squared_residual_inbound_preopen_expansion() {
+        // DeliverPayloadAIUpdate.cpp:348-370 — inbound expands the allowed band
+        // to DeliveryDistance + PreOpenDistance; outbound never does.
+        assert!(is_close_enough_to_target_squared_residual(
+            120.0 * 120.0,
+            200.0 * 200.0,
+            100.0,
+            50.0
+        ));
+        assert!(!is_close_enough_to_target_squared_residual(
+            120.0 * 120.0,
+            100.0 * 100.0,
+            100.0,
+            50.0
+        ));
+        // C++ strict boundary: allowed == current is outside the band.
+        assert!(!is_close_enough_to_target_squared_residual(
+            150.0 * 150.0,
+            200.0 * 200.0,
+            100.0,
+            50.0
+        ));
+        // A10 / ClusterMines / ArtilleryBarrage retail OCLs omit
+        // PreOpenDistance (0): expansion is the identity.
+        assert!(is_close_enough_to_target_squared_residual(
+            99.0 * 99.0,
+            200.0 * 200.0,
+            100.0,
+            0.0
+        ));
+        assert!(!is_close_enough_to_target_squared_residual(
+            101.0 * 101.0,
+            200.0 * 200.0,
+            100.0,
+            0.0
         ));
     }
 

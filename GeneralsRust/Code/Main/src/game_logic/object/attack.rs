@@ -792,9 +792,12 @@ impl Object {
         else {
             return;
         };
-        let speed = template.weapon_speed.max(template.min_weapon_speed);
         let source = leftover_coord_from_host(self.get_position());
         let target = self.leftover_projectileless_target_pos(target_id);
+        // C++ divides the travel vector by getWeaponSpeed() alone
+        // (Weapon.h:392, Weapon.cpp:1006); MinWeaponSpeed is a
+        // ScaleWeaponSpeed clamp, not a launch-speed floor.
+        let speed = template.weapon_speed;
         let bonus = self.leftover_weapon_bonus_snapshot();
         let weapon = gamelogic::Weapon::new(template, gamelogic::WeaponSlotType::Primary);
         if let Err(err) = weapon.handle_projectileless_flight_damage(

@@ -259,6 +259,8 @@ impl<R: Read> Xfer for XferLoad<R> {
     /// # Safety
     /// The caller must ensure that `data` points to a valid mutable buffer
     /// of at least `data_size` bytes.
+            // SAFETY: caller contract — data valid for writes of data_size;
+            // read_exact fills exactly that many bytes from the stream.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
         let slice = std::slice::from_raw_parts_mut(data, data_size);
         self.reader.read_exact(slice)?;

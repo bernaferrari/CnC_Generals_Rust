@@ -158,7 +158,11 @@ fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
 
 #[cfg(unix)]
 fn detected_physical_memory_bytes() -> Option<u64> {
+    // SAFETY: sysconf(_SC_PHYS_PAGES) is a thread-safe libc query taking
+    // no pointers.
     let pages = unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) };
+    // SAFETY: sysconf(_SC_PAGE_SIZE) is a thread-safe libc query taking
+    // no pointers.
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
     if pages <= 0 || page_size <= 0 {
         return None;
@@ -188,6 +192,8 @@ fn detected_cpu_frequency_mhz() -> Option<i32> {
     let mut freq_hz: u64 = 0;
     let mut len = std::mem::size_of::<u64>();
     let name = b"hw.cpufrequency\0";
+    // SAFETY: sysctlbyname with a static NUL-terminated name, an output
+    // buffer sized by `len`, and null oldp/newp arguments.
     let result = unsafe {
         libc::sysctlbyname(
             name.as_ptr() as *const libc::c_char,

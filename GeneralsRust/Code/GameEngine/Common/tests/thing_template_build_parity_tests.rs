@@ -66,7 +66,7 @@ fn calc_cost_to_build_applies_cpp_player_modifiers_without_min_clamp() {
     let mut template = ThingTemplate::new();
     template.set_template_name("TestTank".into());
     template.set_build_cost(1000);
-    template.set_kindof_mask(0x10);
+    template.set_kindof_mask(0x10_u128);
 
     let player = TestProductionThing {
         cost_percent: -0.25,

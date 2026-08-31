@@ -31,6 +31,14 @@ impl AABTreeOptimized for AABTree {
         #[cfg(target_arch = "x86_64")]
         {
             if is_x86_feature_detected!("sse4.1") {
+                // SAFETY: `is_x86_feature_detected!("sse4.1")` above confirmed the CPU
+                // supports SSE4.1, so all `cast_ray_simd` intrinsics are legal. The
+                // function itself is safe with respect to memory: it only indexes
+                // bounds-checked slices and stack arrays.
+                // SAFETY: is_x86_feature_detected! above proved sse4.1
+                // support, meeting cast_ray_simd's target_feature
+                // requirement; self.nodes is non-empty (checked above), so
+                // traversal starts at the valid root index 0.
                 unsafe {
                     return cast_ray_simd(&self.nodes, &self.poly_indices, ray_test, mesh);
                 }
@@ -62,6 +70,13 @@ impl AABTreeOptimized for AABTree {
 /// SIMD-optimized ray casting
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse4.1")]
+// SAFETY: callable only when SSE4.1 is available (callers guard with
+// `is_x86_feature_detected!("sse4.1")`); the body performs no raw pointer
+// dereferences, so this contract is the sole safety requirement.
+// SAFETY: must be invoked with sse4.1 available (the only caller checks
+// is_x86_feature_detected!("sse4.1") first). Node indices are bounds-checked
+// against nodes.len() before every dereference, and all SIMD work uses
+// register/stack values built with _mm_set_ps — no unaligned memory loads.
 unsafe fn cast_ray_simd(
     nodes: &[CullNode],
     poly_indices: &[u32],
@@ -140,6 +155,13 @@ unsafe fn cast_ray_simd(
 /// SIMD ray-AABB intersection test
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse4.1")]
+// SAFETY: callable only when SSE4.1 is available (guarded by
+// `is_x86_feature_detected!` in `cast_ray_optimized`); arguments are plain
+// values and a shared reference, no pointers are dereferenced.
+// SAFETY: requires sse4.1 (guaranteed by cast_ray_simd's caller check);
+// operates purely on __m128 register inputs derived via _mm_set_ps from
+// valid CullNode fields, storing only to [f32; 4] stack arrays sized
+// exactly for 4 lanes.
 unsafe fn test_ray_aabb_simd(
     ray_origin: __m128,
     inv_dir: __m128,

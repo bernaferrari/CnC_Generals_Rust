@@ -1622,34 +1622,24 @@ pub fn smart_border_mine_positions(
     out
 }
 
-/// C++ GenerateMinefieldBehavior BorderOnly path (structure China mines).
-pub fn structure_border_mine_positions(
-    geom: MinePlacementGeom,
-    distance_around: f32,
-    mine_radius: f32,
-    always_circular: bool,
-) -> Vec<Vec3> {
-    let expanded = geom.expand(distance_around);
-    if expanded.is_box && !always_circular {
-        mines_around_rect(
-            expanded.center,
-            expanded.major_radius,
-            expanded.minor_radius,
-            mine_radius,
-        )
-    } else {
-        mines_around_circle(expanded.center, expanded.major_radius, mine_radius)
-    }
-}
 
 /// ClusterMinesBomb SmartBorder residual around a drop center.
+/// C++ GenerateMinefieldBehavior::placeMines SmartBorder path
+/// (GenerateMinefieldBehavior.cpp:366-393): retail ClusterMinesBomb authors
+/// SmartBorderSkipInterior = No + AlwaysCircular = Yes
+/// (WeaponObjects.ini:540351-540354), so the geom resets to the MINE template
+/// geometry (ChinaClusterMine CYLINDER radius 30, WeaponObjects.ini:540298),
+/// an interior mine is placed at the target, then rings walk outward by
+/// mineRadius then mineDiameter while expandedRadius < DistanceAroundObject 80:
+/// ring at 30+30=60 -> ceil(2*pi*60/60)=7 mines + 1 interior = 8
+/// (== retail ChinaClusterMine MinefieldBehavior NumVirtualMines).
 pub fn cluster_smart_border_positions(center: Vec3) -> Vec<Vec3> {
     smart_border_mine_positions(
-        MinePlacementGeom::circle(center, 1.0),
+        MinePlacementGeom::circle(center, LAND_MINE_GEOMETRY_RADIUS),
         CLUSTER_MINES_DISTANCE_AROUND_OBJECT,
         LAND_MINE_GEOMETRY_RADIUS,
         false,
-        true,
+        false,
     )
 }
 
@@ -1818,8 +1808,6 @@ pub fn damage_at_distance(base_damage: f32, radius: f32, distance: f32) -> f32 {
 
 /// C++ GenerateMinefieldBehavior::upgradeImplementation residual.
 /// China mines upgrade places mines around the structure footprint.
-pub const CHINA_STRUCTURE_MINE_RING_COUNT: u32 = 8;
-pub const CHINA_STRUCTURE_MINE_RING_RADIUS: f32 = 40.0;
 pub const CHINA_STANDARD_MINE_TEMPLATE: &str = "ChinaStandardMine";
 pub const CHINA_EMP_MINE_TEMPLATE: &str = "ChinaEMPMine";
 pub const UPGRADE_CHINA_MINES: &str = "Upgrade_ChinaMines";
@@ -1852,35 +1840,19 @@ pub fn china_mine_template_for_upgrade(upgrade: &str) -> &'static str {
     }
 }
 
-/// World positions for structure mine ring residual (evenly spaced on circle).
-pub fn structure_minefield_positions(
-    center: glam::Vec3,
-    count: u32,
-    radius: f32,
-) -> Vec<glam::Vec3> {
-    if count == 0 {
-        return Vec::new();
-    }
-    let mut out = Vec::with_capacity(count as usize);
-    for i in 0..count {
-        let a = (i as f32) * std::f32::consts::TAU / (count as f32);
-        out.push(glam::Vec3::new(
-            center.x + radius * a.cos(),
-            center.y,
-            center.z + radius * a.sin(),
-        ));
-    }
-    out
-}
-
-/// Structure BorderOnly residual from building footprint (not a fixed 8@40 ring).
+/// Retail China structure mines (FactionUnit.ini): SmartBorder = Yes,
+/// AlwaysCircular = Yes, SmartBorderSkipInterior default Yes.  Mirrors the
+/// C++ GenerateMinefieldBehavior::placeMines SmartBorder do/while
+/// (GenerateMinefieldBehavior.cpp:366-419): expand the footprint by the mine
+/// bounding radius, place a ring, expand by the mine diameter, and stop once
+/// the expanded radius reaches DistanceAroundObject.
 pub fn structure_minefield_positions_for_geom(
     center: glam::Vec3,
     major_radius: f32,
     minor_radius: f32,
     is_box: bool,
 ) -> Vec<glam::Vec3> {
-    structure_border_mine_positions(
+    smart_border_mine_positions(
         MinePlacementGeom {
             center,
             major_radius: major_radius.max(1.0),
@@ -1889,9 +1861,11 @@ pub fn structure_minefield_positions_for_geom(
         },
         STANDARD_MINEFIELD_DISTANCE,
         LAND_MINE_GEOMETRY_RADIUS,
-        false,
+        true,
+        true,
     )
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -2218,14 +2192,6 @@ mod tests {
     }
 
     #[test]
-    fn structure_mine_ring_has_8() {
-        let pts = structure_minefield_positions(glam::Vec3::ZERO, 8, 40.0);
-        assert_eq!(pts.len(), 8);
-        let d0 = (pts[0].x * pts[0].x + pts[0].z * pts[0].z).sqrt();
-        assert!((d0 - 40.0).abs() < 0.01);
-    }
-
-    #[test]
     fn demo_trap_detonate_when_killed_policy() {
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         assert!(should_detonate_when_killed(
@@ -2332,7 +2298,17 @@ mod tests {
 
     #[test]
     fn smart_border_is_denser_than_fixed_ring() {
+        // Retail ClusterMinesBomb SmartBorderSkipInterior=No + AlwaysCircular=Yes
+        // (WeaponObjects.ini:540351-540354): geom resets to the mine template
+        // geometry (radius 30), interior mine placed, ring at 30+30=60 with
+        // ceil(2*pi*60/60)=7 spots + 1 interior = 8
+        // (GenerateMinefieldBehavior.cpp:366-393 placeMines).
         let pts = cluster_smart_border_positions(Vec3::ZERO);
+        assert_eq!(pts.len(), 8, "interior mine + 7-spot ring at radius 60");
+        assert!(
+            pts.iter().any(|p| p.x.abs() < 0.01 && p.z.abs() < 0.01),
+            "SmartBorderSkipInterior=No must place the interior mine"
+        );
         let max_r = pts
             .iter()
             .map(|p| (p.x * p.x + p.z * p.z).sqrt())
@@ -2345,8 +2321,8 @@ mod tests {
             "SmartBorder must not place a ring at expanded radius beyond DistanceAroundObject, max_r={max_r}"
         );
         assert!(
-            (max_r - 31.0).abs() < 0.01,
-            "Cluster Mines outer SmartBorder ring must be 31 with geometry 30, got {max_r}"
+            (max_r - 60.0).abs() < 0.01,
+            "Cluster Mines outer SmartBorder ring must be 60 (mine geom 30 + mineRadius 30), got {max_r}"
         );
     }
 
@@ -2354,7 +2330,13 @@ mod tests {
     fn structure_border_uses_footprint_not_fixed_count() {
         let small = structure_minefield_positions_for_geom(Vec3::ZERO, 8.0, 8.0, false);
         let large = structure_minefield_positions_for_geom(Vec3::ZERO, 40.0, 25.0, true);
-        assert!(small.len() >= CHINA_STRUCTURE_MINE_RING_COUNT as usize);
+        // C++ SmartBorder do/while (GenerateMinefieldBehavior.cpp:366-419):
+        // one ring at bounding+30, count ceil(2*pi*r/60); the diameter expand
+        // stops (r+60 >= DistanceAroundObject 40). Circle r=8 -> ring 38 ->
+        // 4 mines; box (40,25) bounding 47.2 -> ring 77.2 -> 9 mines. The
+        // count is footprint-derived, never the invented fixed 8@40 ring.
+        assert_eq!(small.len(), 4);
+        assert_eq!(large.len(), 9);
         assert!(large.len() > small.len());
     }
 

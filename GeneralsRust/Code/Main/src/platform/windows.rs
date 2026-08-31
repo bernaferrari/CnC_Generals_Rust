@@ -10,6 +10,7 @@ pub fn initialize() -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         use winapi::um::timeapi;
+        // SAFETY: timeBeginPeriod is a plain winmm call with no pointers;
         unsafe {
             // Request 1ms timer resolution for better frame timing
             timeapi::timeBeginPeriod(1);
@@ -26,6 +27,7 @@ pub fn shutdown() {
     #[cfg(target_os = "windows")]
     {
         use winapi::um::timeapi;
+        // SAFETY: timeEndPeriod(1) matches the earlier timeBeginPeriod(1);
         unsafe {
             // Restore default timer resolution
             timeapi::timeEndPeriod(1);

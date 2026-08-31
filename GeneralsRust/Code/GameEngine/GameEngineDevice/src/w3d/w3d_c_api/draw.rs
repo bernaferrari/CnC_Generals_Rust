@@ -30,6 +30,9 @@ use tokio::sync::RwLock;
 
 /// Draw indexed primitive - matches original W3DDevice::DrawIndexedPrimitive(type, vertices, indices)
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry. `device` live W3D_DEVICE; when non-null `vertex_buffer`
+// SAFETY: must be readable for vertex_count W3D_VERTEXs and `index_buffer` for
+// SAFETY: index_count u16s (null falls back to staged stream/index state).
 pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitive(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -121,6 +124,8 @@ pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitive(
 
 /// Draw indexed primitive from staged stream/index state using DX8-style arguments.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry drawing from staged stream state; only the device handle
+// SAFETY: is dereferenced and all staged data was copied at Set* time.
 pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveLegacy(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -196,6 +201,8 @@ pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveLegacy(
 }
 /// Draw primitive from staged stream data (non-indexed path).
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry drawing non-indexed primitives from staged stream state;
+// SAFETY: only the device handle is dereferenced, staged data is device-owned.
 pub unsafe extern "C" fn W3DDevice_DrawPrimitive(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -250,6 +257,9 @@ pub unsafe extern "C" fn W3DDevice_DrawPrimitive(
 
 /// Draw primitive UP - legacy immediate-mode compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry. `vertex_data` must remain readable for
+// SAFETY: stride * primitive_vertex_count bytes through collect_up_vertices,
+// SAFETY: which copies into an owned Vec before any async work.
 pub unsafe extern "C" fn W3DDevice_DrawPrimitiveUP(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -313,6 +323,9 @@ pub unsafe extern "C" fn W3DDevice_DrawPrimitiveUP(
 
 /// Draw indexed primitive from immediate-mode UP buffers.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry. `vertex_data` readable for stride*vertex_count bytes,
+// SAFETY: `index_data` for primitive_index_count u16/u32s per index_format; both
+// SAFETY: are copied immediately by collect_up_vertices / collect_up_indices.
 pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveUP(
     device: W3D_DEVICE,
     primitive_type: W3D_PRIMITIVE_TYPE,
@@ -417,9 +430,15 @@ pub(super) fn draw_indexed_primitive_internal(
     material_id: Option<String>,
 ) -> Result<()> {
     let mut vertices =
+        // SAFETY: Caller (W3DDevice_DrawIndexedPrimitive*) validated the buffer is
+        // SAFETY: non-null after staging fallback and vertex_count bounds the caller's
+        // SAFETY: live vertex array; contents are cloned before any await point.
         unsafe { std::slice::from_raw_parts(vertex_buffer, vertex_count as usize).to_vec() };
     let draw_texture_stage = active_draw_texture_stage(device_ref);
     apply_stage_texture_transform(device_ref, draw_texture_stage, &mut vertices);
+    // SAFETY: `index_buffer` comes from a validated caller argument or device-owned
+    // SAFETY: staged indices; index_count bounds the readable u16 region. The slice is
+    // SAFETY: consumed within this function without outliving the call.
     let indices = unsafe { std::slice::from_raw_parts(index_buffer, index_count as usize) };
     let modern_indices: Vec<u32> = indices
         .iter()

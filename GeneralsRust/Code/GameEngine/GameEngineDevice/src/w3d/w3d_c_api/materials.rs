@@ -26,6 +26,9 @@ use tokio::sync::RwLock;
 
 /// Set material - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; `material_data`
+// SAFETY: must be readable for one W3DMaterialData (null clears binding). The
+// SAFETY: struct is copied before any await point.
 pub unsafe extern "C" fn W3DDevice_SetMaterial(
     device: W3D_DEVICE,
     material_data: *const W3DMaterialData,
@@ -72,6 +75,8 @@ pub unsafe extern "C" fn W3DDevice_SetMaterial(
 
 /// Get currently bound material - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `out_material_data` must be writable for one
+// SAFETY: W3DMaterialData when non-null; `device` must be a live W3D_DEVICE.
 pub unsafe extern "C" fn W3DDevice_GetMaterial(
     device: W3D_DEVICE,
     out_material_data: *mut W3DMaterialData,

@@ -191,6 +191,9 @@ pub const GIMEX_NOFRAMECOUNT: bool = false;
 
 #[inline]
 pub fn ggetm(src: *const u8, bytes: usize) -> u32 {
+    // SAFETY: callers pass `src` into an in-memory buffer with at least `bytes` (<= 4) valid
+    // bytes, matching the GIMEX ggetm contract; reads are byte-wise through add() so no
+    // alignment is required and u8 dereferences are always unaligned-safe.
     unsafe {
         match bytes {
             1 => *src as u32,
@@ -209,6 +212,8 @@ pub fn ggetm(src: *const u8, bytes: usize) -> u32 {
 
 #[inline]
 pub fn ggeti(src: *const u8, bytes: usize) -> u32 {
+    // SAFETY: same contract as ggetm: `src` points at a buffer holding at least `bytes`
+    // (<= 4) readable bytes; only u8-sized reads occur so alignment is not required.
     unsafe {
         match bytes {
             1 => *src as u32,
@@ -227,6 +232,8 @@ pub fn ggeti(src: *const u8, bytes: usize) -> u32 {
 
 #[inline]
 pub fn gputm(dst: *mut u8, data: u32, bytes: usize) {
+    // SAFETY: per the GIMEX gputm contract, `dst` must be writable for at least `bytes`
+    // (<= 4) bytes; writes go one u8 at a time via add(), so alignment is irrelevant.
     unsafe {
         match bytes {
             1 => *dst = data as u8,
@@ -252,6 +259,8 @@ pub fn gputm(dst: *mut u8, data: u32, bytes: usize) {
 
 #[inline]
 pub fn gputi(dst: *mut u8, data: u32, bytes: usize) {
+    // SAFETY: per the GIMEX gputi contract, `dst` must be writable for at least `bytes`
+    // (<= 4) bytes; writes go one u8 at a time via add(), so alignment is irrelevant.
     unsafe {
         match bytes {
             1 => *dst = data as u8,

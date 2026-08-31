@@ -83,7 +83,7 @@ pub fn honesty_executable_presentation_boundary_residual_pack_wave176() -> bool 
 
 /// Source residual: executable vertical slice requires presentation boundary on InGame.
 pub fn honesty_executable_vertical_presentation_gate_source() -> bool {
-    let src = include_str!("../../executable_smoke.rs");
+    let src = crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
     // Wave 176: shipped apply_host_vertical_slice_gate keeps presentation_boundary_ok
     // next to host_vertical_slice_ok (InGame fail-closed on live dual-read).
     if !src.contains("fn apply_host_vertical_slice_gate") {
@@ -127,7 +127,7 @@ pub fn simulate_executable_presentation_boundary_honesty() -> bool {
     if !honesty_execute_presentation_only_source_wave176() {
         return false;
     }
-    let src = include_str!("../../executable_smoke.rs");
+    let src = crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
     // playable_claim always false in executable smoke construction.
     if !(src.contains("playable_claim: false") || src.contains("playable_claim = false")) {
         return false;

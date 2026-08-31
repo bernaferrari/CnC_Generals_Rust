@@ -3,6 +3,9 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+mod grant_upgrade;
+use grant_upgrade::{GrantUpgradeKind, host_grant_upgrade_kind};
+
 /// Compact live-host peel of C++ `SpawnBehaviorModuleData` for Tunnel / Stinger.
 #[derive(Clone, Debug)]
 struct HostSpawnBehaviorSpec {
@@ -1010,7 +1013,7 @@ impl GameLogic {
     /// is the equivalent already-loaded set. Never call
     /// `TheThingFactory::find_template` here: that helper lazy-inits every
     /// Object INI (14s+ on Lone Eagle).
-    fn ensure_host_spawn_template(&mut self, template_name: &str) -> bool {
+    pub(in crate::game_logic) fn ensure_host_spawn_template(&mut self, template_name: &str) -> bool {
         if self.templates.contains_key(template_name) {
             self.apply_pending_leftover_object_override(template_name);
             return true;
@@ -2183,8 +2186,10 @@ impl GameLogic {
             // C++ GameLogic map/create: team->setActive() once the team has members.
             self.activate_leftover_team_for_host_object(id);
 
-            // C++ SpecialPowerModule StartsPaused=Yes residual (pauseCountdown TRUE on create).
-            self.init_starts_paused_special_powers(id);
+            // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:86-101):
+            // pre-built non-SharedNSync modules arm their authored reload at
+            // creation; StartsPaused pauses once after arming.
+            self.init_special_power_ctor_arms(id);
 
             // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes + manager register.
             self.init_supply_warehouse_create(id);
@@ -2613,11 +2618,6 @@ impl GameLogic {
         }
     }
 
-    /// Destroy an object
-    pub fn destroy_object(&mut self, id: ObjectId) {
-        self.mark_object_for_destruction(id, None);
-    }
-
     /// Wave 482: sell residual kill (parked aircraft) — queue remove without
     /// SlowDeath/Topple deferral peels used for combat deaths.
     pub(in super::super) fn destroy_object_for_sell_residual(&mut self, id: ObjectId) {
@@ -2833,10 +2833,6 @@ impl GameLogic {
             EJECT_PILOT_TEMPLATE, HostDeathType, PILOT_EJECT_AUDIO, PILOT_SOUND_EJECT_AUDIO,
             air_eject_spawn_height, is_significantly_above_terrain,
         };
-        use crate::game_logic::{
-            EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotExemptStatus,
-            EjectPilotVeterancyLevels, VeterancyLevel,
-        };
 
         let (
             metadata,
@@ -3033,6 +3029,27 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        self.mark_object_for_destruction_with_mode(id, killer, false);
+    }
+
+    /// Direct `destroy_object()` entry (no killer / damage source).
+    ///
+    /// C++ `GameLogic::destroyObject` → `Object::kill` → DestroyDie /
+    /// InstantDeath removes the object in the same destruction pass. A
+    /// scripted or engine-authority destroy must never peel into
+    /// StructureTopple/Collapse / SlowDeath / KeepObjectDeath deferral,
+    /// because only the world combat tick drives those animations and a
+    /// host-only caller would leave a live husk behind.
+    pub fn destroy_object(&mut self, id: ObjectId) {
+        self.mark_object_for_destruction_with_mode(id, None, true);
+    }
+
+    fn mark_object_for_destruction_with_mode(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        direct_destroy: bool,
+    ) {
         // C++ AssaultTransportAIUpdate::update isEffectivelyDead → giveFinalOrders.
         self.assault_transport_give_final_orders(id);
         // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
@@ -3123,7 +3140,35 @@ impl GameLogic {
         // Wave 715: MSG_DOZER_CANCEL_CONSTRUCT / unfinished builds remove immediately.
         // Do not defer into StructureTopple — cancel would leave the shell alive a frame+.
         // Rebuild holes are already craters (no StructureToppleUpdate in C++).
-        if !sold && !under_construction && !is_rebuild_hole {
+        // C++ LandMineInterface::disarm destroys mines immediately: KINDOF_DEMOTRAP
+        // mines are not buildings, so they must never defer into StructureTopple/
+        // Collapse / SlowDeath / KeepObjectDie residuals even when their residual
+        // template carries KindOf::Structure.
+        // Direct destroy_object() calls (script/engine authority, no killer /
+        // damage source) match C++ GameLogic::destroyObject → DestroyDie /
+        // InstantDeath immediate removal; only world-tick combat deaths may
+        // defer into those death animations, or a host-only destroy would
+        // leave a live husk behind (status.destroyed stays false).
+        let is_mine = self.objects.get(&id).is_some_and(|o| o.mine_data.is_some());
+        // C++ CaveContain::onDie (CaveContain.cpp:197-211) overrides
+        // OpenContain::onDie with no super call: death immediately
+        // unregisters the cave and runs TunnelTracker::onTunnelDestroyed —
+        // the last-cave cave-in that kills the shared pool.  Retail caves
+        // author no StructureToppleUpdate / StructureCollapseUpdate, so a
+        // cave-style container must reach the destroy list (and its cave-in
+        // branch) instead of deferring into a topple/collapse animation.
+        let is_cave = self
+            .objects
+            .get(&id)
+            .is_some_and(|o| o.is_cave_style_container());
+        let direct_destroy = direct_destroy && killer.is_none();
+        let defer_death_animations = !sold
+            && !under_construction
+            && !is_rebuild_hole
+            && !is_mine
+            && !is_cave
+            && !direct_destroy;
+        if defer_death_animations {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
             if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
                 return;
@@ -3941,42 +3986,4 @@ impl GameLogic {
             self.apply_or_strip_difficulty_bonuses_for_object(id, apply);
         }
     }
-}
-
-/// C++ `UpgradeType` for GrantUpgradeCreate branching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GrantUpgradeKind {
-    Player,
-    Object,
-}
-
-/// C++ `TheUpgradeCenter->findUpgrade` then `getUpgradeType()`.
-/// Residual store covers tests / unloaded INI. Missing template → None
-/// (C++ GrantUpgradeCreate.cpp:102-105 returns without granting).
-fn host_grant_upgrade_kind(name: &str) -> Option<GrantUpgradeKind> {
-    use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
-        UPGRADE_STORE_TABLE_WAVE109, UPGRADE_TYPE_OBJECT, upgrade_store_row_wave109,
-    };
-    if let Some(kind) = gamelogic::upgrade::center::with_upgrade_center(|center| {
-        center
-            .find_upgrade(name)
-            .map(|template| template.get_upgrade_type())
-    }) {
-        return Some(match kind {
-            gamelogic::upgrade::UpgradeType::Object => GrantUpgradeKind::Object,
-            gamelogic::upgrade::UpgradeType::Player => GrantUpgradeKind::Player,
-        });
-    }
-    if let Some(row) = upgrade_store_row_wave109(name).or_else(|| {
-        UPGRADE_STORE_TABLE_WAVE109
-            .iter()
-            .find(|row| row.name.eq_ignore_ascii_case(name.trim()))
-    }) {
-        return Some(if row.upgrade_type == UPGRADE_TYPE_OBJECT {
-            GrantUpgradeKind::Object
-        } else {
-            GrantUpgradeKind::Player
-        });
-    }
-    None
 }

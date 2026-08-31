@@ -345,7 +345,10 @@ struct TerrainUniforms {
     _padding: [f32; 2],
 }
 
+// SAFETY: `#[repr(C)]` uniform block of matrices/vectors/f32s with explicit
+// SAFETY: _padding; uploaded to wgpu as raw bytes, never reinterpreted otherwise.
 unsafe impl bytemuck::Pod for TerrainUniforms {}
+// SAFETY: Zero bits are valid uniform values (identity-adjacent defaults).
 unsafe impl bytemuck::Zeroable for TerrainUniforms {}
 
 /// Shipped wgpu water overlay vertex. `packed_c` is C++ `SEA_PATCH_VERTEX.c`.

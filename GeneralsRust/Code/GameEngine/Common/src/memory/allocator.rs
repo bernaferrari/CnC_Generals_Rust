@@ -83,6 +83,8 @@ impl<T> Slab<T> {
 
     /// Get a pointer to a specific slot.
     #[inline]
+    // SAFETY: caller contract below — index < capacity, so offset
+    // index*slot_stride stays inside this slab allocation.
     pub unsafe fn slot_ptr(&self, index: usize) -> *mut SlotEntry<T> {
         debug_assert!(index < self.capacity);
         (self.ptr.as_ptr() as *mut u8)
@@ -92,6 +94,8 @@ impl<T> Slab<T> {
 
     /// Initialize a slot with a free list entry.
     #[inline]
+    // SAFETY: caller contract below — in bounds and slot currently
+    // free, so the `free` union arm is the initialized one.
     pub unsafe fn init_free_slot(&mut self, index: usize, entry: FreeListEntry) {
         let slot = self.slot_ptr(index);
         ptr::write(&mut (*slot).free, entry);
@@ -99,6 +103,8 @@ impl<T> Slab<T> {
 
     /// Read the free list entry from a slot.
     #[inline]
+    // SAFETY: caller contract below — in bounds and slot currently
+    // free, so reading the `free` arm is initialized.
     pub unsafe fn read_free_entry(&self, index: usize) -> FreeListEntry {
         let slot = self.slot_ptr(index);
         ptr::read(&(*slot).free)
@@ -106,6 +112,8 @@ impl<T> Slab<T> {
 
     /// Write a value into a slot.
     #[inline]
+    // SAFETY: caller contract below — in bounds and slot vacant;
+    // writing over a live T would leak its drop, which alloc avoids
     pub unsafe fn write_value(&mut self, index: usize, value: T) {
         let slot = self.slot_ptr(index);
         ptr::write(
@@ -116,6 +124,8 @@ impl<T> Slab<T> {
 
     /// Read a value from a slot.
     #[inline]
+    // SAFETY: caller contract below — in bounds and slot holds a
+    // live, fully-initialized T.
     pub unsafe fn read_value(&self, index: usize) -> T {
         let slot = self.slot_ptr(index);
         ManuallyDrop::into_inner(ptr::read(&(*slot).value)).assume_init()
@@ -123,6 +133,8 @@ impl<T> Slab<T> {
 
     /// Get a reference to a value in a slot.
     #[inline]
+    // SAFETY: caller contract below — in bounds and occupied;
+    // &self proves no outstanding exclusive borrow of this slot.
     pub unsafe fn get_ref(&self, index: usize) -> &T {
         let slot = self.slot_ptr(index);
         (&*(*slot).value).assume_init_ref()
@@ -130,6 +142,8 @@ impl<T> Slab<T> {
 
     /// Get a mutable reference to a value in a slot.
     #[inline]
+    // SAFETY: caller contract below — in bounds and occupied; the
+    // unique &mut self makes the returned borrow exclusive.
     pub unsafe fn get_mut(&mut self, index: usize) -> &mut T {
         let slot = self.slot_ptr(index);
         (&mut *(*slot).value).assume_init_mut()
@@ -137,6 +151,8 @@ impl<T> Slab<T> {
 
     /// Zero the memory of a slot.
     #[inline]
+    // SAFETY: caller contract below — in bounds; zeroing raw union
+    // bytes is valid while the slot is unoccupied.
     pub unsafe fn zero_slot(&mut self, index: usize) {
         let slot = self.slot_ptr(index);
         ptr::write_bytes(slot, 0, 1);
@@ -165,7 +181,12 @@ impl<T> Drop for Slab<T> {
 }
 
 // Slab is Send + Sync if T is Send + Sync
+// SAFETY: Slab owns its raw allocation and exposes memory only through
+// &self/&mut self accessors, so it moves exactly like its T values —
+// Send iff T: Send.
 unsafe impl<T: Send> Send for Slab<T> {}
+// SAFETY: shared access reads through &self only, which is sound iff
+// T: Sync for the same reason as the Send impl above.
 unsafe impl<T: Sync> Sync for Slab<T> {}
 
 /// The pool allocator manages one or more slabs.
@@ -230,6 +251,8 @@ impl<T> PoolAllocator<T> {
             };
 
             let generation = Generation::first();
+            // SAFETY: slot i of the brand-new slab is vacant; writing the
+            // free-list entry initializes its `free` arm in bounds.
             unsafe {
                 slab.init_free_slot(i, FreeListEntry::new(next_free, generation));
             }
@@ -265,6 +288,8 @@ impl<T> PoolAllocator<T> {
         let (slab_idx, local_idx) = self.locate_slot(index as usize);
 
         // Read the free entry to get the next free slot
+        // SAFETY: index came off free_list_head, so the slot is free and
+        // its `free` arm is initialized; locate_slot mapped it in bounds.
         let free_entry = unsafe { self.slabs[slab_idx].read_free_entry(local_idx) };
 
         // Update free list head
@@ -272,12 +297,15 @@ impl<T> PoolAllocator<T> {
 
         // Zero memory if configured
         if self.config.zero_on_alloc {
+            // SAFETY: local_idx in bounds; slot still vacant pre-write.
             unsafe {
                 self.slabs[slab_idx].zero_slot(local_idx);
             }
         }
 
         // Write the value
+        // SAFETY: the slot was just dequeued from the free list, so
+        // writing the value arm cannot leak a prior live object.
         unsafe {
             self.slabs[slab_idx].write_value(local_idx, value);
         }
@@ -296,10 +324,14 @@ impl<T> PoolAllocator<T> {
         let (slab_idx, local_idx) = self.locate_slot(index as usize);
 
         // Read the value
+        // SAFETY: bounds checked above; callers only hand out indices
+        // returned by alloc, so the value arm holds an initialized T.
         let value = unsafe { self.slabs[slab_idx].read_value(local_idx) };
 
         // Zero memory if configured
         if self.config.zero_on_free {
+            // SAFETY: in-bounds raw byte scrub while the slot transitions
+            // to vacant.
             unsafe {
                 self.slabs[slab_idx].zero_slot(local_idx);
             }
@@ -311,6 +343,8 @@ impl<T> PoolAllocator<T> {
 
         // Add to free list
         let free_entry = FreeListEntry::new(self.free_list_head, generation);
+        // SAFETY: the slot just became vacant; rewriting its free arm
+        // re-links it into the list at head position, in bounds.
         unsafe {
             self.slabs[slab_idx].init_free_slot(local_idx, free_entry);
         }
@@ -337,6 +371,8 @@ impl<T> PoolAllocator<T> {
             }
             free_slots[index as usize] = true;
             let (slab_idx, local_idx) = self.locate_slot(index as usize);
+            // SAFETY: the walk visits only current free-list members whose
+            // `free` arm is initialized.
             let entry = unsafe { self.slabs[slab_idx].read_free_entry(local_idx) };
             current = entry.next_free;
         }
@@ -345,9 +381,13 @@ impl<T> PoolAllocator<T> {
         for idx in 0..self.total_capacity {
             if !free_slots[idx] {
                 let (slab_idx, local_idx) = self.locate_slot(idx);
+                // SAFETY: idx is not reachable from the free-list walk above,
+                // so it is occupied and its value arm is initialized; this
+                // read drops ownership exactly once.
                 let value = unsafe { self.slabs[slab_idx].read_value(local_idx) };
                 drop(value);
                 if self.config.zero_on_free {
+                    // SAFETY: idx in bounds and now vacant after the drop read.
                     unsafe {
                         self.slabs[slab_idx].zero_slot(local_idx);
                     }
@@ -363,6 +403,8 @@ impl<T> PoolAllocator<T> {
             let generation = self.generations[idx];
             let (slab_idx, local_idx) = self.locate_slot(idx);
             let entry = FreeListEntry::new(next_free, generation);
+            // SAFETY: every slot is vacant after the drop loop; rebuilding
+            // each free arm in bounds reconstructs the whole-list chain.
             unsafe {
                 self.slabs[slab_idx].init_free_slot(local_idx, entry);
             }
@@ -382,6 +424,7 @@ impl<T> PoolAllocator<T> {
         }
 
         let (slab_idx, local_idx) = self.locate_slot(index as usize);
+        // SAFETY: bounds-checked above; &self proves aliasing is shared-only.
         Some(unsafe { self.slabs[slab_idx].get_ref(local_idx) })
     }
 
@@ -393,6 +436,8 @@ impl<T> PoolAllocator<T> {
         }
 
         let (slab_idx, local_idx) = self.locate_slot(index as usize);
+        // SAFETY: bounds-checked above; unique &mut self makes the result
+        // exclusive.
         Some(unsafe { self.slabs[slab_idx].get_mut(local_idx) })
     }
 
@@ -527,6 +572,8 @@ impl<T> PoolAllocator<T> {
 
                     // Get next free slot
                     let (s_idx, l_idx) = self.locate_slot(idx as usize);
+                    // SAFETY: shrink scan visits only free-list members whose
+                    // `free` arm is initialized.
                     let entry = unsafe { self.slabs[s_idx].read_free_entry(l_idx) };
                     current = entry.next_free;
 
@@ -585,6 +632,8 @@ impl<T> PoolAllocator<T> {
 
             // Get next free slot before potentially modifying
             let (s_idx, l_idx) = self.locate_slot(idx_usize);
+            // SAFETY: traversal visits only current free-list members whose
+            // `free` arm is initialized.
             let entry = unsafe { self.slabs[s_idx].read_free_entry(l_idx) };
             let next = entry.next_free;
 
@@ -595,8 +644,12 @@ impl<T> PoolAllocator<T> {
                     // Update previous slot's next pointer
                     let (prev_s_idx, prev_l_idx) = self.locate_slot(prev_idx as usize);
                     let mut prev_entry =
+                    // SAFETY: prev slot is a free-list member; its `free` arm
+                    // is initialized and in bounds.
                         unsafe { self.slabs[prev_s_idx].read_free_entry(prev_l_idx) };
                     prev_entry.next_free = next;
+                    // SAFETY: prev slot is vacant, so overwriting its free arm
+                    // is initialized and in bounds.
                     unsafe {
                         self.slabs[prev_s_idx].init_free_slot(prev_l_idx, prev_entry);
                     }
@@ -647,6 +700,8 @@ impl<T> Drop for PoolAllocator<T> {
                 // This is a simplified check; in production you'd track this more efficiently
                 if self.is_occupied(index as u32) {
                     let (slab_idx, local_idx) = self.locate_slot(index);
+                    // SAFETY: drop path — slots not reachable from the free
+                    // list hold initialized values; read-and-drop once.
                     unsafe {
                         let _ = self.slabs[slab_idx].read_value(local_idx);
                     }

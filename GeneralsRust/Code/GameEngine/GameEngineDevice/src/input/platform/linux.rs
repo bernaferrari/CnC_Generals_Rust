@@ -214,6 +214,9 @@ impl LinuxInputBackend {
         #[cfg(target_os = "linux")]
         {
             for fd in &self.evdev_fds {
+                // SAFETY: each fd came from libc::open in EvdevDevice::open/backend init and has
+                // SAFETY: not been closed before; close on a valid descriptor cannot violate
+                // SAFETY: memory safety (worst case an EBADF the code ignores).
                 unsafe {
                     libc::close(*fd);
                 }
@@ -256,6 +259,8 @@ impl EvdevDevice {
         let c_path = CString::new(path)
             .map_err(|e| InputError::PlatformError(format!("Invalid path: {}", e)))?;
 
+        // SAFETY: c_path is a live NUL-terminated CString; open only reads it and
+        // SAFETY: returns a fresh descriptor or -1 which is rejected below.
         let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK) };
 
         if fd < 0 {
@@ -291,6 +296,8 @@ impl EvdevDevice {
 #[cfg(target_os = "linux")]
 impl Drop for EvdevDevice {
     fn drop(&mut self) {
+        // SAFETY: Drop runs once per EvdevDevice; self.fd was opened exactly once in
+        // SAFETY: open() and every other close path consumes the device.
         unsafe {
             libc::close(self.fd);
         }

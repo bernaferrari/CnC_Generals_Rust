@@ -145,6 +145,16 @@ impl PresentationFrame {
             if cmd.command_name.is_empty() {
                 continue;
             }
+            let resolved = game_engine::common::ini::ini_command_button::get_control_bar()
+                .and_then(|bar| bar.find_command_button_resolved(&cmd.command_name).cloned());
+            if resolved.is_none() {
+                // C++ ControlBar::getCommandAvailability always consults the
+                // retail CommandButton definition (INI loaded at startup);
+                // with no leftover definition resolved, the host slot gate
+                // verdict stays authoritative instead of a placeholder default
+                // that would re-enable Restricted buttons.
+                continue;
+            }
             if eval_ids.len() > 1 {
                 // C++ updateContextMultiSelect: any COMMAND_HIDDEN hides;
                 // then enable if any object is AVAILABLE/ACTIVE.
@@ -976,6 +986,27 @@ const HUD_COMMAND_SET_RESIDUAL_PACKS: &[(&str, &str, &[(u8, &str)])] = &[
         "GLAInfantryHijackerCommandSet",
         "GLAInfantryHijacker",
         &[(1, "Command_GLAInfantryHijack"), (14, "Command_Stop")],
+    ),
+    (
+        "AmericaVehicleAmbulanceCommandSet",
+        "AmericaVehicleAmbulance",
+        &[
+            (4, "Command_TransportExit"),
+            (8, "Command_Evacuate"),
+            (10, "Command_AmbulanceCleanupArea"),
+            (11, "Command_AttackMove"),
+            (13, "Command_Guard"),
+            (14, "Command_Stop"),
+        ],
+    ),
+    (
+        "ChinaInfantryHackerCommandSet",
+        "ChinaInfantryHacker",
+        &[
+            (1, "Command_ChinaInfantryHackerDisableBuilding"),
+            (3, "Command_ChinaInfantryHackerInternetHack"),
+            (14, "Command_Stop"),
+        ],
     ),
     (
         "AmericaDozerCommandSet",

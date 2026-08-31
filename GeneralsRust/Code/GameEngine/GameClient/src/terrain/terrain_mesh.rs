@@ -566,7 +566,11 @@ impl TerrainMeshVertex {
     }
 }
 
+// SAFETY: `#[repr(C)]` mix of f32 arrays and [u16;4]/[f32;4]; layout matches the
+// SAFETY: wgpu VertexBufferLayout offsets above, and the type is only ever
+// SAFETY: copied as bytes into vertex buffers.
 unsafe impl bytemuck::Pod for TerrainMeshVertex {}
+// SAFETY: Zeroed u16 indices and 0.0 floats are all valid field values.
 unsafe impl bytemuck::Zeroable for TerrainMeshVertex {}
 
 /// Terrain mesh statistics

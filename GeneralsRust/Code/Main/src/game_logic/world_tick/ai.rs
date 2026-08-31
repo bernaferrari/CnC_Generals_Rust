@@ -1012,7 +1012,7 @@ impl GameLogic {
             })
             .collect();
         for id in due {
-            let _ = self.detonate_mine_internal(id, HostMineDetonateReason::Killed);
+            let _ = self.detonate_mine_internal(id, HostMineDetonateReason::Killed, None);
         }
     }
 

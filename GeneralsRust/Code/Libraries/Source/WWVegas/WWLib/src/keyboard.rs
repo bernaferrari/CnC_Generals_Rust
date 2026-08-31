@@ -108,7 +108,9 @@ impl WWKeyboardClass {
             }
 
             let mut buffer: [u16; 10] = [0; 10];
+            // SAFETY: [Category 8 — FFI] pure translation of a virtual-key code; no memory effects.
             let scancode = unsafe { MapVirtualKeyA((key & 0xFF) as u32, 0) };
+            // SAFETY: [Category 8 — FFI] pure translation of a virtual-key code; no memory effects.
             let result = unsafe {
                 ToAscii(
                     (key & 0xFF) as u32,
@@ -140,6 +142,7 @@ impl WWKeyboardClass {
     pub fn down(&self, key: u16) -> bool {
         #[cfg(target_os = "windows")]
         {
+            // SAFETY: [Category 8 — FFI] reads global async key state; no memory effects.
             unsafe { GetAsyncKeyState((key & 0xFF) as i32) != 0 }
         }
         #[cfg(not(target_os = "windows"))]
@@ -162,6 +165,7 @@ impl WWKeyboardClass {
                 x: loword(lparam.0),
                 y: hiword(lparam.0),
             };
+            // SAFETY: [Category 8 — FFI] converts coordinates on a valid window handle; POINT is a valid out slot.
             unsafe {
                 ClientToScreen(window, &mut point);
             }
@@ -232,6 +236,7 @@ impl WWKeyboardClass {
             }
 
             if processed {
+                // SAFETY: [Category 8 — FFI] forwards an unhandled message with its original parameters per Win32 message-loop contract.
                 unsafe {
                     DefWindowProcW(window, message, wparam, lparam);
                 }
@@ -316,6 +321,7 @@ impl WWKeyboardClass {
         if !Self::is_mouse_key(vk_key) {
             #[cfg(target_os = "windows")]
             {
+                // SAFETY: [Category 8 — FFI] reads toggle/lock state of well-known virtual keys; no memory effects.
                 unsafe {
                     if (GetKeyState(VK_SHIFT as i32) & 0x8000) != 0
                         || (GetKeyState(VK_CAPITAL as i32) & 0x0008) != 0

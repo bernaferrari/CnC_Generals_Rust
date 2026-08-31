@@ -92,10 +92,12 @@ impl PaletteClass {
     }
 
     pub fn as_bytes(&self) -> &[u8] {
+        // SAFETY: [Category 10 — OOB] palette is a fixed [RGB;256] array (768 bytes); the cast views exactly that storage.
         unsafe { std::slice::from_raw_parts(self.palette.as_ptr() as *const u8, COLOR_COUNT * 3) }
     }
 
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        // SAFETY: [Category 10 — OOB] palette is a fixed [RGB;256] array (768 bytes); the cast views exactly that storage.
         unsafe {
             std::slice::from_raw_parts_mut(self.palette.as_mut_ptr() as *mut u8, COLOR_COUNT * 3)
         }

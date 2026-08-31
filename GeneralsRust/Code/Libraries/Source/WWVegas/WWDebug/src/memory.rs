@@ -70,6 +70,8 @@ impl ProfileMemory {
         let layout =
             Layout::from_size_align(size, 1).map_err(|_| ProfileError::MemoryAllocation)?;
 
+        // SAFETY: [Category 13 — library contract] layout validated above by `Layout::from_size_align`;
+        // single raw allocation (ProfileAllocMemory equivalent).
         let ptr = unsafe { alloc::alloc(layout) };
 
         if ptr.is_null() {
@@ -101,6 +103,8 @@ impl ProfileMemory {
         let _new_layout =
             Layout::from_size_align(new_size, 1).map_err(|_| ProfileError::MemoryAllocation)?;
 
+        // SAFETY: [Category 12 — invalid free / Category 13 — library contract]
+        // old_ptr+old_layout match the original allocation; realloc preserves contents.
         let new_ptr = unsafe { alloc::realloc(old_ptr, old_layout, new_size) };
 
         if new_ptr.is_null() {
@@ -121,6 +125,7 @@ impl ProfileMemory {
         }
 
         let layout = Layout::from_size_align(size, 1).expect("Invalid layout for free");
+        // SAFETY: [Category 12 — invalid free] same ptr/layout pair used at allocation.
         unsafe {
             alloc::dealloc(ptr, layout);
         }
@@ -158,6 +163,7 @@ impl ProfileMemoryBlock {
     }
 
     /// Convert to a slice (unsafe)
+    /// SAFETY: caller must guarantee `ptr`/`size` describe a live, initialized allocation.
     pub unsafe fn as_slice(&self) -> &[u8] {
         if self.ptr.is_null() || self.size == 0 {
             &[]
@@ -171,6 +177,7 @@ impl ProfileMemoryBlock {
     }
 
     /// Convert to a mutable slice (unsafe)
+    /// SAFETY: caller must guarantee `ptr`/`size` describe a live, initialized allocation.
     pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
         if self.ptr.is_null() || self.size == 0 {
             &mut []
@@ -230,6 +237,8 @@ impl<T> ProfileArray<T> {
 
         let layout = Layout::array::<T>(capacity).map_err(|_| ProfileError::MemoryAllocation)?;
 
+        // SAFETY: [Category 13 — library contract] layout validated above by `Layout::from_size_align`;
+        // single raw allocation (ProfileAllocMemory equivalent).
         let ptr = unsafe { alloc::alloc(layout) as *mut T };
 
         if ptr.is_null() {
@@ -275,10 +284,14 @@ impl<T> ProfileArray<T> {
             Layout::array::<T>(new_capacity).map_err(|_| ProfileError::MemoryAllocation)?;
 
         let new_ptr = if self.ptr.is_null() {
+            // SAFETY: [Category 13 — library contract] layout validated above by `Layout::from_size_align`;
+            // single raw allocation (ProfileAllocMemory equivalent).
             unsafe { alloc::alloc(new_layout) as *mut T }
         } else {
             let old_layout =
                 Layout::array::<T>(self.capacity).map_err(|_| ProfileError::MemoryAllocation)?;
+            // SAFETY: [Category 12 — invalid free / Category 13 — library contract]
+            // old_ptr+old_layout match the original allocation; realloc preserves contents.
             unsafe { alloc::realloc(self.ptr as *mut u8, old_layout, new_layout.size()) as *mut T }
         };
 
@@ -302,6 +315,9 @@ impl<T> ProfileArray<T> {
         if self.len > new_capacity {
             // Drop excess elements
             for i in new_capacity..self.len {
+                // SAFETY: [Category 3 — dangling / Category 10 — OOB] index is in
+                // 0..len of the live allocation; the element there is initialized and
+                // dropped exactly once before the buffer is deallocated.
                 unsafe {
                     std::ptr::drop_in_place(self.ptr.add(i));
                 }
@@ -323,6 +339,8 @@ impl<T> ProfileArray<T> {
             self.resize(new_capacity)?;
         }
 
+        // SAFETY: [Category 10 — OOB] capacity was grown above so `len` is a valid
+        // slot; the element slot is written once and len incremented after.
         unsafe {
             self.ptr.add(self.len).write(value);
         }
@@ -338,12 +356,14 @@ impl<T> ProfileArray<T> {
         }
 
         self.len -= 1;
+        // SAFETY: [Category 10 — OOB] `len` was decremented, so this reads the last initialized element and moves it out.
         unsafe { Some(self.ptr.add(self.len).read()) }
     }
 
     /// Get element at index
     pub fn get(&self, index: usize) -> Option<&T> {
         if index < self.len {
+            // SAFETY: [Category 10 — OOB] `index < self.len`, so it addresses an initialized element.
             unsafe { Some(&*self.ptr.add(index)) }
         } else {
             None
@@ -353,6 +373,7 @@ impl<T> ProfileArray<T> {
     /// Get mutable element at index
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index < self.len {
+            // SAFETY: [Category 1 — aliasing / Category 10 — OOB] `&mut self` excludes aliasing; `index < self.len` is an initialized element.
             unsafe { Some(&mut *self.ptr.add(index)) }
         } else {
             None
@@ -363,6 +384,9 @@ impl<T> ProfileArray<T> {
     pub fn clear(&mut self) {
         // Drop all elements
         for i in 0..self.len {
+            // SAFETY: [Category 3 — dangling / Category 10 — OOB] index is in
+            // 0..len of the live allocation; the element there is initialized and
+            // dropped exactly once before the buffer is deallocated.
             unsafe {
                 std::ptr::drop_in_place(self.ptr.add(i));
             }
@@ -372,6 +396,7 @@ impl<T> ProfileArray<T> {
         // Free memory
         if !self.ptr.is_null() && self.capacity > 0 {
             let layout = Layout::array::<T>(self.capacity).unwrap();
+            // SAFETY: [Category 12 — invalid free] same ptr/layout pair used at allocation.
             unsafe {
                 alloc::dealloc(self.ptr as *mut u8, layout);
             }
@@ -387,6 +412,7 @@ impl<T> ProfileArray<T> {
         if self.ptr.is_null() || self.len == 0 {
             &[]
         } else {
+            // SAFETY: [Category 10 — OOB] ptr..ptr+len are all initialized elements of one live allocation.
             unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
         }
     }
@@ -396,6 +422,7 @@ impl<T> ProfileArray<T> {
         if self.ptr.is_null() || self.len == 0 {
             &mut []
         } else {
+            // SAFETY: [Category 1 — aliasing / Category 10 — OOB] unique borrow; slice covers exactly the initialized region.
             unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
         }
     }
@@ -413,7 +440,10 @@ impl<T> Default for ProfileArray<T> {
     }
 }
 
+// SAFETY: ProfileArray owns its buffer exclusively (`&self` methods only share
+// reads); T: Send/Sync bounds mirror Vec<T> auto-traits.
 unsafe impl<T: Send> Send for ProfileArray<T> {}
+// SAFETY: same reasoning as Send; shared access only exposes &T reads.
 unsafe impl<T: Sync> Sync for ProfileArray<T> {}
 
 /// String type that uses profile memory allocation (equivalent to dynamically allocated C strings)
@@ -443,12 +473,14 @@ impl ProfileString {
 
         // Copy string data
         for (i, &byte) in bytes.iter().enumerate() {
+            // SAFETY: [Category 10 — OOB] i < bytes.len() < array capacity; writes each payload byte into the freshly resized buffer.
             unsafe {
                 *self.array.ptr.add(i) = byte;
             }
         }
 
         // Add null terminator
+        // SAFETY: [Category 10 — OOB] bytes.len() < capacity by construction (resize with +1); writes the NUL terminator.
         unsafe {
             *self.array.ptr.add(bytes.len()) = 0;
         }
@@ -472,6 +504,7 @@ impl ProfileString {
         if self.array.is_empty() {
             ""
         } else {
+            // SAFETY: [Category 10 — OOB / Category 5 — invalid values] covers the payload bytes written by set_str (excludes NUL); UTF-8 validated below.
             let slice = unsafe {
                 std::slice::from_raw_parts(self.array.ptr, self.array.len.saturating_sub(1))
             };

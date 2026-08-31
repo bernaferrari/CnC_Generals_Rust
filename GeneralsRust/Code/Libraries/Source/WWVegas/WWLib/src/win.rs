@@ -27,6 +27,7 @@ pub fn is_game_in_focus() -> bool {
 
 #[cfg(target_os = "windows")]
 pub fn print_win32_error(win32_error: u32) {
+    // SAFETY: [Category 8 — FFI] trivial Win32 call reading the last-error slot; no memory effects.
     let last_error = unsafe { GetLastError().0 };
     if cfg!(debug_assertions) {
         eprintln!(

@@ -1826,7 +1826,9 @@ impl BodyModuleInterface for ActiveBody {
                 .unwrap_or(INVALID_ID);
             if last_source_id != INVALID_ID {
                 if let Some(owner) = self.get_owner() {
-                    if let Ok(owner_guard) = owner.read() {
+                    // try_read: the owner's write guard may be held by this
+                    // thread while the body mutates (self-sourced damage).
+                    if let Ok(owner_guard) = owner.try_read() {
                         if let Some(victim_player) = owner_guard.get_controlling_player() {
                             let src_index = OBJECT_REGISTRY.with_object(last_source_id, |src| {
                                 src.get_controlling_player()
@@ -1851,7 +1853,7 @@ impl BodyModuleInterface for ActiveBody {
             if new_state != old_state {
                 self.notify_damage_modules_on_state_change(damage_info, old_state, new_state);
                 if let Some(owner) = self.get_owner() {
-                    if let Ok(owner_guard) = owner.read() {
+                    if let Ok(owner_guard) = owner.try_read() {
                         match new_state {
                             BodyDamageType::Damaged => {
                                 play_object_template_sound(
@@ -1879,7 +1881,7 @@ impl BodyModuleInterface for ActiveBody {
                 && get_game_logic_random_value(0, 99) < 25
             {
                 if let Some(owner) = self.get_owner() {
-                    if let Ok(owner_guard) = owner.read() {
+                    if let Ok(owner_guard) = owner.try_read() {
                         play_voice_fear(&owner_guard);
                     }
                 }
@@ -1909,7 +1911,7 @@ impl BodyModuleInterface for ActiveBody {
 
         // C++ ActiveBody.cpp:655-701 — civilians become repulsors; friends retaliate.
         if let Some(owner) = self.get_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            if let Ok(mut owner_guard) = owner.try_write() {
                 let enable_repulsors = THE_AI
                     .read()
                     .ok()
@@ -1924,7 +1926,7 @@ impl BodyModuleInterface for ActiveBody {
                     owner_guard.set_status(ObjectStatusTypes::Repulsor.into(), true);
                 }
             }
-            if let Ok(owner_guard) = owner.read() {
+            if let Ok(owner_guard) = owner.try_read() {
                 let source_id = self
                     .state
                     .read()
@@ -2484,8 +2486,13 @@ impl BodyModuleInterface for ActiveBody {
         if changed_state {
             // C++ ActiveBody.cpp:1219 — skip damaged-art while building.
             let under_construction = match self.get_owner() {
+                // try_read, matching attempt_damage/evaluate_visual_condition:
+                // the owner's write guard may be held by this very thread while
+                // the body mutates (self-sourced ticks like fall splat or
+                // FlammableUpdate aflame damage applied through the owner's
+                // lock); a blocking read() there self-deadlocks.
                 Some(owner) => owner
-                    .read()
+                    .try_read()
                     .map(|guard| guard.test_status(ObjectStatusTypes::UnderConstruction))
                     .unwrap_or(false),
                 None => false,

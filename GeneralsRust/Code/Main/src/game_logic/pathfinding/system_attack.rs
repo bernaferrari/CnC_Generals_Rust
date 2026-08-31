@@ -776,8 +776,11 @@ impl PathfindingSystem {
         }
         let from = self.grid.world_to_grid(start);
         let to = self.grid.world_to_grid(dest);
+        // C++ computePath gate (AIUpdate.cpp:1691-1694) calls isLinePassable
+        // with allowPinched=false — a straight quick path must not cross
+        // pinched cells.
         self.grid
-            .leftover_is_line_passable_for_surfaces(from, to, surfaces)
+            .leftover_is_line_passable_for_surfaces(from, to, surfaces, false)
     }
 
     /// C++ `computeQuickPath` two-node start+dest leftover-installed on host Y-up.

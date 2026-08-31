@@ -1410,24 +1410,25 @@ impl Object {
             self.fire_damaged_event(actual_damage, attacker_id);
 
             if self.radar_data.is_some() {
-                if let Some(player) = self.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        let same_player = damage_info
+                // C++ Object.cpp:1847-1854 gate: source mask differs from the
+                // controlling player's and the victim is the local player.
+                let under_attack_local = self.get_controlling_player().and_then(|player| {
+                    player.read().ok().map(|guard| {
+                        !damage_info
                             .input
                             .source_player_mask
-                            .intersects(player_guard.get_player_mask());
-                        if !same_player && player_guard.is_local_player() {
-                            let pos = self.get_position();
-                            crate::system::radar_notifier::push(
-                                &crate::system::game_logic::RadarUpdate {
-                                    player_id: player_guard.get_player_index() as Int,
-                                    position: (pos.x, pos.y),
-                                    event_type:
-                                        crate::system::game_logic::RadarEventType::BaseAttacked,
-                                },
-                            );
-                        }
-                    }
+                            .intersects(guard.get_player_mask())
+                            && guard.is_local_player()
+                    })
+                }).unwrap_or(false);
+                if under_attack_local {
+                    // C++ Object.cpp:1854 — TheRadar->tryUnderAttackEvent(this):
+                    // single pipeline — throttled UnderAttack ping, then
+                    // per-kind message/audio/EVA (Radar.cpp:1147-1226) gated
+                    // on the event actually being created. The player read
+                    // guard is dropped above: tryUnderAttackEvent re-reads the
+                    // controlling player.
+                    let _ = crate::helpers::TheRadar::try_under_attack_event_for_object(self);
                 }
             }
         }

@@ -161,7 +161,10 @@ pub struct TreeGpuVertex {
     pub diffuse: u32,
 }
 
+// SAFETY: `#[repr(C)]` f32 arrays plus packed u32 diffuse; no padding holes,
+// SAFETY: contents are opaque bytes once uploaded to the vertex buffer.
 unsafe impl bytemuck::Pod for TreeGpuVertex {}
+// SAFETY: 0.0 / 0u32 are valid field values with no niche.
 unsafe impl bytemuck::Zeroable for TreeGpuVertex {}
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1015,10 +1018,20 @@ impl W3DTreeBuffer {
 
         let (x_min, y_min) = self.partition_min_indices(unit.position, radius);
         let (x_max, y_max) = self.partition_max_indices(unit.position, radius);
+        // Geometry clamp can still yield out-of-grid indices when the unit
+        // sits outside the partition bounds (or bounds collapse); guard the
+        // bucket index instead of panicking on a negative/out-of-range slot.
         for x in x_min..x_max {
             for y in y_min..y_max {
                 let bucket = x + PARTITION_WIDTH_HEIGHT as i32 * y;
-                let mut tree_ndx = self.area_partition[bucket as usize];
+                if bucket < 0 {
+                    continue;
+                }
+                let bucket = bucket as usize;
+                if bucket >= self.area_partition.len() {
+                    continue;
+                }
+                let mut tree_ndx = self.area_partition[bucket];
                 while tree_ndx != END_OF_PARTITION {
                     let index = tree_ndx as usize;
                     if index >= self.trees.len() {

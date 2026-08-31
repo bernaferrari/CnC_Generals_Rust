@@ -3,6 +3,37 @@
 use super::super::*;
 use super::helpers::*;
 
+/// Model a C++ armor-less target dummy in this world.
+///
+/// C++: ThingTemplate::findArmorTemplateSet returns NULL for a template with no
+/// ArmorSet rows and ActiveBody keeps the default ArmorTemplate (every
+/// coefficient 1.0 — Armor.cpp:25-33 clear()), so an armor-less template takes
+/// full damage from every damage type. The Rust residual instead resolves
+/// retail-typical armor by KindOf for armor-less templates
+/// (host_armor_residual::residual_armor_for_object), which zeroes e.g. SNIPER
+/// vs KindOf::Vehicle and therefore (correctly, per C++ WeaponSet.cpp:834-836
+/// zero-damage elimination) blocks auto-fire against it. Fixtures that model a
+/// C++ armor-less dummy author an explicit all-1.0 ArmorSet — identical
+/// observable damage in C++, no production change.
+fn stamp_cpp_armorless_dummy_armor(game_logic: &mut GameLogic, template_name: &str) {
+    use gamelogic::common::AsciiString;
+    use gamelogic::object::armor::{ArmorTemplate, TheArmorStore};
+    const TEST_DUMMY_ALL_ONES_ARMOR: &str = "TestDummyAllOnesArmor";
+    if TheArmorStore::find_template(&AsciiString::from(TEST_DUMMY_ALL_ONES_ARMOR)).is_none() {
+        TheArmorStore::register_template(
+            &AsciiString::from(TEST_DUMMY_ALL_ONES_ARMOR),
+            ArmorTemplate::new(),
+        );
+    }
+    if let Some(tpl) = game_logic.templates.get_mut(template_name) {
+        tpl.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some(TEST_DUMMY_ALL_ONES_ARMOR.to_string()),
+            damage_fx: None,
+        });
+    }
+}
+
 #[test]
 fn slave_drone_residual_rejects_non_master_attach() {
     use crate::game_logic::host_slave_drones::SlaveDroneKind;
@@ -775,7 +806,13 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
             .honesty_queue_ok(HostUpgradeKind::Camouflage)
     );
 
-    game_logic.update();
+    // Retail Upgrade_GLACamouflage BuildTime 60.0s (retail_build_time_secs)
+    // now resolves onto the producer PRODUCTION_UPGRADE queue, so research
+    // needs the full retail frames; the single-update residual assumed the
+    // no-INI fallback. C++ ProductionUpdate owns the timer on the producer.
+    for _ in 0..HostUpgradeKind::Camouflage.retail_research_frames() {
+        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    }
 
     assert!(
         game_logic
@@ -2316,6 +2353,9 @@ fn comanche_residual_cannon_and_antitank() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
+    // C++ armor-less dummy: 20mm SMALL_ARMS takes full damage (see
+    // stamp_cpp_armorless_dummy_armor for the C++ citations).
+    stamp_cpp_armorless_dummy_armor(&mut game_logic, "TestTank");
 
     let mut comanche_tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleComanche");
     comanche_tpl
@@ -2561,6 +2601,9 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
     game_logic.add_player(player);
     ensure_test_tank_template(&mut game_logic);
 
+    // C++ armor-less dummy: fire-zone FLAME DoT takes full damage (see
+    // stamp_cpp_armorless_dummy_armor for the C++ citations).
+    stamp_cpp_armorless_dummy_armor(&mut game_logic, "TestTank");
     let mut cannon_tpl = ThingTemplate::new("ChinaVehicleInfernoCannon");
     cannon_tpl
         .add_kind_of(KindOf::Vehicle)
@@ -2673,9 +2716,11 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
     assert!(
         (dealt - INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED).abs() < 0.01
             || dealt > INFERNO_FIRE_DAMAGE_PER_TICK,
-        "expected upgraded tick ~{}, got {}",
+        "expected upgraded tick ~{}, got {} (shot={} dot={})",
         INFERNO_FIRE_DAMAGE_PER_TICK_UPGRADED,
-        dealt
+        dealt,
+        hp_after_shot,
+        hp_after_dot
     );
     assert!(game_logic.honesty_inferno_black_napalm_ok());
     assert!(game_logic.honesty_inferno_cannon_ok());
@@ -2741,8 +2786,22 @@ fn battle_drone_residual_attach_fire_and_repair() {
         );
     }
 
-    // Repair residual over one second.
-    for _ in 0..30 {
+    // C++ weld lead-in: the repair SM must walk UNPACKING (15 frames) ->
+    // READY (RepairMinReadyTime 300ms) -> EXTENDING (5 frames) before the
+    // first weld (SlavedUpdate.cpp:541-584), and the residual does not model
+    // the approach flight (C++ aiMoveToPosition repair spot lands within the
+    // 12.0 weld band) — park the drone inside the band, then run 3 seconds:
+    // ~10 HP/s while welding (repairing latches while closeEnough).
+    {
+        let mpos = game_logic
+            .host_object(master_id)
+            .map(|m| m.get_position())
+            .unwrap_or(Vec3::ZERO);
+        if let Some(d) = game_logic.host_object_mut(drone_id) {
+            d.set_position(Vec3::new(mpos.x + 3.0, mpos.y, mpos.z));
+        }
+    }
+    for _ in 0..90 {
         game_logic.update_battle_drone_repair_residual(1.0 / 30.0);
     }
     let master_hp_after = game_logic
@@ -2961,6 +3020,9 @@ fn jarmen_kell_residual_sniper_and_ap_bullets() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
+    // C++ armor-less dummy: full SNIPER damage + no zero-damage elimination
+    // (see stamp_cpp_armorless_dummy_armor for the C++ citations).
+    stamp_cpp_armorless_dummy_armor(&mut game_logic, "TestTank");
 
     let mut kell_tpl = crate::game_logic::ThingTemplate::new("GLAInfantryJarmenKell");
     kell_tpl
@@ -3598,6 +3660,8 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
     {
         let th = game_logic.host_object_mut(th0).unwrap();
         th.set_position(Vec3::new(200.0, 0.0, 2.0));
+        // Facing direction to the building is atan2(-dz, dx) = +PI/2 (0 faces +X).
+        th.set_orientation(std::f32::consts::FRAC_PI_2);
         th.set_ai_state(AIState::SpecialAbility);
         th.target = Some(bldg);
     }
@@ -3606,6 +3670,16 @@ fn tank_hunter_residual_rpg_horde_and_tnt() {
         PendingSpecialAbility::PlantTimedDemoCharge { target_id: bldg },
     );
     game_logic.update_ai(&[th0, bldg], 1.0 / 60.0);
+    // C++ SpecialAbilityUpdate prep completes over multiple logic frames:
+    // the first tick only arms the leftover channel (Facing -> Unpacking ->
+    // Preparing, special_abilities.rs tick_leftover_special_ability), so keep
+    // ticking until the plant lands (Burton plant fixtures do the same).
+    for _ in 0..12 {
+        game_logic.update_ai(&[th0, bldg], 1.0 / 30.0);
+        if game_logic.honesty_tank_hunter_tnt_ok() {
+            break;
+        }
+    }
 
     assert!(
         game_logic.honesty_tank_hunter_tnt_ok(),

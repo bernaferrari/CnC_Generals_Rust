@@ -96,6 +96,8 @@ impl WindowsInputBackend {
             use windows::Win32::UI::Input::KeyboardAndMouse::*;
 
             // Check modifier key states
+            // SAFETY: Win32 GetKeyState reads the calling thread's synchronized key
+            // SAFETY: state; all arguments are by-value virtual-key codes, no pointers.
             unsafe {
                 let mut modifiers = ModifierKeys::empty();
 

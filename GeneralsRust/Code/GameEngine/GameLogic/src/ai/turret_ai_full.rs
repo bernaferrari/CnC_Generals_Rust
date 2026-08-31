@@ -130,10 +130,17 @@ impl TurretStateMachine {
     }
 
     pub fn get_turret_ai(&self) -> &TurretAI {
+        // SAFETY: `turret_ai` is a back reference installed in
+        // `TurretAI::new` while the machine lives inside that same `TurretAI`
+        // (`turret.state_machine`), so the pointee outlives the machine.
+        // Callers keep the owner alive for the duration of the borrow.
         unsafe { &*self.turret_ai }
     }
 
     pub fn get_turret_ai_mut(&mut self) -> &mut TurretAI {
+        // SAFETY: same exclusivity-by-ownership argument as
+        // `get_turret_ai`; `&mut self` additionally prevents aliasing with
+        // any other accessor.
         unsafe { &mut *self.turret_ai }
     }
 

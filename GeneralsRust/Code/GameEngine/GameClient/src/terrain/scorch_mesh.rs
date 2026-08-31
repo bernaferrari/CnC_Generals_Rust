@@ -290,8 +290,8 @@ fn global_scorch_buffer() -> &'static Mutex<TerrainScorchBuffer> {
 /// C++ `GameClientRandomValue(SCORCH_1, SCORCH_4)` when FX type is `RANDOM` / `< 0`.
 pub fn resolve_scorch_type(scorch: i32) -> i32 {
     if scorch < 0 {
-        use rand::Rng;
-        rand::thread_rng().gen_range(0..=3)
+        // SCORCH_1 = 0 ..= SCORCH_4 = 3 (GameType.h:70-75).
+        crate::GameClientRandomValue!(0, 3)
     } else {
         scorch
     }
@@ -403,5 +403,24 @@ mod tests {
         map.blended_tiles.push(blend);
         map.blend_tile_ndxes[2] = 1;
         assert!(height_map_cell_flip(&map, 2, 0));
+    }
+
+    #[test]
+    fn random_scorch_type_comes_from_seeded_client_stream() {
+        use game_engine::common::random_value::init_random_with_seed;
+
+        // Explicit scorch types pass through untouched.
+        assert_eq!(resolve_scorch_type(2), 2);
+
+        // C++ FXList.cpp:433 draws GameClientRandomValue(SCORCH_1, SCORCH_4)
+        // from the seeded client stream (RandomValue.cpp:353-371), so the same
+        // seed must reproduce the same scorch. thread_rng was non-reproducible.
+        init_random_with_seed(20260829);
+        let first = resolve_scorch_type(-1);
+        init_random_with_seed(20260829);
+        let second = resolve_scorch_type(-1);
+
+        assert!((0..=3).contains(&first), "scorch {first} outside SCORCH_1..SCORCH_4");
+        assert_eq!(first, second);
     }
 }

@@ -15,10 +15,11 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+use crate::game_logic::host_deliver_payload::is_close_enough_to_target_squared_residual;
 use crate::game_logic::special_power_strikes::{
     A10_DELIVERY_DISTANCE, A10_DIVE_END_DISTANCE, A10_DIVE_START_DISTANCE,
     A10_FORMATIONION_SPACING, A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS,
-    A10_PAYLOAD_TEMPLATE, A10_TRANSPORT, A10StrikeScienceTier,
+    A10_PAYLOAD_TEMPLATE, A10_PRE_OPEN_DISTANCE, A10_TRANSPORT, A10StrikeScienceTier,
 };
 
 /// C++ DeliverPayloadAIUpdate `DIVESTATE_PREDIVE`.
@@ -259,15 +260,20 @@ impl HostA10StrikeFlightData {
         (new_pos, vel, at_exit)
     }
 
-    /// C++ `DeliverPayloadAIUpdate::isCloseEnoughToTarget` (DeliveryDistance 450).
+    /// C++ `DeliverPayloadAIUpdate::isCloseEnoughToTarget` (DeliveryDistance 450,
+    /// PreOpenDistance 0): inbound expands the allowed band to the sum.
     pub fn is_close_enough_to_target(&mut self, pos: Vec3) -> bool {
         let dx = pos.x - self.target.x;
         let dz = pos.z - self.target.z;
         let current = dx * dx + dz * dz;
-        let inbound = self.prev_dist_sq > current;
+        let previous = self.prev_dist_sq;
         self.prev_dist_sq = current;
-        let _ = inbound;
-        current <= A10_DELIVERY_DISTANCE * A10_DELIVERY_DISTANCE
+        is_close_enough_to_target_squared_residual(
+            current,
+            previous,
+            A10_DELIVERY_DISTANCE,
+            A10_PRE_OPEN_DISTANCE,
+        )
     }
 
     /// C++ `DeliveringState::update` VisibleItemsDroppedPerInterval while close.
@@ -428,6 +434,11 @@ mod tests {
         assert!(
             data.is_close_enough_to_target(Vec3::new(600.0, 160.0, 0.0)),
             "400wu inbound must deliver"
+        );
+        // C++ strict boundary: exactly DeliveryDistance is outside the band.
+        assert!(
+            !data.is_close_enough_to_target(Vec3::new(550.0, 160.0, 0.0)),
+            "exactly 450wu is outside the strict C++ band"
         );
         assert_eq!(data.take_visible_payload_drops(0), 2);
         assert_eq!(data.take_visible_payload_drops(1), 0);

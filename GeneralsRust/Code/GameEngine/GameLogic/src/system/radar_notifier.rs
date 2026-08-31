@@ -5,7 +5,7 @@
 //! GameLogic instance directly. It is intentionally minimal to match the C++
 //! "game logic produces, client consumes" model.
 
-use super::game_logic::{RadarEventType, RadarUpdate};
+use super::game_logic::RadarUpdate;
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
 
@@ -17,17 +17,14 @@ fn global_queue() -> &'static Mutex<VecDeque<RadarUpdate>> {
 /// Push a radar update for later consumption by the client/HUD.
 ///
 /// C++ `Object::attemptDamage` calls `TheRadar->tryUnderAttackEvent(this)`
-/// directly. Crate damage still queues `RadarUpdate{BaseAttacked}`; convert
-/// that into a live UnderAttack ping + glow/UI/audio/EVA.
+/// directly (Object.cpp:1854); the engine damage path does the same through
+/// `TheRadar::try_under_attack_event_for_object`, so the under-attack ping and
+/// its per-kind message/audio/EVA fire there, gated on the throttled event
+/// actually being created (Radar.cpp:1155-1224). This queue stays for the
+/// remaining typed radar updates (beacons, unit created/destroyed, ...).
 pub fn push(update: &RadarUpdate) {
     if let Ok(mut queue) = global_queue().lock() {
         queue.push_back(update.clone());
-    }
-    if matches!(update.event_type, RadarEventType::BaseAttacked) {
-        let _ = crate::helpers::TheRadar::try_under_attack_event_at(
-            update.position.0,
-            update.position.1,
-        );
     }
 }
 

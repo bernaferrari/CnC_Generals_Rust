@@ -25,6 +25,9 @@ use tokio::sync::RwLock;
 
 /// Set light - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be null or a live W3D_DEVICE handed out by
+// SAFETY: W3D_CreateDevice/W3DDevice_Create and not yet destroyed; we only
+// SAFETY: form a shared reference and mutate Mutex-guarded state.
 pub unsafe extern "C" fn W3DDevice_SetLight(
     device: W3D_DEVICE,
     index: u32,
@@ -66,6 +69,9 @@ pub unsafe extern "C" fn W3DDevice_SetLight(
 
 /// Get light - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE (see W3D_CreateDevice);
+// SAFETY: `out_light_data` must be writable for one W3DLightData when non-null.
+// SAFETY: Only a shared reference is taken; state access is Mutex-guarded.
 pub unsafe extern "C" fn W3DDevice_GetLight(
     device: W3D_DEVICE,
     index: u32,
@@ -87,6 +93,8 @@ pub unsafe extern "C" fn W3DDevice_GetLight(
 
 /// Enable/disable light index - legacy D3D-style compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; only a shared
+// SAFETY: reference is formed and all mutation happens under the enabled-lights Mutex.
 pub unsafe extern "C" fn W3DDevice_LightEnable(device: W3D_DEVICE, index: u32, enable: i32) -> i32 {
     if device.is_null() {
         return 0;
@@ -111,6 +119,8 @@ pub unsafe extern "C" fn W3DDevice_LightEnable(device: W3D_DEVICE, index: u32, e
 
 /// Alias for legacy callers expecting `SetLightEnable`.
 #[no_mangle]
+// SAFETY: C ABI alias forwarding to W3DDevice_LightEnable; same live-device
+// SAFETY: handle contract, no additional dereference performed here.
 pub unsafe extern "C" fn W3DDevice_SetLightEnable(
     device: W3D_DEVICE,
     index: u32,
@@ -121,6 +131,8 @@ pub unsafe extern "C" fn W3DDevice_SetLightEnable(
 
 /// Query whether a light index is enabled.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; shared reference
+// SAFETY: only, reads are Mutex-guarded.
 pub unsafe extern "C" fn W3DDevice_GetLightEnable(device: W3D_DEVICE, index: u32) -> i32 {
     if device.is_null() {
         return 0;

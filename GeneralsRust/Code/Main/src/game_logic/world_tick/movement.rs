@@ -1152,6 +1152,11 @@ impl GameLogic {
     }
 
     #[cfg(test)]
+    pub fn drain_pending_transport_exits_for_test(&mut self) {
+        self.drain_pending_transport_exits();
+    }
+
+    #[cfg(test)]
     pub fn update_movement_for_test(&mut self, object_ids: &[ObjectId], dt: f32) {
         self.update_movement(object_ids, dt);
     }

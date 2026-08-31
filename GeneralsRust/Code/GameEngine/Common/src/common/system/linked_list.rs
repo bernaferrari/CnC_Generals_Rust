@@ -130,6 +130,8 @@ impl<T> LListNode<T> {
     pub fn remove(&mut self) {
         let self_ptr = NonNull::from(&mut *self);
         if let (Some(prev), Some(next)) = (self.prev, self.next) {
+            // SAFETY: prev/next are this node's live neighbors in one list;
+            // unlinking rewires only their link fields, both dereferenceable.
             unsafe {
                 (*prev.as_ptr()).next = Some(next);
                 (*next.as_ptr()).prev = Some(prev);
@@ -143,6 +145,8 @@ impl<T> LListNode<T> {
     ///
     /// # Safety
     /// Caller must ensure both nodes are valid and belong to the same list context.
+    // SAFETY: contract above — both endpoints are valid same-list nodes, so
+    // the four link-field writes keep the chain consistent.
     pub unsafe fn insert_raw(&mut self, new_node: NonNull<LListNode<T>>) {
         let self_ptr = NonNull::from(&mut *self);
         let prev_ptr = match self.prev {
@@ -159,6 +163,8 @@ impl<T> LListNode<T> {
     ///
     /// # Safety
     /// Caller must ensure both nodes are valid and belong to the same list context.
+    // SAFETY: contract above — both endpoints are valid same-list nodes, so
+    // the four link-field writes keep the chain consistent.
     pub unsafe fn append_raw(&mut self, new_node: NonNull<LListNode<T>>) {
         let self_ptr = NonNull::from(&mut *self);
         let next_ptr = match self.next {
@@ -174,6 +180,8 @@ impl<T> LListNode<T> {
     /// Get the next node in the list, skipping the head node
     pub fn next_node(&self) -> Option<&LListNode<T>> {
         let next = self.next?;
+        // SAFETY: next is a live neighbor; reading is_head and reborrowing
+        // through &self keeps aliasing shared-only.
         unsafe {
             if (*next.as_ptr()).is_head() {
                 None
@@ -186,6 +194,8 @@ impl<T> LListNode<T> {
     /// Get the previous node in the list, skipping the head node
     pub fn prev_node(&self) -> Option<&LListNode<T>> {
         let prev = self.prev?;
+        // SAFETY: prev is a live neighbor; reading is_head and reborrowing
+        // through &self keeps aliasing shared-only.
         unsafe {
             if (*prev.as_ptr()).is_head() {
                 None
@@ -198,6 +208,8 @@ impl<T> LListNode<T> {
     /// Get the next node, wrapping around the head when needed
     pub fn loop_next(&self) -> Option<&LListNode<T>> {
         let mut next = self.next?;
+        // SAFETY: walk touches only live nodes reachable from this node via
+        // links validated by list construction (circular with sentinel).
         unsafe {
             if (*next.as_ptr()).is_head() {
                 let next_next = (*next.as_ptr()).next?;
@@ -213,6 +225,8 @@ impl<T> LListNode<T> {
     /// Get the previous node, wrapping around the head when needed
     pub fn loop_prev(&self) -> Option<&LListNode<T>> {
         let mut prev = self.prev?;
+        // SAFETY: walk touches only live nodes reachable from this node via
+        // links validated by list construction (circular with sentinel).
         unsafe {
             if (*prev.as_ptr()).is_head() {
                 let prev_prev = (*prev.as_ptr()).prev?;
@@ -265,6 +279,8 @@ impl<T> LList<T> {
         let head_ptr = NonNull::new(Box::into_raw(head_node)).unwrap();
 
         // Set up circular reference for empty list
+        // SAFETY: head_ptr is the Box allocation above; these writes build
+        // the empty-list sentinel self-loop before any other access.
         unsafe {
             (*head_ptr.as_ptr()).next = Some(head_ptr);
             (*head_ptr.as_ptr()).prev = Some(head_ptr);
@@ -282,6 +298,8 @@ impl<T> LList<T> {
     pub fn add_to_head(&mut self, node: Box<LListNode<T>>) {
         let node_ptr = NonNull::new(Box::into_raw(node)).unwrap();
 
+        // SAFETY: node_ptr was leaked from a Box one line up; head and first
+        // are live members. The four writes splice it in after the head.
         unsafe {
             let head_ptr = self.head.as_ptr();
             let first_ptr = (*head_ptr).next.unwrap().as_ptr();
@@ -298,6 +316,8 @@ impl<T> LList<T> {
     pub fn add_to_tail(&mut self, node: Box<LListNode<T>>) {
         let node_ptr = NonNull::new(Box::into_raw(node)).unwrap();
 
+        // SAFETY: node_ptr was leaked from a Box one line up; head and last
+        // are live members. The four writes splice it in before the head.
         unsafe {
             let head_ptr = self.head.as_ptr();
             let last_ptr = (*head_ptr).prev.unwrap().as_ptr();
@@ -317,6 +337,8 @@ impl<T> LList<T> {
         if self.add_to_end_of_group {
             // Find position by scanning backwards from head
             let mut current = self.head;
+            // SAFETY: scan dereferences only nodes reachable from the head
+            // sentinel, which stay alive while &mut self is held.
             unsafe {
                 while let Some(prev_ptr) = (*current.as_ptr()).prev {
                     if prev_ptr == self.head {
@@ -343,6 +365,8 @@ impl<T> LList<T> {
         } else {
             // Find position by scanning forwards from head
             let mut current = self.head;
+            // SAFETY: scan dereferences only nodes reachable from the head
+            // sentinel, which stay alive while &mut self is held.
             unsafe {
                 while let Some(next_ptr) = (*current.as_ptr()).next {
                     if next_ptr == self.head {
@@ -373,6 +397,8 @@ impl<T> LList<T> {
     fn insert_after(&mut self, after: NonNull<LListNode<T>>, node: Box<LListNode<T>>) {
         let node_ptr = NonNull::new(Box::into_raw(node)).unwrap();
 
+        // SAFETY: after and its successor are live nodes owned by this list;
+        // the writes splice the freshly-leaked node between them.
         unsafe {
             let after_ptr = after.as_ptr();
             let next_ptr = (*after_ptr).next.unwrap().as_ptr();
@@ -388,6 +414,8 @@ impl<T> LList<T> {
     fn insert_before(&mut self, before: NonNull<LListNode<T>>, node: Box<LListNode<T>>) {
         let node_ptr = NonNull::new(Box::into_raw(node)).unwrap();
 
+        // SAFETY: before and its predecessor are live nodes owned by this
+        // list; the writes splice the freshly-leaked node between them.
         unsafe {
             let before_ptr = before.as_ptr();
             let prev_ptr = (*before_ptr).prev.unwrap().as_ptr();
@@ -433,6 +461,8 @@ impl<T> LList<T> {
 
     /// Check if the list is empty
     pub fn is_empty(&self) -> bool {
+        // SAFETY: reads only the head sentinel's prev field; the sentinel
+        // outlives &self.
         unsafe {
             let head_ptr = self.head.as_ptr();
             let self_ptr = self.head;
@@ -442,6 +472,8 @@ impl<T> LList<T> {
 
     /// Get the first node in the list (not the head sentinel)
     pub fn first_node(&self) -> Option<&LListNode<T>> {
+        // SAFETY: head sentinel is alive for &self; first is either the
+        // sentinel itself (empty) or a live owned node.
         unsafe {
             let head_ptr = self.head.as_ptr();
             let first = (*head_ptr).next?;
@@ -457,6 +489,8 @@ impl<T> LList<T> {
 
     /// Get the last node in the list
     pub fn last_node(&self) -> Option<&LListNode<T>> {
+        // SAFETY: head sentinel is alive for &self; last is either the
+        // sentinel itself (empty) or a live owned node.
         unsafe {
             let head_ptr = self.head.as_ptr();
             let last = (*head_ptr).prev?;
@@ -479,6 +513,8 @@ impl<T> LList<T> {
 
     /// Remove and return the first item from the list
     pub fn remove_first(&mut self) -> Option<T> {
+        // SAFETY: unlinks a live non-sentinel node whose neighbors stay put,
+        // then reclaims exactly the Box leaked at add time via from_raw.
         unsafe {
             let head_ptr = self.head.as_ptr();
             let first = (*head_ptr).next?;
@@ -517,6 +553,9 @@ impl<T> LList<T> {
             return;
         }
 
+        // SAFETY: both lists hold live sentinels under &mut self; splicing
+        // moves other's whole chain into self, then re-self-loops other's
+        // sentinel so it stays a valid empty list. No node is dropped here
         unsafe {
             let self_head = self.head.as_ptr();
             let other_head = other.head.as_ptr();
@@ -598,6 +637,8 @@ impl<T> Drop for LList<T> {
         self.clear();
 
         // Then drop the head node
+        // SAFETY: clear() emptied the chain, so this from_raw recovers
+        // exactly the sentinel Box leaked in new().
         unsafe {
             let _ = Box::from_raw(self.head.as_ptr());
         }
@@ -623,6 +664,8 @@ pub struct LListIter<'a, T> {
 
 impl<'a, T> LListIter<'a, T> {
     fn new(list: &'a LList<T>) -> Self {
+        // SAFETY: reads the head sentinel's next link; sentinel outlives
+        // the iterator borrow of the list.
         unsafe {
             let head_ptr = list.head.as_ptr();
             let first = (*head_ptr).next;
@@ -644,6 +687,8 @@ impl<'a, T> Iterator for LListIter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // SAFETY: current nodes are list-owned and alive for 'a; advancing
+        // follows the same links without dropping or mutating nodes.
         unsafe {
             let current = self.current?;
             let current_ptr = current.as_ptr();

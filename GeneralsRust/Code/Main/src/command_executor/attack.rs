@@ -82,11 +82,12 @@ impl<'a> CommandExecutor<'a> {
             2 => Team::China,
             _ => return CommandResult::InvalidTarget,
         };
-        // The command wire value only carries the faction. Resolve it once to
-        // the concrete live Team instance and retain that identity for the
-        // AttackSquad re-acquire path. C++ stores the `Team*`, never a faction.
+        // The command wire value only carries the faction. C++ AIGroup.cpp
+        // stores the `Team*` in AIAttackSquadState; the persistent priority
+        // tag is the faction name. Named live squads still steer re-acquire
+        // via choose_attack_team_victim below.
         let enemy_team_name = self.game_logic.attack_team_identity_for_faction(enemy_team);
-        let tag = attack_team_persist_tag(&enemy_team_name);
+        let tag = attack_team_persist_tag(enemy_team.get_name());
         let mut any = false;
         for &unit_id in units {
             let (alive, skip_struct, my_team) = match self.game_logic.host_object(unit_id) {
@@ -457,35 +458,27 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
-        // Wave 232: stop last-writes via GameLogic unit_command_stop.
-        // C++ AIGroup::groupIdle (AIGroup.cpp:2030-2084):
-        // members with AI: aiIdle + stealth mood delay;
-        // members without AI: contain->iterateContained(makeMemberStop);
-        // then SpawnBehavior::orderSlavesToGoIdle.
         let mut extra_stop: Vec<ObjectId> = Vec::new();
-        let mut hive_ids: Vec<ObjectId> = Vec::new();
-        for &unit_id in units {
-            let Some(unit) = self.game_logic.host_object(unit_id) else {
-                continue;
-            };
+        let mut hive_ids = extra_stop.clone();
+        for &uid in units {
+            let Some(unit) = self.game_logic.host_object(uid) else { continue };
             let has_ai = unit.can_move()
-                && !unit.is_kind_of(crate::game_logic::KindOf::Immobile)
-                && !unit.is_kind_of(crate::game_logic::KindOf::Structure);
+                && !(unit.is_kind_of(KindOf::Immobile) || unit.is_kind_of(KindOf::Structure));
             if !has_ai {
-                for p in unit.contained_units() {
-                    extra_stop.push(p);
-                }
+                extra_stop.extend(unit.contained_units());
             }
             if unit.hive_slave_count > 0 {
-                hive_ids.push(unit_id);
+                hive_ids.push(uid);
             }
         }
+        self.apply_player_stealth_mood_delay(units);
         for &unit_id in units {
             let _ = self.game_logic.unit_command_stop(unit_id);
         }
         for p in extra_stop {
             let _ = self.game_logic.unit_command_stop(p);
         }
+        // C++ SpawnBehavior::orderSlavesToGoIdle after the member idle pass.
         for hive_id in hive_ids {
             if let Some(site) = self.game_logic.host_object_mut(hive_id) {
                 let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
@@ -493,7 +486,6 @@ impl<'a> CommandExecutor<'a> {
                 );
             }
         }
-        self.apply_player_stealth_mood_delay(units);
         CommandResult::Success
     }
 
@@ -779,6 +771,21 @@ fn parse_attack_team_persist(tag: Option<&str>) -> Option<&str> {
 }
 
 impl crate::game_logic::GameLogic {
+    /// AIGroup.cpp stores the concrete `Team*`; our wire tag may carry either
+    /// the faction alias (`GLA`) or the C++ default instance name
+    /// (`teamGLA`, Player.cpp). Resolve to whichever form live members
+    /// answer to, preferring the literal needle so named squads never widen.
+    pub(crate) fn canonical_attack_team_census_name(&self, name: &str) -> String {
+        if !self.host_script_team_census_member_ids(name).is_empty() {
+            return name.to_string();
+        }
+        Self::resolve_host_team_name(name)
+            .map(|faction| format!("team{}", faction.get_name()))
+            .unwrap_or_else(|| name.to_string())
+    }
+}
+
+impl crate::game_logic::GameLogic {
     /// Resolve a faction-only command operand to one concrete C++ Team
     /// instance. Stable ObjectID order mirrors the hard-difficulty squad pick.
     fn attack_team_identity_for_faction(&self, faction: crate::game_logic::Team) -> String {
@@ -909,15 +916,19 @@ impl crate::game_logic::GameLogic {
             if !o.is_alive() {
                 continue;
             }
-            let Some(team_name) = parse_attack_team_persist(o.attack_priority_set.as_deref())
+            let Some(raw_team_name) = parse_attack_team_persist(o.attack_priority_set.as_deref())
             else {
                 continue;
             };
+            // C++ keeps the concrete Team*; our wire tag may carry the faction
+            // alias ("GLA") while live members answer to the default instance
+            // name ("teamGLA"). Resolve once, keep the stored tag verbatim.
+            let team_name = self.canonical_attack_team_census_name(raw_team_name);
             if !matches!(o.ai_state, AIState::Attacking | AIState::Idle) {
                 continue;
             }
             let team_members: HashSet<ObjectId> = self
-                .host_script_team_census_member_ids(team_name)
+                .host_script_team_census_member_ids(&team_name)
                 .into_iter()
                 .map(ObjectId)
                 .collect();
@@ -932,12 +943,12 @@ impl crate::game_logic::GameLogic {
             let shots = o.max_shots_to_fire;
             let tag = o.attack_priority_set.clone().unwrap_or_default();
             let from_player = self.attack_team_cmd_from_player(id);
-            if let Some(tid) = self.choose_attack_team_victim(id, team_name, from_player) {
+            if let Some(tid) = self.choose_attack_team_victim(id, &team_name, from_player) {
                 jobs.push((id, tid, shots, tag));
             }
         }
         for (id, tid, shots, tag) in jobs {
-            let _ = self.unit_command_attack_soft(id, tid);
+            let ok = self.unit_command_attack_soft(id, tid);
             if let Some(unit) = self.host_object_mut(id) {
                 unit.set_max_shots_to_fire(shots);
                 unit.auto_acquire_when_idle = true;

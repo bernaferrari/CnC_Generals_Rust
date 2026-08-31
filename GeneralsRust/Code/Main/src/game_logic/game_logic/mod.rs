@@ -174,6 +174,7 @@ mod skirmish_starting_unit_residual_tests;
 /// Source-scan tests that previously `include_str!` the monolith use this.
 #[cfg(test)]
 pub const GAME_LOGIC_FACADE_SRC: &str = concat!(
+    include_str!("../world_scripts/unit_commands.rs"),
     include_str!("crate_tick.rs"),
     include_str!("player.rs"),
     include_str!("host.rs"),

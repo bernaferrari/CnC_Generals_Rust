@@ -381,6 +381,8 @@ fn xfer_tree_save_record_cpp(
     xfer.xfer_real(&mut record.angular_acceleration)?;
     xfer_vec3_value(xfer, &mut record.topple_direction)?;
     let mut topple_state = record.topple_state as i32;
+    // SAFETY: `topple_state` is a live local i32; size_of::<i32> bounds the
+    // SAFETY: pointer exactly as the xfer_user contract requires.
     unsafe {
         xfer.xfer_user(
             (&mut topple_state as *mut i32).cast::<u8>(),
@@ -733,6 +735,9 @@ fn xfer_terrain_visual_state(
             height_data.resize(height_map_len.max(0) as usize, 0);
         }
         if height_map_len > 0 {
+            // SAFETY: `height_data` is a Vec sized to height_map_len bytes on the load
+            // SAFETY: path and non-empty otherwise, so as_mut_ptr() is valid for exactly
+            // SAFETY: height_map_len writable bytes during this synchronous call.
             unsafe {
                 xfer.xfer_user(height_data.as_mut_ptr(), height_map_len as usize)?;
             }

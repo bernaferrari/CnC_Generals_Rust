@@ -192,6 +192,9 @@ impl W3DFontLibrary {
     }
 
     pub fn next_font(&self, font: GameFontHandle) -> Option<GameFontHandle> {
+        // SAFETY: the handle is a NonNull minted by this manager for a GameFont
+        // SAFETY: it owns in self.fonts (heap Box, stable address), so the
+        // SAFETY: pointer is valid and only the `next` link is read.
         unsafe { font.as_ref().next }
     }
 
@@ -225,6 +228,9 @@ impl W3DFontLibrary {
     }
 
     fn link_font(&mut self, handle: GameFontHandle) {
+        // SAFETY: handle was minted for a GameFont this manager owns (stable
+        // SAFETY: heap Box in self.fonts) and no other reference is live, so
+        // SAFETY: writing the `next` link through the unique pointer is sound.
         unsafe {
             handle.as_mut().next = self.font_list;
         }

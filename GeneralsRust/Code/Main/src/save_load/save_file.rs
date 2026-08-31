@@ -680,6 +680,8 @@ fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<PathBuf> {
         return None;
     }
     let mut buffer = vec![0u8; data_size as usize];
+    // SAFETY: buffer is an owned Vec sized to the map block's data_size;
+    // xfer_user fills exactly buffer.len() bytes.
     unsafe {
         xfer.xfer_user(buffer.as_mut_ptr(), buffer.len()).ok()?;
     }
@@ -1277,6 +1279,8 @@ impl SaveFileManager {
                         write_null_snapshot_version(xfer)?;
                         if !ghost_bytes.is_empty() {
                             let mut bytes = ghost_bytes.clone();
+                            // SAFETY: bytes is an owned clone; xfer_user
+                            // writes exactly its length during save.
                             unsafe {
                                 xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
                                     .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
@@ -1289,6 +1293,8 @@ impl SaveFileManager {
                             write_null_snapshot_version(xfer)
                         } else {
                             let mut bytes = game_client_bytes.clone();
+                            // SAFETY: owned byte vector of exact
+                            // length handed to the save writer.
                             unsafe {
                                 xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
                                     .map_err(|e| SaveLoadError::Serialization(e.to_string()))
@@ -1300,6 +1306,8 @@ impl SaveFileManager {
                             write_null_snapshot_version(xfer)
                         } else {
                             let mut bytes = particle_system_bytes.clone();
+                            // SAFETY: owned byte vector of exact length
+                            // handed to the save writer.
                             unsafe {
                                 xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
                                     .map_err(|e| SaveLoadError::Serialization(e.to_string()))
@@ -1311,6 +1319,8 @@ impl SaveFileManager {
                             write_null_snapshot_version(xfer)
                         } else {
                             let mut bytes = terrain_visual_bytes.clone();
+                            // SAFETY: owned byte vector of exact length
+                            // handed to the save writer.
                             unsafe {
                                 xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
                                     .map_err(|e| SaveLoadError::Serialization(e.to_string()))
@@ -2618,6 +2628,8 @@ mod tests {
                 .expect("object TOC id");
             xfer.begin_block().expect("object block");
             let mut dummy = [0u8, 1, 2, 3];
+            // SAFETY: dummy is a stack array of exactly its own length;
+            // test-only save round-trip.
             unsafe {
                 xfer.xfer_user(dummy.as_mut_ptr(), dummy.len())
                     .expect("object bytes");
@@ -2808,6 +2820,8 @@ mod tests {
             xfer.xfer_int(&mut game_mode).expect("game mode");
             xfer.begin_block().expect("begin embed");
             let mut map_bytes = b"SCRATCH-CUSTOM".to_vec();
+            // SAFETY: map_bytes is an owned Vec; xfer_user reads exactly
+            // its len for this embedded-map fixture.
             unsafe {
                 xfer.xfer_user(map_bytes.as_mut_ptr(), map_bytes.len())
                     .expect("embed scratch");

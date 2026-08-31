@@ -261,6 +261,8 @@ mod tests {
     #[test]
     fn test_header_magic() {
         let header = TransportMessageHeader::new();
+        // SAFETY: `header` is a live local; `addr_of!` + `read_unaligned`
+        // avoids the `repr(C, packed)` unaligned-field UB of a plain read.
         let magic = unsafe { std::ptr::addr_of!(header.magic).read_unaligned() };
         assert_eq!(magic, 0xF00D);
         assert!(header.is_valid());
@@ -272,6 +274,8 @@ mod tests {
         assert_eq!(msg.length, 0);
         assert_eq!(msg.addr, 0);
         assert_eq!(msg.port, 0);
+        // SAFETY: `msg` is a live local; `read_unaligned` is required and
+        // sound for the packed header's `magic` field.
         let magic = unsafe { std::ptr::addr_of!(msg.header.magic).read_unaligned() };
         assert_eq!(magic, GENERALS_MAGIC_NUMBER);
     }
@@ -300,6 +304,8 @@ mod tests {
         msg.set_data(b"Test data").unwrap();
 
         msg.compute_crc();
+        // SAFETY: `msg` is a live local; `read_unaligned` is required and
+        // sound for the packed header's `crc` field.
         let crc = unsafe { std::ptr::addr_of!(msg.header.crc).read_unaligned() };
         assert_ne!(crc, 0);
     }
@@ -337,8 +343,12 @@ mod tests {
         msg2.set_data(b"Same data").unwrap();
         msg2.compute_crc();
 
+        // SAFETY: live locals; `read_unaligned` is required and sound for
+        // the packed headers' `crc` fields.
         let crc1 = unsafe { std::ptr::addr_of!(msg1.header.crc).read_unaligned() };
-        let crc2 = unsafe { std::ptr::addr_of!(msg2.header.crc).read_unaligned() };
+        let crc2 =
+            // SAFETY: see above — packed field requires unaligned read.
+            unsafe { std::ptr::addr_of!(msg2.header.crc).read_unaligned() };
         assert_eq!(crc1, crc2);
     }
 

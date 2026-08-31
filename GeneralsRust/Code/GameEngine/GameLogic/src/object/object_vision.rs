@@ -153,8 +153,12 @@ impl Object {
                     let Some(contain) = container_guard.get_contain() else {
                         return false;
                     };
+                    // Rust-only re-entrancy guard: look() can run while the
+                    // caller already holds this contain mutex (attach paths);
+                    // a blocking lock would self-deadlock. Under contention
+                    // the caller is mid-attach, so let the reveal proceed.
                     contain
-                        .lock()
+                        .try_lock()
                         .ok()
                         .map(|contain_guard| !contain_guard.is_garrisonable())
                         .unwrap_or(false)

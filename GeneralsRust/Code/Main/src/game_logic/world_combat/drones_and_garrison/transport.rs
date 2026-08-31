@@ -175,9 +175,15 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
-            attacker.set_target(Some(target_id));
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            // The rider stays Docked: C++ TransportContain never rewrites an
+            // occupant's AI on the fire path — the container holds the rider
+            // (AI_BUSY per AIUpdate.cpp:4006 privateBusy), and
+            // isPassengerAllowedToFire (TransportContain.cpp:576-578) only
+            // gates who may discharge.  Stamp only the order target:
+            // Object::set_target would force AIState::Attacking
+            // (orders.rs:30-47) and eject the rider from its Docked state
+            // (garrison fire path is the sibling convention).
+            attacker.set_order_target(Some(target_id));
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(passenger_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(passenger_id, 2);

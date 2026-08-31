@@ -659,7 +659,10 @@ struct ShadowMatrixData {
     _padding: f32,
 }
 
+// SAFETY: `#[repr(C)]` struct of matrix f32 fields plus explicit _padding — no
+// SAFETY: padding holes, any bit pattern valid for raw GPU upload.
 unsafe impl bytemuck::Pod for ShadowMatrixData {}
+// SAFETY: Zero bits decode as valid (degenerate) matrix/scalars; no niches.
 unsafe impl bytemuck::Zeroable for ShadowMatrixData {}
 
 #[cfg(test)]

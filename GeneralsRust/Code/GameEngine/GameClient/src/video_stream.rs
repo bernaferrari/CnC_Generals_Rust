@@ -188,6 +188,11 @@ impl VideoStreamInterface for VideoStream {
                 let src_index = (y * copy_width + x) * 4;
                 let rgba = &self.decoded_rgba[src_index..src_index + 4];
                 let dst_index = y * pitch + x * bytes_per_pixel;
+                // SAFETY: dst comes from buffer.lock() (null-checked above) into the
+                // SAFETY: locked backing store; dst_index stays within pitch*height because
+                // SAFETY: max_width/max_height clamp against buffer dimensions and
+                // SAFETY: bytes_per_pixel matches the buffer format handled in this match.
+
                 unsafe {
                     match buffer.format() {
                         crate::video_buffer::VideoBufferType::R8G8B8 => {

@@ -43,6 +43,9 @@ fn xfer_weapon_crc_like_cpp(xfer: &mut dyn Xfer, weapon: &crate::weapon::Weapon)
     let _ = xfer.xfer_ascii_string(&mut name);
 
     let mut wslot = snap.wslot;
+    // SAFETY: `wslot` is a fully initialized stack local of exactly
+    // `size_of::<i32>()` bytes; `xfer_user` only reads/writes that many bytes
+    // through the pointer for the duration of the call.
     unsafe {
         let _ = xfer.xfer_user(
             (&mut wslot as *mut i32).cast::<u8>(),
@@ -97,6 +100,8 @@ fn xfer_matrix3d_user_blob(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
             blob[row * 4 + col] = cols[col * 4 + row];
         }
     }
+    // SAFETY: `blob` is a fully initialized `[f32; 12]` stack array; the
+    // xfer reads/writes exactly its 48 bytes within this call.
     unsafe {
         let _ = xfer.xfer_user(
             blob.as_mut_ptr().cast::<u8>(),
@@ -712,6 +717,8 @@ impl Snapshot for Object {
 
         // C++ xferUser(&m_id, sizeof(m_id)); ObjectID is UnsignedInt.
         let mut id = self.id;
+        // SAFETY: `id` is an initialized stack `ObjectID`; exactly
+        // `size_of::<ObjectID>()` bytes are transferred here.
         unsafe {
             let _ = xfer.xfer_user(
                 (&mut id as *mut ObjectID).cast::<u8>(),
@@ -721,6 +728,8 @@ impl Snapshot for Object {
 
         // C++ xferUser(&m_objectUpgradesCompleted, sizeof(Int64)).
         let mut upgrades = (self.object_upgrades_completed.bits() & 0xFFFF_FFFF_FFFF_FFFF) as i64;
+        // SAFETY: `upgrades` is an initialized stack `i64`; exactly
+        // `size_of::<i64>()` bytes are transferred here.
         unsafe {
             let _ = xfer.xfer_user(
                 (&mut upgrades as *mut i64).cast::<u8>(),
@@ -734,6 +743,8 @@ impl Snapshot for Object {
                 let mut xp = guard.get_current_experience();
                 let _ = xfer.xfer_int(&mut xp);
                 let mut level = guard.get_veterancy_level() as i32;
+                    // SAFETY: `level` is an initialized stack `i32`; exactly
+                    // `size_of::<i32>()` bytes are transferred here.
                 unsafe {
                     let _ = xfer.xfer_user(
                         (&mut level as *mut i32).cast::<u8>(),
@@ -749,6 +760,8 @@ impl Snapshot for Object {
         } else {
             0.0
         };
+        // SAFETY: `health` is an initialized stack `f32`; exactly
+        // `size_of::<f32>()` bytes are transferred here.
         unsafe {
             let _ = xfer.xfer_user(
                 (&mut health as *mut f32).cast::<u8>(),
@@ -764,6 +777,8 @@ impl Snapshot for Object {
         } else {
             1.0
         };
+        // SAFETY: `damage_scalar` is an initialized stack `f32`; exactly
+        // `size_of::<f32>()` bytes are transferred here.
         unsafe {
             let _ = xfer.xfer_user(
                 (&mut damage_scalar as *mut f32).cast::<u8>(),

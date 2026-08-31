@@ -22,6 +22,7 @@ fn read_string(root: HKEY, path: &str, key: &str, val: &mut String) -> bool {
         return false;
     }
     let mut handle = HKEY::default();
+    // SAFETY: [Category 8 — FFI] path is a NUL-terminated CString; out handle is a valid HKEY slot.
     let result = unsafe {
         RegOpenKeyExA(
             root,
@@ -38,6 +39,7 @@ fn read_string(root: HKEY, path: &str, key: &str, val: &mut String) -> bool {
     let mut buffer = [0u8; 256];
     let mut size: u32 = buffer.len() as u32;
     let mut value_type: u32 = 0;
+    // SAFETY: [Category 8 — FFI] key name is NUL-terminated; buffer/size describe exactly the local storage passed in.
     let query = unsafe {
         RegQueryValueExA(
             handle,
@@ -48,6 +50,7 @@ fn read_string(root: HKEY, path: &str, key: &str, val: &mut String) -> bool {
             Some(&mut size),
         )
     };
+    // SAFETY: [Category 8 — FFI] handle came from a successful open/create and is closed once.
     unsafe {
         let _ = RegCloseKey(handle);
     }
@@ -73,6 +76,7 @@ fn read_u32(root: HKEY, path: &str, key: &str, val: &mut u32) -> bool {
         return false;
     }
     let mut handle = HKEY::default();
+    // SAFETY: [Category 8 — FFI] path is a NUL-terminated CString; out handle is a valid HKEY slot.
     let result = unsafe {
         RegOpenKeyExA(
             root,
@@ -89,6 +93,7 @@ fn read_u32(root: HKEY, path: &str, key: &str, val: &mut u32) -> bool {
     let mut buffer: u32 = 0;
     let mut size: u32 = std::mem::size_of::<u32>() as u32;
     let mut value_type: u32 = 0;
+    // SAFETY: [Category 8 — FFI] key name is NUL-terminated; buffer/size describe exactly the local storage passed in.
     let query = unsafe {
         RegQueryValueExA(
             handle,
@@ -99,6 +104,7 @@ fn read_u32(root: HKEY, path: &str, key: &str, val: &mut u32) -> bool {
             Some(&mut size),
         )
     };
+    // SAFETY: [Category 8 — FFI] handle came from a successful open/create and is closed once.
     unsafe {
         let _ = RegCloseKey(handle);
     }
@@ -118,6 +124,7 @@ fn write_string(root: HKEY, path: &str, key: &str, val: &str) -> bool {
         return false;
     }
     let mut handle = HKEY::default();
+    // SAFETY: [Category 8 — FFI] path is NUL-terminated; out handle slot is valid; standard registry key creation.
     let result = unsafe {
         RegCreateKeyExA(
             root,
@@ -136,6 +143,7 @@ fn write_string(root: HKEY, path: &str, key: &str, val: &str) -> bool {
     }
 
     let data = val_c.unwrap();
+    // SAFETY: [Category 8 — FFI] name is NUL-terminated; data ptr+len match the value being stored.
     let set = unsafe {
         RegSetValueExA(
             handle,
@@ -146,6 +154,7 @@ fn write_string(root: HKEY, path: &str, key: &str, val: &str) -> bool {
             data.as_bytes_with_nul().len() as u32,
         )
     };
+    // SAFETY: [Category 8 — FFI] handle came from a successful open/create and is closed once.
     unsafe {
         let _ = RegCloseKey(handle);
     }
@@ -160,6 +169,7 @@ fn write_u32(root: HKEY, path: &str, key: &str, val: u32) -> bool {
         return false;
     }
     let mut handle = HKEY::default();
+    // SAFETY: [Category 8 — FFI] path is NUL-terminated; out handle slot is valid; standard registry key creation.
     let result = unsafe {
         RegCreateKeyExA(
             root,
@@ -176,6 +186,7 @@ fn write_u32(root: HKEY, path: &str, key: &str, val: u32) -> bool {
     if result.is_err() {
         return false;
     }
+    // SAFETY: [Category 8 — FFI] name is NUL-terminated; data ptr+len match the value being stored.
     let set = unsafe {
         RegSetValueExA(
             handle,
@@ -186,6 +197,7 @@ fn write_u32(root: HKEY, path: &str, key: &str, val: u32) -> bool {
             std::mem::size_of::<u32>() as u32,
         )
     };
+    // SAFETY: [Category 8 — FFI] handle came from a successful open/create and is closed once.
     unsafe {
         let _ = RegCloseKey(handle);
     }

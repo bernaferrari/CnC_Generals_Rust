@@ -18,6 +18,7 @@ fn platform_double_click_time_ms() -> Option<u128> {
         unsafe extern "system" {
             fn GetDoubleClickTime() -> u32;
         }
+        // SAFETY: GetDoubleClickTime is a parameterless user32 query.
         let ms = unsafe { GetDoubleClickTime() };
         return (ms > 0).then_some(u128::from(ms));
     }
@@ -35,6 +36,8 @@ fn platform_double_click_time_ms() -> Option<u128> {
 fn macos_double_click_interval_ms() -> Option<u128> {
     use std::ffi::c_void;
     #[link(name = "objc")]
+    // SAFETY: objc runtime ABI declarations match Apple headers; the
+    // msg_send below uses interned static selectors only.
     unsafe extern "C" {
         fn objc_getClass(name: *const i8) -> *mut c_void;
         fn sel_registerName(name: *const i8) -> *mut c_void;

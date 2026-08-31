@@ -564,10 +564,11 @@ fn seed_set_switch_locomotor(name: &str) {
         return;
     }
     let (speed, accel, turn_deg, speed_dmg, accel_dmg, braking, appearance) = match name {
+        // INIZH Locomotor.ini retail values (Speed 25 / SpeedDamaged 10).
         "FastHumanLocomotor" => ("25", "100", "500", "15", "50", None, "TWO_LEGS"),
         "WorkerShoesLocomotor" => ("30", "100", "500", "15", "50", None, "TWO_LEGS"),
-        "PanicHumanLocomotor" => ("50", "200", "600", "25", "100", Some("80"), "TWO_LEGS"),
-        "WanderHumanLocomotor" => ("20", "80", "400", "12", "40", None, "TWO_LEGS"),
+        "PanicHumanLocomotor" => ("25", "100", "350", "10", "50", Some("100"), "TWO_LEGS"),
+        "WanderHumanLocomotor" => ("10", "100", "350", "10", "50", None, "TWO_LEGS"),
         "NuclearOverlordLocomotor" => ("30", "15", "60", "30", "15", None, "TREADS"),
         "NuclearBattleMasterLocomotor" => ("35", "1000", "180", "32", "1000", None, "TREADS"),
         "AirplaneTaxiingLocomotor" | "RaptorTaxiingLocomotor" => {
@@ -594,10 +595,12 @@ fn seed_set_switch_locomotor(name: &str) {
 
 fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
     let (speed, accel, turn_deg, speed_dmg, accel_dmg, braking) = match name {
+        // INIZH Locomotor.ini: PanicHuman Speed 25 (SpeedDamaged 10, TurnRate
+        // 350, Accel 100/50, Braking 100); WanderHuman Speed 10.
         "FastHumanLocomotor" => (25.0, 100.0, 500.0, 15.0, 50.0, LOCO_BIGNUM_BRAKE),
         "WorkerShoesLocomotor" => (30.0, 100.0, 500.0, 15.0, 50.0, LOCO_BIGNUM_BRAKE),
-        "PanicHumanLocomotor" => (50.0, 200.0, 600.0, 25.0, 100.0, 80.0),
-        "WanderHumanLocomotor" => (20.0, 80.0, 400.0, 12.0, 40.0, LOCO_BIGNUM_BRAKE),
+        "PanicHumanLocomotor" => (25.0, 100.0, 350.0, 10.0, 50.0, 100.0),
+        "WanderHumanLocomotor" => (10.0, 100.0, 350.0, 10.0, 50.0, 100.0),
         "NuclearOverlordLocomotor" => (30.0, 15.0, 60.0, 30.0, 15.0, LOCO_BIGNUM_BRAKE),
         "NuclearBattleMasterLocomotor" => (35.0, 1000.0, 180.0, 32.0, 1000.0, LOCO_BIGNUM_BRAKE),
         "BattleMasterLocomotor" => (25.0, 1000.0, 180.0, 25.0, 1000.0, LOCO_BIGNUM_BRAKE),
@@ -608,9 +611,11 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         "RaptorSupersonicLocomotor" => (250.0, 180.0, 90.0, 250.0, 180.0, LOCO_BIGNUM_BRAKE),
         "AuroraSupersonicLocomotor" => (320.0, 200.0, 80.0, 320.0, 200.0, LOCO_BIGNUM_BRAKE),
         "MIGSupersonicLocomotor" => (230.0, 160.0, 90.0, 230.0, 160.0, LOCO_BIGNUM_BRAKE),
-        "CombatBikeTerroristGroundLocomotor" | "CombatBikeTerroristCliffLocomotor" => {
-            (40.0, 40.0, 90.0, 30.0, 35.0, 40.0)
-        }
+        // INIZH Locomotor.ini: SET_SLUGGISH is heterogeneous — ground
+        // ";25% slower" Speed 90 (SpeedDamaged 68, Accel 68/60) vs cliff
+        // Speed 60 (SpeedDamaged 45, Accel 50/40); TurnRate 120, Braking 60.
+        "CombatBikeTerroristGroundLocomotor" => (90.0, 68.0, 120.0, 68.0, 60.0, 60.0),
+        "CombatBikeTerroristCliffLocomotor" => (60.0, 50.0, 120.0, 45.0, 40.0, 60.0),
         _ => return None,
     };
     let turn = turn_deg * DEG_TO_RAD;
@@ -1073,6 +1078,8 @@ mod tests {
             sluggish.locomotor_name,
             "CombatBikeTerroristGroundLocomotor"
         );
-        assert!((sluggish.max_speed - 40.0).abs() < 0.05);
+        // INIZH Locomotor.ini CombatBikeTerroristGroundLocomotor Speed=90
+        // (";25% slower" than the SET_NORMAL 120 ground member).
+        assert!((sluggish.max_speed - 90.0).abs() < 0.05);
     }
 }

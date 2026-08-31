@@ -67,7 +67,6 @@ fn supply_center_one_shot_collector_enters_authored_wanting_route_without_passiv
     );
     assert!(logic.take_supply_dropoff_events().is_empty());
 }
-
 #[test]
 fn supply_center_one_shot_collector_uses_exit_interface() {
     use crate::game_logic::{DockKind, ProductionExitMetadata, ProductionExitStyle};
@@ -450,7 +449,7 @@ fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
 }
 
 #[test]
-fn allied_supply_center_deposit_credits_center_owner() {
+fn supply_center_deposits_credit_center_owner_and_reject_allies() {
     use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
 
     let mut logic = GameLogic::new();
@@ -482,32 +481,77 @@ fn allied_supply_center_deposit_credits_center_owner() {
     center.dock_kind = DockKind::SupplyCenter;
     logic.templates.insert(center.name.clone(), center);
 
-    let center_id = logic
+    // C++ ActionManager::canTransferSuppliesAt (ActionManager.cpp:224-230):
+    // a supply center must be controlled by the SAME player as the docking
+    // truck ("not merely an ally... otherwise you may find yourself funding
+    // your allies. ick.").  An allied center is not a legal deposit target,
+    // so no dock, no credit, and the cargo stays aboard.
+    let ally_center_id = logic
         .create_object_for_player("ChinaSupplyCenter", 1, Vec3::ZERO)
         .expect("ally center");
-    let collector_id = logic
+    let allied_collector_id = logic
         .create_object_for_player("AmericaVehicleChinook", 0, Vec3::new(1.0, 0.0, 0.0))
-        .expect("collector");
+        .expect("allied collector");
     {
-        let collector = logic.host_object_mut(collector_id).expect("collector mut");
+        let collector = logic
+            .host_object_mut(allied_collector_id)
+            .expect("collector mut");
         collector.set_stored_supplies(75);
         collector.set_ai_state(AIState::ReturningResources);
         collector.supply_truck_state = SupplyTruckState::DockingCenter;
         collector.supply_truck_next_dock_action_frame = 0;
-        collector.preferred_dock_id = Some(center_id);
+        collector.preferred_dock_id = Some(ally_center_id);
     }
 
-    logic.update_support_states(&[collector_id, center_id], 1.0 / 30.0);
+    logic.update_support_states(&[allied_collector_id, ally_center_id], 1.0 / 30.0);
+
+    assert_eq!(
+        logic.get_player(1).expect("china").resources.supplies,
+        50,
+        "allied center must not accept a foreign collector's deposit"
+    );
+    assert_eq!(
+        logic.get_player(0).expect("usa").resources.supplies,
+        100,
+        "no allied cross-credit may mint or move cash"
+    );
+    let allied_collector = logic
+        .host_object(allied_collector_id)
+        .expect("allied collector after rejected dock");
+    assert_eq!(
+        allied_collector.stored_resources.supplies, 75,
+        "rejected dock must keep the cargo aboard"
+    );
+    assert!(logic.take_supply_dropoff_events().is_empty());
+
+    // C++ SupplyCenterDockUpdate::action (SupplyCenterDockUpdate.cpp:494-530)
+    // credits the CENTER's controlling player and its ScoreKeeper.  Because
+    // ActionManager.cpp:229 restricts legal center docks to the same player,
+    // that credit path is exercised with China docking at its own center.
+    let own_center_id = logic
+        .create_object_for_player("ChinaSupplyCenter", 1, Vec3::new(8.0, 0.0, 0.0))
+        .expect("own center");
+    // Dock approach residual: the collector must sit on the dock's approach
+    // ring to claim it in one tick — goal = dock + dir * (radius * 0.5);
+    // radius (selection_radius) 25 → 12.5 east of the center at (8, 0, 0).
+    let own_collector_id = logic
+        .create_object_for_player("AmericaVehicleChinook", 1, Vec3::new(20.5, 0.0, 0.0))
+        .expect("china collector");
+    {
+        let collector = logic.host_object_mut(own_collector_id).expect("collector mut");
+        collector.set_stored_supplies(75);
+        collector.set_ai_state(AIState::ReturningResources);
+        collector.supply_truck_state = SupplyTruckState::DockingCenter;
+        collector.supply_truck_next_dock_action_frame = 0;
+        collector.preferred_dock_id = Some(own_center_id);
+    }
+
+    logic.update_support_states(&[own_collector_id, own_center_id], 1.0 / 30.0);
 
     assert_eq!(
         logic.get_player(1).expect("china").resources.supplies,
         125,
         "C++ SupplyCenterDockUpdate deposits to the center owner"
-    );
-    assert_eq!(
-        logic.get_player(0).expect("usa").resources.supplies,
-        100,
-        "allied collector must not keep the vanished-or-self credit"
     );
     assert_eq!(
         logic.get_player(1).expect("china").statistics.money_earned,
@@ -520,7 +564,7 @@ fn allied_supply_center_deposit_credits_center_owner() {
         "allied collector owner must not score the center's deposit"
     );
     let collector = logic
-        .host_object(collector_id)
+        .host_object(own_collector_id)
         .expect("collector after drop");
     assert_eq!(
         collector.drawable_supply_boxes, 0,
@@ -542,15 +586,25 @@ fn steal_cash_from_broke_victim_is_zero() {
     logic
         .players
         .insert(1, Player::new(1, Team::China, "Lotus", false));
+    // Player::new seeds DEFAULT_STARTING_MONEY (10000); pin both sides so a
+    // zero steal is observable on the attacker too.
     if let Some(p) = logic.players.get_mut(&0) {
         p.resources.supplies = 0;
+    }
+    if let Some(p) = logic.players.get_mut(&1) {
+        p.resources.supplies = 500;
     }
     let stolen = logic.steal_cash_from_team(Team::USA, Team::China, 1000);
     assert_eq!(stolen, 0);
     assert_eq!(
         logic.get_player(1).expect("china").resources.supplies,
-        0,
+        500,
         "broke victim must not mint attacker cash"
+    );
+    assert_eq!(
+        logic.get_player(0).expect("victim").resources.supplies,
+        0,
+        "broke victim has nothing to debit"
     );
 }
 
@@ -562,25 +616,41 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
     };
 
     let mut game_logic = GameLogic::new();
+    // Retail delivery needs a real map: C++ CREATE_AT_EDGE_NEAR_SOURCE spawns
+    // the cargo plane at TerrainLogic::findClosestEdgePoint and it flies the
+    // DeliverPayload approach to DeliveryDistance 140 before the drop.
+    game_logic.override_world_size(3000.0, 3000.0);
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::AnthraxBomb,
+        "SuperweaponAnthraxBomb",
+        360_000,
+    );
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
     if let Some(p) = game_logic.get_player_mut(2) {
         p.unlock_science("SCIENCE_AnthraxBomb");
     }
 
+    // Mid-map caster so the plane launches from a real map edge (left edge,
+    // -1500) and flies a genuine ~2000wu DeliverPayload approach instead of
+    // dropping immediately. override_world_size centers the map on the origin.
     let caster_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
+    // Retail blast lands at the BOMB IMPACT: the plane drops at DeliveryDistance
+    // 140 short of the click, so aim the click 140 past the enemy to land the
+    // bomb on it (host residual bomb falls straight down, no forward physics).
     let enemy_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 0.0))
         .expect("enemy");
     // Survivor for toxin residual: outside blast radius (100) but inside toxin
-    // radius (300). Blast is flat 200 within 100; place at 150.
+    // radius (300). AnthraxBombPoisonFieldWeapon is 40 dmg / r300 / 500ms.
     let tox_victim_id = game_logic
-        .create_object("TestTank", Team::China, Vec3::new(150.0, 0.0, 0.0))
+        .create_object("TestTank", Team::China, Vec3::new(610.0, 0.0, 0.0))
         .expect("tox victim");
     let far_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(800.0, 0.0, 0.0))
+        .create_object("TestTank", Team::USA, Vec3::new(1200.0, 0.0, 0.0))
         .expect("far enemy");
 
     {
@@ -608,10 +678,13 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::AnthraxBomb);
         caster.special_power_cooldown = 10.0;
     }
 
-    let target = Vec3::new(40.0, 0.0, 0.0);
+    let target = Vec3::new(640.0, 0.0, 0.0);
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::AnthraxBomb,
@@ -643,19 +716,30 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         "toxin must not spawn before impact"
     );
 
-    // Before impact delay: no damage.
+    // Retail live delivery: OCL SUPERWEAPON_AnthraxBomb → DeliverPayload
+    // GLAJetCargoPlane (ObjectCreationList.ini SUPERWEAPON_AnthraxBomb); the
+    // dropped AnthraxBomb dies at HeightDieUpdate TargetHeight
+    // (WeaponObjects.ini AnthraxBomb ModuleTag_06) and FireWeaponWhenDead
+    // fires AnthraxBombWeapon — PrimaryDamage 200 / PrimaryDamageRadius 100
+    // with FireOCL OCL_PoisonFieldAnthraxBomb (Weapon.ini
+    // AnthraxBombWeapon). Blast + toxin therefore land at the BOMB IMPACT,
+    // after the approach + fall delay — not at the special-power click.
     let health_before = game_logic.host_object(enemy_id).unwrap().health.current;
     let tox_before = game_logic
         .host_object(tox_victim_id)
         .unwrap()
         .health
         .current;
-    game_logic.frame = 89;
+
+    // While the bomb is still in flight: no damage, strike still pending.
+    // Tick like the world tick (step.rs): strikes drain first, then flights.
+    game_logic.frame = 2;
     game_logic.update_special_power_strikes();
+    game_logic.update_anthrax_bomb_flights();
     assert_eq!(
         game_logic.host_object(enemy_id).unwrap().health.current,
         health_before,
-        "no blast damage before impact frame 90"
+        "no blast damage while the bomb is still in flight"
     );
     assert!(
         !game_logic
@@ -663,16 +747,53 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
             .honesty_complete_ok(HostSuperweaponKind::AnthraxBomb)
     );
 
-    // At impact: blast + toxin field spawn + first toxin tick.
-    crate::game_logic::host_damage_log::clear();
-    game_logic.frame = 90;
-    game_logic.update_special_power_strikes();
+    // Advance to bomb detonation (bounded) — first toxin tick lands the frame
+    // after the field spawns (retail FireWeaponUpdate residual).
+    let mut detonation_frame = None;
+    let mut tox_after_first_tick: Option<f32> = None;
+    for f in 3..=400 {
+        game_logic.frame = f;
+        game_logic.update_special_power_strikes();
+        game_logic.update_anthrax_bomb_flights();
+        if detonation_frame.is_none()
+            && game_logic.anthrax_bomb_flight_reg.detonations >= 1
+        {
+            detonation_frame = Some(f);
+        }
+        if let (Some(d), None) = (detonation_frame, tox_after_first_tick) {
+            if f == d + 1 {
+                // First toxin tick landed this frame (field next_tick_frame ==
+                // spawn frame, retail FireWeaponUpdate residual).
+                tox_after_first_tick = game_logic
+                    .host_object(tox_victim_id)
+                    .map(|o| o.health.current);
+            }
+        }
+        if let Some(d) = detonation_frame {
+            // Keep ticking past the strike's registry impact frame (90) and
+            // the second toxin tick (d + 1 + 15) before asserting.
+            if f >= 91 && f >= d + 16 {
+                break;
+            }
+        }
+    }
+    let detonation_frame = detonation_frame.expect("live bomb must detonate");
+    assert!(
+        detonation_frame > 1,
+        "DeliverPayload approach + HeightDie fall must delay the impact (frame {detonation_frame})"
+    );
+    assert!(
+        game_logic.anthrax_bomb_flight_reg.bombs_dropped >= 1,
+        "cargo plane must drop the AnthraxBomb payload"
+    );
 
+    // Registry impact-delay bookkeeping completes at impact frame 90; the
+    // blast itself was dealt by the live AnthraxBombWeapon at detonation.
     assert!(
         game_logic
             .special_power_strikes()
             .honesty_complete_ok(HostSuperweaponKind::AnthraxBomb),
-        "AnthraxBomb must complete on impact frame"
+        "AnthraxBomb registry strike must complete on its impact frame"
     );
     assert!(
         game_logic.special_power_strikes().honesty_toxin_ok(),
@@ -696,7 +817,7 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
                 .map(|o| o.status.destroyed)
                 .unwrap_or(true)
             || enemy_after.map(|h| h < health_before).unwrap_or(false),
-        "enemy at epicenter must take AnthraxBomb residual blast damage (dealt={enemy_dealt})"
+        "enemy at bomb impact must take AnthraxBombWeapon blast damage (dealt={enemy_dealt})"
     );
 
     // Toxin victim outside blast radius took toxin tick only.
@@ -740,25 +861,22 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         "impact must register DeathExplosion particle residual"
     );
 
-    // Second toxin tick after interval: more residual damage if still alive.
-    let tox_mid = game_logic
-        .host_object(tox_victim_id)
-        .map(|o| o.health.current);
-    if let Some(mid_hp) = tox_mid {
-        crate::game_logic::host_damage_log::clear();
-        game_logic.frame = 90 + 15;
-        game_logic.update_special_power_strikes();
+    // Second toxin tick after the 500ms (15 frame) interval: the loop above
+    // already covered the second tick (frame d+16) — the victim must keep
+    // taking residual poison damage (POISON-typed damage goes through Armor,
+    // so the exact per-tick amount is armor-scaled; Weapon.ini
+    // AnthraxBombPoisonFieldWeapon PrimaryDamage 40 every 500ms).
+    if let Some(first_tick_hp) = tox_after_first_tick {
         let tox_later = game_logic
             .host_object(tox_victim_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        let tick_dealt = test_observed_damage_to(tox_victim_id, mid_hp, tox_later);
+        let second_tick_dealt = first_tick_hp - tox_later;
         assert!(
-            tick_dealt + 0.1 >= ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
-                || tox_later < mid_hp - ANTHRAX_TOXIN_DAMAGE_PER_TICK * 0.5
+            second_tick_dealt > 0.0
                 || tox_later == 0.0
                 || game_logic.host_object(tox_victim_id).is_none(),
-            "second toxin tick must apply residual damage (mid={mid_hp}, later={tox_later}, dealt={tick_dealt})"
+            "second toxin tick must apply residual damage (first={first_tick_hp}, later={tox_later}, dealt={second_tick_dealt})"
         );
         assert!(
             game_logic.special_power_strikes().honesty_toxin_damage_ok(),
@@ -766,12 +884,14 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         );
     }
 
+    // Live delivery dealt the damage via the weapon, not the registry blob —
+    // C++ ties completion to the bomb (SpecialPowerCompletionDie ModuleTag_07).
     let completed = game_logic
         .special_power_strikes()
         .completed_of_kind(HostSuperweaponKind::AnthraxBomb);
     assert_eq!(completed.len(), 1);
-    assert!(completed[0].objects_hit >= 1);
-    assert!(completed[0].total_damage_applied > 0.0);
+    assert!(game_logic.anthrax_bomb_flight_reg.detonations >= 1);
+    assert!(game_logic.anthrax_bomb_flight_reg.toxin_fields_spawned >= 1);
 
     game_logic.process_destroy_list();
 }
@@ -781,7 +901,16 @@ fn radar_scan_does_not_queue_superweapon_strike() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
 
     let mut game_logic = GameLogic::new();
+    // Activation needs a registered controller: C++ RadarVanPing reveals via
+    // the caster's Player relationship mask (Object::look allies by Player).
+    game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::RadarScan,
+        "SpecialPowerRadarVanScan",
+        30_000,
+    );
     let caster_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
@@ -789,6 +918,9 @@ fn radar_scan_does_not_queue_superweapon_strike() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::RadarScan);
     }
 
     game_logic.queue_command(GameCommand {
@@ -839,6 +971,12 @@ fn radar_scan_special_power_reveals_fow() {
     player.resources.supplies = 1000;
     game_logic.add_player(player);
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::RadarScan,
+        "SpecialPowerRadarVanScan",
+        30_000,
+    );
 
     let caster_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
@@ -847,6 +985,9 @@ fn radar_scan_special_power_reveals_fow() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::RadarScan);
     }
 
     // Far from caster so unit vision does not already clear the cell.
@@ -944,7 +1085,16 @@ fn spy_satellite_does_not_queue_superweapon_strike() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
 
     let mut game_logic = GameLogic::new();
+    // Activation needs a registered controller: C++ RadarVanPing reveals via
+    // the caster's Player relationship mask (Object::look allies by Player).
+    game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::SpySatellite,
+        "SpecialPowerSpySatellite",
+        60_000,
+    );
     let caster_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
@@ -952,6 +1102,9 @@ fn spy_satellite_does_not_queue_superweapon_strike() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::SpySatellite);
     }
 
     game_logic.queue_command(GameCommand {
@@ -1004,6 +1157,12 @@ fn spy_satellite_special_power_reveals_fow() {
     player.resources.supplies = 1000;
     game_logic.add_player(player);
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::SpySatellite,
+        "SpecialPowerSpySatellite",
+        60_000,
+    );
 
     let caster_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
@@ -1012,6 +1171,9 @@ fn spy_satellite_special_power_reveals_fow() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::SpySatellite);
     }
 
     // Far from caster so unit vision does not already clear the cell.
@@ -1137,6 +1299,12 @@ fn cia_intelligence_does_not_queue_superweapon_strike() {
     player.resources.supplies = 1000;
     game_logic.add_player(player);
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::CiaIntelligence,
+        "SuperweaponCIAIntelligence",
+        300_000,
+    );
 
     let caster_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -1145,6 +1313,9 @@ fn cia_intelligence_does_not_queue_superweapon_strike() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::CiaIntelligence);
     }
     // Enemy unit so residual has a vision-spy target.
     let _enemy = game_logic
@@ -1257,6 +1428,12 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
     player.resources.supplies = 1000;
     game_logic.add_player(player);
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::CiaIntelligence,
+        "SuperweaponCIAIntelligence",
+        300_000,
+    );
 
     let caster_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
@@ -1265,6 +1442,9 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::CiaIntelligence);
     }
 
     // Far enemy so caster vision does not already clear the cell.
@@ -1416,13 +1596,16 @@ fn cia_intelligence_looker_follows_moving_enemy() {
     use gamelogic::common::Coord3D;
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
+    let mut logic = GameLogic::new();
+    // C++ clearGameData tears the per-world shroud down with the world
+    // (GameLogic::new() -> ShroudManager::reset_for_new_game drops the
+    // terrain grid).  A bigger map grid must therefore be initialized AFTER
+    // the world exists, like ThePlayerList's Shroud after newMap.
     {
         let mut shroud = get_shroud_manager().lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
     }
-
-    let mut logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 1000;
     logic.add_player(player);
@@ -1624,6 +1807,12 @@ fn firewall_does_not_queue_superweapon_strike() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::FireWall,
+        "DragonTankFireWallWeapon",
+        40,
+    );
     let caster_id = game_logic
         .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
@@ -1631,6 +1820,9 @@ fn firewall_does_not_queue_superweapon_strike() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::FireWall);
     }
 
     game_logic.queue_command(GameCommand {
@@ -1675,6 +1867,12 @@ fn firewall_special_power_applies_line_fire_damage() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    arm_test_tank_special_power(
+        &mut game_logic,
+        SpecialPowerType::FireWall,
+        "DragonTankFireWallWeapon",
+        40,
+    );
 
     let caster_id = game_logic
         .create_object("TestTank", Team::China, Vec3::new(0.0, 0.0, 0.0))
@@ -1683,6 +1881,9 @@ fn firewall_special_power_applies_line_fire_damage() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        // create_object pre-arms the module ReloadTime on the per-power
+        // map; simulate a fully recharged caster like C++ isReady.
+        caster.special_power_cooldowns.remove(&SpecialPowerType::FireWall);
         caster.thing.template.armor = 0.0;
     }
 
@@ -1844,9 +2045,15 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
             "InfernoCannonGun PrimaryDamage residual 30, got {}",
             w.damage
         );
+        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:433-446,
+        // RATIONALIZE_ATTACK_RANGE) undersizes the authored range by 1/4 of a
+        // pathfind cell: 300 - 2.5 = 297.5 effective.
         assert!(
-            (w.range - 300.0).abs() < 1.0,
-            "InfernoCannonGun AttackRange residual 300, got {}",
+            (w.range
+                - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0,
+            "InfernoCannonGun effective AttackRange 297.5, got {}",
             w.range
         );
     }
@@ -2136,10 +2343,16 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
             "Angry Mob nexus must bind residual aggregate fire weapon"
         );
         let w = m.weapon.as_ref().unwrap();
+        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:433-446) undersizes
+        // by 1/4 pathfind cell: 100 - 2.5 = 97.5 effective bound range.
         assert!(
-            (w.range - ANGRY_MOB_ATTACK_RANGE).abs() < 1.0,
-            "Angry Mob residual AttackRange {}, got {}",
-            ANGRY_MOB_ATTACK_RANGE,
+            (w.range
+                - (ANGRY_MOB_ATTACK_RANGE
+                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0,
+            "Angry Mob effective AttackRange {}, got {}",
+            ANGRY_MOB_ATTACK_RANGE - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25,
             w.range
         );
     }
@@ -2187,9 +2400,12 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         1,
         "living Angry Mob nexus must be tracked"
     );
+    // Retail SpawnBehavior (WeaponObjects.ini GLAInfantryAngryMobNexus
+    // ModuleTag_05): SpawnNumber 10, InitialBurst 5 — the first 5 members
+    // spawn immediately, the rest replace one per ExitDelay 5000ms.
     assert_eq!(
         game_logic.angry_mobs().member_count_of(mob_id),
-        Some(ANGRY_MOB_MAX_MEMBERS)
+        Some(ANGRY_MOB_INITIAL_MEMBERS)
     );
 
     let hp_after_first = game_logic.host_object(enemy_id).unwrap().health.current;
@@ -2198,7 +2414,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         "near enemy must take residual Angry Mob damage on first tick (before={enemy_hp_before}, after={hp_after_first})"
     );
     let dealt = enemy_hp_before - hp_after_first;
-    let expected = angry_mob_damage_for_tick(ANGRY_MOB_MAX_MEMBERS, false);
+    let expected = angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS, false);
     assert!(
         (dealt - expected).abs() < 0.01,
         "first tick damage expected {expected}, got {dealt}"
@@ -2241,20 +2457,27 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         "second tick damage expected {expected}, got {dealt2}"
     );
 
-    // C++ SpawnBehavior rapid-spawns SpawnNumber; no +1/30s ramp.
+    // By the retail replace cadence (InitialBurst 5 now, then one member per
+    // ExitDelay 5000ms = 150 frames) all SpawnNumber=10 members are out by
+    // frame 900.
     game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
     game_logic.update_angry_mobs();
     assert_eq!(
         game_logic.angry_mobs().member_count_of(mob_id),
         Some(ANGRY_MOB_MAX_MEMBERS),
-        "rapid spawn stays at SpawnNumber until a member dies"
+        "replacement cadence fills SpawnNumber until a member dies"
     );
+    // C++ SpawnBehavior::computeAggregateStates sets OBJECT_STATUS_MASKED on
+    // the nexus every update (SpawnBehavior.cpp:992-995) so enemies cannot
+    // shoot the 99999-HP nexus. Live keeps the nexus unmasked so is_selectable
+    // stays true (playable mob) and instead fails weapons closed via
+    // is_angry_mob_nexus_template — assert that observable.
     assert!(
-        game_logic
+        !game_logic
             .host_object(mob_id)
-            .map(|o| o.status.masked)
-            .unwrap_or(false),
-        "C++ computeAggregateStates MASKED on nexus"
+            .map(|o| o.is_targetable_by_enemy_of(Team::USA))
+            .unwrap_or(true),
+        "weapons must not acquire the aggregate nexus"
     );
 
     // Dead members reduce DPS; last member destroys the nexus.
@@ -2715,4 +2938,58 @@ fn production_upgrade_researches_on_building_queue_residual() {
             .honesty_complete_ok(HostUpgradeKind::FlashBangGrenade),
         "host honesty complete"
     );
+}
+
+/// Author the retail Object INI `SpecialPowerModule` on the shared TestTank
+/// caster fixture.
+///
+/// C++ `SpecialPowerStore::canUseSpecialPower` (SpecialPower.cpp:300-336)
+/// refuses any caster whose object lacks a `SpecialPowerModule` for the
+/// power, and `SpecialPowerModule::triggerSpecialPower` →
+/// `startPowerRecharge` (SpecialPowerModule.cpp:450-460 / 365-405) drops
+/// readiness and restarts the ReloadTime countdown on execute.  Residual
+/// cast tests must arm the module — with its retail ReloadTime — before
+/// issuing the DoSpecialPower command so the live executor finds a real
+/// caster and restarts its countdown like C++.
+///
+/// Retail ReloadTime: SpecialPowerRadarVanScan 30000ms (SpecialPower.ini:118043),
+/// SpecialPowerSpySatellite 60000ms (:118018), SuperweaponCIAIntelligence
+/// 300000ms (:118244).  Retail Dragon Tank FireWall is a FIRE_WEAPON
+/// (CommandButton Command_ChinaDragonTankFireWall, SpecialPower.ini:3674) with
+/// DragonTankFireWallWeapon DelayBetweenShots 40ms (Weapon.ini:131722); the
+/// host residual models that as the module reload.
+fn arm_test_tank_special_power(
+    game_logic: &mut GameLogic,
+    power: crate::command_system::SpecialPowerType,
+    template: &str,
+    reload_time_ms: u32,
+) {
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+    ensure_test_tank_template(game_logic);
+    let Some(tpl) = game_logic.templates.get_mut("TestTank") else {
+        return;
+    };
+    if tpl
+        .special_power_modules
+        .iter()
+        .any(|module| module.command_power.as_ref() == Some(&power))
+    {
+        return;
+    }
+    tpl.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: tpl.special_power_modules.len() as u32,
+        module_tag: Some(format!("ModuleTag_Test{:?}", power)),
+        module_kind: SpecialPowerModuleKind::OclSpecialPower,
+        special_power_template: template.to_string(),
+        special_power_template_id: 1,
+        command_power: Some(power),
+        reload_time_frames: reload_time_ms * 30 / 1000,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
 }

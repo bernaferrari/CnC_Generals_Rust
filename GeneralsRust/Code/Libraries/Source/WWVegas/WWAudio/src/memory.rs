@@ -134,5 +134,12 @@ impl Default for AudioMemoryManager {
 }
 
 // Safety: MemoryPool is thread-safe through internal synchronization
+// SAFETY: The only non-`Copy` field, `_allocated_blocks`, is an
+// `Arc<Mutex<Vec<*mut u8>>>`; the stored raw pointers are never
+// dereferenced through this type (the pool performs no allocation itself),
+// so moving a MemoryPool across threads is sound.
 unsafe impl Send for MemoryPool {}
+// SAFETY: Same reasoning as the Send impl: the raw pointers inside
+// `_allocated_blocks` are never dereferenced through this type, so sharing
+// `&MemoryPool` across threads is sound.
 unsafe impl Sync for MemoryPool {}

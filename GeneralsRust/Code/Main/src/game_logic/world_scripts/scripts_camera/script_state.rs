@@ -889,6 +889,17 @@ impl GameLogic {
             }
         }
 
+        // C++ script actions execute sequentially: CUSTOM_INDICATOR_COLOR
+        // writes land before a later FLASH reads getIndicatorColor
+        // (ScriptEngine/DoNamedFlash order). Apply the color batch first.
+        for req in gamelogic::scripting::take_host_script_custom_color_requests() {
+            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_custom_indicator_color_raw(req.color_raw);
+                }
+            }
+        }
+
         for req in gamelogic::scripting::take_host_script_flash_requests() {
             let (ids, seconds, white) = match req {
                 HostScriptFlashRequest::Named {
@@ -954,14 +965,6 @@ impl GameLogic {
             if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.set_status_disabled_held(req.held);
-                }
-            }
-        }
-
-        for req in gamelogic::scripting::take_host_script_custom_color_requests() {
-            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_custom_indicator_color_raw(req.color_raw);
                 }
             }
         }

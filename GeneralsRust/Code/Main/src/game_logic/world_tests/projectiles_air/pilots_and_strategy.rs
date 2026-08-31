@@ -29,6 +29,10 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    // C++ PilotFindVehicleUpdate gates the scan on the authored
+    // VeterancyCrateCollide pilot module (VeterancyCrateCollide.cpp), not the
+    // basename — author the retail AmericaInfantryPilot module block.
+    author_pilot_recrew_module(&mut pilot_tpl);
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
@@ -196,6 +200,9 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    // C++ PilotFindVehicleUpdate gates the scan on the authored
+    // VeterancyCrateCollide pilot module, not the basename.
+    author_pilot_recrew_module(&mut pilot_tpl);
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
@@ -639,6 +646,10 @@ fn eject_pilot_air_ocl_parachute_residual() {
     };
 
     let mut game_logic = GameLogic::new();
+    // C++ EjectPilotDie needs the authored module, the OCL_EjectPilot*
+    // creation lists, the AmericaInfantryPilot Object, and a live owning
+    // player (RequiresLivePlayer = Yes).
+    ensure_eject_pilot_residual_fixture(&mut game_logic);
 
     let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
     humvee_tpl
@@ -646,6 +657,12 @@ fn eject_pilot_air_ocl_parachute_residual() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0);
+    author_eject_pilot_die_module(
+        &mut humvee_tpl,
+        EjectPilotDeathTypes::All,
+        EjectPilotVeterancyLevels::All,
+        EjectPilotExemptStatus::None,
+    );
     game_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -744,6 +761,7 @@ fn eject_pilot_air_ocl_parachute_residual() {
 
     // Ground path control: y=0 death does not air-eject.
     let mut ground_logic = GameLogic::new();
+    ensure_eject_pilot_residual_fixture(&mut ground_logic);
     ground_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), {
@@ -752,6 +770,12 @@ fn eject_pilot_air_ocl_parachute_residual() {
                 .add_kind_of(KindOf::Selectable)
                 .add_kind_of(KindOf::Attackable)
                 .set_health(200.0);
+            author_eject_pilot_die_module(
+                &mut t,
+                EjectPilotDeathTypes::All,
+                EjectPilotVeterancyLevels::All,
+                EjectPilotExemptStatus::None,
+            );
             t
         });
     let g_id = ground_logic
@@ -812,6 +836,9 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    // C++ PilotFindVehicleUpdate gates the scan on the authored
+    // VeterancyCrateCollide pilot module, not the basename.
+    author_pilot_recrew_module(&mut pilot_tpl);
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);

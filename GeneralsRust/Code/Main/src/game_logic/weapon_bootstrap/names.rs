@@ -180,3 +180,8 @@ pub const MINIGUNNER_GUN_AIR: &str = "Infa_MiniGunnerGunAir";
 
 /// Retail GLA RPG Trooper / Tunnel Defender residual rocket.
 pub const TUNNEL_DEFENDER_ROCKET_WEAPON: &str = "TunnelDefenderRocketWeapon";
+
+/// Retail USA Dozer mine-clearing detail weapon (MINE_CLEARING_DETAIL residual).
+pub const DOZER_MINE_DISARMING_WEAPON: &str = "DozerMineDisarmingWeapon";
+/// Retail GLA Worker mine-clearing detail weapon (MINE_CLEARING_DETAIL residual).
+pub const WORKER_MINE_DISARMING_WEAPON: &str = "WorkerMineDisarmingWeapon";

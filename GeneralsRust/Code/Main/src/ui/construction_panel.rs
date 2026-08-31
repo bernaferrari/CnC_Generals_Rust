@@ -882,7 +882,7 @@ fn classify_button_tab(command: &str, _object: &str, _faction: &str) -> Construc
 fn resolve_build_info(object_name: &str, fallback_cost: i32) -> (i32, f32, String) {
     // Try the GameLogic-layer TheThingFactory first, then fall back to the
     // Common-layer ThingFactory.
-    if let Some(template) = gamelogic::helpers::TheThingFactory::find_template(object_name) {
+    if let Some(template) = gamelogic::helpers::TheThingFactory::find_template_initialized(object_name) {
         let cost = template.get_build_cost();
         let time = template.get_build_time();
         let name = template.get_name().to_string();
@@ -908,7 +908,7 @@ fn resolve_build_info(object_name: &str, fallback_cost: i32) -> (i32, f32, Strin
 // ---------------------------------------------------------------------------
 
 fn find_command_set_for_object(object_name: &str) -> Option<String> {
-    if let Some(template) = gamelogic::helpers::TheThingFactory::find_template(object_name) {
+    if let Some(template) = gamelogic::helpers::TheThingFactory::find_template_initialized(object_name) {
         let cs = template.get_command_set_string();
         if !cs.is_empty() {
             return Some(cs.to_string());

@@ -429,6 +429,9 @@ impl PerformanceManager {
             let mut kernel_time: FILETIME = [0];
             let mut user_time: FILETIME = [0];
 
+            // SAFETY: GetSystemTimes is a plain Win32 call with no preconditions; all three
+            // arguments are valid, aligned pointers to initialized FILETIME locals that
+            // outlive the call, and the API only writes through them before returning.
             unsafe {
                 if GetSystemTimes(&mut idle_time, &mut kernel_time, &mut user_time) != 0 {
                     // Calculate CPU usage from time differences
@@ -532,6 +535,9 @@ impl PerformanceManager {
                 ullavailextendedvirtual: 0,
             };
 
+            // SAFETY: mem_status.dwLength is set to size_of::<MEMORYSTATUSEX>() exactly as
+            // GlobalMemoryStatusEx requires; #[repr(C)] matches the Win32 layout and the
+            // pointer stays valid for the duration of the call.
             unsafe {
                 if GlobalMemoryStatusEx(&mut mem_status) != 0 {
                     self.metrics.memory.total_mb = (mem_status.ulltotalphys / 1024 / 1024) as u64;

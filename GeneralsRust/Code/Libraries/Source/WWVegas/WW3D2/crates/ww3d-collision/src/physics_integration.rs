@@ -425,6 +425,17 @@ impl PhysicsWorld {
             if let Some(body_a) = self.bodies.get_mut(&body_a_id) {
                 let body_a_ptr: *mut RigidBody = body_a as *mut _;
                 if let Some(body_b) = self.bodies.get_mut(&body_b_id) {
+                    // SAFETY: `body_a_ptr` was derived from the `&mut self.bodies`
+                    // borrow still live in this scope, so it remains valid through this
+                    // call. The guard above confirmed `body_a_id != body_b_id`, and a
+                    // HashMap guarantees distinct keys occupy disjoint storage, so
+                    // materializing `&mut *body_a_ptr` alongside the fresh `&mut` to
+                    // `body_b_id`'s entry creates no aliased mutable access. The map is
+                    // not mutated between taking the pointer and this dereference.
+                    // SAFETY: body_a_ptr aliases no live borrow — derived
+                    // from &mut self.bodies entry keyed by body_a_id, which
+                    // differs from body_b_id (checked at loop top), so the
+                    // raw-derived &mut RigidBody never aliases body_b.
                     let body_a_ref = unsafe { &mut *body_a_ptr };
                     Self::solve_collision(body_a_ref, body_b, collision);
                 }

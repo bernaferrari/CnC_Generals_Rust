@@ -2207,6 +2207,9 @@ impl Snapshotable for SpecialAbilityUpdate {
 
         {
             let mut state_val: i32 = self.packing_state as i32;
+            // SAFETY: `state_val` is an initialized stack `i32` holding the
+            // packed enum discriminant; `xfer_user` moves exactly
+            // `size_of::<i32>()` bytes within this call.
             unsafe {
                 xfer.xfer_user(
                     &mut state_val as *mut i32 as *mut u8,

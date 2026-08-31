@@ -673,6 +673,10 @@ impl Win32LocalFile {
             FileOperationMode::MemoryMapped => {
                 if self.access_mode.has_write() {
                     // Create mutable memory map
+                    // SAFETY: `file` was opened above and is moved into the
+                    // SAFETY: returned FileHandle alongside the map, so the
+                    // SAFETY: mapping stays backed while it is reachable; write
+                    // SAFETY: access is gated by the has_write() check.
                     let mmap = unsafe {
                         MmapOptions::new()
                             .map_mut(&file)?
@@ -684,6 +688,9 @@ impl Win32LocalFile {
                     })
                 } else {
                     // Create read-only memory map
+                    // SAFETY: `file` was opened above and is moved into the
+                    // SAFETY: returned FileHandle alongside the map, so the
+                    // SAFETY: read-only mapping stays backed while reachable.
                     let mmap = unsafe {
                         MmapOptions::new()
                             .map(&file)?

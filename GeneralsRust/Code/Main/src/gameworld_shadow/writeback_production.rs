@@ -799,9 +799,6 @@ impl GameWorldShadow {
                 None => (None, crate::game_logic::Team::Neutral),
                 Some(_) => {
                     let Some(player_id) = self.host_player_for_gw_owner(ent.owner) else {
-                        // A GameWorld owner which cannot be resolved to a
-                        // live host player must not be collapsed to a faction
-                        // or neutral owner on the host.
                         continue;
                     };
                     let Some(team) = logic
@@ -826,7 +823,6 @@ impl GameWorldShadow {
             if obj.team != want_team || obj.owner_player_id != want_owner_player_id {
                 let prev = obj.team;
                 let team_changed = prev != want_team;
-                // Wave 945: owner writeback via host writeback authority.
                 if !logic.apply_host_writeback_op(crate::game_logic::HostWritebackOp::Owner {
                     id: ObjectId(hid),
                     team: want_team,

@@ -6,6 +6,12 @@ fn combat_chinook_residual_load_two_unload_both_free() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
+    // the exact-controller gate needs a registered controlling player.
+    game_logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
+    );
     ensure_test_infantry_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
 
@@ -58,6 +64,18 @@ fn combat_chinook_residual_load_two_unload_both_free() {
     });
     game_logic.process_commands();
 
+    // C++ TransportContain does not dump riders synchronously: the Evacuate
+    // command calls orderAllPassengersToExit → aiExit per rider
+    // (OpenContain.cpp:1353-1371) and each exit is paced by the transport
+    // exit door (TransportContain ExitDelay; host COMBAT_CHINOOK_EXIT_DELAY_FRAMES
+    // = 3, host_combat_chinook.rs:65). Advance frames so the exit door cycles
+    // both riders out and their exit walks settle, matching the C++ stream.
+    for _ in 0..60 {
+        game_logic.frame += 1;
+        game_logic.update_movement_for_test(&[chinook_id, unit_a, unit_b], 1.0 / 30.0);
+        game_logic.update_ai(&[chinook_id, unit_a, unit_b], 1.0 / 30.0);
+    }
+
     let chinook = game_logic.host_object(chinook_id).expect("chinook empty");
     assert!(
         chinook.contained_units().is_empty(),
@@ -71,7 +89,14 @@ fn combat_chinook_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("freed unit");
-        assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
+        // C++ OpenContain::exitObjectViaDoor places the rider at ExitStart and
+        // issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020); the freed
+        // rider walks its exit path instead of Idling in place.
+        assert_eq!(
+            unit.ai_state,
+            AIState::Moving,
+            "unloaded unit must walk its exit path (C++ aiFollowPath)"
+        );
         assert!(unit.contained_by.is_none(), "contained_by must clear");
         assert!(unit.can_move(), "unloaded unit must be free to move");
     }
@@ -101,6 +126,15 @@ fn combat_chinook_residual_load_two_unload_both_free() {
 #[test]
 fn combat_chinook_residual_passenger_fire_damages_nearby_enemy() {
     let mut game_logic = GameLogic::new();
+    // Ownership pair so USA passenger vs GLA enemy resolve to ENEMIES.
+    game_logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
+    );
+    game_logic.players.insert(
+        1,
+        crate::game_logic::Player::new(1, crate::game_logic::Team::GLA, "GLA", false),
+    );
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_tank_template(&mut game_logic);
 
@@ -167,6 +201,12 @@ fn combat_chinook_residual_capacity_full_rejects_enter() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
+    // the exact-controller gate needs a registered controlling player.
+    game_logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
+    );
     ensure_test_infantry_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
 
@@ -226,6 +266,12 @@ fn combat_chinook_residual_capacity_full_rejects_enter() {
 #[test]
 fn combat_chinook_residual_allows_vehicle_enter() {
     let mut game_logic = GameLogic::new();
+    // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
+    // the exact-controller gate needs a registered controlling player.
+    game_logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
+    );
     ensure_test_tank_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let tank_id = game_logic
@@ -379,7 +425,21 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     }
 
     game_logic.frame = 1;
-    game_logic.update_stealth_and_detection();
+    // C++ StealthDetectorUpdate ctor sleeps the first scan by
+    // GameLogicRandomValue(1, DetectionRate) (StealthDetectorUpdate.cpp:70);
+    // the outpost's 900ms/27f stagger wakes at some frame <= 27, so tick
+    // until the scan actually fires instead of assuming a frame-1 scan.
+    for _ in 0..40 {
+        game_logic.update_stealth_and_detection();
+        if game_logic
+            .host_object(stealth_id)
+            .map(|e| e.status.detected)
+            .unwrap_or(false)
+        {
+            break;
+        }
+        game_logic.frame += 1;
+    }
     {
         let e = game_logic.host_object(stealth_id).expect("enemy");
         assert!(
@@ -409,10 +469,13 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         e.set_status_stealthed(true);
         e.set_status_detected(false);
     }
-    // Clear prior detect so only far is checked for new mark (already-detected enemy
-    // stays marked; far must remain undetected).
-    game_logic.frame = 2;
-    game_logic.update_stealth_and_detection();
+    // Already-detected near enemy stays marked; far must remain undetected.
+    // Advance a full DetectionRate cycle (27f) so the staggered scan really
+    // re-evaluates with the far enemy in world — fail-closed under a real scan.
+    for _ in 0..40 {
+        game_logic.frame += 1;
+        game_logic.update_stealth_and_detection();
+    }
     {
         let e = game_logic.host_object(far_id).expect("far");
         assert!(
@@ -422,10 +485,15 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     }
 
     // Move residual: uncloak while moving, re-cloak when idle.
+    // C++ StealthForbiddenConditions=MOVING is velocity-based:
+    // physics->getVelocityMagnitude() > m_stealthSpeed
+    // (StealthUpdate.cpp:390-392), not the AI moving flag.
     {
         let o = game_logic.host_object_mut(outpost_id).unwrap();
         o.set_ai_state(AIState::Moving);
-        o.set_status_moving(true);
+        o.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
+        // Direct field writes bypass the C++ PhysicsBehavior velocity cache.
+        o.invalidate_velocity_magnitude();
         o.set_status_stealthed(true);
     }
     game_logic.update_stealth_and_detection();
@@ -439,9 +507,10 @@ fn listening_outpost_residual_detect_stealth_in_range() {
     {
         let o = game_logic.host_object_mut(outpost_id).unwrap();
         o.set_ai_state(AIState::Idle);
+        o.movement.velocity = Vec3::ZERO;
+        o.invalidate_velocity_magnitude();
         o.set_status_moving(false);
     }
-    game_logic.update_stealth_and_detection();
     {
         let o = game_logic.host_object(outpost_id).expect("outpost");
         assert!(

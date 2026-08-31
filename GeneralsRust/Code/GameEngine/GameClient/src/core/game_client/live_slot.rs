@@ -122,6 +122,11 @@ pub(crate) fn with_live_game_client_mut<R>(
     // Snapshot adapter only: registration/clear are engine-lifecycle scoped;
     // thread identity and the lexical borrow marker reject cross-thread and
     // re-entrant access.  The guard also clears on panic.
+    // SAFETY: `raw` was registered by register_live_game_client from a &mut
+    // SAFETY: GameClient that is still engine-owned and un-moved (engine-lifecycle
+    // SAFETY: scoped slot). Exclusivity holds because the slot rejects cross-thread
+    // SAFETY: access, rejects re-entrance via `borrowed`, and the guard clears the
+    // SAFETY: marker on drop/panic before any second borrow can be granted.
     let client = unsafe { client.as_mut()? };
     Some(callback(client))
 }

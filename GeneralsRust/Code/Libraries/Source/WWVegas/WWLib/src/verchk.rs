@@ -40,12 +40,14 @@ pub fn get_version_info(filename: &str, file_info: &mut VS_FIXEDFILEINFO) -> boo
 
     let mut ver_handle: u32 = 0;
     let ver_info_size =
+        // SAFETY: [Category 8 — FFI] queries version info size for a NUL-terminated path; out handle slot is valid.
         unsafe { GetFileVersionInfoSizeA(PCSTR(c_filename.as_ptr() as _), &mut ver_handle) };
     if ver_info_size == 0 {
         return false;
     }
 
     let mut buffer = vec![0u8; ver_info_size as usize];
+    // SAFETY: [Category 8 — FFI] fills a local Vec sized exactly by the previous size query.
     let success = unsafe {
         GetFileVersionInfoA(
             PCSTR(c_filename.as_ptr() as _),
@@ -61,6 +63,7 @@ pub fn get_version_info(filename: &str, file_info: &mut VS_FIXEDFILEINFO) -> boo
     let sub_block = CString::new("\\").unwrap();
     let mut data_ptr: *mut core::ffi::c_void = ptr::null_mut();
     let mut data_size: u32 = 0;
+    // SAFETY: [Category 8 — FFI] queries the root sub-block of the buffer just filled; returned pointer/size are validated before use.
     let success = unsafe {
         VerQueryValueA(
             buffer.as_ptr() as _,
@@ -73,6 +76,7 @@ pub fn get_version_info(filename: &str, file_info: &mut VS_FIXEDFILEINFO) -> boo
         return false;
     }
 
+    // SAFETY: [Category 10 — OOB / Category 5 — invalid values] data_size was checked to equal size_of::<VS_FIXEDFILEINFO>(), so the read copies exactly one valid record.
     unsafe {
         *file_info = ptr::read(data_ptr as *const VS_FIXEDFILEINFO);
     }
@@ -92,6 +96,7 @@ pub fn get_file_creation_time(filename: &str, create_time: &mut FILETIME) -> boo
     };
 
     let handle = HANDLE(file.as_raw_handle() as isize);
+    // SAFETY: [Category 8 — FFI] passes an open file handle; only the out timestamp slot is written.
     let success = unsafe { GetFileTime(handle, ptr::null_mut(), ptr::null_mut(), create_time) };
     success.as_bool()
 }
@@ -107,7 +112,9 @@ pub fn get_image_file_header_from_file(
         Err(_) => return false,
     };
 
+    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
     let mut dos_header: IMAGE_DOS_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
+    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
     let dos_slice = unsafe {
         std::slice::from_raw_parts_mut(
             &mut dos_header as *mut IMAGE_DOS_HEADER as *mut u8,
@@ -123,6 +130,7 @@ pub fn get_image_file_header_from_file(
         return false;
     }
 
+    // SAFETY: [Category 10 — OOB] views exactly the caller's IMAGE_FILE_HEADER output slot for a direct file read.
     let header_slice = unsafe {
         std::slice::from_raw_parts_mut(
             file_header as *mut IMAGE_FILE_HEADER as *mut u8,
@@ -142,6 +150,7 @@ pub fn get_image_file_header_from_instance(
         return false;
     }
 
+    // SAFETY: [Category 8 — FFI / Category 11 — provenance] HINSTANCE points at the process image's DOS header (Win32 contract); offsets follow the PE layout and are read unaligned as in verchk.cpp.
     unsafe {
         let dos_header = app_instance.0 as *const IMAGE_DOS_HEADER;
         if dos_header.is_null() {
@@ -159,7 +168,9 @@ pub fn get_image_file_header_from_instance(
 /// Compare executable timestamp against a file on disk.
 #[cfg(target_os = "windows")]
 pub fn compare_exe_version(app_instance: isize, filename: &str) -> i32 {
+    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
     let mut header1: IMAGE_FILE_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
+    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
     let mut header2: IMAGE_FILE_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
     let got_headers = get_image_file_header_from_instance(HINSTANCE(app_instance), &mut header1)
         && get_image_file_header_from_file(filename, &mut header2);

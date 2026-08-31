@@ -33,10 +33,19 @@ impl<'a> CommandExecutor<'a> {
         let g = &unit.thing.geometry;
         let half_x = ((g.bounds_max.x - g.bounds_min.x).abs() * 0.5).max(0.0);
         let half_z = ((g.bounds_max.z - g.bounds_min.z).abs() * 0.5).max(0.0);
-        if half_x > 1e-3 && half_z > 1e-3 && (half_x - half_z).abs() > 1e-3 {
-            (half_x * half_x + half_z * half_z).sqrt()
+        let authored_shape = half_x > 1e-3 && half_z > 1e-3 && (half_x - half_z).abs() > 1e-3;
+        if authored_shape {
+            return (half_x * half_x + half_z * half_z).sqrt();
+        }
+        let radius = g.radius.max(half_x).max(half_z);
+        // Unauthored template geometry is the C++ ctor placeholder
+        // (GEOMETRY_SPHERE,1,1,1): it carries no real footprint, so derive
+        // the scatter/clamp circle from the pick `selection_radius` like
+        // Object::construct does for other unauthored-size consumers.
+        if !unit.thing.template.geometry_info.authored && g.radius <= 1.0 + f32::EPSILON {
+            unit.selection_radius.max(radius).max(1.0)
         } else {
-            g.radius.max(half_x).max(half_z).max(1.0)
+            radius.max(1.0)
         }
     }
 
@@ -60,18 +69,11 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++/leftover still queue the AI move when `can_move` is false (stun).
     fn queue_group_move_goal(&mut self, unit_id: ObjectId, dest: Vec3) -> bool {
-        if self.game_logic.unit_command_move_to_moving(unit_id, dest) {
-            return true;
-        }
-        let Some(unit) = self.game_logic.host_object_mut(unit_id) else {
-            return false;
-        };
-        if !unit.is_alive() {
-            return false;
-        }
-        unit.set_destination(dest);
-        unit.set_ai_state(AIState::Moving);
-        true
+        // C++ groupScatter issues the move through the AI interface; the
+        // authority call itself handles stun (order queued) and path-failure
+        // (set_destination inside unit_command_move_to_moving). A missing or
+        // dead object is a plain failure — no direct host-object writes here.
+        self.game_logic.unit_command_move_to_moving(unit_id, dest)
     }
 
     /// C++ `theUnit->setFormationID(NO_FORMATION_ID)` in the free-move loop.
@@ -370,19 +372,24 @@ impl<'a> CommandExecutor<'a> {
     /// unstealthed combat stealth units can cloak again.
     pub(super) fn apply_player_stealth_mood_delay(&mut self, unit_ids: &[ObjectId]) {
         // Wave 233: stealth mood delay via GameLogic authority API.
-        // C++ GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND) (AIGroup.cpp:2059).
+        // C++ GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND) (AIGroup.cpp:2059)
+        // is a live-stream draw; the deterministic host stand-in skews each
+        // member by its position in the selection (first unit unskewed). The
+        // authority call schedules each member's next_mood_check_time =
+        // now + stealth_delay_frames + skew.
         let now = self.game_logic.get_frame();
-        for &unit_id in unit_ids {
-            let skew = crate::game_logic::host_rng_residual::pure_logic_random_int(
-                now.wrapping_add(unit_id.0),
-                0,
-                0,
-                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL
-                    as i32,
-            ) as u32;
-            let _ = self
-                .game_logic
-                .unit_command_apply_stealth_mood_delay(unit_id, now, skew);
+        for (i, &unit_id) in unit_ids.iter().enumerate() {
+            let skew = (i as u32)
+                % crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            let scheduled = self.game_logic.unit_command_apply_stealth_mood_delay(
+                unit_id,
+                now,
+                skew,
+            );
+            debug!(
+                "stealth mood delay unit={} scheduled_next_mood_check_time={}",
+                unit_id.0, scheduled
+            );
         }
     }
 
@@ -1149,6 +1156,28 @@ impl<'a> CommandExecutor<'a> {
         let goals = self.group_move_destinations(units, destination);
         let mut any = false;
         for (unit_id, goal) in goals {
+            // C++ aiMoveToPosition to the unit's own position succeeds as a
+            // no-op: a stamped offset that reconstructs the current spot
+            // (group already in formation at the click) must count as
+            // success, not fail the whole formation order.
+            let pos = self
+                .game_logic
+                .host_object(unit_id)
+                .map(|o| o.get_position());
+            let already_there = pos.is_some_and(|p| {
+                (p.x - goal.x).hypot(p.z - goal.z) < 0.1
+            });
+            if already_there {
+                // C++ still records m_goalPosition for a same-position move
+                // (AIUpdateInterface::doCommandMove), so arrival-gated reads
+                // observe the formation goal even though no path is walked.
+                if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
+                    unit.movement.target_position = Some(goal);
+                    unit.set_ai_state(AIState::Moving);
+                }
+                any = true;
+                continue;
+            }
             if self.game_logic.unit_command_force_move_to(unit_id, goal)
                 || self.path_to_goal_with_state(unit_id, goal, AIState::Moving)
             {
@@ -1196,7 +1225,9 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_scatter(&mut self, units: &[ObjectId]) -> CommandResult {
-        // Wave 232: scatter last-writes via GameLogic unit_command_move_to_moving.
+        // Wave 232: scatter last-writes via GameLogic unit_command_move_to_moving,
+        // which runs assign_unit_path (path_to_goal_with_state machinery) per
+        // member — never a bare set_destination.
         // C++ AIGroup::groupScatter — far-to-near from group center, push out by
         // 4 * bounding radius along the unit→center vector (host XZ plane).
         let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::new();

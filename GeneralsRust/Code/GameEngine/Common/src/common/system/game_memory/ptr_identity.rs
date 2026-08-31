@@ -196,6 +196,8 @@ pub(crate) fn zero_user(user: *mut u8, bytes: usize) {
 }
 
 #[cfg(debug_assertions)]
+// SAFETY: caller initialized `header` inside a live pool slot; walls
+// stay within that slot's padded bounds.
 unsafe fn fill_walls(header: *mut BlockHeader) {
     // SAFETY: [Category 6 — misaligned] caller initialized `header` in this buffer.
     unsafe {
@@ -213,6 +215,8 @@ unsafe fn fill_walls(header: *mut BlockHeader) {
 }
 
 #[cfg(debug_assertions)]
+// SAFETY: caller guarantees header/user region was initialized by
+// init_slot and logical_size bytes are writable.
 unsafe fn fill_user(header: *mut BlockHeader, value: u32) {
     // SAFETY: [Category 4 — uninit] header/user region were written by `init_slot`.
     unsafe {
@@ -242,6 +246,8 @@ pub fn debug_block_header_from_user(user: *mut u8) -> *mut u8 {
 /// # Safety
 /// `user` must be a live allocation from this pool/DMA.
 #[doc(hidden)]
+// SAFETY: contract documented above — `user` must be a live allocation
+// from this pool/DMA; all derefs below are alignment-checked first.
 pub unsafe fn debug_write_header_pointer_fields(user: *mut u8) -> bool {
     if user.is_null() {
         return false;
@@ -281,6 +287,8 @@ pub unsafe fn debug_write_header_pointer_fields(user: *mut u8) -> bool {
 }
 
 #[cfg(all(test, debug_assertions))]
+// SAFETY: caller passes a live user pointer whose header magic was
+// verified before use; reads stay within the slot's wall region.
 pub(crate) unsafe fn header_walls_ok(user: *mut u8) -> bool {
     let header = from_user_data(user);
     if (*header).magic_cookie != debug_consts::SINGLEBLOCK_MAGIC_COOKIE {

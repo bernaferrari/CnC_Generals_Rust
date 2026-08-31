@@ -1774,23 +1774,15 @@ mod tests {
         let mut template = DefaultThingTemplate::new(name.to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), "INFANTRY".to_string());
+        fields.insert("TransportSlotCount".to_string(), slots.to_string());
         template.parse_object_fields_from_ini(&fields);
-        let obj = Object::new_with_id(
+        Object::new_with_id(
             Arc::new(template),
             id,
             ObjectStatusMaskType::none(),
             Some(team),
         )
-        .expect("slotted passenger");
-        let data = super::super::OpenContainModuleData {
-            contain_max: slots,
-            ..Default::default()
-        };
-        let contain = OpenContain::new(Arc::downgrade(&obj), &data).expect("slot contain");
-        obj.write()
-            .expect("passenger write")
-            .set_contain(Some(Arc::new(Mutex::new(contain))));
-        obj
+        .expect("slotted passenger")
     }
 
     fn transport_for(owner: &Arc<RwLock<Object>>, slots: i32) -> TransportContain {
@@ -1850,6 +1842,93 @@ mod tests {
 
         OBJECT_REGISTRY.unregister_object(95003);
         OBJECT_REGISTRY.unregister_object(95004);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn slot_count_reads_template_field_not_contain_capacity_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+
+        // Infantry with a parsed TransportSlotCount and no contain module:
+        // C++ Object::getTransportSlotCount returns the template field
+        // (Object.cpp:702), not a contain-module capacity.
+        let passenger = slotted_passenger("SlotFieldPassenger", 95005, 2);
+        assert_eq!(
+            passenger
+                .read()
+                .expect("passenger read")
+                .get_transport_slot_count(),
+            2
+        );
+
+        // A garrisonable building's contain capacity must not leak into its
+        // own transport slot count.
+        let building = owned_object("GarrisonableBuilding", 95006, 0);
+        let data = super::super::OpenContainModuleData {
+            contain_max: 20,
+            ..Default::default()
+        };
+        let contain = OpenContain::new(Arc::downgrade(&building), &data).expect("building contain");
+        building
+            .write()
+            .expect("building write")
+            .set_contain(Some(Arc::new(Mutex::new(contain))));
+        assert_eq!(
+            building
+                .read()
+                .expect("building read")
+                .get_transport_slot_count(),
+            0
+        );
+
+        OBJECT_REGISTRY.unregister_object(95005);
+        OBJECT_REGISTRY.unregister_object(95006);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn special_zero_slot_container_sums_rider_slots_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+
+        let chute_owner = owned_object("ParachuteContainer", 95007, 0);
+        let chute = super::super::ParachuteContain::new(
+            Arc::downgrade(&chute_owner),
+            &super::super::ParachuteContainModuleData::default(),
+        )
+        .expect("chute contain");
+        let chute: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(chute));
+        chute_owner
+            .write()
+            .expect("chute write")
+            .set_contain(Some(Arc::clone(&chute)));
+
+        // Empty parachute reports zero slots (C++ count starts at 0).
+        assert_eq!(
+            chute_owner
+                .read()
+                .expect("chute read")
+                .get_transport_slot_count(),
+            0
+        );
+
+        let rider = slotted_passenger("ChuteRider", 95008, 2);
+        // Full C++ attach path (onContaining incl. positionRider re-entry).
+        ContainModuleInterface::contain_object(&mut *chute.lock().expect("chute lock"), 95008)
+            .expect("attach rider");
+        // C++ sums the riders' slot counts for special zero-slot containers
+        // (Object.cpp:704-715).
+        assert_eq!(
+            chute_owner
+                .read()
+                .expect("chute read")
+                .get_transport_slot_count(),
+            2
+        );
+
+        OBJECT_REGISTRY.unregister_object(95007);
+        OBJECT_REGISTRY.unregister_object(95008);
         ThePlayerList().write().expect("player list write").clear();
     }
 }

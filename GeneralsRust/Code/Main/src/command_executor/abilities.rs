@@ -995,10 +995,17 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_stop_moving_order_target(unit_id, Some(target_id));
-            if self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
-                issued_units.push(unit_id);
-                any = true;
+            // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
+            // residual: the ability arms and completes without an approach
+            // walk, so a failed A* allocation (e.g. no loaded map in a bare
+            // world) must not swallow the order.
+            if !self.path_to_goal_with_state(unit_id, target_pos, AIState::SpecialAbility) {
+                let _ = self
+                    .game_logic
+                    .unit_command_set_ai_state(unit_id, AIState::SpecialAbility);
             }
+            issued_units.push(unit_id);
+            any = true;
         }
 
         for unit_id in issued_units {

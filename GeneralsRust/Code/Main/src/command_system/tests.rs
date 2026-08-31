@@ -413,10 +413,14 @@ fn drag_selection_prefers_world_drag_bounds_when_provided() {
 
     let mut near = Object::new(template.clone(), ObjectId(31), Team::USA);
     near.set_position(Vec3::new(10.0, 0.0, 10.0));
+    // C++ drag select is owner-scoped (InGameUI picks the local player's
+    // objects); the exact-owner bounds probe needs the fixture stamped.
+    near.owner_player_id = Some(0);
     game_logic.add_object(near);
 
     let mut far = Object::new(template, ObjectId(32), Team::USA);
     far.set_position(Vec3::new(120.0, 0.0, 120.0));
+    far.owner_player_id = Some(0);
     game_logic.add_object(far);
 
     let context = MouseCommandContext {
@@ -1887,7 +1891,16 @@ fn queued_upgrade_completes_during_simulation_update() {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
-    let producer = Object::new(template, ObjectId(401), Team::USA);
+    let mut producer = Object::new(template, ObjectId(401), Team::USA);
+    // C++ ProductionUpdate advances upgrade research on producers that carry
+    // a ProductionUpdate module; the host models that via building_data
+    // (retail AmericaSupplyCenter authors it).  Without the module data the
+    // production tick skips the producer and the queued upgrade never
+    // completes during the simulation update.
+    producer.construction_percent = 1.0;
+    producer.building_data = Some(crate::game_logic::buildings::BuildingData::new(
+        crate::game_logic::buildings::BuildingType::SupplyCenter,
+    ));
     game_logic.add_object(producer);
 
     let command = GameCommand {
@@ -1917,8 +1930,11 @@ fn queued_upgrade_completes_during_simulation_update() {
             .contains("Upgrade_AmericaSupplyLines")
     );
 
+    // C++ research advances on the upgrade's Upgrade.ini BuildTime
+    // (ProductionUpdate.cpp:874-879); one 1/30s frame must not instant-
+    // complete it.  Advance 30s like the capture upgrade fixtures do.
     game_logic.update();
-
+    game_logic.update_with_dt(30.0);
     let player_after_update = game_logic
         .get_player(0)
         .expect("player should exist after update");
@@ -1942,22 +1958,30 @@ fn queued_upgrade_completes_during_simulation_update() {
 #[test]
 fn command_system_residual_locomotion_pathfinds() {
     let src = crate::command_system::COMMAND_SYSTEM_SRC;
+    // Wave 230/231 renamed the executor entry points to the GameLogic
+    // unit_command_* authority APIs (GameLogicDispatch.cpp doMoveTo /
+    // AIGroup::groupAttackMoveToPosition / groupScatter analogs); each still
+    // routes through assign_unit_path (unit_commands.rs:206,603,705).
     let move_i = src.find("fn execute_move_command").expect("move");
     let w = &src[move_i..move_i + 800];
     assert!(
-        w.contains("CommandExecutor") || w.contains("assign_unit_path"),
-        "residual move must pathfind via executor or assign_unit_path"
+        w.contains("CommandExecutor")
+            || w.contains("assign_unit_path")
+            || w.contains("unit_command_move_to"),
+        "residual move must pathfind via executor or pathfinding authority"
     );
     let am_i = src.find("fn execute_attack_move_command").expect("am");
     let w = &src[am_i..am_i + 800];
     assert!(
-        w.contains("CommandExecutor") || w.contains("assign_unit_path"),
+        w.contains("CommandExecutor")
+            || w.contains("assign_unit_path")
+            || w.contains("unit_command_attack_move_to"),
         "residual attack-move must pathfind"
     );
     let sc_i = src.find("fn execute_scatter_command").expect("sc");
     let w = &src[sc_i..sc_i + 1600];
     assert!(
-        w.contains("assign_unit_path"),
+        w.contains("assign_unit_path") || w.contains("unit_command_move_to_moving"),
         "residual scatter must assign_unit_path"
     );
 }
@@ -1990,7 +2014,10 @@ fn capture_building_context_residual() {
     let start = src
         .find("fn determine_context_command")
         .expect("determine_context_command");
-    let body = &src[start..start + 2800];
+    // Window spans the Wave-228 presentation freeze and the C++
+    // CommandXlat.cpp dock/gather precedence blocks ahead of the capture
+    // probe (can_capture_building call sits ~3400 chars into the body).
+    let body = &src[start..start + 3600];
     assert!(
         body.contains("can_capture_building"),
         "determine_context_command must call can_capture_building"

@@ -245,7 +245,15 @@ pub struct AudioDevice {
 
 // SAFETY: AudioDevice holds a non-owning reference to AudioSystem.
 // Access is synchronized through the audio system's internal locking.
+// SAFETY: AudioDevice owns only `DeviceInfo` and `DeviceConfig` values plus
+// the non-owning `system` back-pointer; the pointed-to AudioSystem outlives
+// every device it hands out (devices are created from `&self` in
+// open_device and dropped with the system), so moving the device across
+// threads cannot dangle.
 unsafe impl Send for AudioDevice {}
+// SAFETY: `&AudioDevice` exposes only immutable accessors; mutation funnels
+// through the parent AudioSystem's own synchronization, so shared references
+// from multiple threads cannot race.
 unsafe impl Sync for AudioDevice {}
 
 /// Device information and capabilities
@@ -2355,6 +2363,10 @@ impl AudioDevice {
     pub fn create_channel(&self, priority: Priority) -> Result<crate::AudioChannel> {
         debug!("Creating audio channel with priority: {:?}", priority);
 
+        // SAFETY: `self.system` is the back-pointer set by open_device to
+        // the AudioSystem that created this device, which outlives it; the
+        // pointer is valid, `as_mut` is used only because the field type is
+        // *mut, and mutation goes through the system's own synchronization.
         let system = unsafe { self.system.as_mut().ok_or(DeviceError::NotInitialized)? };
 
         system.ensure_output_stream()?;

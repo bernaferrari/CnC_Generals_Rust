@@ -20,7 +20,7 @@ Completion: the split validator, package check, focused tests, LOC ratchet, unsa
 ## Provenance packet
 
 1. List compact packet IDs with `generate_port_review_queue.py --list-packets`, then load one bounded packet with `generate_port_review_queue.py --packet <id>`. Inspect every C++ unit and candidate in that packet; a matching filename is discovery evidence, not review.
-2. Add only confirmed production destinations to `PORT_PROVENANCE_REVIEWED.json`. Keep path ownership, symbol/range ownership, and behavioral proof as separate claims.
+2. Add only confirmed production destinations to `PORT_PROVENANCE_REVIEWED.json`. Keep path ownership, symbol/range ownership, and behavioral proof as separate claims. To clear the ownership blockers, add a per-unit `ownership` record: pin `source_sha256`, assign every extracted C++ symbol occurrence (overloads distinguished by line) to named Rust symbols in reachable implementation files or split roots with their `sha256`, and, for split destinations, cover the unit with `source_ranges` that leave no gaps or overlaps. Stale hashes, moved paths, missing symbols, or unknown deviation ids stay red with `ownership_*` diagnostics.
 3. Run the packet's commands. `generate_port_tracking.py` must shrink the queue, and both generated-provenance drift checks must pass. Confirm the packet's units appear once in the reviewed manifest and no longer appear in the unreviewed queue.
 
 Completion: every unit in the packet has an honest reviewed mapping or an exact blocker Bead; generated artifacts are current and no network/test/shim/telemetry code receives implementation credit.

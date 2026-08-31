@@ -52,11 +52,15 @@ impl AsciiStringData {
         let layout = Layout::from_size_align(total_size, std::mem::align_of::<Self>())
             .map_err(|e| format!("Failed to create layout: {}", e))?;
 
+        // SAFETY: [Category 13 — library contract] `layout` was validated by
+        // `Layout::from_size_align` above; allocates the header+payload block it
+        // describes (AsciiString.cpp newBuffer).
         let ptr = unsafe { alloc(layout) as *mut Self };
         if ptr.is_null() {
             return Err("Failed to allocate memory for AsciiStringData".to_string());
         }
 
+        // SAFETY: [Category 3 — dangling] `ptr` is non-null and sized for header + payload; both header fields are written before any other use.
         unsafe {
             (*ptr).ref_count = AtomicU16::new(1);
             (*ptr).num_chars_allocated = capacity as u16;
@@ -72,15 +76,20 @@ impl AsciiStringData {
 
     /// Get a pointer to the string data
     fn data_ptr(data: *mut Self) -> *mut u8 {
+        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
+        // the same block built by `new` (flexible-array layout), so the offset stays within it.
         unsafe { (data as *mut u8).add(std::mem::size_of::<Self>()) }
     }
 
     /// Get a const pointer to the string data
     fn data_ptr_const(data: *const Self) -> *const u8 {
+        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
+        // the same block built by `new` (flexible-array layout), so the offset stays within it.
         unsafe { (data as *const u8).add(std::mem::size_of::<Self>()) }
     }
 
     /// Get the string as a &str (unsafe, caller must ensure validity)
+    /// SAFETY: `data` must point to a live `AsciiStringData` whose payload is a NUL-terminated UTF-8 buffer written by `set_from_str`.
     unsafe fn as_str<'a>(data: *const Self) -> &'a str {
         let data_ptr = Self::data_ptr_const(data);
         // SAFETY: [Category 8 — FFI / Category 3 — dangling]
@@ -99,6 +108,7 @@ impl AsciiStringData {
     }
 
     /// Set the string data from a &str
+    /// SAFETY: `data` must be live from `new` with initialized `num_chars_allocated`; payload must fit `s` plus a NUL.
     unsafe fn set_from_str(data: *mut Self, s: &str) {
         let data_ptr = Self::data_ptr(data);
         // SAFETY: [Category 3 — dangling]
@@ -145,6 +155,7 @@ impl AsciiStringData {
 
     /// Increment reference count
     fn increment_ref_count(data: *mut Self) {
+        // SAFETY: [Category 3 — dangling] `data` points to live string data; the atomic increment needs no uniqueness.
         unsafe {
             (*data).ref_count.fetch_add(1, AtomicOrdering::Relaxed);
         }
@@ -152,15 +163,19 @@ impl AsciiStringData {
 
     /// Decrement reference count and return true if it reaches zero
     fn decrement_ref_count(data: *mut Self) -> bool {
+        // SAFETY: [Category 3 — dangling / Category 5 — invalid values] `data` is live; fetch_sub returns
+        // the previous count, so == 1 means this was the last reference (Release_Ref semantics).
         unsafe { (*data).ref_count.fetch_sub(1, AtomicOrdering::Relaxed) == 1 }
     }
 
     /// Get current reference count
     fn get_ref_count(data: *const Self) -> u16 {
+        // SAFETY: [Category 3 — dangling] `data` points to live string data with a valid initialized ref count.
         unsafe { (*data).ref_count.load(AtomicOrdering::Relaxed) }
     }
 
     /// Free the string data
+    /// SAFETY: callers must pass the unique remaining owner (ref count just hit zero) of a block from `new`.
     unsafe fn free(data: *mut Self) {
         // SAFETY: [Category 3 — dangling]
         // `data` is the unique remaining owner (ref_count just hit zero),
@@ -171,6 +186,7 @@ impl AsciiStringData {
         // SAFETY: [Category 13 — library contract]
         // Size/align match the `Layout` used in `new`; align is `align_of::<Self>()`.
         let layout =
+            // SAFETY: [Category 13 — library contract] Size/align match the `Layout` built in `new` for this same block.
             unsafe { Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>()) };
         // SAFETY: [Category 12 — invalid free]
         // Same allocator/layout as `alloc` in `new`; pointer is not used after this.
@@ -218,6 +234,7 @@ impl AsciiString {
         let capacity = s.len() + 1; // +1 for null terminator
         let data = AsciiStringData::new(capacity)?;
 
+        // SAFETY: [Category 3 — dangling] `data` was just allocated with room for `s` plus its NUL terminator.
         unsafe {
             AsciiStringData::set_from_str(data, s);
         }
@@ -232,6 +249,7 @@ impl AsciiString {
             return Ok(Self::THE_EMPTY_STRING);
         }
 
+        // SAFETY: [Category 8 — FFI] `s` is a valid NUL-terminated C string per the from_c_str contract; libc::strlen stays within it.
         unsafe {
             let len = libc::strlen(s);
             let slice = std::slice::from_raw_parts(s as *const u8, len);
@@ -246,6 +264,7 @@ impl AsciiString {
         if self.data.is_null() {
             0
         } else {
+            // SAFETY: [Category 3 — dangling] `self.data` is live and owned by this handle (ref count >= 1).
             unsafe { AsciiStringData::as_str(self.data).len() }
         }
     }
@@ -258,6 +277,8 @@ impl AsciiString {
     /// Clear the string (make it empty)
     pub fn clear(&mut self) {
         if !self.data.is_null() {
+            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
+            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
             unsafe {
                 if AsciiStringData::decrement_ref_count(self.data) {
                     AsciiStringData::free(self.data);
@@ -284,6 +305,7 @@ impl AsciiString {
         if self.data.is_null() {
             ""
         } else {
+            // SAFETY: [Category 3 — dangling] `self.data` is live and owned by this handle (ref count >= 1).
             unsafe { AsciiStringData::as_str(self.data) }
         }
     }
@@ -297,6 +319,8 @@ impl AsciiString {
     /// Set the string from another AsciiString
     pub fn set(&mut self, other: &AsciiString) {
         if !self.data.is_null() {
+            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
+            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
             unsafe {
                 if AsciiStringData::decrement_ref_count(self.data) {
                     AsciiStringData::free(self.data);
@@ -321,6 +345,7 @@ impl AsciiString {
 
         // Check if we can reuse the existing buffer
         if !self.data.is_null() {
+            // SAFETY: [Category 3 — dangling] header fields are initialized for this live block; ref_count==1 proves unique ownership so in-place rewrite is safe.
             unsafe {
                 let ref_count = AsciiStringData::get_ref_count(self.data);
                 let allocated = (*self.data).num_chars_allocated as usize;
@@ -335,6 +360,8 @@ impl AsciiString {
 
         // Need to allocate new buffer
         if !self.data.is_null() {
+            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
+            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
             unsafe {
                 if AsciiStringData::decrement_ref_count(self.data) {
                     AsciiStringData::free(self.data);
@@ -343,6 +370,7 @@ impl AsciiString {
         }
 
         let data = AsciiStringData::new(capacity)?;
+        // SAFETY: [Category 3 — dangling] `data` was just allocated with room for `s` plus its NUL terminator.
         unsafe {
             AsciiStringData::set_from_str(data, s);
         }
@@ -511,6 +539,8 @@ impl Default for AsciiString {
 impl Drop for AsciiString {
     fn drop(&mut self) {
         if !self.data.is_null() {
+            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live AsciiStringData block we own a reference to;
+            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
             unsafe {
                 if AsciiStringData::decrement_ref_count(self.data) {
                     AsciiStringData::free(self.data);
@@ -662,11 +692,14 @@ impl UnicodeString {
         let layout = Layout::from_size_align(total_size, std::mem::align_of::<UnicodeStringData>())
             .map_err(|e| format!("Failed to create layout: {}", e))?;
 
+        // SAFETY: [Category 13 — library contract] `layout` was validated by
+        // `Layout::from_size_align` above; allocates the UTF-16 header+payload block
         let ptr = unsafe { alloc(layout) as *mut UnicodeStringData };
         if ptr.is_null() {
             return Err("Failed to allocate memory for UnicodeStringData".to_string());
         }
 
+        // SAFETY: [Category 3 — dangling] `ptr` is non-null and sized for header + payload; both header fields are written before any other use.
         unsafe {
             (*ptr).ref_count = AtomicU16::new(1);
             (*ptr).num_chars_allocated = capacity as u16;
@@ -702,6 +735,7 @@ impl UnicodeString {
         if self.data.is_null() {
             0
         } else {
+            // SAFETY: [Category 10 — OOB] scans the NUL-terminated UTF-16 payload written by from_str, staying inside num_chars_allocated.
             unsafe {
                 let data_ptr = UnicodeStringData::data_ptr_const(self.data);
                 let mut len = 0;
@@ -721,6 +755,8 @@ impl UnicodeString {
     /// Clear the string
     pub fn clear(&mut self) {
         if !self.data.is_null() {
+            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live UnicodeStringData block we own a reference to;
+            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
             unsafe {
                 if UnicodeStringData::decrement_ref_count(self.data) {
                     UnicodeStringData::free(self.data);
@@ -735,6 +771,7 @@ impl UnicodeString {
         if self.data.is_null() {
             ""
         } else {
+            // SAFETY: [Category 10 — OOB / Category 5 — invalid values] slice covers exactly get_length() code units of the NUL-terminated payload written by from_str.
             unsafe {
                 let data_ptr = UnicodeStringData::data_ptr_const(self.data);
                 let len = self.get_length();
@@ -758,16 +795,21 @@ impl UnicodeString {
 impl UnicodeStringData {
     /// Get a pointer to the string data
     fn data_ptr(data: *mut Self) -> *mut u16 {
+        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
+        // the same block built by `new` (flexible-array layout), so the offset stays within it.
         unsafe { (data as *mut u8).add(std::mem::size_of::<Self>()) as *mut u16 }
     }
 
     /// Get a const pointer to the string data
     fn data_ptr_const(data: *const Self) -> *const u16 {
+        // SAFETY: [Category 11 — provenance] The payload starts exactly `size_of::<Self>()` bytes into
+        // the same block built by `new` (flexible-array layout), so the offset stays within it.
         unsafe { (data as *const u8).add(std::mem::size_of::<Self>()) as *const u16 }
     }
 
     /// Increment reference count
     fn increment_ref_count(data: *mut Self) {
+        // SAFETY: [Category 3 — dangling] `data` points to live string data; the atomic increment needs no uniqueness.
         unsafe {
             (*data).ref_count.fetch_add(1, AtomicOrdering::Relaxed);
         }
@@ -775,10 +817,13 @@ impl UnicodeStringData {
 
     /// Decrement reference count and return true if it reaches zero
     fn decrement_ref_count(data: *mut Self) -> bool {
+        // SAFETY: [Category 3 — dangling / Category 5 — invalid values] `data` is live; fetch_sub returns
+        // the previous count, so == 1 means this was the last reference (Release_Ref semantics).
         unsafe { (*data).ref_count.fetch_sub(1, AtomicOrdering::Relaxed) == 1 }
     }
 
     /// Free the string data
+    /// SAFETY: callers must pass the unique remaining owner (ref count just hit zero) of a block from `new`.
     unsafe fn free(data: *mut Self) {
         // SAFETY: [Category 3 — dangling]
         // `data` is the unique remaining owner (ref_count just hit zero),
@@ -789,6 +834,7 @@ impl UnicodeStringData {
         // SAFETY: [Category 13 — library contract]
         // Size/align match the allocation layout used to create this block.
         let layout =
+            // SAFETY: [Category 13 — library contract] Size/align match the `Layout` built in `new` for this same block.
             unsafe { Layout::from_size_align_unchecked(total_size, std::mem::align_of::<Self>()) };
         // SAFETY: [Category 12 — invalid free]
         // Same allocator/layout as the matching `alloc`; pointer is not reused.
@@ -802,6 +848,8 @@ impl UnicodeStringData {
 impl Drop for UnicodeString {
     fn drop(&mut self) {
         if !self.data.is_null() {
+            // SAFETY: [Category 3 — dangling / Category 12 — invalid free] `self.data` is a live UnicodeStringData block we own a reference to;
+            // decrementing then freeing only when the count hits zero preserves unique ownership at free time.
             unsafe {
                 if UnicodeStringData::decrement_ref_count(self.data) {
                     UnicodeStringData::free(self.data);

@@ -225,6 +225,8 @@ impl Win32Mouse {
 
         if cursor == MouseCursor::None || !self.visible {
             #[cfg(windows)]
+            // SAFETY: SetCursor takes the null handle by value, which simply
+            // SAFETY: hides the cursor; no pointers involved.
             unsafe {
                 SetCursor(HCURSOR(0));
             }
@@ -234,6 +236,9 @@ impl Win32Mouse {
                 let cursor_idx = cursor as usize;
                 if cursor_idx < self.cursor_resources.len() && 
                    self.direction_frame < self.cursor_resources[cursor_idx].len() {
+                    // SAFETY: the handle came from LoadCursorFromFileW and is
+                    // SAFETY: shared system state; bounds were checked above,
+                    // SAFETY: SetCursor takes it by value.
                     unsafe {
                         SetCursor(self.cursor_resources[cursor_idx][self.direction_frame]);
                     }
@@ -260,6 +265,8 @@ impl Win32Mouse {
     /// Set mouse position
     pub fn set_position(&mut self, x: i32, y: i32) -> Result<(), Win32MouseError> {
         #[cfg(windows)]
+        // SAFETY: point is a valid writable POINT local; ClientToScreen only
+        // SAFETY: writes it and app_window is a valid window handle.
         unsafe {
             let mut point = POINT { x, y };
             ClientToScreen(self.app_window, &mut point);
@@ -350,6 +357,9 @@ impl Win32Mouse {
                     format!("data\\cursors\\{}.ANI", cursor_info.texture_name)
                 };
 
+                // SAFETY: path_wide is a NUL-terminated wide buffer alive for
+                // SAFETY: the call; the returned HCURSOR is stored for later
+                // SAFETY: SetCursor use and LoadCursorW shares a stock cursor.
                 unsafe {
                     let path_wide: Vec<u16> = resource_path.encode_utf16().chain(std::iter::once(0)).collect();
                     match LoadCursorFromFileW(PCWSTR(path_wide.as_ptr())) {
@@ -449,6 +459,9 @@ impl Win32Mouse {
                 #[cfg(windows)]
                 {
                     let mut screen_point = POINT { x, y };
+                    // SAFETY: screen_point is a valid writable POINT local;
+                    // SAFETY: ScreenToClient only writes it and app_window is
+                    // SAFETY: a valid window handle.
                     unsafe {
                         let _ = ScreenToClient(self.app_window, &mut screen_point);
                     }
@@ -529,12 +542,17 @@ impl Drop for Win32Mouse {
 
 // Thread safety - Win32 mouse is designed to be used from the main thread
 // but events can be added from the message pump thread
+// SAFETY: Win32Mouse owns plain data plus an AtomicBool and a mutex-guarded
+// SAFETY: event queue (the documented channel for the message-pump thread);
+// SAFETY: no unguarded shared state crosses threads, so moving it is sound.
 unsafe impl Send for Win32Mouse {}
 
 /// Helper function to handle mouse messages in WndProc
 #[cfg(windows)]
 pub fn handle_mouse_message(msg: u32, w_param: WPARAM, l_param: LPARAM) -> bool {
     if let Some(mouse) = Win32Mouse::get_global_reference() {
+        // SAFETY: GetMessageTime takes no arguments and returns the calling
+        // SAFETY: thread's last-message time.
         let time = unsafe { GetMessageTime() } as u32;
         if let Err(e) = mouse.add_win32_event(msg, w_param, l_param, time) {
             debug!("Failed to add mouse event: {}", e);

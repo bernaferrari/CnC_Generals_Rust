@@ -523,7 +523,12 @@ pub fn calc_dumb_projectile_bezier_points(
     );
     let mut segs = segments;
     if segs == 0 {
-        segs = (bezier.get_approximate_length() / speed.max(1.0)).ceil() as usize;
+        // C++ DumbProjectileBehavior.cpp:428 —
+        // m_flightPathSegments = ceil(flightDistance / m_flightPathSpeed).
+        // `speed` is distance-per-frame; no floor, or one path point per
+        // frame advances at least a whole unit and slow projectiles teleport
+        // to the target before their authored MaxLifespan expiry.
+        segs = (bezier.get_approximate_length() / speed).ceil() as usize;
         if segs == 0 {
             segs = 1;
         }

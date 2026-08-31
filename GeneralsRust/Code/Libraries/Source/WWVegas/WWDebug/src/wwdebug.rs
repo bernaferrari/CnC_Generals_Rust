@@ -209,18 +209,23 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
         };
 
         let ready_event =
+            // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
             unsafe { OpenEventA(EVENT_MODIFY_STATE, 0, b"DBWIN_BUFFER_READY\0".as_ptr()) };
         if ready_event == 0 {
+            // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
             unsafe { OutputDebugStringA(b"DBWIN_BUFFER_READY missing\0".as_ptr()) };
             return;
         }
         let data_event =
+            // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
             unsafe { OpenEventA(EVENT_MODIFY_STATE, 0, b"DBWIN_DATA_READY\0".as_ptr()) };
         if data_event == 0 {
+            // SAFETY: [Category 8 — FFI] opens the well-known DBWIN event by static NUL-terminated name.
             unsafe { CloseHandle(ready_event) };
             return;
         }
 
+        // SAFETY: [Category 8 — FFI] creates the standard 4096-byte DBWIN shared section with a static name.
         let mapping = unsafe {
             CreateFileMappingA(
                 -1isize as _,
@@ -232,6 +237,7 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
             )
         };
         if mapping == 0 {
+            // SAFETY: [Category 8 — FFI] closes a handle previously opened/mapped above, exactly once per branch.
             unsafe {
                 CloseHandle(ready_event);
                 CloseHandle(data_event);
@@ -239,8 +245,10 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
             return;
         }
 
+        // SAFETY: [Category 8 — FFI] maps the just-created 4096-byte section read/write for this process.
         let view = unsafe { MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, 512) };
         if view.is_null() {
+            // SAFETY: [Category 8 — FFI] closes a handle previously opened/mapped above, exactly once per branch.
             unsafe {
                 CloseHandle(mapping);
                 CloseHandle(ready_event);
@@ -249,8 +257,10 @@ pub fn WWDebug_DBWin32_Message_Handler(message: &str) {
             return;
         }
 
+        // SAFETY: [Category 8 — FFI] waits on the ready-event handle opened above.
         let _ = unsafe { WaitForSingleObject(ready_event, INFINITE) };
         let payload = CString::new(message).unwrap_or_else(|_| CString::new("").unwrap());
+        // SAFETY: [Category 8 — FFI] waits on the ready-event handle opened above.
         unsafe {
             let buffer = view as *mut u8;
             *(buffer as *mut u32) = 0;

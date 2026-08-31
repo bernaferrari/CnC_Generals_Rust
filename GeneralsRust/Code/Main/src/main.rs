@@ -258,6 +258,9 @@ async fn main() {
     // =========================================================================
     #[cfg(feature = "copy-protection")]
     {
+        // SAFETY: wraps only safe copy-protection API calls; the block
+        // mirrors C++ WinMain's CopyProtect phase and touches no raw
+        // pointers (kept for parity with win_main's unsafe entry).
         unsafe {
             let is_dev_mode = cfg!(debug_assertions) || cmd_args.developer_mode;
             let is_enabled = !startup_args
@@ -297,6 +300,8 @@ async fn main() {
     // =========================================================================
     #[cfg(feature = "copy-protection")]
     {
+        // SAFETY: notify_launcher is a safe Rust API; unsafe block kept
+        // for WinMain phase parity, no unsafe operations inside.
         unsafe {
             if let Err(e) = generals_main::copy_protection::notify_launcher() {
                 error!("Could not communicate with launcher: {}", e);
@@ -416,6 +421,8 @@ fn cleanup_and_exit() {
     // =========================================================================
     #[cfg(feature = "copy-protection")]
     {
+        // SAFETY: copy_protection::shutdown is safe Rust; block retained
+        // for cleanup-phase parity with WinMain.
         unsafe {
             if let Err(e) = generals_main::copy_protection::shutdown() {
                 error!("Failed to shutdown copy protection: {}", e);

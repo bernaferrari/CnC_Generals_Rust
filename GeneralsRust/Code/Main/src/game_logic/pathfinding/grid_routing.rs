@@ -196,7 +196,12 @@ impl PathfindingGrid {
     ) {
         self.clear_dynamic_blocks();
 
-        for obj in objects.values() {
+        // C++ iterates TheGameLogic's insertion-ordered object list
+        // (getFirstObject/getNextObject); HashMap order would randomize which
+        // unit owns a contested cell's single m_posUnitID. Sort by ObjectID.
+        let mut stamp_order: Vec<&Object> = objects.values().collect();
+        stamp_order.sort_by_key(|o| o.id);
+        for obj in stamp_order {
             if !obj.is_alive() {
                 continue;
             }
@@ -1911,14 +1916,17 @@ impl PathfindingGrid {
             }
         }
     }
-
-    /// Leftover `PathfindingSystem::is_line_passable_for_surfaces`
-    /// (occupancy.rs:265-273): allow_pinched=false, is_crusher=false, no object occupancy.
+    /// Leftover `Pathfinder::isLinePassable` (allowPinched=true variant)
+    /// (occupancy.rs:265-273): is_crusher=false, no object occupancy.
+    /// `allow_pinched` mirrors C++ isLinePassable's allowPinched flag
+    /// (AIUpdate.cpp:1692 passes false; the leftover direct-path probe
+    /// passed true, which let a straight line cross pinched cells).
     pub(super) fn leftover_is_line_passable_for_surfaces(
         &self,
         from: GridPos,
         to: GridPos,
         surfaces: u32,
+        allow_pinched: bool,
     ) -> bool {
         if from == to {
             return true;
@@ -2026,6 +2034,12 @@ impl PathfindingGrid {
             while far > anchor {
                 let a = self.world_to_grid(waypoints[anchor]);
                 let b = self.world_to_grid(waypoints[far]);
+                // C++ groundPathPassableCallback: the H/V/diag "A* already
+                // walked it" bypass only applies within one layer's corridor;
+                // a ground anchor must LOS across a deck span on `layer`,
+                // never shortcut across water via collinearity.
+                let layers_uniform = (anchor..=far)
+                    .all(|i| self.layer_for_destination(waypoints[i]) == layer);
                 if self.line_passable_on_layer(
                     a,
                     b,
@@ -2036,7 +2050,15 @@ impl PathfindingGrid {
                     crusher_level,
                     true,
                     layer,
-                ) || self.collinear_cells_force_passable(waypoints, anchor, far)
+                ) || (layers_uniform
+                    // C++ optimizeGroundPath LOS is isGroundPathPassable →
+                    // clearCellForDiameter (AIPathfind.cpp:9602-9613, 6721-6733):
+                    // any solid CELL_OBSTACLE in the span refuses the shortcut;
+                    // crusher fences stay exempt. The H/V/diag "A* already
+                    // walked it" bypass (Path::optimize AIPathfind.cpp:511-551)
+                    // must not erase detour waypoints across buildings.
+                    && !self.span_crosses_solid_obstacle(waypoints, anchor, far)
+                    && self.collinear_cells_force_passable(waypoints, anchor, far))
                 {
                     if far == anchor {
                         break;
@@ -2115,5 +2137,44 @@ impl PathfindingGrid {
             }
         }
         true
+    }
+
+    /// C++ `groundPathPassableCallback` / `clearCellForDiameter`
+    /// (AIPathfind.cpp:9602-9613, 6721-6733): the optimize LOS walk refuses
+    /// any solid CELL_OBSTACLE cell in the span. Crusher fences stay exempt.
+    pub(super) fn span_crosses_solid_obstacle(
+        &self,
+        waypoints: &[Vec3],
+        from: usize,
+        to: usize,
+    ) -> bool {
+        let a = self.world_to_grid(waypoints[from]);
+        let b = self.world_to_grid(waypoints[to]);
+        let (mut x0, mut y0) = (a.x, a.y);
+        let (x1, y1) = (b.x, b.y);
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            let cell = GridPos::new(x0, y0);
+            if self.cell_type(cell) == PathfindCellType::Obstacle && !self.is_obstacle_fence(cell)
+            {
+                return true;
+            }
+            if x0 == x1 && y0 == y1 {
+                return false;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
     }
 }

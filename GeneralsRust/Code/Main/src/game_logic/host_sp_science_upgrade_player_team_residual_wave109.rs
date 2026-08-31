@@ -527,6 +527,16 @@ pub const SCIENCE_STORE_TABLE_WAVE109: &[ScienceStoreResidualRowWave109] = &[
         prereq_b: "SCIENCE_Rank3",
         grantable: true,
     },
+    // Retail Science.ini CashBounty chain: 1 → 2 → 3 (each purchase cost 1,
+    // level N requires level N-1 + faction + Rank3). CashBounty3 below already
+    // requires CashBounty2, so the middle link must be purchasable too.
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_CashBounty2",
+        point_cost: 1,
+        prereq_a: "SCIENCE_CashBounty1",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
     ScienceStoreResidualRowWave109 {
         name: "SCIENCE_CashBounty3",
         point_cost: 1,

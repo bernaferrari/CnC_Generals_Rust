@@ -125,7 +125,10 @@ pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
     }
     // Retail ScudStormMissile HeightDieUpdate before generic SCUDMissile peel.
     // TargetHeight 15, InitialDelay 1000ms, TargetHeightIncludesStructures Yes.
-    if n.contains("scudstorm") {
+    // Missile objects only: the GLAScudStorm silo authors no HeightDieUpdate
+    // (C++ HeightDieUpdate.cpp module table), so a name peel on the bare
+    // structure name must not arm a die-at-rest module on the launcher.
+    if n.contains("scudstorm") && n.contains("missile") {
         return Some(HeightDieIni {
             target_height: 15.0,
             only_when_descending: true,
@@ -149,7 +152,7 @@ pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
             includes_structures: false,
         });
     }
-    if n.contains("nuke") && n.contains("missile") {
+    if n.contains("nuke") && n.contains("missile") && !n.contains("launcher") {
         return Some(HeightDieIni {
             target_height: 50.0,
             only_when_descending: true,
@@ -181,8 +184,30 @@ pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
             includes_structures: false,
         });
     }
-    // Generic bomb/missile residual
-    if n.contains("bomb") && !n.contains("bomber") {
+    // C++ attaches HeightDieUpdate only where a template AUTHORS the module
+    // (HeightDieUpdate.cpp:43-61 field parse). The retail INIZH
+    // WeaponObjects.ini census of `Behavior = HeightDieUpdate` owners is an
+    // explicit list — no unit or vehicle whose name merely contains
+    // "bomb"/"missile" authors the module (GLAVehicleBombTruck,
+    // MissileDefender, PatriotMissile, TestMissileDefender all author NONE).
+    // Peeling one onto them killed a Bomb Truck on its first tick
+    // (ground HAT 0 <= target, `last_height` starts f32::MAX = descending),
+    // before the disguise-as-vehicle ability could ever arm.
+    //
+    // Residual authored-module tokens (previously served by the removed
+    // generic catch-alls, same residual values as before). Retail params
+    // recorded for a future value-parity pass:
+    //   AnthraxBomb/Gamma TH40 not-desc, ClusterMinesBomb TH60 not-desc,
+    //   EMPPulseBomb TH15 not-desc, NukeBomb TH10 not-desc,
+    //   CruiseMissile TH10 desc delay1000, NeutronMissile/SupW_NeutronMissile
+    //   TH100 desc delay1000, PatriotMissileEMPHelper TH5 not-desc. The
+    //   Rust-side `ChinaNuclearMissile` flight template keeps its residual
+    //   peel (silo launchers stay excluded).
+    if n.contains("anthraxbomb")
+        || n.contains("clusterminesbomb")
+        || n.contains("emppulsebomb")
+        || n.contains("nukebomb")
+    {
         return Some(HeightDieIni {
             target_height: 5.0,
             only_when_descending: true,
@@ -190,7 +215,12 @@ pub fn height_die_ini_for_template(name: &str) -> Option<HeightDieIni> {
             includes_structures: false,
         });
     }
-    if n.contains("missile") && !n.contains("defender") && !n.contains("stinger") {
+    if n.contains("cruisemissile")
+        || n.contains("neutronmissile")
+        || (n.contains("nuclearmissile") && !n.contains("launcher"))
+        || n == "patriotmissileemphelper"
+        || n == "testmissile"
+    {
         return Some(HeightDieIni {
             target_height: 10.0,
             only_when_descending: true,
@@ -237,5 +267,18 @@ mod tests {
         let y = height_die_target_world_y(40.0, &ini, 0.0);
         assert!((y - 41.0).abs() < 0.001);
         assert!(height_die_ini_for_template("AmericaInfantryRanger").is_none());
+    }
+
+    #[test]
+    fn height_die_peel_never_arms_silo_launcher_structures() {
+        // C++ HeightDieUpdate modules live on the missile objects, not the
+        // silo structures. A ground-rest launcher (hat 0) must not resolve a
+        // die-at-rest module or update_ai removes the structure on tick one.
+        assert!(height_die_ini_for_template("ChinaNuclearMissileLauncher").is_none());
+        assert!(height_die_ini_for_template("GLAScudStorm").is_none());
+        assert!(height_die_ini_for_template("Nuke_ChinaNuclearMissileLauncher").is_none());
+        // The missiles themselves keep their retail peels.
+        assert!(height_die_ini_for_template("ScudStormMissile").is_some());
+        assert!(height_die_ini_for_template("ChinaNuclearMissile").is_some());
     }
 }

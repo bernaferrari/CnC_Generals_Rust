@@ -964,6 +964,24 @@ impl GameLogic {
                 }
             }
 
+            // C++ CashBountyPower presentation: floating "+$N" AddCash text at
+            // the killer position; registry honesty records the award.
+            if bounty_awarded > 0 {
+                if used_last_damage_source {
+                    self.cash_bounty.record_last_damage_source_kill();
+                }
+                self.cash_bounty.record_floating_text(
+                    crate::game_logic::host_cash_bounty::HostCashBountyFloatingText::new(
+                        bounty_killer_id,
+                        destroyed_object.id,
+                        bounty_float_pos,
+                        bounty_awarded,
+                        self.frame,
+                    ),
+                );
+                self.cash_bounty.record_bounty_award(bounty_awarded);
+            }
+
             // C++ addObjectLost only runs inside scoreTheKill (a killer called it)
             // after playable-side + IGNORED_IN_GUI. Killer-less sell/script destroy
             // never touches the keeper.

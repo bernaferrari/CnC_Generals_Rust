@@ -69,7 +69,7 @@ fn eng_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
 fn smoke_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 pub fn honesty_host_default_template_opt_in_method_names_residual_wave727() -> bool {
     let names = LIVE_HOST_DEFAULT_TEMPLATE_OPT_IN_METHOD_NAMES_WAVE727;

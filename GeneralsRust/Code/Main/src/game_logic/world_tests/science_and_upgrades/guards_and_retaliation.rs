@@ -482,7 +482,11 @@ fn guarding_object_flying_only_skips_ground() {
     logic.objects.insert(tid, tank);
 
     let mut at = ThingTemplate::new("Raptor");
+    // Retail aircraft author KINDOF_VEHICLE as well; a bare-Aircraft victim
+    // yields a zero victim anti-mask (WeaponSet.cpp:347-390) and no shot is
+    // ever legal — C++-exact fail-closed.
     at.add_kind_of(KindOf::Aircraft);
+    at.add_kind_of(KindOf::Vehicle);
     at.add_kind_of(KindOf::Attackable);
     let aid = ObjectId(6113);
     let mut air = Object::new(at, aid, Team::GLA);
@@ -509,10 +513,12 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
         6120,
         AsciiString::from("Wave21GuardAreaPoly"),
         vec![
-            ICoord3D::new(0, 0, 0),
-            ICoord3D::new(400, 0, 0),
-            ICoord3D::new(400, 40, 0),
-            ICoord3D::new(0, 40, 0),
+            // Shifted x-200 so every coordinate sits inside the 512x512
+            // default world (PartitionFilterSameMapStatus, AIGuard.cpp:204).
+            ICoord3D::new(-200, 0, 0),
+            ICoord3D::new(200, 0, 0),
+            ICoord3D::new(200, 40, 0),
+            ICoord3D::new(-200, 40, 0),
         ],
     );
     gamelogic::terrain::get_terrain_logic()
@@ -526,8 +532,8 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6121);
     let mut g = Object::new(gt, gid, Team::China);
-    g.set_position(glam::Vec3::new(200.0, 0.0, 20.0));
-    g.guard_position = Some(glam::Vec3::new(200.0, 0.0, 20.0));
+    g.set_position(glam::Vec3::new(0.0, 0.0, 20.0));
+    g.guard_position = Some(glam::Vec3::new(0.0, 0.0, 20.0));
     g.guard_area_trigger = Some("Wave21GuardAreaPoly".into());
     g.vision_range = 100.0;
     g.weapon = Some(wave21_guard_weapon());
@@ -539,7 +545,7 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     ot.add_kind_of(KindOf::Attackable);
     let oid = ObjectId(6122);
     let mut outside = Object::new(ot, oid, Team::USA);
-    outside.set_position(glam::Vec3::new(200.0, 0.0, 150.0));
+    outside.set_position(glam::Vec3::new(0.0, 0.0, 150.0));
     logic.objects.insert(oid, outside);
 
     mark_guard_scan_due(&mut logic, gid);
@@ -554,7 +560,7 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     it.add_kind_of(KindOf::Attackable);
     let iid = ObjectId(6123);
     let mut inside = Object::new(it, iid, Team::USA);
-    inside.set_position(glam::Vec3::new(380.0, 0.0, 20.0));
+    inside.set_position(glam::Vec3::new(180.0, 0.0, 20.0));
     logic.objects.insert(iid, inside);
 
     mark_guard_scan_due(&mut logic, gid);

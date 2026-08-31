@@ -953,6 +953,7 @@ impl HostSpecialPowerStrikeRegistry {
             live_scud_delivery: false,
             live_carpet_delivery: false,
             live_anthrax_delivery: false,
+            live_a10_delivery: false,
             manual_beam_hold: false,
             scripted_waypoint_mode: false,
             next_dest_waypoint_id: 0,

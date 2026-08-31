@@ -1457,12 +1457,29 @@ impl GameLogic {
                 index
             }
         };
-        let slot_index = u32::try_from(index).ok()?;
+        let slot_index = u32::try_from(index).ok();
         let airfield_pos = self.objects.get(&airfield_id).map(|a| a.get_position());
-        let jet = self.objects.get_mut(&jet_id)?;
-        if !Self::is_aircraft(jet) || !jet.is_alive() {
+        let jet_valid = self
+            .objects
+            .get(&jet_id)
+            .is_some_and(|jet| Self::is_aircraft(jet) && jet.is_alive());
+        let (Some(slot_index), true) = (slot_index, jet_valid) else {
+            // C++ reserveSpace never leaves the stall table mutated when the
+            // reserving aircraft cannot take the reservation: undo the claim
+            // before any early return so the slot stays available.
+            if existing.is_none() {
+                if let Some(spaces) = self.airfield_parking_spaces.get_mut(&airfield_id) {
+                    if let Some(space) = spaces.get_mut(index) {
+                        space.object_id = None;
+                    }
+                }
+                self.sync_airfield_hangar_doors(airfield_id);
+            }
             return None;
-        }
+        };
+        let Some(jet) = self.objects.get_mut(&jet_id) else {
+            return None;
+        };
         jet.producer_id = Some(airfield_id);
         jet.airfield_parking_space_index = Some(slot_index);
         jet.capture_jet_producer_location(airfield_pos);
@@ -1959,6 +1976,11 @@ impl GameLogic {
         for_landing: bool,
     ) -> Option<usize> {
         let _ = self.ensure_airfield_runway_queues(airfield_id)?;
+        // C++ ParkingPlaceBehavior keeps m_spaces live for every docked
+        // aircraft (buildInfo/purgeDead run before reserveRunway), so a
+        // docked jet always has a stall→runway mapping. Rebuild the host
+        // table the same way before the column lookup.
+        self.normalize_airfield_parking_spaces(airfield_id);
         if let Some(slots) = self.runway_reservations.get(&airfield_id) {
             if let Some(idx) = slots.iter().position(|s| *s == Some(jet_id)) {
                 return Some(idx);
@@ -2321,6 +2343,30 @@ impl GameLogic {
         self.do_jet_landing_command(jet_id, airfield_id)
     }
 
+    /// Undock pairing for the dock-time container listing: drop the jet from
+    /// the airfield's parked-aircraft list (contained_units mirror).
+    fn remove_jet_from_airfield_occupants(&mut self, jet_id: ObjectId, af_hint: Option<ObjectId>) {
+        let Some(af_id) = af_hint else {
+            return;
+        };
+        let Some(airfield) = self.objects.get_mut(&af_id) else {
+            return;
+        };
+        if let Some(building) = airfield.building_data.as_mut() {
+            if let Some(pos) = building.garrisoned_units.iter().position(|&id| id == jet_id) {
+                building.garrisoned_units.remove(pos);
+                crate::game_logic::host_contain_log::record_garrison(
+                    airfield.id,
+                    &building.garrisoned_units,
+                    building.max_garrison.min(u16::MAX as usize) as u16,
+                );
+            }
+        } else if let Some(pos) = airfield.occupants.iter().position(|&id| id == jet_id) {
+            airfield.occupants.remove(pos);
+            crate::game_logic::host_contain_log::record_garrison(airfield.id, &airfield.occupants, 0);
+        }
+    }
+
     /// C++ JetOrHeliTaxiState::onEnter — uncontain, SET_TAXIING, stay on deck.
     fn uncontain_jet_for_ground_taxi(&mut self, jet_id: ObjectId) -> bool {
         self.set_airfield_healee_for_jet(jet_id, false);
@@ -2343,6 +2389,7 @@ impl GameLogic {
             jet.apply_taxiing_locomotor_set();
             jet.set_precise_z_and_ultra_accurate(true);
         }
+        self.remove_jet_from_airfield_occupants(jet_id, af_hint);
         if let Some(af_id) = af_hint {
             self.sync_airfield_hangar_doors(af_id);
         }
@@ -2381,6 +2428,7 @@ impl GameLogic {
             jet.set_contained_by(None);
             was_parked || af.is_some()
         };
+        self.remove_jet_from_airfield_occupants(jet_id, af_hint);
         let released_from = if keep_stall {
             None
         } else {
@@ -2413,14 +2461,18 @@ impl GameLogic {
                 .objects
                 .get(&producer_id)
                 .is_some_and(Self::has_usable_airfield_parking_behavior);
+            // C++ JetAIUpdate asks getPP(producerID) first: the producer's
+            // exact controller is authoritative even when its authored
+            // ParkingPlace cannot currently reserve a space (full hangar).
+            // Falling through to findSuitableAirfield there would route the
+            // jet into a nearer same-faction other-player airfield.
             if producer_is_usable && self.airfield_has_exact_controller_for_jet(jet_id, producer_id)
             {
-                // A valid producer remains authoritative.  C++ does not
-                // silently select another airfield merely because its own
-                // ParkingPlaceBehavior cannot reserve a space this frame.
-                return self
-                    .reserve_airfield_parking_space(producer_id, jet_id)
-                    .map(|_| producer_id);
+                if self.reserve_airfield_parking_space(producer_id, jet_id).is_some()
+                    || self.airfield_has_reserved_space(producer_id, jet_id)
+                {
+                    return Some(producer_id);
+                }
             }
 
             // A previous `findSuitableAirfield` fallback writes that field
@@ -2519,7 +2571,14 @@ impl GameLogic {
                 jet.get_position(),
             )
         };
-        if !needs_rearm && !requested {
+        // A docked jet mid-clip-reload no longer reads needs_rearm (clip is
+        // partially full), but C++ RELOAD_AMMO keeps running to its
+        // m_reloadDoneFrame (JetAIUpdate.cpp:1464-1470) — the parked rearm
+        // tick must still progress and complete through this entry point.
+        let docked_rearm_pending = self.objects.get(&jet_id).is_some_and(|jet| {
+            jet.contained_by.is_some() && jet.airfield_rearm_ready_frame.is_some()
+        });
+        if !needs_rearm && !requested && !docked_rearm_pending {
             return false;
         }
 
@@ -2591,10 +2650,10 @@ impl GameLogic {
             pad.y += metadata.landing_deck_height_offset;
             pad
         };
+        let prep = ppinfo.map(|info| info.runway_prep).unwrap_or(pad);
         let approach = ppinfo.map(|info| info.runway_approach).unwrap_or(pad);
         let runway_end = ppinfo.map(|info| info.runway_end).unwrap_or(approach);
         let runway_start = ppinfo.map(|info| info.runway_start).unwrap_or(pad);
-        let prep = ppinfo.map(|info| info.runway_prep).unwrap_or(pad);
         let intermediate = ppinfo.and_then(|info| taxi_intermediate_point(&info));
         let (phase, airborne) = self
             .objects
@@ -2612,6 +2671,38 @@ impl GameLogic {
             return self.dock_jet_at_airfield_pad(jet_id, airfield_id, pad);
         }
 
+        // C++ JetAIUpdate re-evaluates its state machine every update. When a
+        // previously assigned RTB approach/taxi path has already been consumed
+        // (empty path, idle, no target) the next call must progress to the
+        // dock instead of re-issuing an identical approach leg forever.
+        // C++ JetOrHeliTaxiState::onEnter destroys the obsolete move and
+        // rebuilds the taxi leg, and arrival hands off to
+        // JetOrHeliParkOrientState whose update() snaps the jet onto
+        // parkingSpace (JetAIUpdate.cpp:1188-1195 setPosition(hoverloc)). A
+        // taxi-phase jet inside the parking apron (within one taxi spacing of
+        // its reserved pad) whose current move is NOT a fresh taxi leg toward
+        // the pad — idle, or still carrying a stale approach leg — is parked
+        // and docks immediately.
+        let rtb_path_complete = self.objects.get(&jet_id).is_some_and(|jet| {
+            jet.movement.path.is_empty()
+                && !jet.status.moving
+                && jet.movement.target_position.is_none()
+                && jet.ai_state == AIState::Moving
+        });
+        use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
+        let apron_reach_sq = {
+            let pad_reach =
+                horiz_dist_sq(airfield_position, pad).sqrt() + PARKING_PLACE_RUNWAY_PREP_SPACING;
+            pad_reach * pad_reach
+        };
+        let apron_arrived = self.objects.get(&jet_id).is_some_and(|jet| {
+            jet.jet_ai.rtb_landing_phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI
+                && jet.movement.target_position != Some(pad)
+                && horiz_dist_sq(jet.get_position(), pad) <= apron_reach_sq
+        });
+        if rtb_path_complete || apron_arrived {
+            return self.dock_jet_at_airfield_pad(jet_id, airfield_id, pad);
+        }
         if phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI
             || (phase >= crate::game_logic::object::JET_RTB_PHASE_LANDING
                 && horiz_dist_sq(jet_position, runway_start) <= WAYPOINT_SQ)
@@ -2648,6 +2739,14 @@ impl GameLogic {
                 jet.target = None;
                 jet.set_status_attacking(false);
                 jet.set_ai_state(AIState::Moving);
+            }
+            // Host-immediate Moving + decision log (dock pattern): GameWorld
+            // stays last-writer for the RTB AI state under decision authority.
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                    &AIState::Moving,
+                );
+                crate::game_logic::host_ai_decision_log::record_set_state(jet_id, ordinal);
             }
             if self.assign_unit_path(jet_id, approach, &[]) {
                 return true;
@@ -2741,6 +2840,30 @@ impl GameLogic {
             }
             jet.begin_parked_airfield_rearm(self.frame);
             let _ = jet.tick_parked_airfield_rearm(self.frame);
+        }
+        // C++ ParkingPlaceBehavior holds the stall (m_objectID) so the airfield
+        // knows its parked aircraft; live pairs the docked contained_by marker
+        // with the container listing (contained_units mirror). Direct list
+        // push: the parking reservation is the capacity authority, not the
+        // garrison max.
+        if let Some(airfield) = self.objects.get_mut(&airfield_id) {
+            if let Some(building) = airfield.building_data.as_mut() {
+                if !building.garrisoned_units.contains(&jet_id) {
+                    building.garrisoned_units.push(jet_id);
+                    crate::game_logic::host_contain_log::record_garrison(
+                        airfield.id,
+                        &building.garrisoned_units,
+                        building.max_garrison.min(u16::MAX as usize) as u16,
+                    );
+                }
+            } else if !airfield.occupants.contains(&jet_id) {
+                airfield.occupants.push(jet_id);
+                crate::game_logic::host_contain_log::record_garrison(
+                    airfield.id,
+                    &airfield.occupants,
+                    0,
+                );
+            }
         }
         self.release_airfield_runway_for_jet(jet_id);
         self.sync_airfield_hangar_doors(airfield_id);

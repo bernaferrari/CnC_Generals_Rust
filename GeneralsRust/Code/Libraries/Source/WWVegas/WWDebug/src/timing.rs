@@ -19,6 +19,7 @@ impl ProfileTimer {
     pub fn get_cpu_cycles() -> ProfileResult<u64> {
         use std::arch::x86_64::_rdtsc;
 
+        // SAFETY: [Category 14 — platform] `_rdtsc` is a plain register read with no memory effects.
         unsafe { Ok(_rdtsc()) }
     }
 
@@ -63,11 +64,13 @@ impl ProfileTimer {
             thread::sleep(Duration::from_millis(2));
 
             let start_time = Instant::now();
+            // SAFETY: [Category 14 — platform] `_rdtsc` is a plain register read with no memory effects.
             let start_cycles = unsafe { _rdtsc() };
 
             // Wait 20ms
             thread::sleep(Duration::from_millis(20));
 
+            // SAFETY: [Category 14 — platform] `_rdtsc` is a plain register read with no memory effects.
             let end_cycles = unsafe { _rdtsc() };
             let elapsed = start_time.elapsed();
 

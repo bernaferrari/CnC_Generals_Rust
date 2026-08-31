@@ -23,7 +23,23 @@ impl PlayerList {
     }
 
     pub fn get_player(&self, index: PlayerIndex) -> Option<&Arc<RwLock<Player>>> {
-        self.players.get(index as usize)
+        // C++ PlayerList::getNthPlayer (PlayerList.cpp:66-75) returns the fixed
+        // slot m_players[i]; the ctor allocates one Player(i) per index
+        // (PlayerList.cpp:43-47). The addressed slot is the player's own index,
+        // never the count of live players before it, so a sparse list (e.g.
+        // only the ReplayObserver side registered at index N) must not hand
+        // back its first live player for index 0.
+        if index < 0 {
+            return None;
+        }
+        self.players
+            .iter()
+            .find(|player| {
+                player
+                    .read()
+                    .ok()
+                    .is_some_and(|guard| guard.get_player_index() == index)
+            })
     }
 
     pub fn get_player_count(&self) -> usize {
@@ -184,6 +200,9 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
         upgrade_template: &UpgradeTemplate,
         status: crate::upgrade::UpgradeStatus,
     ) {
+        // Owned-object roster snapshot taken on completion, for the
+        // C++ onUpgradeCompleted fan-out after the lock is released.
+        let mut completed_roster: Vec<ObjectID> = Vec::new();
         if let Ok(mut guard) = self.write() {
             // Create new upgrade instance
             let upgrade = Upgrade::new(Arc::new(upgrade_template.clone()));
@@ -194,9 +213,8 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
 
             // Get the upgrade mask bit for this upgrade
             let upgrade_name = upgrade_template.get_name();
-            let mask_bit = UpgradeMaskType::from_bits_retain(
-                crate::upgrade::upgrade_mask_for_name(upgrade_name.as_str()).bits(),
-            );
+            let upgrade_mask = crate::upgrade::upgrade_mask_for_name(upgrade_name.as_str());
+            let mask_bit = UpgradeMaskType::from_bits_retain(upgrade_mask.bits());
             // Update the appropriate mask based on status
             match status {
                 crate::upgrade::UpgradeStatus::InProduction => {
@@ -208,6 +226,13 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
                     guard.upgrades_in_progress = guard.upgrades_in_progress & !mask_bit;
                     // Live leftover add_upgrade notify (host upgrade complete).
                     guard.academy_stats.record_upgrade(upgrade_template, false);
+                    // Keep PlayerUpgradeManager.active_upgrades in sync: the
+                    // per-object re-check reads that mask (C++ reads the same
+                    // completed mask via Object::updateUpgradeModules).
+                    if let Some(manager) = guard.get_upgrade_manager_mut() {
+                        manager.add_completed_upgrade(upgrade_template.get_name_key(), upgrade_mask);
+                    }
+                    completed_roster = guard.get_all_objects();
                 }
                 crate::upgrade::UpgradeStatus::Invalid => {
                     // Do nothing for invalid status
@@ -222,6 +247,14 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
             {
                 guard.upgrade_list.push(upgrade_mut);
             }
+        }
+
+        // C++ Player.cpp:3038 — addUpgrade(COMPLETE) ends with
+        // onUpgradeCompleted, re-checking UpgradeModules on every object the
+        // player owns. Runs after the player write guard is dropped because
+        // the per-object re-check reads this player again.
+        if !completed_roster.is_empty() {
+            on_upgrade_completed_fanout(completed_roster);
         }
     }
 
@@ -300,5 +333,23 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
         } else {
             false
         }
+    }
+}
+
+/// C++ Player::onUpgradeCompleted (Player.cpp:3054-3081): an upgrade just
+/// finished, tell all of the player's objects to re-check their
+/// UpgradeModules (StatusBits/ReplaceObject/WeaponSet and friends).
+fn on_upgrade_completed_fanout(object_ids: Vec<ObjectID>) {
+    // The create-hook owner already holds its object's write lock; its init
+    // tail re-checks modules (C++ Object::initObject → updateUpgradeModules).
+    let skip_id = crate::object::create::create_owner_id();
+    for object_id in object_ids {
+        if Some(object_id) == skip_id {
+            continue;
+        }
+        let _ = crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(object_id, |object_guard| {
+                object_guard.update_upgrade_modules_from_player();
+            });
     }
 }

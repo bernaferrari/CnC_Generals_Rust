@@ -993,6 +993,19 @@ pub fn create_building_templates() -> HashMap<String, ThingTemplate> {
         .set_model("ubundtunn"); // FactionBuilding.ini pristine GLA tunnel network
     templates.insert("GLA_TunnelNetwork".to_string(), gla_tunnel);
 
+    // Retail faction structures author KINDOF_MP_COUNT_FOR_VICTORY (e.g.
+    // `Object GLABarracks / GLACommandCenter / AmericaBarracks` in
+    // FactionBuilding.ini).  Victory evaluation counts only
+    // STRUCTURE && MP_COUNT_FOR_VICTORY members (C++ Team::hasAnyBuildings
+    // with the MP_COUNT_FOR_VICTORY mask), so every synthesized structure
+    // must carry the bit or skirmish annihilation rules defeat everyone on
+    // frame 0.
+    for template in templates.values_mut() {
+        if template.is_kind_of(KindOf::Structure) {
+            template.add_kind_of(KindOf::MpCountForVictory);
+        }
+    }
+
     templates
 }
 

@@ -782,6 +782,11 @@ fn has_allied_goal_own_vs_ally_player() {
     masks[1] = 1u16 << 0 | 1u16 << 1;
     g.set_player_ally_masks(masks);
 
+    // Default infantry selection_radius 8.0 -> radius_and_center gives a 3x3
+    // goal footprint (AIPathfind.cpp:9766-9796), and C++ setGoalUnit
+    // (:1302-1337) keeps ONE m_goalUnitID per cell (last writer wins).
+    // Keep the three goals' footprints disjoint or the later stamp evicts the
+    // earlier goal identity — authentic C++ behavior, not a port bug.
     let mut objects = HashMap::new();
     let mut own_t = ThingTemplate::new("Ranger");
     own_t.add_kind_of(KindOf::Infantry);
@@ -794,17 +799,17 @@ fn has_allied_goal_own_vs_ally_player() {
     let mut ally_t = ThingTemplate::new("RedGuard");
     ally_t.add_kind_of(KindOf::Infantry);
     let mut ally = Object::new(ally_t, ObjectId(20), Team::China);
-    ally.set_position(g.grid_to_world(GridPos::new(8, 2)));
+    ally.set_position(g.grid_to_world(GridPos::new(10, 1)));
     ally.owner_player_id = Some(1);
-    ally.movement.target_position = Some(g.grid_to_world(GridPos::new(5, 5)));
+    ally.movement.target_position = Some(g.grid_to_world(GridPos::new(8, 2)));
     objects.insert(ally.id, ally);
 
     let mut enemy_t = ThingTemplate::new("Rebel");
     enemy_t.add_kind_of(KindOf::Infantry);
     let mut enemy = Object::new(enemy_t, ObjectId(30), Team::GLA);
-    enemy.set_position(g.grid_to_world(GridPos::new(8, 8)));
+    enemy.set_position(g.grid_to_world(GridPos::new(10, 10)));
     enemy.owner_player_id = Some(2);
-    enemy.movement.target_position = Some(g.grid_to_world(GridPos::new(6, 6)));
+    enemy.movement.target_position = Some(g.grid_to_world(GridPos::new(8, 9)));
     objects.insert(enemy.id, enemy);
 
     g.update_dynamic_obstacles(&objects);
@@ -814,11 +819,11 @@ fn has_allied_goal_own_vs_ally_player() {
         "own UNIT_GOAL must be accepted"
     );
     assert!(
-        g.has_allied_goal(GridPos::new(5, 5), Some(0)),
+        g.has_allied_goal(GridPos::new(8, 2), Some(0)),
         "allied other-player goal must be refused"
     );
     assert!(
-        !g.has_allied_goal(GridPos::new(6, 6), Some(0)),
+        !g.has_allied_goal(GridPos::new(8, 9), Some(0)),
         "enemy UNIT_GOAL is not allied"
     );
 }
@@ -1076,14 +1081,27 @@ fn crusher_plans_through_idle_crushable_cars() {
         )
         .expect("crusher must path through cars");
     assert!(crushed.len() >= 2);
-    let through = crushed.windows(2).any(|w| {
-        let crosses = (w[0].x - 80.0) * (w[1].x - 80.0) <= 0.0;
-        let near_mid = w[0].z > 15.0 && w[0].z < 95.0;
-        crosses && near_mid
+    // C++ getRadiusAndCenter (AIPathfind.cpp:9670-9696): radius-4 cars stamp
+    // ONE pathfind cell each (updatePos loops i in [x-0, x+1)). A crusher's
+    // A* treats crushable enemy cells as passable (checkForMovement,
+    // AIPathfind.cpp:5063 canCrushOrSquish), so its route must cross the
+    // stamped car column; Path::optimizeGroundPath (AIPathfind.cpp:567-680)
+    // may then collapse it to one straight segment, so sample along each
+    // window rather than testing waypoints alone.
+    let car_cells: Vec<GridPos> = (20..90)
+        .step_by(10)
+        .map(|z| sys.grid.world_to_grid(Vec3::new(80.0, 0.0, z as f32)))
+        .collect();
+    let enters_car_cell = crushed.windows(2).any(|w| {
+        (0..=32).any(|s| {
+            let t = s as f32 / 32.0;
+            let p = w[0] * (1.0 - t) + w[1] * t;
+            car_cells.contains(&sys.grid.world_to_grid(p))
+        })
     });
     assert!(
-        through,
-        "crusher path must cross the car line, path={crushed:?}"
+        enters_car_cell,
+        "crusher path must drive through the stamped car cells, path={crushed:?} cells={car_cells:?}"
     );
 
     let mut inf_t = ThingTemplate::new("Ranger");
@@ -1108,9 +1126,22 @@ fn crusher_plans_through_idle_crushable_cars() {
         .expect("non-crusher can detour");
     let walk_len: f32 = walked.windows(2).map(|w| (w[0] - w[1]).length()).sum();
     let crush_len: f32 = crushed.windows(2).map(|w| (w[0] - w[1]).length()).sum();
+    // C++ allyFixedCount is a COST, not a wall (AIPathfind.cpp:5050-5060,
+    // 6281-6291): the non-crusher may legally thread the 10-unit gaps between
+    // 1-cell car stamps; Path::optimizeGroundPath (AIPathfind.cpp:567-680)
+    // then straightens to one corner waypoint. The observable contract:
+    // no walked waypoint lands in a stamped car cell, and the detour still
+    // costs strictly more than the crush-through line.
+    let avoids_car_cells = walked
+        .iter()
+        .all(|p| !car_cells.contains(&sys.grid.world_to_grid(*p)));
     assert!(
-        walk_len > crush_len + 20.0,
-        "non-crusher must detour around cars crush={crush_len} walk={walk_len}"
+        avoids_car_cells,
+        "non-crusher must not route through car cells, walk={walked:?} cells={car_cells:?}"
+    );
+    assert!(
+        walk_len > crush_len,
+        "non-crusher must pay extra over crush-through crush={crush_len} walk={walk_len}"
     );
 }
 
@@ -1158,14 +1189,21 @@ fn occupancy_allies_are_not_crush_through() {
             Some(ObjectId(1)),
         )
         .expect("must detour around allied cars");
-    let through = path.windows(2).any(|w| {
-        let crosses = (w[0].x - 80.0) * (w[1].x - 80.0) <= 0.0;
-        let near_mid = w[0].z > 15.0 && w[0].z < 95.0;
-        crosses && near_mid
-    });
+    // C++ getRadiusAndCenter (AIPathfind.cpp:9670-9696): radius-4 allied cars
+    // stamp ONE pathfind cell each. allyFixedCount is a cost, not a wall
+    // (AIPathfind.cpp:5050-5060, 6281-6291) — C++ may thread the gaps between
+    // stamps — but no waypoint may land inside a stamped car cell, and the
+    // route must not be a straight crush-through line.
+    let car_cells: Vec<GridPos> = (20..90)
+        .step_by(10)
+        .map(|z| sys.grid.world_to_grid(Vec3::new(80.0, 0.0, z as f32)))
+        .collect();
+    let avoids_car_cells = path
+        .iter()
+        .all(|p| !car_cells.contains(&sys.grid.world_to_grid(*p)));
     assert!(
-        !through,
-        "ALLIES cars must not be crush-through, path={path:?}"
+        avoids_car_cells,
+        "ALLIES cars must not be routed through, path={path:?} cells={car_cells:?}"
     );
 }
 
@@ -1210,11 +1248,24 @@ fn attack_and_request_path_fail_closed_through_walls() {
     }
 
     let mut logic = GameLogic::new();
+    // GameLogic grids are centered at (-w/2,-h/2): derive the wall column from
+    // the LIVE grid so it truly separates start and goal cells.
+    let wall_x = {
+        let grid = &logic.pathfinding_system.grid;
+        let start_cell = grid.world_to_grid(from);
+        let goal_cell = grid.world_to_grid(to);
+        let wx = (start_cell.x + goal_cell.x) / 2;
+        assert!(
+            start_cell.x < wx && wx < goal_cell.x,
+            "wall column {wx} must sit between start cell {start_cell:?} and goal cell {goal_cell:?}"
+        );
+        wx
+    };
     for y in 0..logic.pathfinding_system.grid.height() {
         logic
             .pathfinding_system
             .grid
-            .set_cell_type(GridPos::new(10, y), PathfindCellType::Impassable);
+            .set_cell_type(GridPos::new(wall_x, y), PathfindCellType::Impassable);
     }
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry);
@@ -1226,10 +1277,12 @@ fn attack_and_request_path_fail_closed_through_walls() {
     let unit = logic.objects.get(&id).expect("unit");
     if ok {
         let path = &unit.movement.path;
-        let through = path.iter().any(|p| {
-            let c = logic.pathfinding_system.grid.world_to_grid(*p);
-            logic.pathfinding_system.grid.cell_type(c) == PathfindCellType::Impassable
-                || p.x > 105.0
+        let through = path.windows(2).any(|w| {
+            let a = logic.pathfinding_system.grid.world_to_grid(w[0]);
+            let b = logic.pathfinding_system.grid.world_to_grid(w[1]);
+            (a.x - wall_x) * (b.x - wall_x) <= 0 && (a.x != wall_x || b.x != wall_x)
+                || logic.pathfinding_system.grid.cell_type(a) == PathfindCellType::Impassable
+                || logic.pathfinding_system.grid.cell_type(b) == PathfindCellType::Impassable
         });
         assert!(
             !through,

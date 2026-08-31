@@ -24,6 +24,8 @@ use tokio::sync::RwLock;
 
 /// Set render state - matches original W3DDevice::SetRenderState(state, value)
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry; only the device handle is dereferenced and state mutation
+// SAFETY: happens under its Mutex. All parameters are by-value scalars.
 pub unsafe extern "C" fn W3DDevice_SetRenderState(
     device: W3D_DEVICE,
     state: W3D_RENDER_STATE,
@@ -213,6 +215,8 @@ pub(super) async fn set_render_state_internal(
 
 /// Set fixed-function vertex format - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry; only the device handle is dereferenced under its Mutex.
+// SAFETY: `fvf` is an opaque by-value handle word, never a pointer dereference.
 pub unsafe extern "C" fn W3DDevice_SetFVF(device: W3D_DEVICE, fvf: u32) -> i32 {
     if device.is_null() {
         return 0;
@@ -228,6 +232,8 @@ pub unsafe extern "C" fn W3DDevice_SetFVF(device: W3D_DEVICE, fvf: u32) -> i32 {
 
 /// Get fixed-function vertex format - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI query; only the device handle is dereferenced under its Mutex.
+// SAFETY: By-value return, no pointers written.
 pub unsafe extern "C" fn W3DDevice_GetFVF(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -242,6 +248,8 @@ pub unsafe extern "C" fn W3DDevice_GetFVF(device: W3D_DEVICE) -> u32 {
 
 /// Set current vertex declaration handle - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry; `declaration` is an opaque by-value handle id, not a
+// SAFETY: pointer. Only the device handle is dereferenced under its Mutex.
 pub unsafe extern "C" fn W3DDevice_SetVertexDeclaration(
     device: W3D_DEVICE,
     declaration: u32,
@@ -260,6 +268,8 @@ pub unsafe extern "C" fn W3DDevice_SetVertexDeclaration(
 
 /// Get current vertex declaration handle - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI query; opaque declaration-id lookup under the device Mutex.
+// SAFETY: By-value return, no pointer dereference beyond the live device handle.
 pub unsafe extern "C" fn W3DDevice_GetVertexDeclaration(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -274,6 +284,9 @@ pub unsafe extern "C" fn W3DDevice_GetVertexDeclaration(device: W3D_DEVICE) -> u
 
 /// Define or replace declaration metadata for a legacy declaration handle.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry. `elements` must be readable for element_count
+// SAFETY: W3D_VERTEX_ELEMENTs through this call; contents are cloned into the
+// SAFETY: device's declaration table immediately.
 pub unsafe extern "C" fn W3DDevice_DefineVertexDeclaration(
     device: W3D_DEVICE,
     declaration: u32,
@@ -316,6 +329,8 @@ pub unsafe extern "C" fn W3DDevice_DefineVertexDeclaration(
 
 /// Clear declaration metadata for a legacy declaration handle.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry; removes a table entry keyed by the opaque declaration id.
+// SAFETY: No pointer parameters besides the validated device handle.
 pub unsafe extern "C" fn W3DDevice_ClearVertexDeclaration(
     device: W3D_DEVICE,
     declaration: u32,
@@ -333,6 +348,8 @@ pub unsafe extern "C" fn W3DDevice_ClearVertexDeclaration(
 
 /// Set current vertex shader handle - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry; `shader` is an opaque by-value handle word, not a
+// SAFETY: pointer. Only the device handle is dereferenced under its Mutex.
 pub unsafe extern "C" fn W3DDevice_SetVertexShader(device: W3D_DEVICE, shader: u32) -> i32 {
     if device.is_null() {
         return 0;
@@ -348,6 +365,8 @@ pub unsafe extern "C" fn W3DDevice_SetVertexShader(device: W3D_DEVICE, shader: u
 
 /// Get current vertex shader handle - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI query; opaque shader-word lookup under the device Mutex.
+// SAFETY: By-value return, no pointer dereference beyond the live device handle.
 pub unsafe extern "C" fn W3DDevice_GetVertexShader(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -362,6 +381,8 @@ pub unsafe extern "C" fn W3DDevice_GetVertexShader(device: W3D_DEVICE) -> u32 {
 
 /// Set current pixel shader handle - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI entry; `shader` is an opaque by-value handle word, not a
+// SAFETY: pointer. Only the device handle is dereferenced under its Mutex.
 pub unsafe extern "C" fn W3DDevice_SetPixelShader(device: W3D_DEVICE, shader: u32) -> i32 {
     if device.is_null() {
         return 0;
@@ -377,6 +398,8 @@ pub unsafe extern "C" fn W3DDevice_SetPixelShader(device: W3D_DEVICE, shader: u3
 
 /// Get current pixel shader handle - legacy compatibility entry point.
 #[unsafe(no_mangle)]
+// SAFETY: C ABI query; opaque shader-word lookup under the device Mutex.
+// SAFETY: By-value return, no pointer dereference beyond the live device handle.
 pub unsafe extern "C" fn W3DDevice_GetPixelShader(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;
@@ -390,6 +413,8 @@ pub unsafe extern "C" fn W3DDevice_GetPixelShader(device: W3D_DEVICE) -> u32 {
 }
 /// Get render state - matches original API
 #[unsafe(no_mangle)]
+// SAFETY: C ABI query; reads the state map under the device Mutex. Only the
+// SAFETY: validated device handle is dereferenced; returns a by-value u32.
 pub unsafe extern "C" fn W3DDevice_GetRenderState(
     device: W3D_DEVICE,
     state: W3D_RENDER_STATE,

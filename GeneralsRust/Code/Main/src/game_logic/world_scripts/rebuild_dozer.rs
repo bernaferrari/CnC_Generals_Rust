@@ -232,13 +232,16 @@ impl GameLogic {
             for uid in outcome.cave_in_units {
                 if let Some(unit) = self.objects.get_mut(&uid) {
                     unit.set_contained_by(None);
-                    unit.set_target(None);
                     unit.stop_moving();
                     unit.set_status_moving(false);
                     unit.set_status_attacking(false);
                     unit.status.destroyed = true;
                     unit.health.current = 0.0;
                 }
+                // C++ dying-object combat engagement clear goes through the
+                // AI decision channel (Object::onDie → aiIdle family); the
+                // cave-in eject must log StopAttack under decision authority.
+                self.clear_target_decision_aware(uid);
                 self.mark_object_for_destruction(uid, Some(new_team));
                 self.capture_tunnel_last_ejects = self.capture_tunnel_last_ejects.saturating_add(1);
             }
@@ -264,6 +267,14 @@ impl GameLogic {
 
         self.tunnel_network.on_tunnel_created(new_key, tunnel_id);
         self.capture_tunnel_transfers = self.capture_tunnel_transfers.saturating_add(1);
+        // C++ Object::onCapture → getAIUpdateInterface()->aiIdle(CMD_FROM_AI)
+        // (Object.cpp:4512-4514): the captured entrance's AI decision flips
+        // through the decision channel; GameWorld stays last-writer.
+        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            let ordinal =
+                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&AIState::Idle);
+            crate::game_logic::host_ai_decision_log::record_set_state(tunnel_id, ordinal);
+        }
     }
 
     /// C++ Object::onCapture residual (after ownership flip).

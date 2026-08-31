@@ -71,7 +71,6 @@ impl GameLogic {
                 selection_radius,
                 is_alive,
             ) = snapshot;
-
             if !is_alive {
                 continue;
             }

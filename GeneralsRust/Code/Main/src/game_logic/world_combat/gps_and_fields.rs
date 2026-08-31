@@ -2527,6 +2527,31 @@ mod tests {
         };
 
         let mut logic = GameLogic::new();
+        // C++ relationships come from controlling players; the emitter and its
+        // victims must bind owners for the ENEMIES relationship gate.
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, crate::game_logic::Team::China, "China", false),
+        );
+        // C++ game setup stamps player-vs-player relations at game start
+        // (Player::setPlayerRelationship for each enemy pair); the residual
+        // default without an override is NEUTRAL (Player.cpp:542-572
+        // getRelationship).  Without the stamp the emitter gate reads the
+        // victim as a neutral.
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .set_map_relationship(1, Relationship::Enemies);
+        logic
+            .players
+            .get_mut(&1)
+            .unwrap()
+            .set_map_relationship(0, Relationship::Enemies);
         let mut mw_tpl = ThingTemplate::new("AmericaTankMicrowave");
         mw_tpl
             .add_kind_of(KindOf::Vehicle)
@@ -2553,21 +2578,13 @@ mod tests {
             .insert("ChinaInfantryRedguard".to_string(), inf_tpl);
 
         let _mw = logic
-            .create_object("AmericaTankMicrowave", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .create_object_for_player("AmericaTankMicrowave", 0, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let tank = logic
-            .create_object(
-                "AmericaTankCrusader",
-                Team::China,
-                Vec3::new(40.0, 0.0, 0.0),
-            )
+            .create_object_for_player("AmericaTankCrusader", 1, Vec3::new(40.0, 0.0, 0.0))
             .unwrap();
         let inf = logic
-            .create_object(
-                "ChinaInfantryRedguard",
-                Team::China,
-                Vec3::new(30.0, 0.0, 0.0),
-            )
+            .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(30.0, 0.0, 0.0))
             .unwrap();
         logic.frame = HOST_MICROWAVE_EMITTER_DELAY_FRAMES;
         let tank_hp = logic.host_object(tank).unwrap().health.current;
@@ -2592,6 +2609,29 @@ mod tests {
         };
 
         let mut logic = GameLogic::new();
+        // C++ relationships come from controlling players; the emitter and the
+        // enemy bind owners for the ENEMIES gate, the civilian stays neutral.
+        logic.players.insert(
+            0,
+            crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
+        );
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, crate::game_logic::Team::China, "China", false),
+        );
+        // C++ game setup stamps player-vs-player relations at game start
+        // (Player::setPlayerRelationship per enemy pair); the residual
+        // default without an override is NEUTRAL (Player.cpp:542-572).
+        logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .set_map_relationship(1, Relationship::Enemies);
+        logic
+            .players
+            .get_mut(&1)
+            .unwrap()
+            .set_map_relationship(0, Relationship::Enemies);
         let mut mw_tpl = ThingTemplate::new("AmericaTankMicrowave");
         mw_tpl
             .add_kind_of(KindOf::Vehicle)
@@ -2618,17 +2658,13 @@ mod tests {
             .insert("ChinaInfantryRedguard".to_string(), enemy_tpl);
 
         let _mw = logic
-            .create_object("AmericaTankMicrowave", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .create_object_for_player("AmericaTankMicrowave", 0, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let civ = logic
-            .create_object("CivilianInfantry", Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+            .create_object("CivilianInfantry", crate::game_logic::Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
             .unwrap();
         let enemy = logic
-            .create_object(
-                "ChinaInfantryRedguard",
-                Team::China,
-                Vec3::new(25.0, 0.0, 0.0),
-            )
+            .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(25.0, 0.0, 0.0))
             .unwrap();
         logic.frame = HOST_MICROWAVE_EMITTER_DELAY_FRAMES;
         let civ_hp = logic.host_object(civ).unwrap().health.current;

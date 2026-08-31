@@ -890,11 +890,19 @@ impl W3DDevice {
     /// Uses explicit unsafe surface creation to store a `'static` surface handle that
     /// mirrors legacy device lifetime assumptions.
     pub async fn init_with_window(&self, window: &Window) -> Result<()> {
+        // SAFETY: `window` outlives this call per the legacy device-lifetime contract:
+        // SAFETY: init_with_window callers keep the winit Window alive for the life of
+        // SAFETY: the W3DDevice, which owns the resulting surface. from_window only reads
+        // SAFETY: raw window/display handles that remain valid under that invariant.
         let surface_target = unsafe {
             SurfaceTargetUnsafe::from_window(window).map_err(|e| {
                 W3DError::InitializationFailed(format!("Failed to create surface target: {e}"))
             })?
         };
+        // SAFETY: The SurfaceTargetUnsafe produced above borrows the caller-guaranteed
+        // SAFETY: 'static window handles; create_surface_unsafe registers it with the
+        // SAFETY: instance. wgpu requires unsafe creation exactly to force documenting
+        // SAFETY: this lifetime transfer.
         let surface = unsafe {
             self.instance
                 .create_surface_unsafe(surface_target)

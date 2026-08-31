@@ -173,6 +173,11 @@ impl RenderPassResources {
     ) {
         self.buffers.push(buffer);
         let ptr = Arc::as_ptr(self.buffers.last().expect("buffer guard stored"));
+        // SAFETY: the Arc was just pushed into `self.buffers`, so the slot
+        // behind `ptr` holds a strong ref keeping the wgpu::Buffer alive; the
+        // struct retains every pushed buffer until `clear()` after the render
+        // pass ends, meeting wgpu's binding-valid-through-the-pass contract.
+        // The slice spans the whole buffer, so it is within its size.
         unsafe { render_pass.set_vertex_buffer(slot, (&*ptr).slice(..)) }
     }
 
@@ -184,6 +189,11 @@ impl RenderPassResources {
     ) {
         self.buffers.push(buffer);
         let ptr = Arc::as_ptr(self.buffers.last().expect("buffer guard stored"));
+        // SAFETY: the Arc was just pushed into `self.buffers`, so the slot
+        // behind `ptr` holds a strong ref keeping the wgpu::Buffer alive, and
+        // the struct retains it until `clear()` after the pass — satisfying
+        // wgpu's index-binding-valid-through-the-pass rule. The `..` slice is
+        // within the buffer's size.
         unsafe { render_pass.set_index_buffer((&*ptr).slice(..), format) }
     }
 
@@ -199,6 +209,11 @@ impl RenderPassResources {
     ) {
         self.bind_groups.push(bind_group);
         let ptr = Arc::as_ptr(self.bind_groups.last().expect("bind group guard stored"));
+        // SAFETY: the Arc was just pushed into `self.bind_groups`, so the slot
+        // behind `ptr` holds a strong ref keeping the wgpu::BindGroup alive;
+        // the struct retains every pushed bind group until `clear()` after the
+        // pass, meeting wgpu's valid-through-the-pass rule. The empty slice
+        // matches the layout's zero dynamic uniform-buffer offsets.
         unsafe { render_pass.set_bind_group(slot, &*ptr, &[]) }
     }
 
@@ -209,6 +224,10 @@ impl RenderPassResources {
     ) {
         self.pipelines.push(pipeline);
         let ptr = Arc::as_ptr(self.pipelines.last().expect("pipeline guard stored"));
+        // SAFETY: the Arc was just pushed into `self.pipelines`, so the slot
+        // behind `ptr` holds a strong ref keeping the wgpu::RenderPipeline
+        // alive; the struct retains it until `clear()` after the render pass
+        // ends, meeting wgpu's pipeline-valid-through-the-pass requirement.
         unsafe { render_pass.set_pipeline(&*ptr) }
     }
 }

@@ -101,6 +101,9 @@ impl BigArchive {
 
         // Open file and create memory mapping
         let file = File::open(&path)?;
+        // SAFETY: `file` is an exclusively opened read-only file handle; memmap2 maps
+        // SAFETY: a private read-only view. The mapping lives only as long as `mmap`,
+        // SAFETY: which is read through bounds-checked slices below.
         let mmap = unsafe { MmapOptions::new().map(&file)? };
 
         if mmap.len() < std::mem::size_of::<BigHeader>() {

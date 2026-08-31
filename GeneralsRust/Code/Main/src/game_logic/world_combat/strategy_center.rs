@@ -491,12 +491,21 @@ impl GameLogic {
         let Some((target_id, _, target_is_air)) = best else {
             return;
         };
-
         let slot = if dual_slot {
             preferred_dual_defense_slot(target_is_air)
         } else {
             0
         };
+
+        // C++ WeaponSet auto-choose residual: a dual-slot base defense engages
+        // through the slot that owns the acquired victim (AA secondary for
+        // airborne, primary otherwise). tick_turret_aim's sweep/pitch/range
+        // gates all read the selected slot, so the choose must precede aim.
+        if dual_slot {
+            if let Some(attacker) = self.objects.get_mut(&defense_id) {
+                attacker.set_active_weapon_slot(slot);
+            }
+        }
 
         // Readiness residual: use the slot that will fire.
         let ready = {
@@ -515,10 +524,6 @@ impl GameLogic {
                     .is_some_and(|w| Object::weapon_ready(w, current_time))
             }
         };
-        if !ready {
-            return;
-        }
-
         // C++ TurretAIAimTurretState: do not discharge while the barrel is
         // still traversing. Structures without a Turret block fire immediately.
         let turret_enabled = self
@@ -528,14 +533,11 @@ impl GameLogic {
             .unwrap_or(false);
         if turret_enabled {
             self.set_turret_target_object(defense_id, Some(target_id), false);
-            if !matches!(
-                self.tick_turret_aim(defense_id, 1.0),
-                AttackAimResult::Success
-            ) {
+            let aim_result = self.tick_turret_aim(defense_id, 1.0);
+            if !matches!(aim_result, AttackAimResult::Success) {
                 return;
             }
         }
-
         let damage = {
             let Some(attacker) = self.objects.get(&defense_id) else {
                 return;
@@ -650,7 +652,6 @@ impl GameLogic {
                 let _ = xp;
             }
         }
-
         if let Some(attacker) = self.objects.get_mut(&defense_id) {
             let _ = attacker.capture_pending_weapon_visual_dispatch(
                 slot,
@@ -1625,8 +1626,12 @@ impl GameLogic {
             .objects
             .iter()
             .filter_map(|(id, obj)| {
-                // C++ PointDefenseLaserUpdate is independent of primary WeaponSet:
-                // only requires carrier alive / not effectively dead / not disabled.
+                // C++ PointDefenseLaserBeam objects carry only Draw +
+                // LifetimeUpdate — never a PointDefenseLaserUpdate module — so
+                // the spawned beam visual must not rescan as a carrier.
+                if obj.point_defense_laser_beam {
+                    return None;
+                }
                 if !obj.is_alive() || obj.is_disabled() {
                     return None;
                 }

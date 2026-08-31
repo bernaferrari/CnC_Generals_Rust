@@ -35,6 +35,9 @@ pub async fn game_main(
     );
 
     // Convert C-style argc/argv to Rust Vec<String> for internal use
+    // SAFETY: caller (FFI entry) guarantees argv points to `argc` valid
+    // C strings or the argc<=0/null guard below short-circuits; slice
+    // length equals argc and each pointer is checked before use.
     let args = unsafe {
         if argc <= 0 || argv.is_null() {
             vec!["generals".to_string()]

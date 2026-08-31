@@ -61,7 +61,10 @@ fn attack_los_terrain_blocks_ridge_for_mobile_weapon() {
     let h = sys.grid.height();
     let mut heights = vec![0.0f32; (w * h) as usize];
     let mid = w / 2;
-    for y in (h / 2 - 1).max(0)..=(h / 2 + 1).min(h - 1) {
+    // Full-height wall of columns: the LOS ray from y=50 to y=50 must cross
+    // raised cells regardless of the sample row; a 3-row band lets the
+    // Bresenham step over it between samples.
+    for y in 0..h {
         for x in (mid - 1).max(0)..=(mid + 1).min(w - 1) {
             heights[(y * w + x) as usize] = 80.0;
         }
@@ -209,6 +212,10 @@ fn attack_step_occupancy_matches_leftover() {
     ally_t.add_kind_of(KindOf::Vehicle);
     let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
     ally.set_position(g.grid_to_world(GridPos::new(6, 6)));
+    // selection_radius 1.0 keeps the ally's pos-stamp to ONE cell (radius 0);
+    // a default-vehicle 3x3 footprint would overlap (5,5) and evict the
+    // enemy's single m_posUnitID (last writer wins, AIPathfind.cpp:1405).
+    ally.selection_radius = 1.0;
     ally.owner_player_id = Some(1);
     objects.insert(ally.id, ally);
 
@@ -867,10 +874,14 @@ fn vehicle_adjust_destination_seeds_half_cell() {
         GridPos::new(1, 0),
         "truncate-toward-zero stays in cell 1"
     );
+    // C++ updatePos/updateGoal !centerInCell applies
+    // REAL_TO_INT_FLOOR(0.5 + coord/CELL) on BOTH axes (AIPathfind.cpp:9748-9753);
+    // REAL_TO_INT_FLOOR is a true floor (Lib/BaseType.h:195-226). z=5.0 →
+    // floor(0.5 + 0.5) = 1, so the seed advances on y as well as x.
     assert_eq!(
         g.cell_for_unit_position(dest, false),
-        GridPos::new(2, 0),
-        "C++ half-cell seed must advance a vehicle near the far cell edge"
+        GridPos::new(2, 1),
+        "C++ half-cell seed must advance past the far cell edge"
     );
     assert_eq!(
         g.cell_for_unit_position(dest, true),

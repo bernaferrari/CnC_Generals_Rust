@@ -1715,7 +1715,7 @@ fn try_under_attack_creates_under_attack_event() {
         &[],
     );
     let loc = Coord3D::new(12.0, 34.0, 0.0);
-    assert!(radar.try_under_attack_event(&loc));
+    assert!(radar.try_under_attack_event_for(&loc, None));
     assert_eq!(radar.get_last_event_loc(), Some(loc));
-    assert!(!radar.try_under_attack_event(&loc));
+    assert!(!radar.try_under_attack_event_for(&loc, None));
 }

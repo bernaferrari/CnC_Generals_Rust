@@ -1070,7 +1070,11 @@ fn neutron_shell_residual_upgrade_and_blast() {
         "neutron shells upgrade must queue residual"
     );
 
+    // C++ research advances on the producer over the retail Upgrade.ini
+    // BuildTime (NeutronShells = 60.0s → 1800 frames); one 1/30s frame must
+    // not instant-complete it. Same pattern as capture_and_containment.
     game_logic.update();
+    game_logic.update_with_dt(60.0);
 
     assert!(
         game_logic
@@ -1089,9 +1093,11 @@ fn neutron_shell_residual_upgrade_and_blast() {
             "cannon must equip neutron secondary after upgrade"
         );
         let sec = c.secondary_weapon.as_ref().unwrap();
+        // Retail AttackRange 350 rationalized −¼ pathfind cell
+        // (Weapon.cpp:437-462 RATIONALIZE_ATTACK_RANGE) = 347.5.
         assert!(
-            (sec.range - 350.0).abs() < 1.0,
-            "neutron secondary range residual 350, got {}",
+            (sec.range - 347.5).abs() < 0.01,
+            "neutron secondary range residual 347.5, got {}",
             sec.range
         );
     }
@@ -1349,7 +1355,10 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
             .honesty_queue_ok(HostUpgradeKind::BunkerBusters),
         "bunker busters upgrade must queue residual"
     );
+    // Retail Upgrade.ini AmericaBunkerBusters BuildTime = 40.0s → 1200 frames
+    // of producer-queue research; one 1/30s frame must not instant-complete.
     game_logic.update();
+    game_logic.update_with_dt(40.0);
     assert!(
         game_logic
             .host_upgrades()
@@ -1771,6 +1780,27 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
     };
 
     let mut logic = GameLogic::new();
+    // C++ RadiusDamageAffects ENEMIES resolves through controlling players
+    // (Player::setPlayerRelationship); ownerless objects resolve Neutral and
+    // are excluded from the cook field. Bind owners + enemy relation.
+    logic.players.insert(
+        0,
+        Player::new(0, Team::USA, "USA", true),
+    );
+    logic.players.insert(
+        1,
+        Player::new(1, Team::China, "China", false),
+    );
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+    logic
+        .players
+        .get_mut(&1)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
     let mut mw_tpl = ThingTemplate::new("AmericaTankMicrowave");
     mw_tpl
         .add_kind_of(KindOf::Vehicle)
@@ -1791,16 +1821,16 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
         .insert("ChinaInfantryRedguard".to_string(), r_tpl);
 
     let mw = logic
-        .create_object(
+        .create_object_for_player(
             "AmericaTankMicrowave",
-            Team::USA,
+            0,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
         .expect("mw");
     let inf = logic
-        .create_object(
+        .create_object_for_player(
             "ChinaInfantryRedguard",
-            Team::China,
+            1,
             glam::Vec3::new(40.0, 0.0, 0.0),
         )
         .expect("inf");

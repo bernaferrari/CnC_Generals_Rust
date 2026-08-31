@@ -444,6 +444,10 @@ fn bench_uniform_buffer_update(c: &mut Criterion) {
 
         // Safety: UVTransformUniform is a POD type with #[repr(C)]
         // which guarantees proper alignment and no invalid bit patterns
+        // SAFETY: UVTransformUniform is #[repr(C)] over plain integers and
+        // floats (u32, [i32; 4], [f32; 4], f32, [f32; 3]) with alignment 4 and
+        // no implicit padding, references, or invalid bit patterns, so the
+        // all-bits-zero value is a valid instance of the type.
         unsafe impl bytemuck::Zeroable for UVTransformUniform {}
 
         let uniform = UVTransformUniform {

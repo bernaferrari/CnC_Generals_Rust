@@ -806,15 +806,21 @@ fn query_os_double_click_time_ms() -> u64 {
     #[cfg(windows)]
     {
         #[link(name = "user32")]
+        // SAFETY: Declaration of the documented Win32 GetDoubleClickTime symbol;
+        // SAFETY: signature matches the Windows SDK, no preconditions beyond Windows.
         unsafe extern "system" {
             fn GetDoubleClickTime() -> u32;
         }
+        // SAFETY: user32 linked above; parameterless thread-safe query, no pointers.
         return unsafe { GetDoubleClickTime() }.max(1) as u64;
     }
 
     #[cfg(all(target_os = "macos", feature = "cocoa"))]
     {
         use objc::{class, msg_send, sel, sel_impl};
+        // SAFETY: objc msg_send to the NSEvent class getter doubleClickInterval,
+        // SAFETY: which takes no arguments and returns an f64; valid under Cocoa on
+        // SAFETY: the main thread where this UI code runs.
         let interval: f64 = unsafe { msg_send![class!(NSEvent), doubleClickInterval] };
         let ms = (interval * 1000.0).round();
         if ms.is_finite() && ms >= 1.0 {

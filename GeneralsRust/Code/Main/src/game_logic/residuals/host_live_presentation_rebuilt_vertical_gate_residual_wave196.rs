@@ -82,7 +82,7 @@ pub fn honesty_live_presentation_rebuilt_vertical_gate_residual_pack_wave196() -
 
 /// Source residual: executable smoke gates vertical on rebuilt when GW ents seen.
 pub fn honesty_executable_rebuilt_vertical_gate_source() -> bool {
-    let src = include_str!("../../executable_smoke.rs");
+    let src = crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
     src.contains("gameworld_rebuilt_boundary_ok")
         && src.contains("gameworld_rebuilt_ok")
         && src.contains("host_vertical_slice_ok")
