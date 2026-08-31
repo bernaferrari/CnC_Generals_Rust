@@ -52,9 +52,28 @@ pub fn overlord_bunker_passengers_may_fire(bunker_slots: usize, nested: bool) ->
     bunker_slots > 0 && !nested
 }
 
-/// Apply residual: set passengers_allowed_to_fire.
+/// C++ pairs each PassengersFireUpgrade module with its own TriggeredBy
+/// upgrade: the Helix module fires on HelixBattleBunker, while the Overlord
+/// BattleBunker is a TransportContain fire peel (OverlordContain.cpp:553)
+/// driven by the Overlord bunker upgrade.  Cross-family application is a
+/// no-op — an Overlord owns no module triggered by the Helix upgrade.
 pub fn should_enable_passengers_fire(upgrade: &str, template_name: &str) -> bool {
-    is_passengers_fire_upgrade(upgrade) && is_passengers_fire_upgrade_host(template_name)
+    let u = upgrade.to_ascii_lowercase();
+    let overlord_upgrade = u.contains("overlordbattlebunker")
+        || (u.contains("overlord") && u.contains("bunker") && u.contains("battle"));
+    if overlord_upgrade {
+        return crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name);
+    }
+    let helix_upgrade = u.contains("helixbattlebunker")
+        || (u.contains("helix_bunker") && u.contains("battle"));
+    if helix_upgrade {
+        let n = template_name.to_ascii_lowercase();
+        return n.contains("helix")
+            && !n.contains("bunker")
+            && !n.contains("gattling")
+            && !n.contains("propaganda");
+    }
+    false
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

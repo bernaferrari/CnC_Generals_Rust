@@ -1196,15 +1196,31 @@ impl GameLogic {
             .count() as u32
     }
 
+    /// Resolved C++ `MaxSimultaneousLinkKey` for a template: the authored INI
+    /// key, else the static retail identity residual — PUC / Nuke / Scud all
+    /// author `MaxSimultaneousLinkKey = Superweapon` in retail Object INI, so
+    /// templates the live catalog carries without the row still group under
+    /// the one link key (C++ Player.cpp:2835 counts by that key).
+    fn superweapon_link_key_for_template(&self, template_name: &str) -> Option<String> {
+        if let Some(key) = self
+            .templates
+            .get(template_name)
+            .and_then(|template| template.max_simultaneous_link_key.clone())
+        {
+            return Some(key);
+        }
+        crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template(template_name)
+            .then(|| {
+                crate::game_logic::host_superweapon_kindof::SUPERWEAPON_LINK_KEY.to_string()
+            })
+    }
+
     fn count_superweapon_link_key_owned_for_template(
         &self,
         team: Team,
         requested_template: &str,
     ) -> u32 {
-        let Some(requested) = self.templates.get(requested_template) else {
-            return 0;
-        };
-        let Some(link_key) = requested.max_simultaneous_link_key.as_deref() else {
+        let Some(link_key) = self.superweapon_link_key_for_template(requested_template) else {
             return 0;
         };
         self.objects
@@ -1212,13 +1228,9 @@ impl GameLogic {
             .filter(|obj| {
                 obj.team == team
                     && obj.is_alive()
-                    && obj.thing.template.has_superweapon_restriction_link_key()
-                    && obj
-                        .thing
-                        .template
-                        .max_simultaneous_link_key
-                        .as_deref()
-                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(link_key))
+                    && self
+                        .superweapon_link_key_for_template(&obj.template_name)
+                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(&link_key))
             })
             .count() as u32
     }
@@ -1228,10 +1240,7 @@ impl GameLogic {
         player_id: u32,
         requested_template: &str,
     ) -> u32 {
-        let Some(requested) = self.templates.get(requested_template) else {
-            return 0;
-        };
-        let Some(link_key) = requested.max_simultaneous_link_key.as_deref() else {
+        let Some(link_key) = self.superweapon_link_key_for_template(requested_template) else {
             return 0;
         };
         self.objects
@@ -1239,13 +1248,9 @@ impl GameLogic {
             .filter(|obj| {
                 obj.owner_player_id == Some(player_id)
                     && obj.is_alive()
-                    && obj.thing.template.has_superweapon_restriction_link_key()
-                    && obj
-                        .thing
-                        .template
-                        .max_simultaneous_link_key
-                        .as_deref()
-                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(link_key))
+                    && self
+                        .superweapon_link_key_for_template(&obj.template_name)
+                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(&link_key))
             })
             .count() as u32
     }
@@ -1392,7 +1397,15 @@ impl GameLogic {
         let Some(template) = self.templates.get(template_name) else {
             return true;
         };
-        if !template.has_superweapon_restriction_link_key() {
+        // Retail PUC/Nuke/Scud Object INI author
+        // MaxSimultaneousOfType = DeterminedBySuperweaponRestriction with
+        // MaxSimultaneousLinkKey "Superweapon"; the static retail identity
+        // residual covers templates the live catalog authored without it.
+        if !template.has_superweapon_restriction_link_key()
+            && !crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template(
+                template_name,
+            )
+        {
             return true;
         }
         let Some(max) =
@@ -1414,7 +1427,15 @@ impl GameLogic {
         let Some(template) = self.templates.get(template_name) else {
             return true;
         };
-        if !template.has_superweapon_restriction_link_key() {
+        // Retail PUC/Nuke/Scud Object INI author
+        // MaxSimultaneousOfType = DeterminedBySuperweaponRestriction with
+        // MaxSimultaneousLinkKey "Superweapon"; the static retail identity
+        // residual covers templates the live catalog authored without it.
+        if !template.has_superweapon_restriction_link_key()
+            && !crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template(
+                template_name,
+            )
+        {
             return true;
         }
         let Some(max) =
@@ -2164,8 +2185,27 @@ fn leftover_or_live_production_prereqs(
     if let Some(tmpl) = leftover_thing_template(template_name) {
         return tmpl.get_prereqs().to_vec();
     }
-    live.map(|template| template.production_prerequisites.clone())
-        .unwrap_or_default()
+    if let Some(template) = live {
+        if !template.production_prerequisites.is_empty() {
+            return template.production_prerequisites.clone();
+        }
+    }
+    // C++ FactionBuilding.ini / Science-authored `Prerequisites` residual:
+    // retail superweapon + tech-building chains carried by the static sample
+    // table apply when neither the leftover factory nor the live template
+    // authored Prerequisites (C++ Player::canBuild →
+    // ProductionPrerequisite::isSatisfied).
+    if let Some(row) = crate::game_logic::host_production_buildable_command_residual::prereq_row_for_template_residual(template_name)
+    {
+        let mut prereq = game_engine::common::rts::ProductionPrerequisite::new();
+        for (index, required) in row.prereq_objects.iter().enumerate() {
+            // or_chain: every entry after the first is OR-with-previous
+            // (C++ ProductionPrerequisite UNIT_OR_WITH_PREV flag).
+            prereq.add_unit_prereq((*required).to_string(), row.or_chain && index > 0);
+        }
+        return vec![prereq];
+    }
+    Vec::new()
 }
 
 fn leftover_template_name_for_handle(

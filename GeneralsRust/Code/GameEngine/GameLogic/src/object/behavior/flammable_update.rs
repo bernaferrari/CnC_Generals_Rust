@@ -5,12 +5,13 @@
 //! Rust conversion: 2025
 
 use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
-use crate::damage::DamageType;
+use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::Module;
 use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 379: host-only path has no dual-world factory objects.
@@ -169,6 +170,10 @@ pub struct FlammableUpdate {
     burned_end_frame: UnsignedInt,
     damage_end_frame: UnsignedInt,
     flame_damage_limit: Real,
+    /// Last `setWakeFrame` request issued on ignite (C++ FlammableUpdate.cpp:196). Test/debug.
+    last_wake_sleep: Option<UpdateSleepTime>,
+    /// Last fire-spread wake armed on ignite (FireSpreadUpdate.cpp:144). Test/debug.
+    last_fire_spread_wake: Option<UpdateSleepTime>,
     last_flame_damage_dealt: UnsignedInt,
 }
 
@@ -198,6 +203,8 @@ impl FlammableUpdate {
             damage_end_frame: 0,
             flame_damage_limit: flame_limit,
             last_flame_damage_dealt: 0,
+            last_wake_sleep: None,
+            last_fire_spread_wake: None,
         })
     }
 
@@ -242,10 +249,73 @@ impl FlammableUpdate {
             }
         }
 
+        // C++ FlammableUpdate.cpp:180-186 — find the owner's FireSpreadUpdate and
+        // startFireSpreading(), which re-arms it with
+        // UPDATE_SLEEP(calcNextSpreadDelay()) (FireSpreadUpdate.cpp:139-145). The
+        // wake is issued first so the owner's own wake below (C++ line 196,
+        // setWakeFrame(getObject(), calcSleepTime())) lands last and drives the
+        // burn state machine (damage ticks, burned status, burn-out).
+        if let Some(delay) = self.fire_spread_wake_delay() {
+            let sleep = UpdateSleepTime::Frames(delay);
+            self.last_fire_spread_wake = Some(sleep);
+            self.issue_wake(sleep);
+        }
+        self.issue_wake(self.calc_sleep_time());
+
         log::debug!(
             "Object ignited, will burn until frame {}",
             self.aflame_end_frame
         );
+    }
+
+    /// Issue one C++ `setWakeFrame(getObject(), sleep)` request for this
+    /// module's owner. `TheGameLogic::set_wake_frame` is the live-path analog
+    /// (same pattern as AutoHealBehavior / BaseRegenerateUpdate); host-only
+    /// objects without an id skip it.
+    fn issue_wake(&mut self, sleep: UpdateSleepTime) {
+        self.last_wake_sleep = Some(sleep);
+        if self.object_id == crate::common::INVALID_ID {
+            return;
+        }
+        crate::helpers::TheGameLogic::set_wake_frame(self.object_id, sleep);
+    }
+
+    /// Delay `FireSpreadUpdate::startFireSpreading` would program when the
+    /// owner is aflame (FireSpreadUpdate.cpp:139-145): `Some(calcNextSpreadDelay())`,
+    /// or `None` when the owner has no FireSpreadUpdate module or is not aflame.
+    ///
+    /// Uses `try_with_module`: `ModuleEntry` guards its module with a Mutex, and
+    /// ignition from the spread module's own update tick already holds that
+    /// lock on this thread. There the module is running right now and re-arms
+    /// itself from its returned sleep — identical to C++, where startFireSpreading
+    /// inside FireSpreadUpdate::update is subsumed by UPDATE_SLEEP(calcNextSpreadDelay()).
+    fn fire_spread_wake_delay(&self) -> Option<UnsignedInt> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        let object_arc = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))?;
+        let object = object_arc.read().ok()?;
+        let is_aflame = object
+            .get_status_bits()
+            .contains(crate::common::ObjectStatusMaskType::AFLAME);
+        let fire_spread = object.find_update_module("FireSpreadUpdate")?;
+        fire_spread.try_with_module(|module| {
+            module
+                .get_fire_spread_control_interface()
+                .and_then(|fire_spread| fire_spread.wake_delay_if_aflame(is_aflame))
+        })
+        .flatten()
+    }
+
+    /// Last `setWakeFrame` request issued on ignite (C++ FlammableUpdate.cpp:196). Test/debug.
+    pub fn last_wake_sleep(&self) -> Option<UpdateSleepTime> {
+        self.last_wake_sleep
+    }
+
+    /// Last fire-spread wake armed on ignite (FireSpreadUpdate.cpp:144). Test/debug.
+    pub fn last_fire_spread_wake(&self) -> Option<UpdateSleepTime> {
+        self.last_fire_spread_wake
     }
 
     /// Check if object would ignite (for fire spread checking)
@@ -293,6 +363,20 @@ impl FlammableUpdate {
     }
 
     /// Apply aflame damage to the object - C++ doAflameDamage()
+    /// (FlammableUpdate.cpp:202-213).
+    ///
+    /// The tick goes through `attemptDamage` with DAMAGE_FLAME + DEATH_BURNED so
+    /// armor scales it, a lethal tick kills with DEATH_BURNED, and onDamage
+    /// listeners re-enter — direct `set_health` bypasses all three (the Main
+    /// host path models this via take_damage_from_typed_death Flame/Burned).
+    ///
+    /// C++ sources the packet from the burning object itself
+    /// (`info.in.m_sourceID = getObject()->getID()`), but the live pipeline
+    /// takes the source object's registry read-lock during attemptDamage while
+    /// this module already holds the victim's write-lock (same RwLock), so
+    /// self-sourcing would self-deadlock. `INVALID_ID` is the codebase's
+    /// established source for self-applied pipeline damage
+    /// (`Object::kill_with_type`); armor, death, and onDamage are unaffected.
     fn do_aflame_damage(&self) {
         // Wave 379: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
@@ -306,17 +390,19 @@ impl FlammableUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(mut obj) = object_arc.write() {
-                let damage = self.module_data.aflame_damage_amount;
-                let current_health = obj.get_health();
-                let new_health = (current_health - damage).max(0.0);
-                if let Err(err) = obj.set_health(new_health) {
-                    log::warn!(
-                        "FlammableUpdate: failed to apply aflame damage to object {}: {}",
+                let mut damage_info = DamageInfo::with_simple(
+                    self.module_data.aflame_damage_amount,
+                    crate::common::INVALID_ID,
+                    DamageType::Flame,
+                    DeathType::Burned,
+                );
+                if let Err(err) = obj.attempt_damage(&mut damage_info) {
+                    log::debug!(
+                        "FlammableUpdate: aflame damage to object {} failed: {}",
                         obj.get_id(),
                         err
                     );
                 }
-                log::trace!("Aflame damage: {} -> {}", current_health, new_health);
             }
         }
     }
@@ -579,4 +665,134 @@ mod tests {
         assert_eq!(real, 0.0);
         assert_eq!(text.as_str(), "");
     }
+
+    #[test]
+    fn try_to_ignite_wakes_burn_state_machine_like_cpp() {
+        // C++ FlammableUpdate.cpp:196 — setWakeFrame(getObject(), calcSleepTime()).
+        let object = Arc::new(RwLock::new(GameObject::new_test(9201, 100.0)));
+        let data = Arc::new(FlammableUpdateModuleData {
+            aflame_duration: 90,
+            aflame_damage_delay: 30,
+            aflame_damage_amount: 5.0,
+            ..Default::default()
+        });
+        let mut flammable = FlammableUpdate::new(Arc::clone(&object), data).expect("flammable");
+
+        flammable.try_to_ignite();
+
+        assert_eq!(
+            flammable.last_wake_sleep(),
+            Some(UpdateSleepTime::Frames(30)),
+            "ignite must wake the module at the soonest burn event (damage tick)"
+        );
+    }
+
+    #[test]
+    fn try_to_ignite_arms_fire_spread_update_like_cpp() {
+        // C++ FlammableUpdate.cpp:180-186 (startFireSpreading) re-arms
+        // FireSpreadUpdate with UPDATE_SLEEP(calcNextSpreadDelay())
+        // (FireSpreadUpdate.cpp:139-145).
+        let object_id = 9202;
+        let object = Arc::new(RwLock::new(GameObject::new_test(object_id, 100.0)));
+        crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
+
+        let spread_data = Arc::new(
+            crate::object::update::fire_spread_update::FireSpreadUpdateModuleData {
+                min_spread_try_delay: 45,
+                max_spread_try_delay: 45,
+                ..Default::default()
+            },
+        );
+        let behavior = crate::object::update::fire_spread_update::FireSpreadUpdate::new(
+            object_id,
+            (*spread_data).clone(),
+        );
+        object.write().unwrap().install_update_module(
+            "FireSpreadUpdate",
+            Box::new(crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
+                behavior,
+                &AsciiString::from("FireSpreadUpdate"),
+                Arc::clone(&spread_data),
+            )),
+            spread_data,
+        );
+
+        let mut flammable = FlammableUpdate::new(
+            Arc::clone(&object),
+            Arc::new(FlammableUpdateModuleData::default()),
+        )
+        .expect("flammable");
+        flammable.try_to_ignite();
+
+        assert_eq!(
+            flammable.last_fire_spread_wake(),
+            Some(UpdateSleepTime::Frames(45)),
+            "ignite must arm FireSpreadUpdate with its spread delay"
+        );
+        assert!(
+            flammable.last_wake_sleep().is_some(),
+            "ignite must also wake the burn state machine itself"
+        );
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn do_aflame_damage_goes_through_damage_pipeline() {
+        // C++ FlammableUpdate.cpp:202-213 — attemptDamage with
+        // DAMAGE_FLAME/DEATH_BURNED: a lethal tick kills via the pipeline with
+        // DEATH_BURNED instead of parking health at 0 with no death event.
+        let object_id = 9203;
+        let object = Arc::new(RwLock::new(GameObject::new_test(object_id, 10.0)));
+        crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
+        let flammable = FlammableUpdate::new(
+            Arc::clone(&object),
+            Arc::new(FlammableUpdateModuleData {
+                aflame_damage_amount: 25.0,
+                ..Default::default()
+            }),
+        )
+        .expect("flammable");
+
+        flammable.do_aflame_damage();
+
+        {
+            let obj = object.read().unwrap();
+            assert!(
+                obj.is_effectively_dead(),
+                "lethal burn tick must kill through the damage pipeline"
+            );
+            assert_eq!(obj.get_last_death_type(), Some(DeathType::Burned));
+        }
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(object_id);
+
+        let survivor_id = 9204;
+        let survivor = Arc::new(RwLock::new(GameObject::new_test(survivor_id, 100.0)));
+        crate::object::registry::OBJECT_REGISTRY.register_object(survivor_id, &survivor);
+        let survivor_flammable = FlammableUpdate::new(
+            Arc::clone(&survivor),
+            Arc::new(FlammableUpdateModuleData {
+                aflame_damage_amount: 7.0,
+                ..Default::default()
+            }),
+        )
+        .expect("flammable");
+
+        survivor_flammable.do_aflame_damage();
+
+        {
+            let obj = survivor.read().unwrap();
+            assert!(!obj.is_effectively_dead());
+            assert_eq!(obj.get_health(), 93.0);
+            // C++ ActiveBody records the packet on every hit, lethal or not:
+            // the survivor carries the Flame/Burned packet but no death.
+            let last = obj
+                .get_last_damage_info()
+                .expect("non-lethal burn tick must record the damage packet");
+            assert_eq!(last.input.damage_type, DamageType::Flame);
+            assert_eq!(last.input.death_type, DeathType::Burned);
+        }
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(survivor_id);
+    }
+
 }

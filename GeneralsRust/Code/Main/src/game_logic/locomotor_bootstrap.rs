@@ -282,20 +282,21 @@ pub struct HostLocomotorBinding {
     pub locomotor_surfaces: u32,
 }
 
-/// A complete authored Locomotor set when every surface member has identical
-/// behavior in the active host.  C++ selects a member by terrain surface;
-/// Main can represent the set safely only when that selection changes the
-/// surface capability, not an unmodeled movement profile.
+/// A complete authored C++ Locomotor set: every member resolves live and the
+/// members' surface masks are pairwise disjoint, so the member for a position
+/// is the unique surface intersection (C++ `LocomotorSet::findLocomotor`,
+/// Locomotor.cpp:2773-2782).  Members may differ in behavior: retail
+/// GLAVehicleCombatBike authors SET_SLUGGISH with ground Speed 90 vs cliff
+/// Speed 60 dist/sec (INIZH Locomotor.ini), and C++ accepts that set verbatim
+/// (`AIUpdateInterface::chooseLocomotorSetExplicit`, AIUpdate.cpp:819-833).
 #[derive(Debug, Clone, PartialEq)]
-pub struct HostUniformLocomotorSetBinding {
-    /// First source declaration, retained as the canonical active name for
-    /// existing single-locomotor snapshot consumers.
+pub struct HostCompleteLocomotorSet {
+    /// First source declaration (the ground member in retail authoring),
+    /// retained as the canonical active name for single-locomotor consumers.
     pub representative_name: String,
     /// Every exact authored locomotor name in source order.
     pub locomotor_names: Vec<String>,
-    /// The common active behavior shared by every member.
-    pub binding: HostLocomotorBinding,
-    /// Union of the members' non-overlapping source surface masks.
+    /// Union of the members' non-overlapping surface masks.
     pub locomotor_surfaces: u32,
 }
 
@@ -648,21 +649,23 @@ pub fn resolve_host_locomotor_binding(locomotor_name: &str) -> Option<HostLocomo
     host_locomotor_binding_from_template(template)
 }
 
-/// Resolve a C++ `Locomotor = SET_* ...` row when every member shares one
-/// live movement profile. RiderChange still needs that guarantee. Live
-/// march uses [`choose_best_locomotor_name_for_surfaces`] instead of
-/// collapsing heterogeneous cliff/water/rubble members.
-pub fn resolve_uniform_host_locomotor_set(
+/// Resolve a C++ `Locomotor = SET_* ...` row as a complete authored set:
+/// every member must resolve live with pairwise-disjoint surfaces.  C++ jams
+/// the whole row into the AI's LocomotorSet verbatim
+/// (`AIUpdateInterface::chooseLocomotorSetExplicit`, AIUpdate.cpp:819-833)
+/// and picks the active member by terrain surface later
+/// (`chooseGoodLocomotorFromCurrentSet`, AIUpdate.cpp:828-853, through
+/// `LocomotorSet::findLocomotor`, Locomotor.cpp:2773-2782), so members may
+/// differ in behavior (retail Combat Bike SET_SLUGGISH: 90 ground / 60 cliff).
+pub fn resolve_complete_host_locomotor_set(
     locomotor_names: &[String],
-) -> Option<HostUniformLocomotorSetBinding> {
+) -> Option<HostCompleteLocomotorSet> {
     let first_name = locomotor_names.first()?.trim();
     if first_name.is_empty() || first_name.eq_ignore_ascii_case("none") {
         return None;
     }
     let mut canonical_names = Vec::with_capacity(locomotor_names.len());
-    let mut representative = resolve_host_locomotor_binding(first_name)?;
     let mut surfaces = 0u32;
-
     for raw_name in locomotor_names {
         let name = raw_name.trim();
         if name.is_empty()
@@ -674,22 +677,44 @@ pub fn resolve_uniform_host_locomotor_set(
             return None;
         }
         let binding = resolve_host_locomotor_binding(name)?;
-        if binding.locomotor_surfaces == 0
-            || (surfaces & binding.locomotor_surfaces) != 0
-            || !same_host_locomotor_behavior(&representative, &binding)
-        {
+        if binding.locomotor_surfaces == 0 || (surfaces & binding.locomotor_surfaces) != 0 {
             return None;
         }
         surfaces |= binding.locomotor_surfaces;
         canonical_names.push(name.to_string());
     }
-    representative.locomotor_surfaces = surfaces;
-    Some(HostUniformLocomotorSetBinding {
+    Some(HostCompleteLocomotorSet {
         representative_name: first_name.to_string(),
         locomotor_names: canonical_names,
-        binding: representative,
         locomotor_surfaces: surfaces,
     })
+}
+
+/// C++ `AIUpdateInterface::chooseGoodLocomotorFromCurrentSet`
+/// (AIUpdate.cpp:828-853): the first set member whose surfaces intersect the
+/// position surface mask; when none intersects, the GROUND member
+/// (AIUpdate.cpp:849-852); otherwise the first authored member.
+pub fn choose_host_locomotor_set_member_for_surfaces(
+    locomotor_names: &[String],
+    acceptable: u32,
+) -> Option<(String, HostLocomotorBinding)> {
+    let mut candidates = [
+        choose_best_locomotor_name_for_surfaces(locomotor_names, acceptable),
+        choose_best_locomotor_name_for_surfaces(
+            locomotor_names,
+            crate::game_logic::object::LOCO_SURFACE_GROUND,
+        ),
+        locomotor_names.first().map(|name| name.trim().to_string()),
+    ];
+    for name in candidates.iter_mut().flatten() {
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            continue;
+        }
+        if let Some(binding) = resolve_host_locomotor_binding(name) {
+            return Some((std::mem::take(name), binding));
+        }
+    }
+    None
 }
 
 /// C++ `Pathfinder::validLocomotorSurfacesForCellType` (AIPathfind.cpp:4734-4757).
@@ -1323,24 +1348,39 @@ fn seed_exact_human_cliff_locomotor() -> usize {
 
 fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
     let mut added = 0usize;
-    for (name, surfaces) in [
-        (COMBAT_BIKE_TERRORIST_GROUND_LOCOMOTOR, "GROUND RUBBLE"),
-        (COMBAT_BIKE_TERRORIST_CLIFF_LOCOMOTOR, "CLIFF"),
+    // Retail INIZH Locomotor.ini values.  SET_SLUGGISH is heterogeneous:
+    // ground ";25% slower" Speed 90 vs cliff Speed 60.
+    for (name, surfaces, speed, speed_damaged, accel, accel_damaged) in [
+        (
+            COMBAT_BIKE_TERRORIST_GROUND_LOCOMOTOR,
+            "GROUND RUBBLE",
+            "90",
+            "68",
+            "68",
+            "60",
+        ),
+        (
+            COMBAT_BIKE_TERRORIST_CLIFF_LOCOMOTOR,
+            "CLIFF",
+            "60",
+            "45",
+            "50",
+            "40",
+        ),
     ] {
         if store_has(name) {
             continue;
         }
         let mut props = HashMap::new();
         props.insert("Surfaces".to_string(), surfaces.to_string());
-        // Retail SET_SLUGGISH is the slow multi-surface Combat Bike table.
-        props.insert("Speed".to_string(), "40".to_string());
-        props.insert("SpeedDamaged".to_string(), "30".to_string());
-        props.insert("TurnRate".to_string(), "90".to_string());
-        props.insert("TurnRateDamaged".to_string(), "90".to_string());
-        props.insert("Acceleration".to_string(), "40".to_string());
-        props.insert("AccelerationDamaged".to_string(), "35".to_string());
-        props.insert("Braking".to_string(), "40".to_string());
-        props.insert("MinTurnSpeed".to_string(), "15".to_string());
+        props.insert("Speed".to_string(), speed.to_string());
+        props.insert("SpeedDamaged".to_string(), speed_damaged.to_string());
+        props.insert("TurnRate".to_string(), "120".to_string());
+        props.insert("TurnRateDamaged".to_string(), "120".to_string());
+        props.insert("Acceleration".to_string(), accel.to_string());
+        props.insert("AccelerationDamaged".to_string(), accel_damaged.to_string());
+        props.insert("Braking".to_string(), "60".to_string());
+        props.insert("MinTurnSpeed".to_string(), "20".to_string());
         props.insert("TurnPivotOffset".to_string(), "-0.60".to_string());
         props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
         props.insert("Appearance".to_string(), "MOTORCYCLE".to_string());

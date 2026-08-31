@@ -206,6 +206,8 @@ impl Xfer for XferLoad {
             // Read as raw bytes
             let byte_len = len as usize * std::mem::size_of::<u16>();
             let byte_buffer =
+                            // SAFETY: reinterprets the u16 buffer as bytes; length equals
+                            // buffer allocation so the write below stays in bounds.
                 unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, byte_len) };
             // SAFETY: byte_buffer is valid for byte_len bytes
             unsafe { self.xfer_user(byte_buffer.as_mut_ptr(), byte_len)? };
@@ -221,6 +223,8 @@ impl Xfer for XferLoad {
     /// # Safety
     /// The caller must ensure that `data` points to a valid mutable buffer
     /// of at least `data_size` bytes.
+        // SAFETY: caller contract — data valid for writes of data_size;
+        // read_exact fills exactly that many bytes.
     unsafe fn xfer_implementation(
         &mut self,
         data: *mut u8,

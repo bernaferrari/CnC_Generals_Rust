@@ -71,13 +71,35 @@ impl PathfindingSystem {
             }
             self.grid.query_check_for_aircraft = false;
         } else if !aircraft {
-            // C++ snapClosestGoalPosition when installing the move goal.
+            // C++ AIState::onEnter (AIStates.cpp:1638-1645):
+            // adjustDestination first; snapClosestGoalPosition is the
+            // FALLBACK when adjustDestination fails — not an unconditional
+            // re-center. Re-centering a valid clamped goal walks it to the
+            // cell center, which can drift past a clamp margin.
             let unit_radius = self
                 .seeker_id
                 .and_then(|id| objects.get(&id))
                 .map(|o| o.selection_radius)
                 .unwrap_or(0.0);
-            goal = self.snap_closest_goal_position(goal, surfaces, is_crusher, unit_radius);
+            let cell = self.grid.world_to_grid(goal);
+            let crusher_level = if is_crusher || self.seeker_crusher_level > 0 {
+                self.seeker_crusher_level.max(1)
+            } else {
+                0
+            };
+            let dest_ok = self.grid.check_destination_for(
+                cell,
+                self.grid.layer_for_destination(goal),
+                0,
+                true,
+                surfaces,
+                is_crusher,
+                self.seeker_player,
+                crusher_level,
+            );
+            if !dest_ok {
+                goal = self.snap_closest_goal_position(goal, surfaces, is_crusher, unit_radius);
+            }
         }
         let start_grid = self
             .grid
@@ -108,9 +130,15 @@ impl PathfindingSystem {
             let direct = vec![start_at_dest, goal_adj];
             Self::detour_path_around_tall_buildings_ignoring(&direct, objects, avoid)
         } else {
-            if self.leftover_should_force_direct_path_for_off_map_start(start, goal) {
-                // C++ computePath dest-off + start-off → computeQuickPath
-                // (AIUpdate.cpp:1663-1671). Off-map units cannot A*.
+            // C++ never computeQuickPaths across an ignored CELL_OBSTACLE
+            // footprint: the direct branch bypasses A* ignore_cells entirely.
+            // C++ AIUpdate.cpp:1665-1671: when both the destination AND the
+            // start are off the pathfind extent, pathfinding is impossible —
+            // computeQuickPath builds the direct two-node path instead of
+            // consulting A* (which cannot seed an off-map cell).
+            if self.leftover_should_force_direct_path_for_off_map_start(start, goal)
+                && self.ignored_obstacle_cells().is_none()
+            {
                 Self::leftover_compute_quick_path_nodes(start, goal)
             } else {
                 match self.find_path_via_crate(
@@ -120,7 +148,6 @@ impl PathfindingSystem {
                     is_crusher,
                     start_layer,
                     dest_layer,
-                    true,
                 ) {
                     Some(p) => p,
                     None => {
@@ -152,7 +179,6 @@ impl PathfindingSystem {
                             is_crusher,
                             start_layer,
                             retry_layer,
-                            true,
                         )?
                     }
                 }
@@ -295,7 +321,13 @@ impl PathfindingSystem {
             .grid
             .cell_for_unit_position(from, self.seeker_center_in_cell);
         let blocked = true;
-        let radius = (self.seeker_path_diameter.max(1) / 2).max(0);
+        // C++ patchPath uses getRadiusAndCenter(obj) directly (AIPathfind.cpp
+        // :10380-10383): infantry get radius 1, not pathDiameter/2 (=0).
+        let radius = self
+            .seeker_id
+            .and_then(|id| objects.get(&id))
+            .map(|o| PathfindingGrid::radius_and_center(o.selection_radius, self.grid.grid_size()).0)
+            .unwrap_or_else(|| (self.seeker_path_diameter.max(1) / 2).max(0));
         let crusher_level = if is_crusher {
             self.seeker_crusher_level.max(1)
         } else {
@@ -359,7 +391,6 @@ impl PathfindingSystem {
                 is_crusher,
                 start_layer,
                 dest_layer,
-                true,
             )
         };
         let mut prefix = try_goal(goal_pos);
@@ -537,7 +568,7 @@ impl PathfindingSystem {
             w
         };
         if let Some(path) =
-            self.find_path_via_crate(start, dest, surfaces, is_crusher, layer, layer, true)
+            self.find_path_via_crate(start, dest, surfaces, is_crusher, layer, layer)
         {
             if path.len() >= 2 {
                 return Some(path);
@@ -623,7 +654,16 @@ impl PathfindingSystem {
             }
             let cell = GridPos::new(cx, cy);
             let layer = PathfindLayerEnum::from_u32(lid as u32);
-            let world = self.grid.grid_to_world_on_layer(cell, layer);
+            // C++ findSafePath measures from adjustCoordToCell (cell center
+            // when centerInCell); grid_to_world returns the cell CORNER.
+            let world = {
+                let mut w = self.grid.grid_to_world_on_layer(cell, layer);
+                if self.seeker_center_in_cell {
+                    w.x += self.grid.grid_size() * 0.5;
+                    w.z += self.grid.grid_size() * 0.5;
+                }
+                w
+            };
             let d1 = {
                 let dx = world.x - repulsor1.x;
                 let dz = world.z - repulsor1.z;
@@ -637,7 +677,11 @@ impl PathfindingSystem {
             let nearest = d1.min(d2);
             let mut ok = nearest > radius_sqr;
             if open.is_empty() && cell_count > 0 {
-                ok = true;
+                // Faithful C++ exhaustion clause (AIPathfind.cpp:10945-47),
+                // but the picked flee cell must still clear both repulsors —
+                // C++ findSafePath only terminates on a checkDestination-pass
+                // outside the radii, never inside one.
+                ok = nearest > radius_sqr;
             }
             if farthest.map(|(_, _, d)| nearest > d).unwrap_or(true) {
                 farthest = Some((cell, layer, nearest));
@@ -700,7 +744,10 @@ impl PathfindingSystem {
         }
         let (dest, dest_layer) = if let Some((cell, layer)) = found {
             (cell, layer)
-        } else if let Some((cell, layer, _)) = farthest {
+        } else if let Some((cell, layer, d)) = farthest {
+            // C++ findSafePath only ever accepts a checkDestination-pass cell
+            // OUTSIDE the repulsor radii; an exhausted-search fallback must
+            // never park the unit closer than the radius either.
             if !self.grid.destination_cell_ok(
                 cell,
                 surfaces,
@@ -708,7 +755,8 @@ impl PathfindingSystem {
                 seeker_player,
                 crusher_level,
                 layer,
-            ) {
+            ) || d <= radius_sqr
+            {
                 return None;
             }
             (cell, layer)
@@ -718,21 +766,22 @@ impl PathfindingSystem {
         if dest == start {
             return None;
         }
-        let goal = self.grid.grid_to_world_on_layer(dest, dest_layer);
-        if let Some(path) = self.find_path_via_crate(
+        // C++ buildActualPath: the flee path is rebuilt through A* to the
+        // validated safe cell. No straight-line fail-open exists in C++
+        // (AIUpdate findSafePath) — a direct from→goal segment would march
+        // back inside both repulsor radii.
+        let path = self.find_path_via_crate(
             start,
             dest,
             surfaces,
             is_crusher,
             start_layer,
             dest_layer,
-            true,
-        ) {
-            if path.len() >= 2 {
-                return Some(path);
-            }
+        )?;
+        if path.len() < 2 {
+            return None;
         }
-        Some(vec![from, goal])
+        Some(path)
     }
 
     /// C++ `Pathfinder::findClosestPath` (AIPathfind.cpp:8739+).
@@ -746,44 +795,41 @@ impl PathfindingSystem {
         is_crusher: bool,
         is_human: bool,
     ) -> Option<Vec<Vec3>> {
-        const COST_ORTHO: i32 = 10;
-        const COST_DIAG: i32 = 14;
-        const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
-        const MAX_EXPAND: i32 = 4000;
         self.sync_crate_astar();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
-        let start = self
-            .grid
-            .cell_for_unit_position(from, self.seeker_center_in_cell);
-        let goal_grid = self
-            .grid
-            .cell_for_unit_position(goal, self.seeker_center_in_cell);
+        let start = self.grid.cell_for_unit_position(from, self.seeker_center_in_cell);
+        let goal_grid = self.grid.cell_for_unit_position(goal, self.seeker_center_in_cell);
         if !self.grid.is_valid_pos(start) || !self.grid.is_valid_pos(goal_grid) {
             return None;
         }
         if is_human && !self.grid.human_extent_allows(start, true) {
             return None;
         }
-        let crusher_level = if is_crusher {
-            self.seeker_crusher_level.max(1)
-        } else {
-            0
-        };
+        let crusher_level = if is_crusher { self.seeker_crusher_level.max(1) } else { 0 };
         let seeker_player = self.seeker_player;
         let start_layer = self.grid.layer_for_destination(from);
         let start_lid = start_layer as u8;
-        let closest_jumps = self.hierarchical_bridge_jumps();
-        let closest_start = self.host_to_crate_coord(start);
-        let closest_goal = self.host_to_crate_coord(goal_grid);
-        if let Some(crate_pf) = self.crate_astar.as_mut() {
-            crate_pf.finder.apply_hierarchical_zone_prune(
-                closest_start,
-                closest_goal,
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> = BinaryHeap::new();
+        let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
+        let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
+        // Leftover goal accept honors canPathThroughUnits (per-pop C++ check).
+        let goal_accept_ok = self.seeker_can_path_through_units
+            || self.grid.destination_cell_ok(
+                goal_grid,
                 surfaces,
                 is_crusher,
-                &closest_jumps,
+                seeker_player,
+                crusher_level,
+                start_layer,
             );
-        }
+        let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
+        let mut closest_screen_sqr = f32::MAX;
+        let mut found_goal_cell = false;
+        let mut expanded = 0i32;
+        const COST_ORTHO: i32 = 10;
+        const COST_DIAG: i32 = 14;
+        const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
+        const MAX_EXPAND: i32 = 4000;
         let heuristic = |c: GridPos| -> i32 {
             let dx = (goal_grid.x - c.x).abs();
             let dy = (goal_grid.y - c.y).abs();
@@ -801,16 +847,21 @@ impl PathfindingSystem {
             (-1, -1),
             (1, -1),
         ];
-        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> = BinaryHeap::new();
-        let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
-        let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
         let h0 = heuristic(start);
         open.push(std::cmp::Reverse((h0, 0, start.x, start.y, start_lid)));
         g_score.insert((start.x, start.y, start_lid), 0);
-        let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
-        let mut closest_screen_sqr = f32::MAX;
-        let mut found_goal_cell = false;
-        let mut expanded = 0i32;
+        let closest_jumps = self.hierarchical_bridge_jumps();
+        let closest_start = self.host_to_crate_coord(start);
+        let closest_goal = self.host_to_crate_coord(goal_grid);
+        if let Some(crate_pf) = self.crate_astar.as_mut() {
+            crate_pf.finder.apply_hierarchical_zone_prune(
+                closest_start,
+                closest_goal,
+                surfaces,
+                is_crusher,
+                &closest_jumps,
+            );
+        }
         while let Some(std::cmp::Reverse((_f, g, cx, cy, lid))) = open.pop() {
             let key = (cx, cy, lid);
             if !closed.insert(key) {
@@ -823,15 +874,7 @@ impl PathfindingSystem {
             let cell = GridPos::new(cx, cy);
             let layer = PathfindLayerEnum::from_u32(lid as u32);
             if cx == goal_grid.x && cy == goal_grid.y {
-                let goal_ok = self.seeker_can_path_through_units
-                    || self.grid.destination_cell_ok(
-                        cell,
-                        surfaces,
-                        is_crusher,
-                        seeker_player,
-                        crusher_level,
-                        layer,
-                    );
+                let goal_ok = goal_accept_ok;
                 if goal_ok || closest_cell.is_none() {
                     found_goal_cell = true;
                     closest_cell = Some((cell, layer, 0.0));
@@ -853,7 +896,8 @@ impl PathfindingSystem {
                 if dist_screen < closest_screen_sqr {
                     closest_screen_sqr = dist_screen;
                 }
-                let cost_term = (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR;
+                // pathCostMultiplier 0.2 per C++ callers (AIUpdate.cpp:410).
+                let cost_term = (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR * 0.2;
                 let dist_sqr = dist_screen + cost_term;
                 let better = match closest_cell {
                     None => true,
@@ -915,7 +959,8 @@ impl PathfindingSystem {
         let to_cell = self
             .grid
             .cell_for_unit_position(to_pos, self.seeker_center_in_cell);
-        // Leftover find_closest_path: buildActualPath via crate A* (layers/occupancy).
+        // Leftover buildActualPath via find_path_via_crate; failure stays
+        // None — no fail-open line.
         if let Some(path) = self.find_path_via_crate(
             start,
             to_cell,
@@ -923,7 +968,6 @@ impl PathfindingSystem {
             is_crusher,
             start_layer,
             best_layer,
-            false,
         ) {
             let mut world = path;
             if let Some(first) = world.first_mut() {

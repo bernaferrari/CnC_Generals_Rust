@@ -2162,6 +2162,11 @@ mod map_side_dict_tests {
             let source =
                 format!("{NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n");
             ini.with_inline_source(&source, |ini| {
+                // parse_upgrade_definition expects the upgrade-name line
+                // already staged in the tokenizer buffer (INI::get_next_token
+                // reads from the current line, see the sibling registration
+                // helper in object_ai_combat.rs::register_upgrade_completion_sounds).
+                ini.read_line()?;
                 center
                     .parse_upgrade_definition(ini)
                     .map_err(|_| game_engine::common::ini::INIError::InvalidData)

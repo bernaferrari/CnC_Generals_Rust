@@ -111,7 +111,7 @@ pub fn honesty_engine_default_rebuild_source() -> bool {
 
 /// Source residual: executable smoke tracks rebuilt status key.
 pub fn honesty_executable_tracks_gameworld_rebuilt_source() -> bool {
-    let src = include_str!("../../executable_smoke.rs");
+    let src = crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
     src.contains("gameworld_rebuilt")
         && src.contains("max_gameworld_rebuilt")
         && src.contains("\"gameworld_rebuilt\"")

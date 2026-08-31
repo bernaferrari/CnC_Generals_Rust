@@ -2083,6 +2083,15 @@ impl ModuleUpdateProxy {
         update_via_behavior!(
             crate::object::behavior::cleanup_hazard_update::CleanupHazardUpdateModule
         );
+        // C++ FlammableUpdate is an UpdateModule; without this entry its proxy
+        // warns "No update dispatcher" and sleeps Forever, so the wake armed by
+        // tryToIgnite (FlammableUpdate.cpp:196) can never advance the burn
+        // state machine.
+        update_via_behavior!(
+            crate::contain_module_overrides::ActiveBehaviorModule<
+                crate::object::behavior::flammable_update::FlammableUpdate,
+            >
+        );
         update_via_behavior!(
             crate::object::production::railed_transport_dock::RailedTransportDockUpdateModule
         );

@@ -347,7 +347,11 @@ impl<T> ObjectPool<T> {
 
 // ObjectPool is Send + Sync because RwLock<PoolAllocator<T>> is Send + Sync
 // when T is Send + Sync
+// SAFETY: ObjectPool wraps RwLock<PoolAllocator<T>>; Send holds iff
+// T: Send because all access goes through the lock.
 unsafe impl<T: Send> Send for ObjectPool<T> {}
+// SAFETY: Sync requires &self access to be data-race free iff T: Send+Sync;
+// the inner RwLock serializes every allocator mutation.
 unsafe impl<T: Send + Sync> Sync for ObjectPool<T> {}
 
 impl<T> Drop for ObjectPool<T> {

@@ -13,9 +13,37 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
+    // C++ retail ranger-style capture module: `StartsPaused = Yes` +
+    // `UnpauseSpecialPowerUpgrade` (parsed as capture_starts_paused /
+    // capture_upgrade_trigger).  Without it the capture power is ready
+    // before the research completes, and ActionManager::canCaptureBuilding
+    // (ActionManager.cpp:971-1069, getPercentReady < 1.0) would accept it.
+    let infantry_template = game_logic
+        .templates
+        .get_mut("TestInfantry")
+        .expect("TestInfantry template");
+    infantry_template.capture_starts_paused = true;
+    infantry_template.capture_upgrade_trigger =
+        Some(UPGRADE_INFANTRY_CAPTURE.to_string());
+    // Retail infantry authors SightRange/ShroudClearingRange; without a
+    // non-zero look radius the captor registers no look and the building
+    // stays shrouded for the FOW gate.
+    infantry_template.sight_range = 200.0;
+    let mut barracks = ThingTemplate::new("AmericaBarracks");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_cost(600, -1);
+    barracks.capturable = true;
+    game_logic
+        .templates
+        .insert("AmericaBarracks".to_string(), barracks);
 
     let barracks_id = game_logic
-        .create_object("TestBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
+        .create_object("AmericaBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
         .expect("barracks");
     assert!(
         game_logic
@@ -32,7 +60,23 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
 
-    // Before research: capture command must not enter Capturing.
+    // C++ ActionManager::canCaptureBuilding runs isObjectShroudedForAction
+    // (ActionManager.cpp:76-102) — the local player must see the target. The
+    // host consults the shared shroud manager, so this fixture registers the
+    // captor's look and refreshes vision before issuing CaptureBuilding (a
+    // live game would have run Object::look every frame since spawn).
+    game_logic.host_object_mut(captor_id).expect("captor").vision_range = 200.0;
+    // The shroud look radius (Object::getShroudClearingRange) is what
+    // registers the look; vision_range alone does not.
+    game_logic.host_object_mut(captor_id).expect("captor").shroud_range = 200.0;
+    game_logic.update_main_crate_vision();
+    // A C++ match initializes the shroud grid at map load; without it every
+    // look computes Hidden and the FOW gate would refuse the capture.
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .expect("shroud")
+        .init_shroud_grid(512.0, 512.0);
+    game_logic.update_main_crate_vision();
     game_logic.queue_command(GameCommand {
         command_type: CommandType::CaptureBuilding {
             target_id: building_id,
@@ -77,8 +121,10 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         "host residual must record pending Capture research"
     );
 
-    // Complete research on simulation update.
+    // C++ research advances on the producer's Upgrade.ini BuildTime; one
+    // 1/30s frame must not instant-complete 30 seconds of research.
     game_logic.update();
+    game_logic.update_with_dt(30.0);
 
     let player = game_logic.get_player(0).expect("player after complete");
     assert!(
@@ -112,6 +158,33 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         captor.has_upgrade_tag(UPGRADE_INFANTRY_CAPTURE),
         "captor must receive capture upgrade tag"
     );
+
+    // The unpaused capture special keeps its authored ctor ReloadTime
+    // (retail RangerCaptureBuilding reload = 15000ms); the research window
+    // above lets it elapse — model that with the C++ setReadyFrame(0)
+    // residual so the power is ready for the final command.
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor ready")
+        .set_special_power_ready_seconds(
+            &crate::command_system::SpecialPowerType::RangerCaptureBuilding,
+            0.0,
+        );
+
+    // The research window's vision pass does not retain the captor's
+    // Register the captor's maintained sight of the target the way the live
+    // vision pass would (fixture style of scripts_and_capture.rs:2392).
+    {
+        let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .expect("shroud");
+        shroud.set_host_object_shroud_status(
+            0,
+            building_id.0,
+            gamelogic::common::ObjectShroudStatus::Clear,
+        );
+        shroud.mark_host_object_seen(0, building_id.0);
+    }
 
     // Ability now available.
     game_logic.queue_command(GameCommand {
@@ -170,13 +243,20 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
     let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
-    // Unlock without research frames so the walk path is the unit under test.
-    player
-        .unlocked_sciences
-        .insert(UPGRADE_INFANTRY_CAPTURE.to_string());
     game_logic.add_player(player);
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
+    // C++ retail capture module: `StartsPaused = Yes` +
+    // `UnpauseSpecialPowerUpgrade` — the upgrade completion (applied directly
+    // below so the walk path is the unit under test) unpauses the power.
+    let infantry_template = game_logic
+        .templates
+        .get_mut("TestInfantry")
+        .expect("TestInfantry template");
+    infantry_template.capture_starts_paused = true;
+    infantry_template.capture_upgrade_trigger =
+        Some(UPGRADE_INFANTRY_CAPTURE.to_string());
+    infantry_template.sight_range = 200.0;
 
     // Outside capture range (≈ 8+25+4 = 37) so Capturing must walk in.
     let captor_id = game_logic
@@ -185,6 +265,30 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
     let building_id = game_logic
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
+
+    // Unlock the capture ability without research frames: the C++
+    // UnpauseSpecialPowerUpgrade residual (grant upgrade + unpause).
+    game_logic.apply_upgrade_to_object(captor_id, UPGRADE_INFANTRY_CAPTURE);
+    // The unpaused special keeps its authored 15s ctor ReloadTime (retail
+    // RangerCaptureBuilding reload, 15000ms) — model it elapsing with the
+    // C++ setReadyFrame(0) residual so the power is ready at click time.
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor ready")
+        .set_special_power_ready_seconds(
+            &crate::command_system::SpecialPowerType::RangerCaptureBuilding,
+            0.0,
+        );
+
+    // C++ canCaptureBuilding FOW gate (ActionManager.cpp:76-102): register
+    // the captor's look + refresh the shared shroud before issuing capture.
+    game_logic.host_object_mut(captor_id).expect("captor").vision_range = 200.0;
+    game_logic.host_object_mut(captor_id).expect("captor").shroud_range = 200.0;
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .expect("shroud")
+        .init_shroud_grid(512.0, 512.0);
+    game_logic.update_main_crate_vision();
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::CaptureBuilding {
@@ -310,6 +414,7 @@ fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
     );
 
     game_logic.update();
+    game_logic.update_with_dt(30.0);
 
     let player = game_logic.get_player(0).expect("player");
     assert!(player.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG));
@@ -386,8 +491,8 @@ fn supply_lines_upgrade_queue_complete_tags_supply_center() {
             .host_upgrades()
             .honesty_queue_ok(HostUpgradeKind::SupplyLines)
     );
-
     game_logic.update();
+    game_logic.update_with_dt(30.0);
 
     assert!(
         game_logic
@@ -926,7 +1031,9 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 1000;
         game_logic.add_player(player);
-
+        // Live dock-approach queues are a process-global keyed by ObjectId;
+        // clear stale reservations so this instance docks from a clean slate.
+        crate::game_logic::host_supply_gather::reset_live_dock_queues();
         let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
         chinook
             .add_kind_of(KindOf::Harvester)
@@ -942,6 +1049,10 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
             .add_kind_of(KindOf::SupplyCenter)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
+        // C++ AmericaSupplyCenter authors a SupplyCenterDockUpdate module
+        // (SupplyCenterDockUpdate.cpp); the host keys dock-approach capacity
+        // on the parsed dock kind, so the fixture must author it too.
+        supply.dock_kind = crate::game_logic::DockKind::SupplyCenter;
         game_logic
             .templates
             .insert("AmericaSupplyCenter".to_string(), supply);
@@ -963,6 +1074,10 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
             });
             game_logic.process_commands();
             game_logic.update();
+            // C++ research advances on the producer's Upgrade.ini BuildTime
+            // (Upgrade_AmericaSupplyLines BuildTime = 30s; retail residual
+            // table 900 frames) — one 1/30s frame must not instant-complete.
+            game_logic.update_with_dt(30.0);
             assert!(
                 game_logic
                     .get_player(0)
@@ -1073,7 +1188,11 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplyCenter)
         .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
+            .set_health(100.0);
+    // C++ AmericaSupplyCenter authors SupplyCenterDockUpdate (dock-approach
+    // capacity keys on the parsed dock kind) — author it so the dozer's
+    // drop-off below actually runs instead of failing closed.
+    supply.dock_kind = crate::game_logic::DockKind::SupplyCenter;
     game_logic
         .templates
         .insert("AmericaSupplyCenter".to_string(), supply);
@@ -1092,7 +1211,12 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
+    crate::game_logic::host_supply_gather::reset_live_dock_queues();
     game_logic.update();
+    // C++ research advances on the producer's Upgrade.ini BuildTime
+    // (Upgrade_AmericaSupplyLines BuildTime = 30s → 900 frames) — one
+    // 1/30s frame must not instant-complete it.
+    game_logic.update_with_dt(30.0);
     assert!(
         game_logic
             .host_upgrades()
@@ -1236,6 +1360,12 @@ fn supply_truck_force_wanting_reenters_gathering() {
         collector.stop_moving();
     }
 
+    // Sync the process-global state earlier tests in this binary leak: stale
+    // (player, ObjectId) shroud rows and dock-approach queue reservations
+    // keyed by reused ObjectIds. A live C++ game tears these down per match;
+    // the host keeps them process-global, so each fixture re-syncs them.
+    crate::game_logic::host_supply_gather::reset_live_dock_queues();
+    logic.update_main_crate_vision();
     logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
 
     let after = logic.host_object(collector_id).expect("truck after");
@@ -1425,7 +1555,9 @@ fn garrison_residual_exit_frees_unit_and_capacity() {
     assert_eq!(bunker.garrison_count(), 0);
 
     let infantry = game_logic.host_object(infantry_id).expect("infantry free");
-    assert_eq!(infantry.ai_state, AIState::Idle);
+    // C++ GarrisonContain::exitObjectViaDoor walks the occupant out
+    // (burst/left/right); the unit is free but still completing its walk.
+    assert_eq!(infantry.ai_state, AIState::Moving);
     assert!(infantry.contained_by.is_none());
     assert!(infantry.target.is_none());
     assert!(infantry.can_move(), "exited unit must be free to move");
@@ -1800,12 +1932,22 @@ fn transport_residual_enter_sets_docked_state_and_capacity() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_infantry_template(&mut game_logic);
     let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 5);
     let infantry_id = game_logic
         .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("infantry");
 
+    // The shroud manager is a process-global singleton while ObjectIds are
+    // reused per GameLogic instance, so earlier tests in this binary leave
+    // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
+    // (ShroudManager::clear_all "multiplayer match initialization"), so this
+    // fixture resets it to the fresh-process state before gating paths run.
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .expect("shroud")
+        .clear_all();
     let transport = game_logic.host_object(transport_id).expect("transport");
     assert!(
         transport.can_contain() && transport.transport_capacity() == 5,
@@ -1866,6 +2008,7 @@ fn transport_residual_load_two_unload_both_free() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_infantry_template(&mut game_logic);
     let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 5);
 
@@ -1876,6 +2019,15 @@ fn transport_residual_load_two_unload_both_free() {
         .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("unit b");
 
+    // The shroud manager is a process-global singleton while ObjectIds are
+    // reused per GameLogic instance, so earlier tests in this binary leave
+    // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
+    // (ShroudManager::clear_all "multiplayer match initialization"), so this
+    // fixture resets it to the fresh-process state before gating paths run.
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .expect("shroud")
+        .clear_all();
     // Load both via Enter residual (walk-into-range completes same frame).
     for unit_id in [unit_a, unit_b] {
         {
@@ -1926,7 +2078,14 @@ fn transport_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("freed unit");
-        assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
+        // C++ OpenContain::exitObjectViaDoor places the rider at ExitStart
+        // and issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020);
+        // the freed rider walks out instead of Idling in place.
+        assert_eq!(
+            unit.ai_state,
+            AIState::Moving,
+            "unloaded unit must walk its exit path (C++ aiFollowPath)"
+        );
         assert!(unit.contained_by.is_none(), "contained_by must clear");
         assert!(unit.target.is_none());
         assert!(unit.can_move(), "unloaded unit must be free to move");
@@ -1949,6 +2108,7 @@ fn transport_residual_exit_command_unloads_all() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_infantry_template(&mut game_logic);
     let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 4);
     let unit_a = game_logic
@@ -1958,6 +2118,15 @@ fn transport_residual_exit_command_unloads_all() {
         .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("b");
 
+    // The shroud manager is a process-global singleton while ObjectIds are
+    // reused per GameLogic instance, so earlier tests in this binary leave
+    // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
+    // (ShroudManager::clear_all "multiplayer match initialization"), so this
+    // fixture resets it to the fresh-process state before gating paths run.
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .expect("shroud")
+        .clear_all();
     for unit_id in [unit_a, unit_b] {
         {
             let unit = game_logic.host_object_mut(unit_id).unwrap();
@@ -2001,8 +2170,18 @@ fn transport_residual_capacity_full_rejects_enter() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_infantry_template(&mut game_logic);
     let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 1);
+    // The shroud manager is a process-global singleton while ObjectIds are
+    // reused per GameLogic instance, so earlier tests in this binary leave
+    // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
+    // (ShroudManager::clear_all "multiplayer match initialization"), so this
+    // fixture resets it to the fresh-process state before gating paths run.
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .expect("shroud")
+        .clear_all();
 
     let first_id = game_logic
         .create_object("TestInfantry", Team::USA, Vec3::new(1.0, 0.0, 0.0))
@@ -2104,6 +2283,9 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // C++ TransportContain requires the rider's controlling player to equal
+    // the transport's; fixtures model that with a live China player.
+    ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_infantry_template(&mut game_logic);
     // C++ ChinaTankOverlordBattleBunker TransportContain Slots = 5.
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
@@ -2175,6 +2357,7 @@ fn overlord_bunker_enter_sets_rider_experience_sink_to_tank() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_infantry_template(&mut game_logic);
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
     let infantry_id = game_logic
@@ -2223,6 +2406,7 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_infantry_template(&mut game_logic);
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
 
@@ -2233,6 +2417,15 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
         .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
         .expect("unit b");
 
+    // The shroud manager is a process-global singleton while ObjectIds are
+    // reused per GameLogic instance, so earlier tests in this binary leave
+    // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
+    // (ShroudManager::clear_all "multiplayer match initialization"), so this
+    // fixture resets it to the fresh-process state before gating paths run.
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .expect("shroud")
+        .clear_all();
     for unit_id in [unit_a, unit_b] {
         {
             let unit = game_logic.host_object_mut(unit_id).expect("unit mut");
@@ -2280,7 +2473,14 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("freed unit");
-        assert_eq!(unit.ai_state, AIState::Idle, "unloaded unit must be Idle");
+        // C++ OpenContain::exitObjectViaDoor places the rider at ExitStart
+        // and issues aiFollowPath to ExitEnd (OpenContain.cpp:915-1020);
+        // the freed rider walks out instead of Idling in place.
+        assert_eq!(
+            unit.ai_state,
+            AIState::Moving,
+            "unloaded unit must walk its exit path (C++ aiFollowPath)"
+        );
         assert!(unit.contained_by.is_none(), "contained_by must clear");
         assert!(unit.target.is_none());
         assert!(unit.can_move(), "unloaded unit must be free to move");
@@ -2308,6 +2508,7 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_infantry_template(&mut game_logic);
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(1));
 

@@ -425,11 +425,17 @@ mod tests {
             Ok(())
         }
 
+        // SAFETY: trait contract: caller guarantees `data` is valid for
+        // `data_size` bytes; only that range is copied into the recording
+        // buffer within this call.
         unsafe fn xfer_implementation(
             &mut self,
             data: *mut u8,
             data_size: usize,
         ) -> io::Result<()> {
+            // SAFETY: `xfer_implementation` receives a pointer valid for
+            // `data_size` bytes from the Xfer caller; this read-only slice
+            // view is appended before the call returns.
             let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
             self.bytes.extend_from_slice(bytes);
             Ok(())
@@ -496,17 +502,25 @@ mod tests {
     }
 
     fn rider(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
-        let obj = owned_object(name, id, player_index);
-        let data = super::super::OpenContainModuleData {
-            contain_max: 1,
-            ..Default::default()
-        };
-        let contain = super::super::OpenContain::new(Arc::downgrade(&obj), &data)
-            .expect("rider slot contain");
-        obj.write()
-            .expect("rider write")
-            .set_contain(Some(Arc::new(Mutex::new(contain))));
-        obj
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(player_index));
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), "INFANTRY".to_string());
+        fields.insert("TransportSlotCount".to_string(), "1".to_string());
+        template.parse_object_fields_from_ini(&fields);
+        Object::new_with_id(
+            Arc::new(template),
+            id,
+            ObjectStatusMaskType::none(),
+            Some(team),
+        )
+        .expect("test rider")
     }
 
     fn attach_drawable(obj: &Arc<RwLock<Object>>, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {

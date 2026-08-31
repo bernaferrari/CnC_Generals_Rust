@@ -444,6 +444,9 @@ impl Snapshotable for FirestormDynamicGeometryInfoUpdate {
             "FirestormDynamicGeometryInfoUpdate base",
         )?;
 
+        // SAFETY: `particle_system_ids` is a fully initialized `Vec<u32>`;
+        // `xfer_user` moves exactly `len * size_of::<u32>()` bytes through
+        // the contiguous buffer for the duration of the call.
         unsafe {
             xfer.xfer_user(
                 self.particle_system_ids.as_mut_ptr().cast::<u8>(),

@@ -191,6 +191,9 @@ impl BinkVideoStream {
 }
 
 // `BinkVideoStream` is `Send` because it only owns plain data.
+// SAFETY: BinkVideoStream owns only plain data (String, header struct, Vec<u8>,
+// SAFETY: decoder handle); no aliasing mutable state, so moving it across
+// SAFETY: threads cannot create data races.
 unsafe impl Send for BinkVideoStream {}
 
 impl VideoStreamInterface for BinkVideoStream {
@@ -295,11 +298,18 @@ impl VideoStreamInterface for BinkVideoStream {
             // Use decoded RGBA data from the BinkDecoder.
             for row in 0..copy_h {
                 let dst_row = y_offset + row;
+                // SAFETY: `mem` is the non-null locked buffer base (checked above);
+                // SAFETY: dst_row < buf_height and x_offset * bpp is within a row,
+                // SAFETY: so the byte offset stays inside the allocation.
                 let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
                 for col in 0..copy_w {
                     let src_index = (row * vid_w + col) * 4;
                     let rgba = &self.current_rgba[src_index..src_index + 4];
+                    // SAFETY: col < copy_w <= buf_width - x_offset, so col * bpp
+                    // SAFETY: stays within the pitch bytes of the current row.
                     let dst = unsafe { row_base.add(col * bpp) };
+                    // SAFETY: dst targets writable in-bounds row memory sized for
+                    // SAFETY: buf_format (see write_pixel contract).
                     unsafe { write_pixel(dst, buf_format, rgba[0], rgba[1], rgba[2], rgba[3]) };
                 }
             }
@@ -309,17 +319,24 @@ impl VideoStreamInterface for BinkVideoStream {
             let frame_idx = self.current_frame as usize;
             for row in 0..copy_h {
                 let dst_row = y_offset + row;
+                // SAFETY: `mem` is the non-null locked buffer base (checked above);
+                // SAFETY: dst_row < buf_height and x_offset * bpp is within a row,
+                // SAFETY: so the byte offset stays inside the allocation.
                 let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
                 for col in 0..copy_w {
                     let checker_x = (col + frame_idx * 2) / checker_size;
                     let checker_y = row / checker_size;
                     let is_light = (checker_x + checker_y) % 2 == 0;
+                    // SAFETY: col < copy_w <= buf_width - x_offset, so col * bpp
+                    // SAFETY: stays within the pitch bytes of the current row.
                     let dst = unsafe { row_base.add(col * bpp) };
                     let (r, g, b) = if is_light {
                         (80u8, 100, 180)
                     } else {
                         (30u8, 40, 100)
                     };
+                    // SAFETY: dst targets writable in-bounds row memory sized for
+                    // SAFETY: buf_format (see write_pixel contract).
                     unsafe { write_pixel(dst, buf_format, r, g, b, 0xFF) };
                 }
             }
@@ -354,6 +371,10 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 }
 
+// SAFETY: `dst` must point to writable memory of at least the format's byte
+// SAFETY: width (4 for X8R8G8B8, 3 for R8G8B8, 2 for R5G6B5/X1R5G5B5).
+// SAFETY: Callers pass row offsets into a locked video buffer, which the
+// SAFETY: frame_render loops keep inside pitch * buf_height bytes.
 unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, r: u8, g: u8, b: u8, a: u8) {
     match format {
         VideoBufferType::X8R8G8B8 => {
@@ -650,6 +671,8 @@ mod tests {
         // Verify buffer is initially zeroed.
         {
             let ptr = buffer.lock();
+            // SAFETY: the buffer is a 720x486 X8R8G8B8 allocation of exactly
+            // SAFETY: 720*486*4 bytes and lock() returned its valid base pointer.
             let slice = unsafe { std::slice::from_raw_parts(ptr, 720 * 486 * 4) };
             assert!(slice.iter().all(|&b| b == 0));
             buffer.unlock();
@@ -660,6 +683,8 @@ mod tests {
 
         {
             let ptr = buffer.lock();
+            // SAFETY: the buffer is a 720x486 X8R8G8B8 allocation of exactly
+            // SAFETY: 720*486*4 bytes and lock() returned its valid base pointer.
             let slice = unsafe { std::slice::from_raw_parts(ptr, 720 * 486 * 4) };
             // At least some bytes should be non-zero now.
             let non_zero_count = slice.iter().filter(|&&b| b != 0).count();
@@ -673,6 +698,8 @@ mod tests {
 
         {
             let ptr = buffer.lock();
+            // SAFETY: the buffer is a 720x486 X8R8G8B8 allocation of exactly
+            // SAFETY: 720*486*4 bytes and lock() returned its valid base pointer.
             let slice = unsafe { std::slice::from_raw_parts(ptr, 720 * 486 * 4) };
             let non_zero_count = slice.iter().filter(|&&b| b != 0).count();
             assert!(non_zero_count > 0, "second frame should also write data");
@@ -692,6 +719,8 @@ mod tests {
         stream.frame_render(&mut buffer);
 
         let ptr = buffer.lock();
+        // SAFETY: the buffer is a 64x64 R5G6B5 allocation of exactly 64*64*2
+        // SAFETY: bytes and lock() returned its valid base pointer.
         let slice = unsafe { std::slice::from_raw_parts(ptr, 64 * 64 * 2) };
         let non_zero = slice.iter().filter(|&&b| b != 0).count();
         assert!(non_zero > 0);
@@ -714,6 +743,8 @@ mod tests {
         let row_bytes = 128 * 4;
 
         // Check top-left corner (row 0, col 0) — should be zero.
+        // SAFETY: reads the first 4 bytes of a 128x128 X8R8G8B8 allocation
+        // SAFETY: (65536 bytes); lock() returned its valid base pointer.
         let top_left = unsafe { std::slice::from_raw_parts(ptr, 4) };
         assert!(
             top_left.iter().all(|&b| b == 0),
@@ -722,6 +753,8 @@ mod tests {
 
         // Check pixel at (32, 32) — should be non-zero.
         let offset_32_32 = (32 * row_bytes) + (32 * 4);
+        // SAFETY: offset 32*512 + 32*4 = 16512, and reading 4 bytes there
+        // SAFETY: stays inside the 65536-byte 128x128 X8R8G8B8 allocation.
         let pixel = unsafe { std::slice::from_raw_parts(ptr.add(offset_32_32), 4) };
         assert!(
             pixel.iter().any(|&b| b != 0),

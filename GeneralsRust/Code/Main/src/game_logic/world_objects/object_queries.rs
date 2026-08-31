@@ -8,6 +8,12 @@ use super::super::*;
 /// command fail closed without an authored module on the firing object.
 /// Capture / Hacker-disable live residuals store that module outside
 /// `special_power_modules` and still count as present.
+///
+/// A per-object cooldown entry for this power is equivalent C++
+/// `SpecialPowerModule` evidence: the countdown only exists because a live
+/// module (or its host residual bind) was armed. `SpecialPowerModule::isReady`
+/// reads the timer, not the parsed INI record, so cooldown-tracked objects
+/// without a parsed module record still carry the module.
 fn object_has_special_power_module(
     obj: &Object,
     power: &crate::command_system::SpecialPowerType,
@@ -34,6 +40,8 @@ fn object_has_special_power_module(
         power,
         crate::command_system::SpecialPowerType::HackerDisableBuilding
     ) && obj.thing.template.hacker_disable_building.is_some()
+        // Cooldown-tracked residual evidence (see doc above).
+        || obj.special_power_cooldowns.contains_key(power)
 }
 
 /// C++ `Player::getRelationship(const Team*)` leftover map written by
@@ -1781,9 +1789,11 @@ impl GameLogic {
             ),
             None => return false,
         };
-        if parsed_module.is_none() {
-            return false;
-        }
+        // Cooldown-tracked objects without a parsed module record consume via
+        // the residual reload table below (C++ SpecialPowerModule::isReady /
+        // startPowerRecharge read the live timer, not a parsed INI record).
+        // Only objects with no module evidence at all fail closed — and that
+        // case already returned false inside is_special_power_ready_for.
         let reload = parsed_module
             .as_ref()
             .map(|module| module.reload_time_frames as f32 / 30.0)
@@ -2362,7 +2372,13 @@ impl GameLogic {
             }
         }
 
-        let relation = match (source.owner_player_id, target.owner_player_id) {
+        // C++ ActionManager SPECIAL_HACKER_DISABLE_BUILDING reads
+        // `obj->getRelationship(target)` (Object.cpp:1548-1568), which falls
+        // through to the controlling players' team relationship: two living
+        // players on different non-neutral teams are ENEMIES even when the
+        // lobby carries no explicit playerEnemies row. A strict player-map
+        // NEUTRAL must not hard-reject that default hostility.
+        let mut relation = match (source.owner_player_id, target.owner_player_id) {
             (Some(source_owner), Some(target_owner))
                 if self.player_owner_for_host_object(source) == Some(source_owner)
                     && self.player_owner_for_host_object(target) == Some(target_owner) =>
@@ -2380,6 +2396,13 @@ impl GameLogic {
             }
             _ => Relationship::Neutral,
         };
+        if relation == Relationship::Neutral
+            && source.team != Team::Neutral
+            && target.team != Team::Neutral
+            && source.team != target.team
+        {
+            relation = Relationship::Enemies;
+        }
         if relation != Relationship::Enemies {
             return false;
         }

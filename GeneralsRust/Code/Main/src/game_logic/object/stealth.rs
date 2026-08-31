@@ -752,9 +752,21 @@ impl Object {
         // C++ WeaponSet: stealthed + undetected cannot be attacked
         // (including force-fire against pure stealth; disguise exception not residual).
         // OBJECT_STATUS_IGNORING_STEALTH residual bypasses this gate.
+        // DISARM exception: C++ DozerAIUpdate::clearMines scans the partition
+        // manager for enemy mines without a stealth check (mines carry
+        // OBJECT_STATUS_NO_ATTACK_FROM_AI, not attack-stealth), so an armed
+        // but hidden mine stays a legal DAMAGE_DISARM victim.
+        let target_disarmable_mine = {
+            let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));
+            wname
+                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
+                .unwrap_or(false)
+                && target.is_disarmable_mine()
+        };
         if target.is_effectively_stealthed()
             && target.team != self.team
             && !self.status.ignoring_stealth
+            && !target_disarmable_mine
         {
             return false;
         }
@@ -814,7 +826,19 @@ impl Object {
 
     /// True if primary **or** secondary can currently hit the target.
     pub fn can_target(&self, target: &Object) -> bool {
-        if target.is_effectively_stealthed() && target.team != self.team {
+        // DISARM exception (see can_target_with_slot): a hidden enemy mine
+        // stays a legal DAMAGE_DISARM victim for mine-clearing weapons.
+        let any_slot_disarm = [0u8, 1, 2]
+            .into_iter()
+            .any(|slot| {
+                self.weapon_name_for_slot(slot)
+                    .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
+                    .unwrap_or(false)
+            });
+        if target.is_effectively_stealthed()
+            && target.team != self.team
+            && !(any_slot_disarm && target.is_disarmable_mine())
+        {
             return false;
         }
         if let Some(weapon) = self.weapon_slot(0) {

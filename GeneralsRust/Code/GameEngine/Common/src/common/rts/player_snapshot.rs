@@ -83,6 +83,8 @@ impl Snapshotable for Player {
             XferMode::Save => {
                 let money_data = self.money.xfer_save();
                 // Money xfer is: version byte (1) + 4 bytes money value = 5 bytes raw
+                                // SAFETY: money_data is an owned Vec of exactly the serialized
+                                // length; xfer_user reads it without writing.
                 unsafe {
                     xfer.xfer_user(money_data.as_ptr() as *mut u8, money_data.len())
                         .map_err(|e| format!("money xfer_user failed: {}", e))?;
@@ -91,6 +93,8 @@ impl Snapshotable for Player {
             XferMode::Load => {
                 // Money xfer starts with version byte, then u32 money value (5 bytes total)
                 let mut money_data = vec![0u8; 5];
+                                // SAFETY: money_data is an owned 5-byte Vec; xfer_user writes
+                                // exactly its length into it before xfer_load parses a copy.
                 unsafe {
                     xfer.xfer_user(money_data.as_mut_ptr(), money_data.len())
                         .map_err(|e| format!("money xfer_user load failed: {}", e))?;
@@ -101,6 +105,7 @@ impl Snapshotable for Player {
             }
             XferMode::Crc => {
                 let money_data = self.money.xfer_save();
+                                // SAFETY: owned Vec, CRC path only reads the exact length.
                 unsafe {
                     xfer.xfer_user(money_data.as_ptr() as *mut u8, money_data.len())
                         .map_err(|e| format!("money crc failed: {}", e))?;
@@ -217,6 +222,8 @@ impl Snapshotable for Player {
                 // Since we store names, write dummy 4-byte IDs (will be resolved by TeamFactory on load)
                 for _ in 0..prototype_count {
                     let mut dummy_id: u32 = 0;
+                                        // SAFETY: &mut dummy_id is a valid aligned u32 for the
+                                        // sizeof(u32) raw transfer matching C++ xferUser.
                     unsafe {
                         xfer.xfer_user(
                             &mut dummy_id as *mut u32 as *mut u8,
@@ -230,6 +237,8 @@ impl Snapshotable for Player {
                 self.team_prototypes.clear();
                 for _ in 0..prototype_count {
                     let mut dummy_id: u32 = 0;
+                                        // SAFETY: &mut dummy_id is a valid aligned u32; loaded
+                                        // value is consumed after the call.
                     unsafe {
                         xfer.xfer_user(
                             &mut dummy_id as *mut u32 as *mut u8,
@@ -517,6 +526,8 @@ impl Snapshotable for Player {
         // --- 19. Default team ---
         // C++ lines 4219-4223: xferUser(&teamID, sizeof(TeamID))
         let mut team_id = self.default_team.unwrap_or(0);
+                // SAFETY: &mut team_id is a valid aligned u32 for the sizeof(u32)
+                // transfer mirroring C++ xferUser(&teamID, sizeof(TeamID)).
         unsafe {
             xfer.xfer_user(
                 &mut team_id as *mut u32 as *mut u8,
@@ -550,6 +561,8 @@ impl Snapshotable for Player {
                 XferMode::Save => {
                     for &science in &self.sciences {
                         let mut sci = science;
+                                                // SAFETY: &mut sci is a live i32 (ScienceType) sized
+                                                // by size_of::<ScienceType>() for this transfer.
                         unsafe {
                             xfer.xfer_user(
                                 &mut sci as *mut i32 as *mut u8,
@@ -563,6 +576,8 @@ impl Snapshotable for Player {
                     self.sciences.clear();
                     for _ in 0..science_count {
                         let mut science: ScienceType = 0;
+                                                // SAFETY: &mut science is a live i32 initialized to
+                                                // SCIENCE_INVALID and overwritten by the load.
                         unsafe {
                             xfer.xfer_user(
                                 &mut science as *mut i32 as *mut u8,
@@ -670,6 +685,8 @@ impl Snapshotable for Player {
                         let start = i * std::mem::size_of::<u32>();
                         blob[start..start + 4].copy_from_slice(&val.to_le_bytes());
                     }
+                                        // SAFETY: blob is an owned Vec<u8> of exactly blob_size;
+                                        // save/crc only read it.
                     unsafe {
                         xfer.xfer_user(blob.as_ptr() as *mut u8, blob_size)
                             .map_err(|e| format!("attacked_by xfer failed: {}", e))?;
@@ -677,6 +694,8 @@ impl Snapshotable for Player {
                 }
                 XferMode::Load => {
                     let mut blob = vec![0u8; blob_size];
+                                        // SAFETY: blob is an owned Vec<u8> of exactly blob_size;
+                                        // load fills every byte before parsing.
                     unsafe {
                         xfer.xfer_user(blob.as_mut_ptr(), blob_size)
                             .map_err(|e| format!("attacked_by load failed: {}", e))?;

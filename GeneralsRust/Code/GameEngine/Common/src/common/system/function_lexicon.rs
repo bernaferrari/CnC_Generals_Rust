@@ -57,6 +57,7 @@ impl FunctionPtr {
     /// for the rest of the process (typical for C++ static callback tables and Rust
     /// function items). Passing a non-function address is undefined behavior if the
     /// result is later invoked via [`FunctionPtr::as_unit_fn`].
+    // SAFETY: caller contract documented above — raw is 0 or a live fn()
     pub unsafe fn from_usize(raw: usize) -> Self {
         if raw == 0 {
             Self(None)
@@ -113,6 +114,7 @@ impl TableEntry {
     /// # Safety
     ///
     /// Each non-null pointer must satisfy [`FunctionPtr::from_usize`].
+    // SAFETY: caller guarantees each pointer satisfies FunctionPtr::from_usize
     pub unsafe fn with_raw_ptr(name: &str, func: Option<*const ()>) -> Self {
         Self {
             key: INVALID_NAME_KEY,
@@ -478,6 +480,7 @@ mod tests {
         assert!(FunctionPtr::null().is_null());
         assert!(FunctionPtr::null().as_unit_fn().is_none());
         // Safety: 0 is the documented null encoding.
+        // SAFETY: 0 is the documented null encoding accepted by from_usize.
         let from_zero = unsafe { FunctionPtr::from_usize(0) };
         assert!(from_zero.is_null());
         assert!(from_zero.as_ptr().is_null());

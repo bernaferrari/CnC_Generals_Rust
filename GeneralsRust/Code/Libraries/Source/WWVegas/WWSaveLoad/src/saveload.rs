@@ -255,6 +255,10 @@ pub trait ChunkSave {
 pub trait ChunkSaveExt: ChunkSave {
     /// Write a typed value to the current chunk
     fn write_value<T: Sized>(&mut self, value: &T) -> SaveLoadResult<()> {
+        // SAFETY: Reinterprets `value` as its on-disk byte image for the chunk
+        // writer, matching C++ ChunkSaveClass::Write(value, sizeof(T)). The
+        // slice aliases an initialized `T` for this call only, is never written
+        // through, and spans exactly size_of::<T>() bytes, so it stays in bounds.
         let data = unsafe {
             std::slice::from_raw_parts(value as *const T as *const u8, std::mem::size_of::<T>())
         };
@@ -287,6 +291,10 @@ pub trait ChunkLoadExt: ChunkLoad {
     /// Read a typed value from the current chunk
     fn read_value<T: Sized + Default>(&mut self) -> SaveLoadResult<T> {
         let mut value = T::default();
+        // SAFETY: Overlays a mutable byte slice on `value` (an initialized
+        // local T from T::default()) so the chunk reader can fill exactly
+        // size_of::<T>() bytes — the inverse of C++ ChunkLoadClass::Read.
+        // In-bounds by construction; the file's bits land in a valid T.
         let data = unsafe {
             std::slice::from_raw_parts_mut(
                 &mut value as *mut T as *mut u8,

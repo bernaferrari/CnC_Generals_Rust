@@ -308,6 +308,12 @@ pub struct HostSpecialPowerStrike {
     /// leftover scheduled live bombs, skip registry line-wave 300/50 (one path).
     #[serde(default)]
     pub live_carpet_delivery: bool,
+    /// C++ OCLSpecialPower A10Thunderbolt: CREATE_AT_EDGE_NEAR_SOURCE jets
+    /// deliver per-missile warheads. When the flight leftover scheduled the
+    /// jets, skip the registry impact wave entirely (one path only — the
+    /// flight applies and credits its own damage).
+    #[serde(default)]
+    pub live_a10_delivery: bool,
     /// C++ one FireWeaponWhenDead on the falling AnthraxBomb. When flight
     /// leftover scheduled the cargo plane + bomb, skip registry 200/100 + toxin.
     #[serde(default)]

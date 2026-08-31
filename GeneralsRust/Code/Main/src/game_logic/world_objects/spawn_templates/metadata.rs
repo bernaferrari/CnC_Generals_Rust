@@ -365,24 +365,21 @@ impl GameLogic {
         /// Retain every representable C++ RiderChange token.  This parser
         /// intentionally does *not* infer rider class from its template name:
         /// the slot is only live when the authored template identity and its
-        /// complete record are available.
+        /// complete record are available.  A row is live when it resolves as
+        /// a complete authored Locomotor set (every member live, disjoint
+        /// surfaces); C++ picks the member by terrain surface at use time.
         fn parse_rider_change(
             module: &crate::assets::BehaviorModuleDefinition,
             definition: &ObjectDefinition,
             rider_change_normal_locomotors: Option<&[String]>,
         ) -> (Vec<RiderChangeRiderMetadata>, Option<u32>, String, u128) {
             let mut riders = Vec::new();
-            // C++ chooses a SET_NORMAL member by terrain surface.  The host
-            // keeps one active movement profile, so accept the full authored
-            // row only when every distinct-surface member resolves and has
-            // identical represented behavior.  A partial/ambiguous set is
-            // retained below but never becomes a physical Enter capability.
             let normal_locomotor_binding = rider_change_normal_locomotors.and_then(
-                crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set,
+                crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set,
             );
             let sluggish_names = unambiguous_locomotors_for_set(definition, "SET_SLUGGISH");
             let sluggish_locomotor_binding = sluggish_names.as_deref().and_then(
-                crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set,
+                crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set,
             );
 
             for slot in 1u8..=8 {

@@ -862,7 +862,9 @@ impl XferSnapshot for SequentialScript {
                 }
             }
         }
-        // SAFETY: team_id is a valid stack variable
+        // SAFETY: `team_id` is an initialized stack `TeamID`; `xfer_user`
+        // moves exactly `size_of::<TeamID>()` bytes within this call and
+        // never retains the pointer.
         unsafe {
             xfer.xfer_user(
                 &mut team_id as *mut TeamID as *mut u8,

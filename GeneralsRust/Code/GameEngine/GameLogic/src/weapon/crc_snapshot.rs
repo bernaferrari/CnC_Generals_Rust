@@ -84,6 +84,8 @@ impl Snapshotable for Weapon {
             .map_err(|e| e.to_string())?;
 
         let mut wslot = snap.wslot;
+        // SAFETY: `wslot` is an initialized stack `i32`; `xfer_user` folds
+        // exactly `size_of::<i32>()` bytes into the CRC within this call.
         unsafe {
             xfer.xfer_user(
                 (&mut wslot as *mut i32).cast::<u8>(),

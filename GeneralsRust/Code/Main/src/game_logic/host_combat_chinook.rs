@@ -1060,7 +1060,11 @@ impl HostChinookAI {
                 }
             }
             HostChinookAIState::HeadOffMap => {
-                self.step_toward(self.dest, step);
+                // C++ ChinookHeadOffMapState::update (ChinookAIUpdate.cpp:152-162)
+                // destroys the owner the moment its CURRENT position leaves
+                // getExtentIncludingBorder — the bounds check observes the
+                // pre-move position each frame; an already-outside owner never
+                // gets another locomotor step back toward the map.
                 if self.pos[0] < self.map_lo[0]
                     || self.pos[0] > self.map_hi[0]
                     || self.pos[1] < self.map_lo[1]
@@ -1068,6 +1072,8 @@ impl HostChinookAI {
                 {
                     self.destroyed = true;
                     self.succeed();
+                } else {
+                    self.step_toward(self.dest, step);
                 }
             }
             HostChinookAIState::EvacAndTakeoff
@@ -1398,7 +1404,9 @@ mod tests {
             assert_eq!(ai.ai_free_to_exit(false), HostChinookFreeToExit::WaitToExit);
             obj.pending_evacuate_on_stop = true;
         }
-        logic.tick_chinook_ai(1.0);
+        // One logic frame (C++ ChinookAIUpdate::update runs per 1/30s tick);
+        // 150 u/s speed moves 5u per tick, so an 80u descent stays Landing.
+        logic.tick_chinook_ai(1.0 / 30.0);
         let obj = logic.host_object(id).expect("obj");
         let ai = obj.chinook_ai.as_ref().expect("chinook_ai");
         assert_eq!(ai.flight_status, HostChinookFlightStatus::Landing);
@@ -1434,7 +1442,7 @@ mod tests {
             obj.status.airborne_target = true;
             obj.pending_evacuate_on_stop = true;
         }
-        logic.tick_chinook_ai(1.0);
+        logic.tick_chinook_ai(1.0 / 30.0);
         let da = logic
             .host_object(a)
             .and_then(|o| o.chinook_ai.as_ref())
@@ -1539,7 +1547,7 @@ mod tests {
             600
         );
         assert_eq!(logic.host_object(id).unwrap().drawable_supply_boxes, 8);
-        logic.tick_chinook_ai(1.0);
+        logic.tick_chinook_ai(1.0 / 30.0);
         let obj = logic.host_object(id).expect("obj");
         assert_eq!(
             obj.chinook_ai.as_ref().unwrap().flight_status,

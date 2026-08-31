@@ -936,9 +936,15 @@ fn leech_range_channel_via_set_weapon_stats() {
 
 #[test]
 fn fire_intent_channel_via_set_fire_intent() {
+    let _env_guard = authority_env_lock();
+    // writeback_fire_intent_to_host is gated on the opt-in AI attack
+    // authority (host sole writer default after 0c4d18623); the channel
+    // under test is the shadow writeback, so opt in like the projectile
+    // and movement authority tests.
+    let prev_attack = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_fire_intent_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FireInt");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -989,6 +995,10 @@ fn fire_intent_channel_via_set_fire_intent() {
     assert_eq!(o.fire_intent_count, 3);
     assert!((o.last_fire_damage - 42.0).abs() < 1e-5);
     assert_eq!(o.last_fire_slot, 1);
+    match prev_attack {
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+    }
 }
 
 #[test]

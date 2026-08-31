@@ -1855,6 +1855,13 @@ impl AudioManager {
         }
     }
 
+    /// C++ `MilesAudioManager::isMusicPlayingFromCD` flag mirror
+    /// (`m_musicPlayingFromCD`). Field exists here; the accessor is what
+    /// `platform::cd::unload_music_files_from_cd` queries.
+    pub fn is_music_playing_from_cd(&self) -> Bool {
+        self.music_playing_from_cd
+    }
+
     /// C++ `MilesAudioManager::isMusicPlaying` (MilesAudioManager.cpp:1355-1366).
     pub fn is_music_playing(&self) -> Bool {
         self.active_audio_events.values().any(|event| {

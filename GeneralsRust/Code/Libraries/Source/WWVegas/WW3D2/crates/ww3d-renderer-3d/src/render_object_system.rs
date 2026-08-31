@@ -896,6 +896,11 @@ impl Drop for DecalGeneratorClass {
                     continue;
                 }
 
+                // SAFETY: each address came from `add_mesh_handle(self as
+                // *const MeshClass)` called inside `MeshClass::create_decal`,
+                // so it denoted a live, aligned, initialized MeshClass; meshes
+                // registered here outlive this generator and Drop's `as_mut`
+                // borrow is exclusive; null/small/misaligned cases skipped.
                 unsafe {
                     // This is unavoidable for C++ interop, but validated above
                     if let Some(mesh) = mesh_ptr.as_mut() {

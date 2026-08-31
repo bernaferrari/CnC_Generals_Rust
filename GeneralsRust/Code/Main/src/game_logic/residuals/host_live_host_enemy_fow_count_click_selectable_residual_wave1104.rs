@@ -53,7 +53,7 @@ fn cnc_source() -> &'static str {
     super::engine_scan_src()
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 
 pub fn honesty_host_enemy_fow_count_click_selectable_method_names_residual_wave1104() -> bool {

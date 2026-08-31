@@ -1147,11 +1147,17 @@ mod tests {
             Ok(())
         }
 
+        // SAFETY: trait contract: caller guarantees `data` is valid for
+        // `data_size` bytes; only that range is copied into the recording
+        // buffer within this call.
         unsafe fn xfer_implementation(
             &mut self,
             data: *mut u8,
             data_size: usize,
         ) -> io::Result<()> {
+            // SAFETY: `xfer_implementation` receives a pointer valid for
+            // `data_size` bytes from the Xfer caller; this read-only slice
+            // view is appended before the call returns.
             let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
             self.bytes.extend_from_slice(bytes);
             Ok(())
@@ -1168,17 +1174,13 @@ mod tests {
     }
 
     fn transportable_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
-        let obj = object_with_kind(name, id, "INFANTRY");
-        let data = super::super::OpenContainModuleData {
-            contain_max: 1,
-            ..Default::default()
-        };
-        let contain =
-            super::super::OpenContain::new(Arc::downgrade(&obj), &data).expect("slot contain");
-        obj.write()
-            .expect("object write")
-            .set_contain(Some(Arc::new(Mutex::new(contain))));
-        obj
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), "INFANTRY".to_string());
+        fields.insert("TransportSlotCount".to_string(), "1".to_string());
+        template.parse_object_fields_from_ini(&fields);
+        Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
+            .expect("test object")
     }
 
     fn attach_active_body(obj: &Arc<RwLock<Object>>) {

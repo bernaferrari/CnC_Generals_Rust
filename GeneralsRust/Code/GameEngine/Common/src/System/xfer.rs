@@ -442,6 +442,8 @@ pub trait Xfer {
     /// # Safety
     /// The caller must ensure that `data` points to a valid buffer
     /// of at least `data_size` bytes.
+        // SAFETY: forwards the caller's pointer contract to the concrete
+        // xfer_implementation; no dereferencing happens here.
     unsafe fn xfer_user(&mut self, data: *mut u8, data_size: usize) -> Result<(), XferStatus> {
         self.xfer_implementation(data, data_size)
     }
@@ -471,6 +473,8 @@ pub trait Xfer {
             }
             XferMode::Crc => {
                 // C++ uses xferImplementation with sizeof(ScienceType)
+                                // SAFETY: science is a live ScienceType (i32) and CRC mode
+                                // only reads size_of::<ScienceType>() bytes from it.
                 unsafe {
                     self.xfer_implementation(
                         science as *mut ScienceType as *mut u8,
@@ -523,6 +527,8 @@ pub trait Xfer {
                 // C++ uses xferImplementation with sizeof(ScienceType) per element
                 for science in science_vec.iter() {
                     let mut science = *science;
+                                        // SAFETY: copy of a live vec element; CRC reads its exact
+                                        // size without mutating it.
                     unsafe {
                         self.xfer_implementation(
                             &mut science as *mut ScienceType as *mut u8,
@@ -572,6 +578,8 @@ pub trait Xfer {
             }
             XferMode::Crc => {
                 // C++ uses xferImplementation with sizeof(KindOfType)
+                                // SAFETY: kind_of_data is a live KindOfType; CRC reads its
+                                // exact size.
                 unsafe {
                     self.xfer_implementation(
                         kind_of_data as *mut KindOfType as *mut u8,
@@ -641,6 +649,8 @@ pub trait Xfer {
             }
             XferMode::Crc => {
                 // C++ uses xferImplementation with sizeof(UpgradeMaskType)
+                                // SAFETY: upgrade_mask_data is a live u128; CRC reads all 16
+                                // bytes of it.
                 unsafe {
                     self.xfer_implementation(
                         upgrade_mask_data as *mut u128 as *mut u8,
@@ -680,6 +690,9 @@ pub trait Xfer {
     /// # Safety
     /// The caller must ensure that `data` points to a valid buffer
     /// of at least `data_size` bytes.
+        // SAFETY: implementors own the byte transfer and must honor the
+        // contract: `data` valid for `data_size` bytes (read or write by
+        // xfer mode).
     unsafe fn xfer_implementation(
         &mut self,
         data: *mut u8,

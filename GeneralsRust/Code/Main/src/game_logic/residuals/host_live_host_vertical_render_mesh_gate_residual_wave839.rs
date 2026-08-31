@@ -46,7 +46,7 @@ fn residual_action_store(a: ResidualHostVerticalRenderMeshGateAction) {
 }
 
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 
 fn bg_source() -> &'static str {

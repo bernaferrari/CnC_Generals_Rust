@@ -129,7 +129,7 @@ impl<'a> ChunkSaveClass<'a> {
         self.header_stack[self.stack_index] = chunkh;
         self.stack_index += 1;
 
-        let bytes = unsafe { as_bytes(&chunkh) };
+        let bytes = as_bytes(&chunkh);
         if self.file.write(bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
@@ -149,7 +149,7 @@ impl<'a> ChunkSaveClass<'a> {
         let chunkh = self.header_stack[self.stack_index];
 
         let _ = self.file.seek(chunkpos as i64, SeekDirection::Start);
-        let bytes = unsafe { as_bytes(&chunkh) };
+        let bytes = as_bytes(&chunkh);
         if self.file.write(bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
@@ -176,7 +176,7 @@ impl<'a> ChunkSaveClass<'a> {
         self.micro_chunk_position = self.file.seek(0, SeekDirection::Current).unwrap_or(0) as i32;
 
         let header = self.mc_header;
-        let bytes = unsafe { as_bytes(&header) };
+        let bytes = as_bytes(&header);
         if self.write(bytes) != bytes.len() as u32 {
             return false;
         }
@@ -192,7 +192,7 @@ impl<'a> ChunkSaveClass<'a> {
         let _ = self
             .file
             .seek(self.micro_chunk_position as i64, SeekDirection::Start);
-        let bytes = unsafe { as_bytes(&self.mc_header) };
+        let bytes = as_bytes(&self.mc_header);
         if self.file.write(bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
@@ -222,19 +222,19 @@ impl<'a> ChunkSaveClass<'a> {
     }
 
     pub fn write_vec2(&mut self, v: &IOVector2Struct) -> u32 {
-        self.write(unsafe { as_bytes(v) })
+        self.write(as_bytes(v))
     }
 
     pub fn write_vec3(&mut self, v: &IOVector3Struct) -> u32 {
-        self.write(unsafe { as_bytes(v) })
+        self.write(as_bytes(v))
     }
 
     pub fn write_vec4(&mut self, v: &IOVector4Struct) -> u32 {
-        self.write(unsafe { as_bytes(v) })
+        self.write(as_bytes(v))
     }
 
     pub fn write_quat(&mut self, q: &IOQuaternionStruct) -> u32 {
-        self.write(unsafe { as_bytes(q) })
+        self.write(as_bytes(q))
     }
 }
 
@@ -275,7 +275,7 @@ impl<'a> ChunkLoadClass<'a> {
         }
 
         let mut header = ChunkHeader::default();
-        let bytes = unsafe { as_bytes_mut(&mut header) };
+        let bytes = as_bytes_mut(&mut header);
         if self.file.read(bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
@@ -334,7 +334,7 @@ impl<'a> ChunkLoadClass<'a> {
         debug_assert!(!self.in_micro_chunk);
 
         let mut header = MicroChunkHeader::default();
-        if self.read(unsafe { as_bytes_mut(&mut header) })
+        if self.read(as_bytes_mut(&mut header))
             != std::mem::size_of::<MicroChunkHeader>() as u32
         {
             return false;
@@ -433,36 +433,34 @@ impl<'a> ChunkLoadClass<'a> {
     }
 
     pub fn read_vec2(&mut self, v: &mut IOVector2Struct) -> u32 {
-        self.read(unsafe { as_bytes_mut(v) })
+        self.read(as_bytes_mut(v))
     }
 
     pub fn read_vec3(&mut self, v: &mut IOVector3Struct) -> u32 {
-        self.read(unsafe { as_bytes_mut(v) })
+        self.read(as_bytes_mut(v))
     }
 
     pub fn read_vec4(&mut self, v: &mut IOVector4Struct) -> u32 {
-        self.read(unsafe { as_bytes_mut(v) })
+        self.read(as_bytes_mut(v))
     }
 
     pub fn read_quat(&mut self, q: &mut IOQuaternionStruct) -> u32 {
-        self.read(unsafe { as_bytes_mut(q) })
+        self.read(as_bytes_mut(q))
     }
 }
 
-unsafe fn as_bytes<T: Copy>(value: &T) -> &[u8] {
+fn as_bytes<T: Copy>(value: &T) -> &[u8] {
     // SAFETY: [Category 10 — OOB / Category 11 — provenance]
-    // `value` is a live `&T`; the slice covers exactly `size_of::<T>()` bytes
-    // of that object (WWLib chunkio.cpp typed read/write of POD chunk fields).
-    unsafe {
-        std::slice::from_raw_parts((value as *const T) as *const u8, std::mem::size_of::<T>())
-    }
+    // `value` is a live `&T` of a `Copy` POD type (chunk headers and IO vector
+    // structs); the slice covers exactly `size_of::<T>()` bytes of that object,
+    // mirroring WWLib chunkio.cpp typed read/write of POD chunk fields.
+    unsafe { std::slice::from_raw_parts((value as *const T).cast::<u8>(), size_of::<T>()) }
 }
 
-unsafe fn as_bytes_mut<T: Copy>(value: &mut T) -> &mut [u8] {
+fn as_bytes_mut<T: Copy>(value: &mut T) -> &mut [u8] {
     // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
-    // `value` is a live `&mut T`; the mutable slice covers exactly that object
-    // and does not outlive the borrow (WWLib chunkio.cpp POD field IO).
-    unsafe {
-        std::slice::from_raw_parts_mut((value as *mut T) as *mut u8, std::mem::size_of::<T>())
-    }
+    // `value` is a live `&mut T` of a `Copy` POD type; the mutable slice covers
+    // exactly that object, does not outlive the borrow, and no other reference
+    // exists for its lifetime (WWLib chunkio.cpp POD field IO).
+    unsafe { std::slice::from_raw_parts_mut((value as *mut T).cast::<u8>(), size_of::<T>()) }
 }

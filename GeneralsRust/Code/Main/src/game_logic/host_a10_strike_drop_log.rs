@@ -117,5 +117,10 @@ pub fn a10_missile_fire_velocity(from: Vec3, target: Vec3, inherit: Vec3) -> Vec
     } else {
         dir
     };
-    dir * A10_MISSILE_SPEED_PER_FRAME + inherit
+    let mut v = dir * A10_MISSILE_SPEED_PER_FRAME + inherit;
+    // The warhead aims at the ground plane (aim.y = 0); a climbing jet must
+    // not drag it upward past the surface (C++ projectile status always
+    // descends to the aim position — HeightDie on ground contact).
+    v.y = v.y.min(0.0);
+    v
 }

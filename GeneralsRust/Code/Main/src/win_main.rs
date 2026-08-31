@@ -63,6 +63,13 @@ const DEFAULT_YRESOLUTION: i32 = 600;
 const STARTUP_WINDOW_TITLE: &str = "Command and Conquer Generals";
 
 /// Windows main entry point - exact equivalent of C++ WinMain
+/// # Safety
+///
+/// Mirrors WinMain's OS contract: `h_instance` is the HINSTANCE handed
+/// to the entry point (stored, never dereferenced); other pointer args
+/// are ignored. Call once from the platform entry point.
+// SAFETY: OS entry contract — h_instance is the value passed by the
+// platform entry point; never dereferenced. See # Safety doc above.
 pub unsafe fn win_main(
     h_instance: *mut c_void,
     _h_prev_instance: *mut c_void,
@@ -165,6 +172,8 @@ pub unsafe fn win_main(
 }
 
 /// Initialize application windows - equivalent to C++ initializeAppWindows
+// SAFETY: signature kept for C++ initializeAppWindows parity; body only
+// writes an AtomicBool — no unsafe operations.
 unsafe fn initialize_app_windows(
     _h_instance: *mut c_void,
     _n_cmd_show: c_int,
@@ -175,6 +184,7 @@ unsafe fn initialize_app_windows(
 }
 
 /// Initialize debug system - equivalent to C++ DEBUG_INIT
+// SAFETY: parity wrapper; env_logger + debug system init are safe Rust.
 unsafe fn debug_init() {
     // Match `main.rs` logging bootstrap for the WinMain entry point.
     // Use `try_init` to avoid panicking if another entry point already initialized logging.
@@ -190,6 +200,7 @@ unsafe fn debug_init() {
 }
 
 /// Initialize memory manager - equivalent to C++ initMemoryManager
+// SAFETY: parity wrapper over init_memory_manager (safe Rust global).
 unsafe fn init_memory_manager() -> Result<(), anyhow::Error> {
     // The C++ code initializes a custom memory manager here.
     game_engine::common::system::game_memory::init_memory_manager();
@@ -197,16 +208,19 @@ unsafe fn init_memory_manager() -> Result<(), anyhow::Error> {
 }
 
 /// Initialize version info - equivalent to C++ version setup
+// SAFETY: parity wrapper; version init is safe Rust.
 unsafe fn init_version() {
     crate::version::initialize_version_system_with_copy_protection();
 }
 
 /// Create Generals mutex - equivalent to C++ GeneralsMutex creation
+// SAFETY: parity wrapper over single_instance::create_generals_mutex
 unsafe fn create_generals_mutex() -> bool {
     crate::single_instance::create_generals_mutex()
 }
 
 /// Synchronous GameMain wrapper - equivalent to C++ GameMain call
+// SAFETY: parity wrapper; renderer attachment dispatch is safe Rust.
 unsafe fn game_main_sync(_argc: c_int, _argv: *mut *mut c_char) {
     // Historically dispatched WW3D attachments; now we rely on the real engine run path.
     let attachments = ww3d_renderer_3d::Renderer::with_global_mut(|renderer| {
@@ -236,6 +250,7 @@ fn set_working_directory_to_executable() -> anyhow::Result<()> {
 }
 
 /// Cleanup and exit - equivalent to C++ cleanup in WinMain
+// SAFETY: parity cleanup wrapper; flush_debug_logs is safe Rust.
 unsafe fn cleanup_and_exit() {
     // Shutdown copy protection system (matching C++ CopyProtect::shutdown)
     if let Err(e) = crate::copy_protection::shutdown() {
@@ -252,6 +267,13 @@ unsafe fn cleanup_and_exit() {
 }
 
 /// Create game engine - equivalent to C++ CreateGameEngine
+/// # Safety
+///
+/// FFI parity for C++ CreateGameEngine. The returned raw pointer
+/// transfers ownership to the caller and must be released with the
+/// matching free (Box::from_raw cast), exactly once.
+// SAFETY: see # Safety doc above — returns an owned raw pointer that
+// the caller must Box-free exactly once; no dereference here.
 pub unsafe fn create_game_engine() -> *mut c_void {
     // WinMain historically returned a newly allocated engine pointer.
     // `Win32GameEngine` construction requires a live window/event loop, so for this FFI entry
@@ -263,6 +285,7 @@ pub unsafe fn create_game_engine() -> *mut c_void {
 // Copy protection integration functions (matching C++ WinMain.cpp)
 
 /// Initialize copy protection system (matching C++ CopyProtect initialization)
+// SAFETY: parity wrapper; copy-protection configure/init are safe Rust.
 unsafe fn init_copy_protection() -> Result<()> {
     // Configure copy protection based on build type and command line arguments
     let startup_args = command_line::CommandLineArgs::startup_args();
@@ -281,6 +304,7 @@ unsafe fn init_copy_protection() -> Result<()> {
 }
 
 /// Check launcher status (matching C++ CopyProtect::isLauncherRunning)
+// SAFETY: parity wrapper over copy_protection::is_launcher_running.
 unsafe fn check_launcher_status() -> bool {
     let launcher_running = crate::copy_protection::is_launcher_running();
     if launcher_running {
@@ -293,12 +317,19 @@ unsafe fn check_launcher_status() -> bool {
 }
 
 /// Notify launcher of game start (matching C++ CopyProtect::notifyLauncher)
+// SAFETY: parity wrapper over copy_protection::notify_launcher.
 unsafe fn notify_launcher_game_start() -> Result<()> {
     crate::copy_protection::notify_launcher()
 }
 
 /// Check for launcher messages during game loop (matching C++ CopyProtect::checkForMessage)
 /// This would typically be called from the main game loop
+/// # Safety
+///
+/// Parity wrapper; all launcher-message handling inside is safe Rust.
+/// Call from the game loop thread only, matching C++ CopyProtect.
+// SAFETY: game-loop-thread contract per # Safety doc above; body is
+// safe Rust only.
 pub unsafe fn check_for_launcher_messages() -> Result<()> {
     if let Some(message) = crate::copy_protection::check_for_message()? {
         match message {
@@ -322,6 +353,7 @@ pub unsafe fn check_for_launcher_messages() -> Result<()> {
 }
 
 /// Process copy protection messages (should be called periodically during game execution)
+// SAFETY: parity wrapper; delegates to check_for_launcher_messages.
 pub unsafe fn process_copy_protection_messages() {
     if let Err(e) = check_for_launcher_messages() {
         warn!("Error processing copy protection messages: {}", e);
@@ -446,10 +478,15 @@ fn primary_screen_geometry() -> (i32, i32, u32, u32) {
             size: CGSize,
         }
         #[link(name = "CoreGraphics", kind = "framework")]
+        // SAFETY: CoreGraphics C ABI declared with correct signatures;
+        // calls below pass no pointers that outlive the expression.
         unsafe extern "C" {
             fn CGMainDisplayID() -> u32;
             fn CGDisplayBounds(display: u32) -> CGRect;
         }
+        // SAFETY: CGMainDisplayID/CGDisplayBounds are thread-safe
+        // queries returning values by copy; CGRect layout matches
+        // the repr(C) mirror above.
         unsafe {
             let bounds = CGDisplayBounds(CGMainDisplayID());
             return (
@@ -468,6 +505,8 @@ fn primary_screen_geometry() -> (i32, i32, u32, u32) {
         }
         const SM_CXSCREEN: i32 = 0;
         const SM_CYSCREEN: i32 = 1;
+        // SAFETY: GetSystemMetrics takes an index and returns i32;
+        // SM_CXSCREEN/SM_CYSCREEN indices are documented constants.
         unsafe {
             return (
                 0,
@@ -634,11 +673,13 @@ mod tests {
     fn initialize_app_windows_tracks_startup_window_mode_flag() {
         APPLICATION_IS_WINDOWED.store(false, Ordering::Relaxed);
 
+        // SAFETY: test-only call with null instance; fn only stores a flag.
         unsafe {
             assert!(initialize_app_windows(std::ptr::null_mut(), 1, true));
         }
         assert!(APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
 
+        // SAFETY: same null-arg test call; asserts flag toggling only.
         unsafe {
             assert!(initialize_app_windows(std::ptr::null_mut(), 1, false));
         }

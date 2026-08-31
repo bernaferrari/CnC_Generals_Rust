@@ -424,7 +424,15 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
         "comanche rocket pods upgrade must queue residual"
     );
 
-    game_logic.update();
+    // Retail Upgrade_ComancheRocketPods BuildTime 40.0s / BuildCost 800
+    // (INIZH Data/INI/Object/Hulk.ini:130798, FactionUnit.ini:131745) now
+    // resolves onto the producer PRODUCTION_UPGRADE queue
+    // (execute_queue_upgrade -> resolve_upgrade_build_time_secs), so research
+    // needs the full retail frames; the single-update residual assumed the
+    // no-INI fallback.  C++ ProductionUpdate owns the timer on the producer.
+    for _ in 0..HostUpgradeKind::ComancheRocketPods.retail_research_frames() {
+        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    }
 
     assert!(
         game_logic
@@ -443,6 +451,12 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
             "comanche must preserve anti-tank secondary after upgrade"
         );
         let sec = c.secondary_weapon.as_ref().unwrap();
+        // The comanche SECONDARY comes from the host residual layer
+        // (comanche_antitank_weapon, create_destroy_die.rs spawn residual),
+        // which carries the authored retail AttackRange 200
+        // (Weapon.ini:130143) verbatim — unlike ThingTemplate::weapon_from_store,
+        // whose C++ Weapon.cpp:437-451 RATIONALIZE_ATTACK_RANGE bind (−¼
+        // pathfind cell) does not apply on this residual path.
         assert!(
             (sec.range - 200.0).abs() < 1.0,
             "anti-tank range residual 200, got {}",
@@ -457,6 +471,10 @@ fn comanche_rocket_pods_residual_upgrade_and_area_attack() {
             .tertiary_weapon
             .as_ref()
             .expect("comanche must equip rocket pods tertiary after upgrade");
+        // Retail ComancheRocketPodWeapon lives only in Object/AmericaAir.ini
+        // (not the bootstrap's Weapon.ini), so the unlock equips the host
+        // residual (comanche_rocket_pod_weapon) with the authored AttackRange
+        // 200; weapon_from_store's −¼-cell rationalize never applies here.
         assert!(
             (tertiary.range - 200.0).abs() < 1.0,
             "rocket pods range residual 200, got {}",
@@ -709,14 +727,26 @@ fn rocket_buggy_residual_long_range_splash() {
         let b = game_logic.host_object(buggy_id).expect("buggy");
         assert!(is_rocket_buggy_template(&b.template_name));
         let w = b.weapon.as_ref().expect("buggy primary residual");
+        // C++ WeaponTemplate::getAttackRange / getMinimumAttackRange
+        // (Weapon.cpp:437-466, RATIONALIZE_ATTACK_RANGE) undersize retail
+        // BuggyRocketWeapon 300/50 (Weapon.ini:130856+) by 1/4 pathfind
+        // cell: 297.5 / 47.5 bound.
         assert!(
-            (w.range - BUGGY_ATTACK_RANGE).abs() < 1.0,
-            "buggy range residual 300, got {}",
+            (w.range
+                - (BUGGY_ATTACK_RANGE
+                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0,
+            "buggy range residual 297.5, got {}",
             w.range
         );
         assert!(
-            (w.min_range - BUGGY_MIN_RANGE).abs() < 1.0,
-            "buggy min range residual 50, got {}",
+            (w.min_range
+                - (BUGGY_MIN_RANGE
+                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0,
+            "buggy min range residual 47.5, got {}",
             w.min_range
         );
         assert!(
@@ -874,7 +904,16 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         assert!(is_quad_cannon_template(&q.template_name));
         let prim = q.weapon.as_ref().expect("ground gun");
         assert!((prim.damage - QUAD_GROUND_DAMAGE).abs() < 0.01);
-        assert!((prim.range - QUAD_GROUND_RANGE).abs() < 1.0);
+        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
+        // RATIONALIZE_ATTACK_RANGE) binds retail AttackRange 150
+        // (Weapon.ini:131396+) as 147.5.
+        assert!(
+            (prim.range
+                - (QUAD_GROUND_RANGE
+                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0
+        );
         assert!(prim.can_target_ground);
         assert!(
             !prim.can_target_air,
@@ -882,7 +921,13 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         );
         let sec = q.secondary_weapon.as_ref().expect("aa gun");
         assert!((sec.damage - QUAD_AIR_DAMAGE).abs() < 0.01);
-        assert!((sec.range - QUAD_AIR_RANGE).abs() < 1.0);
+        assert!(
+            (sec.range
+                - (QUAD_AIR_RANGE
+                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0
+        );
         assert!(sec.can_target_air, "aa gun residual must target air");
         assert!(
             !sec.can_target_ground,
@@ -1054,8 +1099,24 @@ fn scud_launcher_residual_area_and_toxin() {
         let s = game_logic.host_object(scud_id).expect("scud");
         assert!(is_scud_launcher_template(&s.template_name));
         let prim = s.weapon.as_ref().expect("explosive primary");
-        assert!((prim.range - SCUD_ATTACK_RANGE).abs() < 1.0);
-        assert!((prim.min_range - SCUD_MIN_RANGE).abs() < 1.0);
+        // C++ WeaponTemplate::getAttackRange / getMinimumAttackRange
+        // (Weapon.cpp:437-466, RATIONALIZE_ATTACK_RANGE) undersize retail
+        // SCUDLauncherGunExplosive 350/200 (Weapon.ini:132603+) by 1/4
+        // pathfind cell: 347.5 / 197.5 bound.
+        assert!(
+            (prim.range
+                - (SCUD_ATTACK_RANGE
+                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0
+        );
+        assert!(
+            (prim.min_range
+                - (SCUD_MIN_RANGE
+                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+                .abs()
+                < 1.0
+        );
         assert!((prim.damage - SCUD_EXP_PRIMARY_DAMAGE).abs() < 0.01);
         assert!(s.secondary_weapon.is_some(), "toxin secondary residual");
     }
@@ -2131,10 +2192,15 @@ fn inferno_fire_field_object_spawns_on_zone() {
     let impact = Vec3::new(50.0, 0.0, 0.0);
     let _zone = logic.spawn_inferno_fire_zone(cannon, Team::China, impact, false);
     assert!(logic.honesty_inferno_fire_field_object_ok());
+    // Retail FireFieldSmall uses `Body = InactiveBody`
+    // (INIZH Data/INI/Object/System.ini:523260+); C++ InactiveBody.cpp:19 sets
+    // EFFECTIVELY_DEAD at construction, so the spawned field object is
+    // effectively-dead from frame one and must be found by its residual flag,
+    // not `is_alive`.
     let field = logic
         .objects
         .values()
-        .find(|o| o.inferno_fire_field && o.is_alive())
+        .find(|o| o.inferno_fire_field && !o.status.destroyed)
         .expect("FireFieldSmall object");
     assert_eq!(field.template_name, INFERNO_FIRE_FIELD_TEMPLATE);
     assert!(!field.inferno_fire_field_upgraded);
@@ -2147,7 +2213,7 @@ fn inferno_fire_field_object_spawns_on_zone() {
     let upg = logic
         .objects
         .values()
-        .find(|o| o.inferno_fire_field && o.inferno_fire_field_upgraded && o.is_alive())
+        .find(|o| o.inferno_fire_field && o.inferno_fire_field_upgraded && !o.status.destroyed)
         .expect("FireFieldUpgradedSmall object");
     assert_eq!(upg.template_name, INFERNO_FIRE_FIELD_TEMPLATE_UPGRADED);
 
@@ -2160,7 +2226,7 @@ fn inferno_fire_field_object_spawns_on_zone() {
         !logic
             .objects
             .values()
-            .any(|o| o.inferno_fire_field && o.is_alive()),
+            .any(|o| o.inferno_fire_field),
         "FireFieldSmall should expire after DeletionUpdate lifetime"
     );
 }

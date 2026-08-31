@@ -1730,6 +1730,11 @@ fn defector_idles_and_kicks_cargo() {
     assert!(!v.status.attacking);
     assert!(v.target.is_none());
     assert!(v.is_undetected_defector());
+    // C++ TransportContain::onCapture kicks via orderAllPassengersToExit —
+    // an async walk-out over subsequent frames, not an instant clear.
+    for _ in 0..40 {
+        logic.update();
+    }
     let rider = logic.host_object(cargo).unwrap();
     assert!(rider.contained_by.is_none());
     assert_eq!(rider.team, Team::GLA);

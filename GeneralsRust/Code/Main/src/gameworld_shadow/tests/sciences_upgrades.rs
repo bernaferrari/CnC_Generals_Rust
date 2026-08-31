@@ -202,6 +202,17 @@ fn sync_players_copies_alive_and_cash_bounty() {
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let n_players = logic.get_players().len();
+    // C++ Player.cpp:443 `m_isPlayerDead = m_observer; // observers are dead`:
+    // apply_skirmish_config installs the FactionObserver ReplayObserver
+    // (Team::Neutral, is_alive=false), so it must not count as alive.
+    assert!(
+        logic
+            .get_players()
+            .values()
+            .any(|p| p.name == "ReplayObserver" && !p.is_alive),
+        "fixture must include the dead ReplayObserver side"
+    );
+    let n_alive = n_players - 1;
     {
         let p = logic.get_player_mut(pid).expect("p");
         p.cash_bounty_percent = 0.2;
@@ -210,7 +221,7 @@ fn sync_players_copies_alive_and_cash_bounty() {
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.alive_player_count(), n_players);
+    assert_eq!(shadow.alive_player_count(), n_alive);
     assert!((shadow.max_cash_bounty_percent() - 0.2).abs() < 0.001);
     let tinted = shadow
         .world
@@ -223,7 +234,11 @@ fn sync_players_copies_alive_and_cash_bounty() {
         p.is_alive = false;
     }
     shadow.sync_from_host(&logic);
-    assert_eq!(shadow.alive_player_count(), n_players.saturating_sub(1));
+    assert_eq!(
+        shadow.alive_player_count(),
+        n_alive.saturating_sub(1),
+        "killing pid must drop exactly one alive player"
+    );
     let src = GAMEWORLD_SHADOW_SRC;
     assert!(
         src.contains("is_alive")

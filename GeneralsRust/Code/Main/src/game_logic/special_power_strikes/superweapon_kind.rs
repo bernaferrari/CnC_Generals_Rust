@@ -532,11 +532,11 @@ pub fn weapon_error_radius_offset(formation_index: u32, error_radius: f32) -> Ve
 /// Residual `DelayDeliveryMax` frames for artillery formation index.
 ///
 /// C++: `setDisabledUntil(frame + GameLogicRandomValue(0, m_delayDeliveryFramesMax))`
-/// (inclusive integer range). Host residual: formationIndex 0 always 0 (lead
-/// shell starts after base approach residual); remaining shells draw via pure
-/// ADC RandomValue algorithm in `[0, max_frames]` inclusive.
+/// (inclusive integer range) on EVERY transport — formationIndex 0 included
+/// (ObjectCreationList.cpp:375-378). Host residual: every formation slot draws
+/// via the pure ADC RandomValue algorithm in `[0, max_frames]` inclusive.
 pub fn delay_delivery_frames(formation_index: u32, max_frames: u32) -> u32 {
-    if formation_index == 0 || max_frames == 0 {
+    if max_frames == 0 {
         return 0;
     }
     use crate::game_logic::host_rng_residual::HostRandomState;

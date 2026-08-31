@@ -637,7 +637,15 @@ impl Object {
         if !Self::weapon_has_ammo_for_shot(weapon, self.weapon_name_for_slot(slot)) {
             return false;
         }
-        if !self.can_target_with_slot(target, weapon, Some(slot)) {
+        // C++ WeaponSet.cpp:826-833: chooseBest elimination is anti-mask only.
+        // The isWithinAttackRange check is deliberately commented out in C++
+        // ("Being out of range does not mean this weapon can not affect the
+        // target!") — the attack machine approaches out-of-range victims.
+        if !self.weapon_allows_target_anti_mask(
+            weapon,
+            Some(slot),
+            target.weapon_target_anti_mask(),
+        ) {
             return false;
         }
         if !self.is_slot_within_target_pitch(slot, target) {
@@ -797,7 +805,13 @@ impl Object {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
-        if !self.can_target_with_slot(target, weapon, Some(slot)) {
+        // C++ PreferredAgainst leg (WeaponSet.cpp:869-877) magnifies damage and
+        // range; it never applies an in-range veto either.
+        if !self.weapon_allows_target_anti_mask(
+            weapon,
+            Some(slot),
+            target.weapon_target_anti_mask(),
+        ) {
             return false;
         }
         if !self.is_slot_within_target_pitch(slot, target) {

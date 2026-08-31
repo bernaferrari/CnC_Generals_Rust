@@ -323,6 +323,61 @@ fn weapon_lock_forces_slot_and_release() {
 }
 
 #[test]
+fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
+    // C++ GameLogicDispatch.cpp:104-106 (doMoveTo): a player move order
+    // releases LOCKED_TEMPORARILY before aiMoveToPosition; permanent
+    // user locks survive.
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon, WeaponLockType};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("WL_MV");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(200.0);
+    logic.templates.insert("WL_MV".to_string(), tpl);
+    let id = logic.create_object("WL_MV", Team::USA, Vec3::ZERO).unwrap();
+    {
+        let u = logic.host_object_mut(id).unwrap();
+        u.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            ..Weapon::default()
+        });
+        u.secondary_weapon = Some(Weapon {
+            damage: 5.0,
+            range: 80.0,
+            ..Weapon::default()
+        });
+        assert!(u.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
+    }
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_move_to(&[id], Vec3::new(40.0, 0.0, 0.0), &[]),
+        CommandResult::Success
+    );
+    assert_eq!(
+        logic.host_object(id).unwrap().weapon_lock_type,
+        WeaponLockType::NotLocked
+    );
+
+    {
+        let u = logic.host_object_mut(id).unwrap();
+        assert!(u.set_weapon_lock(1, WeaponLockType::LockedPermanently));
+    }
+    let mut exec = CommandExecutor::new(&mut logic, 0);
+    assert_eq!(
+        exec.execute_move_to(&[id], Vec3::new(80.0, 0.0, 0.0), &[]),
+        CommandResult::Success
+    );
+    let u = logic.host_object(id).unwrap();
+    assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
+    assert_eq!(u.weapon_lock_slot, 1);
+}
+
+#[test]
 fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
@@ -1545,17 +1600,35 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
             CommandResult::Success
         );
     }
+    // C++ JetOrHeliReturnForLandingState (JetAIUpdate.cpp:1509-1545) only
+    // reserves the producer parking space and assigns the approach goal on
+    // the command frame; the jet docks after later state-machine ticks.  The
+    // reservation must exist immediately, but containment waits for arrival.
+    {
+        let jet = logic.host_object(producer_jet).expect("producer jet");
+        assert_eq!(jet.producer_id, Some(owner_airfield));
+        assert_eq!(jet.airfield_parking_space_index, Some(0));
+        assert_ne!(
+            jet.contained_by,
+            Some(owner_airfield),
+            "C++ jets land via approach/taxi legs, not instant docking"
+        );
+    }
+    // Advance past the approach leg: consume the assigned path exactly as
+    // movement ticks would, then let the RTB tick progress to the dock.
+    {
+        let jet = logic
+            .host_object_mut(producer_jet)
+            .expect("producer jet object");
+        jet.movement.path.clear();
+        jet.movement.current_path_index = 0;
+        jet.movement.target_position = None;
+        jet.set_status_moving(false);
+    }
+    assert!(logic.try_return_to_base_rearm(producer_jet));
     let producer_jet_object = logic
         .host_object(producer_jet)
         .expect("parked producer jet");
-    assert_eq!(producer_jet_object.contained_by, Some(owner_airfield));
-    assert_eq!(producer_jet_object.producer_id, Some(owner_airfield));
-    assert_eq!(producer_jet_object.airfield_parking_space_index, Some(0));
-    assert_ne!(
-        producer_jet_object.contained_by,
-        Some(same_faction_other_player_airfield),
-        "nearer same-faction other-player airfield must not override producer"
-    );
 
     // Remove the exact owner field.  The only remaining candidates are a
     // same-faction other player and a genuine enemy; neither is an ally.
@@ -1596,6 +1669,18 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
             CommandResult::Success
         );
     }
+    // Same C++ landing semantics as leg 1: consume the assigned approach
+    // leg, then let the RTB tick progress to the dock.
+    {
+        let jet = logic
+            .host_object_mut(allied_fallback_jet)
+            .expect("allied fallback jet object");
+        jet.movement.path.clear();
+        jet.movement.current_path_index = 0;
+        jet.movement.target_position = None;
+        jet.set_status_moving(false);
+    }
+    assert!(logic.try_return_to_base_rearm(allied_fallback_jet));
     let allied = logic
         .host_object(allied_fallback_jet)
         .expect("allied fallback jet object");

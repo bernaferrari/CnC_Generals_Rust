@@ -387,6 +387,10 @@ impl Render2DSentenceClass {
         if let Some((shadow_color, offset)) = shadow {
             self.location = original_location + offset;
             self.draw_sentence(Some(shadow_color));
+            // SAFETY: `ptr` is `self.renderers.as_mut_ptr()` on the owning
+            // Vec, which is not grown or shrunk inside the loop; every
+            // `idx < len()` element is an initialized RendererRecord and each
+            // iteration projects one distinct element — in-bounds, unaliased.
             unsafe {
                 let ptr = self.renderers.as_mut_ptr();
                 for idx in 0..self.renderers.len() {
@@ -397,6 +401,10 @@ impl Render2DSentenceClass {
         }
 
         self.draw_sentence(override_color);
+        // SAFETY: same owning-Vec contract: `ptr` comes from
+        // `self.renderers.as_mut_ptr()`, the Vec is untouched during the loop,
+        // so all `len()` initialized elements are in-bounds and projected
+        // exactly once — no aliasing.
         unsafe {
             let ptr = self.renderers.as_mut_ptr();
             for idx in 0..self.renderers.len() {

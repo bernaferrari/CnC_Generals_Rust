@@ -176,9 +176,14 @@ pub fn os_double_click_time_ms() -> u32 {
     #[cfg(windows)]
     {
         #[link(name = "user32")]
+        // SAFETY: Declaration of the documented Win32 GetDoubleClickTime symbol in
+        // SAFETY: user32; signature matches the Windows SDK and it has no safety
+        // SAFETY: preconditions beyond running on Windows.
         unsafe extern "system" {
             fn GetDoubleClickTime() -> u32;
         }
+        // SAFETY: user32 is linked above and GetDoubleClickTime is a parameterless
+        // SAFETY: thread-safe query returning a millisecond count; no pointers.
         return unsafe { GetDoubleClickTime() }.max(1);
     }
     #[cfg(not(windows))]

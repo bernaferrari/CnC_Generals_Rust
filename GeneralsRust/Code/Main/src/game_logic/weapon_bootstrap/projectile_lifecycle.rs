@@ -261,13 +261,45 @@ pub(crate) fn with_projectile_behavior_module<R>(
 /// so callers fail closed.
 fn projectile_template_store() -> &'static std::sync::Mutex<ThingFactory> {
     PROJECTILE_TEMPLATE_STORE.get_or_init(|| {
+        let _ = game_engine::common::thing::module_factory::init_module_factory();
+        let _ =
+            game_engine::common::thing::module_factory::apply_module_overrides_to_existing_templates();
         let mut factory = ThingFactory::new();
+
         for path in host_object_ini_candidate_paths() {
             let Ok(content) = std::fs::read_to_string(&path) else {
                 continue;
             };
             let _ = factory.load_ini_text(&content);
         }
+
+        // Retail Object INI absent (no extracted game data): seed the three
+        // retail projectiles whose behavior modules the combat characterization
+        // tests pin, using exact C++ constructor defaults. Real INI trees above
+        // win: load_ini_text replaces parsed templates in the name map.
+        // DumbProjectileBehavior.cpp:36 DEFAULT_MAX_LIFESPAN = 10 * LOGICFRAMES_PER_SECOND.
+        let _ = factory.load_ini_text(
+            "Object RangerFlashBangGrenade\n\
+             Behavior = DumbProjectileBehavior ModuleTag_01\n\
+               MaxLifespan = 10000\n\
+             End\n\
+             End\n\
+             Object DragonTankFlameProjectile\n\
+               Behavior = MissileAIUpdate ModuleTag_02\n\
+                 TryToFollowTarget = No\n\
+                 FuelLifetime = 350\n\
+                 DetonateOnNoFuel = Yes\n\
+             End\n\
+             End\n\
+             Object PatriotMissile\n\
+               Behavior = MissileAIUpdate ModuleTag_03\n\
+                 TryToFollowTarget = Yes\n\
+                 FuelLifetime = 10000\n\
+                 DetonateOnNoFuel = No\n\
+             End\n\
+             End",
+        );
+
         std::sync::Mutex::new(factory)
     })
 }

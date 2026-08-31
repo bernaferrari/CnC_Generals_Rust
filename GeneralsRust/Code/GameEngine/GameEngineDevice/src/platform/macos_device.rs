@@ -30,6 +30,8 @@ impl MacOsDevice {
     pub async fn set_thread_priority(&self, priority: ThreadPriority) -> Result<()> {
         // Use BSD setpriority system call (if libc available)
         #[cfg(feature = "libc")]
+        // SAFETY: setpriority(PRIO_PROCESS, 0, nice) adjusts the calling process only;
+        // SAFETY: by-value scalar arguments, failure reported via return code.
         unsafe {
             let nice_value = match priority {
                 ThreadPriority::Lowest => 19,
@@ -79,6 +81,8 @@ impl MacOsDevice {
     pub async fn get_memory_usage(&self) -> Result<MemoryUsage> {
         // Use sysctl-backed page counters when available.
         #[cfg(feature = "libc")]
+        // SAFETY: sysconf(_SC_PAGESIZE) is a constant-name query with no pointers;
+        // SAFETY: error (-1) is clamped later via page_size.max(1).
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64;
 
         #[cfg(not(feature = "libc"))]
@@ -106,6 +110,8 @@ impl MacOsDevice {
         {
             let c_name = CString::new(name).ok()?;
             let mut size: libc::size_t = 0;
+            // SAFETY: sysctlbyname size-probe: c_name outlives the call; NULL out-buffer
+            // SAFETY: requests the required length only, no user memory written.
             let probe = unsafe {
                 libc::sysctlbyname(
                     c_name.as_ptr(),
@@ -120,6 +126,8 @@ impl MacOsDevice {
             }
 
             let mut buffer = vec![0u8; size];
+            // SAFETY: second sysctlbyname pass writes into `buffer` sized to the probed
+            // SAFETY: `size`; c_name still alive; kernel fills at most the requested bytes.
             let read = unsafe {
                 libc::sysctlbyname(
                     c_name.as_ptr(),
@@ -190,9 +198,13 @@ impl MacOsDevice {
 mod libc {
     pub const PRIO_PROCESS: i32 = 0;
     pub const _SC_PAGESIZE: i32 = 30;
+    // SAFETY: Non-macOS stub matching the libc symbol signature; discards arguments
+    // SAFETY: and returns -1. Unsafe qualifier exists only to mirror the real ABI.
     pub unsafe fn setpriority(_which: i32, _who: u32, _prio: i32) -> i32 {
         -1
     }
+    // SAFETY: Non-macOS stub returning a fixed page-size constant; argument unused,
+    // SAFETY: no side effects or pointer operations.
     pub unsafe fn sysconf(_name: i32) -> i64 {
         4096
     }

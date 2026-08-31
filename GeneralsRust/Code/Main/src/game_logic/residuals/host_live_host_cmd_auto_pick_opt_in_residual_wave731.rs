@@ -68,7 +68,7 @@ fn eng_source() -> &'static str {
     super::engine_scan_src()
 }
 fn smoke_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 pub fn honesty_host_cmd_auto_pick_opt_in_method_names_residual_wave731() -> bool {
     let names = LIVE_HOST_CMD_AUTO_PICK_OPT_IN_METHOD_NAMES_WAVE731;

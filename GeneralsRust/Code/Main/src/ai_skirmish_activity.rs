@@ -112,9 +112,22 @@ pub struct AiLoadMapActivityResult {
 }
 
 fn ensure_human_templates(logic: &mut GameLogic) {
-    for (name, kind, hp) in [
-        ("HumanCC", KindOf::CommandCenter, 2000.0),
-        ("HumanRanger", KindOf::Infantry, 120.0),
+    // `mp_count_for_victory` matches retail faction structures
+    // (FactionBuilding.ini `Object GLABarracks` et al.): without the bit the
+    // skirmish NO_BUILDINGS victory rule defeats every player on frame 0.
+    for (name, kind, mp_count, hp) in [
+        (
+            "HumanCC",
+            KindOf::CommandCenter,
+            true,
+            2000.0,
+        ),
+        (
+            "HumanRanger",
+            KindOf::Infantry,
+            false,
+            120.0,
+        ),
     ] {
         if logic.templates.contains_key(name) {
             continue;
@@ -125,8 +138,28 @@ fn ensure_human_templates(logic: &mut GameLogic) {
         t.add_kind_of(KindOf::Structure);
         t.add_kind_of(KindOf::Selectable);
         t.add_kind_of(kind);
+        if mp_count {
+            t.add_kind_of(KindOf::MpCountForVictory);
+        }
         logic.templates.insert(name.into(), t);
     }
+}
+
+/// C++ skirmish maps author the starting base per player — a constructed
+/// CommandCenter plus a Worker/Dozer — and `placeNetworkBuildingsForPlayer`
+/// (GameLogic.cpp:1949-1961) places them before the first logic frame. The
+/// headless harness has no map build list, so seed the GLA starting loadout
+/// directly: without a CommandCenter the AI `queueDozer` finds no factory
+/// (C++ AIPlayer::queueDozer AIPlayer.cpp:3128-3171) and can never start a
+/// structure.
+fn seed_gla_skirmish_start(logic: &mut GameLogic) {
+    if let Some(id) = logic.create_object("GLA_CommandCenter", Team::GLA, Vec3::new(100.0, 0.0, 100.0)) {
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.status.under_construction = false;
+            obj.construction_percent = 1.0;
+        }
+    }
+    let _ = logic.create_object("GLAInfantryWorker", Team::GLA, Vec3::new(112.0, 0.0, 112.0));
 }
 
 fn count_ai_structures(logic: &GameLogic) -> usize {
@@ -218,6 +251,8 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
             }
         }
     }
+    seed_gla_skirmish_start(&mut logic);
+
 
     let ai_players = logic.host_ai_player_count();
     let difficulty = logic.get_ai_status(1).unwrap_or_else(|| "missing".into());
@@ -227,7 +262,6 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
         logic.update();
     }
     let frames_advanced = logic.get_frame().saturating_sub(frame_before);
-
     let activity_count = logic.host_ai_activity_count();
     let ai_structures = count_ai_structures(&logic);
     let ai_units_or_queue = count_ai_units_or_queue(&logic);
@@ -296,6 +330,8 @@ pub fn run_medium_ai_after_load_map(frames: u32) -> AiLoadMapActivityResult {
     // Human presence for enemy assessment after map wipe.
     let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
     let _ = logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
+    // GLA starting loadout after the map wipe (C++ starting buildings).
+    seed_gla_skirmish_start(&mut logic);
 
     let difficulty_medium = matches!(logic.host_ai_difficulty(1), Some(AIDifficulty::Medium));
     let ai_active = logic.is_host_ai_active(1);
@@ -415,6 +451,7 @@ mod tests {
         let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
         logic.ensure_ai_faction_templates(Team::GLA);
         logic.ensure_skirmish_ai_starting_cash(20_000);
+        seed_gla_skirmish_start(&mut logic);
         for _ in 0..30 {
             logic.update();
         }
@@ -512,6 +549,7 @@ mod tests {
                 }
             }
         }
+        seed_gla_skirmish_start(&mut logic);
 
         // ArmsDealer must classify as WarFactory so Technical enqueue succeeds.
         let arms_type = logic

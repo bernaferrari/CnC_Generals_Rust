@@ -761,6 +761,7 @@ impl ThingFactory {
                 let tmpl = Arc::make_mut(&mut thing_template);
                 tmpl.copy_from(&reskin_template);
                 tmpl.set_copied_from_default();
+                tmpl.set_reskinned_from(reskin_template);
                 tmpl.parse_reskin_fields_from_ini(&properties)?;
 
                 self.template_hash_map
@@ -1152,12 +1153,24 @@ impl ThingFactory {
                 continue;
             }
 
-            let tokens: Vec<&str> = line.split_whitespace().filter(|t| *t != "=").collect();
+            let raw_tokens: Vec<&str> = line.split_whitespace().collect();
+            let tokens: Vec<&str> = raw_tokens.iter().copied().filter(|t| *t != "=").collect();
             let Some(keyword) = tokens.first().copied() else {
                 index += 1;
                 continue;
             };
 
+            // C++ INI declarations are `Object <name>`.  A leading
+            // `Object = <name>` line is a property of a foreign block — a
+            // CommandButton `Object = ...` reference or a Prerequisites list
+            // entry.  Treating it as a declaration fabricated prereq-less
+            // templates that shadowed the real authored blocks (the merged
+            // retail System.ini is full of CommandButton references), so
+            // only the equals-free declaration form may start a block here.
+            if raw_tokens.len() >= 2 && raw_tokens[1] == "=" {
+                index += 1;
+                continue;
+            }
             if keyword.eq_ignore_ascii_case("Object") {
                 if let Some(name) = tokens.get(1) {
                     let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
@@ -1198,6 +1211,7 @@ impl ThingFactory {
                                 let tmpl_ref = Arc::make_mut(&mut tmpl);
                                 tmpl_ref.copy_from(&parent);
                                 tmpl_ref.set_copied_from_default();
+                                tmpl_ref.set_reskinned_from(parent);
                             }
                         }
                         {
@@ -1456,6 +1470,14 @@ fn discover_object_ini_sources() -> Vec<PathBuf> {
 
     let mut seen = HashSet::new();
     let mut files = Vec::new();
+    // `extracted_asset_roots` already evaluates every configured/cwd/exe
+    // discovery root.  Re-running that bounded filesystem scan for every
+    // ancestor below produces the same candidates repeatedly (the `seen`
+    // set then discards them), and can turn the first lazy ThingFactory
+    // lookup into a minutes-long startup.  Compute the candidates once for
+    // this discovery pass while retaining the original per-root insertion
+    // order and precedence below.
+    let extracted_roots = crate::common::system::install_layout::extracted_asset_roots();
 
     for root in roots {
         push_object_ini_file(
@@ -1466,7 +1488,7 @@ fn discover_object_ini_sources() -> Vec<PathBuf> {
         push_object_ini_file(&mut files, &mut seen, root.join("Data/INI/Object.ini"));
         push_object_ini_dir(&mut files, &mut seen, &root.join("Data/INI/Object"));
 
-        for extracted in crate::common::system::install_layout::extracted_asset_roots() {
+        for extracted in &extracted_roots {
             push_object_ini_file(
                 &mut files,
                 &mut seen,

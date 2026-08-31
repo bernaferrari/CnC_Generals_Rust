@@ -4,7 +4,9 @@
 //! Handles particle creation, physics simulation, and lifecycle management.
 
 use nalgebra::{Matrix3, Point3, Vector3};
-use rand::prelude::*;
+use game_engine::common::random_value::{
+    get_game_client_random_value, get_game_client_random_value_real,
+};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -973,11 +975,11 @@ fn xfer_matrix3(
 }
 
 /// C++ ParticleSystem::computePointOnUnitSphere — cube-reject, not polar.
-fn compute_point_on_unit_sphere(rng: &mut impl Rng) -> Vector3<f32> {
+fn compute_point_on_unit_sphere() -> Vector3<f32> {
     loop {
-        let x = rng.gen_range(-1.0..=1.0);
-        let y = rng.gen_range(-1.0..=1.0);
-        let z = rng.gen_range(-1.0..=1.0);
+        let x = get_game_client_random_value_real(-1.0, 1.0);
+        let y = get_game_client_random_value_real(-1.0, 1.0);
+        let z = get_game_client_random_value_real(-1.0, 1.0);
         if x != 0.0 || y != 0.0 || z != 0.0 {
             return Vector3::new(x, y, z).normalize();
         }
@@ -985,11 +987,11 @@ fn compute_point_on_unit_sphere(rng: &mut impl Rng) -> Vector3<f32> {
 }
 
 /// C++ HEMISPHERICAL velocity: cube-octant reject (z in [0,1]) then normalize.
-fn compute_point_on_unit_hemisphere(rng: &mut impl Rng) -> Vector3<f32> {
+fn compute_point_on_unit_hemisphere() -> Vector3<f32> {
     loop {
-        let x = rng.gen_range(-1.0..=1.0);
-        let y = rng.gen_range(-1.0..=1.0);
-        let z = rng.gen_range(0.0..=1.0);
+        let x = get_game_client_random_value_real(-1.0, 1.0);
+        let y = get_game_client_random_value_real(-1.0, 1.0);
+        let z = get_game_client_random_value_real(0.0, 1.0);
         if x != 0.0 || y != 0.0 || z != 0.0 {
             return Vector3::new(x, y, z).normalize();
         }
@@ -2183,7 +2185,6 @@ impl ParticleSystem {
 
         // Damping
         particle_info.vel_damping = info.vel_damping.sample();
-        let mut rng = thread_rng();
 
         // Copy keyframes (sample random alpha keyframes into fixed runtime values).
         for (dst, src) in particle_info
@@ -2191,7 +2192,12 @@ impl ParticleSystem {
             .iter_mut()
             .zip(info.alpha_keys.iter())
         {
-            dst.value = rng.gen_range(src.min_value..=src.max_value);
+            dst.value = GameClientRandomVariable {
+                min: src.min_value,
+                max: src.max_value,
+                distribution_type: src.distribution_type,
+            }
+            .sample();
             dst.frame = src.frame;
         }
         particle_info.color_keys = info.color_keys;
@@ -2199,8 +2205,8 @@ impl ParticleSystem {
         // C++ ParticleSystem ctor re-ranges ColorScale to [min/255, max/255]
         particle_info.color_scale = info.color_scale.sample() / 255.0;
 
-        // Wind randomness — C++ GameClientRandomValueReal(0.7f, 1.3f)
-        particle_info.wind_randomness = rng.gen_range(0.7..=1.3);
+        // Wind randomness — C++ ParticleSys.cpp:1817 (client stream)
+        particle_info.wind_randomness = get_game_client_random_value_real(0.7, 1.3);
 
         // Particle up towards emitter
         particle_info.particle_up_towards_emitter = info.is_particle_up_towards_emitter;
@@ -2211,26 +2217,28 @@ impl ParticleSystem {
     /// Compute particle position based on emission volume (matches C++ ParticleSystem::computeParticlePosition)
     fn compute_particle_position(&self) -> Point3<f32> {
         let info = self.template.info();
-        let mut rng = thread_rng();
 
         let emission_volume = self.effective_emission_volume();
         let local_pos = match emission_volume {
             EmissionVolume::Point => Vector3::zeros(),
 
             EmissionVolume::Line { start, end } => {
-                let t = rng.r#gen::<f32>();
+                // C++ ParticleSys.cpp:1629 — t from the client stream.
+                let t = get_game_client_random_value_real(0.0, 1.0);
                 start.coords + (end - start) * t
             }
 
             EmissionVolume::Box { half_size } => {
                 if info.is_emission_volume_hollow {
-                    // Match C++ bug exactly: side % 3 == 1 uses halfSize.y for X (C++ line 1597)
-                    let side = rng.gen_range(0..6);
+                    // Match C++ bug exactly: side % 3 == 1 uses halfSize.y for X
+                    // (C++ ParticleSys.cpp:1579-1598; the side draw is
+                    // GameClientRandomValue(0, 6) — seven outcomes).
+                    let side = get_game_client_random_value(0, 6);
                     if side % 3 == 0 {
                         // Bottom or top face (Z = -/+halfSize.z)
                         Vector3::new(
-                            rng.gen_range(-half_size.x..=half_size.x),
-                            rng.gen_range(-half_size.y..=half_size.y),
+                            get_game_client_random_value_real(-half_size.x, half_size.x),
+                            get_game_client_random_value_real(-half_size.y, half_size.y),
                             if side == 0 { -half_size.z } else { half_size.z },
                         )
                     } else if side % 3 == 1 {
@@ -2238,45 +2246,47 @@ impl ParticleSystem {
                         // C++ bug: uses halfSize.y instead of halfSize.x for X coordinate
                         Vector3::new(
                             if side == 1 { -half_size.x } else { half_size.y },
-                            rng.gen_range(-half_size.y..=half_size.y),
-                            rng.gen_range(-half_size.z..=half_size.z),
+                            get_game_client_random_value_real(-half_size.y, half_size.y),
+                            get_game_client_random_value_real(-half_size.z, half_size.z),
                         )
                     } else {
                         // Front or back face (Y = -/+halfSize.y)
                         Vector3::new(
-                            rng.gen_range(-half_size.x..=half_size.x),
+                            get_game_client_random_value_real(-half_size.x, half_size.x),
                             if side == 2 { -half_size.y } else { half_size.y },
-                            rng.gen_range(-half_size.z..=half_size.z),
+                            get_game_client_random_value_real(-half_size.z, half_size.z),
                         )
                     }
                 } else {
                     Vector3::new(
-                        rng.gen_range(-half_size.x..=half_size.x),
-                        rng.gen_range(-half_size.y..=half_size.y),
-                        rng.gen_range(-half_size.z..=half_size.z),
+                        get_game_client_random_value_real(-half_size.x, half_size.x),
+                        get_game_client_random_value_real(-half_size.y, half_size.y),
+                        get_game_client_random_value_real(-half_size.z, half_size.z),
                     )
                 }
             }
 
             EmissionVolume::Sphere { radius } => {
-                let unit = compute_point_on_unit_sphere(&mut rng);
+                // C++ ParticleSys.cpp:1553-1568 — radius draw first, then the
+                // unit-sphere draws.
                 let r = if info.is_emission_volume_hollow {
                     radius
                 } else {
-                    rng.gen_range(0.0..=radius)
+                    get_game_client_random_value_real(0.0, radius)
                 };
-                unit * r
+                compute_point_on_unit_sphere() * r
             }
 
             EmissionVolume::Cylinder { radius, length } => {
+                // C++ ParticleSys.cpp:1534-1550 — angle, radius, then z.
                 let half_length = length * 0.5;
-                let z = rng.gen_range(-half_length..=half_length);
+                let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                 let r = if info.is_emission_volume_hollow {
                     radius
                 } else {
-                    rng.gen_range(0.0..=radius)
+                    get_game_client_random_value_real(0.0, radius)
                 };
-                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                let z = get_game_client_random_value_real(-half_length, half_length);
                 Vector3::new(r * theta.cos(), r * theta.sin(), z)
             }
         };
@@ -2295,23 +2305,23 @@ impl ParticleSystem {
     /// Compute particle velocity based on emission properties (matches C++ ParticleSystem::computeParticleVelocity)
     fn compute_particle_velocity(&self, position: &Point3<f32>) -> Vector3<f32> {
         let info = self.template.info();
-        let mut rng = thread_rng();
 
         match info.emission_velocity {
             EmissionVelocity::Ortho { x, y, z } => Vector3::new(x.sample(), y.sample(), z.sample()),
 
             EmissionVelocity::Spherical { speed } => {
-                speed.sample() * compute_point_on_unit_sphere(&mut rng)
+                speed.sample() * compute_point_on_unit_sphere()
             }
 
             EmissionVelocity::Hemispherical { speed } => {
-                speed.sample() * compute_point_on_unit_hemisphere(&mut rng)
+                speed.sample() * compute_point_on_unit_hemisphere()
             }
 
             EmissionVelocity::Cylindrical { radial, normal } => {
+                // C++ ParticleSys.cpp:1386-1392 — radial, angle, then normal.
                 let radial_speed = radial.sample();
+                let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                 let normal_speed = normal.sample();
-                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
                 Vector3::new(
                     radial_speed * theta.cos(),
                     radial_speed * theta.sin(),
@@ -2345,7 +2355,7 @@ impl ParticleSystem {
                         if len > 0.0 {
                             dir * (speed_val / len)
                         } else {
-                            speed_val * compute_point_on_unit_sphere(&mut rng)
+                            speed_val * compute_point_on_unit_sphere()
                         }
                     }
                     EmissionVolumeType::Line => {
@@ -2360,7 +2370,7 @@ impl ParticleSystem {
                             Vector3::new(0.0, 0.0, other_speed_val)
                         }
                     }
-                    EmissionVolumeType::Point => speed_val * compute_point_on_unit_sphere(&mut rng),
+                    EmissionVolumeType::Point => speed_val * compute_point_on_unit_sphere(),
                 }
             }
         }
@@ -2402,25 +2412,27 @@ impl ParticleSystem {
     /// Initialize wind motion (C++ ParticleSystem ctor lines 1114-1125)
     fn initialize_wind_motion(&mut self) {
         let info = self.template.info();
-        let mut rng = thread_rng();
 
-        let start_min = info.wind_motion_start_angle_min;
-        let start_max = info.wind_motion_start_angle_max.max(start_min);
-        let end_min = info.wind_motion_end_angle_min;
-        let end_max = info.wind_motion_end_angle_max.max(end_min);
-
-        self.wind_motion_start_angle = rng.gen_range(start_min..=start_max);
-        self.wind_motion_end_angle = rng.gen_range(end_min..=end_max);
-        let angle_lo = self.wind_motion_start_angle.min(self.wind_motion_end_angle);
-        let angle_hi = self.wind_motion_start_angle.max(self.wind_motion_end_angle);
-        self.wind_angle = rng.gen_range(angle_lo..=angle_hi);
+        // C++ ParticleSys.cpp:1123-1125 — three client-stream draws. The client
+        // residual returns `hi` for empty ranges, so no min/max clamping needed.
+        self.wind_motion_start_angle = get_game_client_random_value_real(
+            info.wind_motion_start_angle_min,
+            info.wind_motion_start_angle_max,
+        );
+        self.wind_motion_end_angle = get_game_client_random_value_real(
+            info.wind_motion_end_angle_min,
+            info.wind_motion_end_angle_max,
+        );
+        self.wind_angle = get_game_client_random_value_real(
+            self.wind_motion_start_angle,
+            self.wind_motion_end_angle,
+        );
         self.wind_motion_moving_to_end_angle = info.wind_motion_moving_to_end_angle;
     }
 
     /// Update wind motion (matches C++ ParticleSys.cpp lines 2085-2180)
     fn update_wind_motion(&mut self) {
         let info = self.template.info();
-        let mut rng = thread_rng();
 
         match info.wind_motion {
             WindMotion::Invalid | WindMotion::NotUsed => {
@@ -2444,35 +2456,47 @@ impl ParticleSystem {
                     self.wind_angle += change;
                     if self.wind_angle >= end_angle {
                         self.wind_motion_moving_to_end_angle = false;
-                        self.wind_angle_change =
-                            rng.gen_range(info.wind_angle_change_min..=info.wind_angle_change_max);
-                        self.wind_motion_start_angle = rng.gen_range(
-                            info.wind_motion_start_angle_min..=info.wind_motion_start_angle_max,
+                        // C++ ParticleSys.cpp:2137-2146.
+                        self.wind_angle_change = get_game_client_random_value_real(
+                            info.wind_angle_change_min,
+                            info.wind_angle_change_max,
                         );
-                        self.wind_motion_end_angle = rng.gen_range(
-                            info.wind_motion_end_angle_min..=info.wind_motion_end_angle_max,
+                        self.wind_motion_start_angle = get_game_client_random_value_real(
+                            info.wind_motion_start_angle_min,
+                            info.wind_motion_start_angle_max,
+                        );
+                        self.wind_motion_end_angle = get_game_client_random_value_real(
+                            info.wind_motion_end_angle_min,
+                            info.wind_motion_end_angle_max,
                         );
                     }
                 } else {
                     self.wind_angle -= change;
                     if self.wind_angle <= start_angle {
                         self.wind_motion_moving_to_end_angle = true;
-                        self.wind_angle_change =
-                            rng.gen_range(info.wind_angle_change_min..=info.wind_angle_change_max);
-                        self.wind_motion_start_angle = rng.gen_range(
-                            info.wind_motion_start_angle_min..=info.wind_motion_start_angle_max,
+                        // C++ ParticleSys.cpp:2165-2174.
+                        self.wind_angle_change = get_game_client_random_value_real(
+                            info.wind_angle_change_min,
+                            info.wind_angle_change_max,
                         );
-                        self.wind_motion_end_angle = rng.gen_range(
-                            info.wind_motion_end_angle_min..=info.wind_motion_end_angle_max,
+                        self.wind_motion_start_angle = get_game_client_random_value_real(
+                            info.wind_motion_start_angle_min,
+                            info.wind_motion_start_angle_max,
+                        );
+                        self.wind_motion_end_angle = get_game_client_random_value_real(
+                            info.wind_motion_end_angle_min,
+                            info.wind_motion_end_angle_max,
                         );
                     }
                 }
             }
             WindMotion::Circular => {
                 if self.wind_angle_change == 0.0 {
-                    let change_min = info.wind_angle_change_min;
-                    let change_max = info.wind_angle_change_max.max(change_min);
-                    self.wind_angle_change = rng.gen_range(change_min..=change_max);
+                    // C++ ParticleSys.cpp:2189-2190.
+                    self.wind_angle_change = get_game_client_random_value_real(
+                        info.wind_angle_change_min,
+                        info.wind_angle_change_max,
+                    );
                 }
                 self.wind_angle += self.wind_angle_change;
                 if self.wind_angle > std::f32::consts::TAU {
@@ -2892,15 +2916,35 @@ mod tests {
 
     #[test]
     fn test_emission_volumes() {
-        use rand::prelude::*;
-        let mut rng = thread_rng();
+        // C++ draws all emission randomness from the seeded GameClient stream
+        // (ParticleSys.cpp:1351-1648), so the same seed must reproduce
+        // identical position/velocity samples. thread_rng broke that.
+        let mut template = ParticleSystemTemplate::new("SeededEmission".to_string());
+        {
+            let info = template.info_mut();
+            info.emission_volume = EmissionVolume::Sphere { radius: 5.0 };
+            info.emission_velocity = EmissionVelocity::Spherical {
+                speed: GameClientRandomVariable::new(1.0, 2.0),
+            };
+        }
+        let system = ParticleSystem::new(Arc::new(template), 1, false);
 
-        // Test sphere emission
-        let sphere = EmissionVolume::Sphere { radius: 5.0 };
+        game_engine::common::random_value::init_random_with_seed(90210);
+        let pos_a = system.compute_particle_position();
+        let vel_a = system.compute_particle_velocity(&pos_a);
 
-        // This would require the actual computation logic
-        // which is implemented in compute_particle_position
-        let _ = (rng.r#gen::<f32>(), sphere);
+        game_engine::common::random_value::init_random_with_seed(90210);
+        let pos_b = system.compute_particle_position();
+        let vel_b = system.compute_particle_velocity(&pos_b);
+
+        assert_eq!(pos_a, pos_b);
+        assert_eq!(vel_a, vel_b);
+
+        // Sphere emission stays inside the template radius, and spherical
+        // speed magnitude lands in [1, 2].
+        assert!(pos_a.coords.norm() <= 5.0 + 1e-3);
+        let speed = vel_a.norm();
+        assert!((1.0..=2.0).contains(&speed), "speed {speed} outside [1, 2]");
     }
 
     #[test]

@@ -402,6 +402,11 @@ fn group_special_power_fires_every_capable_caster() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
+    // SpySatellite residual inits the process-global shroud grid; drop it so
+    // later tests see the fail-open uninitialized-grid path.
+    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("SP_ALL");
     tpl.add_kind_of(KindOf::Infantry);

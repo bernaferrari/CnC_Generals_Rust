@@ -254,8 +254,8 @@ fn baikonur_launch_door_and_detonation() {
 fn spectre_orbit_spawns_howitzer_shell_objects() {
     use crate::game_logic::KindOf;
     use crate::game_logic::special_power_strikes::{
-        SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
-        SPECTRE_HOWITZER_SHELL_OBJECT,
+        SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES,
+        SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_OBJECT,
     };
     let mut logic = GameLogic::new();
     ensure_test_tank_template(&mut logic);
@@ -280,6 +280,12 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
         .find(|f| f.id == field_id)
     {
         f.next_tick_frame = logic.frame;
+    }
+    // C++ SpectreGunshipUpdate.cpp:609-623: the howitzer only fires once the
+    // gattling strafe wind settles for > HowitzerFollowLag (12f); wind the aim
+    // the same per-frame way world_tick does before the due tick.
+    for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
+        logic.special_power_strikes.advance_orbit_strafe(logic.frame);
     }
     logic
         .special_power_strikes
@@ -518,6 +524,105 @@ fn nuclear_missile_spawns_radiation_field_object() {
             .map(|o| !o.is_alive() || o.status.destroyed)
             .unwrap_or(true)
     );
+}
+
+#[test]
+fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
+    use crate::game_logic::KindOf;
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_armor_residual::apply_residual_armor;
+    use crate::game_logic::special_power_strikes::NUKE_RADIATION_OBJECT_NAME;
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let mut silo = crate::game_logic::ThingTemplate::new("ChinaNuclearMissileLauncher");
+    silo.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic
+        .templates
+        .insert("ChinaNuclearMissileLauncher".into(), silo);
+    let caster = logic
+        .create_object(
+            "ChinaNuclearMissileLauncher",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    logic.special_power_strikes.spawn_radiation_field(
+        caster,
+        Team::China,
+        Vec3::new(100.0, 0.0, 100.0),
+        logic.frame,
+        1,
+    );
+    logic.spawn_nuke_radiation_field_objects_for_new_fields();
+    let obj = logic
+        .host_objects()
+        .values()
+        .find(|o| o.nuke_radiation_field)
+        .expect("radiation field object");
+    // C++ NukeRadiationFieldWeapon KindOf residual: the ambulance
+    // CleanupHazardUpdate partition scan (CleanupHazardUpdate.cpp:250) only
+    // targets KINDOF_CLEANUP_HAZARD objects; INERT/NO_COLLIDE round out retail.
+    for kind in [
+        KindOf::Immobile,
+        KindOf::CleanupHazard,
+        KindOf::Inert,
+        KindOf::NoCollide,
+    ] {
+        assert!(obj.is_kind_of(kind), "radiation field missing {kind:?}");
+    }
+    // C++ HazardousMaterialArmor: HAZARD_CLEANUP 100%, FLAME 0% (flame cannot
+    // clean). Pre-fix fallback was StructureArmor (HAZARD_CLEANUP 0%, FLAME 50%).
+    assert_eq!(apply_residual_armor(obj, DamageType::Flame, 100.0), 0.0);
+    let cleanup = apply_residual_armor(obj, DamageType::HazardCleanup, 100.0);
+    assert!((cleanup - 100.0).abs() < 0.01, "HAZARD_CLEANUP must be 100%, got {cleanup}");
+    let tmpl = logic
+        .templates
+        .get(NUKE_RADIATION_OBJECT_NAME)
+        .expect("synthesized radiation template");
+    assert!(tmpl
+        .armor_sets
+        .iter()
+        .any(|s| s.armor.as_deref() == Some("HazardousMaterialArmor")));
+}
+
+#[test]
+fn toxin_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
+    use crate::game_logic::KindOf;
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_armor_residual::apply_residual_armor;
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let mut scud = crate::game_logic::ThingTemplate::new("GLAScudStorm");
+    scud.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("GLAScudStorm".into(), scud);
+    let caster = logic
+        .create_object("GLAScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    logic.special_power_strikes.spawn_toxin_field(
+        caster,
+        Team::GLA,
+        Vec3::new(120.0, 0.0, 120.0),
+        logic.frame,
+        1,
+    );
+    logic.spawn_anthrax_toxin_field_objects_for_new_fields();
+    let obj = logic
+        .host_objects()
+        .values()
+        .find(|o| o.anthrax_toxin_field)
+        .expect("toxin field object");
+    for kind in [
+        KindOf::Immobile,
+        KindOf::CleanupHazard,
+        KindOf::Inert,
+        KindOf::NoCollide,
+    ] {
+        assert!(obj.is_kind_of(kind), "toxin field missing {kind:?}");
+    }
+    // C++ HazardousMaterialArmor: flame cannot clean poison fields either.
+    assert_eq!(apply_residual_armor(obj, DamageType::Flame, 100.0), 0.0);
+    let cleanup = apply_residual_armor(obj, DamageType::HazardCleanup, 100.0);
+    assert!((cleanup - 100.0).abs() < 0.01, "HAZARD_CLEANUP must be 100%, got {cleanup}");
 }
 
 #[test]
@@ -905,7 +1010,16 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
 
-    // player_id 0 maps to Team::USA when no Player registry entry exists.
+    // C++ refuses an any-unit cast without the authored SpecialPowerModule
+    // (SpecialPower.cpp:308 canUseSpecialPower) — author the retail
+    // SuperweaponEMPPulse module block on the caster template.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::EmpPulse,
+        "SuperweaponEMPPulse",
+        450,
+    );
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     if let Some(p) = game_logic.get_player_mut(0) {
         p.unlock_science("SCIENCE_EMPPulse");
@@ -915,8 +1029,10 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
+        // The authored module armed its ReloadTime at creation (C++
+        // SpecialPowerModule ctor: m_availableOnFrame = now + ReloadTime);
+        // mark that per-module timer elapsed (setReadyFrame(0) residual).
+        caster.set_special_power_ready_seconds(&SpecialPowerType::EmpPulse, 0.0);
     }
 
     let vehicle_id = game_logic
@@ -1087,6 +1203,16 @@ fn emp_pulse_does_not_queue_superweapon_strike() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308: the authored SpecialPowerModule is the cast
+    // authority; activation then starts per-module recharge (ready flag
+    // clears via startPowerRecharge).
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::EmpPulse,
+        "SuperweaponEMPPulse",
+        450,
+    );
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     if let Some(p) = game_logic.get_player_mut(0) {
         p.unlock_science("SCIENCE_EMPPulse");
@@ -1098,8 +1224,8 @@ fn emp_pulse_does_not_queue_superweapon_strike() {
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
+        // Creation-armed per-module ReloadTime marked elapsed (setReadyFrame(0)).
+        caster.set_special_power_ready_seconds(&SpecialPowerType::EmpPulse, 0.0);
     }
     // Place a target so disable honesty can trip (caster is skipped as self).
     let _target = game_logic
@@ -1155,6 +1281,15 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
     ensure_test_barracks_template(&mut game_logic);
 
     // Caster + ally on China (retail Frenzy faction residual).
+    // C++ SpecialPower.cpp:308: the authored SuperweaponFrenzy
+    // SpecialPowerModule is the cast authority.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::Frenzy,
+        "SuperweaponFrenzy",
+        450,
+    );
     ensure_test_player_for_team(&mut game_logic, Team::China);
     if let Some(p) = game_logic.get_player_mut(1) {
         p.unlock_science("SCIENCE_Frenzy1");
@@ -1164,8 +1299,8 @@ fn frenzy_residual_buffs_allies_and_boosts_damage() {
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
+        // Creation-armed per-module ReloadTime marked elapsed (setReadyFrame(0)).
+        caster.set_special_power_ready_seconds(&SpecialPowerType::Frenzy, 0.0);
     }
 
     let ally_id = game_logic
@@ -1425,6 +1560,15 @@ fn frenzy_does_not_queue_superweapon_strike() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308 module authority + per-module recharge on
+    // activation (startPowerRecharge clears the ready flag).
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::Frenzy,
+        "SuperweaponFrenzy",
+        450,
+    );
     ensure_test_player_for_team(&mut game_logic, Team::China);
     if let Some(p) = game_logic.get_player_mut(1) {
         p.unlock_science("SCIENCE_Frenzy1");
@@ -1435,8 +1579,8 @@ fn frenzy_does_not_queue_superweapon_strike() {
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
+        // Creation-armed per-module ReloadTime marked elapsed (setReadyFrame(0)).
+        caster.set_special_power_ready_seconds(&SpecialPowerType::Frenzy, 0.0);
         // Caster can self-buff residual (WeaponBonusUpdate iterates all allies
         // including source when legal CAN_ATTACK). Ensure weapon so can_attack.
         caster.weapon = Some(Weapon {
@@ -1511,6 +1655,16 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     game_logic
         .templates
         .insert("AmericaStrategyCenter".to_string(), sc_template);
+    // C++ SpecialPower.cpp:308: the authored SuperweaponBattlePlan*
+    // SpecialPowerModule on the Strategy Center is the cast authority for the
+    // DoSpecialPower bombardment activation below.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "AmericaStrategyCenter",
+        SpecialPowerType::BattlePlanBombardment,
+        "SuperweaponBattlePlanBombardment",
+        450,
+    );
     assert!(is_strategy_center_template("AmericaStrategyCenter"));
 
     ensure_test_player_for_team(&mut game_logic, Team::USA);
@@ -1520,8 +1674,8 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         .expect("strategy center");
     {
         let center = game_logic.host_object_mut(center_id).expect("center");
-        center.set_special_power_ready(true);
-        center.special_power_cooldown_remaining = 0.0;
+        // Creation-armed per-module ReloadTime marked elapsed (setReadyFrame(0)).
+        center.set_special_power_ready_seconds(&SpecialPowerType::BattlePlanBombardment, 0.0);
         center.object_type = ObjectType::Building;
     }
 
@@ -1985,44 +2139,51 @@ fn retail_eject_pilot_metadata_drives_death_and_hijacker_interface() {
     use crate::game_logic::host_usa_pilot::{
         EJECT_PILOT_TEMPLATE, significantly_above_terrain_threshold,
     };
-    use crate::game_logic::{EjectPilotCreationList, VeterancyLevel};
-    use std::path::Path;
+    use crate::game_logic::{
+        EjectPilotCreationList, EjectPilotDeathTypes, EjectPilotExemptStatus,
+        EjectPilotVeterancyLevels, VeterancyLevel,
+    };
 
     clear_test_template_voices();
     set_test_per_unit_sound("AmericaVehicleHumvee", "VoiceEject", "HumveeVoiceEject");
     set_test_per_unit_sound("AmericaVehicleHumvee", "SoundEject", "HumveeSoundEject");
 
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .expect("Main crate must remain three levels below repository root");
-    let retail_object_dir =
-        repo_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object");
-    let mut parser = crate::assets::IniParser::new();
-    for filename in [
-        "AmericaVehicle.ini",
-        "AmericaAir.ini",
-        "AmericaInfantry.ini",
-    ] {
-        let source = std::fs::read_to_string(retail_object_dir.join(filename))
-            .unwrap_or_else(|error| panic!("read retail {filename}: {error}"));
-        parser
-            .parse_ini_content(&source, filename)
-            .unwrap_or_else(|error| panic!("parse retail {filename}: {error}"));
-    }
-
-    let build_retail_template = |name: &str| {
-        GameLogic::build_template_from_object_definition(
-            name,
-            parser
-                .get_definition(name)
-                .unwrap_or_else(|| panic!("retail definition {name}")),
-            None,
-        )
-    };
-    let humvee_template = build_retail_template("AmericaVehicleHumvee");
-    let raptor_template = build_retail_template("AmericaJetRaptor");
-    let pilot_template = build_retail_template(EJECT_PILOT_TEMPLATE);
+    // This checkout ships no retail BIG/INI data (windows_game/
+    // extracted_big_files_v2 does not exist), so author the exact retail
+    // INIZH blocks inline instead of reading them: the Humvee/Raptor
+    // `Behavior = EjectPilotDie` module (C++ EjectPilotDie.cpp — module
+    // presence is the getEjectPilotDieInterface hijacker authority; the
+    // module's own InvulnerableTime default stays 0 while OCL_EjectPilot*
+    // carries the real 2000 ms grant) and the AmericaInfantryPilot Object.
+    register_retail_eject_pilot_ocls();
+    let mut humvee_template = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    author_eject_pilot_die_module(
+        &mut humvee_template,
+        EjectPilotDeathTypes::All,
+        EjectPilotVeterancyLevels::All,
+        EjectPilotExemptStatus::None,
+    );
+    let mut raptor_template = ThingTemplate::new("AmericaJetRaptor");
+    raptor_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    author_eject_pilot_die_module(
+        &mut raptor_template,
+        EjectPilotDeathTypes::All,
+        EjectPilotVeterancyLevels::All,
+        EjectPilotExemptStatus::None,
+    );
+    let mut pilot_template = ThingTemplate::new(EJECT_PILOT_TEMPLATE);
+    pilot_template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
 
     let humvee_metadata = humvee_template
         .eject_pilot_die
@@ -2232,6 +2393,9 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
     use crate::game_logic::host_usa_pilot::EJECT_PILOT_TEMPLATE;
 
     let mut game_logic = GameLogic::new();
+    // C++ EjectPilotDie: authored module + OCL_EjectPilot* lists + live owner
+    // player (RequiresLivePlayer = Yes); DieMux VeterancyLevels = ALL -REGULAR.
+    ensure_eject_pilot_residual_fixture(&mut game_logic);
 
     let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
     humvee_tpl
@@ -2239,6 +2403,12 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0);
+    author_eject_pilot_die_module(
+        &mut humvee_tpl,
+        EjectPilotDeathTypes::All,
+        EjectPilotVeterancyLevels::AllExceptRegular,
+        EjectPilotExemptStatus::None,
+    );
     game_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -2331,6 +2501,9 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
     use crate::game_logic::host_usa_pilot::{EJECT_PILOT_TEMPLATE, HostDeathType};
 
     let mut game_logic = GameLogic::new();
+    // C++ EjectPilotDie: authored module + OCL lists + live owner player;
+    // DieMux DeathTypes = ALL_EXCEPT_CRUSHED_SPLATTED, ExemptStatus = HIJACKED.
+    ensure_eject_pilot_residual_fixture(&mut game_logic);
 
     let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
     humvee_tpl
@@ -2338,6 +2511,12 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0);
+    author_eject_pilot_die_module(
+        &mut humvee_tpl,
+        EjectPilotDeathTypes::AllExceptCrushedAndSplatted,
+        EjectPilotVeterancyLevels::All,
+        EjectPilotExemptStatus::Hijacked,
+    );
     game_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -2499,6 +2678,9 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
+    // C++ PilotFindVehicleUpdate gates the scan on the authored
+    // VeterancyCrateCollide pilot module, not the basename.
+    author_pilot_recrew_module(&mut pilot_tpl);
     game_logic
         .templates
         .insert("AmericaInfantryPilot".to_string(), pilot_tpl);
@@ -2625,6 +2807,9 @@ fn eject_pilot_invulnerable_time_residual() {
     };
 
     let mut game_logic = GameLogic::new();
+    // C++ EjectPilotDie: authored module + OCL lists + live owner player;
+    // DieMux VeterancyLevels = ALL -REGULAR (Veteran passes the gate).
+    ensure_eject_pilot_residual_fixture(&mut game_logic);
 
     let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
     humvee_tpl
@@ -2632,6 +2817,12 @@ fn eject_pilot_invulnerable_time_residual() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0);
+    author_eject_pilot_die_module(
+        &mut humvee_tpl,
+        EjectPilotDeathTypes::All,
+        EjectPilotVeterancyLevels::AllExceptRegular,
+        EjectPilotExemptStatus::None,
+    );
     game_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);

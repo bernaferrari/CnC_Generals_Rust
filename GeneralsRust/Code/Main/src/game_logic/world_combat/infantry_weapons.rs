@@ -883,7 +883,16 @@ impl GameLogic {
     }
 
     /// Leftover `isEffectivelyDead` (C++ WeaponSet.cpp:428-432) plus host `is_alive`.
+    ///
+    /// The live host object map is authoritative: C++ checks the firing pad's
+    /// WeaponSet in the running game, not in a foreign world snapshot. The
+    /// leftover `TheGameLogic` bridge may reference a stale or unrelated world
+    /// (bare host test worlds, dual-world runs), so a live-map verdict wins
+    /// and the bridge is consulted only when the live map has no such object.
     fn scud_storm_pad_can_fire(&self, source_id: u32) -> bool {
+        if let Some(obj) = self.objects.get(&ObjectId(source_id)) {
+            return obj.is_alive();
+        }
         if let Some(obj) = gamelogic::helpers::TheGameLogic::find_object_by_id(source_id) {
             if let Ok(guard) = obj.read() {
                 if guard.is_effectively_dead() || guard.is_destroyed() {
@@ -891,9 +900,7 @@ impl GameLogic {
                 }
             }
         }
-        self.objects
-            .get(&ObjectId(source_id))
-            .is_some_and(|o| o.is_alive())
+        false
     }
 
     /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.
@@ -1227,7 +1234,7 @@ impl GameLogic {
                     weapon: _,
                 } => {
                     self.fuel_air_gas_reg.record_midpoint();
-                    self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage(
                         id,
                         producer,
                         team,
@@ -1244,7 +1251,7 @@ impl GameLogic {
                     fx: _,
                 } => {
                     self.fuel_air_gas_reg.record_final();
-                    self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage(
                         id,
                         producer,
                         team,
@@ -1270,6 +1277,9 @@ impl GameLogic {
         }
     }
 
+    /// Applies radius damage; returns (total damage dealt, objects hit,
+    /// objects destroyed) so live DeliverPayload flights can credit the
+    /// queued special-power strike (C++ Weapon::damageArea stats).
     pub(crate) fn apply_fuel_air_radius_damage(
         &mut self,
         source_id: ObjectId,
@@ -1279,14 +1289,21 @@ impl GameLogic {
         damage: f32,
         radius: f32,
         damage_type: crate::game_logic::combat::DamageType,
-    ) {
+    ) -> (f32, u32, u32) {
         let r2 = radius * radius;
         let killer = producer.or(Some(source_id));
         let victims: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(oid, o)| {
-                **oid != source_id && o.is_alive() && {
+                **oid != source_id && o.is_alive()
+                    // In-flight DeliverPayload warheads (A10 missile, carpet
+                    // bomb) are not splash targets — C++ HeightDie projectiles
+                    // detonate on their own schedule, they never take area
+                    // damage from a sibling detonation.
+                    && !o.a10_strike_missile
+                    && !o.carpet_bomb_payload
+                    && {
                     let p = o.get_position();
                     let dx = p.x - epicenter.x;
                     let dz = p.z - epicenter.z;
@@ -1296,16 +1313,22 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut destroy_ids = Vec::new();
+        let mut total_damage = 0.0_f32;
+        let mut objects_hit = 0_u32;
         for vid in victims {
             if let Some(t) = self.objects.get_mut(&vid) {
+                total_damage += damage;
+                objects_hit += 1;
                 if t.take_damage_from_typed(damage, killer, damage_type) {
                     destroy_ids.push(vid);
                 }
             }
         }
+        let destroyed = destroy_ids.len() as u32;
         for vid in destroy_ids {
             self.mark_object_for_destruction(vid, None);
         }
+        (total_damage, objects_hit, destroyed)
     }
 
     pub(in super::super) fn update_smart_bomb_target_homing(&mut self) {

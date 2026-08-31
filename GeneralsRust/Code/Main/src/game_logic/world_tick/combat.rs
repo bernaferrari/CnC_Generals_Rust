@@ -2148,7 +2148,10 @@ impl GameLogic {
                                     let damage_type = fire_wname.as_deref().map(
                                         crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
                                     )
-                                    .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                                    // C++ WeaponTemplate ctor defaults m_damageType
+                                    // to DAMAGE_EXPLOSION (Weapon.cpp:249); an
+                                    // unnamed host weapon fires Explosion, not Bullet.
+                                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
                                     let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
                                         fire_wname.as_deref(),
                                         damage_type,
@@ -2730,7 +2733,10 @@ impl GameLogic {
                                 .map(
                                     crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name,
                                 )
-                                .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
+                                // C++ WeaponTemplate ctor defaults m_damageType to
+                                // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
+                                // weapon fires Explosion, not Bullet.
+                                .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
                             crate::game_logic::object::prime_live_damage_context(
                                 self.objects.get(&attacker_id),
                                 ground_wname.as_deref(),
@@ -3158,10 +3164,16 @@ impl GameLogic {
                         is_alive: true,
                         is_neutral: candidate.team == Team::Neutral,
                         under_construction: candidate.status.under_construction,
-                        combat_kind: true,
-                        effectively_stealthed: candidate.is_effectively_stealthed(),
+                        // DISARM exception: DozerAIUpdate::clearMines scans the
+                        // partition manager without a stealth gate, so a hidden
+                        // mine must not be skipped by residual acquire either.
+                        effectively_stealthed: candidate.is_effectively_stealthed()
+                            && !(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(
+                                attacker.weapon_name_for_slot(0).unwrap_or(""),
+                            ) && candidate.is_disarmable_mine()),
                         is_air: candidate.is_kind_of(KindOf::Aircraft)
                             || candidate.status.airborne_target,
+                        combat_kind: true,
                         eject_invulnerable: candidate.is_eject_invulnerable(),
                     },
                 )

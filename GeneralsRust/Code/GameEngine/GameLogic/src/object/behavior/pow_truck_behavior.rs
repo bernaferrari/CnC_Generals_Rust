@@ -471,12 +471,21 @@ struct CachedContainIds {
     ids: std::cell::UnsafeCell<Vec<ObjectID>>,
 }
 
+// SAFETY: the `UnsafeCell` cache is only touched through `refresh`, which
+// takes `&self` but is invoked from `&mut self` methods of the owning
+// behavior (itself behind a `Mutex`), so all cell accesses are effectively
+// exclusive. No shared reader can observe a partially written vector because
+// `refresh` swaps in a complete value.
 unsafe impl Sync for CachedContainIds {}
 
 impl CachedContainIds {
     fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
+        // SAFETY: see type-level note — access is exclusive via the owner's
+        // mutex; writing the whole replacement vector keeps the cell valid.
         let cache = unsafe { &mut *self.ids.get() };
         *cache = ids;
+        // SAFETY: shared borrow of the just-written cache; no other alias
+        // exists because refresh holds the only path to the cell.
         unsafe { &*self.ids.get() }
     }
 }

@@ -33,6 +33,8 @@ fn calculate_game_state_crc(
     // MARKER: Random Seed - matches C++ GetGameLogicRandomSeedCRC()
     hasher.update(b"MARKER:RandomSeed");
     let seed_bytes: &[u8] =
+        // SAFETY: random_seed is [u32; 6]; reinterpreting as 24 little-endian
+        // bytes matches C++ GetGameLogicRandomSeedCRC's raw CRC input.
         unsafe { std::slice::from_raw_parts(random_seed.as_ptr() as *const u8, 6 * 4) };
     let seed_crc = crc32fast::hash(seed_bytes);
     hasher.update(&seed_crc.to_le_bytes());

@@ -44,6 +44,7 @@ impl RegistryClass {
                 return false;
             };
             let mut key = HKEY::default();
+            // SAFETY: [Category 8 — FFI] `name` is a NUL-terminated `CString` and the out handle is a valid HKEY slot; RegOpenKeyExA only reads its inputs and writes the handle.
             let result = unsafe {
                 RegOpenKeyExA(
                     HKEY_LOCAL_MACHINE,
@@ -54,6 +55,7 @@ impl RegistryClass {
                 )
             };
             if result == ERROR_SUCCESS.0 {
+                // SAFETY: [Category 8 — FFI] `key` came from a successful RegOpen*/RegCreate* call and is closed exactly once here.
                 unsafe {
                     RegCloseKey(key);
                 }
@@ -82,6 +84,7 @@ impl RegistryClass {
             let mut result = -1i32;
             if create && !IS_LOCKED.load(Ordering::Relaxed) {
                 let mut disposition = 0u32;
+                // SAFETY: [Category 8 — FFI] name buffer is a NUL-terminated `CString`; out key/disposition slots are valid; standard Win32 registry creation.
                 result = unsafe {
                     RegCreateKeyExA(
                         HKEY_LOCAL_MACHINE,
@@ -101,6 +104,7 @@ impl RegistryClass {
                 } else {
                     KEY_ALL_ACCESS
                 };
+                // SAFETY: [Category 8 — FFI] `name` is a NUL-terminated `CString` and the out handle is a valid HKEY slot; RegOpenKeyExA only reads its inputs and writes the handle.
                 result = unsafe {
                     RegOpenKeyExA(
                         HKEY_LOCAL_MACHINE,
@@ -144,6 +148,7 @@ impl RegistryClass {
             let mut data: u32 = 0;
             let mut data_len: u32 = std::mem::size_of::<u32>() as u32;
             let mut data_type: u32 = 0;
+            // SAFETY: [Category 8 — FFI] value name is a NUL-terminated `CString`; the out type/len/data pointers reference valid locals or buffers sized exactly as passed to the API.
             let result = unsafe {
                 RegQueryValueExA(
                     self.key,
@@ -177,6 +182,7 @@ impl RegistryClass {
                 return;
             };
             let data = value as u32;
+            // SAFETY: [Category 8 — FFI] name is a NUL-terminated `CString`; data pointer + length describe an in-bounds source buffer of the stated REG_* type.
             unsafe {
                 RegSetValueExA(
                     self.key,
@@ -214,6 +220,7 @@ impl RegistryClass {
             let mut data: u32 = 0;
             let mut data_len: u32 = std::mem::size_of::<u32>() as u32;
             let mut data_type: u32 = 0;
+            // SAFETY: [Category 8 — FFI] value name is a NUL-terminated `CString`; the out type/len/data pointers reference valid locals or buffers sized exactly as passed to the API.
             let result = unsafe {
                 RegQueryValueExA(
                     self.key,
@@ -247,6 +254,7 @@ impl RegistryClass {
                 return;
             };
             let data = value.to_bits();
+            // SAFETY: [Category 8 — FFI] name is a NUL-terminated `CString`; data pointer + length describe an in-bounds source buffer of the stated REG_* type.
             unsafe {
                 RegSetValueExA(
                     self.key,
@@ -274,6 +282,7 @@ impl RegistryClass {
                 return 0;
             };
             let mut size: u32 = 0;
+            // SAFETY: [Category 8 — FFI] value name is a NUL-terminated `CString`; the out type/len/data pointers reference valid locals or buffers sized exactly as passed to the API.
             unsafe {
                 RegQueryValueExA(
                     self.key,
@@ -303,6 +312,7 @@ impl RegistryClass {
                 return;
             };
             let mut size: u32 = buffer.len() as u32;
+            // SAFETY: [Category 8 — FFI] value name is a NUL-terminated `CString`; the out type/len/data pointers reference valid locals or buffers sized exactly as passed to the API.
             unsafe {
                 RegQueryValueExA(
                     self.key,
@@ -329,6 +339,7 @@ impl RegistryClass {
             let Ok(value_name) = CString::new(name) else {
                 return;
             };
+            // SAFETY: [Category 8 — FFI] name is a NUL-terminated `CString`; data pointer + length describe an in-bounds source buffer of the stated REG_* type.
             unsafe {
                 RegSetValueExA(
                     self.key,
@@ -365,6 +376,7 @@ impl RegistryClass {
 
             let mut data_size: u32 = 0;
             let mut data_type: u32 = 0;
+            // SAFETY: [Category 8 — FFI] value name is a NUL-terminated `CString`; the out type/len/data pointers reference valid locals or buffers sized exactly as passed to the API.
             let result = unsafe {
                 RegQueryValueExA(
                     self.key,
@@ -378,6 +390,7 @@ impl RegistryClass {
 
             if result == ERROR_SUCCESS.0 && data_type == REG_SZ.0 && data_size > 0 {
                 let mut buffer = vec![0u8; data_size as usize];
+                // SAFETY: [Category 8 — FFI] value name is a NUL-terminated `CString`; the out type/len/data pointers reference valid locals or buffers sized exactly as passed to the API.
                 let result = unsafe {
                     RegQueryValueExA(
                         self.key,
@@ -426,6 +439,7 @@ impl RegistryClass {
             };
             let mut data_type: u32 = 0;
             let mut data_len: u32 = value.len() as u32;
+            // SAFETY: [Category 8 — FFI] value name is a NUL-terminated `CString`; the out type/len/data pointers reference valid locals or buffers sized exactly as passed to the API.
             let result = unsafe {
                 RegQueryValueExA(
                     self.key,
@@ -482,6 +496,7 @@ impl RegistryClass {
             let Ok(value_cstr) = CString::new(value) else {
                 return;
             };
+            // SAFETY: [Category 8 — FFI] name is a NUL-terminated `CString`; data pointer + length describe an in-bounds source buffer of the stated REG_* type.
             unsafe {
                 RegSetValueExA(
                     self.key,
@@ -519,6 +534,7 @@ impl RegistryClass {
             let name_wide: Vec<u16> = name.as_str().encode_utf16().chain([0]).collect();
             let mut data_size: u32 = 0;
             let mut data_type: u32 = 0;
+            // SAFETY: [Category 8 — FFI] value name is NUL-terminated UTF-16; out type/len/data pointers reference valid locals or buffers sized as declared.
             let result = unsafe {
                 RegQueryValueExW(
                     self.key,
@@ -531,6 +547,7 @@ impl RegistryClass {
             };
             if result == ERROR_SUCCESS.0 && data_type == REG_SZ.0 && data_size > 0 {
                 let mut buffer = vec![0u16; (data_size as usize / 2) + 1];
+                // SAFETY: [Category 8 — FFI] value name is NUL-terminated UTF-16; out type/len/data pointers reference valid locals or buffers sized as declared.
                 let result = unsafe {
                     RegQueryValueExW(
                         self.key,
@@ -576,6 +593,7 @@ impl RegistryClass {
             let name_wide: Vec<u16> = name.as_str().encode_utf16().chain([0]).collect();
             let value_wide: Vec<u16> = value.as_str().encode_utf16().chain([0]).collect();
             let size = (value_wide.len() * 2) as u32;
+            // SAFETY: [Category 8 — FFI] name/value are NUL-terminated UTF-16 buffers; length matches the value buffer exactly.
             unsafe {
                 RegSetValueExW(
                     self.key,
@@ -603,6 +621,7 @@ impl RegistryClass {
             loop {
                 let mut name_buffer = [0u8; 128];
                 let mut name_size: u32 = name_buffer.len() as u32;
+                // SAFETY: [Category 8 — FFI] name/data buffers are fixed-size local arrays whose lengths are passed to the API, which writes at most that many bytes.
                 let result = unsafe {
                     RegEnumValueA(
                         self.key,
@@ -649,6 +668,7 @@ impl RegistryClass {
             let Ok(value_name) = CString::new(name) else {
                 return;
             };
+            // SAFETY: [Category 8 — FFI] name is a NUL-terminated `CString`; deletion on an open valid key handle.
             unsafe {
                 RegDeleteValueA(self.key, PCSTR(value_name.as_ptr() as _));
             }
@@ -730,6 +750,7 @@ impl RegistryClass {
             let Ok(path_c) = CString::new(path) else {
                 return;
             };
+            // SAFETY: [Category 8 — FFI] `name` is a NUL-terminated `CString` and the out handle is a valid HKEY slot; RegOpenKeyExA only reads its inputs and writes the handle.
             unsafe {
                 let mut base_key = HKEY::default();
                 let result = RegOpenKeyExA(
@@ -837,6 +858,7 @@ impl RegistryClass {
         let Ok(path_c) = CString::new(path) else {
             return;
         };
+        // SAFETY: [Category 8 — FFI] `name` is a NUL-terminated `CString` and the out handle is a valid HKEY slot; RegOpenKeyExA only reads its inputs and writes the handle.
         unsafe {
             let mut base_key = HKEY::default();
             let result = RegOpenKeyExA(
@@ -934,6 +956,7 @@ impl RegistryClass {
             let mut data_size: u32 = data.len() as u32;
             let mut data_type: u32 = 0;
 
+            // SAFETY: [Category 8 — FFI] name/data buffers are fixed-size local arrays whose lengths are passed to the API, which writes at most that many bytes.
             let result = unsafe {
                 RegEnumValueA(
                     key,
@@ -999,6 +1022,7 @@ impl RegistryClass {
             let mut data_size: u32 = data.len() as u32;
             let mut data_type: u32 = 0;
 
+            // SAFETY: [Category 8 — FFI] name/data buffers are fixed-size local arrays whose lengths are passed to the API, which writes at most that many bytes.
             let result = unsafe {
                 RegEnumValueA(
                     key,
@@ -1020,6 +1044,7 @@ impl RegistryClass {
             }
             if let Some(pos) = value_name.iter().position(|b| *b == 0) {
                 let name = CString::new(&value_name[..pos]).unwrap_or_default();
+                // SAFETY: [Category 8 — FFI] name is a NUL-terminated `CString`; deletion on an open valid key handle.
                 unsafe {
                     let _ = RegDeleteValueA(key, PCSTR(name.as_ptr() as _));
                 }
@@ -1034,6 +1059,7 @@ impl Drop for RegistryClass {
         #[cfg(target_os = "windows")]
         {
             if self.is_valid {
+                // SAFETY: [Category 8 — FFI] `key` came from a successful RegOpen*/RegCreate* call and is closed exactly once here.
                 unsafe {
                     let _ = RegCloseKey(self.key);
                 }

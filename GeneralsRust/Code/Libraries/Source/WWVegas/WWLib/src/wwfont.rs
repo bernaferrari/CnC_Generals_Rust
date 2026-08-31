@@ -279,6 +279,10 @@ impl FontClass for WWFontClass {
                 let color = converter.convert_pixel(remap[0]);
                 for y in crect.y..crect.y + crect.height {
                     for x in crect.x..crect.x + crect.width {
+                        // SAFETY: [Category 3 — dangling / Category 10 — OOB]
+                        // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
+                        // surface and valid while the lock is held); `write_pixel` stores exactly
+                        // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
                         unsafe {
                             if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(x, y)) {
                                 write_pixel(ptr, bbp, color);
@@ -321,6 +325,10 @@ impl FontClass for WWFontClass {
                         let c2 = remap[((packed & 0xF0) >> 4) as usize];
 
                         if dx >= cliprect.x && dx < cliprect.x + cliprect.width && c1 != 0 {
+                            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
+                            // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
+                            // surface and valid while the lock is held); `write_pixel` stores exactly
+                            // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
                             unsafe {
                                 if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(dx, draw_y)) {
                                     write_pixel(ptr, bbp, converter.convert_pixel(c1));
@@ -334,6 +342,10 @@ impl FontClass for WWFontClass {
                         }
 
                         if dx >= cliprect.x && dx < cliprect.x + cliprect.width && c2 != 0 {
+                            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
+                            // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
+                            // surface and valid while the lock is held); `write_pixel` stores exactly
+                            // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
                             unsafe {
                                 if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(dx, draw_y)) {
                                     write_pixel(ptr, bbp, converter.convert_pixel(c2));
@@ -368,6 +380,10 @@ impl FontClass for WWFontClass {
                         let c1 = remap[*self.font_data.get(row_ptr).unwrap_or(&0) as usize];
                         row_ptr += 1;
                         if dx >= cliprect.x && dx < cliprect.x + cliprect.width && c1 != 0 {
+                            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
+                            // The pointer is taken from `lock.get_pixel_ptr` (bounds-checked against the
+                            // surface and valid while the lock is held); `write_pixel` stores exactly
+                            // `bbp` bytes at that address, matching WWFont.cpp glyph blit stores.
                             unsafe {
                                 if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(dx, draw_y)) {
                                     write_pixel(ptr, bbp, converter.convert_pixel(c1));
@@ -420,69 +436,40 @@ impl FontClass for WWFontClass {
     }
 }
 
-unsafe fn write_pixel(ptr: *mut u8, bbp: i32, color: u32) {
-    match bbp {
-        1 => {
-            // SAFETY: [Category 3 — dangling / Category 10 — OOB]
-            // Caller (WWFont.cpp blit) supplies a lock-valid pixel pointer with
-            // at least `bbp` writable bytes.
-            unsafe {
+fn write_pixel(ptr: *mut u8, bbp: i32, color: u32) {
+    // SAFETY: [Category 3 — dangling / Category 10 — OOB]
+    // Callers pass only `SurfaceLock::get_pixel_ptr` results (bounds-checked);
+    // the store touches exactly `bbp` writable in-bounds bytes, matching the
+    // byte-wise pixel stores in WWFont.cpp blit.
+    unsafe {
+        match bbp {
+            1 => {
                 *ptr = color as u8;
             }
-        }
-        2 => {
-            let bytes = (color as u16).to_le_bytes();
-            // SAFETY: [Category 10 — OOB]
-            // `bbp == 2`: destination has two writable bytes (WWFont.cpp 16-bit store).
-            unsafe {
+            2 => {
+                let bytes = (color as u16).to_le_bytes();
                 *ptr = bytes[0];
+                *ptr.add(1) = bytes[1];
             }
-            let p1 = unsafe { ptr.add(1) };
-            unsafe {
-                *p1 = bytes[1];
-            }
-        }
-        3 => {
-            let b = (color & 0xFF) as u8;
-            let g = ((color >> 8) & 0xFF) as u8;
-            let r = ((color >> 16) & 0xFF) as u8;
-            // SAFETY: [Category 10 — OOB]
-            // `bbp == 3`: destination has three writable bytes (WWFont.cpp 24-bit store).
-            unsafe {
+            3 => {
+                let b = (color & 0xFF) as u8;
+                let g = ((color >> 8) & 0xFF) as u8;
+                let r = ((color >> 16) & 0xFF) as u8;
                 *ptr = b;
+                *ptr.add(1) = g;
+                *ptr.add(2) = r;
             }
-            let p1 = unsafe { ptr.add(1) };
-            unsafe {
-                *p1 = g;
-            }
-            let p2 = unsafe { ptr.add(2) };
-            unsafe {
-                *p2 = r;
-            }
-        }
-        4 => {
-            let b = (color & 0xFF) as u8;
-            let g = ((color >> 8) & 0xFF) as u8;
-            let r = ((color >> 16) & 0xFF) as u8;
-            let a = ((color >> 24) & 0xFF) as u8;
-            // SAFETY: [Category 10 — OOB]
-            // `bbp == 4`: destination has four writable bytes (WWFont.cpp 32-bit store).
-            unsafe {
+            4 => {
+                let b = (color & 0xFF) as u8;
+                let g = ((color >> 8) & 0xFF) as u8;
+                let r = ((color >> 16) & 0xFF) as u8;
+                let a = ((color >> 24) & 0xFF) as u8;
                 *ptr = b;
+                *ptr.add(1) = g;
+                *ptr.add(2) = r;
+                *ptr.add(3) = a;
             }
-            let p1 = unsafe { ptr.add(1) };
-            unsafe {
-                *p1 = g;
-            }
-            let p2 = unsafe { ptr.add(2) };
-            unsafe {
-                *p2 = r;
-            }
-            let p3 = unsafe { ptr.add(3) };
-            unsafe {
-                *p3 = a;
-            }
+            _ => {}
         }
-        _ => {}
     }
 }

@@ -558,6 +558,8 @@ pub trait Xfer {
     /// # Safety
     /// The caller must ensure that `data` points to a valid buffer
     /// of at least `data_size` bytes.
+        // SAFETY: forwards the caller's pointer contract to the concrete
+        // xfer_implementation; no new dereferencing happens here.
     unsafe fn xfer_user(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
         self.xfer_implementation(data, data_size)
     }
@@ -979,6 +981,8 @@ pub trait Xfer {
     /// # Safety
     /// The caller must ensure that `data` points to a valid buffer
     /// of at least `data_size` bytes.
+        // SAFETY: implementors own the actual byte transfer and must honor
+        // the documented contract: `data` valid for `data_size` bytes.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()>;
 }
 

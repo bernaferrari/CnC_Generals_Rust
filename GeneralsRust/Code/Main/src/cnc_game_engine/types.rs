@@ -98,12 +98,16 @@ fn macos_make_key_and_accept_mouse(window: &Window) {
         return;
     };
     let ns_view = appkit.ns_view.as_ptr();
+    // SAFETY: ns_view comes from a valid AppKit RawWindowHandle just
+    // matched above; still owned by the live winit Window.
     unsafe {
         macos_nsapp_key_window(ns_view);
     }
 }
 
 #[cfg(target_os = "macos")]
+// SAFETY: ns_view must be a live NSView pointer from a valid window
+// handle (enforced by callers); msg_send! targets follow AppKit
 unsafe fn macos_nsapp_key_window(ns_view: *mut std::ffi::c_void) {
     use objc::runtime::{Object, Sel, YES};
     use objc::{class, msg_send, sel, sel_impl};
@@ -159,6 +163,8 @@ struct NsRect {
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 #[link(name = "CoreFoundation", kind = "framework")]
+// SAFETY: CoreGraphics/CoreFoundation C ABI mirrors Apple headers;
+// CF types returned are released or consumed within each helper.
 unsafe extern "C" {
     fn CGEventCreate(source: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
     fn CGEventGetLocation(event: *mut std::ffi::c_void) -> CgPoint;
@@ -189,16 +195,23 @@ unsafe extern "C" {
 /// Maps through AppKit convertRectToScreen — winit inner_position is wrong on
 /// this host (HID at Solo Play was landing on EarthMap2).
 pub(super) fn macos_cursor_client_if_in_window(window: &Window) -> Option<(f32, f32)> {
+    // SAFETY: CGEventCreate(null) creates a new event reference owned by
+    // us, checked below before use.
     let event = unsafe { CGEventCreate(std::ptr::null_mut()) };
     if event.is_null() {
         return None;
     }
+    // SAFETY: event is a non-null CGEventRef created above; query only.
     let pt = unsafe { CGEventGetLocation(event) };
+    // SAFETY: releases the reference created above exactly once, after
+    // its last read.
     unsafe { CFRelease(event) };
     let size = window.inner_size();
     let scale = window.scale_factor().max(0.0001);
     let lw = (size.width as f64 / scale).max(1.0);
     let lh = (size.height as f64 / scale).max(1.0);
+    // SAFETY: helper queries CGWindowList (thread-safe) and returns an
+    // owned NsRect copy or None.
     let cg = unsafe { macos_own_cg_window_bounds(lw, lh) }?;
     log::info!(
         "macos cg window origin=({:.0},{:.0}) size={:.0}x{:.0} event=({:.0},{:.0})",
@@ -226,6 +239,8 @@ pub(super) fn macos_cursor_client_if_in_window(window: &Window) -> Option<(f32, 
 }
 
 #[cfg(target_os = "macos")]
+// SAFETY: pure CGWindowListCopyWindowInfo query filtered by own PID;
+// every CF object created here is CFReleased on all paths below.
 unsafe fn macos_own_cg_window_bounds(target_w: f64, target_h: f64) -> Option<NsRect> {
     const ON_SCREEN: u32 = 1;
     const UTF8: u32 = 0x0800_0100;

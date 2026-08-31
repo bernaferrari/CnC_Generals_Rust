@@ -670,6 +670,15 @@ impl GameLogic {
         };
         instance.rebuild_objective_lookup();
         GameLogic::register_leftover_object_create_overrides_overlay();
+        // C++ TheGameLogic::clearGameData tears per-world shroud down with the
+        // world (ThePartitionManager::reset + ThePlayerList::reset destroy
+        // PartitionData shroudedness and each Player's Shroud). The residual
+        // process-global ShroudManager bridge must not leak a previous
+        // world's object-shroud entries into this one (Object IDs recycle).
+        gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .reset_for_new_game();
         instance
     }
 
@@ -697,6 +706,13 @@ impl GameLogic {
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
         crate::assets::clear_live_draw_playback();
+        // Same per-world shroud teardown as GameLogic::new — start_new_game /
+        // clearGameData route through here (C++ GameLogic.cpp newGame calls
+        // clearGameData before rebuilding the player list).
+        gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .reset_for_new_game();
 
         self.objects.clear();
         self.hunt_next_enemy_scan.clear();

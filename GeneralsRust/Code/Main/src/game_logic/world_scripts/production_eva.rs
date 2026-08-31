@@ -1284,21 +1284,27 @@ impl GameLogic {
         // C++ `SpecialPowerModule::onSpecialPowerCreation` starts the authored
         // reload *before* applying StartsPaused, then expresses SharedNSync
         // ready-now (and a second CC therefore resets a ticking A10 timer).
+        // It is invoked only from SpecialPowerCreate::onBuildComplete
+        // (SpecialPowerCreate.cpp:36-53): objects whose INI does not carry the
+        // SpecialPowerCreate module never run this residual, so hand-built /
+        // map-spawned fixtures stay ready instead of silently arming a reload.
         let mut shared_ready = Vec::new();
-        if let Some(obj) = self.objects.get_mut(&structure_id) {
-            for module in modules.iter() {
-                let Some(power) = module.command_power.as_ref() else {
-                    continue;
-                };
-                obj.start_power_recharge_with_frames(power, module.reload_time_frames);
-                if module.shared_n_sync {
-                    shared_ready.push(power.clone());
-                }
-                // C++ SpecialPowerCreate::onBuildComplete → onSpecialPowerCreation
-                // pauseCountdown(TRUE). Units without that Create module only get
-                // the ctor pause from init_starts_paused_special_powers.
-                if module.starts_paused && obj.thing.template.has_special_power_create {
-                    obj.pause_special_power_countdown(power, true);
+        if obj.thing.template.has_special_power_create {
+            if let Some(obj) = self.objects.get_mut(&structure_id) {
+                for module in modules.iter() {
+                    let Some(power) = module.command_power.as_ref() else {
+                        continue;
+                    };
+                    obj.start_power_recharge_with_frames(power, module.reload_time_frames);
+                    if module.shared_n_sync {
+                        shared_ready.push(power.clone());
+                    }
+                    // C++ SpecialPowerCreate::onBuildComplete → onSpecialPowerCreation
+                    // pauseCountdown(TRUE). Units without that Create module only get
+                    // the ctor pause from init_special_power_ctor_arms.
+                    if module.starts_paused {
+                        obj.pause_special_power_countdown(power, true);
+                    }
                 }
             }
         }
@@ -1373,6 +1379,26 @@ impl GameLogic {
         let now = self.frame.max(1);
         obj.set_construction_complete_condition_at(now);
         obj.stamp_partition_value_threat();
+        // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:88-94) skips
+        // startPowerRecharge while UNDER_CONSTRUCTION; construction completion
+        // resolves that skip, so non-SharedNSync, non-StartsPaused modules
+        // begin their authored ReloadTime countdown here.
+        let arm_recharge: Vec<(crate::command_system::SpecialPowerType, u32)> = obj
+            .thing
+            .template
+            .special_power_modules
+            .iter()
+            .filter(|module| !module.starts_paused && !module.shared_n_sync)
+            .filter_map(|module| {
+                module
+                    .command_power
+                    .clone()
+                    .map(|power| (power, module.reload_time_frames))
+            })
+            .collect();
+        for (power, frames) in arm_recharge {
+            obj.start_power_recharge_with_frames(&power, frames);
+        }
         let team = obj.team;
         let pos = obj.get_position();
         let name = obj.template_name.clone();

@@ -2464,8 +2464,8 @@ mod tests {
     fn option_overlay_applies_scroll_retaliation_double_click_gamma() {
         let mut pref = UserPreferences::new();
         pref.set_int("ScrollFactor", 30);
-        pref.set_string("Retaliation".to_string(), "no".to_string());
-        pref.set_string("UseDoubleClickAttackMove".to_string(), "yes".to_string());
+        pref.set_string("Retaliation", "no".to_string());
+        pref.set_string("UseDoubleClickAttackMove", "yes".to_string());
         pref.set_int("Gamma", 100);
 
         let mut data = GlobalData::new();

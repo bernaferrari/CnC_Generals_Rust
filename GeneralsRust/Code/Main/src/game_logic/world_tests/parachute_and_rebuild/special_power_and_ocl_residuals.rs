@@ -78,9 +78,19 @@ fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
         o.weapon = Some(missile_defender_primary_weapon());
         o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
     }
+    // C++ SpecialAbilityUpdate.cpp:284-288 aborts
+    // SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES vs KINDOF_STRUCTURE —
+    // the laser target must be a mobile unit, not a tunnel network.
+    let mut buggy_t = ThingTemplate::new("GLAVehicleRocketBuggy");
+    buggy_t
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(120.0);
+    logic
+        .templates
+        .insert("GLAVehicleRocketBuggy".into(), buggy_t);
     let enemy = logic
         .create_object(
-            "GLATunnelNetwork",
+            "GLAVehicleRocketBuggy",
             Team::GLA,
             glam::Vec3::new(100.0, 0.0, 0.0),
         )
@@ -209,6 +219,98 @@ fn missile_defender_laser_endpoints_follow_moving_target() {
         (second.0 - first.0).abs() > 1.0 || (second.2 - first.2).abs() > 1.0,
         "MD laser end must follow a moving target, got {first:?} then {second:?}"
     );
+}
+
+#[test]
+fn missile_defender_laser_trigger_sets_temporary_secondary_weapon_lock() {
+    // C++ SpecialAbilityUpdate.cpp:1276-1293: triggerAbilityEffect calls
+    // setWeaponLock(SECONDARY, LOCKED_TEMPORARILY) before aiAttackObject.
+    use crate::game_logic::host_missile_defender::{
+        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+    };
+    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate, WeaponLockType};
+
+    let mut logic = GameLogic::new();
+    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+    md.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".into(), md);
+    let mut tgt_t = ThingTemplate::new("AmericaTankCrusader");
+    tgt_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    logic.templates.insert("AmericaTankCrusader".into(), tgt_t);
+
+    let shooter = logic
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    {
+        let o = logic.host_object_mut(shooter).unwrap();
+        o.weapon = Some(missile_defender_primary_weapon());
+        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+    }
+    let target = logic
+        .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+
+    assert!(logic.activate_missile_defender_laser_guided(shooter, target));
+    // Exhaust the 1000ms preparation window to reach the trigger tick.
+    logic.update_leftover_laser_guided_channels(2.0);
+    let o = logic.host_object(shooter).unwrap();
+    assert_eq!(o.weapon_lock_type, WeaponLockType::LockedTemporarily);
+    assert_eq!(o.weapon_lock_slot, 1);
+    assert_eq!(o.active_weapon_slot, 1);
+    assert_eq!(o.target, Some(target));
+    assert_eq!(o.ai_state, AIState::Attacking);
+}
+
+#[test]
+fn missile_defender_laser_never_overrides_permanent_user_weapon_lock() {
+    // C++ WeaponSet.cpp:1053-1056: LOCKED_TEMPORARILY is refused while a
+    // permanent user lock is held, so the user-locked slot keeps firing;
+    // the aiAttackObject order itself still goes out.
+    use crate::game_logic::host_missile_defender::{
+        missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate, WeaponLockType};
+
+    let mut logic = GameLogic::new();
+    let mut md = ThingTemplate::new("AmericaInfantryMissileDefender");
+    md.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".into(), md);
+    let mut tgt_t = ThingTemplate::new("AmericaTankCrusader");
+    tgt_t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    logic.templates.insert("AmericaTankCrusader".into(), tgt_t);
+
+    let shooter = logic
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    {
+        let o = logic.host_object_mut(shooter).unwrap();
+        o.weapon = Some(missile_defender_primary_weapon());
+        o.secondary_weapon = Some(missile_defender_laser_guided_weapon());
+        assert!(o.set_weapon_lock(0, WeaponLockType::LockedPermanently));
+    }
+    let target = logic
+        .create_object("AmericaTankCrusader", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
+        .unwrap();
+
+    assert!(logic.activate_missile_defender_laser_guided(shooter, target));
+    logic.update_leftover_laser_guided_channels(2.0);
+    let o = logic.host_object(shooter).unwrap();
+    assert_eq!(o.weapon_lock_type, WeaponLockType::LockedPermanently);
+    assert_eq!(o.weapon_lock_slot, 0);
+    assert_eq!(o.active_weapon_slot, 0, "user-locked slot must keep firing");
+    assert_eq!(o.target, Some(target), "attack order still issued");
 }
 
 #[test]
@@ -741,6 +843,13 @@ fn superweapon_crate_drop_spawns_ten_200_dollar_crates() {
         logic.last_crate_drop_spawned(),
         SUPERWEAPON_CRATE_DROP_COUNT
     );
+    // C++ OCLSpecialPower CREATE_AT_EDGE_NEAR_SOURCE spawns the cargo plane;
+    // DeliverPayloadUpdate drops the crates in flight (DropDelay 300ms), so
+    // advance the payload tick until the ten crates land.
+    for _ in 0..600 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_deliver_payloads();
+    }
     let crates = logic
         .host_objects()
         .values()

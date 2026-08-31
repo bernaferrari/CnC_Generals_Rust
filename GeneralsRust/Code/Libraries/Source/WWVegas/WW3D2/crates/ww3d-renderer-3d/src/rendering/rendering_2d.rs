@@ -47,7 +47,12 @@ pub struct Render2DVertex {
 }
 
 // SAFETY: Render2DVertex is repr(C) and contains only Pod types (Vec3, Vec4, Vec2)
+// SAFETY: Render2DVertex is `#[repr(C)]` over Vec3, Vec4, Vec2 (4-byte-aligned
+// f32 fields) with no implicit padding, references, or interior mutability, so
+// any initialized bit pattern is a valid value — bytemuck's Pod contract.
 unsafe impl bytemuck::Pod for Render2DVertex {}
+// SAFETY: all-bits-zero is a valid Render2DVertex value: every field is
+// f32-based and zero bits are well-defined float zeros.
 unsafe impl bytemuck::Zeroable for Render2DVertex {}
 
 impl Render2DVertex {

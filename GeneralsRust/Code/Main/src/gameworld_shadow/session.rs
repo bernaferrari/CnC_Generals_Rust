@@ -1373,7 +1373,7 @@ pub fn shadow_session_after_host_tick(
         }
         for ev in crate::game_logic::host_daisy_cutter_drop_log::drain_dets() {
             use crate::game_logic::combat::DamageType;
-            logic.apply_fuel_air_radius_damage(
+            let _ = logic.apply_fuel_air_radius_damage(
                 ev.bomb,
                 ev.producer,
                 ev.team,
@@ -1422,7 +1422,7 @@ pub fn shadow_session_after_host_tick(
             use crate::game_logic::special_power_strikes::{
                 ANTHRAX_BOMB_IMPACT_DAMAGE, ANTHRAX_BOMB_IMPACT_RADIUS,
             };
-            logic.apply_fuel_air_radius_damage(
+            let _ = logic.apply_fuel_air_radius_damage(
                 ev.bomb,
                 ev.producer,
                 ev.team,
@@ -1604,7 +1604,7 @@ pub fn shadow_session_after_host_tick(
             use crate::game_logic::special_power_strikes::{
                 A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS,
             };
-            logic.apply_fuel_air_radius_damage(
+            let _ = logic.apply_fuel_air_radius_damage(
                 ev.missile,
                 ev.producer,
                 ev.team,
@@ -1627,7 +1627,7 @@ pub fn shadow_session_after_host_tick(
             use crate::game_logic::special_power_strikes::{
                 A10_VULCAN_PRIMARY_DAMAGE, A10_VULCAN_PRIMARY_RADIUS,
             };
-            logic.apply_fuel_air_radius_damage(
+            let _ = logic.apply_fuel_air_radius_damage(
                 ev.jet,
                 ev.producer,
                 ev.team,
@@ -1690,7 +1690,7 @@ pub fn shadow_session_after_host_tick(
             use crate::game_logic::special_power_strikes::{
                 ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_RADIUS,
             };
-            logic.apply_fuel_air_radius_damage(
+            let _ = logic.apply_fuel_air_radius_damage(
                 ev.shell,
                 ev.producer,
                 ev.team,
@@ -1748,7 +1748,7 @@ pub fn shadow_session_after_host_tick(
             use crate::game_logic::special_power_strikes::{
                 CARPET_BOMB_DAMAGE, CARPET_BOMB_RADIUS,
             };
-            logic.apply_fuel_air_radius_damage(
+            let _ = logic.apply_fuel_air_radius_damage(
                 ev.bomb,
                 ev.producer,
                 ev.team,

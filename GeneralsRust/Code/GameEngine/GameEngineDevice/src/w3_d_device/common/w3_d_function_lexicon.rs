@@ -121,6 +121,9 @@ impl FunctionPtr {
     /// tables and Rust function items). Passing a non-function address is
     /// undefined behavior if the result is later invoked via
     /// [`FunctionPtr::as_unit_fn`].
+    // SAFETY: Caller must pass 0 or the address of a live `fn()` that stays valid
+    // SAFETY: for process lifetime (C++ static callback tables / Rust function
+    // SAFETY: items). Any other address is UB if later invoked via as_unit_fn.
     pub unsafe fn from_usize(raw: usize) -> Self {
         if raw == 0 {
             Self(None)

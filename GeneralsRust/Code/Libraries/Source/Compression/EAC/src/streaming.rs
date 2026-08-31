@@ -142,6 +142,9 @@ impl StreamingCompressor {
         log::debug!("Using memory-mapped compression for {} bytes", input_size);
 
         // Memory-map the input file
+        // SAFETY: input_file is an open read-only File handle; MmapOptions::new() maps the
+        // whole file and returns Err (mapped to EacError::Io) instead of UB for empty or
+        // unmappable files, so the resulting &Mmap is valid for the file's lifetime here.
         let mmap = unsafe { MmapOptions::new().map(&input_file).map_err(EacError::Io)? };
 
         let chunks_count = input_size.div_ceil(self.config.chunk_size);
@@ -348,6 +351,9 @@ impl StreamingDecompressor {
             compressed_size
         );
 
+        // SAFETY: input_file is an open read-only File handle kept alive by this function
+        // while `mmap` is used; mapping errors (including empty files) are returned as
+        // EacError::Io rather than producing an invalid mapping.
         let mmap = unsafe { MmapOptions::new().map(&input_file).map_err(EacError::Io)? };
 
         let decompressed = self.decoder.decode(&mmap)?;

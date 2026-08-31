@@ -49,10 +49,16 @@ impl SharedContainIdCache {
     }
 
     fn contains(&self, id: &ObjectID) -> bool {
+        // SAFETY: the cache is guarded externally — the owning CaveContain
+        // module lives behind `Mutex<dyn ContainModuleInterface>` (or is
+        // used via `&mut self` in tests), so this shared cell read cannot
+        // race a writer.
         unsafe { (*self.ids.get()).contains(id) }
     }
 
     fn push(&self, id: ObjectID) {
+        // SAFETY: external mutex guarantees exclusivity (see type-level
+        // note); the whole-vector mutation keeps the cell valid.
         let cache = unsafe { &mut *self.ids.get() };
         if !cache.contains(&id) {
             cache.push(id);
@@ -60,16 +66,23 @@ impl SharedContainIdCache {
     }
 
     fn retain(&self, mut pred: impl FnMut(&ObjectID) -> bool) {
+        // SAFETY: external mutex guarantees exclusivity; `retain` mutates in
+        // place but leaves the allocation valid for later readers.
         unsafe { (*self.ids.get()).retain(|id| pred(id)) }
     }
 
     fn clear(&self) {
+        // SAFETY: external mutex guarantees exclusivity; clearing keeps the
+        // vector allocated and the cell valid.
         unsafe { (*self.ids.get()).clear() }
     }
 
     fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
+        // SAFETY: external mutex guarantees exclusivity for the write…
         let cache = unsafe { &mut *self.ids.get() };
         *cache = ids;
+        // SAFETY: …and no other alias exists when this shared borrow of the
+        // freshly replaced cache is taken.
         unsafe { &*self.ids.get() }
     }
 }
@@ -936,6 +949,8 @@ impl Snapshotable for CaveContain {
             .map_err(|e| e.to_string())?;
 
         let mut team_id = self.original_team_id();
+        // SAFETY: `team_id` is an initialized stack `TeamID`; `xfer_user`
+        // moves exactly `size_of::<TeamID>()` bytes within this call.
         unsafe {
             xfer.xfer_user(
                 &mut team_id as *mut TeamID as *mut u8,

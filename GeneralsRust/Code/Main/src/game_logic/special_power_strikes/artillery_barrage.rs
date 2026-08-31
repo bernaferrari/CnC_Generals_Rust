@@ -160,6 +160,10 @@ pub const ARTILLERY_BARRAGE_WEAPON_NAME: &str = "ArtilleryBarrageDamageWeapon";
 pub const ARTILLERY_BARRAGE_PREFERRED_HEIGHT: f32 = 500.0;
 /// Retail DeliverPayload DeliveryDistance residual.
 pub const ARTILLERY_BARRAGE_DELIVERY_DISTANCE: f32 = 250.0;
+/// Retail PreOpenDistance residual: SUPERWEAPON_ArtilleryBarrage1/2/3 do not
+/// set PreOpenDistance (defaults 0), so the inbound band expansion of C++
+/// isCloseEnoughToTarget is the identity here.
+pub const ARTILLERY_BARRAGE_PRE_OPEN_DISTANCE: f32 = 0.0;
 /// Retail DeliveryDecalRadius residual.
 pub const ARTILLERY_BARRAGE_DECAL_RADIUS: f32 = 125.0;
 /// Retail FormationSpacing residual.

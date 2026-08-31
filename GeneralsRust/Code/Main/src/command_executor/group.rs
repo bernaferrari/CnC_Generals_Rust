@@ -371,12 +371,12 @@ impl<'a> CommandExecutor<'a> {
             if !o.is_alive() || o.contained_by.is_some() {
                 continue;
             }
-            if o.is_kind_of(crate::game_logic::KindOf::Infantry)
-                || o.object_type == crate::game_logic::ObjectType::Infantry
+            if o.is_kind_of(KindOf::Infantry)
+                || o.object_type == ObjectType::Infantry
             {
                 num_infantry += 1;
-            } else if o.is_kind_of(crate::game_logic::KindOf::Vehicle)
-                && !o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            } else if o.is_kind_of(KindOf::Vehicle)
+                && !o.is_kind_of(KindOf::Aircraft)
             {
                 num_vehicles += 1;
             }
@@ -385,7 +385,6 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-        // Closest unit → dest distance.
         // C++ friend_computeGroundPath (AIGroup.cpp:534-549): only members with
         // AI that are KINDOF_INFANTRY or KINDOF_VEHICLE. Aircraft continue;
         // no-AI objects are skipped. "ANY type" means any remaining ground type.
@@ -400,10 +399,10 @@ impl<'a> CommandExecutor<'a> {
             if !Self::member_has_ai_update(o) {
                 continue;
             }
-            let is_infantry = o.is_kind_of(crate::game_logic::KindOf::Infantry)
-                || o.object_type == crate::game_logic::ObjectType::Infantry;
-            let is_vehicle = o.is_kind_of(crate::game_logic::KindOf::Vehicle)
-                && !o.is_kind_of(crate::game_logic::KindOf::Aircraft);
+            let is_infantry = o.is_kind_of(KindOf::Infantry)
+                || o.object_type == ObjectType::Infantry;
+            let is_vehicle = o.is_kind_of(KindOf::Vehicle)
+                && !o.is_kind_of(KindOf::Aircraft);
             if !is_infantry && !is_vehicle {
                 continue;
             }
@@ -437,28 +436,21 @@ impl<'a> CommandExecutor<'a> {
             .unwrap_or(0);
         if fid0 != 0
             && units.iter().all(|&id| {
-                self.game_logic
-                    .host_object(id)
-                    .map(|o| o.formation_id == fid0)
-                    .unwrap_or(false)
+                self.game_logic.host_object(id).map(|o| o.formation_id == fid0).unwrap_or(false)
             })
         {
             close_enough = true;
         }
-        // C++ AIGroup.cpp:590-611 — if still not closeEnough, every infantry
-        // must have isLinePassable to the center vehicle. An empty infantry
-        // set leaves isPassable true (C++ default).
+        // C++ AIGroup.cpp:590-611: not closeEnough → every infantry needs
+        // isLinePassable to the center vehicle (empty set stays passable).
         if !close_enough {
             let mut center_vehicle = center;
             let mut best_d2 = f32::INFINITY;
             for &id in units {
-                let Some(o) = self.game_logic.host_object(id) else {
-                    continue;
-                };
-                if !o.is_alive() || o.contained_by.is_some() || !Self::member_has_ai_update(o) {
-                    continue;
-                }
-                if o.is_kind_of(crate::game_logic::KindOf::Aircraft) {
+                let Some(o) = self.game_logic.host_object(id) else { continue };
+                if !o.is_alive() || o.contained_by.is_some() || !Self::member_has_ai_update(o)
+                    || o.is_kind_of(KindOf::Aircraft)
+                {
                     continue;
                 }
                 let p = o.get_position();
@@ -470,12 +462,8 @@ impl<'a> CommandExecutor<'a> {
             }
             let mut is_passable = true;
             for &id in units {
-                let Some(o) = self.game_logic.host_object(id) else {
-                    continue;
-                };
-                if !o.is_kind_of(crate::game_logic::KindOf::Infantry)
-                    && o.object_type != crate::game_logic::ObjectType::Infantry
-                {
+                let Some(o) = self.game_logic.host_object(id) else { continue };
+                if !o.is_kind_of(KindOf::Infantry) && o.object_type != ObjectType::Infantry {
                     continue;
                 }
                 if !o.is_alive() || o.contained_by.is_some() {

@@ -137,6 +137,8 @@ impl Snapshot {
             xfer.xfer_unsigned_byte(&mut byte)?;
         }
         if !self.data.is_empty() {
+                        // SAFETY: self.data is an owned Vec<u8>; casting to *mut u8 is
+                        // fine because Crc mode never writes through xfer_user.
             unsafe {
                 xfer.xfer_user(self.data.as_ptr() as *mut u8, self.data.len())?;
             }

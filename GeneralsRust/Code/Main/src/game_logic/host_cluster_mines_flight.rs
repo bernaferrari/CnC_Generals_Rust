@@ -17,6 +17,7 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+use crate::game_logic::host_deliver_payload::is_close_enough_to_target_squared_residual;
 use crate::game_logic::host_mines::{
     CLUSTER_MINE_NUM_VIRTUAL, CLUSTER_MINES_BOMB_TEMPLATE, CLUSTER_MINES_DELIVERY_DISTANCE,
     CLUSTER_MINES_DROP_OFFSET, CLUSTER_MINES_OCL_TRANSPORT,
@@ -27,6 +28,11 @@ use crate::game_logic::host_mines::{
 pub const CLUSTER_MINES_BOMB_OBJECT: &str = CLUSTER_MINES_BOMB_TEMPLATE;
 /// Retail ClusterMinesBomb `GenerationFX` residual.
 pub const CLUSTER_MINES_GENERATION_FX: &str = "WeaponFX_ClusterMineImpact";
+
+/// Retail PreOpenDistance residual: SUPERWEAPON_ClusterMines does not set
+/// PreOpenDistance (defaults 0), so the inbound band expansion of C++
+/// isCloseEnoughToTarget is the identity here.
+pub const CLUSTER_MINES_PRE_OPEN_DISTANCE: f32 = 0.0;
 
 /// Leftover `GenerateMinefieldBehavior.generation_fx` on ClusterMinesBomb.
 pub fn leftover_cluster_mines_generation_fx(template_name: &str) -> Option<String> {
@@ -93,6 +99,10 @@ pub struct HostClusterMinesFlightData {
     /// C++ HeadOffMapState: dest is HUGE_DIST after delivery.
     #[serde(default)]
     pub passed_target: bool,
+    /// Previous 2D dist² for C++ isCloseEnoughToTarget inbound tracking
+    /// (DeliverPayloadAIUpdate.cpp:99,356-357; starts at 0 like m_previousDistanceSqr).
+    #[serde(default)]
+    pub prev_dist_sq: f32,
     /// Map extent for C++ `isOffMap` / HeadOffMap HUGE_DIST (world_min/max).
     #[serde(default)]
     pub map_min: Vec3,
@@ -106,6 +116,7 @@ impl HostClusterMinesFlightData {
             target,
             launch,
             delivery_complete: false,
+            prev_dist_sq: 0.0,
             passed_target: false,
             map_min: Vec3::ZERO,
             map_max: Vec3::ZERO,
@@ -116,12 +127,20 @@ impl HostClusterMinesFlightData {
         self.map_max.x > self.map_min.x && self.map_max.z > self.map_min.z
     }
 
-    /// C++ DeliverPayloadAIUpdate::isCloseEnoughToTarget (DeliveryDistance 140).
-    pub fn in_delivery_band(&self, pos: Vec3) -> bool {
+    /// C++ DeliverPayloadAIUpdate::isCloseEnoughToTarget (DeliveryDistance 140,
+    /// PreOpenDistance 0): inbound expands the allowed band to the sum.
+    pub fn in_delivery_band(&mut self, pos: Vec3) -> bool {
         let dx = self.target.x - pos.x;
         let dz = self.target.z - pos.z;
-        let dist = (dx * dx + dz * dz).sqrt();
-        dist <= CLUSTER_MINES_DELIVERY_DISTANCE
+        let current = dx * dx + dz * dz;
+        let previous = self.prev_dist_sq;
+        self.prev_dist_sq = current;
+        is_close_enough_to_target_squared_residual(
+            current,
+            previous,
+            CLUSTER_MINES_DELIVERY_DISTANCE,
+            CLUSTER_MINES_PRE_OPEN_DISTANCE,
+        )
     }
 
     /// C++ Approach/Delivering toward moveToPos, then HeadOffMap HUGE_DIST.
@@ -241,12 +260,14 @@ mod tests {
 
     #[test]
     fn delivery_band_is_full_140_not_half() {
-        let data = HostClusterMinesFlightData::start(
+        let mut data = HostClusterMinesFlightData::start(
             Vec3::new(0.0, 150.0, 0.0),
             Vec3::new(200.0, 0.0, 0.0),
         );
-        assert!(data.in_delivery_band(Vec3::new(60.0, 150.0, 0.0)));
-        assert!(data.in_delivery_band(Vec3::new(200.0 - 140.0, 150.0, 0.0)));
+        // C++ strict boundary: exactly DeliveryDistance is outside the band.
+        assert!(!data.in_delivery_band(Vec3::new(60.0, 150.0, 0.0)));
+        // Inbound approach inside the full 140 band.
+        assert!(data.in_delivery_band(Vec3::new(61.0, 150.0, 0.0)));
         assert!(!data.in_delivery_band(Vec3::new(200.0 - 141.0, 150.0, 0.0)));
         let plane = Vec3::new(60.0, 150.0, 0.0);
         let drop = cluster_mines_payload_drop_pos(plane);

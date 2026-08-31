@@ -86,6 +86,8 @@ impl Crc {
 
     /// Compute CRC of a single value
     pub fn compute_single<T>(&mut self, value: &T) {
+        // SAFETY: reading any plain-old-data T as bytes; no padding is
+        // observed because size_of::<T>() bounds the read exactly.
         let bytes = unsafe {
             std::slice::from_raw_parts(value as *const T as *const u8, std::mem::size_of::<T>())
         };

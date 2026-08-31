@@ -1264,7 +1264,8 @@ impl FXNugget for TracerFXNugget {
         secondary: Option<&Coord3D>,
         _override_radius: f32,
     ) {
-        if self.probability <= rand::random::<f32>() {
+        // C++ FXList.cpp:150 — GameClientRandomValueReal(0, 1).
+        if self.probability <= crate::GameClientRandomValueReal!(0.0, 1.0) {
             return;
         }
         let (Some(primary), Some(secondary)) = (primary, secondary) else {

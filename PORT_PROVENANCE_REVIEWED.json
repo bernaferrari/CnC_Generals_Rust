@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "policy": "Path review only. A mapping does not claim symbol, source-range, or behavioral parity. Split module roots expand recursively to reachable Rust fragments.",
+  "policy": "Path mappings, symbol/source-range ownership, and behavioral evidence are separate claims. A mapping does not claim symbol, range, or behavioral parity. Split module roots expand recursively to reachable Rust fragments.",
+  "ownership_schema": "Optional per-unit records under 'ownership': {source, source_sha256, symbols: [{name, line, assignments: [{path, sha256, symbols: [rust names], deviation: null | allowed id}]}], source_ranges: [{start_line, end_line, path, sha256}]}. Every C++ symbol occurrence (overloads distinguished by line) must be assigned to existing reachable Rust implementation symbols; ranges must cover the unit exactly without overlap. Hashes pin source and destination bytes at review time; drift, moves, gaps, unknown symbols, or unknown deviation ids keep the unit red with ownership_* diagnostics.",
   "mappings": [
     {
       "source": "GeneralsMD/Code/GameEngine/Include/Common/GameAudio.h",

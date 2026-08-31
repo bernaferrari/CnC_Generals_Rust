@@ -95,6 +95,8 @@ mod tests {
             self.xfer_ascii_string(unicode_string_data)
         }
 
+                    // SAFETY: mock receives only pointers derived from live Rust
+                    // buffers in these tests; copies data_size bytes into the buffer.
         unsafe fn xfer_implementation(
             &mut self,
             data: *mut u8,
@@ -200,6 +202,8 @@ mod tests {
             self.xfer_ascii_string(unicode_string_data)
         }
 
+                    // SAFETY: mock receives only pointers derived from live Rust
+                    // buffers in these tests; fills data_size bytes from the cursor.
         unsafe fn xfer_implementation(
             &mut self,
             data: *mut u8,

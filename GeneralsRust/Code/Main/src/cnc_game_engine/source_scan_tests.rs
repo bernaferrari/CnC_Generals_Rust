@@ -1309,8 +1309,9 @@ fn hack_internet_and_cleanup_area_residual() {
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("Command_HackInternet") && pf.contains("Command_CleanupArea"),
-        "strip must expose hack/cleanup residual"
+        pf.contains("Command_ChinaInfantryHackerInternetHack")
+            && pf.contains("Command_AmbulanceCleanupArea"),
+        "strip must expose hack/cleanup residual (retail CommandSet slots)"
     );
 }
 

@@ -1437,9 +1437,9 @@ impl CommandSystem {
                 return Some(CommandType::Enter { target_id });
             }
         }
-        // Attack: C++ getCanAttackObject is weapon-legal (neutrals/tech), not
-        // enemy-tint. Dozer DISARM vs non-mine is NOT_POSSIBLE.
-        // Wave 1098: sold residual fail-closed (presentation_target_hint also peels).
+        // Attack: C++ WeaponSet.cpp:529-543 getCanAttackObject — player
+        // attacks need ENEMIES (mine/force exceptions). Wave 1098: sold
+        // residual fail-closed (presentation_target_hint also peels).
         if !hint.sold && any_attacker() {
             let legal = if !selected_presentation.is_empty() {
                 selected_presentation.iter().any(|u| {
@@ -1452,7 +1452,12 @@ impl CommandSystem {
                     if u.is_worker {
                         return hint.is_mine;
                     }
-                    true
+                    // C++ WeaponSet.cpp:529-543 — CMD_FROM_PLAYER non-force
+                    // attack requires ENEMIES, or a non-allied mine. The RMB
+                    // context command is never force-attack, so a neutral
+                    // (or friendly) crate/tech target must fall through to
+                    // the move-to-crate mapping below.
+                    hint.is_enemy_of_local || hint.is_mine
                 })
             } else {
                 game_logic.is_some_and(|gl| self.can_attack_target(units, target_id, gl))
@@ -1872,8 +1877,21 @@ fn target_is_hijackable_vehicle(hint: &PresentationTargetHint) -> bool {
 }
 
 fn target_is_carbombable_vehicle(hint: &PresentationTargetHint) -> bool {
-    // C++ ConvertToCarBombCrateCollide allows neutrals; already-bombs are rejected.
-    hint.is_alive && !hint.sold && hint.is_vehicle && !hint.is_aircraft && !hint.is_carbomb
+    // C++ ActionManager.cpp:794-825 delegates to ConvertToCarBombCrateCollide
+    // wouldLikeToCollideWith == isValidToExecute
+    // (ConvertToCarBombCrateCollide.cpp:36-76): the click is only a carbomb
+    // conversion when the TARGET VEHICLE authors a WEAPONSET_CARBOMB
+    // weapon-template set; already-bombs are rejected.  Without the weapon-set
+    // probe every Terrorist RMB on an own Combat Bike would steal the click
+    // from RiderChange/Enter (the retail bike authors no CARBOMB set).
+    hint.is_alive
+        && !hint.sold
+        && hint.is_vehicle
+        && !hint.is_aircraft
+        && !hint.is_carbomb
+        && crate::game_logic::host_car_bomb::template_has_carbomb_weapon_set(
+            &hint.template_name,
+        )
 }
 
 fn selection_can_hijack_target(

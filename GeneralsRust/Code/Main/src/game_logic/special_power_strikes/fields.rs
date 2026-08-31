@@ -393,15 +393,25 @@ impl HostSpectreOrbitField {
         }
     }
 
-    /// C++ `setSpecialPowerOverridableDestination` + update clamp.
-    /// Stores the click on the reticle; never moves `position`.
+    /// C++ `setSpecialPowerOverridableDestination` + update split
+    /// (SpectreGunshipUpdate.cpp:268-282, 400-439).
+    ///
+    /// The click steers the orbit CENTER (`m_initialTargetPosition`, host
+    /// `position`) via satellite `aiMoveToPosition` — unclamped. The CLAMP
+    /// applies only to the reticle (`m_overrideTargetDestination`, host
+    /// `override_destination`) against that initial target with
+    /// `constraintRadius = AttackAreaRadius - TargetingReticleRadius`.
     pub fn apply_override_destination(&mut self, destination: Vec3) {
+        self.position = destination;
         self.override_destination = clamp_spectre_override_destination(
             self.position,
             destination,
             SPECTRE_ORBIT_RADIUS,
             SPECTRE_TARGETING_RETICLE_RADIUS,
         );
+        // The gattling / howitzer aim chain follows the new orbit epicenter.
+        self.gattling_target_position = destination;
+        self.position_to_shoot_at = destination;
     }
 
     /// C++ lagged gattling / howitzer aim. Falls back to the orbit epicenter.

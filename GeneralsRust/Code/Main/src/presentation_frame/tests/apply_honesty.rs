@@ -351,6 +351,15 @@ fn empty_chinook_combat_drop_restricted() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
     let mut logic = crate::game_logic::GameLogic::new();
+    // The command strip is the local player's UI (C++ ControlBar populates
+    // the local player's selection). Register the controller slot so the
+    // Chinook resolves as local-owned, like every other controlled fixture.
+    logic.add_player(crate::game_logic::Player::new(
+        0,
+        crate::game_logic::Team::USA,
+        "USA",
+        true,
+    ));
     let mut t = ThingTemplate::new("AmericaVehicleChinook");
     t.add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Selectable)

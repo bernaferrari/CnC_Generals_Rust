@@ -184,7 +184,6 @@ impl GameLogic {
                 }
             }
         }
-
         let weapon_snap = self
             .objects
             .get(&garrisoned_id)
@@ -229,9 +228,13 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
-            attacker.set_target(Some(target_id));
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            // The occupant stays Garrisoned (C++ GarrisonContain never
+            // rewrites occupant AI on the fire path;
+            // GarrisonContain.cpp:1691-1700 isPassengerAllowedToFire, occupant
+            // holds AI_BUSY per AIUpdate.cpp:4006 privateBusy). Stamp only the
+            // order target: Object::set_target would force AIState::Attacking
+            // (orders.rs:30-47).
+            attacker.set_order_target(Some(target_id));
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(garrisoned_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(garrisoned_id, 2);

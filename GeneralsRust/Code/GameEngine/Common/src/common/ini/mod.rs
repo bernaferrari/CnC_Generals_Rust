@@ -212,6 +212,7 @@ pub use ini_window_transition::{
 };
 
 pub use crate::common::system::Matrix3D;
+use crate::common::system::big_file_system::BigFile;
 
 fn push_player_template_ini_file(
     files: &mut Vec<PathBuf>,
@@ -282,9 +283,66 @@ fn discover_player_template_ini_files() -> Vec<PathBuf> {
     files
 }
 
+fn extract_player_template_ini_from_archives(virtual_path: &str) -> Option<String> {
+    // C++ loads INIs through the virtual file system, which falls back to the
+    // .big archives (INIZH.big holds the retail PlayerTemplate.ini). When no
+    // loose Data/INI tree exists on this machine, read it straight out of a
+    // discovered .big archive.
+    for root in crate::common::system::install_layout::zh_install_roots() {
+        let big_path = ["INIZH.big", "inizh.big"]
+            .iter()
+            .find_map(|name| {
+                crate::common::system::install_layout::find_file_case_insensitive(&root, name)
+            });
+        let Some(big_path) = big_path else {
+            continue;
+        };
+
+        let mut big = BigFile::new();
+        if big.open(&big_path).is_err() {
+            continue;
+        }
+        let entry = big
+            .entries()
+            .iter()
+            .find(|entry| entry.filename.replace('\\', "/").eq_ignore_ascii_case(virtual_path))
+            .cloned();
+        let Some(entry) = entry else { continue };
+        match big.extract_file_data(&entry) {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(text) => return Some(text),
+                Err(err) => {
+                    warn!("PlayerTemplate.ini in {} not valid UTF-8: {}", big_path.display(), err);
+                }
+            },
+            Err(err) => {
+                warn!(
+                    "Failed extracting PlayerTemplate.ini from {}: {}",
+                    big_path.display(),
+                    err
+                );
+            }
+        }
+    }
+    None
+}
+
 fn load_player_templates() {
     let sources = discover_player_template_ini_files();
+    let mut inline_sources: Vec<String> = Vec::new();
     if sources.is_empty() {
+        // Loose-file precedence kept: archives are only consulted when no
+        // loose PlayerTemplate.ini was discovered anywhere.
+        for virtual_path in [
+            "data/ini/default/playertemplate.ini",
+            "data/ini/playertemplate.ini",
+        ] {
+            if let Some(content) = extract_player_template_ini_from_archives(virtual_path) {
+                inline_sources.push(content);
+            }
+        }
+    }
+    if sources.is_empty() && inline_sources.is_empty() {
         warn!("No PlayerTemplate.ini sources discovered");
         return;
     }
@@ -292,6 +350,16 @@ fn load_player_templates() {
     {
         let mut store = get_player_template_store_mut();
         store.clear();
+    }
+
+    // Default/PlayerTemplate.ini first (Overwrite), then the override.
+    for (idx, content) in inline_sources.iter().enumerate() {
+        let mut ini = INI::new();
+        let result =
+            ini.with_inline_source(content, |ini| ini.parse_current_file());
+        if let Err(err) = result {
+            warn!("Failed parsing archived PlayerTemplate.ini source #{}: {}", idx, err);
+        }
     }
 
     let mut ini = INI::new();
@@ -310,11 +378,35 @@ fn load_player_templates() {
         }
     }
 
+
+    // C++ FileSystem::openFile (FileSystem.cpp:142-154) falls back to
+    // TheArchiveFileSystem when the local file cannot serve Data\\INI\\
+    // PlayerTemplate.ini. A discovered-but-corrupt loose INI (partial or
+    // mis-extracted tree) must behave the same: if parsing produced no
+    // PlayerTemplate records, retry with the retail INIZH.big content
+    // instead of leaving an empty store.
+    if get_player_template_store().is_empty() {
+        for virtual_path in [
+            "data/ini/default/playertemplate.ini",
+            "data/ini/playertemplate.ini",
+        ] {
+            let Some(content) = extract_player_template_ini_from_archives(virtual_path) else {
+                continue;
+            };
+            let mut ini = INI::new();
+            let result =
+                ini.with_inline_source(&content, |ini| ini.parse_current_file());
+            if let Err(err) = result {
+                warn!("Failed parsing archived PlayerTemplate.ini source '{}': {}", virtual_path, err);
+            }
+        }
+    }
     let store = get_player_template_store();
     info!(
-        "PlayerTemplate store loaded {} templates from {} source files",
+        "PlayerTemplate store loaded {} templates from {} loose files and {} archived sources",
         store.len(),
-        sources.len()
+        sources.len(),
+        inline_sources.len()
     );
 }
 

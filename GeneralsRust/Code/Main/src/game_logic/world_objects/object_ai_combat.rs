@@ -710,6 +710,41 @@ impl GameLogic {
             })
             .map(|(id, _)| *id)
             .collect();
+        // C++ Object::updateUpgradeModules visits only objects that own the
+        // matching upgrade module. CamoNetting is StealthUpgrade on specific
+        // structure templates (Upgrade_GLACamoNetting); the generic owner
+        // fan-out must not tag unrelated units (Rebel infantry is Camouflage).
+        let owner_ids: Vec<ObjectId> = match kind {
+            // C++ Object::updateUpgradeModules visits only objects that own the
+            // matching upgrade module. CamoNetting is StealthUpgrade on specific
+            // structure templates (Upgrade_GLACamoNetting); the generic owner
+            // fan-out must not tag unrelated units (Rebel infantry is Camouflage).
+            // Camouflage is StealthUpgrade on the Rebel template family only —
+            // the generic fan-out must not tag workers/other GLA infantry
+            // (Worker has no StealthUpgrade; the residual unlock path already
+            // scopes to is_camouflage_unit_template).
+            HostUpgradeKind::CamoNetting => owner_ids
+                .into_iter()
+                .filter(|id| {
+                    self.objects.get(id).is_some_and(|o| {
+                        crate::game_logic::host_upgrades::is_camo_netting_structure_template(
+                            &o.template_name,
+                        )
+                    })
+                })
+                .collect(),
+            HostUpgradeKind::Camouflage => owner_ids
+                .into_iter()
+                .filter(|id| {
+                    self.objects.get(id).is_some_and(|o| {
+                        crate::game_logic::host_upgrades::is_camouflage_unit_template(
+                            &o.template_name,
+                        )
+                    })
+                })
+                .collect(),
+            _ => owner_ids,
+        };
         let mux_ids = upgrade_mux_target_ids(object_scoped, source, owner_ids);
         let mut mux_n = 0u32;
         for id in mux_ids {

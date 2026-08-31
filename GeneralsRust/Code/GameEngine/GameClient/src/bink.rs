@@ -368,6 +368,11 @@ impl VideoStreamInterface for BinkVideoStream {
                 let src_index = (y * width + x) * 4;
                 let rgba = &self.current_rgba[src_index..src_index + 4];
                 let dst_index = y * pitch + x * bytes_per_pixel(buffer.format());
+                // SAFETY: dst comes from buffer.lock() (null-checked above) and points
+                // SAFETY: into the locked VideoBuffer backing store; dst_index stays
+                // SAFETY: within pitch*height because copy_width/copy_height are min'd
+                // SAFETY: against the buffer dimensions and bytes_per_pixel matches format.
+
                 unsafe {
                     write_pixel(dst.add(dst_index), buffer.format(), rgba);
                 }
@@ -640,6 +645,10 @@ fn bytes_per_pixel(format: VideoBufferType) -> usize {
         VideoBufferType::Unknown => 0,
     }
 }
+
+// SAFETY: `dst` must point to at least bytes_per_pixel(format) writable bytes
+// SAFETY: within a locked VideoBuffer; `rgba` must have 4 readable elements.
+// SAFETY: Callers satisfy this via the bounds-checked copy loop in frame_render.
 
 unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, rgba: &[u8]) {
     let r = rgba[0];

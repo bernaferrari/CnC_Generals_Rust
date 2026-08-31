@@ -31,6 +31,7 @@ impl DebugIOInterface for DebugIOOds {
         full.push_str(message);
 
         #[cfg(windows)]
+        // SAFETY: [Category 8 — FFI] `cstr` is a NUL-terminated CString passed to the debugger bridge.
         unsafe {
             use std::ffi::CString;
             use windows_sys::Win32::System::Diagnostics::Debug::OutputDebugStringA;

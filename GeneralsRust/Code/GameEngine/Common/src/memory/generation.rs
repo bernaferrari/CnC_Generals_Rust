@@ -151,6 +151,8 @@ mod tests {
     #[test]
     fn test_generation_wrap() {
         // Test wrapping from u32::MAX to 1 (not 0)
+        // SAFETY: u32::MAX is non-zero by construction, satisfying the
+        // NonZeroU32 invariant this test exercises for wraparound.
         let gen_max = Generation(unsafe { NonZeroU32::new_unchecked(u32::MAX) });
         let gen_wrapped = gen_max.next();
         assert_eq!(gen_wrapped.get(), 1);

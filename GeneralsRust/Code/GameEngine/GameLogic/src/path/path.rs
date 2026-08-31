@@ -100,6 +100,9 @@ impl Path {
         if self.path_tail.is_null() {
             None
         } else {
+            // SAFETY: `path_tail` was null-checked above and always points at
+            // the tail `PathNode`, which is owned by the `Box<PathNode>` chain
+            // in `self.path` and therefore lives as long as `&self`.
             Some(unsafe { &*self.path_tail })
         }
     }
@@ -107,6 +110,9 @@ impl Path {
     /// Update the position of the last node
     pub fn update_last_node(&mut self, pos: &Coord3D) {
         if !self.path_tail.is_null() {
+            // SAFETY: `path_tail` was null-checked and points into the
+            // `Box<PathNode>` chain owned by `self.path`; `&mut self`
+            // guarantees exclusive access to that chain.
             unsafe {
                 (*self.path_tail).set_position(pos);
             }
@@ -142,6 +148,9 @@ impl Path {
             // Append to existing tail
             if !self.path_tail.is_null() {
                 let new_ptr = new_node.as_mut() as *mut PathNode;
+                // SAFETY: `path_tail` was null-checked and refers to a node
+                // owned by `self.path`; appending only rewires its `next`
+                // link, the heap allocation itself is stable.
                 unsafe {
                     (*self.path_tail).append(new_node);
                 }
@@ -252,7 +261,11 @@ impl Path {
     }
 
     fn head_ptr(&self) -> Option<NonNull<PathNode>> {
+        // SAFETY: `node` is the boxed head owned by `self.path`; its heap
+        // address is non-null and stable for `&self`.
         self.path.as_ref().map(|node| unsafe {
+            // SAFETY: `node` is the `Box<PathNode>` head owned by `self.path`,
+            // so its heap address is non-null and valid for `&self`.
             NonNull::new_unchecked(node.as_ref() as *const PathNode as *mut PathNode)
         })
     }
@@ -262,6 +275,9 @@ impl Path {
         let mut cursor = self.head_ptr();
         while let Some(ptr) = cursor {
             nodes.push(ptr);
+            // SAFETY: every pointer in the chain was derived from nodes owned
+            // by `self.path`; following `next` stays inside that allocation
+            // chain for the lifetime of `&self`.
             unsafe {
                 cursor = ptr.as_ref().next_ptr();
             }
@@ -288,6 +304,9 @@ impl Path {
 
         // Reset optimized chain
         for mut ptr in node_ptrs.iter().copied() {
+            // SAFETY: `node_ptrs` were collected from nodes owned by `self`;
+            // `&mut self` makes these sequential writes exclusive and the
+            // nodes are pairwise distinct.
             unsafe {
                 ptr.as_mut().set_next_optimized(None);
             }
@@ -295,6 +314,9 @@ impl Path {
 
         if blocked {
             for idx in 0..(node_count - 1) {
+                // SAFETY: distinct indices into `node_ptrs` refer to distinct
+                // nodes owned by `self`, so only one mutable borrow exists at
+                // a time.
                 let node = unsafe { node_ptrs[idx].as_mut() };
                 node.set_next_optimized(Some(node_ptrs[idx + 1]));
             }
@@ -324,16 +346,27 @@ impl Path {
             }
 
             if let Some((next_idx, next_ptr)) = best {
+                // SAFETY: anchors and candidates come from the same node
+                // vector built from nodes owned by `self`; writes are
+                // sequential and exclusive under `&mut self`.
                 unsafe {
                     anchor_ptr.as_mut().set_next_optimized(Some(next_ptr));
                 }
                 anchor_idx = next_idx;
-            } else if let Some(next_ptr) = unsafe { anchor_ptr.as_ref().next_ptr() } {
+            } else if let Some(next_ptr) =
+                // SAFETY: `anchor_ptr` references a node owned by `self.path`;
+                // reading its `next` link is valid for `&mut self`.
+                unsafe { anchor_ptr.as_ref().next_ptr() }
+            {
+                // SAFETY: same node-vector invariant as above; the write is
+                // exclusive under `&mut self`.
                 unsafe {
                     anchor_ptr.as_mut().set_next_optimized(Some(next_ptr));
                 }
                 anchor_idx += 1;
             } else {
+                // SAFETY: clearing the optimized link only touches state of a
+                // node owned by `self`, exclusively borrowed here.
                 unsafe {
                     anchor_ptr.as_mut().set_next_optimized(None);
                 }
@@ -356,7 +389,11 @@ impl Path {
             return false;
         }
 
+        // SAFETY: both indices are in bounds of `nodes`, whose pointers
+        // reference nodes owned by `self`; these are shared reads with no
+        // concurrent writer.
         let anchor = unsafe { nodes[anchor_idx].as_ref() };
+        // SAFETY: `candidate_idx` is likewise in bounds; shared read only.
         let candidate = unsafe { nodes[candidate_idx].as_ref() };
         let a_pos = anchor.get_position();
         let b_pos = candidate.get_position();
@@ -369,6 +406,8 @@ impl Path {
         }
 
         for idx in (anchor_idx + 1)..candidate_idx {
+            // SAFETY: `idx` is in bounds and references a node owned by
+            // `self`; shared read only.
             let node = unsafe { nodes[idx].as_ref() };
             let p_pos = node.get_position();
 
@@ -410,6 +449,8 @@ impl Path {
 
         let original_positions: Vec<Coord3D> = node_ptrs
             .iter()
+            // SAFETY: pointers come from `collect_node_ptrs` and reference
+            // nodes owned by `self`; these reads happen before any mutation.
             .map(|ptr| unsafe { ptr.as_ref().get_position().clone() })
             .collect();
 
@@ -425,6 +466,8 @@ impl Path {
             );
 
             let mut ptr = node_ptrs[idx];
+            // SAFETY: `ptr` references a node owned by `self`; `&mut self`
+            // makes this position write exclusive and nodes are distinct.
             unsafe {
                 ptr.as_mut().set_position(&blended);
             }
@@ -456,17 +499,32 @@ impl Path {
         let mut anchor_ptr = self.head_ptr();
 
         while let Some(mut anchor) = anchor_ptr {
+            // SAFETY: `anchor` references a node owned by `self`; reading the
+            // optimized-successor link is valid for `&mut self`.
             let next_ptr = unsafe { anchor.as_ref().next_optimized_ptr() };
             let Some(next_ptr) = next_ptr else {
                 break;
             };
 
-            if let Some(skip_ptr) = unsafe { next_ptr.as_ref().next_optimized_ptr() } {
+            // SAFETY: all three pointers reference nodes owned by `self`;
+            // these are shared reads used to decide the skip-link rewrite.
+            if let Some(skip_ptr) =
+                // SAFETY: `next_ptr` references a node owned by `self`;
+                // shared read of its optimized-successor link.
+                unsafe { next_ptr.as_ref().next_optimized_ptr() }
+            {
+                // SAFETY: both pointers reference nodes owned by `self`;
+                // shared position reads used for the jog-distance check.
                 let anchor_pos = unsafe { anchor.as_ref().get_position() };
+                // SAFETY: `skip_ptr` references a node owned by `self`;
+                // shared position read for the jog-distance check.
                 let skip_pos = unsafe { skip_ptr.as_ref().get_position() };
                 let dx = skip_pos.x - anchor_pos.x;
                 let dy = skip_pos.y - anchor_pos.y;
                 if dx * dx + dy * dy <= threshold_sq {
+                    // SAFETY: `anchor` and `skip_ptr` reference distinct nodes
+                    // owned by `self`; the link rewrite is exclusive under
+                    // `&mut self`.
                     unsafe {
                         anchor.as_mut().set_next_optimized(Some(skip_ptr));
                     }
@@ -569,6 +627,9 @@ impl Path {
     pub fn compute_flight_dist_to_goal(&self, pos: &Coord3D) -> (f32, Coord3D) {
         if let Some(ref path) = self.path {
             if !self.path_tail.is_null() {
+                // SAFETY: `path_tail` was null-checked and references the
+                // tail node owned by the `Box<PathNode>` chain in
+                // `self.path`; valid for `&self`.
                 unsafe {
                     let goal_pos = *(*self.path_tail).get_position();
                     let dx = goal_pos.x - pos.x;

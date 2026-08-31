@@ -12,7 +12,6 @@ fn veterancy_increases_weapon_damage() {
     let elite_damage = object.weapon.as_ref().map(|w| w.damage).unwrap_or_default();
     assert!((elite_damage - 120.0).abs() < 0.01);
 }
-
 #[test]
 fn level_up_sets_weaponset_and_weaponbonus_flags() {
     let mut object = make_test_object();
@@ -221,6 +220,10 @@ fn pilot_recrew_adds_pilot_levels_not_max() {
 #[test]
 fn script_enabled_powered_set_live_disable_mask() {
     let mut obj = make_test_object();
+    // can_move() gates on C++ mobile mobility (Infantry/Vehicle/Aircraft/
+    // Worker KindOf); the shared fixture is kind-less, so give this unit a
+    // mobile KindOf the way a real scripted vehicle would be authored.
+    obj.thing.template.add_kind_of(KindOf::Vehicle);
     assert!(obj.can_move());
     assert!(obj.can_attack());
     obj.apply_object_panel_flag("Enabled", false);
@@ -728,6 +731,11 @@ fn fire_at_scales_secondary_damage_with_damage_bonus() {
     atk.weapon = Some(Weapon {
         damage: 25.0,
         range: 100.0,
+        // C++ Weapon::fireWeapon respects the ROF window from the last shot;
+        // Weapon::default() is born with last_fire_time 0 / reload 1s, so a
+        // shot at t=0 must be staged from a long-past last shot (same
+        // convention as sold_and_under_construction).
+        last_fire_time: -10.0,
         ..Weapon::default()
     });
     atk.weapon_bonus_veteran = true;
@@ -1127,12 +1135,18 @@ fn squish_requires_velocity_toward_victim() {
     tank.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
     tank.selection_radius = 8.0;
 
+    // SquishCollide surface (retail crates author Behavior = SquishCollide,
+    // Crate.ini:18297; C++ SquishCollide.cpp:79-93 gates the kill on velocity
+    // toward the victim). Dealer lands inside the victim center zone so
+    // CrushDie::onDie crushLocationCheck picks TOTAL (both body flags,
+    // CrushDie.cpp:60-72 + 171-172).
     let mut it = ThingTemplate::new("CrushableInf");
     it.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(it, ObjectId(102), Team::GLA);
     inf.crushable_level = 0;
+    inf.has_squish_collide = true;
     inf.selection_radius = 5.0;
-    inf.set_position(glam::Vec3::new(4.0, 0.0, 0.0));
+    inf.set_position(glam::Vec3::new(1.0, 0.0, 0.0));
     inf.health.current = 100.0;
     inf.health.maximum = 100.0;
 
@@ -2691,7 +2705,10 @@ fn fire_at_stamps_detonation_fx_on_pending() {
     assert!(src.contains("detonation_ocl_name"));
     assert!(src.contains("host_detonation_ocl_for_weapon_name"));
     assert!(src.contains("exhaust_name"));
-    assert!(src.contains("host_projectile_exhaust_for_unit_slot"));
+    // The live pending-projectile exhaust stamp resolves the veterancy-scaled
+    // exhaust via the weapon-name peel (attack.rs); the unit-slot variant
+    // moved to construct-time weapon-set binding (object_ai_combat.rs).
+    assert!(src.contains("host_projectile_exhaust_for_weapon_name_at_veterancy"));
     let csrc = concat!(
         include_str!("../../combat/weapon_fire.rs"),
         include_str!("../../combat/resolution.rs"),
@@ -2873,7 +2890,11 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
         pre_attack_delay: 2.0,
         ammo: Some(3),
         clip_size: 3,
-        clip_reload_time: 0.0,
+        // Retail ScudStormWeapon ClipReloadTime = 10000 (Weapon.ini:130370):
+        // an emptied AutoReloadsClip clip holds fire (C++ Weapon.cpp:1893
+        // m_whenWeCanFireAgain = start + ClipReloadTime) and the host refill
+        // completes only after it elapses, so ammo reads 0 on the same tick.
+        clip_reload_time: 10.0,
         ..Weapon::default()
     });
     let tgt = ObjectId(9);

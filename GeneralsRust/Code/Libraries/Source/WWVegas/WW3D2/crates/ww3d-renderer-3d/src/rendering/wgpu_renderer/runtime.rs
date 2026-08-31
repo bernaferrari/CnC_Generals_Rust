@@ -177,8 +177,17 @@ impl RuntimeBuilder {
         };
 
         let instance = Arc::new(Instance::new(&InstanceDescriptor::default()));
+        // SAFETY: `from_window` copies the raw window/display handles out of
+        // `window`; its `HasWindowHandle + HasDisplayHandle` bounds guarantee
+        // the handles are valid (non-dangling), and the caller must keep the
+        // window alive and un-presented via other APIs while the resulting
+        // Surface exists, which RuntimeParts upholds for the renderer's life.
         let surface_target = unsafe { wgpu::SurfaceTargetUnsafe::from_window(window) }
             .map_err(|e| Error::Generic(format!("Failed to get window handle: {e}")))?;
+        // SAFETY: `surface_target` was produced above by `from_window` on this
+        // same `instance`, is still alive and unconsumed, and its raw handles
+        // are live per the same trait guarantees — exactly what
+        // `create_surface_unsafe` requires.
         let surface = unsafe { instance.create_surface_unsafe(surface_target) }
             .map_err(|e| Error::Generic(format!("Failed to create surface: {e}")))?;
         let surface = Arc::new(surface);

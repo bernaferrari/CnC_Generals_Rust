@@ -442,6 +442,9 @@ impl ExperienceTracker {
 
         // C++ parity: xferUser(&m_currentLevel, sizeof(VeterancyLevel))
         let mut current_level = self.current_level as i32;
+        // SAFETY: `current_level` is an initialized stack `i32`;
+        // `xfer_user` moves exactly `size_of::<VeterancyLevel>()` (== 4)
+        // bytes within this call, matching C++ `xferUser`.
         unsafe {
             xfer.xfer_user(
                 (&mut current_level as *mut i32).cast::<u8>(),

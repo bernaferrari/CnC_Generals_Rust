@@ -1,0 +1,16 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Converter outputs
+*.gltf
+*.glb
+*.bin
+*.png
+*.tga
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+*.log

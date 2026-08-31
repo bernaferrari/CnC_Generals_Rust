@@ -231,8 +231,10 @@ fn test_random_seed_crc() {
 
     // Convert to bytes for CRC calculation
     let seed1_bytes: &[u8] =
+        // SAFETY: seed1 is [u32; 6]; the byte view spans exactly its storage.
         unsafe { std::slice::from_raw_parts(seed1.as_ptr() as *const u8, 6 * 4) };
     let seed2_bytes: &[u8] =
+        // SAFETY: seed2 is [u32; 6]; the byte view spans exactly its storage.
         unsafe { std::slice::from_raw_parts(seed2.as_ptr() as *const u8, 6 * 4) };
 
     let crc1 = crc32fast::hash(seed1_bytes);

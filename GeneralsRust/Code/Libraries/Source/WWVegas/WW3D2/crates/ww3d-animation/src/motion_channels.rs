@@ -382,10 +382,19 @@ impl AdaptiveDeltaMotionChannelClass {
     fn decompress(&self, frame_idx: u32, outdata: &mut [f32]) {
         // Start over from the beginning
         let base_ptr = self.data.as_ptr() as *const f32;
+        // SAFETY: `data` begins with `vector_len` u32 words holding the
+        // per-vector base values (raw f32 bits written by the W3D loader),
+        // so the first `vector_len` words exist; u32 and f32 match in size
+        // (4) and alignment (4), making the cast layout-preserving.
         let base = unsafe { std::slice::from_raw_parts(base_ptr, self.vector_len) };
 
         for vi in 0..self.vector_len {
             // Decompress all vector indices
+            // Decompress all vector indices
+            // SAFETY: the offset skips the vector_len*4-byte header and
+            // PACKET_SIZE*vi bytes of prior rows, landing at packet row `vi`
+            // inside the data allocation's 16-frame block layout of
+            // PACKET_SIZE*vector_len-byte rows (motchan.cpp format).
             let mut p_packet = unsafe {
                 (self.data.as_ptr() as *const u8)
                     .add(std::mem::size_of::<f32>() * self.vector_len) // skip header
@@ -397,7 +406,12 @@ impl AdaptiveDeltaMotionChannelClass {
 
             while frame <= frame_idx {
                 // Frame loop
+                // SAFETY: p_packet addresses the current packet's
+                // filter-index byte, within this 16-frame block's reserved
+                // row in the data allocation.
                 let filter_index = unsafe { *p_packet } as usize;
+                // SAFETY: stepping one byte moves onto this packet's 8
+                // nibble bytes, still inside the same row.
                 p_packet = unsafe { p_packet.add(1) }; // skip to nibble compressed data
 
                 let filter = get_filter_table()[filter_index] * self.scale;
@@ -407,6 +421,8 @@ impl AdaptiveDeltaMotionChannelClass {
                     let pi = fi >> 1; // packet index
 
                     // Extract nibble (4 bits)
+                    // SAFETY: pi = fi>>1 ranges over 0..8, indexing within
+                    // the packet's 8 nibble bytes in the current row.
                     let mut factor = unsafe { *p_packet.add(pi) } as i32;
                     if (fi & 1) != 0 {
                         factor >>= 4;
@@ -433,6 +449,8 @@ impl AdaptiveDeltaMotionChannelClass {
                 }
 
                 // Skip to next packet (motchan.cpp:1046)
+                // SAFETY: from a row's first data byte this lands on the
+                // next row's filter byte, in bounds while frames remain.
                 p_packet = unsafe { p_packet.add((PACKET_SIZE * self.vector_len) - 1) };
             }
 
@@ -452,11 +470,18 @@ impl AdaptiveDeltaMotionChannelClass {
         debug_assert!(src_idx < frame_idx);
         let src_idx = src_idx + 1;
 
+        // SAFETY: the byte offset skips exactly the vector_len header
+        // floats, reaching the first packet row; the allocation extends
+        // beyond the header whenever the channel carries packets.
         let base_ptr = unsafe {
             (self.data.as_ptr() as *const u8).add(std::mem::size_of::<f32>() * self.vector_len)
         };
 
         for vi in 0..self.vector_len {
+            // SAFETY: the offsets select vector row `vi` inside the
+            // 16-frame block containing src_idx-1; rows are
+            // PACKET_SIZE*vector_len bytes each, so the address is within
+            // the packet region of the data allocation.
             let mut p_packet = unsafe {
                 base_ptr
                     .add(PACKET_SIZE * vi)
@@ -470,13 +495,19 @@ impl AdaptiveDeltaMotionChannelClass {
             let mut frame = src_idx;
 
             while frame <= frame_idx {
+                // SAFETY: p_packet addresses the current packet's filter
+                // byte inside its reserved row of the data allocation.
                 let filter_index = unsafe { *p_packet } as usize;
+                // SAFETY: advancing one byte enters this packet's 8 nibble
+                // bytes, remaining inside the row.
                 p_packet = unsafe { p_packet.add(1) };
 
                 let filter = get_filter_table()[filter_index] * self.scale;
 
                 while fi < 16 {
                     let pi = fi >> 1;
+                    // SAFETY: pi = fi>>1 ranges over 0..8, within the
+                    // packet's 8 nibble bytes of the current row.
                     let mut factor = unsafe { *p_packet.add(pi) } as i32;
 
                     if (fi & 1) != 0 {
@@ -505,6 +536,9 @@ impl AdaptiveDeltaMotionChannelClass {
                     break;
                 }
 
+                // SAFETY: adding (PACKET_SIZE*vector_len)-1 from a row's
+                // first data byte lands on the next row's filter byte, in
+                // bounds while frames remain in the block sequence.
                 p_packet = unsafe { p_packet.add((PACKET_SIZE * self.vector_len) - 1) };
             }
 
@@ -532,6 +566,11 @@ impl AdaptiveDeltaMotionChannelClass {
             // Use unsafe to work around borrow checker limitations - this is safe because
             // decompress/decompress_continuation only read from self.data and other immutable fields,
             // and we're only mutating cache_data
+            // SAFETY: split borrow: decompress/decompress_continuation take
+            // only &self and read self.data (separate allocation from
+            // cache_data); the cache_ptr writes cover exactly
+            // cache_data[0..vector_len] and [vector_len..2*vector_len],
+            // matching cache_data's vector_len*2 length and disjoint.
             unsafe {
                 let self_ptr = self as *const Self;
                 let cache_ptr = self.cache_data.as_mut_ptr();
@@ -561,6 +600,10 @@ impl AdaptiveDeltaMotionChannelClass {
             self.cache_data.copy_within(self.vector_len.., 0);
             self.cache_frame += 1;
 
+            // SAFETY: split borrow: decompress_continuation reads only
+            // self.data through &self; the source cache_data[0..vector_len]
+            // and destination [vector_len..] halves of the vector_len*2
+            // allocation are disjoint, so no aliased references exist.
             unsafe {
                 let self_ptr = self as *const Self;
                 let cache_ptr = self.cache_data.as_mut_ptr();
@@ -584,6 +627,10 @@ impl AdaptiveDeltaMotionChannelClass {
         temp[..self.vector_len]
             .copy_from_slice(&self.cache_data[self.vector_len..self.vector_len * 2]);
 
+        // SAFETY: destination cache_data[0..vector_len] is written via
+        // cache_ptr while the only other source reference is the stack-local
+        // `temp`, disjoint from cache_data; decompress_continuation reads
+        // immutable fields through &self.
         unsafe {
             let self_ptr = self as *const Self;
             let cache_ptr = self.cache_data.as_mut_ptr();
@@ -600,6 +647,9 @@ impl AdaptiveDeltaMotionChannelClass {
         self.cache_frame = frame_idx;
 
         if frame_idx != self.num_frames - 1 {
+            // SAFETY: source and destination are the two disjoint halves of
+            // cache_data's vector_len*2 allocation; self.data is only read
+            // through &self, so no aliasing mutable access occurs.
             unsafe {
                 let self_ptr = self as *const Self;
                 let cache_ptr = self.cache_data.as_mut_ptr();

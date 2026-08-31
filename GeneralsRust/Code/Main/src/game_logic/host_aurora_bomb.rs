@@ -259,15 +259,6 @@ impl HostAuroraBombKind {
         }
     }
 
-    /// Inner radius with full damage (two-stage falloff residual).
-    pub fn falloff_inner(self) -> f32 {
-        match self {
-            HostAuroraBombKind::Standard => AURORA_BOMB_RADIUS * 0.5,
-            HostAuroraBombKind::FuelAir => AURORA_FUEL_AIR_RADIUS * 0.5,
-            HostAuroraBombKind::FuelAirSupW => AURORA_FUEL_AIR_SUPW_RADIUS * 0.5,
-        }
-    }
-
     pub fn activate_audio(self) -> &'static str {
         AURORA_BOMB_LAUNCH_AUDIO
     }
@@ -418,19 +409,18 @@ pub fn aurora_bomb_kind_for_template(template_name: &str) -> HostAuroraBombKind 
     HostAuroraBombKind::Standard
 }
 
-/// Residual two-stage falloff: full damage inside half-radius, linear to edge.
+/// Retail flat damage step (C++ Weapon.cpp:1438): full primary damage at any
+/// distance within primaryDamageRadius, nothing beyond. No linear falloff —
+/// C++ amount is `(curVictimDistSqr <= primaryRadiusSqr) ? primaryDamage :
+/// secondaryDamage`, and these detonation weapons author no SecondaryDamage /
+/// SecondaryRadius, so victims past primaryRadius are never even iterated
+/// (Weapon.cpp:1280, radius = max(primaryRadius, secondaryRadius)).
 pub fn aurora_bomb_damage_at_distance(kind: HostAuroraBombKind, distance: f32) -> f32 {
     let radius = kind.radius();
-    if distance > radius || radius <= 0.0 {
+    if radius <= 0.0 || distance > radius {
         return 0.0;
     }
-    let base = kind.damage();
-    let inner = kind.falloff_inner();
-    if distance <= inner {
-        return base;
-    }
-    let t = (distance - inner) / (radius - inner).max(0.001);
-    base * (1.0 - t).max(0.0)
+    kind.damage()
 }
 
 /// Whether residual target receives Aurora bomb area damage.
@@ -936,28 +926,28 @@ mod tests {
     }
 
     #[test]
-    fn damage_falloff_full_then_zero() {
+    fn damage_flat_step_full_then_zero() {
+        // C++ Weapon.cpp:1438 — flat primary/secondary step, no linear falloff.
         let kind = HostAuroraBombKind::Standard;
         assert!((aurora_bomb_damage_at_distance(kind, 0.0) - 400.0).abs() < 0.01);
         assert!((aurora_bomb_damage_at_distance(kind, 5.0) - 400.0).abs() < 0.01);
+        // Mid-ring victims take FULL primary damage (no invented linear taper).
+        assert!((aurora_bomb_damage_at_distance(kind, 15.0) - 400.0).abs() < 0.01);
+        assert!((aurora_bomb_damage_at_distance(kind, 20.0) - 400.0).abs() < 0.01);
         assert_eq!(aurora_bomb_damage_at_distance(kind, 21.0), 0.0);
-        let mid = aurora_bomb_damage_at_distance(kind, 15.0);
-        assert!(mid > 0.0 && mid < 400.0, "mid falloff expected, got {mid}");
 
         let fa = HostAuroraBombKind::FuelAir;
         assert!((aurora_bomb_damage_at_distance(fa, 0.0) - 1000.0).abs() < 0.01);
+        assert!((aurora_bomb_damage_at_distance(fa, 100.0) - 1000.0).abs() < 0.01);
         assert_eq!(aurora_bomb_damage_at_distance(fa, 101.0), 0.0);
 
         // SupW_FuelBombDetonationWeapon residual: 900 / r70 (not AirF 1000/r100).
         let supw = HostAuroraBombKind::FuelAirSupW;
         assert!((aurora_bomb_damage_at_distance(supw, 0.0) - 900.0).abs() < 0.01);
         assert!((aurora_bomb_damage_at_distance(supw, 20.0) - 900.0).abs() < 0.01);
+        assert!((aurora_bomb_damage_at_distance(supw, 50.0) - 900.0).abs() < 0.01);
+        assert!((aurora_bomb_damage_at_distance(supw, 70.0) - 900.0).abs() < 0.01);
         assert_eq!(aurora_bomb_damage_at_distance(supw, 71.0), 0.0);
-        let mid_supw = aurora_bomb_damage_at_distance(supw, 50.0);
-        assert!(
-            mid_supw > 0.0 && mid_supw < 900.0,
-            "SupW mid falloff expected, got {mid_supw}"
-        );
     }
 
     #[test]
@@ -1020,11 +1010,13 @@ mod tests {
             "r80 must be flame-only (outside SupW r70 primary), got {}",
             outer_primary.damage
         );
-        // Contrast: AirF at same r80 still has primary falloff (r100).
+        // Contrast: AirF at same r80 is inside primary r100 → full 1000 primary.
         assert!(
-            aurora_bomb_damage_at_distance(HostAuroraBombKind::FuelAir, 80.0)
-                > AURORA_FUEL_AIR_FLAME_DAMAGE,
-            "AirF r80 still in primary radius — matrix must differ from SupW"
+            (aurora_bomb_damage_at_distance(HostAuroraBombKind::FuelAir, 80.0)
+                - AURORA_FUEL_AIR_DAMAGE)
+                .abs()
+                < 0.01,
+            "AirF r80 still inside primary r100 — matrix must differ from SupW"
         );
         reg.record_impact_complete(id, expected_epic * 2.0, 2, 0);
         assert!(reg.honesty_complete_ok_of_kind(HostAuroraBombKind::FuelAirSupW));
@@ -1131,9 +1123,10 @@ mod tests {
             !hits.iter().any(|h| h.target_id == ObjectId(12)),
             "ally beyond primary+flame radius must not take residual damage"
         );
-        // Mid at 80: primary falloff + full flame 5.
-        assert!(mid.damage > AURORA_FUEL_AIR_FLAME_DAMAGE);
-        assert!(mid.damage < AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE);
+        // Mid at 80: inside primary r100 → FULL primary + full flame 5.
+        assert!(
+            (mid.damage - (AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE)).abs() < 0.1
+        );
         assert!(
             (epic.damage - (AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE)).abs() < 0.1
         );

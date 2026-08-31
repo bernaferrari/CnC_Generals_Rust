@@ -282,9 +282,17 @@ impl GameLogic {
             if disabled {
                 continue;
             }
-            let deposited =
+            // C++ AutoDepositUpdate.cpp:143-149 — only `m_isActualMoney`
+            // credits `Money::deposit`; an ActualMoney=No (fake GLA Black
+            // Market) still runs its schedule/display but never credits cash.
+            // The residual registry observes actual credits, so fake markets
+            // must not record deposits here.
+            let deposited = if actual_money {
                 self.black_markets
-                    .try_deposit(market_id, frame, BLACK_MARKET_DEPOSIT_AMOUNT);
+                    .try_deposit(market_id, frame, BLACK_MARKET_DEPOSIT_AMOUNT)
+            } else {
+                0
+            };
             if deposited == 0 {
                 continue;
             }

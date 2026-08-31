@@ -73,6 +73,10 @@ impl CDDriveInterface for Win32CDDrive {
         let mut vol_name = [0u16; 1024];
         
         // Call GetVolumeInformationW
+        // SAFETY: wide_path is a NUL-terminated wide buffer alive for the call;
+        // SAFETY: vol_name is a writable 1024-u16 buffer whose length is passed
+        // SAFETY: (minus one for the terminator); every out-parameter not wanted
+        // SAFETY: is null, so Windows writes only into vol_name.
         let result = unsafe {
             GetVolumeInformationW(
                 wide_path.as_ptr(),
@@ -188,6 +192,8 @@ impl CDManagerInterface for Win32CdManager {
                 .chain(Some(0))
                 .collect();
 
+            // SAFETY: wide_path is a NUL-terminated wide string that outlives
+            // SAFETY: the call; GetDriveTypeW only reads it and returns a code.
             let drive_type = unsafe { GetDriveTypeW(wide_path.as_ptr()) };
             
             if drive_type == DRIVE_CDROM {

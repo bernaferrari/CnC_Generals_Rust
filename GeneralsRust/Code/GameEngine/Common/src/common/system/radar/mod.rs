@@ -1405,10 +1405,6 @@ impl RadarSystem {
         true
     }
 
-    /// Try to create under attack event (matches C++ Radar::tryUnderAttackEvent).
-    pub fn try_under_attack_event(&mut self, world_loc: &Coord3D) -> bool {
-        self.try_under_attack_event_for(world_loc, None)
-    }
 
     /// Object-aware under-attack event: ping + ControlBar glow + UI/audio/EVA.
     pub fn try_under_attack_event_for(
@@ -1422,6 +1418,9 @@ impl RadarSystem {
 
         if let Some(fb) = radar_feedback() {
             fb.trigger_radar_attack_glow();
+            // C++ Radar.cpp:1168 — audio always attributes to the LOCAL player.
+            // Every live call site gates victim == local (Object.cpp:1853), so
+            // the victim index carried here IS the local index.
             let player_index = victim.map(|v| v.player_index).unwrap_or(-1);
             match victim {
                 Some(v) if v.is_infantry || v.is_vehicle => {

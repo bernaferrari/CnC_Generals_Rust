@@ -119,7 +119,7 @@ pub fn honesty_view_from_live_entities_source() -> bool {
 
 /// Source residual: executable smoke gates overlay stamp when GW entities seen.
 pub fn honesty_executable_overlay_stamp_gate_source() -> bool {
-    let src = include_str!("../../executable_smoke.rs");
+    let src = crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
     src.contains("gameworld_overlay_stamped_ok")
         && src.contains("gameworld_overlay_boundary_ok")
         && src.contains("max_gameworld_overlay_stamped")

@@ -54,7 +54,7 @@ fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 fn rp_source() -> &'static str {
     crate::graphics::render_pipeline::RENDER_PIPELINE_SRC

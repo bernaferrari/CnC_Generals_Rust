@@ -277,12 +277,40 @@ impl HostCaveSystem {
 }
 
 /// C++ CivilianBuilding.ini / CaveContain CaveIndex templates.
+///
+/// C++ never name-matches caves: CaveContain is an authored object module
+/// (CaveContain.cpp installed via the map object's module list).  The
+/// residual name gate must therefore only hit a *cave token*, not any
+/// substring: the naive `contains("cave")` crossed the faction/model token
+/// boundary of every `AmericaVehicle*` template ("ameriCA VEHicle" contains
+/// "cave") and installed CaveContain garrison storage on TransportContain
+/// vehicles — Combat Chinook riders landed in
+/// `building_data.garrisoned_units` so `transport_count()` stayed 0
+/// (TransportContain.cpp:105+ slot storage).  Accept "cave" at a token
+/// boundary only: string start, a non-letter separator (`_`, `.`, `-`,
+/// digit), or an authored camelCase boundary (uppercase `C` after a
+/// lowercase letter).  Authored exclusions ("cavein", "scaffold") stay.
 pub fn is_cave_template(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     if n.contains("cavein") || n.contains("scaffold") {
         return false;
     }
-    n.contains("cave") || n.contains("tunnelcave")
+    let lower_bytes = n.as_bytes();
+    let orig_bytes = template_name.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = n[from..].find("cave") {
+        let i = from + rel;
+        let at_start = i == 0;
+        let prev_is_lower = i > 0 && lower_bytes[i - 1].is_ascii_lowercase();
+        // camelCase boundary: authored uppercase 'C' following a letter.
+        let camel_case =
+            i > 0 && orig_bytes[i].is_ascii_uppercase() && prev_is_lower;
+        if at_start || !prev_is_lower || camel_case {
+            return true;
+        }
+        from = i + 1;
+    }
+    false
 }
 
 #[cfg(test)]

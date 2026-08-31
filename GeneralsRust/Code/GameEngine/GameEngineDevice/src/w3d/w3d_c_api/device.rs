@@ -31,6 +31,7 @@ use tokio::sync::RwLock;
 
 /// Initialize W3D system
 #[no_mangle]
+// SAFETY: C ABI entry with no pointer parameters; touches no raw memory.
 pub unsafe extern "C" fn W3D_Init() -> W3D_ERROR_CODE {
     let _ = tracing_subscriber::fmt::try_init();
     tracing::info!("W3D C API: Initializing W3D system");
@@ -39,6 +40,9 @@ pub unsafe extern "C" fn W3D_Init() -> W3D_ERROR_CODE {
 
 /// Create W3D device
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be writable for one W3D_DEVICE slot; on
+// SAFETY: success it receives a Box::into_raw allocation owned by the caller
+// SAFETY: and released exactly once by W3DDevice_Destroy.
 pub unsafe extern "C" fn W3D_CreateDevice(
     width: u32,
     height: u32,
@@ -77,6 +81,8 @@ pub unsafe extern "C" fn W3D_CreateDevice(
 
 /// Create W3D device - matches original W3DDevice::Create()
 #[no_mangle]
+// SAFETY: C ABI entry, no parameters. Returns either null or a fresh
+// SAFETY: Box::into_raw(W3DDeviceC) whose sole ownership transfers to the caller.
 pub unsafe extern "C" fn W3DDevice_Create() -> W3D_DEVICE {
     match create_w3d_device_internal() {
         Ok(device_ptr) => device_ptr,
@@ -84,10 +90,15 @@ pub unsafe extern "C" fn W3DDevice_Create() -> W3D_DEVICE {
     }
 }
 
+// SAFETY: No pointers touched; forwards to create_w3d_device_with_config which
+// SAFETY: only produces a new owning raw pointer.
 pub(super) unsafe fn create_w3d_device_internal() -> Result<W3D_DEVICE> {
     create_w3d_device_with_config(W3DConfig::default())
 }
 
+// SAFETY: Creates a fresh boxed W3DDeviceC and leaks it via Box::into_raw as the
+// SAFETY: caller-owned W3D_DEVICE; stores the address in GLOBAL_W3D_DEVICE for
+// SAFETY: single-instance bookkeeping. No pre-existing pointer is dereferenced.
 pub(super) unsafe fn create_w3d_device_with_config(config: W3DConfig) -> Result<W3D_DEVICE> {
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| W3DError::InitializationFailed(format!("Failed to create runtime: {}", e)))?;
@@ -129,6 +140,8 @@ pub(super) unsafe fn create_w3d_device_with_config(config: W3DConfig) -> Result<
 }
 /// Begin scene - legacy W3D compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; shared reference
+// SAFETY: only, scene-active flag is Mutex-guarded.
 pub unsafe extern "C" fn W3DDevice_BeginScene(device: W3D_DEVICE) -> i32 {
     if device.is_null() {
         return 0;
@@ -147,6 +160,8 @@ pub unsafe extern "C" fn W3DDevice_BeginScene(device: W3D_DEVICE) -> i32 {
 
 /// End scene - legacy W3D compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; shared reference
+// SAFETY: only, scene-active flag is Mutex-guarded.
 pub unsafe extern "C" fn W3DDevice_EndScene(device: W3D_DEVICE) -> i32 {
     if device.is_null() {
         return 0;
@@ -164,6 +179,8 @@ pub unsafe extern "C" fn W3DDevice_EndScene(device: W3D_DEVICE) -> i32 {
 }
 /// Set viewport - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE and `viewport` must
+// SAFETY: point to one readable W3D_VIEWPORT; the value is copied immediately.
 pub unsafe extern "C" fn W3DDevice_SetViewport(
     device: W3D_DEVICE,
     viewport: *const W3D_VIEWPORT,
@@ -189,6 +206,8 @@ pub unsafe extern "C" fn W3DDevice_SetViewport(
 
 /// Get viewport - legacy compatibility entry point.
 #[no_mangle]
+// SAFETY: C ABI entry. `viewport` must be writable for one W3D_VIEWPORT when
+// SAFETY: non-null; `device` must be a live W3D_DEVICE.
 pub unsafe extern "C" fn W3DDevice_GetViewport(
     device: W3D_DEVICE,
     viewport: *mut W3D_VIEWPORT,
@@ -224,6 +243,8 @@ pub(super) async fn set_viewport_internal(
 
 /// Present frame - matches original W3DDevice::Present()
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; shared reference
+// SAFETY: only; present goes through the tokio-runtime-owned device lock.
 pub unsafe extern "C" fn W3DDevice_Present(device: W3D_DEVICE) -> i32 {
     if device.is_null() {
         return 0; // Failure
@@ -259,6 +280,8 @@ pub(super) async fn present_internal(device: &Arc<RwLock<W3DDevice>>) -> Result<
 
 /// Clear buffers - matches original W3DDevice::Clear(flags, color, depth, stencil)
 #[no_mangle]
+// SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; remaining
+// SAFETY: parameters are by-value scalars copied into scene state.
 pub unsafe extern "C" fn W3DDevice_Clear(
     device: W3D_DEVICE,
     flags: u32,
@@ -309,6 +332,10 @@ pub(super) async fn clear_internal(
 
 /// Destroy device - cleanup
 #[no_mangle]
+// SAFETY: Takes exclusive ownership: `device` must be the W3D_DEVICE returned
+// SAFETY: by create and not destroyed before. Box::from_raw runs exactly once,
+// SAFETY: freeing texture handles created by intern_texture_handle, then clears
+// SAFETY: the GLOBAL_W3D_DEVICE slot if it still names this allocation.
 pub unsafe extern "C" fn W3DDevice_Destroy(device: W3D_DEVICE) -> i32 {
     if device.is_null() {
         return 0; // Failure
@@ -338,6 +365,8 @@ pub unsafe extern "C" fn W3DDevice_Destroy(device: W3D_DEVICE) -> i32 {
 
 /// Get device capabilities - matches original API
 #[no_mangle]
+// SAFETY: C ABI entry. A null device returns early without dereference; the
+// SAFETY: capability mask is a constant, so no memory is read through the handle.
 pub unsafe extern "C" fn W3DDevice_GetDeviceCaps(device: W3D_DEVICE) -> u32 {
     if device.is_null() {
         return 0;

@@ -22,29 +22,32 @@ fn editor_sorting_matches_cpp_thing_sort_order() {
 
     assert_eq!(
         parse_editor_sorting("STRUCTURE"),
-        EditorSortingType::Structure
+        Ok(EditorSortingType::Structure)
     );
     assert_eq!(
         parse_editor_sorting("INFANTRY"),
-        EditorSortingType::Infantry
+        Ok(EditorSortingType::Infantry)
     );
     assert_eq!(
         parse_editor_sorting("MISC_MAN_MADE"),
-        EditorSortingType::MiscManMade
+        Ok(EditorSortingType::MiscManMade)
     );
     assert_eq!(
         parse_editor_sorting("WAYPOINT"),
-        EditorSortingType::Waypoint
+        Ok(EditorSortingType::Waypoint)
     );
 
     assert_eq!(
         parse_editor_sorting("Building"),
-        EditorSortingType::Structure
+        Ok(EditorSortingType::Structure)
     );
-    assert_eq!(parse_editor_sorting("Unit"), EditorSortingType::Infantry);
+    assert_eq!(
+        parse_editor_sorting("Unit"),
+        Ok(EditorSortingType::Infantry)
+    );
     assert_eq!(
         parse_editor_sorting("Civilian"),
-        EditorSortingType::MiscNatural
+        Ok(EditorSortingType::MiscNatural)
     );
 }
 

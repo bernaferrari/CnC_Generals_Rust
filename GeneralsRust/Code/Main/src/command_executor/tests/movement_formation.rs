@@ -1483,6 +1483,11 @@ fn special_power_uses_single_source_object() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
+    // SpySatellite residual inits the process-global shroud grid; drop it so
+    // later tests see the fail-open uninitialized-grid path.
+    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("SP_SRC");
     tpl.add_kind_of(KindOf::Structure);
@@ -1758,6 +1763,11 @@ fn special_power_at_location_wrapper() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
+    // SpySatellite residual inits the process-global shroud grid; drop it so
+    // later tests see the fail-open uninitialized-grid path.
+    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("SP_L");
     tpl.add_kind_of(KindOf::Structure);

@@ -17,12 +17,21 @@ pub struct BlitPlainU32;
 
 impl Blitter for BlitPlainU8 {
     fn blit_forward(&self, dest: *mut u8, source: *const u8, length: i32) {
+        // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
+        // `dest`/`source` span `length` pixels of equal-width surface rows; forward
+        // blits never overlap (blitter.h Blit_Plain contract), so the nonoverlapping
+        // typed copy reads exactly the source row bytes and writes the same count to
+        // the destination row.
         unsafe {
             ptr::copy_nonoverlapping(source, dest, length as usize);
         }
     }
 
     fn blit_backward(&self, dest: *mut u8, source: *const u8, length: i32) {
+        // SAFETY: [Category 1 — aliasing]
+        // Backward plain blit may overlap its own row when surfaces intersect
+        // (blitter.h); `ptr::copy` is the memmove-equivalent that keeps byte order,
+        // copying `length` elements between the two valid row regions.
         unsafe {
             ptr::copy(source, dest, length as usize);
         }
@@ -31,12 +40,21 @@ impl Blitter for BlitPlainU8 {
 
 impl Blitter for BlitPlainU16 {
     fn blit_forward(&self, dest: *mut u8, source: *const u8, length: i32) {
+        // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
+        // `dest`/`source` span `length` pixels of equal-width surface rows; forward
+        // blits never overlap (blitter.h Blit_Plain contract), so the nonoverlapping
+        // typed copy reads exactly the source row bytes and writes the same count to
+        // the destination row.
         unsafe {
             ptr::copy_nonoverlapping(source as *const u16, dest as *mut u16, length as usize);
         }
     }
 
     fn blit_backward(&self, dest: *mut u8, source: *const u8, length: i32) {
+        // SAFETY: [Category 1 — aliasing]
+        // Backward plain blit may overlap its own row when surfaces intersect
+        // (blitter.h); `ptr::copy` is the memmove-equivalent that keeps byte order,
+        // copying `length` elements between the two valid row regions.
         unsafe {
             ptr::copy(source as *const u16, dest as *mut u16, length as usize);
         }
@@ -45,12 +63,21 @@ impl Blitter for BlitPlainU16 {
 
 impl Blitter for BlitPlainU32 {
     fn blit_forward(&self, dest: *mut u8, source: *const u8, length: i32) {
+        // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
+        // `dest`/`source` span `length` pixels of equal-width surface rows; forward
+        // blits never overlap (blitter.h Blit_Plain contract), so the nonoverlapping
+        // typed copy reads exactly the source row bytes and writes the same count to
+        // the destination row.
         unsafe {
             ptr::copy_nonoverlapping(source as *const u32, dest as *mut u32, length as usize);
         }
     }
 
     fn blit_backward(&self, dest: *mut u8, source: *const u8, length: i32) {
+        // SAFETY: [Category 1 — aliasing]
+        // Backward plain blit may overlap its own row when surfaces intersect
+        // (blitter.h); `ptr::copy` is the memmove-equivalent that keeps byte order,
+        // copying `length` elements between the two valid row regions.
         unsafe {
             ptr::copy(source as *const u32, dest as *mut u32, length as usize);
         }
@@ -64,6 +91,11 @@ pub struct BlitTransU32;
 impl Blitter for BlitTransU8 {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -83,6 +115,11 @@ impl Blitter for BlitTransU8 {
 impl Blitter for BlitTransU16 {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *(source as *const u16);
                 if color != 0 {
@@ -102,6 +139,11 @@ impl Blitter for BlitTransU16 {
 impl Blitter for BlitTransU32 {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *(source as *const u32);
                 if color != 0 {
@@ -131,6 +173,11 @@ impl<'a, T> BlitPlainXlat<'a, T> {
 impl<'a> Blitter for BlitPlainXlat<'a, u8> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 *dest = self.translate[color as usize];
@@ -148,6 +195,11 @@ impl<'a> Blitter for BlitPlainXlat<'a, u8> {
 impl<'a> Blitter for BlitPlainXlat<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source as usize;
                 *(dest as *mut u16) = self.translate[color];
@@ -165,6 +217,11 @@ impl<'a> Blitter for BlitPlainXlat<'a, u16> {
 impl<'a> Blitter for BlitPlainXlat<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source as usize;
                 *(dest as *mut u32) = self.translate[color];
@@ -192,6 +249,11 @@ impl<'a, T> BlitTransXlat<'a, T> {
 impl<'a> Blitter for BlitTransXlat<'a, u8> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -211,6 +273,11 @@ impl<'a> Blitter for BlitTransXlat<'a, u8> {
 impl<'a> Blitter for BlitTransXlat<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -230,6 +297,11 @@ impl<'a> Blitter for BlitTransXlat<'a, u16> {
 impl<'a> Blitter for BlitTransXlat<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -260,6 +332,11 @@ impl<'a, T> BlitTransRemapXlat<'a, T> {
 impl<'a> Blitter for BlitTransRemapXlat<'a, u8> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -280,6 +357,11 @@ impl<'a> Blitter for BlitTransRemapXlat<'a, u8> {
 impl<'a> Blitter for BlitTransRemapXlat<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -300,6 +382,11 @@ impl<'a> Blitter for BlitTransRemapXlat<'a, u16> {
 impl<'a> Blitter for BlitTransRemapXlat<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -335,6 +422,11 @@ impl<T> BlitTransDarken<T> {
 impl Blitter for BlitTransDarken<u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -355,6 +447,11 @@ impl Blitter for BlitTransDarken<u16> {
 impl Blitter for BlitTransDarken<u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -385,6 +482,11 @@ impl<'a, T> BlitTransRemapDest<'a, T> {
 impl<'a> Blitter for BlitTransRemapDest<'a, u8> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -405,6 +507,11 @@ impl<'a> Blitter for BlitTransRemapDest<'a, u8> {
 impl<'a> Blitter for BlitTransRemapDest<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -425,6 +532,11 @@ impl<'a> Blitter for BlitTransRemapDest<'a, u16> {
 impl<'a> Blitter for BlitTransRemapDest<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -455,6 +567,11 @@ impl<T> BlitDarken<T> {
 impl Blitter for BlitDarken<u16> {
     fn blit_forward(&self, mut dest: *mut u8, _source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let value = *(dest as *mut u16);
                 *(dest as *mut u16) = (value >> 1) & self.mask;
@@ -471,6 +588,11 @@ impl Blitter for BlitDarken<u16> {
 impl Blitter for BlitDarken<u32> {
     fn blit_forward(&self, mut dest: *mut u8, _source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let value = *(dest as *mut u32);
                 *(dest as *mut u32) = (value >> 1) & self.mask;
@@ -498,6 +620,11 @@ impl<'a, T> BlitTransLucent50<'a, T> {
 impl<'a> Blitter for BlitTransLucent50<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -519,6 +646,11 @@ impl<'a> Blitter for BlitTransLucent50<'a, u16> {
 impl<'a> Blitter for BlitTransLucent50<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -551,6 +683,11 @@ impl<'a, T> BlitTransLucent25<'a, T> {
 impl<'a> Blitter for BlitTransLucent25<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -572,6 +709,11 @@ impl<'a> Blitter for BlitTransLucent25<'a, u16> {
 impl<'a> Blitter for BlitTransLucent25<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -604,6 +746,11 @@ impl<'a, T> BlitTransLucent75<'a, T> {
 impl<'a> Blitter for BlitTransLucent75<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -625,6 +772,11 @@ impl<'a> Blitter for BlitTransLucent75<'a, u16> {
 impl<'a> Blitter for BlitTransLucent75<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -653,6 +805,11 @@ impl<'a> Blitter for BlitTransZRemapXlat<'a, u8> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         let remap = self.remap;
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -674,6 +831,11 @@ impl<'a> Blitter for BlitTransZRemapXlat<'a, u16> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         let remap = self.remap;
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {
@@ -695,6 +857,11 @@ impl<'a> Blitter for BlitTransZRemapXlat<'a, u32> {
     fn blit_forward(&self, mut dest: *mut u8, mut source: *const u8, length: i32) {
         let remap = self.remap;
         for _ in 0..length {
+            // SAFETY: [Category 10 — OOB]
+            // `dest` and `source` are lock-valid row pointers with `length` pixels of
+            // storage at this pixel width; each loop step advances both by one pixel and
+            // indexes `self.translate`/`self.remap` only with an in-range source byte
+            // (0..=255), mirroring blitter.h Blit_Trans stores.
             unsafe {
                 let color = *source;
                 if color != 0 {

@@ -1130,6 +1130,11 @@ impl WWAudioClass {
             .audio_system
             .as_mut()
             .map(|sys| sys as *mut AudioSystem)
+            // SAFETY: The pointer is the same `&mut AudioSystem` borrowed
+            // from self.audio_system two lines above, cast and immediately
+            // converted back within one expression; nothing invalidates it
+            // in between, so `as_mut` yields a valid, uniquely borrowed
+            // system for the queue_pending_voice_restores call.
             .and_then(|ptr| unsafe { ptr.as_mut() });
         if let Some(system) = system {
             system.queue_pending_voice_restores();

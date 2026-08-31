@@ -37,6 +37,7 @@ fn test_function_ptr_null_and_from_usize_zero() {
     assert!(FunctionPtr::null().is_null());
     assert!(FunctionPtr::null().as_unit_fn().is_none());
     // Safety: 0 is the documented null encoding.
+    // SAFETY: 0 is the documented null encoding accepted by from_usize.
     let from_zero = unsafe { FunctionPtr::from_usize(0) };
     assert!(from_zero.is_null());
     assert!(from_zero.as_ptr().is_null());

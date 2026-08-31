@@ -617,9 +617,14 @@ pub mod hardware {
 
         let mut status = MEMORYSTATUSEX {
             dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            // SAFETY: zeroed() is sound for MEMORYSTATUSEX because every field is a plain
+            // integer (no pointers or references), and dwLength is set to the struct size
             ..unsafe { std::mem::zeroed() }
         };
 
+        // SAFETY: status is fully initialized with dwLength = size_of::<MEMORYSTATUSEX>() as the
+        // winapi contract requires; GlobalMemoryStatusEx only writes through the pointer during
+        // the call and the reference remains valid for its whole duration.
         unsafe {
             GlobalMemoryStatusEx(&mut status);
         }
@@ -637,8 +642,15 @@ pub mod hardware {
         {
             use libc::{_SC_AVPHYS_PAGES, _SC_PAGESIZE, _SC_PHYS_PAGES, sysconf};
 
+            // SAFETY: sysconf with any of the _SC_* constants is always safe to call; it reads
+            // only kernel-maintained system limits, touches no pointers, and returns i32 values
+            // (-1 on error), so no precondition beyond libc being linked applies.
             let page_size = unsafe { sysconf(_SC_PAGESIZE) } as usize;
+            // SAFETY: sysconf(_SC_PHYS_PAGES) only reads a kernel-maintained limit; no
+            // pointers, no preconditions beyond libc being linked (-1 on error).
             let total_pages = unsafe { sysconf(_SC_PHYS_PAGES) } as u64;
+            // SAFETY: sysconf(_SC_AVPHYS_PAGES) only reads a kernel-maintained limit; no
+            // pointers, no preconditions beyond libc being linked (-1 on error).
             let available_pages = unsafe { sysconf(_SC_AVPHYS_PAGES) } as u64;
 
             return MemoryInfo {

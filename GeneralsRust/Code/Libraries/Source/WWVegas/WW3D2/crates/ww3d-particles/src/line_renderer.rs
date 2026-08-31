@@ -573,7 +573,12 @@ pub struct LineVertex {
 }
 
 // Manual implementation of Pod and Zeroable
+// SAFETY: LineVertex is #[repr(C)] and contains only Copy POD fields
+// (Vec3, Vec4, Vec2 of plain f32); every bit pattern is a valid value
+// with no interior mutability, so byte-for-byte copies are sound.
 unsafe impl bytemuck::Pod for LineVertex {}
+// SAFETY: all-zero bytes are a valid LineVertex value (zero positions,
+// colors and UVs), satisfying the Zeroable contract.
 unsafe impl bytemuck::Zeroable for LineVertex {}
 
 /// Line group renderer - renders groups of lines as 3D shapes (tetrahedrons or prisms)
@@ -973,7 +978,12 @@ pub struct LineGroupVertex {
 }
 
 // Manual implementation of Pod and Zeroable
+// SAFETY: LineGroupVertex is #[repr(C)] with only Copy POD f32-vector
+// fields (Vec3, Vec4, Vec2); every bit pattern is a valid value with no
+// interior mutability, meeting bytemuck::Pod requirements.
 unsafe impl bytemuck::Pod for LineGroupVertex {}
+// SAFETY: all-zero bytes represent a valid (degenerate) LineGroupVertex,
+// satisfying the Zeroable contract for this repr(C) all-f32 struct.
 unsafe impl bytemuck::Zeroable for LineGroupVertex {}
 
 fn resolve_line_group_basis(

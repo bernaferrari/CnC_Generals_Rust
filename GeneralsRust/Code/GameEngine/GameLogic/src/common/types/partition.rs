@@ -60,6 +60,8 @@ impl Xfer for DummyXfer {
         Ok(())
     }
 
+    // SAFETY: trait contract: caller guarantees `_data` is valid for
+    // `_data_size` bytes; this no-op never dereferences it.
     unsafe fn xfer_implementation(&mut self, _data: *mut u8, _data_size: usize) -> io::Result<()> {
         let _ = (_data, _data_size); // Silence unused warning
         Ok(())

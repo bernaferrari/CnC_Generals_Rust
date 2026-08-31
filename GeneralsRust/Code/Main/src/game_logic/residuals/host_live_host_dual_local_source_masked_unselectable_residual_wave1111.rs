@@ -48,7 +48,7 @@ fn tr_source() -> &'static str {
     game_client::message_stream::translators::TRANSLATORS_SRC
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 
 pub fn honesty_host_dual_local_source_masked_unselectable_method_names_residual_wave1111() -> bool {

@@ -364,11 +364,22 @@ impl GameLogic {
                 );
                 continue;
             }
-            // C++ triggerAbilityEffect: temp-lock SECONDARY and aiAttackObject.
-            if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_active_weapon_slot(1);
+            // C++ triggerAbilityEffect (SpecialAbilityUpdate.cpp:1276-1293): only
+            // while the SECONDARY weapon exists, setWeaponLock(SECONDARY,
+            // LOCKED_TEMPORARILY) then aiAttackObject. WeaponSet.cpp:1053-1056
+            // refuses a temporary lock under a permanent user lock (that slot
+            // keeps firing); reload (Object.cpp:1464-1467) and any player
+            // command (GameLogicDispatch.cpp:104-106) release it again.
+            if self
+                .objects
+                .get(&object_id)
+                .is_some_and(|obj| obj.weapon_slot(1).is_some())
+            {
+                if let Some(obj) = self.objects.get_mut(&object_id) {
+                    obj.set_weapon_lock(1, crate::game_logic::WeaponLockType::LockedTemporarily);
+                }
+                let _ = self.engage_target_decision_aware(object_id, channel.target_id);
             }
-            let _ = self.engage_target_decision_aware(object_id, channel.target_id);
             self.missile_defender_residual_laser_specials = self
                 .missile_defender_residual_laser_specials
                 .saturating_add(1);
@@ -1905,6 +1916,31 @@ impl GameLogic {
             drone.set_status_unselectable(true);
             if drone.upgrade_die.is_none() {
                 drone.install_upgrade_die(kind.upgrade_name());
+            }
+        }
+
+        // SpawnBehavior::computeAggregateStates aggregate residual: master and
+        // drone sync to the higher rank at attach (SlavedUpdate live tick in
+        // world_tick/ai.rs re-applies the same sync every frame).
+        let (master_level, drone_level) = match (
+            self.objects.get(&master_id),
+            self.objects.get(&drone_id),
+        ) {
+            (Some(m), Some(d)) => (m.experience.level, d.experience.level),
+            _ => return Some(drone_id),
+        };
+        let (sync_master, sync_drone) = crate::game_logic::host_slave_drones::synced_spawn_veterancy(
+            master_level,
+            drone_level,
+        );
+        if sync_master != master_level {
+            if let Some(master) = self.objects.get_mut(&master_id) {
+                master.set_min_veterancy_level(sync_master);
+            }
+        }
+        if sync_drone != drone_level {
+            if let Some(drone) = self.objects.get_mut(&drone_id) {
+                drone.set_min_veterancy_level(sync_drone);
             }
         }
 

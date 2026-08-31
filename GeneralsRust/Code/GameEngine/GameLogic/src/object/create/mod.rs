@@ -15,8 +15,8 @@ pub mod supply_warehouse_create;
 pub mod veterancy_gain_create;
 
 pub use create_module::{
-    CreateModule, CreateModuleData, SafeCreateModule, create_safe_module, with_create_owner_mut,
-    with_create_owner_object,
+    CreateModule, CreateModuleData, SafeCreateModule, create_owner_id, create_safe_module,
+    with_create_owner_mut, with_create_owner_object,
 };
 pub use game_engine::common::thing::module::CreateInterface as CreateModuleInterface;
 

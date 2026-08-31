@@ -16,6 +16,7 @@ pub struct DefaultThingTemplate {
     threat_value: UnsignedInt,
     crusher_level: u32,
     crushable_level: u32,
+    transport_slot_count: UnsignedByte,
     shroud_reveal_to_all_range: Real,
     occlusion_delay: u32,
     max_health: Real,
@@ -82,6 +83,7 @@ impl DefaultThingTemplate {
             threat_value: 0,
             crusher_level: 0,
             crushable_level: 255,
+            transport_slot_count: 0,
             shroud_reveal_to_all_range: 0.0,
             occlusion_delay: global_data::read().default_occlusion_delay,
             max_health: 100.0,
@@ -341,6 +343,11 @@ impl DefaultThingTemplate {
                         self.threat_value = v;
                     }
                 }
+                "TransportSlotCount" => {
+                    if let Ok(v) = trimmed.parse::<UnsignedByte>() {
+                        self.transport_slot_count = v;
+                    }
+                }
 
                 // --- Occlusion ---
                 "OcclusionDelay" => {
@@ -565,6 +572,10 @@ impl ThingTemplate for DefaultThingTemplate {
 
     fn get_crushable_level(&self) -> u32 {
         self.crushable_level
+    }
+
+    fn get_raw_transport_slot_count(&self) -> UnsignedByte {
+        self.transport_slot_count
     }
 
     fn get_shroud_reveal_to_all_range(&self) -> Real {
@@ -798,6 +809,10 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
 
     fn get_crushable_level(&self) -> u32 {
         (**self).get_crushable_level()
+    }
+
+    fn get_raw_transport_slot_count(&self) -> UnsignedByte {
+        (**self).get_raw_transport_slot_count()
     }
 
     fn get_shroud_reveal_to_all_range(&self) -> Real {
@@ -1045,6 +1060,10 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_crushable_level(&self) -> u32 {
         (**self).get_crushable_level()
+    }
+
+    fn get_raw_transport_slot_count(&self) -> UnsignedByte {
+        (**self).get_raw_transport_slot_count()
     }
 
     fn get_shroud_reveal_to_all_range(&self) -> Real {

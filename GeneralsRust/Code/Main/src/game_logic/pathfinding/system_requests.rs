@@ -502,7 +502,6 @@ impl PathfindingSystem {
         is_crusher: bool,
         start_layer: PathfindLayerEnum,
         dest_layer: PathfindLayerEnum,
-        fallback_closest: bool,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         self.grid.refresh_logical_extent();
@@ -547,6 +546,17 @@ impl PathfindingSystem {
                 crusher_level,
                 dest_layer,
             )
+            .filter(|c| {
+                // C++ internalFindPath refuses a goal that fails
+                // validMovementPosition (AIPathfind.cpp:6561-6568); the zone
+                // gate in checkDestination must not accept Impassable/Obstacle.
+                !matches!(
+                    self.grid.resolved_cell_type(dest_layer, *c),
+                    PathfindCellType::Impassable
+                        | PathfindCellType::Obstacle
+                        | PathfindCellType::BridgeImpassable
+                )
+            })
             .unwrap_or(goal_seed);
         self.grid.query_from = None;
         self.grid.query_orig_dest = None;
@@ -557,21 +567,30 @@ impl PathfindingSystem {
                 .is_some_and(|s| s.contains(&GridCoord::new(pos.x, pos.y)))
         };
         let start_obstacle = self.grid.cell_type(start) == PathfindCellType::Obstacle;
+        // C++ internalFindPath bails before seeding when the goal fails
+        // validMovementPosition (AIPathfind.cpp:6561-6568) — a wall click
+        // must fail closed, never fall back to closest on the far side.
+        if !ignore_covers(goal)
+            && matches!(
+                self.grid.resolved_cell_type(dest_layer, goal),
+                PathfindCellType::Impassable
+                    | PathfindCellType::Obstacle
+                    | PathfindCellType::BridgeImpassable
+            )
+            && self.grid.cell_type(goal) == PathfindCellType::Impassable
+        {
+            return None;
+        }
         // C++ ignoreObstacle / tunneling uses terrain zones (AIPathfind.cpp:6544-6550).
         if (surfaces & SURFACE_AIR) == 0 {
             let from_w = self.grid.grid_to_world(start);
             let to_w = self.grid.grid_to_world(goal);
             let ignore_or_tunnel = start_obstacle || ignore_covers(start) || ignore_covers(goal);
-            if !ignore_or_tunnel
-                && !self
-                    .grid
-                    .quick_path_exists_for_crusher(from_w, to_w, surfaces, is_crusher)
-            {
+            let quick = self.grid.quick_path_exists_for_crusher(from_w, to_w, surfaces, is_crusher);
+            if !ignore_or_tunnel && !quick {
                 return None;
             }
         }
-
-        // C++ checkDestination refuses allied UNIT_GOAL cells.
         if self
             .grid
             .has_allied_goal_on(goal, self.seeker_player, dest_layer)
@@ -617,6 +636,54 @@ impl PathfindingSystem {
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
+        let start_is_obstacle = self.crate_astar.as_ref().is_some_and(|crate_pf| {
+            crate_pf.finder.get_cell_type_on_layer(start_c, start_layer)
+                == Some(PathfindCellType::Obstacle)
+        });
+        // Seeker policy inputs to the crate A* call (leftover downhill-only etc).
+        let downhill_only = self.seeker_downhill_only;
+        let is_human = self.seeker_is_human;
+        let cell_allowed = |c: GridCoord| {
+            if is_human {
+                self.grid.in_logical_extent(GridPos::new(c.x, c.y))
+            } else {
+                true
+            }
+        };
+        let is_dozer = self.seeker_is_dozer;
+        let seeker_player = self.seeker_player;
+        let seeker_team = self.seeker_team;
+        let ally_mask = seeker_player
+            .map(|p| self.grid.ally_mask_for(p))
+            .unwrap_or(0);
+        let dozer_ok = |c: GridCoord| {
+            if !is_dozer {
+                return false;
+            }
+            let Some((_id, owner, team)) = self.grid.obstacle_owner(GridPos::new(c.x, c.y)) else {
+                return false;
+            };
+            if let (Some(sp), Some(op)) = (seeker_player, owner) {
+                if sp == op {
+                    return true;
+                }
+                if (ally_mask & (1u16 << op.min(15))) != 0 {
+                    return true;
+                }
+                return matches!(team, Some(Team::Neutral));
+            }
+            match (seeker_team, team) {
+                (Some(a), Some(b)) if a == b => true,
+                (Some(Team::Neutral), _) | (_, Some(Team::Neutral)) => true,
+                _ => false,
+            }
+        };
+        let dozer_ok_ref: Option<&dyn Fn(GridCoord) -> bool> = if is_dozer {
+            Some(&dozer_ok as &dyn Fn(GridCoord) -> bool)
+        } else {
+            None
+        };
+        let seed_line = !start_is_obstacle && !downhill_only;
         // C++ findPath: clearPassableFlags + findHierarchicalPath corridor
         // (AIPathfind.cpp:6375-6381). Fine A* then consults isPassable.
         let jumps = self.hierarchical_bridge_jumps();
@@ -626,13 +693,17 @@ impl PathfindingSystem {
                 .apply_hierarchical_zone_prune(start_c, goal_c, surfaces, is_crusher, &jumps);
         }
 
-        let (exact_path, examined, from_w, to_w, closest_human) = {
+        let (exact_path, examined) = {
             let width = self.grid.width;
             let occ_fixed = self.grid.occ_fixed_mask.clone();
             let occ_moving = self.grid.occ_moving_mask.clone();
             let occ_goal = self.grid.occ_goal_mask.clone();
             let occ_infantry = self.grid.occ_infantry_mask.clone();
             let occ_crush = self.grid.occ_fixed_max_crushable.clone();
+            let occ_pos_unit = self.grid.occ_pos_unit.clone();
+            let occ_pos_player = self.grid.occ_pos_player.clone();
+            let occ_pos_flags = self.grid.occ_pos_flags.clone();
+            let occ_pos_crush = self.grid.occ_pos_crushable.clone();
             let layer_occ = self.grid.layer_occ.clone();
             let start_layer_id = start_layer as u8;
             let dest_layer_id = dest_layer as u8;
@@ -665,7 +736,14 @@ impl PathfindingSystem {
                 if c.x < 0 || c.y < 0 || c.x >= width {
                     return 0;
                 }
-                if path_diameter >= 2 {
+                // C++ internalFindPath has NO clearCellForDiameter gate on
+                // neighbor expansion (AIPathfind.cpp:6125-6260; the diameter
+                // check lives only in adjustDestination / findGroundPath).
+                // The hq-985ts one-cell-corridor veto below is a repo guard
+                // for generic vehicles; dozer seekers follow the C++
+                // dozerHack (AIPathfind.cpp:6208-6225) which admits obstacle
+                // gaps of any width, so they skip it.
+                if path_diameter >= 2 && dozer_ok_ref.is_none() {
                     let d = clear_cell_for_diameter_impl(
                         width,
                         height,
@@ -694,27 +772,36 @@ impl PathfindingSystem {
                     None
                 };
                 let idx = c.y as usize * width as usize + c.x as usize;
-                let (fixed, moving, goal_m, infantry, crush) = if let Some(lid) = layer_id {
-                    if let Some(occ) = layer_occ.get(&lid) {
-                        (
-                            occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
-                            occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
-                            occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
-                            occ.occ_infantry_mask.get(&key).copied().unwrap_or(0),
-                            occ.occ_fixed_max_crushable.get(&key).copied().unwrap_or(0),
-                        )
+                let (fixed, moving, goal_m, infantry, crush, pos_u, pos_p, pos_flags, pos_cr) =
+                    if let Some(lid) = layer_id {
+                        if let Some(occ) = layer_occ.get(&lid) {
+                            (
+                                occ.occ_fixed_mask.get(&key).copied().unwrap_or(0),
+                                occ.occ_moving_mask.get(&key).copied().unwrap_or(0),
+                                occ.occ_goal_mask.get(&key).copied().unwrap_or(0),
+                                occ.occ_infantry_mask.get(&key).copied().unwrap_or(0),
+                                occ.occ_fixed_max_crushable.get(&key).copied().unwrap_or(0),
+                                occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
+                                occ.occ_pos_player.get(&key).copied().unwrap_or(0),
+                                occ.occ_pos_flags.get(&key).copied().unwrap_or(0),
+                                occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
+                            )
+                        } else {
+                            (0, 0, 0, 0, 0, 0, 0, 0, 0)
+                        }
                     } else {
-                        (0, 0, 0, 0, 0)
-                    }
-                } else {
-                    (
-                        occ_fixed.get(idx).copied().unwrap_or(0),
-                        occ_moving.get(idx).copied().unwrap_or(0),
-                        occ_goal.get(idx).copied().unwrap_or(0),
-                        occ_infantry.get(idx).copied().unwrap_or(0),
-                        occ_crush.get(idx).copied().unwrap_or(0),
-                    )
-                };
+                        (
+                            occ_fixed.get(idx).copied().unwrap_or(0),
+                            occ_moving.get(idx).copied().unwrap_or(0),
+                            occ_goal.get(idx).copied().unwrap_or(0),
+                            occ_infantry.get(idx).copied().unwrap_or(0),
+                            occ_crush.get(idx).copied().unwrap_or(0),
+                            occ_pos_unit.get(idx).copied().unwrap_or(0),
+                            occ_pos_player.get(idx).copied().unwrap_or(0),
+                            occ_pos_flags.get(idx).copied().unwrap_or(0),
+                            occ_pos_crush.get(idx).copied().unwrap_or(0),
+                        )
+                    };
                 // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
                 if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
                     return 0;
@@ -734,35 +821,33 @@ impl PathfindingSystem {
                         return 0;
                     }
                 }
-                if (fixed & !friend) != 0 {
-                    let max_c = crush;
-                    if crusher_level == 0 || crusher_level <= max_c {
-                        return u32::MAX / 8;
-                    }
-                }
                 let mut extra = 0u32;
-                // C++ allyMoving for ALL allies, only within 10 cells of start.
-                // Moving enemies are ignored (considerTransient=false).
-                if (moving & friend) != 0
-                    && (c.x - start_for_cost.x).abs() < 10
-                    && (c.y - start_for_cost.y).abs() < 10
-                {
-                    extra += 3 * COST_DIAGONAL;
-                }
-                if (fixed & friend) != 0 {
-                    extra += 3 * COST_DIAGONAL;
+                // C++ checkForMovement verdict on the cell's single m_posUnitID
+                // (AIPathfind.cpp:5020-5066): ally fixed → allyFixed cost, enemy
+                // uncrushable → impassable. Bitset view only when no identity.
+                let pos_moving = pos_flags & 1 != 0;
+                if pos_u != 0 {
+                    if (pos_p & friend) == 0 {
+                        let crushable = crusher_level > 0 && crusher_level > pos_cr;
+                        if !crushable {
+                            return u32::MAX / 8;
+                        }
+                    } else if !pos_moving && (fixed & friend) != 0 {
+                        extra += 3 * COST_DIAGONAL;
+                    }
+                } else {
+                    if (fixed & !friend) != 0 {
+                        let max_c = crush;
+                        if crusher_level == 0 || crusher_level <= max_c {
+                            return u32::MAX / 8;
+                        }
+                    }
+                    if (fixed & friend) != 0 {
+                        extra += 3 * COST_DIAGONAL;
+                    }
                 }
                 extra
             };
-            let Some(crate_pf) = self.crate_astar.as_ref() else {
-                let path = self.grid.find_path(start, goal);
-                if path.is_some() {
-                    self.note_cells_allocated(1);
-                }
-                return path;
-            };
-            let start_is_obstacle = crate_pf.finder.get_cell_type_on_layer(start_c, start_layer)
-                == Some(PathfindCellType::Obstacle);
             let extra_ref = &extra;
             let line_ok = |c: GridCoord| {
                 if extra_ref(c) >= u32::MAX / 8 {
@@ -786,50 +871,6 @@ impl PathfindingSystem {
                 let w = self.grid.grid_to_world(GridPos::new(c.x, c.y));
                 sample_host_ground_height(w.x, w.z)
             };
-            let downhill_only = self.seeker_downhill_only;
-            let is_human = self.seeker_is_human;
-            let cell_allowed = |c: GridCoord| {
-                if is_human {
-                    self.grid.in_logical_extent(GridPos::new(c.x, c.y))
-                } else {
-                    true
-                }
-            };
-            let is_dozer = self.seeker_is_dozer;
-            let seeker_player = self.seeker_player;
-            let seeker_team = self.seeker_team;
-            let ally_mask = seeker_player
-                .map(|p| self.grid.ally_mask_for(p))
-                .unwrap_or(0);
-            let dozer_ok = |c: GridCoord| {
-                if !is_dozer {
-                    return false;
-                }
-                let Some((_id, owner, team)) = self.grid.obstacle_owner(GridPos::new(c.x, c.y))
-                else {
-                    return false;
-                };
-                if let (Some(sp), Some(op)) = (seeker_player, owner) {
-                    if sp == op {
-                        return true;
-                    }
-                    if (ally_mask & (1u16 << op.min(15))) != 0 {
-                        return true;
-                    }
-                    return matches!(team, Some(Team::Neutral));
-                }
-                match (seeker_team, team) {
-                    (Some(a), Some(b)) if a == b => true,
-                    (Some(Team::Neutral), _) | (_, Some(Team::Neutral)) => true,
-                    _ => false,
-                }
-            };
-            let dozer_ok_ref: Option<&dyn Fn(GridCoord) -> bool> = if is_dozer {
-                Some(&dozer_ok as &dyn Fn(GridCoord) -> bool)
-            } else {
-                None
-            };
-            let seed_line = !start_is_obstacle && !downhill_only;
             if is_human
                 && (!self.grid.in_logical_extent(start) || !self.grid.in_logical_extent(goal))
             {
@@ -837,6 +878,12 @@ impl PathfindingSystem {
                     return None;
                 }
             }
+            // C++ internalFindPath always runs on the live pathfind map; no
+            // secondary solver exists. Without A* there is no path — returning
+            // the legacy grid result would let non-dozers cross obstacle gaps.
+            let Some(crate_pf) = self.crate_astar.as_ref() else {
+                return None;
+            };
             let run = |allow_partial: bool| {
                 crate_pf.finder.find_path_with_start_layer(
                     start_c,
@@ -863,10 +910,7 @@ impl PathfindingSystem {
             let exact = run(false);
             let examined = exact.as_ref().map(|(_, n)| *n).unwrap_or(0);
             let exact_path = exact.map(|(path, _)| path);
-            let from_w = self.grid.grid_to_world(start);
-            let to_w = self.grid.grid_to_world(goal);
-            let closest_human = is_human;
-            (exact_path, examined, from_w, to_w, closest_human)
+            (exact_path, examined)
         };
         self.note_cells_allocated(examined);
         if let Some(cells) = exact_path {
@@ -879,11 +923,25 @@ impl PathfindingSystem {
                 crusher_level,
             ));
         }
-        if !fallback_closest {
-            return None;
+        // C++ Pathfinder::findPath (AIPathfind.cpp:6364-6436) returns NULL
+        // when internalFindPath fails. findClosestPath is a separate service
+        // invoked by AIUpdateInterface::computePath (AIUpdate.cpp:1713-1717)
+        // — never an unconditional fallback inside the pathfinder. The one
+        // carried-over closest walk is the structure-sealed goal (every
+        // boundary cell a CELL_OBSTACLE building, hq-985ts click-on-building
+        // UX); a terrain-sealed goal — including a doze-able obstacle gap in
+        // an Impassable wall — fails closed so non-dozers cannot dozerHack
+        // across it (hq-8kkhs).
+        if self.grid.structure_sealed_goal(start, goal) {
+            let from_w = self.grid.grid_to_world(start);
+            let to_w = self.grid.grid_to_world(goal);
+            if let Some(closest) =
+                self.find_closest_path(from_w, to_w, surfaces, is_crusher, is_human)
+            {
+                return Some(closest);
+            }
         }
-        // C++ findClosestPath on findPath fail (AIUpdate.cpp:1713-1717).
-        self.find_closest_path(from_w, to_w, surfaces, is_crusher, closest_human)
+        None
     }
 
     /// Queue a path request for next-frame resolve (C++ queueForPath).

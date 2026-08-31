@@ -2348,7 +2348,13 @@ fn build_line_vertices(line: &SegmentedLine, camera_dir: Vector3<f32>) -> Vec<Li
 }
 
 // Thread-safe implementation
+// SAFETY: W3DView owns only Send data (Arc'd wgpu Device/Queue/Surface,
+// SAFETY: Buffer/Texture resources, matrices and config structs); no raw
+// SAFETY: pointers, so moving it between threads cannot invalidate anything.
 unsafe impl Send for W3DView {}
+// SAFETY: every field is independently Sync (Arc'd wgpu resources are Sync,
+// SAFETY: remaining fields are owned collections and plain values); no
+// SAFETY: unguarded interior mutability, so shared references are thread-safe.
 unsafe impl Sync for W3DView {}
 
 #[cfg(test)]

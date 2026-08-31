@@ -486,10 +486,21 @@ impl AIPlayer {
                     all_idle = false;
                 } else {
                     for id in &member_ids {
-                        let idle = game_logic
-                            .host_object(*id)
-                            .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
-                            .unwrap_or(false);
+                        // C++ guard-at-post settles into AIGuardMachine's
+                        // AI_GUARD_IDLE ("Wait till something shows up to
+                        // attack", AIGuard.h:33) — behaviorally idle for
+                        // checkReadyTeams readiness, so the team activates and
+                        // its setActive counts as player activity.
+                        let idle = game_logic.host_object(*id).map(|o| {
+                            o.is_alive()
+                                && matches!(
+                                    o.ai_state,
+                                    AIState::Idle
+                                        | AIState::GuardingArea
+                                        | AIState::GuardingObject
+                                )
+                        })
+                        .unwrap_or(false);
                         if idle {
                             any_idle = true;
                         } else {
@@ -1255,29 +1266,27 @@ impl AIPlayer {
             .any(|item| item.is_upgrade() && item.template_name.eq_ignore_ascii_case(upgrade_name))
     }
 
+    /// C++ `AIPlayer::buildUpgrade` walks BuildList factories whose
+    /// CommandSet has a button for exactly this upgrade
+    /// (`Object::canProduceUpgrade`).  The residual preferred-name table is
+    /// that exact CommandSet identity, so a same-team building that passes
+    /// only the loose queue checks must NOT be selected.
     pub(super) fn find_upgrade_producer(
         &self,
         game_logic: &GameLogic,
         upgrade_name: &str,
     ) -> Option<ObjectId> {
         let preferred = Self::preferred_upgrade_producer_names(upgrade_name);
-        let mut fallback = None;
-        for (&id, object) in game_logic.host_objects() {
-            if object.team != self.team || !Self::building_can_queue_upgrade(object, upgrade_name) {
-                continue;
-            }
+        game_logic.host_objects().iter().find_map(|(&id, object)| {
             let name_ok = preferred.iter().any(|name| {
                 object.template_name.eq_ignore_ascii_case(name)
                     || object.get_template().name.eq_ignore_ascii_case(name)
             });
-            if name_ok {
-                return Some(id);
-            }
-            if fallback.is_none() {
-                fallback = Some(id);
-            }
-        }
-        fallback
+            (object.team == self.team
+                && name_ok
+                && Self::building_can_queue_upgrade(object, upgrade_name))
+            .then_some(id)
+        })
     }
 
     pub(super) fn try_queue_structure_upgrade(&mut self, game_logic: &mut GameLogic) {
@@ -1913,7 +1922,17 @@ impl AIPlayer {
                     .iter()
                     .enumerate()
                     .filter_map(move |(oi, order)| {
-                        if order.num_completed < order.num_required && order.factory_id.is_none() {
+                        // C++ queueSupplyTruck prepends the paid collector
+                        // order and startTraining produces it through the
+                        // SupplyCenter; the free SpawnBehavior starter is a
+                        // default-team unit that must not be recruited into
+                        // it (it is already ferrying for its center, and the
+                        // paid order must complete only via real output).
+                        // Combat work orders recruit map units as C++ does.
+                        if !order.is_resource_gatherer
+                            && order.num_completed < order.num_required
+                            && order.factory_id.is_none()
+                        {
                             Some((
                                 ti,
                                 oi,

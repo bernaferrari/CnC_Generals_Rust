@@ -2,12 +2,12 @@
 //!
 //! C++ Source: GameLogic/Object/Create/GrantUpgradeCreate.cpp
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
 
 use crate::object::create::{CreateModule, CreateModuleData};
-use crate::player::PlayerArcExt;
+use crate::player::{Player, PlayerArcExt};
 use crate::upgrade::{UpgradeStatus, UpgradeType, center::with_upgrade_center};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::rts::AsciiString;
@@ -104,11 +104,16 @@ impl GrantUpgradeCreate {
             return;
         };
 
+        // C++ GrantUpgradeCreate calls Player::addUpgrade(COMPLETE), whose
+        // onUpgradeCompleted fan-out locks every player object. Defer it
+        // until this object's (possibly write-locked) borrow has ended so
+        // the fan-out never re-locks the object running create hooks.
+        let mut granted_player: Option<Arc<RwLock<Player>>> = None;
         crate::object::create::with_create_owner_mut(object_id, |obj_guard| {
             if upgrade.get_upgrade_type() == UpgradeType::Player {
-                if let Some(player) = obj_guard.get_controlling_player() {
-                    player.add_upgrade(&upgrade, UpgradeStatus::Complete);
-                    if record_granted {
+                granted_player = obj_guard.get_controlling_player();
+                if record_granted {
+                    if let Some(player) = granted_player.as_ref() {
                         if let Ok(mut player_guard) = player.write() {
                             player_guard
                                 .get_academy_stats_mut()
@@ -129,6 +134,9 @@ impl GrantUpgradeCreate {
                 }
             }
         });
+        if let Some(player) = granted_player {
+            player.add_upgrade(&upgrade, UpgradeStatus::Complete);
+        }
     }
 }
 

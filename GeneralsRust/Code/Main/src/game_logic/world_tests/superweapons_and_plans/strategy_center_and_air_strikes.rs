@@ -130,12 +130,23 @@ fn eject_pilot_parachute_open_dist_residual() {
     };
 
     let mut game_logic = GameLogic::new();
+    // Retail ejection fixture: OCL store entries, AmericaInfantryPilot target
+    // template, and a live source controller (C++ EjectPilotDie
+    // RequiresLivePlayer + ObjectCreationList.ini OCL_EjectPilotViaParachute).
+    ensure_eject_pilot_residual_fixture(&mut game_logic);
     let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
     humvee_tpl
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0);
+    // Module presence is the C++ eject interface (EjectPilotDie.cpp).
+    author_eject_pilot_die_module(
+        &mut humvee_tpl,
+        crate::game_logic::EjectPilotDeathTypes::All,
+        crate::game_logic::EjectPilotVeterancyLevels::All,
+        crate::game_logic::EjectPilotExemptStatus::None,
+    );
     game_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -232,12 +243,21 @@ fn eject_pilot_parachute_pitch_roll_sway_residual() {
     };
 
     let mut game_logic = GameLogic::new();
+    // Retail ejection fixture (see open-dist test): OCLs, pilot template,
+    // live controller, and the authored EjectPilotDie module.
+    ensure_eject_pilot_residual_fixture(&mut game_logic);
     let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
     humvee_tpl
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0);
+    author_eject_pilot_die_module(
+        &mut humvee_tpl,
+        crate::game_logic::EjectPilotDeathTypes::All,
+        crate::game_logic::EjectPilotVeterancyLevels::All,
+        crate::game_logic::EjectPilotExemptStatus::None,
+    );
     game_logic
         .templates
         .insert("AmericaVehicleHumvee".to_string(), humvee_tpl);
@@ -1273,6 +1293,15 @@ fn emergency_repair_residual_heals_damaged_ally_vehicles() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308 canUseSpecialPower requires an authored
+    // SpecialPowerModule; author the retail module on the caster template.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::EmergencyRepair,
+        "SpecialPowerEmergencyRepair",
+        300,
+    );
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     if let Some(p) = game_logic.get_player_mut(0) {
@@ -1287,8 +1316,19 @@ fn emergency_repair_residual_heals_damaged_ally_vehicles() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        caster.set_special_power_ready_seconds(&SpecialPowerType::EmergencyRepair, 0.0);
     }
 
+    // Leftover canDoSpecialPowerAtLocation refuses a shrouded cell; a parallel
+    // test may have initialized the global shroud grid, so reset it and
+    // serialize before the cast (C++ ActionManager.cpp:1439-1523).
+    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .ok()
+        .map(|mut shroud| shroud.clear_all());
     let ally_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .expect("ally");
@@ -1406,6 +1446,15 @@ fn emergency_repair_does_not_queue_superweapon_strike() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308 canUseSpecialPower requires an authored
+    // SpecialPowerModule; author the retail module on the caster template.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::EmergencyRepair,
+        "SpecialPowerEmergencyRepair",
+        300,
+    );
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     if let Some(p) = game_logic.get_player_mut(0) {
         p.unlock_science("SCIENCE_EmergencyRepair1");
@@ -1418,8 +1467,19 @@ fn emergency_repair_does_not_queue_superweapon_strike() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        caster.set_special_power_ready_seconds(&SpecialPowerType::EmergencyRepair, 0.0);
         caster.health.current = caster.health.maximum * 0.5;
     }
+
+    // Reset the global shroud grid so the cast location is not shrouded; a
+    // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
+    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .ok()
+        .map(|mut shroud| shroud.clear_all());
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -1457,6 +1517,15 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308 canUseSpecialPower requires an authored
+    // SpecialPowerModule; author the retail module on the caster template.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::GpsScrambler,
+        "SpecialPowerGPSScrambler",
+        300,
+    );
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
 
@@ -1472,6 +1541,7 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        caster.set_special_power_ready_seconds(&SpecialPowerType::GpsScrambler, 0.0);
     }
 
     let ally_vehicle_id = game_logic
@@ -1516,6 +1586,16 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
     );
 
     let impact = Vec3::new(0.0, 0.0, 0.0);
+    // Reset the global shroud grid so the cast location is not shrouded; a
+    // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
+    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .ok()
+        .map(|mut shroud| shroud.clear_all());
+
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::GpsScrambler,
@@ -1636,6 +1716,15 @@ fn gps_scrambler_does_not_queue_superweapon_strike() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308 canUseSpecialPower requires an authored
+    // SpecialPowerModule; author the retail module on the caster template.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::GpsScrambler,
+        "SpecialPowerGPSScrambler",
+        300,
+    );
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
     if let Some(p) = game_logic.get_player_mut(2) {
         p.unlock_science("SCIENCE_GPSScrambler");
@@ -1648,7 +1737,23 @@ fn gps_scrambler_does_not_queue_superweapon_strike() {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
+        caster.set_special_power_ready_seconds(&SpecialPowerType::GpsScrambler, 0.0);
     }
+
+    // C++ LeafletDropBehavior::doDisableAttack gates on the PLAYER
+    // relationship; author the USA→GLA enemy edge explicitly.
+    if let Some(p) = game_logic.get_player_mut(0) {
+        p.set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    }
+    // Reset the global shroud grid so the cast location is not shrouded; a
+    // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
+    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .ok()
+        .map(|mut shroud| shroud.clear_all());
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -1696,13 +1801,33 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:308 canUseSpecialPower requires an authored
+    // SpecialPowerModule; author the retail module on the caster template.
+    author_superweapon_special_power_module(
+        &mut game_logic,
+        "TestTank",
+        SpecialPowerType::LeafletDrop,
+        "SpecialPowerLeafletDrop",
+        300,
+    );
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
     // Science + player residual required by is_special_power_ready_for.
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    // C++ LeafletDropBehavior::doDisableAttack gates on the PLAYER
+    // relationship; with no relations map C++ returns NEUTRAL
+    // (Player.cpp:542-570), so author the USA→GLA enemy edge explicitly.
     if let Some(p) = game_logic.get_player_mut(0) {
         p.unlock_science("SCIENCE_LeafletDrop");
+    }
+    // C++ curVictim->getRelationship(source) reads the victim's map, so both
+    // edges of the USA↔GLA war must carry Enemies.
+    if let Some(p) = game_logic.get_player_mut(0) {
+        p.set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    }
+    if let Some(p) = game_logic.get_player_mut(2) {
+        p.set_map_relationship(0, gamelogic::common::Relationship::Enemies);
     }
 
     // player_id 0 → Team::USA residual ownership for command path.
@@ -1714,6 +1839,7 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
         caster.set_special_power_ready(true);
         caster.special_power_cooldown_remaining = 0.0;
         caster.special_power_cooldown = 10.0;
+        caster.set_special_power_ready_seconds(&SpecialPowerType::LeafletDrop, 0.0);
     }
 
     let enemy_vehicle_id = game_logic
@@ -1753,6 +1879,16 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
     assert_eq!(game_logic.host_leaflet_drops().activation_count(), 0);
 
     let impact = Vec3::new(0.0, 0.0, 0.0);
+    // Reset the global shroud grid so the cast location is not shrouded; a
+    // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
+    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .ok()
+        .map(|mut shroud| shroud.clear_all());
+
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::LeafletDrop,
@@ -2589,7 +2725,15 @@ fn emp_pulse_flight_disables_on_impact() {
     for f in 0..400 {
         logic.frame = f;
         logic.update_emp_pulse_flights();
-        if logic.emp_pulse_flight_reg.detonations >= 1 {
+        // C++ EMPUpdate fires doDisableAttack StartFadeTime (9 frames) after
+        // the spheroid spawns, so the disable trails the bomb detonation.
+        if logic.emp_pulse_flight_reg.detonations >= 1
+            && (logic
+                .host_object(foe)
+                .map(|o| o.is_disabled())
+                .unwrap_or(false)
+                || logic.emp_pulses().honesty_disable_ok())
+        {
             break;
         }
     }
@@ -2728,6 +2872,21 @@ fn anthrax_bomb_flight_drops_payload() {
     for f in 0..400 {
         logic.frame = f;
         logic.update_anthrax_bomb_flights();
+        // The residual payload lands at the release pose (DeliveryDistance
+        // band), not at the target; hold the victim under the falling bomb so
+        // the C++ impact blast is observable.
+        if logic.anthrax_bomb_flight_reg.bombs_dropped >= 1 {
+            let bomb_pos = logic
+                .host_objects()
+                .values()
+                .find(|o| o.anthrax_bomb_payload)
+                .map(|o| o.get_position());
+            if let Some(bp) = bomb_pos {
+                if let Some(victim) = logic.host_object_mut(foe) {
+                    victim.set_position(Vec3::new(bp.x, 0.0, bp.z));
+                }
+            }
+        }
         if logic.anthrax_bomb_flight_reg.detonations >= 1 {
             break;
         }

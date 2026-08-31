@@ -201,6 +201,9 @@ impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
     }
 
+    // SAFETY: pure forwarding: the raw pointer is passed straight to the
+    // wrapped `Xfer`, which upholds the same validity contract for
+    // `data_size` bytes that this method received from its own caller.
     unsafe fn xfer_implementation(
         &mut self,
         data: *mut u8,
@@ -472,6 +475,9 @@ fn xfer_sighting_info(
     xfer.xfer_real(&mut info.where_pos[2])?;
     xfer.xfer_real(&mut info.how_far)?;
     let mut for_whom = info.for_whom as u16;
+    // SAFETY: `for_whom` is an initialized stack `u16`; `xfer_user` moves
+    // exactly `size_of::<u16>()` bytes within this call (C++ SightingInfo
+    // xferUser parity).
     unsafe {
         xfer.xfer_user((&mut for_whom as *mut u16).cast::<u8>(), std::mem::size_of::<u16>())?;
     }

@@ -27,6 +27,10 @@ impl PathfindingGrid {
             terrain_zones: vec![0u16; cells],
             occ_fixed_mask: vec![0u16; cells],
             occ_goal_unit: vec![0u32; cells],
+            occ_pos_unit: vec![0u32; cells],
+            occ_pos_player: vec![0u16; cells],
+            occ_pos_flags: vec![0u8; cells],
+            occ_pos_crushable: vec![0u8; cells],
             occ_goal_aircraft: vec![0u32; cells],
             occ_moving_mask: vec![0u16; cells],
             fence_bits: vec![0u64; words],
@@ -1106,6 +1110,10 @@ impl PathfindingGrid {
         self.occ_goal_aircraft.fill(0);
         self.occ_infantry_mask.fill(0);
         self.occ_fixed_max_crushable.fill(0);
+        self.occ_pos_unit.fill(0);
+        self.occ_pos_player.fill(0);
+        self.occ_pos_flags.fill(0);
+        self.occ_pos_crushable.fill(0);
         self.layer_occ.clear();
     }
 

@@ -86,6 +86,15 @@ impl HostSpecialPowerStrikeRegistry {
             if strike.phase != HostStrikePhase::Queued || current_frame < strike.impact_frame {
                 continue;
             }
+            // Live DeliverPayload flights own the warhead path end-to-end:
+            // bombs/missiles apply and credit their own damage + impact FX
+            // (C++ DeliverPayloadAIUpdate spawns payloads; one weapon per drop).
+            if strike.kind == HostSuperweaponKind::CarpetBomb && strike.live_carpet_delivery {
+                continue;
+            }
+            if strike.kind == HostSuperweaponKind::A10Strike && strike.live_a10_delivery {
+                continue;
+            }
 
             let (due_points, wave_shell_count, is_final_wave) = if strike.kind.is_multi_strike() {
                 // Prefer once-at-queue residual plan (stored ADC draws); fall back
@@ -617,5 +626,38 @@ impl HostSpecialPowerStrikeRegistry {
                 }
             }
         }
+    }
+
+    /// Live DeliverPayload flight credit: accumulate one bomb/missile impact
+    /// onto the oldest queued strike of `kind` (C++ DeliverPayloadAIUpdate
+    /// payloads fire their own weapons; the strike ledger reflects it).
+    /// Returns the strike id credited, if any.
+    pub fn credit_live_flight_impact(
+        &mut self,
+        kind: HostSuperweaponKind,
+        total_damage: f32,
+        objects_hit: u32,
+        objects_destroyed: u32,
+        wave_shell_count: u32,
+        is_final_wave: bool,
+        epicenter: Vec3,
+    ) -> Option<u32> {
+        let strike_id = self
+            .strikes
+            .values()
+            .filter(|s| s.kind == kind && s.phase == HostStrikePhase::Queued)
+            .min_by_key(|s| s.id)
+            .map(|s| s.id);
+        let strike_id = strike_id?;
+        self.record_impact_wave(
+            strike_id,
+            total_damage,
+            objects_hit,
+            objects_destroyed,
+            wave_shell_count,
+            is_final_wave,
+            &[epicenter],
+        );
+        Some(strike_id)
     }
 }

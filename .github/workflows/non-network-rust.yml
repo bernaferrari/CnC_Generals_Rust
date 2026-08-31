@@ -116,6 +116,11 @@ jobs:
       - name: Run attached repository-level tests
         run: cargo test --locked -p generals-root-tests
 
+      - name: Compile internal Common tests and run ThingFactory parity guards
+        run: >-
+          cargo test --locked -p game_engine --features internal --lib
+          common::thing::thing_factory::tests:: -- --test-threads=1
+
       - name: Run Clippy on supported non-network libraries
         run: >-
           cargo clippy --locked --lib

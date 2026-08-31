@@ -17,11 +17,13 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+use crate::game_logic::host_deliver_payload::is_close_enough_to_target_squared_residual;
 use crate::game_logic::special_power_strikes::{
     ARTILLERY_BARRAGE_DAMAGE, ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
-    ARTILLERY_BARRAGE_FORMATION_SPACING, ARTILLERY_BARRAGE_PREFERRED_HEIGHT,
+    ARTILLERY_BARRAGE_FORMATION_SPACING, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES,
+    ARTILLERY_BARRAGE_PRE_OPEN_DISTANCE, ARTILLERY_BARRAGE_PREFERRED_HEIGHT,
     ARTILLERY_BARRAGE_RADIUS, ARTILLERY_BARRAGE_SHELL_OBJECT, ARTILLERY_BARRAGE_TRANSPORT,
-    ArtilleryBarrageScienceTier, artillery_barrage_points_for_tier, artillery_shell_impact_frame,
+    ArtilleryBarrageScienceTier, artillery_barrage_points_for_tier,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +146,10 @@ pub struct HostArtilleryBarrageFlightData {
     /// C++ HeadOffMapState: dest is HUGE_DIST after delivery.
     #[serde(default)]
     pub passed_target: bool,
+    /// Previous 2D dist² for C++ isCloseEnoughToTarget inbound tracking
+    /// (DeliverPayloadAIUpdate.cpp:99,356-357; starts at 0 like m_previousDistanceSqr).
+    #[serde(default)]
+    pub prev_dist_sq: f32,
     /// Map extent for C++ `isOffMap` / HeadOffMap HUGE_DIST (world_min/max).
     #[serde(default)]
     pub map_min: Vec3,
@@ -163,6 +169,7 @@ impl HostArtilleryBarrageFlightData {
             transport_alive: true,
             delivery_complete: false,
             passed_target: false,
+            prev_dist_sq: 0.0,
             map_min: Vec3::ZERO,
             map_max: Vec3::ZERO,
             delay_until_frame: 0,
@@ -178,12 +185,21 @@ impl HostArtilleryBarrageFlightData {
         self.map_max.x > self.map_min.x && self.map_max.z > self.map_min.z
     }
 
-    /// C++ DeliveringState `isCloseEnoughToTarget` residual (live band).
-    pub fn in_delivery_band(&self, pos: Vec3) -> bool {
+    /// C++ DeliveringState `isCloseEnoughToTarget` residual (live band):
+    /// authored DeliveryDistance 250, PreOpenDistance 0; inbound expands the
+    /// allowed band to the sum.
+    pub fn in_delivery_band(&mut self, pos: Vec3) -> bool {
         let dx = self.target.x - pos.x;
         let dz = self.target.z - pos.z;
-        let dist = (dx * dx + dz * dz).sqrt();
-        dist < 5.0 || dist <= 80.0
+        let current = dx * dx + dz * dz;
+        let previous = self.prev_dist_sq;
+        self.prev_dist_sq = current;
+        is_close_enough_to_target_squared_residual(
+            current,
+            previous,
+            ARTILLERY_BARRAGE_DELIVERY_DISTANCE,
+            ARTILLERY_BARRAGE_PRE_OPEN_DISTANCE,
+        )
     }
 
     /// C++ Approach/Delivering toward moveToPos, then HeadOffMap HUGE_DIST.
@@ -256,16 +272,23 @@ impl HostArtilleryBarrageFlightRegistry {
         *self = Self::default();
     }
 
+    /// Shell `i` is the payload of transport `i` (ObjectCreationList.cpp:375-378):
+    /// every transport — lead included — rolls rand(0, DelayDeliveryMax) and
+    /// cannot deliver while disabled, so the schedule adds the same delay.
     pub fn schedule_drops(
         &mut self,
         activate_frame: u32,
         source_id: u32,
         target: Vec3,
         tier: ArtilleryBarrageScienceTier,
+        transport_delays: &[u32],
     ) {
         let points = artillery_barrage_points_for_tier(target, tier);
         for (i, pt) in points.into_iter().enumerate() {
-            let impact = artillery_shell_impact_frame(activate_frame, i as u32);
+            let transport_delay = transport_delays.get(i).copied().unwrap_or(0);
+            let impact = activate_frame
+                .saturating_add(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES)
+                .saturating_add(transport_delay);
             // Drop a few frames before residual impact (fall residual).
             let drop_frame = impact.saturating_sub(8);
             self.pending_drops.push(PendingArtilleryShellDrop {
@@ -318,11 +341,13 @@ pub fn honesty_artillery_barrage_flight_residual_ok() -> bool {
             == 12
         && {
             let mut reg = HostArtilleryBarrageFlightRegistry::new();
+            let delays: Vec<u32> = (0..12u32).map(|i| i.saturating_mul(3)).collect();
             reg.schedule_drops(
                 0,
                 1,
                 Vec3::new(100.0, 0.0, 0.0),
                 ArtilleryBarrageScienceTier::Level1,
+                &delays,
             );
             reg.shells_scheduled == 12
                 && reg.pending_drops.first().map(|p| p.drop_frame).unwrap_or(0)
@@ -337,6 +362,61 @@ mod tests {
     #[test]
     fn schedules_staggered_l1_formation() {
         assert!(honesty_artillery_barrage_flight_residual_ok());
+    }
+
+    #[test]
+    fn delivery_band_is_authored_250_not_residual_80() {
+        // C++ DeliveringState isCloseEnoughToTarget uses the authored
+        // DeliveryDistance 250 (SUPERWEAPON_ArtilleryBarrage1), not the
+        // mis-ported 80; exactly 250 is outside the strict band.
+        let mut data = HostArtilleryBarrageFlightData::start(
+            Vec3::new(0.0, 130.0, 0.0),
+            Vec3::new(500.0, 0.0, 0.0),
+            ArtilleryBarrageScienceTier::Level1,
+        );
+        assert!(
+            data.in_delivery_band(Vec3::new(400.0, 130.0, 0.0)),
+            "100wu inside the authored 250 DeliveryDistance band must deliver"
+        );
+        assert!(
+            data.in_delivery_band(Vec3::new(251.0, 130.0, 0.0)),
+            "249wu inside the authored 250 DeliveryDistance band must deliver"
+        );
+        assert!(
+            !data.in_delivery_band(Vec3::new(500.0 - 251.0, 130.0, 0.0)),
+            "251wu outside the authored 250 DeliveryDistance band must not deliver"
+        );
+    }
+
+    #[test]
+    fn shell_schedule_honors_transport_delay_delivery() {
+        // ObjectCreationList.cpp:375-378 — each transport (lead included) rolls
+        // rand(0, DelayDeliveryMax); its shell cannot land before its own
+        // transport is enabled again, so the schedule adds the same delay.
+        let mut reg = HostArtilleryBarrageFlightRegistry::new();
+        let delays: Vec<u32> = (0..12u32).map(|i| i * 7 + 13).collect();
+        reg.schedule_drops(
+            10,
+            1,
+            Vec3::new(100.0, 0.0, 0.0),
+            ArtilleryBarrageScienceTier::Level1,
+            &delays,
+        );
+        for p in &reg.pending_drops {
+            let impact =
+                10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES + delays[p.shell_index as usize];
+            assert_eq!(
+                p.drop_frame,
+                impact - 8,
+                "shell {} must honor transport delay",
+                p.shell_index
+            );
+        }
+        assert_ne!(
+            reg.pending_drops[0].drop_frame,
+            10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES - 8,
+            "lead shell must honor its transport's rolled DelayDelivery"
+        );
     }
 
     #[test]

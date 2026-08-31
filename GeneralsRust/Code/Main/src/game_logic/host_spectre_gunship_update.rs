@@ -240,8 +240,15 @@ impl HostSpectreGunshipUpdateData {
         )
     }
 
-    /// C++ update clamp: AttackAreaRadius - TargetingReticleRadius from initial.
+    /// C++ update clamp (SpectreGunshipUpdate.cpp:426-439):
+    /// `constraintRadius = AttackAreaRadius - TargetingReticleRadius` around
+    /// the steered `m_initialTargetPosition`. The click itself was stored
+    /// unclamped by setSpecialPowerOverridableDestination (.cpp:268-282).
     pub fn constrain_override(&mut self) {
+        // C++ update steers the orbit center (initial target) onto the click
+        // via satellite aiMoveToPosition; host flight data keeps that center in
+        // initial_target, so mirror it here before clamping the reticle.
+        self.initial_target = self.override_target;
         self.override_target = clamp_spectre_override_destination(
             self.initial_target,
             self.override_target,

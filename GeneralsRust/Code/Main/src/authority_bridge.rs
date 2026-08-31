@@ -28,7 +28,7 @@ fn host_templates(logic: &mut GameLogic) {
     for (name, kinds, hp) in [
         (
             "HostCC",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable][..],
+            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
             500.0,
         ),
         (
@@ -38,7 +38,7 @@ fn host_templates(logic: &mut GameLogic) {
         ),
         (
             "HostEnemy",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable][..],
+            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
             200.0,
         ),
     ] {
@@ -52,7 +52,6 @@ fn host_templates(logic: &mut GameLogic) {
     }
 }
 
-/// Host-only combat slice: no dual tick, no engine_object_id, victory via real combat.
 /// No take_damage fallbacks, no HP caps after spawn, no re-teaming.
 pub fn run_host_only_combat_victory() -> (bool, String) {
     // Ensure dual-tick env is not required (we do not set it).
@@ -63,7 +62,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     for (name, kinds, hp) in [
         (
             "HostCC",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable][..],
+            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
             500.0,
         ),
         (
@@ -73,7 +72,7 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         ),
         (
             "HostEnemy",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable][..],
+            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
             200.0,
         ),
     ] {

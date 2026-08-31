@@ -701,10 +701,13 @@ fn artillery_barrage_params_match_retail_multi_shell() {
     );
     assert!((ARTILLERY_BARRAGE_ERROR_RADIUS - 100.0).abs() < 0.1);
     assert!((ARTILLERY_BARRAGE_RING_RADIUS - 75.0).abs() < 0.1);
-    // Lead shell DelayDelivery residual is 0; others in [0, max].
+    // DelayDelivery residual: EVERY transport rolls, lead included
+    // (ObjectCreationList.cpp:375-378); draw is stable for re-query.
+    let lead = delay_delivery_frames(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
+    assert!(lead <= ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
     assert_eq!(
-        delay_delivery_frames(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES),
-        0
+        lead,
+        delay_delivery_frames(0, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES)
     );
     for i in 1..12 {
         let d = delay_delivery_frames(i, ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
@@ -776,9 +779,12 @@ fn artillery_barrage_delayed_multi_shell_scatter_damage() {
             .is_empty()
     );
 
-    // First wave: lead shell (DelayDelivery 0) — center hit; not necessarily final.
-    let first = reg.plan_due_impacts(ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES, &objects);
-    assert_eq!(first.len(), 1);
+    // First wave: the lead shell is due at its OWN transport DelayDelivery
+    // draw (ObjectCreationList.cpp:375-378 — every transport rolls, lead
+    // included); not necessarily final.
+    let lead_frame = artillery_shell_impact_frame(0, 0);
+    let first = reg.plan_due_impacts(lead_frame, &objects);
+    assert_eq!(first.len(), 1, "lead shell must be due at its own draw");
     assert!(
         first[0].hits.iter().any(
             |h| h.target_id == ObjectId(2) && (h.damage - ARTILLERY_BARRAGE_DAMAGE).abs() < 0.1
@@ -854,10 +860,12 @@ fn weapon_error_radius_and_delay_delivery_residual_honesty() {
         assert!(dist <= ARTILLERY_BARRAGE_ERROR_RADIUS + 0.001);
         assert!((o.y).abs() < 0.001);
     }
-    // DelayDelivery: lead 0; others in [0, max].
-    assert_eq!(delay_delivery_frames(0, 90), 0);
+    // DelayDelivery: lead rolls too (ObjectCreationList.cpp:375-378); all in [0, max].
+    let lead = delay_delivery_frames(0, 90);
+    assert!(lead <= 90);
+    assert_eq!(lead, delay_delivery_frames(0, 90));
     let mut any_positive = false;
-    for i in 1..36 {
+    for i in 0..36 {
         let d = delay_delivery_frames(i, 90);
         assert!(d <= 90);
         if d > 0 {
@@ -868,11 +876,10 @@ fn weapon_error_radius_and_delay_delivery_residual_honesty() {
         any_positive,
         "DelayDelivery residual must stagger some shells"
     );
-    // Shell impact frames: base + delay.
-    assert_eq!(
-        artillery_shell_impact_frame(10, 0),
-        10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES
-    );
+    // Shell impact frames: base + per-transport delay (lead included).
+    let lead_impact = artillery_shell_impact_frame(10, 0);
+    assert!(lead_impact >= 10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
+    assert!(lead_impact <= 10 + 2 * ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
     assert!(artillery_shell_impact_frame(10, 5) >= 10 + ARTILLERY_BARRAGE_IMPACT_DELAY_FRAMES);
 }
 

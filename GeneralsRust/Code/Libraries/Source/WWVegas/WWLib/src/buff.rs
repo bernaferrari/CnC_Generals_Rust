@@ -70,6 +70,7 @@ impl Buffer {
         if self.size <= 0 {
             return None;
         }
+        // SAFETY: [Category 3 — dangling / Category 10 — OOB] ptr+size describe a live owned buffer obtained from the allocator; slice covers exactly its extent.
         unsafe { Some(std::slice::from_raw_parts(ptr.as_ptr(), self.size as usize)) }
     }
 
@@ -78,6 +79,7 @@ impl Buffer {
         if self.size <= 0 {
             return None;
         }
+        // SAFETY: [Category 3 — dangling / Category 10 — OOB] ptr+size describe a live owned buffer obtained from the allocator; slice covers exactly its extent.
         unsafe {
             Some(std::slice::from_raw_parts_mut(
                 ptr.as_ptr(),

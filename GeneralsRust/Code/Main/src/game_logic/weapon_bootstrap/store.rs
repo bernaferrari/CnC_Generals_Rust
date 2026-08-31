@@ -1,4 +1,8 @@
 use super::*;
+use crate::game_logic::host_mines::{
+    DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES, DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES,
+    DOZER_MINE_CLEAR_RANGE, WORKER_MINE_CLEAR_DELAY_FRAMES, WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES,
+};
 
 pub(super) static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 pub(super) static SEED_COMPLETE: AtomicBool = AtomicBool::new(false);
@@ -177,6 +181,12 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     if n.contains("gattling") || n.contains("gatling") {
         return D::Gattling;
     }
+    // C++ Weapon.ini DamageType=SURRENDER residual: RangerFlashBangGrenadeWeapon
+    // must keep Surrender (VoiceSubdue / VoiceClearBuilding path), so the
+    // flashbang peel runs BEFORE the generic grenade→Explosion name match.
+    if n.contains("flashbang") {
+        return D::Surrender;
+    }
     if n.contains("bomb")
         || n.contains("scud")
         || n.contains("missile")
@@ -188,7 +198,13 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     {
         return D::Explosion;
     }
-    // Instant-hit residual without laser name still often lasers (Paladin PDL speed).
+    // C++ Weapon.ini DamageType=DISARM residual: mine-clearing detail weapons
+    // (DozerMineDisarmingWeapon / WorkerMineDisarmingWeapon) must seed Disarm
+    // so the ground-fire path destroys armed mines via disarm_mine_safe
+    // instead of dealing 1 HP SmallArms.
+    if crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(name) {
+        return D::Disarm;
+    }
     if weapon_speed >= 999_000.0 || weapon_speed <= 0.0 {
         if n.contains("gun") || n.contains("rifle") || n.contains("machine") {
             return D::SmallArms;
@@ -1037,6 +1053,27 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: 600.0,
         },
+        // DozerMineDisarmingWeapon — AttackRange 5, PreAttackDelay 1200ms → 36f,
+        // ClipReloadTime 4000ms → 120f. DAMAGE_DISARM safe-clear residual
+        // resolves via host_weapon_is_disarm_damage name match.
+        SeedWeapon {
+            name: DOZER_MINE_DISARMING_WEAPON,
+            primary_damage: 1.0,
+            attack_range: DOZER_MINE_CLEAR_RANGE,
+            delay_frames: WORKER_MINE_CLEAR_DELAY_FRAMES as i32,
+            clip_size: 1,
+            weapon_speed: 999_999.0,
+        },
+        // WorkerMineDisarmingWeapon — AttackRange 5, PreAttackDelay 1000ms → 30f,
+        // DelayBetweenShots 1000ms → 30f. DAMAGE_DISARM safe-clear residual.
+        SeedWeapon {
+            name: WORKER_MINE_DISARMING_WEAPON,
+            primary_damage: 1.0,
+            attack_range: DOZER_MINE_CLEAR_RANGE,
+            delay_frames: WORKER_MINE_CLEAR_DELAY_FRAMES as i32,
+            clip_size: 1,
+            weapon_speed: 999_999.0,
+        },
     ];
 
     let mut added = 0usize;
@@ -1127,6 +1164,22 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.primary_damage_radius = 5.0;
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        // Mine-clearing detail weapons: MINE + GROUND anti residual so the
+        // FIRE_WEAPON ground-position carve-out (weapons.rs) and the mine
+        // victim lookup both pass. PreAttackDelay / ClipReloadTime retail
+        // residual (host_mines.rs constants).
+        if seed.name == DOZER_MINE_DISARMING_WEAPON {
+            t.pre_attack_delay = DOZER_MINE_CLEAR_PRE_ATTACK_FRAMES as i32;
+            t.clip_reload_time = DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES as i32;
+            t.anti_mask.insert(WeaponAntiMask::MINE);
+        }
+        if seed.name == WORKER_MINE_DISARMING_WEAPON {
+            t.pre_attack_delay = WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES as i32;
+            // Retail Worker ClipReloadTime 4000ms → 120f — same as Dozer
+            // (host_mines.rs has no separate worker clip-reload constant).
+            t.clip_reload_time = DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES as i32;
+            t.anti_mask.insert(WeaponAntiMask::MINE);
         }
         // Avenger designator can paint air + ground residual.
         if seed.name == AVENGER_TARGET_DESIGNATOR {

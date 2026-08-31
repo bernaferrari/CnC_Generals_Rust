@@ -1025,7 +1025,11 @@ mod tests {
             observer.contains("SmokeDriver::ManualObserver"),
             "the acceptance runner must observe physical play, not drive it"
         );
-        let manual_phase = smoke
+        // The lifecycle split moved the phase machine into the frame-loop
+        // fragment (the hub keeps entry points + ordered includes); probe
+        // the manual-observer arm there instead of the monolith text.
+        let frame_loop_src = include_str!("executable_smoke/frame_loop.rs");
+        let manual_phase = frame_loop_src
             .split("21 => {")
             .nth(1)
             .and_then(|s| s.split("20 => {").next())

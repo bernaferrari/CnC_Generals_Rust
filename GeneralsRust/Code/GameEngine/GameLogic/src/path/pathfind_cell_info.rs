@@ -222,6 +222,8 @@ impl PathfindCellInfo {
         if self.path_parent.is_null() {
             None
         } else {
+            // SAFETY: `path_parent` is either null or was set to a cell info
+            // owned by the A* pool, which outlives the search that reads it.
             Some(unsafe { &*self.path_parent })
         }
     }
@@ -241,6 +243,8 @@ impl PathfindCellInfo {
         if self.next_open.is_null() {
             None
         } else {
+            // SAFETY: `next_open` points at another info owned by the same
+            // pool for the duration of the open-list walk; non-null here.
             Some(unsafe { &*self.next_open })
         }
     }
@@ -255,6 +259,8 @@ impl PathfindCellInfo {
         if self.prev_open.is_null() {
             None
         } else {
+            // SAFETY: `prev_open` points at another info owned by the same
+            // pool for the duration of the open-list walk; non-null here.
             Some(unsafe { &*self.prev_open })
         }
     }
@@ -304,6 +310,10 @@ impl PathfindCellInfoPool {
     /// Allocate a PathfindCellInfo from the pool
     pub fn allocate(&mut self, pos: &ICoord2D) -> *mut PathfindCellInfo {
         if let Some(ptr) = self.free_list.pop() {
+            // SAFETY: `free_list` only ever holds pointers handed out by
+            // `allocate`, whose pointees stay alive inside `self.pool` until
+            // `clear` (which empties the free list too). Releasing requires
+            // `&mut self`, so no concurrent use is possible.
             unsafe {
                 (*ptr).reset(pos);
                 ptr
@@ -338,6 +348,10 @@ impl PathfindCellInfoPool {
 //
 // Not `Sync`: the same raw pointers must not be used from two threads at once.
 // Share the pool only behind exclusive access (`Mutex` / `&mut`).
+// SAFETY: `free_list` holds raw pointers into `pool` (`Box`es owned by this
+// struct). Those heap addresses survive moves of the pool itself, so sending
+// it is sound provided callers never hold an outstanding `allocate` pointer
+// across the move. All mutating methods require `&mut self`.
 unsafe impl Send for PathfindCellInfoPool {}
 
 #[cfg(test)]
@@ -398,6 +412,8 @@ mod tests {
         let ptr = pool.allocate(&pos);
         assert!(!ptr.is_null());
 
+        // SAFETY: `ptr` came from `pool.allocate` and its pointee is still
+        // alive inside `pool.pool` until released.
         unsafe {
             assert_eq!((*ptr).get_pos(), &pos);
         }
@@ -408,6 +424,8 @@ mod tests {
         let ptr2 = pool.allocate(&ICoord2D::new(15, 25));
         assert_eq!(ptr, ptr2); // Should be the same pointer
 
+        // SAFETY: same as above: `ptr2` references an allocation owned by
+        // `pool.pool` that has not been dropped.
         unsafe {
             assert_eq!((*ptr2).get_pos(), &ICoord2D::new(15, 25));
         }

@@ -275,6 +275,9 @@ impl XferData for HostSpecialPowerStrike {
         xfer.xfer_u32(&mut self.next_dest_waypoint_id)?;
         xfer.xfer_marker_label("WaypointOverride")?;
         self.waypoint_override.xfer(xfer)?;
+        // Appended: skip registry impact wave when leftover flight owns A10 missiles.
+        xfer.xfer_marker_label("LiveA10Delivery")?;
+        xfer.xfer_bool(&mut self.live_a10_delivery)?;
         Ok(())
     }
 }
@@ -900,6 +903,7 @@ impl XferData for SpecialPowerStrikeRegistrySnapshot {
                 live_scud_delivery: false,
                 live_carpet_delivery: false,
                 live_anthrax_delivery: false,
+                live_a10_delivery: false,
                 manual_beam_hold: false,
                 scripted_waypoint_mode: false,
                 next_dest_waypoint_id: 0,

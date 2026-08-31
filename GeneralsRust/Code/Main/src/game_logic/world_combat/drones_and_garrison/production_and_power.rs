@@ -181,13 +181,19 @@ impl GameLogic {
         self.apply_structure_minefield_upgrade(object_id, upgrade)
     }
 
-    pub(in crate::game_logic) fn init_starts_paused_special_powers(&mut self, object_id: ObjectId) {
+    pub(in crate::game_logic) fn init_special_power_ctor_arms(&mut self, object_id: ObjectId) {
+        // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:86-101): a
+        // pre-built object (UNDER_CONSTRUCTION clear) arms every authored
+        // non-SharedNSync module's ReloadTime via startPowerRecharge(), then
+        // pauseCountdown(TRUE) applies StartsPaused.  SharedNSync modules
+        // never arm from the module — the player timer owns them
+        // (startPowerRecharge, SpecialPowerModule.cpp:393-395).  Objects
+        // created under construction skip arming here exactly as the ctor
+        // does; SpecialPowerCreate::onBuildComplete
+        // (SpecialPowerCreate.cpp:36-53) arms them at construction
+        // completion via notify_structure_construction_complete.
         use crate::command_system::SpecialPowerType as P;
         use crate::game_logic::host_upgrade_module_residuals::power_starts_paused;
-        // C++ SpecialPowerModule starts the authored ReloadTime on creation
-        // before applying StartsPaused.  HDB is not covered by the old
-        // handwritten special-power table, so retain the paired Object INI
-        // metadata here rather than falling through to a Hacker name.
         let hacker_disable = self
             .objects
             .get(&object_id)
@@ -210,13 +216,6 @@ impl GameLogic {
                         );
                     }
                 }
-            } else if let Some(object) = self.objects.get_mut(&object_id) {
-                if !object.status.under_construction {
-                    object.start_power_recharge_with_frames(
-                        &P::HackerDisableBuilding,
-                        metadata.reload_time_frames,
-                    );
-                }
             }
             if metadata.starts_paused {
                 if let Some(object) = self.objects.get_mut(&object_id) {
@@ -227,36 +226,43 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        // C++ SpecialPowerModule ctor: startPowerRecharge (pre-built, non-SharedNSync)
-        // then pauseCountdown(TRUE) once when StartsPaused. Pause is a refcount —
-        // a second pause here or in SpecialPowerCreate leaves the upgrade unpause
-        // one short. Nuke Helix maps to HelixNukeBomb, not HelixNapalmBomb.
         let under_construction = obj.status.under_construction;
-        let mut planned: Vec<(P, Option<u32>, bool)> = Vec::new();
-        let already = |planned: &[(P, Option<u32>, bool)], power: &P| {
-            planned.iter().any(|(existing, _, _)| existing == power)
+        // C++ SpecialPowerModule: pauseCountdown(TRUE) once when StartsPaused.
+        // Pause is a refcount — a second pause here or in SpecialPowerCreate
+        // leaves the upgrade unpause one short. Nuke Helix maps to
+        // HelixNukeBomb, not HelixNapalmBomb.
+        let mut planned: Vec<(P, Option<u32>, bool, bool)> = Vec::new();
+        let already = |planned: &[(P, Option<u32>, bool, bool)], power: &P| {
+            planned.iter().any(|(existing, _, _, _)| existing == power)
         };
 
         for module in &obj.thing.template.special_power_modules {
-            if !module.starts_paused {
-                continue;
-            }
             let Some(power) = module.command_power.clone() else {
                 continue;
             };
             if handled_hdb && matches!(power, P::HackerDisableBuilding) {
                 continue;
             }
+            // C++ ctor neither arms nor pauses a SharedNSync module that does
+            // not also carry StartsPaused; the player timer owns its readiness.
+            if module.shared_n_sync && !module.starts_paused {
+                continue;
+            }
             if already(&planned, &power) {
                 continue;
             }
-            planned.push((power, Some(module.reload_time_frames), module.shared_n_sync));
+            planned.push((
+                power,
+                Some(module.reload_time_frames),
+                module.shared_n_sync,
+                module.starts_paused,
+            ));
         }
 
         if obj.thing.template.capture_starts_paused {
             if let Some(power) = obj.thing.template.capture_power.special_power_type() {
                 if !already(&planned, &power) {
-                    planned.push((power, None, false));
+                    planned.push((power, None, false, true));
                 }
             }
         }
@@ -266,7 +272,7 @@ impl GameLogic {
             && (name.contains("radarvan") || name.contains("radar_van"))
             && !already(&planned, &P::RadarScan)
         {
-            planned.push((P::RadarScan, None, false));
+            planned.push((P::RadarScan, None, false, true));
         }
         let helix_bomb_planned =
             already(&planned, &P::HelixNapalmBomb) || already(&planned, &P::HelixNukeBomb);
@@ -277,18 +283,24 @@ impl GameLogic {
                 P::HelixNapalmBomb
             };
             if power_starts_paused(&power) {
-                planned.push((power, None, false));
+                planned.push((power, None, false, true));
             }
         }
 
-        for (power, frames, shared_n_sync) in planned {
+        for (power, frames, shared_n_sync, starts_paused) in planned {
+            // C++ ctor (SpecialPowerModule.cpp:86-94) arms pre-built
+            // non-SharedNSync modules with their authored ReloadTime; the
+            // StartsPaused pause below is refcounted and preserves the armed
+            // countdown (pauseCountdown, SpecialPowerModule.cpp:728-752).
             if !under_construction && !shared_n_sync {
                 match frames {
                     Some(frames) => obj.start_power_recharge_with_frames(&power, frames),
                     None => obj.start_power_recharge(&power),
                 }
             }
-            obj.pause_special_power_countdown(&power, true);
+            if starts_paused {
+                obj.pause_special_power_countdown(&power, true);
+            }
         }
     }
 

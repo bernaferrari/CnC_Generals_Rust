@@ -8,6 +8,7 @@ fn attach_command_special_power(
     power: crate::command_system::SpecialPowerType,
     template_name: &str,
     kind: SpecialPowerModuleKind,
+    reload_time_frames: u32,
 ) {
     tpl.special_power_modules.push(SpecialPowerModuleMetadata {
         source_index: 0,
@@ -16,7 +17,7 @@ fn attach_command_special_power(
         special_power_template: template_name.into(),
         special_power_template_id: 1,
         command_power: Some(power),
-        reload_time_frames: 0,
+        reload_time_frames,
         required_science: None,
         public_timer: true,
         shared_n_sync: false,

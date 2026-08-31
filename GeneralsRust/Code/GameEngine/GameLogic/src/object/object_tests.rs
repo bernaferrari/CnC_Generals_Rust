@@ -1301,16 +1301,64 @@ mod tests {
         assert!(!unowned.drain_power(1));
     }
 
+    fn reset_radar_for_test() {
+        let radar = game_engine::common::system::radar::get_radar_system();
+        let mut guard = radar.write().unwrap();
+        guard.reset();
+        guard.new_map(
+            game_engine::system::radar::Coord3D::new(0.0, 0.0, 0.0),
+            game_engine::system::radar::Coord3D::new(4096.0, 4096.0, 100.0),
+            &[],
+        );
+    }
+
+    fn last_radar_event_for_test() -> Option<game_engine::system::radar::Coord3D> {
+        game_engine::common::system::radar::get_radar_system()
+            .read()
+            .unwrap()
+            .get_last_event_loc()
+    }
+
+    fn radar_coord_at(object: &Object) -> game_engine::system::radar::Coord3D {
+        let pos = object.get_position();
+        game_engine::system::radar::Coord3D::new(pos.x, pos.y, pos.z)
+    }
+
+    fn radar_test_victim(
+        id: ObjectID,
+        kinds: &[KindOf],
+    ) -> (Arc<RwLock<crate::team::Team>>, Object) {
+        let team = Arc::new(RwLock::new(crate::team::Team::new(format!("RadarTeam{id}").into(), 1)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+        let mut template = DefaultThingTemplate::new(format!("TestVictim{id}"));
+        for kind in kinds {
+            template.add_kind_of(*kind);
+        }
+        let mut victim = Object::new_test_from_template(id, 100.0, Arc::new(template));
+        victim.set_team(Some(team.clone())).unwrap();
+        victim.set_radar_data_for_test(Some(Arc::new(Mutex::new(RadarObject::new(id)))));
+        (team, victim)
+    }
+
+    fn enemy_damage_info() -> crate::damage::DamageInfo {
+        let mut info =
+            DamageInfo::with_simple(10.0, INVALID_ID, DamageType::Explosion, DeathType::Normal);
+        info.input.source_player_mask = PlayerMaskType::PLAYER_2;
+        info
+    }
+
     #[test]
     fn attempt_damage_radar_under_attack_requires_cpp_guards() {
-        // C++ Object.cpp:1847-1854: event only when actualDamageDealt>0,
-        // type not PENALTY/HEALING, controllingPlayer present,
-        // !BitTest(sourcePlayerMask, controllingPlayerMask), m_radarData,
-        // and controllingPlayer == ThePlayerList->getLocalPlayer().
+        // C++ Object.cpp:1847-1854 gates the radar call; Radar.cpp:1147-1226 is
+        // the single pipeline: throttled UnderAttack ping with per-kind feedback
+        // gated on creation — nothing is queued for later re-interpretation.
         let _guard = test_state_lock();
         player_list().write().unwrap().clear();
         OBJECT_REGISTRY.clear();
         let _ = crate::system::radar_notifier::drain();
+        let _ = crate::helpers::TheEva::drain_events();
+        let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
+        reset_radar_for_test();
 
         let registry_anchor = Arc::new(RwLock::new(Object::new_test(80_800, 100.0)));
         OBJECT_REGISTRY.register_object(80_800, &registry_anchor);
@@ -1321,45 +1369,178 @@ mod tests {
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);
         }
-        let team = Arc::new(RwLock::new(crate::team::Team::new("RadarTeam".into(), 1)));
-        team.write().unwrap().set_controlling_player_id(Some(0));
 
-        let mut victim = Object::new_test(808, 100.0);
-        victim.set_team(Some(team)).unwrap();
-        victim.set_radar_data_for_test(Some(Arc::new(Mutex::new(RadarObject::new(808)))));
+        let (_team, mut victim) = radar_test_victim(808, &[]);
 
-        let mut friendly =
-            DamageInfo::with_simple(10.0, INVALID_ID, DamageType::Explosion, DeathType::Normal);
+        let mut friendly = enemy_damage_info();
         friendly.input.source_player_mask = PlayerMaskType::PLAYER_1;
         let _ = victim.attempt_damage_with_return(&mut friendly);
         assert!(
             crate::system::radar_notifier::drain().is_empty(),
             "same-player sourcePlayerMask must not fire tryUnderAttackEvent"
         );
+        assert!(
+            last_radar_event_for_test().is_none(),
+            "same-player sourcePlayerMask must not create the ping"
+        );
 
-        let mut enemy =
-            DamageInfo::with_simple(10.0, INVALID_ID, DamageType::Explosion, DeathType::Normal);
-        enemy.input.source_player_mask = PlayerMaskType::PLAYER_2;
+        let mut enemy = enemy_damage_info();
         let _ = victim.attempt_damage_with_return(&mut enemy);
-        let events = crate::system::radar_notifier::drain();
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            events[0].event_type,
-            crate::system::game_logic::RadarEventType::BaseAttacked
-        ));
+        // Unified pipeline: the ping lands directly in the radar system...
+        assert_eq!(
+            last_radar_event_for_test(),
+            Some(radar_coord_at(&victim)),
+            "engine damage must create the throttled UnderAttack ping"
+        );
+        // ...and never through the legacy queued BaseAttacked update.
+        assert!(
+            crate::system::radar_notifier::drain().is_empty(),
+            "C++ calls TheRadar->tryUnderAttackEvent(this) directly; no queued BaseAttacked"
+        );
+        let messages = crate::helpers::TheInGameUI::drain_displayed_messages();
+        assert!(
+            messages.iter().any(|m| m == "RADAR:UnderAttack"),
+            "generic branch message expected, got {messages:?}"
+        );
+        assert!(
+            crate::helpers::TheEva::drain_events().unwrap().is_empty(),
+            "non-structure victim must not play base/ally EVA"
+        );
 
         victim.set_radar_data_for_test(None);
-        let mut no_radar =
-            DamageInfo::with_simple(10.0, INVALID_ID, DamageType::Explosion, DeathType::Normal);
-        no_radar.input.source_player_mask = PlayerMaskType::PLAYER_2;
+        let mut no_radar = enemy_damage_info();
         let _ = victim.attempt_damage_with_return(&mut no_radar);
         assert!(
             crate::system::radar_notifier::drain().is_empty(),
             "m_radarData == NULL must skip tryUnderAttackEvent"
         );
+        assert_eq!(
+            last_radar_event_for_test(),
+            Some(radar_coord_at(&victim)),
+            "m_radarData == NULL must not create another event (also throttled)"
+        );
 
         player_list().write().unwrap().clear();
         OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn under_attack_damage_classifies_harvester_per_cpp() {
+        // C++ Radar.cpp:1174-1181 — infantry/vehicle + KINDOF_HARVESTER gets the
+        // special harvester message, not the generic under-attack flavor.
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
+        let _ = crate::system::radar_notifier::drain();
+        let _ = crate::helpers::TheEva::drain_events();
+        let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
+        reset_radar_for_test();
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut list = player_list().write().unwrap();
+            list.add_player(Arc::clone(&player));
+            list.set_local_player_index(0);
+        }
+
+        let (_team, mut victim) =
+            radar_test_victim(809, &[KindOf::Vehicle, KindOf::Harvester]);
+        let mut enemy = enemy_damage_info();
+        let _ = victim.attempt_damage_with_return(&mut enemy);
+
+        assert_eq!(last_radar_event_for_test(), Some(radar_coord_at(&victim)));
+        assert!(crate::system::radar_notifier::drain().is_empty());
+        let messages = crate::helpers::TheInGameUI::drain_displayed_messages();
+        assert!(
+            messages.iter().any(|m| m == "RADAR:HarvesterUnderAttack"),
+            "harvester message expected, got {messages:?}"
+        );
+        assert!(
+            !messages.iter().any(|m| m == "RADAR:UnderAttack"),
+            "generic under-attack flavor must not fire for a harvester"
+        );
+
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn under_attack_damage_structure_counts_for_victory_plays_base_eva() {
+        // C++ Radar.cpp:1194-1208 — STRUCTURE + MP_COUNT_FOR_VICTORY owned by the
+        // local player plays EVA_BaseUnderAttack plus the structure message.
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
+        let _ = crate::system::radar_notifier::drain();
+        let _ = crate::helpers::TheEva::drain_events();
+        let _ = crate::helpers::TheInGameUI::drain_displayed_messages();
+        reset_radar_for_test();
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut list = player_list().write().unwrap();
+            list.add_player(Arc::clone(&player));
+            list.set_local_player_index(0);
+        }
+
+        let (_team, mut victim) = radar_test_victim(
+            810,
+            &[KindOf::Structure, KindOf::CountsForVictory],
+        );
+        let mut enemy = enemy_damage_info();
+        let _ = victim.attempt_damage_with_return(&mut enemy);
+
+        assert_eq!(last_radar_event_for_test(), Some(radar_coord_at(&victim)));
+        assert!(crate::system::radar_notifier::drain().is_empty());
+        let eva = crate::helpers::TheEva::drain_events().unwrap();
+        assert!(
+            eva.contains(&crate::helpers::EvaEvent::BaseUnderAttack),
+            "EVA_BaseUnderAttack expected, got {eva:?}"
+        );
+        let messages = crate::helpers::TheInGameUI::drain_displayed_messages();
+        assert!(
+            messages.iter().any(|m| m == "RADAR:StructureUnderAttack"),
+            "structure message expected, got {messages:?}"
+        );
+
+        player_list().write().unwrap().clear();
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn unit_lost_fake_radar_event_is_throttled_by_try_event() {
+        // C++ Radar.cpp:1269-1315 — Object.cpp:4604 fires the FAKE unit-lost ping
+        // through tryEvent: a second local unit death within 10s must not move
+        // lastRadarEvent (the spacebar last-event jump) or burn a ring slot.
+        let _guard = test_state_lock();
+        reset_radar_for_test();
+
+        let mut first = Object::new_test(80_900, 100.0);
+        first.on_die_unit_lost_fake_radar();
+        let fake_loc = last_radar_event_for_test();
+        assert_eq!(fake_loc, Some(radar_coord_at(&first)));
+
+        // Move the last-event pointer away with an UnderAttack event elsewhere.
+        let under_attack_loc = {
+            let radar = game_engine::common::system::radar::get_radar_system();
+            let mut guard = radar.write().unwrap();
+            let other = game_engine::system::radar::Coord3D::new(3000.0, 3000.0, 0.0);
+            assert!(guard.try_under_attack_event_for(&other, None));
+            Some(other)
+        };
+        assert_ne!(last_radar_event_for_test(), fake_loc);
+
+        // Second local unit death within 10s: tryEvent suppresses the FAKE ping,
+        // so lastRadarEvent must stay on the newer UnderAttack event. An
+        // unthrottled create_event would yank it back to the death position.
+        let mut second = Object::new_test(80_901, 100.0);
+        second.on_die_unit_lost_fake_radar();
+
+        assert_eq!(
+            last_radar_event_for_test(),
+            under_attack_loc,
+            "FAKE event within 10s must be suppressed by tryEvent, not re-created"
+        );
     }
 }
 

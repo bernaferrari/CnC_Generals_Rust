@@ -755,6 +755,7 @@ mod tests {
             encoded.len() > 4,
             "snapshot must be the versioned field stream, not u32-len + 0 bytes"
         );
+        let decoded = try_decode_skirmish_snapshot(&encoded).expect("decode versioned snapshot");
         assert_eq!(decoded.seed, 0x11);
         assert_eq!(decoded.map_name, "AlpineAssault.map");
         assert!(try_decode_skirmish_snapshot(&[1, 2, 3, 4]).is_none());

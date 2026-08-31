@@ -80,6 +80,9 @@ impl PathNode {
             dir
         } else if !self.prev.is_null() {
             // Tail node - continue prior direction
+            // SAFETY: `prev` is either null or points at the node that owns
+            // `self` in its boxed `next` chain; the chain lives as long as the
+            // `Path` that holds it, outliving this shared borrow.
             unsafe {
                 let prev = &*self.prev;
                 prev.compute_direction_vector()
@@ -105,6 +108,8 @@ impl PathNode {
         if self.prev.is_null() {
             None
         } else {
+            // SAFETY: `prev` was null-checked above and references the
+            // previous node of the box-owned chain, valid for `&self`.
             Some(unsafe { &*self.prev })
         }
     }
@@ -124,6 +129,8 @@ impl PathNode {
         self.next_opti = node;
 
         if let Some(ptr) = self.next_opti {
+            // SAFETY: `next_opti` is only ever set to pointers derived from
+            // nodes of the same box-owned path list, which outlives `&self`.
             let target = unsafe { ptr.as_ref() };
 
             // Compute direction and distance
@@ -146,6 +153,8 @@ impl PathNode {
 
     /// Get next node in optimized path with optional direction and distance
     pub fn get_next_optimized(&self) -> (Option<&PathNode>, Coord2D, f32) {
+        // SAFETY: `next_opti` always targets a node of the same path list;
+        // the pointee outlives this shared borrow of `&self`.
         let next = self.next_opti.as_ref().map(|ptr| unsafe { ptr.as_ref() });
         (next, self.next_opti_dir_norm_2d, self.next_opti_dist_2d)
     }
@@ -174,6 +183,10 @@ impl PathNode {
     pub fn next_ptr(&self) -> Option<NonNull<PathNode>> {
         self.next
             .as_ref()
+            // SAFETY: `node` comes from an owned `Box<PathNode>` inside the
+            // path, so its address is non-null and stable for the lifetime of
+            // the list. The returned `NonNull` is a non-owning borrow and must
+            // not outlive the path (same contract as C++ `PathNode::m_next`).
             .map(|node| unsafe { NonNull::new_unchecked(node.as_ref() as *const _ as *mut _) })
     }
 

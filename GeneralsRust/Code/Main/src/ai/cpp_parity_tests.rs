@@ -727,7 +727,18 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
     // visibly inert.
     let mut logic = crate::game_logic::GameLogic::new();
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
-    player.resources.supplies = 3_000;
+    // C++ Energy.cpp:61-62 — a player with no authored power plants has
+    // production=0/consumption=0, which is ratio 1.0 (no low-power penalty).
+    // The host recomputes power only in update_player_resources, after the
+    // production tick, so the fixture seeds the same powered state directly.
+    player.power_produced = 10;
+    player.power_consumed = 0;
+    // C++ arms m_teamTimer from live money (AIPlayer.cpp:1702-1706): the
+    // wealthy/poor rate divisors fire on the post-queue balance.  Seed a
+    // mid-range balance (queued units cost 925) so it lands between
+    // ResourcesPoor (2000) and ResourcesWealthy (7000) and the unmodified
+    // TeamSeconds interval is observable.
+    player.resources.supplies = 4_000;
     logic.add_player(player);
 
     let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
@@ -801,6 +812,11 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
         Some(1),
         "the selected team's Humvee is queued in the same AI pass"
     );
+    // C++ arms m_teamTimer from live money (AIPlayer.cpp:1702-1706): the
+    // wealthy/poor rate divisors fire on the post-queue balance.  Seed a
+    // mid-range balance so the queued 925 cost lands between ResourcesPoor
+    // (2000) and ResourcesWealthy (7000) and the unmodified TeamSeconds
+    // interval is observable.
     assert!(
         (ai.next_team_time - AIPlayer::TEAM_SECONDS).abs() < f32::EPSILON,
         "a successful selection starts the longer TeamSeconds timer"
@@ -813,8 +829,14 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
     // Let the actual production update create the Ranger and stamp its
     // producer.  C++ onUnitProduced shortcuts m_teamDelay at this point;
     // do not wait for the normal 2-second queue poll before starting the
-    // second Ranger required by USA_BasicForce.
-    logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
+    // second Ranger required by USA_BasicForce.  Retail AmericaBarracks
+    // authors a production door (NumDoorAnimations=1, ProductionUpdate.cpp:
+    // 746-776): the finished head starts OPENING on its completing frame and
+    // spawns only once that door reads WAITING_OPEN, so a couple of fixed
+    // logic frames are required before the producer-linked output exists.
+    for _ in 0..3 {
+        logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
+    }
     assert!(
         logic.host_objects().values().any(|object| {
             object.team == Team::USA
@@ -1058,6 +1080,10 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
 
     logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
     ai.process_team_queue(&mut logic, 1.0 / LOGIC_FRAMES_PER_SECOND);
+    // C++ queueUnits does not promote completed teams — checkQueuedTeams
+    // (AIPlayer.cpp:2810-2870) runs beside it in doTeamBuilding and retires
+    // the team once every work order has its real output.
+    ai.check_queued_teams(&mut logic, 1.0 / LOGIC_FRAMES_PER_SECOND);
 
     let paid_collectors: Vec<ObjectId> = logic
         .host_objects()
@@ -1317,7 +1343,8 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
     let mut dozer_template = crate::game_logic::ThingTemplate::new("TestDozer");
     dozer_template
         .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .add_kind_of(crate::game_logic::KindOf::Worker);
+        .add_kind_of(crate::game_logic::KindOf::Worker)
+        .add_kind_of(crate::game_logic::KindOf::Dozer);
     logic.templates.insert("TestDozer".into(), dozer_template);
 
     let mut first_template = crate::game_logic::ThingTemplate::new("TestFirstStructure");
@@ -1383,11 +1410,30 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
         crate::game_logic::AIState::Constructing
     );
 
+    // C++ DozerAIUpdate.cpp:497-503 transitions DOZER_DO_BUILD_AT_DOCK when
+    // the dozer AI goes idle at its ACTION dock, not on geometric arrival
+    // alone. The retasked replacement must walk its construct path to the
+    // stored dock (speed 10 wu/s over ~7wu), so run fixed frames until the
+    // scaffold reports an exclusive idle builder.
     let before = logic
         .host_object(structure_id)
         .expect("under-construction scaffold")
         .construction_percent;
-    logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
+    for _ in 0..40 {
+        logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
+        if logic
+            .host_object(structure_id)
+            .and_then(|s| s.builder_id)
+            .map(|builder| {
+                logic.host_object(builder).is_some_and(|d| {
+                    !d.status.moving && d.ai_state == crate::game_logic::AIState::Idle
+                })
+            })
+            .unwrap_or(false)
+        {
+            break;
+        }
+    }
     let after = logic
         .host_object(structure_id)
         .expect("live scaffold")
@@ -2949,11 +2995,15 @@ fn process_building_queue_skips_automatic_layout_pads() {
     let mut dozer_template = crate::game_logic::ThingTemplate::new("TestDozer");
     dozer_template
         .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .add_kind_of(crate::game_logic::KindOf::Worker);
+        .add_kind_of(crate::game_logic::KindOf::Worker)
+        .add_kind_of(crate::game_logic::KindOf::Dozer);
     logic.templates.insert("TestDozer".into(), dozer_template);
     let _ = logic.create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0));
 
-    for name in ["AmericaStrategyCenter", "AmericaAirfield"] {
+    // Invented template names: the residual retail prereq table
+    // (AmericaStrategyCenter -> WarFactory/Airfield, FactionBuilding.ini
+    // Prerequisites) must not leak into this pure pad-selection scenario.
+    for name in ["TestStrategyCenter", "TestAirfield"] {
         let mut t = crate::game_logic::ThingTemplate::new(name);
         t.add_kind_of(crate::game_logic::KindOf::Structure)
             .set_cost(100, 0);
@@ -2961,15 +3011,15 @@ fn process_building_queue_skips_automatic_layout_pads() {
     }
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-    ai.add_layout_building("AmericaStrategyCenter", Vec3::new(64.0, 0.0, 0.0), 3);
-    ai.add_layout_building("AmericaAirfield", Vec3::new(128.0, 0.0, 0.0), 3);
+    ai.add_layout_building("TestStrategyCenter", Vec3::new(64.0, 0.0, 0.0), 3);
+    ai.add_layout_building("TestAirfield", Vec3::new(128.0, 0.0, 0.0), 3);
     ai.process_building_queue(&mut logic, 0.0);
     assert!(
         ai.building_queue.iter().all(|b| b.object_id.is_none()),
         "automatic layout pads must not start"
     );
 
-    assert!(ai.build_specific_ai_building("AmericaStrategyCenter"));
+    assert!(ai.build_specific_ai_building("TestStrategyCenter"));
     ai.process_building_queue(&mut logic, 0.1);
     assert!(
         ai.building_queue[0].object_id.is_some(),
@@ -3153,7 +3203,7 @@ fn late_game_team_keeps_higher_tier_templates_instead_of_default_infantry() {
             && planned.contains(&"AmericaPatriotBattery"),
         "skirmish layout must include tech, air, and SideInfo defense: {planned:?}"
     );
-
+    logic.frame = 2;
     ai.do_upgrades_and_skills(&mut logic);
     let player = logic.get_player(1).expect("AI player");
     assert!(
@@ -3177,6 +3227,7 @@ fn do_upgrades_does_not_research_supply_lines_at_barracks() {
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
     player.resources.supplies = 20_000;
     logic.add_player(player);
+    logic.frame = 2;
     let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
     barracks
         .add_kind_of(crate::game_logic::KindOf::Structure)
@@ -3751,10 +3802,12 @@ fn compute_center_and_radius_pads_geom_point_four() {
         "centroid of build-list XY: {:?}",
         ai.base_center
     );
-    // Raw max pad dist is 50. C++ adds geom*0.4 (=20) on each axis → 70.
+    // Raw max pad dist is 50.  C++ adds geom*0.4 on BOTH axes
+    // (AIPlayer.cpp:3106-3111): dx=50+20=70, dy=0+20=20, so
+    // radius = sqrt(70^2 + 20^2) = sqrt(5300).
     assert!(
-        (ai.base_radius - 70.0).abs() < 0.01,
-        "radius must include geom*0.4, got {}",
+        (ai.base_radius - 5300.0_f32.sqrt()).abs() < 0.01,
+        "radius must include geom*0.4 on each axis, got {}",
         ai.base_radius
     );
 }
@@ -3880,74 +3933,4 @@ fn find_supply_center_halves_cash_floor_then_stops_at_one_hundred() {
     assert_eq!(ai.find_supply_center(&logic, 140), Some(id));
 }
 
-#[test]
-fn is_location_safe_rejects_enemies_not_harvesters_or_undetected_stealth() {
-    let mut logic = crate::game_logic::GameLogic::new();
-    let mut pad = crate::game_logic::ThingTemplate::new("AmericaSupplyCenter");
-    pad.add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::SupplyCenter);
-    pad.geometry_info.authored = true;
-    pad.geometry_info.major_radius = 10.0;
-    logic.templates.insert("AmericaSupplyCenter".into(), pad);
-
-    let mut ranger = crate::game_logic::ThingTemplate::new("ChinaInfantryRedguard");
-    ranger
-        .add_kind_of(crate::game_logic::KindOf::Infantry)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("ChinaInfantryRedguard".into(), ranger);
-
-    let mut harvester = crate::game_logic::ThingTemplate::new("AmericaVehicleChinook");
-    harvester
-        .add_kind_of(crate::game_logic::KindOf::Harvester)
-        .add_kind_of(crate::game_logic::KindOf::Aircraft)
-        .set_health(200.0);
-    logic
-        .templates
-        .insert("AmericaVehicleChinook".into(), harvester);
-
-    let mut dozer = crate::game_logic::ThingTemplate::new("ChinaVehicleDozer");
-    dozer
-        .add_kind_of(crate::game_logic::KindOf::Dozer)
-        .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .set_health(200.0);
-    logic.templates.insert("ChinaVehicleDozer".into(), dozer);
-
-    let template = logic.templates.get("AmericaSupplyCenter").cloned();
-    let pos = Vec3::ZERO;
-    let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-    assert!(!ai.is_location_safe(&logic, pos, None));
-    assert!(ai.is_location_safe(&logic, pos, template.as_ref()));
-
-    let enemy = logic
-        .create_object("ChinaInfantryRedguard", Team::China, pos)
-        .expect("enemy");
-    assert!(!ai.is_location_safe(&logic, pos, template.as_ref()));
-
-    if let Some(obj) = logic.host_object_mut(enemy) {
-        obj.status.stealthed = true;
-        obj.status.detected = false;
-        obj.status.disguised = false;
-    }
-    assert!(
-        ai.is_location_safe(&logic, pos, template.as_ref()),
-        "stealthed-unless-detected must not fail safety"
-    );
-    if let Some(obj) = logic.host_object_mut(enemy) {
-        obj.status.detected = true;
-    }
-    assert!(!ai.is_location_safe(&logic, pos, template.as_ref()));
-
-    logic.destroy_object(enemy);
-    let _ = logic
-        .create_object("AmericaVehicleChinook", Team::China, pos)
-        .expect("harvester");
-    let _ = logic
-        .create_object("ChinaVehicleDozer", Team::China, pos)
-        .expect("dozer");
-    assert!(
-        ai.is_location_safe(&logic, pos, template.as_ref()),
-        "C++ rejects HARVESTER and DOZER from the safety scan"
-    );
-}
+mod safety;

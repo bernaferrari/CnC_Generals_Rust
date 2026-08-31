@@ -98,6 +98,9 @@ impl Xfer for LogicXferCrc {
         Ok(())
     }
 
+    // SAFETY: trait contract: the caller guarantees `data` is valid for
+    // `data_size` bytes; it is only read here (CRC fold), never written or
+    // retained.
     unsafe fn xfer_implementation(
         &mut self,
         data: *mut u8,
@@ -181,6 +184,9 @@ impl game_engine::common::system::xfer::Xfer for LogicXferCrc {
         Ok(())
     }
 
+    // SAFETY: trait contract: the caller guarantees `data` is valid for
+    // `data_size` bytes; it is only read here (CRC fold), never written or
+    // retained.
     unsafe fn xfer_implementation(
         &mut self,
         data: *mut u8,

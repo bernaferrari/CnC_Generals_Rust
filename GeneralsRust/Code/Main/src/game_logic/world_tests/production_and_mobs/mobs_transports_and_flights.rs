@@ -2545,7 +2545,13 @@ fn tunnel_network_residual_enter_sets_garrisoned_and_shared_pool() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // C++ objects always have a controlling player; register GLA so the
+    // enter relationship resolves Allies (TransportContain owner gates).
+    // Author the TestInfantry metadata (KindOf + TransportSlotCount=1): C++
+    // Object::getTransportSlotCount (Object.cpp:700-717) is the raw INI value
+    // and a zero-slot source can never board a capacity-checked container.
     ensure_test_infantry_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     let tunnel_id = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let infantry_id = game_logic
         .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
@@ -2571,7 +2577,9 @@ fn tunnel_network_residual_enter_sets_garrisoned_and_shared_pool() {
     );
     let pool_key = tunnel.tunnel_system_key();
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
-    assert_eq!(infantry.ai_state, AIState::Garrisoned);
+    // C++ TunnelContain::isGarrisonable is FALSE — occupants are DISABLED_HELD
+    // and never shoot out of an entrance, so the host parks them Docked.
+    assert_eq!(infantry.ai_state, AIState::Docked);
     assert_eq!(infantry.contained_by, Some(tunnel_id));
     assert!(!infantry.can_move());
     assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
@@ -2621,7 +2629,11 @@ fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // Author TestInfantry metadata: C++ Object::getTransportSlotCount
+    // (Object.cpp:700-717) is the raw INI value and a zero-slot source can
+    // never board a capacity-checked container.
     ensure_test_infantry_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     let tunnel_a = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let tunnel_b = create_test_tunnel_network(&mut game_logic, Vec3::new(200.0, 0.0, 0.0));
     let infantry_id = game_logic
@@ -2635,9 +2647,10 @@ fn tunnel_network_residual_cross_exit_enter_a_evacuate_b() {
         unit.set_ai_state(AIState::Entering);
     }
     game_logic.update_ai(&[infantry_id, tunnel_a, tunnel_b], 1.0 / 30.0);
+    // C++ TunnelContain::isGarrisonable is FALSE — occupants are DISABLED_HELD.
     assert_eq!(
         game_logic.host_object(infantry_id).unwrap().ai_state,
-        AIState::Garrisoned
+        AIState::Docked
     );
     assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
     assert!(!game_logic.honesty_tunnel_network_cross_exit_ok());
@@ -2700,7 +2713,11 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // Author TestInfantry metadata: C++ Object::getTransportSlotCount
+    // (Object.cpp:700-717) is the raw INI value and a zero-slot source can
+    // never board a capacity-checked container.
     ensure_test_infantry_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
     let tunnel_a = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let tunnel_b = create_test_tunnel_network(&mut game_logic, Vec3::new(50.0, 0.0, 0.0));
 
@@ -2823,6 +2840,12 @@ fn combat_chinook_residual_enter_sets_docked_and_upgrades_weapon_set() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
+    // C++ TransportContain.cpp:105 "only OUR OWN units can be transported":
+    // the exact-controller gate needs a registered controlling player.
+    game_logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, crate::game_logic::Team::USA, "USA", true),
+    );
     ensure_test_infantry_template(&mut game_logic);
     let chinook_id = create_test_combat_chinook(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let infantry_id = game_logic

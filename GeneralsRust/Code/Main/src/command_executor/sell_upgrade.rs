@@ -267,9 +267,21 @@ impl<'a> CommandExecutor<'a> {
             // `GameCommand::player_id` and the selected producer identify the
             // actual research owner.  A faction can have multiple players;
             // never charge/queue against the first player with this Team.
+            // C++ ProductionUpdate::queueUpgrade charges the producer's
+            // getControllingPlayer(); a host producer without a concrete
+            // owner resolves through the legacy team-owner fallback when the
+            // whole world is ownerless (synthetic/scripted spawns).
             let owner = self.game_logic.host_object(unit_id).and_then(|source| {
-                (source.owner_player_id == Some(self.current_player_id))
-                    .then_some((self.current_player_id, source.team))
+                if source.owner_player_id == Some(self.current_player_id) {
+                    Some((self.current_player_id, source.team))
+                } else if source.owner_player_id.is_none()
+                    && self.game_logic.uses_legacy_team_ownership_fallback()
+                {
+                    self.game_logic.unique_player_id_for_team(source.team)
+                        .map(|player_id| (player_id, source.team))
+                } else {
+                    None
+                }
             });
             let Some((player_id, team)) = owner else {
                 continue;
@@ -370,9 +382,19 @@ impl<'a> CommandExecutor<'a> {
                 .host_object(unit_id)
                 .filter(|source| Self::can_source_queue_upgrade(source))
                 .and_then(|source| {
-                    (source.owner_player_id == Some(self.current_player_id))
-                        .then_some((self.current_player_id, source.team))
-                });
+                    if source.owner_player_id == Some(self.current_player_id) {
+                        Some((self.current_player_id, source.team))
+                    } else if source.owner_player_id.is_none()
+                        && self.game_logic.uses_legacy_team_ownership_fallback()
+                    {
+                        // C++ getControllingPlayer legacy team-owner fallback
+                        // for ownerless synthetic/scripted producers.
+                        self.game_logic.unique_player_id_for_team(source.team)
+                            .map(|player_id| (player_id, source.team))
+                    } else {
+                        None
+                    }
+            });
             let Some((player_id, team)) = owner else {
                 continue;
             };

@@ -91,7 +91,7 @@ pub fn honesty_engine_status_exports_gw_presentation_entities_source() -> bool {
 
 /// Source residual: executable smoke tracks and gates GW presentation entities.
 pub fn honesty_executable_tracks_gw_presentation_entities_source() -> bool {
-    let src = include_str!("../../executable_smoke.rs");
+    let src = crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
     src.contains("gameworld_presentation_entities_ok")
         && src.contains("max_gameworld_presentation_entities")
         && src.contains("gameworld_presentation_boundary_ok")
@@ -110,7 +110,7 @@ pub fn simulate_executable_gameworld_presentation_honesty() -> bool {
     if !honesty_executable_tracks_gw_presentation_entities_source() {
         return false;
     }
-    let src = include_str!("../../executable_smoke.rs");
+    let src = crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
     if !(src.contains("playable_claim: false") || src.contains("playable_claim = false")) {
         return false;
     }

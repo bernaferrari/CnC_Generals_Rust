@@ -1906,7 +1906,7 @@ mod tests {
         let mut new_event = AudioEventRts::new();
         new_event.set_drawable_id_override(456);
         assert_eq!(new_event.owner_type, OwnerType::Drawable);
-        assert_eq!(new_event.get_drawable_id_override(), 456);
+        assert_eq!(new_event.get_drawable_id(), 456);
     }
 
     #[tokio::test]

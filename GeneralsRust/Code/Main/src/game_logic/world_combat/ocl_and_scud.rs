@@ -2379,9 +2379,16 @@ mod tests {
         // Load the actual retail source rather than registering an invented
         // OCL. This exercises the same parsed store lookup used by a Weapon
         // FireOCL/ProjectileDetonationOCL in a live game.
-        let retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        // extracted_big_files_v2 is the populated extraction on this repo
+        // (v1 is absent); fall back to v1 where it exists.
+        let mut retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../..")
-            .join("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini");
+            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ObjectCreationList.ini");
+        if !retail.is_file() {
+            retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../..")
+                .join("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini");
+        }
         gamelogic::object_creation_list::store::load_object_creation_lists_from_path(&retail)
             .expect("retail ObjectCreationList.ini must parse");
 
@@ -2531,14 +2538,14 @@ ObjectCreationList OCL_HostInheritVetParity
   CreateObject
     ObjectNames = OclEjectedPilot
     Count = 1
-    InheritVeterancy = Yes
+    InheritsVeterancy = Yes
   End
 End
 ObjectCreationList OCL_HostInheritFieldParity
   CreateObject
     ObjectNames = FireFieldSmall
     Count = 1
-    InheritVeterancy = Yes
+    InheritsVeterancy = Yes
   End
 End
 "#;

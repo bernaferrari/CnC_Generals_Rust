@@ -139,6 +139,7 @@ pub mod authoritative_world;
 pub mod authority_bridge;
 pub mod breadth_scenarios;
 pub mod executable_smoke;
+mod executable_smoke_source;
 pub mod gameplay_layout;
 pub mod gameworld_shadow;
 pub mod golden_campaign;

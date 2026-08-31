@@ -1001,6 +1001,16 @@ impl ShatterSystem {
             // 4. No other mutable references exist to shatter_patterns
             // 5. clip_pools is mutable and only accessed within this function
             // 6. The pointer is dereferenced exactly once per polygon, immediately
+            // SAFETY: `clipper_ptr` was derived from a live reference to
+            // `data.shatter_patterns[pattern_index]` (bounds-checked above), the `data`
+            // lock is held for this entire function, and nothing mutates
+            // `shatter_patterns` in between, so the pointee is still valid. The raw
+            // pointer exists only to split borrows: this loop immutably reads the BSP
+            // through `clipper_ptr` while mutating the disjoint `data.clip_pools` field,
+            // so no two accesses alias.
+            // SAFETY: clipper_ptr points into data.shatter_patterns via a
+            // bounds-checked shared reference; the mutex guard on `data` is
+            // held across this block so the vector cannot move or drop.
             unsafe {
                 let clipper = &*clipper_ptr;
                 for polygon in polygons_to_clip {

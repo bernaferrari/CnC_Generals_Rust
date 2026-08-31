@@ -75,6 +75,8 @@ pub extern "C" fn AudioManager_Init(settings: *const AudioSettings) -> Bool {
         return false;
     }
     
+        // SAFETY: null-checked above; settings is a valid *const AudioSettings
+        // per this extern fn's C contract, only read here.
     unsafe {
         let settings_ref = &*settings;
         with_legacy_audio(|manager| {
@@ -92,6 +94,8 @@ pub extern "C" fn AudioManager_AddAudioEvent(audio_event: *mut AudioEventRts) ->
         return AUDIO_HANDLE_INVALID;
     }
     
+        // SAFETY: null-checked above; caller guarantees a live AudioEventRts
+        // for the duration of the call.
     unsafe {
         let event_ref = &mut *audio_event;
         with_legacy_audio(|manager| {
@@ -155,6 +159,8 @@ pub extern "C" fn AudioManager_Set3DListenerPosition(
         return;
     }
     
+        // SAFETY: position/velocity/forward/up are non-null Coord3D pointers
+        // per the C ABI; each is read/copied without retaining.
     unsafe {
         let pos = Position3D::new((*position).x, (*position).y, (*position).z);
         let fwd = Direction3D::new((*forward).x, (*forward).y, (*forward).z);
@@ -222,6 +228,8 @@ pub extern "C" fn PlayAudioEvent(event_name: *const c_char, position: *const Coo
         return AUDIO_HANDLE_INVALID;
     }
     
+        // SAFETY: event_name is non-null and CStr::from_ptr reads until NUL;
+        // optional position deref happens only after its own null check.
     unsafe {
         let name = CStr::from_ptr(event_name).to_string_lossy();
         
@@ -272,6 +280,8 @@ pub extern "C" fn StartMusic(music_name: *const c_char, should_loop: Bool) -> Bo
         return false;
     }
     
+        // SAFETY: music_name is non-null; CStr::from_ptr reads a proper
+        // NUL-terminated C string.
     unsafe {
         let name = CStr::from_ptr(music_name).to_string_lossy();
         with_global_audio(|system| {
@@ -326,6 +336,8 @@ pub extern "C" fn Play3DSound(sound_name: *const c_char, position: *const Coord3
         return AUDIO_HANDLE_INVALID;
     }
     
+        // SAFETY: sound_name and position are null-checked above; the string
+        // read terminates at NUL and pos copies 3 Reals.
     unsafe {
         let name = CStr::from_ptr(sound_name).to_string_lossy();
         let pos = Position3D::new((*position).x, (*position).y, (*position).z);
@@ -352,6 +364,8 @@ pub extern "C" fn Update3DSoundPosition(handle: AudioHandle, position: *const Co
         return;
     }
     
+        // SAFETY: position is null-checked above; Copy type dereferenced by
+        // value inside with_legacy_audio.
     unsafe {
         with_legacy_audio(|manager| {
             manager.update_3d_sound_position(handle, *position);
@@ -371,6 +385,8 @@ pub extern "C" fn LoadAudioSettings(ini_path: *const c_char) -> Bool {
         return false;
     }
     
+        // SAFETY: ini_path is non-null; CStr::from_ptr yields &str for the
+        // INI load, no pointer retained.
     unsafe {
         let path = CStr::from_ptr(ini_path).to_string_lossy();
         with_legacy_audio(|manager| {
@@ -387,6 +403,7 @@ pub extern "C" fn SaveAudioSettings(ini_path: *const c_char) -> Bool {
         return false;
     }
     
+        // SAFETY: ini_path is non-null; same NUL-terminated read as load.
     unsafe {
         let path = CStr::from_ptr(ini_path).to_string_lossy();
         with_legacy_audio(|manager| {
@@ -413,6 +430,9 @@ pub extern "C" fn GetAudioProviders(providers: *mut *mut c_char, max_providers: 
     
     let count = std::cmp::min(provider_names.len(), max_providers as usize);
     
+        // SAFETY: providers is a valid array of max_providers slots (C
+        // contract); count never exceeds it, into_raw strings are freed
+        // by the caller via the matching free function.
     unsafe {
         for i in 0..count {
             let name_cstring = CString::new(provider_names[i]).unwrap();
@@ -436,6 +456,7 @@ pub extern "C" fn PreloadAudio(file_name: *const c_char) -> Bool {
         return false;
     }
     
+        // SAFETY: file_name is non-null; CStr::from_ptr reads to NUL only.
     unsafe {
         let name = CStr::from_ptr(file_name).to_string_lossy();
         with_global_audio(|system| {
@@ -464,6 +485,8 @@ pub extern "C" fn GetCacheStats(entries_used: *mut Int, memory_used: *mut Int, m
     
     with_global_audio(|system| {
         let stats = system.get_statistics();
+                    // SAFETY: entries_used/memory_used/memory_limit were all
+                    // null-checked before with_global_audio; plain Int stores.
         unsafe {
             *entries_used = stats.cache_entries as Int;
             *memory_used = stats.cache_size as Int;
@@ -569,6 +592,8 @@ pub extern "C" fn CreateDefaultAudioSettings() -> *mut AudioSettings {
 #[no_mangle]
 pub extern "C" fn FreeAudioSettings(settings: *mut AudioSettings) {
     if !settings.is_null() {
+                    // SAFETY: null-checked above; from_raw reclaims exactly the Box
+                    // leaked by CreateDefaultAudioSettings, once.
         unsafe {
             let _ = Box::from_raw(settings);
         }

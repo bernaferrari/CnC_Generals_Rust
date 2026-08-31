@@ -70,6 +70,7 @@ fn taxiing_jet_heals_from_reserved_stall() {
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
     let mut af_tmpl = ThingTemplate::new("TaxiHealAirfield");
     af_tmpl
         .add_kind_of(KindOf::Structure)
@@ -86,6 +87,7 @@ fn taxiing_jet_heals_from_reserved_stall() {
     });
     logic.templates.insert("TaxiHealAirfield".into(), af_tmpl);
     let mut jet_tmpl = ThingTemplate::new("TaxiHealRaptor");
+    jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
     jet_tmpl.add_kind_of(KindOf::Aircraft).set_health(100.0);
     logic.templates.insert("TaxiHealRaptor".into(), jet_tmpl);
 
@@ -212,6 +214,7 @@ fn queued_jet_reserves_exit_stall() {
     });
     logic.templates.insert("ExitReserveAirfield".into(), af_t);
     let mut jet_t = ThingTemplate::new("ExitReserveRaptor");
+    jet_t.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
     jet_t
         .add_kind_of(KindOf::Aircraft)
         .set_health(200.0)
@@ -884,7 +887,9 @@ fn voice_rapid_fire_plays_authored_per_unit_sound() {
     {
         let o = logic.objects.get_mut(&mini).unwrap();
         o.continuous_fire_level = GattlingFireLevel::Mean.as_u8();
-        o.continuous_fire_consecutive = 6;
+        // Retail Weapon.ini Infa_MiniGunnerGun ContinuousFireTwo = 12: the shot
+        // must push consecutive PAST Two (FiringTracker.cpp:117-121) to enter FAST.
+        o.continuous_fire_consecutive = 12;
         o.continuous_fire_victim = 99;
     }
     logic.advance_minigunner_continuous_fire(mini, Some(ObjectId(99)), 0);
@@ -1500,6 +1505,9 @@ fn hijack_hides_in_eject_capable_vehicle() {
     let mut vt = ThingTemplate::new("AmericaTankCrusader");
     vt.add_kind_of(KindOf::Vehicle);
     vt.add_kind_of(KindOf::Attackable);
+    // C++ targetCanEject asks getEjectPilotDieInterface(); retail Crusader
+    // authors an EjectPilotDie module — the gate is authored-only, no names.
+    vt.eject_pilot_die = Some(crate::game_logic::EjectPilotDieMetadata::default());
     let vid = ObjectId(5502);
     logic.objects.insert(vid, {
         let mut o = Object::new(vt, vid, Team::USA);

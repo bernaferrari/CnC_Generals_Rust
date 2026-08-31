@@ -34,7 +34,11 @@ impl Win32Device {
             ThreadPriority::RealTime => THREAD_PRIORITY_TIME_CRITICAL,
         };
 
+        SAFETY: GetCurrentThread returns a pseudo-handle constant valid on any
+        // SAFETY: thread; SetThreadPriority takes it by value, no raw dereference.
         unsafe {
+            // SAFETY: GetCurrentThread returns a pseudo-handle constant valid on any
+            // SAFETY: thread; SetThreadPriority takes it by value, no raw dereference.
             let current_thread = GetCurrentThread();
             if SetThreadPriority(current_thread, win32_priority).is_err() {
                 return Err(PlatformError::SystemCallFailed(
@@ -56,7 +60,11 @@ impl Win32Device {
     pub async fn get_memory_usage(&self) -> Result<MemoryUsage> {
         use windows::Win32::System::SystemInformation::*;
 
+        SAFETY: GlobalMemoryStatusEx writes only into our initialized MEMORYSTATUSEX
+        // SAFETY: (dwLength set as the API requires) and fails gracefully otherwise.
         unsafe {
+            // SAFETY: GlobalMemoryStatusEx writes only into our initialized MEMORYSTATUSEX
+            // SAFETY: (dwLength set as the API requires) and fails gracefully otherwise.
             let mut memory_status = MEMORYSTATUSEX {
                 dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
                 ..Default::default()

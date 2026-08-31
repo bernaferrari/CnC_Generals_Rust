@@ -194,6 +194,8 @@ fn windows_message_box(prompt: &str, message: &str, config: &DialogConfig) -> OS
     };
     let text: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
     let caption: Vec<u16> = OsStr::new(prompt).encode_wide().chain(Some(0)).collect();
+    // SAFETY: MessageBoxW reads the two NUL-terminated UTF-16 buffers built above
+    // SAFETY: (both outlive the call) with a null parent hwnd; modal UI call only.
     let result = unsafe {
         MessageBoxW(
             core::ptr::null_mut(),

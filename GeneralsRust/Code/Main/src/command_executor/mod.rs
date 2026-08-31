@@ -66,8 +66,6 @@ pub use leftover::{
     tick_live_beacon_client_updates,
 };
 
-#[cfg(test)]
-mod tests;
 
 impl<'a> CommandExecutor<'a> {
     /// Create a new command executor with game logic reference
@@ -482,10 +480,16 @@ impl<'a> CommandExecutor<'a> {
     // === Validation Helpers ===
 
     fn validate_player_ownership(&self, command: &GameCommand) -> bool {
-        // Check if player owns all selected units
+        // Check if player owns all selected units. Units without a
+        // controlling player (faction-only spawns) fall back to the C++
+        // PlayerList faction test (`player_team`), matching the original
+        // dispatcher acceptance for team-matched selections.
+        let player_team = self.player_team(command.player_id);
         for &unit_id in &command.selected_units {
             if let Some(unit) = self.game_logic.host_object(unit_id) {
-                if unit.owner_player_id != Some(command.player_id) {
+                let owned = unit.owner_player_id == Some(command.player_id)
+                    || (unit.owner_player_id.is_none() && unit.team == player_team);
+                if !owned {
                     warn!(
                         "Player {} doesn't own unit {}",
                         command.player_id, unit_id.0
@@ -708,6 +712,7 @@ impl<'a> CommandExecutor<'a> {
         (self.commands_executed, self.commands_failed)
     }
 }
+
 
 /// Concatenated live command_executor sources for residual `include_str` scans.
 pub const COMMAND_EXECUTOR_SRC: &str = concat!(

@@ -344,12 +344,18 @@ pub(super) fn ensure_test_tunnel_network_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0)
         .set_cost(800, 0);
+    // Retail Object GLATunnelNetwork authors Body = TunnelContain
+    // (ContainMax 10).  Authoring the module kind keeps the tunnel out of the
+    // GarrisonContain branch (`is_garrison_contain`, orders.rs:798) so exit
+    // walks the OpenContain ExitStart/End path instead of the Idle drop, and
+    // occupants stay DISABLED_HELD per TunnelContain::isGarrisonable FALSE.
+    tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
+    tunnel.contain_module.slots =
+        Some(crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY);
     game_logic
         .templates
         .insert("GLATunnelNetwork".to_string(), tunnel);
 }
-
-/// Spawn residual GLA Tunnel Network entrance with TunnelContain residual.
 
 /// Spawn residual GLA Tunnel Network entrance with TunnelContain residual.
 pub(super) fn create_test_tunnel_network(game_logic: &mut GameLogic, pos: Vec3) -> ObjectId {
@@ -358,9 +364,10 @@ pub(super) fn create_test_tunnel_network(game_logic: &mut GameLogic, pos: Vec3) 
         .create_object("GLATunnelNetwork", Team::GLA, pos)
         .expect("GLATunnelNetwork");
     if let Some(obj) = game_logic.host_object_mut(id) {
-        if !obj.is_tunnel_network_style_container() {
-            obj.install_tunnel_network_residual();
-        }
+        // The authored TunnelContain kind already marks the template
+        // tunnel-style; install unconditionally so the entrance carries the
+        // shared MaxTunnelCapacity building_data pool residual.
+        obj.install_tunnel_network_residual();
     }
     id
 }
@@ -539,6 +546,17 @@ pub(super) fn ensure_test_airfield_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(1200.0)
         .set_cost(1000, -2);
+    // C++ airfields always author ParkingPlaceBehavior; production
+    // production-gates fail closed without authored stall metadata.
+    airfield.parking_place = Some(crate::game_logic::ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: true,
+        heal_amount_per_second: 10.0,
+    });
     game_logic
         .templates
         .insert("TestAirfield".to_string(), airfield);
@@ -768,4 +786,151 @@ pub(super) fn ensure_test_helix_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0);
     game_logic.templates.insert("TestHelix".to_string(), t);
+}
+
+/// Author the retail `VeterancyCrateCollide` pilot module on a hand-built
+/// pilot template.  C++ `PilotFindVehicleUpdate` / `VeterancyCrateCollide`
+/// gate re-crew on the authored module, not the basename
+/// (VeterancyCrateCollide.cpp: IsPilot, RequiredKindOf = VEHICLE,
+/// ForbiddenKindOf = DOZER, RangeOfEffect = 0, AddsOwnerVeterancy = Yes,
+/// plus the companion `VeterancyGainCreate` StartingLevel that retail
+/// AmericaInfantryPilot authors).
+pub(super) fn author_pilot_recrew_module(template: &mut ThingTemplate) {
+    template.veterancy_crate_collide = Some(VeterancyCrateCollideMetadata {
+        is_pilot: true,
+        required_kind_of_vehicle: true,
+        forbidden_kind_of_dozer: true,
+        effect_range: Some(0.0),
+        adds_owner_veterancy: true,
+        starting_level: Some(VeterancyLevel::Veteran),
+    });
+}
+
+/// Author a retail-shaped `EjectPilotDie` module on a hand-built vehicle
+/// template.  Retail INIZH (e.g. AmericaVehicleHumvee) authors
+/// `GroundCreationList = OCL_EjectPilotOnGround` /
+/// `AirCreationList = OCL_EjectPilotViaParachute` with the DieMux filter
+/// carried by the caller; module `InvulnerableTime` keeps its 0 default
+/// (C++ EjectPilotDie.cpp: the selected OCL owns the real grant).
+pub(super) fn author_eject_pilot_die_module(
+    template: &mut ThingTemplate,
+    death_types: EjectPilotDeathTypes,
+    veterancy_levels: EjectPilotVeterancyLevels,
+    exempt_status: EjectPilotExemptStatus,
+) {
+    template.eject_pilot_die = Some(EjectPilotDieMetadata {
+        ground_creation_list: Some(EjectPilotCreationList::OnGround),
+        air_creation_list: Some(EjectPilotCreationList::ViaParachute),
+        invulnerable_time_ms: Some(0),
+        death_types,
+        veterancy_levels,
+        exempt_status,
+        required_status: EjectPilotRequiredStatus::None,
+    });
+}
+
+/// Register the two retail `ObjectCreationList.ini` EjectPilot blocks so the
+/// host death path can resolve them: this checkout ships no retail BIG data,
+/// so `ensure_default_object_creation_lists_loaded` finds no INIZH file.
+/// `InvulnerableTime` is authored in ms and parsed as frames at 30 FPS
+/// (2000 ms → 60f).  Idempotent: repeated loads write identical nuggets.
+pub(super) fn register_retail_eject_pilot_ocls() {
+    const RETAIL_EJECT_PILOT_OCLS: &str = r#"
+ObjectCreationList OCL_EjectPilotOnGround
+  CreateObject
+    ObjectNames = AmericaInfantryPilot
+    Count = 1
+    IgnorePrimaryObstacle = Yes
+    InheritsVeterancy = Yes
+    Disposition = RANDOM_FORCE
+    MinForceMagnitude = 2
+    MaxForceMagnitude = 3
+    MinForcePitch = 50
+    MaxForcePitch = 60
+    SpinRate = 0
+    InvulnerableTime = 2000ms
+    RequiresLivePlayer = Yes
+  End
+End
+
+ObjectCreationList OCL_EjectPilotViaParachute
+  CreateObject
+    ObjectNames = AmericaInfantryPilot
+    Count = 1
+    PutInContainer = AmericaParachute
+    IgnorePrimaryObstacle = Yes
+    InheritsVeterancy = Yes
+    Disposition = RANDOM_FORCE
+    MinForceMagnitude = 10
+    MaxForceMagnitude = 12
+    MinForcePitch = 50
+    MaxForcePitch = 60
+    SpinRate = 0
+    InvulnerableTime = 2000ms
+    RequiresLivePlayer = Yes
+  End
+End
+"#;
+    let _ = gamelogic::object_creation_list::store::load_object_creation_lists_from_str(
+        RETAIL_EJECT_PILOT_OCLS,
+    );
+}
+
+/// Ensure the shared ejection fixture: retail OCLs registered, the
+/// `AmericaInfantryPilot` Object template (OCL_EjectPilot* ObjectNames
+/// target), and a live owning USA player (C++ EjectPilotDie requires a live
+/// source controller, `RequiresLivePlayer = Yes`).
+pub(super) fn ensure_eject_pilot_residual_fixture(game_logic: &mut GameLogic) {
+    register_retail_eject_pilot_ocls();
+    let eject_pilot_template = crate::game_logic::host_usa_pilot::EJECT_PILOT_TEMPLATE;
+    if !game_logic.templates.contains_key(eject_pilot_template) {
+        let mut pilot_tpl = ThingTemplate::new(eject_pilot_template);
+        pilot_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic
+            .templates
+            .insert(eject_pilot_template.to_string(), pilot_tpl);
+    }
+    if game_logic.get_player(0).is_none() {
+        game_logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+    }
+}
+
+
+/// Author a retail `SpecialPower` module record on a hand-built template
+/// (OCLSpecialPower behavior + loaded SpecialPowerTemplate).  C++ refuses an
+/// any-unit fallback when the object carries no SpecialPowerModule
+/// (SpecialPower.cpp:308 canUseSpecialPower), so command-driven casts need
+/// the authored module even on test fixtures.
+pub(super) fn author_superweapon_special_power_module(
+    game_logic: &mut GameLogic,
+    template_name: &str,
+    command_power: crate::command_system::SpecialPowerType,
+    special_power_template: &str,
+    reload_time_frames: u32,
+) {
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+    let Some(template) = game_logic.templates.get_mut(template_name) else {
+        panic!("template {template_name} must exist before authoring its module");
+    };
+    template.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some(format!("ModuleTag_{}", special_power_template)),
+        module_kind: SpecialPowerModuleKind::OclSpecialPower,
+        special_power_template: special_power_template.into(),
+        special_power_template_id: 1,
+        command_power: Some(command_power),
+        reload_time_frames,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
 }

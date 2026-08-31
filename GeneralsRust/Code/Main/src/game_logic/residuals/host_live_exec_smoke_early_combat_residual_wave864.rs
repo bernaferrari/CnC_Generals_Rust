@@ -43,7 +43,7 @@ fn residual_action_store(a: ResidualExecSmokeEarlyCombatAction) {
 }
 
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 
 pub fn honesty_exec_smoke_early_combat_method_names_residual_wave864() -> bool {
@@ -67,7 +67,7 @@ pub fn honesty_exec_smoke_early_combat_nav_commands_residual_wave864() -> bool {
 
 pub fn honesty_exec_smoke_early_combat_residual_pack_wave864() -> bool {
     let es = es_source();
-    let ok = es.contains("let mut saw_early_combat_cmd = false;")
+    let ok = es.contains("saw_early_combat_cmd: bool,")
         && es.contains("Wave 864: issue combat early while InGame")
         && es.contains("attack_nearest_enemy|auto_target=1")
         && es.contains("saw_early_combat_cmd = true")

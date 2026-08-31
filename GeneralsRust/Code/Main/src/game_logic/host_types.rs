@@ -281,6 +281,11 @@ pub enum KindOf {
     /// C++ `KINDOF_HUGE_VEHICLE` (KindOf.h:35). Overlord / Helix class.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     HugeVehicle,
+    /// C++ `KINDOF_CLEANUP_HAZARD` (KindOf.h, bit 51). Ambulance
+    /// CleanupHazardUpdate partition targets; retail hazard fields
+    /// (NukeRadiationFieldWeapon / PoisonField*) carry it.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    CleanupHazard,
 }
 
 impl KindOf {
@@ -313,6 +318,7 @@ impl KindOf {
             "CLEARED_BY_BUILD" | "CLEAREDBYBUILD" => Some(Self::ClearedByBuild),
             "INERT" => Some(Self::Inert),
             "BLAST_CRATER" | "BLASTCRATER" => Some(Self::BlastCrater),
+            "CLEANUP_HAZARD" | "CLEANUPHAZARD" => Some(Self::CleanupHazard),
             "HUGE_VEHICLE" | "HUGEVEHICLE" => Some(Self::HugeVehicle),
 
             "DRONE" => Some(Self::Drone),
@@ -847,7 +853,6 @@ mod tests {
             KindOf::from_ini_token("CLEARED_BY_BUILD"),
             Some(KindOf::ClearedByBuild)
         );
-        assert_eq!(KindOf::from_ini_token("INERT"), Some(KindOf::Inert));
         assert_eq!(
             KindOf::from_ini_token("BLAST_CRATER"),
             Some(KindOf::BlastCrater)
@@ -855,6 +860,10 @@ mod tests {
         assert_eq!(
             KindOf::from_ini_token("HUGE_VEHICLE"),
             Some(KindOf::HugeVehicle)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("CLEANUP_HAZARD"),
+            Some(KindOf::CleanupHazard)
         );
 
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);

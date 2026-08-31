@@ -100,7 +100,7 @@ impl GameLogic {
             };
             if pos.y <= 5.0 {
                 let impact = Vec3::new(pos.x, 0.0, pos.z);
-                self.apply_fuel_air_radius_damage(
+                let _ = self.apply_fuel_air_radius_damage(
                     id,
                     producer,
                     team,
@@ -134,6 +134,27 @@ impl GameLogic {
                     crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_TICK_INTERVAL_FRAMES,
                     crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_DURATION_FRAMES,
                     toxin_object,
+                );
+                // C++ AnthraxBomb death audio residuals on the live path:
+                // FXListDie DeathFX = FX_AnthraxBomb (WeaponObjects.ini
+                // AnthraxBomb ModuleTag_09) and the spawned
+                // PoisonFieldAnthraxBomb SoundAmbient = AnthraxPoolAmbientLoop.
+                // The registry fallback path queues both via the strike plan;
+                // live delivery must not skip them.
+                self.queue_audio_event(
+                    AudioEventRequest::new(
+                        crate::game_logic::special_power_strikes::HostSuperweaponKind::AnthraxBomb
+                            .impact_audio(),
+                    )
+                    .with_position(impact)
+                    .with_priority(200),
+                );
+                self.queue_audio_event(
+                    AudioEventRequest::new(
+                        crate::game_logic::special_power_strikes::ANTHRAX_TOXIN_AUDIO,
+                    )
+                    .with_position(impact)
+                    .with_priority(150),
                 );
                 self.anthrax_bomb_flight_reg.record_toxin_field();
                 let _ = self.combat_particles.spawn(

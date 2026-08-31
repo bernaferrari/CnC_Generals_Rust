@@ -273,7 +273,21 @@ pub fn object_definition_has_kind(template_name: &str, token: &str) -> bool {
 /// C++ `ThingTemplate::findWeaponTemplateSet(WEAPONSET_CARBOMB)` then
 /// `testWeaponSetFlag(WEAPONSET_CARBOMB)`. Best-match without a CARBOMB row
 /// is the default set, which must reject.
+///
+/// Unit tests run without a loaded asset catalog, so a test may register the
+/// retail weapon-set evidence for a template name first (same seeding
+/// pattern as the weapon_bootstrap store); the live INI read stays
+/// authoritative when the catalog is present.
 pub fn template_has_carbomb_weapon_set(template_name: &str) -> bool {
+    #[cfg(test)]
+    {
+        let names = TEST_CARBOMB_WEAPON_SET_TEMPLATES.lock().ok();
+        if names.is_some_and(|names| {
+            names.iter().any(|name| name.eq_ignore_ascii_case(template_name))
+        }) {
+            return true;
+        }
+    }
     let Some(manager) = crate::assets::get_asset_manager() else {
         return false;
     };
@@ -284,6 +298,24 @@ pub fn template_has_carbomb_weapon_set(template_name: &str) -> bool {
         return false;
     };
     definition.weapon_sets.iter().any(weapon_set_is_carbomb)
+}
+
+/// Test-registerable retail weapon-set evidence, keyed by template name.
+#[cfg(test)]
+static TEST_CARBOMB_WEAPON_SET_TEMPLATES: std::sync::LazyLock<
+    std::sync::Mutex<Vec<String>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+
+/// Seed retail `WEAPONSET_CARBOMB` evidence for a template in tests that run
+/// without the extracted retail INI catalog.
+#[cfg(test)]
+pub fn register_test_carbomb_weapon_set(template_name: &str) {
+    let Ok(mut names) = TEST_CARBOMB_WEAPON_SET_TEMPLATES.lock() else {
+        return;
+    };
+    if !names.iter().any(|name| name.eq_ignore_ascii_case(template_name)) {
+        names.push(template_name.to_string());
+    }
 }
 
 fn weapon_set_is_carbomb(set: &crate::assets::WeaponSetDefinition) -> bool {

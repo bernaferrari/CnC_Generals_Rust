@@ -329,6 +329,9 @@ pub fn video_buffer_rgba_mut(buffer: &mut dyn VideoBuffer) -> Option<(u32, u32, 
         buffer.unlock();
         return None;
     }
+    // SAFETY: ptr came from buffer.lock() (non-null checked above) and points at
+    // SAFETY: the locked buffer's backing store; byte_len = pitch*height bounds the
+    // SAFETY: readable region. The slice is consumed before buffer.unlock() below.
     let src = unsafe { std::slice::from_raw_parts(ptr, byte_len) };
     let data = match buffer.format() {
         VideoBufferType::X8R8G8B8 => convert_x8r8g8b8(src, width, height, pitch),

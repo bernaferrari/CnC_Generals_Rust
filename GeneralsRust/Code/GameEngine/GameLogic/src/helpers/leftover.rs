@@ -182,6 +182,15 @@ impl TheInGameUI {
         }
         log::info!("UI Message: {}", message);
     }
+    /// Drain displayed UI messages (C++ `TheInGameUI->message` output; the HUD
+    /// consumes these, tests and hosts use this to observe/clear them).
+    pub fn drain_displayed_messages() -> Vec<String> {
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            std::mem::take(&mut state.messages)
+        } else {
+            Vec::new()
+        }
+    }
 
     pub fn add_superweapon(
         player_index: Int,
@@ -323,6 +332,24 @@ impl TheRadar {
             guard.create_event(&world_loc, event_type, seconds_to_live);
         }
     }
+    /// C++ `Radar::tryEvent` — throttled creation (10s map-wide same-type window).
+    pub fn try_event(
+        &self,
+        event_type: game_engine::common::system::radar::RadarEventType,
+        position: &Coord3D,
+    ) -> bool {
+        let radar = get_radar_system();
+        let radar_lock = radar.write();
+        if let Ok(mut guard) = radar_lock {
+            let world_loc = game_engine::system::radar::Coord3D {
+                x: position.x,
+                y: position.y,
+                z: position.z,
+            };
+            return guard.try_event(event_type, &world_loc);
+        }
+        false
+    }
 
     pub fn try_infiltration_event(target: Arc<RwLock<Object>>) -> Result<(), GameError> {
         let Ok(target_guard) = target.read() else {
@@ -387,6 +414,9 @@ impl TheRadar {
     }
 
     pub fn try_under_attack_event_for_object(target: &Object) -> Result<bool, GameError> {
+        // C++ TheRadar/TheInGameUI/TheAudio/TheEva are always live; the Rust
+        // client-side hooks must be registered before the pipeline fires.
+        ensure_radar_event_feedback_registered();
         if target.is_destroyed() {
             return Ok(false);
         }
@@ -402,6 +432,9 @@ impl TheRadar {
             is_structure: target.is_kind_of(KindOf::Structure),
             is_mp_count_for_victory: target.is_kind_of(KindOf::CountsForVictory),
             is_local_player: target.is_locally_controlled(),
+            // C++ Radar.cpp:1199 ally EVA needs the local player's relationship;
+            // the damage gate (Object.cpp:1853) only admits local victims, so the
+            // ally branch is unreachable through this engine path.
             is_ally: false,
             player_index,
         };
@@ -419,16 +452,6 @@ impl TheRadar {
         Ok(created)
     }
 
-    /// Location-only under-attack ping (crate `radar_notifier` BaseAttacked).
-    pub fn try_under_attack_event_at(x: f32, y: f32) -> bool {
-        ensure_radar_event_feedback_registered();
-        let radar = get_radar_system();
-        if let Ok(mut guard) = radar.write() {
-            let world_loc = game_engine::system::radar::Coord3D { x, y, z: 0.0 };
-            return guard.try_under_attack_event(&world_loc);
-        }
-        false
-    }
 
     pub fn refresh_terrain(&self) {
         let radar = get_radar_system();

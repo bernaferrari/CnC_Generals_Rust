@@ -559,9 +559,13 @@ pub mod windows_resource_manager {
     /// # Safety
     ///
     /// The caller must ensure the handle is valid and not already freed.
+    // SAFETY: caller contract documented above — handle is the raw Box
+    // pointer returned by load_bitmap and not yet freed.
     pub unsafe fn release_resource(handle: *mut std::ffi::c_void) {
         if !handle.is_null() {
             let boxed: Box<ResourceHandle> =
+                // SAFETY: reconstructs the unique Box leaked by
+                // Box::into_raw at creation; runs exactly once per handle.
                 unsafe { Box::from_raw(handle as *mut ResourceHandle) };
             debug!(
                 "Releasing Windows resource handle ({:?}, {} bytes)",

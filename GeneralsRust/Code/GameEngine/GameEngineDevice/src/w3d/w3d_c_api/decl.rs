@@ -739,6 +739,8 @@ pub(super) fn collect_up_vertices(
         return None;
     }
 
+    // SAFETY: `vertex_data` is the caller's UP-mode buffer; total_bytes was checked
+    // SAFETY: against overflow above and bounds the readable region during this copy.
     let bytes = unsafe { std::slice::from_raw_parts(vertex_data as *const u8, total_bytes) };
     collect_vertices_from_bytes(
         bytes,
@@ -761,11 +763,15 @@ pub(super) fn collect_up_indices(
     match index_format {
         0 | D3DFMT_INDEX16 => {
             let indices =
+                // SAFETY: `index_data` is the caller's UP-mode buffer validated non-null by
+                // SAFETY: DrawIndexedPrimitiveUP; index_count bounds the readable u16 region.
                 unsafe { std::slice::from_raw_parts(index_data as *const u16, index_count) };
             Some(indices.iter().map(|&v| v as u32).collect())
         }
         D3DFMT_INDEX32 => {
             let indices =
+                // SAFETY: Same contract as the INDEX16 branch: caller-owned buffer, index_count
+                // SAFETY: bounds the readable u32 region for D3DFMT_INDEX32 data.
                 unsafe { std::slice::from_raw_parts(index_data as *const u32, index_count) };
             Some(indices.to_vec())
         }
@@ -793,6 +799,9 @@ pub(super) fn collect_vertices_from_bytes(
             let end = offset.checked_add(vertex_size)?;
             let bytes = vertex_data.get(offset..end)?;
             let ptr = bytes.as_ptr() as *const W3D_VERTEX;
+            // SAFETY: `ptr` addresses `size_of::<W3D_VERTEX>()` bytes inside the bounds-
+            // SAFETY: checked slice taken above; read_unaligned tolerates arbitrary stride
+            // SAFETY: alignment of the caller's UP vertex data.
             let vertex = unsafe { std::ptr::read_unaligned(ptr) };
             vertices.push(vertex);
         }

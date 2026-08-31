@@ -1594,6 +1594,12 @@ impl ThingTemplate {
         self.fence_x_offset
     }
 
+    /// C++ `ThingTemplate::getRawTransportSlotCount` — the parsed
+    /// `TransportSlotCount` INI field.
+    pub fn get_raw_transport_slot_count(&self) -> UnsignedByte {
+        self.transport_slot_count
+    }
+
     pub fn new() -> Self {
         Self {
             template_id: 0,

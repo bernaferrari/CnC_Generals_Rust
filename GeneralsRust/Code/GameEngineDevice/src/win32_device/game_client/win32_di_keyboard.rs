@@ -170,6 +170,8 @@ impl DirectInputKeyboard {
     /// Check if caps lock is active
     pub fn get_caps_state(&self) -> bool {
         #[cfg(windows)]
+        // SAFETY: GetKeyState takes a by-value virtual key and returns the
+        // SAFETY: calling thread's sync key state; no pointers.
         unsafe {
             let caps_state = GetKeyState(VK_CAPITAL.0 as i32);
             (caps_state & 0x01) != 0
@@ -199,6 +201,9 @@ impl DirectInputKeyboard {
         
         // Create DirectInput interface
         let mut direct_input: Option<IDirectInput8A> = None;
+        // SAFETY: app_instance is a valid module handle and direct_input is a
+        // SAFETY: writable Option local receiving the new COM interface via
+        // SAFETY: its expected *mut c_void out-slot.
         unsafe {
             DirectInput8Create(
                 self.app_instance,
@@ -217,6 +222,8 @@ impl DirectInputKeyboard {
 
         // Create keyboard device
         let mut keyboard_device: Option<IDirectInputDevice8A> = None;
+        // SAFETY: direct_input is the live COM object created above and
+        // SAFETY: keyboard_device is a writable Option local out-param.
         unsafe {
             direct_input
                 .CreateDevice(&GUID_SysKeyboard, &mut keyboard_device, None)
@@ -230,6 +237,8 @@ impl DirectInputKeyboard {
             .ok_or_else(|| DirectInputKeyboardError::InitializationFailed("Keyboard device is null".to_string()))?;
 
         // Set data format
+        // SAFETY: keyboard_device is live; c_dfDIKeyboard is a static
+        // SAFETY: data-format template only read by the call.
         unsafe {
             keyboard_device
                 .SetDataFormat(&c_dfDIKeyboard)
@@ -240,6 +249,8 @@ impl DirectInputKeyboard {
         }
 
         // Set cooperative level - non-exclusive for NT compatibility
+        // SAFETY: keyboard_device is live and app_window is a valid window
+        // SAFETY: handle; flags are by-value.
         unsafe {
             keyboard_device
                 .SetCooperativeLevel(
@@ -253,6 +264,7 @@ impl DirectInputKeyboard {
         }
 
         // Set buffer size
+        // SAFETY: DIPROPDWORD is plain-old-data; all-zero bits are valid.
         let mut prop: DIPROPDWORD = unsafe { std::mem::zeroed() };
         prop.diph.dwSize = std::mem::size_of::<DIPROPDWORD>() as u32;
         prop.diph.dwHeaderSize = std::mem::size_of::<DIPROPHEADER>() as u32;
@@ -260,6 +272,8 @@ impl DirectInputKeyboard {
         prop.diph.dwHow = DIPH_DEVICE;
         prop.dwData = KEYBOARD_BUFFER_SIZE as u32;
 
+        // SAFETY: prop was fully initialized above (sizes, DIPH_DEVICE) and
+        // SAFETY: keyboard_device is live; the API only reads the header.
         unsafe {
             keyboard_device
                 .SetProperty(&DIPROP_BUFFERSIZE, &prop.diph)
@@ -270,6 +284,8 @@ impl DirectInputKeyboard {
         }
 
         // Acquire the keyboard
+        // SAFETY: keyboard_device is a live acquired-capable COM object;
+        // SAFETY: Acquire takes no pointers.
         unsafe {
             match keyboard_device.Acquire() {
                 Ok(_) => info!("Keyboard acquired successfully"),
@@ -290,6 +306,7 @@ impl DirectInputKeyboard {
     #[cfg(windows)]
     fn close_keyboard(&mut self) {
         if let Some(ref keyboard_device) = self.keyboard_device {
+            // SAFETY: keyboard_device is live; Unacquire takes no pointers.
             unsafe {
                 let _ = keyboard_device.Unacquire();
             }
@@ -307,10 +324,15 @@ impl DirectInputKeyboard {
             .as_ref()
             .ok_or(DirectInputKeyboardError::DeviceNotAcquired)?;
 
+        // SAFETY: DIDEVICEOBJECTDATA is plain-old-data; all-zero bits are a
+        // SAFETY: valid empty record that GetDeviceData overwrites.
         let mut key_data: DIDEVICEOBJECTDATA = unsafe { std::mem::zeroed() };
         let mut num_items = 1u32;
 
         // First try to acquire the device
+        // SAFETY: keyboard_device is live; GetDeviceData is given the exact
+        // SAFETY: DIDEVICEOBJECTDATA stride, a writable key_data local and a
+        // SAFETY: writable count pointer, so all writes stay in bounds.
         unsafe {
             let acquire_result = keyboard_device.Acquire();
             match acquire_result {
@@ -385,6 +407,7 @@ impl DirectInputKeyboard {
     fn handle_input_lost(&mut self) -> Result<(), DirectInputKeyboardError> {
         debug!("Handling keyboard input lost");
         if let Some(ref keyboard_device) = self.keyboard_device {
+            // SAFETY: keyboard_device is live; Acquire takes no pointers.
             unsafe {
                 match keyboard_device.Acquire() {
                     Ok(_) => {
@@ -406,6 +429,7 @@ impl DirectInputKeyboard {
     fn handle_not_acquired(&mut self) -> Result<(), DirectInputKeyboardError> {
         debug!("Handling keyboard not acquired");
         if let Some(ref keyboard_device) = self.keyboard_device {
+            // SAFETY: keyboard_device is live; Acquire takes no pointers.
             unsafe {
                 match keyboard_device.Acquire() {
                     Ok(_) => {
@@ -425,6 +449,8 @@ impl DirectInputKeyboard {
 
     fn update_caps_lock_state(&mut self) {
         #[cfg(windows)]
+        // SAFETY: GetKeyState takes a by-value virtual key and returns the
+        // SAFETY: calling thread's sync key state; no pointers.
         unsafe {
             let caps_state = GetKeyState(VK_CAPITAL.0 as i32);
             if (caps_state & 0x01) != 0 {
@@ -453,6 +479,10 @@ impl Drop for DirectInputKeyboard {
 }
 
 // Thread safety - DirectInput keyboard is designed to be used from the main thread only
+// SAFETY: DirectInputKeyboard owns COM interface wrappers plus plain data and
+// SAFETY: is confined to the creating (game) thread; only exclusive access
+// SAFETY: (&mut self / owned move) ever reaches the COM objects, so Send
+// SAFETY: cannot introduce cross-thread aliasing.
 unsafe impl Send for DirectInputKeyboard {}
 
 /// Utility function to print DirectInput error codes for debugging

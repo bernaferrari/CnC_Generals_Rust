@@ -1041,7 +1041,14 @@ impl GameLogic {
             ],
             Team::Neutral => vec![],
         };
-        for t in entries {
+        for mut t in entries {
+            // Retail faction structures author KINDOF_MP_COUNT_FOR_VICTORY
+            // (FactionBuilding.ini `Object GLABarracks` et al.); victory
+            // evaluation counts only STRUCTURE && MP_COUNT_FOR_VICTORY
+            // members (C++ Team::hasAnyBuildings mask).
+            if t.is_kind_of(KindOf::Structure) {
+                t.add_kind_of(KindOf::MpCountForVictory);
+            }
             self.templates.entry(t.name.clone()).or_insert_with(|| t);
         }
     }

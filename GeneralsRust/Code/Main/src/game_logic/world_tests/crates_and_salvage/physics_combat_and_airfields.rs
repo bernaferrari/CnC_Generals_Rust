@@ -125,6 +125,12 @@ fn vehicle_requests_infantry_move_away() {
         assert!(v.is_blocked);
         assert_eq!(v.request_other_move_away, Some(iid));
     }
+    // C++ move-away steering is relative to the blocked unit's path
+    // (AIUpdate::processCollision); give the vehicle the blocked column path.
+    if let Some(v) = logic.objects.get_mut(&vid) {
+        v.movement.path = vec![Vec3::new(0.0, 0.0, 8.0), Vec3::new(0.0, 0.0, 16.0)];
+        v.movement.current_path_index = 0;
+    }
     assert!(logic.try_physics_collide(vid, iid, 8.0));
     let inf = logic.objects.get(&iid).unwrap();
     assert_eq!(inf.move_away_from, Some(vid));
@@ -1579,7 +1585,9 @@ fn ground_force_fire_applies_base_scatter_radius_peel() {
     use crate::game_logic::weapon_bootstrap::host_effective_scatter_radius;
     // Neutron / artillery-style weapons often have base ScatterRadius > 0.
     // Ground force-fire must not hardcode scatter_radius = 0.
-    let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    // The AttackingGround fire path lives in world_objects/object_ai_combat.rs
+    // after the module split; scan the live home of that code.
+    let src = include_str!("../../world_objects/object_ai_combat.rs");
     assert!(
         src.contains("host_effective_scatter_radius") && src.contains("AttackingGround"),
         "AttackingGround path must peel ScatterRadius"
@@ -1766,10 +1774,22 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
         2
     );
     let mut logic = GameLogic::new();
+    // C++ ParkingPlaceBehavior::reserveRunway requires an authored module
+    // (retail AmericaAirfield: HasRunways=Yes NumCols=2).
+    use crate::game_logic::ParkingPlaceMetadata;
     {
         let mut af_t = ThingTemplate::new("RunwayAF");
         af_t.add_kind_of(KindOf::Structure);
         af_t.add_kind_of(KindOf::FSAirfield);
+        af_t.parking_place = Some(ParkingPlaceMetadata {
+            num_rows: 2,
+            num_cols: 2,
+            approach_height: 50.0,
+            landing_deck_height_offset: 0.0,
+            has_runways: true,
+            park_in_hangars: true,
+            heal_amount_per_second: 10.0,
+        });
         logic.templates.insert("RunwayAF".into(), af_t);
         let mut jt = ThingTemplate::new("RunwayJet");
         jt.add_kind_of(KindOf::Aircraft);
@@ -1840,11 +1860,22 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
         );
     }
     // Move first jet clear and tick → frees a runway for third.
+    // C++ ParkingPlaceBehavior releases a runway only once the holder is
+    // airborne beyond the clear distance.
     if let Some(o) = logic.objects.get_mut(&jets[0]) {
         o.set_position(glam::Vec3::new(500.0, 50.0, 0.0));
+        o.status.airborne_target = true;
     }
     logic.tick_airfield_runway_clear();
-    assert!(logic.airfield_runway_reserved_count(af) <= 1);
+    // C++ releases the cleared holder; the slot may already be handed to the
+    // next-in-line jet (ParkingPlaceBehavior m_nextInLineForTakeoff), so the
+    // behavioral check is that jets[0] no longer holds a runway.
+    let held: std::collections::HashSet<ObjectId> = logic
+        .runway_reservations
+        .get(&af)
+        .map(|slots| slots.iter().flatten().copied().collect())
+        .unwrap_or_default();
+    assert!(!held.contains(&jets[0]), "cleared jet must release its runway");
     assert!(logic.try_runway_takeoff_from_airfield(jets[2]));
     assert!(
         logic
@@ -1857,10 +1888,26 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
 #[test]
 fn airfield_runway_blocks_rtb_landing_when_busy() {
     let mut logic = GameLogic::new();
+    // C++ reserveRunway only serves aircraft holding a ParkingPlace stall
+    // (ParkingPlaceBehavior.cpp:453-472 "only planes with reserved spaces can
+    // reserve runways"), so the fixture authors the retail module + players.
+    use crate::game_logic::{ParkingPlaceMetadata, Player};
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "P0", true));
     {
         let mut af_t = ThingTemplate::new("LandAF");
         af_t.add_kind_of(KindOf::Structure);
         af_t.add_kind_of(KindOf::FSAirfield);
+        af_t.parking_place = Some(ParkingPlaceMetadata {
+            num_rows: 2,
+            num_cols: 2,
+            approach_height: 50.0,
+            landing_deck_height_offset: 0.0,
+            has_runways: true,
+            park_in_hangars: true,
+            heal_amount_per_second: 10.0,
+        });
         logic.templates.insert("LandAF".into(), af_t);
         let mut jt = ThingTemplate::new("LandJet");
         jt.add_kind_of(KindOf::Aircraft);
@@ -1882,7 +1929,9 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
         if let Some(o) = logic.objects.get_mut(&h) {
             o.object_type = ObjectType::Aircraft;
             o.status.airborne_target = true;
-            o.set_contained_by(None);
+            // C++: "only planes with reserved spaces can reserve runways"
+            // (ParkingPlaceBehavior.cpp:468-472) — holders dock in a stall.
+            o.set_contained_by(Some(af));
         }
         assert!(logic.reserve_airfield_runway(af, h).is_some());
     }
@@ -1907,24 +1956,17 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
         // Ensure weapon name peels RETURN_TO_BASE.
         o.thing.template.primary_weapon_name = Some("AmericaJetRaptorRocketPods".into());
     }
-    // While runways busy, RTB must not dock.
-    let docked_busy = logic.try_return_to_base_rearm(jet);
-    // needs_return_to_base may fail if weapon fields differ — still assert runway gate when needs.
-    if logic
-        .objects
-        .get(&jet)
-        .map(|j| j.needs_return_to_base_rearm())
-        .unwrap_or(false)
-    {
-        assert!(!docked_busy, "busy runways must block RTB dock");
-        assert!(
-            logic
-                .objects
-                .get(&jet)
-                .map(|j| j.contained_by.is_none())
-                .unwrap_or(false)
-        );
-    }
+    // While runways busy, RTB is accepted (LANDING_AWAIT_CLEARANCE keeps the
+    // stall) but the jet must not dock.
+    let _ = logic.try_return_to_base_rearm(jet);
+    assert!(
+        logic
+            .objects
+            .get(&jet)
+            .map(|j| j.contained_by.is_none())
+            .unwrap_or(false),
+        "busy runways must block RTB dock"
+    );
     // Free a runway → landing may proceed (if jet still needs RTB).
     logic.release_airfield_runway_for_jet(h1);
     if logic
@@ -1938,6 +1980,8 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
             j.status.airborne_target = false;
             j.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
             j.set_position(af_pos);
+            // Final approach complete: taxi ends inside the reserved stall.
+            j.set_contained_by(Some(af));
         }
         assert!(logic.try_return_to_base_rearm(jet));
         let j = logic.objects.get(&jet).unwrap();
@@ -1957,10 +2001,15 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
 #[test]
 fn airfield_takeoff_releases_parking_slot() {
     use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{KindOf, ParkingPlaceMetadata, Player, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
+    // C++ findSuitableAirfield ally check resolves ownerless objects through
+    // the unique team player.
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "P0", true));
     let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
     af_tmpl
         .add_kind_of(KindOf::Structure)
@@ -2003,6 +2052,14 @@ fn airfield_takeoff_releases_parking_slot() {
             can_target_ground: true,
             ..Weapon::default()
         });
+    }
+    assert!(logic.try_return_to_base_rearm(jet_id));
+    {
+        // C++ JetAIUpdate lands over updates: finish the approach in-stall.
+        let jet = logic.objects.get_mut(&jet_id).unwrap();
+        jet.status.airborne_target = false;
+        jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
+        jet.set_contained_by(Some(af_id));
     }
     assert!(logic.try_return_to_base_rearm(jet_id));
     assert_eq!(logic.airfield_parked_count(af_id), 1);
@@ -2116,7 +2173,7 @@ fn repaired_helipad_aircraft_auto_takeoff() {
 
 #[test]
 fn helipad_landing_uses_two_point_descent_not_pad_snap() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -2132,9 +2189,17 @@ fn helipad_landing_uses_two_point_descent_not_pad_snap() {
         .add_kind_of(KindOf::Aircraft)
         .add_kind_of(KindOf::Vehicle)
         .set_health(220.0);
+    // C++ JetAIUpdate RTB rearm requires a ReturnToBase reload-type weapon
+    // (WeaponTemplate::m_reloadType; retail jet missiles set ReloadType).
+    heli_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
     logic
         .templates
         .insert("AmericaVehicleComanche".into(), heli_tmpl);
+    // C++ findSuitableAirfield ally check runs through player relationships;
+    // ownerless objects resolve through the unique team player.
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "P0", true));
 
     let pad_id = logic
         .create_object("AmericaHelipad", Team::USA, Vec3::ZERO)
@@ -2306,11 +2371,19 @@ fn supply_center_accepts_deposit_same_player_only() {
 
 #[test]
 fn worker_mine_clear_dumps_carried_boxes() {
-    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
-    let mut t = ThingTemplate::new("GLAWorker");
+    use crate::game_logic::{GameLogic, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let t = ThingTemplate::new("GLAWorker");
     let id = ObjectId(8802);
     let mut worker = Object::new(t, id, Team::GLA);
     worker.stored_resources.supplies = 3;
     worker.set_weapon_set_mine_clearing_detail(true);
-    assert_eq!(worker.stored_resources.supplies, 0);
+    // C++ WorkerAIUpdate ctor: arming the detail alone never spends boxes.
+    assert_eq!(worker.stored_resources.supplies, 3);
+    // C++ WorkerAIUpdate::aiDoCommand tail (WorkerAIUpdate.cpp:1005-1014):
+    // isClearingMines() — attacking + WEAPONSET_MINE_CLEARING — drops them.
+    worker.status.attacking = true;
+    logic.objects.insert(id, worker);
+    logic.drop_worker_supply_boxes_for_mine_clear(id);
+    assert_eq!(logic.objects[&id].stored_resources.supplies, 0);
 }

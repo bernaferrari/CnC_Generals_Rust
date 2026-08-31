@@ -2138,6 +2138,10 @@ impl GameLogic {
                 ) {
                     return false;
                 }
+                // C++ doPathfind: computePath after adjustToPossibleDestination
+                // still goes through validMovementPosition + findPath; when the
+                // pathfinder refuses (no route), the request fails — it never
+                // installs a straight-line march.
                 let Some(w) = self.pathfinding_system.find_path_ex_surfaces(
                     start,
                     dest,

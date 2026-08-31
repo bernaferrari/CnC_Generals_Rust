@@ -1913,31 +1913,34 @@ impl INI {
         loop {
             self.read_line()?;
 
-            if self.end_of_file {
-                return Err(INIError::EndOfFile);
-            }
-
+            // C++ INI.cpp:1451-1528 — `readLine` delivers the final partial
+            // line even when the file ends without a newline (retail
+            // ChallengeMode.ini does), so the buffered token is processed
+            // BEFORE the EOF sanity check. Only an unterminated block raises
+            // the EOF error (`done == FALSE && isEOF()`).
             let line = self.buffer.clone();
-            let Some((key, value_tokens)) = parse_field_line(&line) else {
-                continue;
-            };
-
-            if key.eq_ignore_ascii_case("End") {
-                break;
-            }
-
-            let mut handled = false;
-
-            for field in field_parse_table {
-                if field.token.eq_ignore_ascii_case(key) {
-                    (field.parse)(self, target, &value_tokens)?;
-                    handled = true;
+            if let Some((key, value_tokens)) = parse_field_line(&line) {
+                if key.eq_ignore_ascii_case("End") {
                     break;
+                }
+
+                let mut handled = false;
+
+                for field in field_parse_table {
+                    if field.token.eq_ignore_ascii_case(key) {
+                        (field.parse)(self, target, &value_tokens)?;
+                        handled = true;
+                        break;
+                    }
+                }
+
+                if !handled {
+                    return Err(INIError::UnknownToken);
                 }
             }
 
-            if !handled {
-                return Err(INIError::UnknownToken);
+            if self.end_of_file {
+                return Err(INIError::EndOfFile);
             }
         }
 
@@ -1953,31 +1956,25 @@ impl INI {
         loop {
             self.read_line()?;
 
-            if self.end_of_file {
-                return Err(INIError::EndOfFile);
-            }
-
+            // Same C++ INI.cpp:1451-1528 ordering as `init_from_ini_with_fields`:
+            // process the buffered token before the EOF sanity check so a final
+            // line without a trailing newline still closes the block.
             let line = self.buffer.clone();
-            let Some((key, value_tokens)) = parse_field_line(&line) else {
-                continue;
-            };
-
-            if key.eq_ignore_ascii_case("End") {
-                break;
-            }
-
-            let mut handled = false;
-
-            for field in field_parse_table {
-                if field.token.eq_ignore_ascii_case(key) {
-                    (field.parse)(self, target, &value_tokens)?;
-                    handled = true;
+            if let Some((key, value_tokens)) = parse_field_line(&line) {
+                if key.eq_ignore_ascii_case("End") {
                     break;
+                }
+
+                for field in field_parse_table {
+                    if field.token.eq_ignore_ascii_case(key) {
+                        (field.parse)(self, target, &value_tokens)?;
+                        break;
+                    }
                 }
             }
 
-            if !handled {
-                continue;
+            if self.end_of_file {
+                return Err(INIError::EndOfFile);
             }
         }
 

@@ -1008,10 +1008,14 @@ fn host_owner_log_drives_transfer_owner_channel() {
     // (Object.cpp setTeam + setControllingPlayer). Team-only set_team clears
     // owner_player_id; capture uses set_team_and_owner with the China player.
     let capture_team = Team::China;
+    // Fixture must pick a LIVE faction player. apply_skirmish_config also
+    // installs the dead ReplayObserver (Team::Neutral, is_alive=false); a
+    // HashMap-order find() could select it and the writeback's dead-player
+    // skip would then report wb=0 nondeterministically.
     let capture_pid = logic
         .get_players()
         .values()
-        .find(|p| p.team == capture_team || p.team != Team::USA)
+        .find(|p| p.is_alive && p.team != Team::USA && p.team != Team::Neutral)
         .map(|p| p.id)
         .expect("capture player");
     host_owner_log::clear();
@@ -1082,6 +1086,11 @@ fn host_production_log_drives_set_production_queue_channel() {
         BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
         ThingTemplate,
     };
+    // writeback_production_to_host is the opt-in GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY
+    // last-writer (default off like C++ no-shadow builds). Enable it here instead of
+    // depending on another test leaking the env var, and restore afterwards.
+    let prev_prod_auth = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdQueueCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1165,8 +1174,11 @@ fn host_production_log_drives_set_production_queue_channel() {
     assert!(wb >= 1);
     let o = logic.host_objects().get(&barracks).expect("b");
     let q = &o.building_data.as_ref().expect("bd").production_queue;
-    assert!(!q.is_empty());
     assert_eq!(q[0].template_name, "ProdRanger");
+    match prev_prod_auth {
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+    }
 }
 
 #[test]
@@ -1292,6 +1304,9 @@ fn host_veterancy_log_drives_set_veterancy_channel() {
         t.add_kind_of(KindOf::Selectable);
         // Low thresholds so gain_experience levels quickly.
         t.veterancy_xp_thresholds = [10.0, 20.0, 30.0];
+        // C++ ThingTemplate ctor default m_isTrainable=FALSE (ThingTemplate.cpp:994);
+        // a trainable unit is exactly what this veterancy channel models.
+        t.is_trainable = true;
         logic.templates.insert("VetU".into(), t);
     }
     let id = logic

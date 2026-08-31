@@ -525,6 +525,7 @@ fn register_shutdown() {
             crate::cmd::ProfileCmdInterface::run_result_functions();
         }
 
+        // SAFETY: [Category 8 — FFI] registers a C-ABI shutdown handler that only calls back into this crate's profiler; runs at process exit once.
         unsafe {
             libc::atexit(shutdown_handler);
         }

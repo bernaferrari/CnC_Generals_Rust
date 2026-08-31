@@ -2069,16 +2069,11 @@ impl OpenContain {
                 });
         }
 
-        let Some((mut start_pos, mut end_pos, exit_angle, owner_layer, owner_id)) =
+        let Some((start_pos, mut end_pos, exit_angle, owner_layer, owner_id)) =
             self.next_exit_snapshot()
         else {
             return Ok(None);
         };
-
-        if let Some(terrain) = TheTerrainLogic::get() {
-            start_pos.z = terrain.get_ground_height(start_pos.x, start_pos.y, None);
-            end_pos.z = terrain.get_ground_height(end_pos.x, end_pos.y, None);
-        }
 
         let exit_id = if let Ok(mut exit_guard) = obj.write() {
             let _ = exit_guard.set_position(&start_pos);
@@ -3337,5 +3332,53 @@ mod tests {
             ("ExitStart01", "ExitEnd01")
         );
         assert_eq!(contain.which_exit_path, 2);
+    }
+
+    #[test]
+    fn airborne_container_exit_keeps_bone_altitude_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        // Flat terrain at height 0 so any ground-flattening is observable.
+        let mut map_data = crate::system::map_loader::MapData::new();
+        map_data.width = 2;
+        map_data.height = 2;
+        map_data.heightmap = vec![0, 0, 0, 0];
+        crate::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain write")
+            .load_map_data(map_data);
+
+        let owner = test_object("AirborneTransport", 92005);
+        owner
+            .write()
+            .expect("owner write")
+            .set_position(&Coord3D::new(10.0, 10.0, 100.0));
+        let rider = test_object("AirborneRider", 92006);
+
+        let mut contain =
+            OpenContain::new(Arc::downgrade(&owner), &OpenContainModuleData::default())
+                .expect("airborne contain");
+        ContainModuleInterface::contain_object(&mut contain, 92006).expect("contain rider");
+
+        // C++ OpenContain::exitObjectInAHurry (OpenContain.cpp:1076-1086)
+        // reads the ExitStart/ExitEnd bone positions verbatim and only sets
+        // the layer: airborne exits stay airborne instead of snapping to the
+        // terrain height.
+        contain
+            .exit_object_in_a_hurry(92006)
+            .expect("hurry exit rider");
+
+        let rider_z = rider.read().expect("rider read").get_position().z;
+        assert!(
+            (rider_z - 100.0).abs() < 0.01,
+            "C++ keeps airborne exits airborne; rider z was {rider_z}"
+        );
+
+        crate::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain write")
+            .reset();
+        OBJECT_REGISTRY.unregister_object(92005);
+        OBJECT_REGISTRY.unregister_object(92006);
     }
 }

@@ -54,7 +54,7 @@ fn cnc_source() -> &'static str {
 }
 
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 
 fn skirmish_menu_source() -> &'static str {

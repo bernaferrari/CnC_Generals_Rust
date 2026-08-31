@@ -320,28 +320,48 @@ impl GameLogic {
             }
 
             AIState::ReturningResources => {
-                // Worker heading back to supply center to deposit resources.
-                // The actual deposit happens in the update loop when close enough.
+                // C++ SupplyTruckWantsToPickUpOrDeliverBoxesState::update
+                // (SupplyTruckAIUpdate.cpp:487-530): a loaded truck does NOT
+                // issue a raw aiMoveToPosition at the center.  It resolves the
+                // depot through ResourceGatheringManager::findBestSupplyCenter
+                // — m_preferredDock wins when remotely okay (computeRelativeCost
+                // != FLT_MAX), otherwise nearest — then enters AIDock, whose
+                // DockUpdate drives the approach.  Mirror that here:
+                // resolve the depot (persisted dock first) and steer toward its
+                // exact position; the support-states deposit arm owns claim +
+                // deposit once within range.  The old raw MoveTo{center} from
+                // this layer preempted that arm every tick and snapped the goal
+                // off the exact center position (hq-mik7s).
                 let owner_player_id = self
                     .objects
                     .get(&object_id)
                     .and_then(|object| self.player_owner_for_host_object(object));
-                if let Some(refinery_id) = self.preferred_supply_center_or_nearest(
+                if let Some(center_id) = self.preferred_supply_center_or_nearest(
                     object_id,
                     team,
                     owner_player_id,
                     position,
                 ) {
-                    if let Some(refinery) = self.objects.get(&refinery_id) {
-                        let dist_to_refinery = position.distance(refinery.get_position());
-                        if dist_to_refinery > 20.0 {
-                            // Still heading to refinery
-                            return Some(AICommand::MoveTo {
+                    if let Some(dest) =
+                        self.objects.get(&center_id).map(|c| c.get_position())
+                    {
+                        if position.distance(dest)
+                            > crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE
+                        {
+                            self.path_approach_with_state(
                                 object_id,
-                                position: refinery.get_position(),
-                            });
+                                dest,
+                                AIState::ReturningResources,
+                            );
                         }
                     }
+                } else {
+                    // No reachable friendly center — C++ WantingState returns
+                    // STATE_FAILURE and the truck regroups; go idle.
+                    return Some(AICommand::SetAIState {
+                        object_id,
+                        state: AIState::Idle,
+                    });
                 }
                 None
             }

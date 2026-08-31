@@ -73,6 +73,10 @@ pub const A10_FORMATIONION_SIZE_L3: u32 = 3;
 pub const A10_FORMATIONION_SPACING: f32 = 35.0;
 /// Retail DeliveryDistance residual (all tiers).
 pub const A10_DELIVERY_DISTANCE: f32 = 450.0;
+/// Retail PreOpenDistance residual: SUPERWEAPON_A10ThunderboltMissileStrike1/2/3
+/// do not set PreOpenDistance (defaults 0), so the inbound band expansion of
+/// C++ isCloseEnoughToTarget is the identity here.
+pub const A10_PRE_OPEN_DISTANCE: f32 = 0.0;
 /// Retail DropDelay residual (msec between payload sets; all tiers).
 pub const A10_DROP_DELAY_MS: u32 = 500;
 /// DropDelay 500ms → 15 frames @ 30 FPS.

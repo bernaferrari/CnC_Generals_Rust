@@ -1158,8 +1158,15 @@ fn move_camera_to_selection_retargets_in_flight_move() {
     game_logic.mission_scripts.push_camera_move_to_selection();
     game_logic.evaluate_and_execute_scripts(0.0);
 
+    // The retarget itself never queues a lookAt (W3DView.cpp:2637-2655).
+    // The per-frame update_script_camera tick inside
+    // evaluate_and_execute_scripts legitimately re-requests the in-flight
+    // move's CURRENT focus (dt=0 → the move's start (0,10,0)); a request
+    // for anything else would mean a stray new lookAt.
+    let focus = game_logic.take_camera_focus_request();
     assert!(
-        game_logic.take_camera_focus_request().is_none(),
+        focus.is_none()
+            || focus.unwrap().distance(Vec3::new(0.0, 10.0, 0.0)) < 0.01,
         "retarget must not start a new lookAt"
     );
     let target = game_logic
@@ -1792,6 +1799,10 @@ fn cash_bounty_increases_cash_on_enemy_kill() {
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
 
     // GLA SCIENCE_CashBounty3 residual = 20% of build cost.
+    // C++ skirmish lobby seeds opposing team relations; getRelationship
+    // defaults NEUTRAL (Player.cpp:541-572) — pin the Enemies pairing.
+    game_logic.get_player_mut(0).unwrap().alliance_team = 7;
+    game_logic.get_player_mut(2).unwrap().alliance_team = 9;
     assert!(
         game_logic.force_set_player_cash_bounty(0, 0.20),
         "must configure killer cash bounty"
@@ -2255,6 +2266,18 @@ fn daisy_cutter_host_path_queues_and_completes_area_damage() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
+    // C++ SpecialPower.cpp:299-308 canUseSpecialPower requires an authored
+    // SpecialPowerModule on the caster — scalar ready-flags alone are not
+    // module evidence.
+    if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
+        attach_command_special_power(
+            tpl,
+            crate::command_system::SpecialPowerType::DaisyCutter,
+            "SuperweaponDaisyCutter",
+            SpecialPowerModuleKind::OclSpecialPower,
+            30,
+        );
+    }
     if let Some(p) = game_logic.get_player_mut(0) {
         p.unlock_science("SCIENCE_DaisyCutter");
     }
@@ -2432,15 +2455,28 @@ fn a10_strike_host_path_queues_and_completes() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::USA);
+    // C++ SpecialPower.cpp:299-308: authored module evidence required.
+    if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
+        attach_command_special_power(
+            tpl,
+            crate::command_system::SpecialPowerType::Airstrike,
+            "SuperweaponA10ThunderboltMissileStrike",
+            SpecialPowerModuleKind::OclSpecialPower,
+            30,
+        );
+    }
     if let Some(p) = game_logic.get_player_mut(0) {
         p.unlock_science("SCIENCE_A10ThunderboltMissileStrike1");
     }
 
+    // C++ DeliveryDistance 450: the strike target must sit far enough from
+    // the map edge that the jet completes its whole bomb run in range.
+    game_logic.override_world_size(4000.0, 4000.0);
     let caster_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
     let enemy_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .create_object("TestTank", Team::GLA, Vec3::new(1200.0, 0.0, 0.0))
         .expect("enemy");
     {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
@@ -2457,7 +2493,7 @@ fn a10_strike_host_path_queues_and_completes() {
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::Airstrike,
-            target: PowerTarget::Location(Vec3::new(20.0, 0.0, 0.0)),
+            target: PowerTarget::Location(Vec3::new(1200.0, 0.0, 0.0)),
         },
         player_id: 0,
         command_id: 2,
@@ -2473,9 +2509,21 @@ fn a10_strike_host_path_queues_and_completes() {
             .honesty_queue_ok(HostSuperweaponKind::A10Strike)
     );
 
-    game_logic.frame = 60;
-    game_logic.update_special_power_strikes();
-
+    // C++ DeliverPayload: jets fly in from the map edge, drop missiles, and
+    // each missile detonates on its own HeightDie. Drive the live flight tick
+    // chain (same order as world_tick/step.rs) until the strike completes.
+    for f in 1..=900u32 {
+        game_logic.frame = f;
+        game_logic.update_a10_strike_flights();
+        game_logic.update_special_power_strikes();
+        if !game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::A10Strike)
+            .is_empty()
+        {
+            break;
+        }
+    }
     assert!(
         game_logic
             .special_power_strikes()
@@ -2501,6 +2549,16 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
 
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
+    // C++ SpecialPower.cpp:299-308: authored module evidence required.
+    if let Some(tpl) = game_logic.templates.get_mut("TestTank") {
+        attach_command_special_power(
+            tpl,
+            crate::command_system::SpecialPowerType::CarpetBomb,
+            "SuperweaponCarpetBomb",
+            SpecialPowerModuleKind::OclSpecialPower,
+            30,
+        );
+    }
     ensure_test_player_for_team(&mut game_logic, Team::USA);
 
     let target = Vec3::new(100.0, 0.0, 0.0);
@@ -2580,8 +2638,14 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
         .unwrap()
         .health
         .current;
-    game_logic.frame = CARPET_BOMB_IMPACT_DELAY_FRAMES - 1;
-    game_logic.update_special_power_strikes();
+    // C++ DeliverPayload: the B52 flies the bomb line and each bomb detonates
+    // on its own HeightDie. Drive the live flight tick chain (same order as
+    // world_tick/step.rs) — no damage before the first bomb's impact frame.
+    for f in 1..=(CARPET_BOMB_IMPACT_DELAY_FRAMES - 1) {
+        game_logic.frame = f;
+        game_logic.update_carpet_bomb_flights();
+        game_logic.update_special_power_strikes();
+    }
     assert_eq!(
         game_logic
             .host_object(enemy_center_id)
@@ -2608,6 +2672,7 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
 
     // First DropDelay bomb: not complete yet (center/outer later).
     game_logic.frame = CARPET_BOMB_IMPACT_DELAY_FRAMES;
+    game_logic.update_carpet_bomb_flights();
     game_logic.update_special_power_strikes();
     assert!(
         !game_logic
@@ -2638,9 +2703,23 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
         activate,
         ArtilleryBarrageScienceTier::Level1,
     );
+    // Jump to last DropDelay bomb: bombs are all due; keep ticking the live
+    // flight chain until every bomb HeightDie detonation lands and the
+    // strike completes (C++ DeliveringState -> final bomb weapon fires).
     game_logic.frame = last;
+    for f in last..=(last + 120) {
+        game_logic.frame = f;
+        game_logic.update_carpet_bomb_flights();
+        game_logic.update_special_power_strikes();
+        if !game_logic
+            .special_power_strikes()
+            .completed_of_kind(HostSuperweaponKind::CarpetBomb)
+            .is_empty()
+        {
+            break;
+        }
+    }
     game_logic.update_special_power_strikes();
-
     assert!(
         game_logic
             .special_power_strikes()

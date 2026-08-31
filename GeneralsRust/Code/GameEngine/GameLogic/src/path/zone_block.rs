@@ -71,6 +71,10 @@ impl ZoneBlock {
         for y in bounds.lo.y..=bounds.hi.y {
             for x in bounds.lo.x..=bounds.hi.x {
                 if let Some(cell) = self.get_cell_from_map(map, x, y, bounds) {
+                    // SAFETY: `cell` comes from `get_cell_from_map`, which
+                    // null-checks; it points into the pathfinder cell grid,
+                    // which is stable and unmodified for the duration of this
+                    // read-only scan.
                     let zone = unsafe { (*cell).get_zone() };
                     min_zone = min_zone.min(zone);
                     max_zone = max_zone.max(zone);
@@ -104,6 +108,8 @@ impl ZoneBlock {
                 let Some(cell) = self.get_cell_from_map(map, x, y, bounds) else {
                     continue;
                 };
+                // SAFETY: same grid invariant as above — non-null pointer
+                // into the stable pathfinder cell grid, shared read only.
                 let cell_zone = unsafe { (*cell).get_zone() };
                 if cell_zone == 0 {
                     continue;
@@ -113,8 +119,14 @@ impl ZoneBlock {
                     let Some(left_cell) = self.get_cell_from_map(map, x - 1, y, bounds) else {
                         continue;
                     };
+                    // SAFETY: both pointers are distinct null-checked cells
+                    // of the stable grid; reading their zones is race-free.
                     if cell_zone != unsafe { (*left_cell).get_zone() } {
+                        // SAFETY: distinct null-checked cells of the stable
+                        // grid; shared borrows only.
                         let cell_ref = unsafe { &*cell };
+                        // SAFETY: distinct null-checked cells of the stable
+                        // grid; shared borrows only.
                         let left_ref = unsafe { &*left_cell };
 
                         if water_ground(cell_ref, left_ref) {
@@ -156,10 +168,15 @@ impl ZoneBlock {
                     let Some(top_cell) = self.get_cell_from_map(map, x, y - 1, bounds) else {
                         continue;
                     };
+                    // SAFETY: both pointers are distinct null-checked cells
+                    // of the stable grid; reading their zones is race-free.
                     if cell_zone != unsafe { (*top_cell).get_zone() } {
+                        // SAFETY: distinct null-checked cells of the stable
+                        // grid; shared borrows only.
                         let cell_ref = unsafe { &*cell };
+                        // SAFETY: distinct null-checked cells of the stable
+                        // grid; shared borrows only.
                         let top_ref = unsafe { &*top_cell };
-
                         if water_ground(cell_ref, top_ref) {
                             apply_block_zone(
                                 cell,
@@ -447,7 +464,12 @@ fn apply_block_zone(
     zone_equivalency: &mut [ZoneStorageType],
     first_zone: ZoneStorageType,
 ) {
+    // SAFETY: callers pass null-checked cells from the same stable pathfinder
+    // cell grid (see `get_cell_from_map`); only `get_zone` is called, so no
+    // aliasing mutation occurs.
     let src_zone = unsafe { (*source).get_zone() };
+    // SAFETY: `target` is a null-checked cell from the same stable grid as
+    // `source` above; shared read of its zone.
     let target_zone = unsafe { (*target).get_zone() };
     if src_zone < first_zone || target_zone < first_zone {
         return;

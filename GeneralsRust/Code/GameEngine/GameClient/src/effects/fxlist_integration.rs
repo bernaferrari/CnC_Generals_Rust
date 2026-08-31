@@ -192,8 +192,8 @@ impl FXNugget for TracerFXNugget {
         _override_radius: f32,
         context: &mut FXContext,
     ) {
-        // Probability check (matches C++ line 151)
-        if self.probability <= rand::random::<f32>() {
+        // Probability check (matches C++ FXList.cpp:150-151) — client stream.
+        if self.probability <= crate::GameClientRandomValueReal!(0.0, 1.0) {
             return;
         }
 
@@ -731,26 +731,35 @@ impl ParticleSystemFXNugget {
 
         // Create multiple systems based on count
         for _ in 0..self.count {
+            // C++ FXList.cpp:588-603 — radius draw, then angle draw; the
+            // height draw happens only when the ground snap does NOT consume
+            // the Z.
             let radius = self.radius.sample();
-            let height_offset = self.height.sample();
-            let angle = rand::random::<f32>() * 2.0 * std::f32::consts::PI;
+            let angle = crate::GameClientRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
 
             let mut spawn_pos = Point3::new(
                 primary.x + offset.x + radius * angle.cos(),
                 primary.y + offset.y + radius * angle.sin(),
-                primary.z + offset.z + height_offset,
+                primary.z + offset.z,
             );
 
-            if self.create_at_ground_height {
-                if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
+            let ground_z = if self.create_at_ground_height {
+                gamelogic::helpers::TheTerrainLogic::get().map(|terrain| {
                     let dest = gamelogic::common::Coord3D {
                         x: spawn_pos.x,
                         y: spawn_pos.y,
                         z: spawn_pos.z,
                     };
                     let layer = terrain.get_layer_for_destination(&dest);
-                    spawn_pos.z = terrain.get_layer_height(spawn_pos.x, spawn_pos.y, layer);
-                }
+                    terrain.get_layer_height(spawn_pos.x, spawn_pos.y, layer)
+                })
+            } else {
+                None
+            };
+            match ground_z {
+                Some(z) => spawn_pos.z = z,
+                // C++ FXList.cpp:603 — non-ground branch samples Height.
+                None => spawn_pos.z += self.height.sample(),
             }
 
             // Create particle system

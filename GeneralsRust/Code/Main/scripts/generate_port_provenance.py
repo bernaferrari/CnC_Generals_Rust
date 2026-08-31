@@ -27,6 +27,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from behavior_evidence import (
+    EVIDENCE_FILE,
+    DestinationState,
+    EvidenceUnit,
+    INFORMATIONAL_KINDS,
+    evaluate_unit,
+    evidence_digest_rows,
+    load_behavior_evidence,
+)
+
 
 SCHEMA_VERSION = 1
 REVIEWED_MAPPINGS_FILE = "PORT_PROVENANCE_REVIEWED.json"
@@ -99,6 +109,9 @@ ALLOWED_DEVIATIONS = (
 )
 
 
+ALLOWED_DEVIATION_IDS = tuple(deviation["id"] for deviation in ALLOWED_DEVIATIONS)
+
+
 def load_reviewed_mappings(repo_root: Path) -> dict[str, tuple[str, ...]]:
     """Load human-reviewed path ownership from a data file agents can edit safely."""
     path = repo_root / REVIEWED_MAPPINGS_FILE
@@ -129,6 +142,160 @@ def load_reviewed_mappings(repo_root: Path) -> dict[str, tuple[str, ...]]:
         if len(set(destinations)) != len(destinations):
             raise ValueError(f"{path} mapping {index} duplicates a destination")
         result[source] = tuple(destinations)
+    return result
+
+
+HEX64_RE = re.compile(r"[0-9a-f]{64}")
+
+
+@dataclass(frozen=True)
+class ReviewedAssignment:
+    """One Rust destination claim for one C++ symbol occurrence."""
+
+    path: str
+    sha256: str
+    symbols: tuple[str, ...]
+    deviation: str | None
+
+
+@dataclass(frozen=True)
+class ReviewedSymbol:
+    """A C++ symbol occurrence identified by qualified name and line.
+
+    Line numbers keep overload sets distinct: every occurrence extracted from
+    the translation unit must be claimed before ownership counts as reviewed.
+    """
+
+    name: str
+    line: int
+    assignments: tuple[ReviewedAssignment, ...]
+
+
+@dataclass(frozen=True)
+class ReviewedRange:
+    start_line: int
+    end_line: int
+    path: str
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ReviewedOwnership:
+    """Reviewed symbol and source-range ownership for one C++ translation unit."""
+
+    source: str
+    source_sha256: str
+    symbols: tuple[ReviewedSymbol, ...]
+    source_ranges: tuple[ReviewedRange, ...]
+
+
+def load_reviewed_ownership(repo_root: Path) -> dict[str, ReviewedOwnership]:
+    """Load reviewed symbol/source-range ownership from the agent-editable file.
+
+    Structural errors (wrong types, duplicate claims, malformed hashes) raise
+    immediately.  Semantic staleness (hash drift, moved files, uncovered
+    ranges) is diagnosed later by the manifest builder against live files.
+    """
+    path = repo_root / REVIEWED_MAPPINGS_FILE
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if raw.get("schema_version") != 1:
+        raise ValueError(f"{path} schema_version must be 1")
+    records = raw.get("ownership", [])
+    if not isinstance(records, list):
+        raise ValueError(f"{path} ownership must be a list")
+    result: dict[str, ReviewedOwnership] = {}
+    for index, record in enumerate(records):
+        where = f"{path} ownership {index}"
+        if not isinstance(record, dict):
+            raise ValueError(f"{where} must be an object")
+        source = record.get("source")
+        if not isinstance(source, str) or not source:
+            raise ValueError(f"{where} needs a source path")
+        if source in result:
+            raise ValueError(f"{path} duplicates ownership source {source}")
+        source_sha256 = record.get("source_sha256")
+        if not isinstance(source_sha256, str) or not HEX64_RE.fullmatch(source_sha256):
+            raise ValueError(f"{where} needs a 64-hex source_sha256")
+        symbols_raw = record.get("symbols", [])
+        ranges_raw = record.get("source_ranges", [])
+        if not isinstance(symbols_raw, list) or not isinstance(ranges_raw, list):
+            raise ValueError(f"{where} symbols and source_ranges must be lists")
+
+        symbols: list[ReviewedSymbol] = []
+        seen_symbols: set[tuple[str, int]] = set()
+        for symbol_index, symbol_raw in enumerate(symbols_raw):
+            symbol_where = f"{where} symbol {symbol_index}"
+            if not isinstance(symbol_raw, dict):
+                raise ValueError(f"{symbol_where} must be an object")
+            name = symbol_raw.get("name")
+            line = symbol_raw.get("line")
+            if not isinstance(name, str) or not name:
+                raise ValueError(f"{symbol_where} needs a symbol name")
+            if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+                raise ValueError(f"{symbol_where} needs a positive integer line")
+            if (name, line) in seen_symbols:
+                raise ValueError(f"{where} duplicates symbol {name}@{line}")
+            seen_symbols.add((name, line))
+            assignments_raw = symbol_raw.get("assignments")
+            if not isinstance(assignments_raw, list) or not assignments_raw:
+                raise ValueError(f"{symbol_where} needs assignments")
+            assignments: list[ReviewedAssignment] = []
+            for assignment_index, assignment_raw in enumerate(assignments_raw):
+                assignment_where = f"{symbol_where} assignment {assignment_index}"
+                if not isinstance(assignment_raw, dict):
+                    raise ValueError(f"{assignment_where} must be an object")
+                destination = assignment_raw.get("path")
+                if not isinstance(destination, str) or not destination:
+                    raise ValueError(f"{assignment_where} needs a destination path")
+                sha256 = assignment_raw.get("sha256")
+                if not isinstance(sha256, str) or not HEX64_RE.fullmatch(sha256):
+                    raise ValueError(f"{assignment_where} needs a 64-hex sha256")
+                rust_symbols = assignment_raw.get("symbols")
+                if (
+                    not isinstance(rust_symbols, list)
+                    or not rust_symbols
+                    or not all(isinstance(item, str) and item for item in rust_symbols)
+                ):
+                    raise ValueError(f"{assignment_where} needs destination symbol names")
+                if len(set(rust_symbols)) != len(rust_symbols):
+                    raise ValueError(f"{assignment_where} duplicates a destination symbol")
+                deviation = assignment_raw.get("deviation")
+                if deviation is not None and not isinstance(deviation, str):
+                    raise ValueError(f"{assignment_where} deviation must be a string or null")
+                assignments.append(
+                    ReviewedAssignment(destination, sha256, tuple(rust_symbols), deviation)
+                )
+            symbols.append(ReviewedSymbol(name, line, tuple(assignments)))
+
+        ranges: list[ReviewedRange] = []
+        for range_index, range_raw in enumerate(ranges_raw):
+            range_where = f"{where} source_range {range_index}"
+            if not isinstance(range_raw, dict):
+                raise ValueError(f"{range_where} must be an object")
+            start_line = range_raw.get("start_line")
+            end_line = range_raw.get("end_line")
+            if (
+                not isinstance(start_line, int)
+                or isinstance(start_line, bool)
+                or start_line < 1
+                or not isinstance(end_line, int)
+                or isinstance(end_line, bool)
+                or end_line < start_line
+            ):
+                raise ValueError(f"{range_where} needs 1 <= start_line <= end_line")
+            destination = range_raw.get("path")
+            if not isinstance(destination, str) or not destination:
+                raise ValueError(f"{range_where} needs a destination path")
+            sha256 = range_raw.get("sha256")
+            if not isinstance(sha256, str) or not HEX64_RE.fullmatch(sha256):
+                raise ValueError(f"{range_where} needs a 64-hex sha256")
+            ranges.append(ReviewedRange(start_line, end_line, destination, sha256))
+
+        result[source] = ReviewedOwnership(
+            source, source_sha256, tuple(symbols), tuple(ranges)
+        )
     return result
 
 
@@ -351,15 +518,206 @@ def expand_split_root(root: RustFileInfo, by_absolute: dict[Path, RustFileInfo])
     return sorted(members, key=lambda info: info.relative)
 
 
-def destination_record(info: RustFileInfo) -> dict[str, object]:
+def destination_record(
+    info: RustFileInfo,
+    owned_symbols: Iterable[str] = (),
+    owned_source_ranges: Iterable[tuple[int, int]] = (),
+) -> dict[str, object]:
     return {
         "path": info.relative,
         "classification": info.classification,
         "cargo_reachable": info.cargo_reachable,
-        # Populated only by reviewed mappings that assign a portion of the C++
-        # unit to this fragment. Empty means ownership still needs review.
-        "owned_source_ranges": [],
+        # Populated only by complete valid reviewed ownership records that
+        # assign C++ symbols or source ranges to this fragment. Empty means
+        # ownership still needs review.
+        "owned_symbols": sorted(set(owned_symbols)),
+        "owned_source_ranges": [
+            {"start_line": start, "end_line": end}
+            for start, end in sorted(set(owned_source_ranges))
+        ],
     }
+
+
+def ownership_referenced_paths(record: ReviewedOwnership) -> set[str]:
+    """Every Rust path a reviewed ownership record claims, for index building."""
+    paths = {
+        assignment.path
+        for symbol in record.symbols
+        for assignment in symbol.assignments
+    }
+    paths.update(owned.path for owned in record.source_ranges)
+    return paths
+
+
+def expand_assignment_files(
+    path: str,
+    by_relative: dict[str, RustFileInfo],
+    by_absolute: dict[Path, RustFileInfo],
+) -> list[RustFileInfo]:
+    """Resolve an ownership target to itself plus, for split roots, its fragments."""
+    info = by_relative.get(path)
+    if info is None:
+        return []
+    return expand_split_root(info, by_absolute)
+
+
+def ownership_destination_diagnostics(
+    path: str,
+    sha256: str,
+    label: str,
+    expanded_destinations: dict[str, RustFileInfo],
+    by_relative: dict[str, RustFileInfo],
+) -> list[str]:
+    """Validate one claimed Rust destination against the live repository."""
+    info = by_relative.get(path)
+    if info is None:
+        return [f"{label}:stale_destination_path:{path}"]
+    diagnostics: list[str] = []
+    if path not in expanded_destinations:
+        diagnostics.append(f"{label}:unmapped_destination:{path}")
+    if info.classification != "implementation":
+        diagnostics.append(f"{label}:non_implementation_destination:{path}")
+    if not info.cargo_reachable:
+        diagnostics.append(f"{label}:unreachable_destination:{path}")
+    if info.sha256 != sha256:
+        diagnostics.append(f"{label}:stale_destination_hash:{path}")
+    return diagnostics
+
+
+@dataclass
+class SymbolOwnershipEvaluation:
+    status: str
+    diagnostics: list[str]
+    credited_deviations: set[str]
+    path_symbols: dict[str, set[str]]
+
+
+@dataclass
+class RangeOwnershipEvaluation:
+    status: str
+    diagnostics: list[str]
+    path_ranges: dict[str, list[tuple[int, int]]]
+
+
+def evaluate_symbol_ownership(
+    record: ReviewedOwnership | None,
+    source_hash: str,
+    cpp_symbols: Sequence[dict[str, object]],
+    expanded_destinations: dict[str, RustFileInfo],
+    by_relative: dict[str, RustFileInfo],
+    by_absolute: dict[Path, RustFileInfo],
+) -> SymbolOwnershipEvaluation:
+    """Check that every C++ symbol occurrence is claimed by valid assignments."""
+    if record is None:
+        return SymbolOwnershipEvaluation("unreviewed", [], set(), {})
+    diagnostics: list[str] = []
+    credited_deviations: set[str] = set()
+    path_symbols: dict[str, set[str]] = defaultdict(set)
+    if record.source_sha256 != source_hash:
+        diagnostics.append("ownership_symbol:stale_source_hash")
+    occurrences = {
+        (str(symbol["name"]), int(symbol["line"])) for symbol in cpp_symbols
+    }
+    assigned: set[tuple[str, int]] = set()
+    for symbol in record.symbols:
+        key = (symbol.name, symbol.line)
+        if key not in occurrences:
+            diagnostics.append(
+                f"ownership_symbol:unknown_cpp_symbol:{symbol.name}@{symbol.line}"
+            )
+            continue
+        assigned.add(key)
+        for assignment in symbol.assignments:
+            assignment_diagnostics = ownership_destination_diagnostics(
+                assignment.path,
+                assignment.sha256,
+                "ownership_symbol",
+                expanded_destinations,
+                by_relative,
+            )
+            files = expand_assignment_files(assignment.path, by_relative, by_absolute)
+            known_names = {name for info in files for _kind, name, _line in info.symbols}
+            for rust_symbol in assignment.symbols:
+                if rust_symbol not in known_names:
+                    assignment_diagnostics.append(
+                        f"ownership_symbol:missing_rust_symbol:{rust_symbol}@{assignment.path}"
+                    )
+            if (
+                assignment.deviation is not None
+                and assignment.deviation not in ALLOWED_DEVIATION_IDS
+            ):
+                assignment_diagnostics.append(
+                    f"ownership_symbol:unknown_deviation:{assignment.deviation}"
+                )
+            if assignment_diagnostics:
+                diagnostics.extend(assignment_diagnostics)
+                continue
+            path_symbols[assignment.path].add(symbol.name)
+            if assignment.deviation is not None:
+                credited_deviations.add(assignment.deviation)
+    for name, line in sorted(occurrences - assigned):
+        diagnostics.append(f"ownership_symbol:unassigned_cpp_symbol:{name}@{line}")
+    status = "reviewed" if not diagnostics else "invalid"
+    return SymbolOwnershipEvaluation(status, diagnostics, credited_deviations, path_symbols)
+
+
+def evaluate_range_ownership(
+    record: ReviewedOwnership | None,
+    source_hash: str,
+    total_lines: int,
+    expanded_destinations: dict[str, RustFileInfo],
+    by_relative: dict[str, RustFileInfo],
+    required: bool,
+) -> RangeOwnershipEvaluation:
+    """Check that reviewed ranges cover the unit exactly, with valid destinations."""
+    if record is None:
+        return RangeOwnershipEvaluation(
+            "unreviewed" if required else "not_required", [], {}
+        )
+    if not required and not record.source_ranges:
+        return RangeOwnershipEvaluation("not_required", [], {})
+    diagnostics: list[str] = []
+    if record.source_sha256 != source_hash:
+        diagnostics.append("ownership_range:stale_source_hash")
+    bounded: list[ReviewedRange] = []
+    for owned_range in record.source_ranges:
+        if not (1 <= owned_range.start_line <= owned_range.end_line <= total_lines):
+            diagnostics.append(
+                f"ownership_range:out_of_bounds:{owned_range.start_line}-{owned_range.end_line}"
+            )
+            continue
+        bounded.append(owned_range)
+        diagnostics.extend(
+            ownership_destination_diagnostics(
+                owned_range.path,
+                owned_range.sha256,
+                "ownership_range",
+                expanded_destinations,
+                by_relative,
+            )
+        )
+    bounded.sort(key=lambda item: (item.start_line, item.end_line, item.path))
+    expected = 1
+    for owned_range in bounded:
+        if owned_range.start_line > expected:
+            diagnostics.append(
+                f"ownership_range:gap:{expected}-{owned_range.start_line - 1}"
+            )
+        elif owned_range.start_line < expected:
+            diagnostics.append(
+                f"ownership_range:overlap:{owned_range.start_line}-{owned_range.end_line}"
+            )
+        expected = max(expected, owned_range.end_line + 1)
+    if expected <= total_lines:
+        diagnostics.append(f"ownership_range:gap:{expected}-{total_lines}")
+    status = "reviewed" if not diagnostics else "invalid"
+    path_ranges: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    if status == "reviewed":
+        for owned_range in bounded:
+            path_ranges[owned_range.path].append(
+                (owned_range.start_line, owned_range.end_line)
+            )
+    return RangeOwnershipEvaluation(status, diagnostics, path_ranges)
 
 
 def rust_file_index_record(info: RustFileInfo, include_symbols: bool) -> dict[str, object]:
@@ -437,9 +795,15 @@ def iter_cpp_units(repo_root: Path, scope: ScopeRoot) -> Iterable[tuple[Path, st
 def build_manifest(
     repo_root: Path,
     reviewed_mappings: dict[str, tuple[str, ...]] | None = None,
+    evidence_units: dict[str, EvidenceUnit] | None = None,
+    reviewed_ownership: dict[str, ReviewedOwnership] | None = None,
 ) -> dict[str, object]:
     if reviewed_mappings is None:
         reviewed_mappings = load_reviewed_mappings(repo_root)
+    if evidence_units is None:
+        evidence_units = load_behavior_evidence(repo_root)
+    if reviewed_ownership is None:
+        reviewed_ownership = load_reviewed_ownership(repo_root)
     rust_infos, _reachable = collect_rust_files(repo_root)
     by_relative = {info.relative: info for info in rust_infos}
     by_absolute = {info.absolute: info for info in rust_infos}
@@ -447,9 +811,8 @@ def build_manifest(
     split_roots: dict[str, list[RustFileInfo]] = defaultdict(list)
     for info in rust_infos:
         by_stem[normalize_name(Path(info.relative).stem)].append(info)
-        if Path(info.relative).name == "mod.rs":
-            split_roots[normalize_name(Path(info.relative).parent.name)].append(info)
-
+        split_roots[normalize_name(Path(info.relative).parent.name)].append(info)
+    matched_evidence_sources: set[str] = set()
     entries: list[dict[str, object]] = []
     for scope in SCOPE_ROOTS:
         for source, unit_kind in iter_cpp_units(repo_root, scope):
@@ -484,9 +847,48 @@ def build_manifest(
                 for path in reviewed_mappings.get(source_rel, ())
                 if path not in by_relative
             ]
-            blockers: list[str] = []
             inventory_class = classify_inventory(scope, source_rel)
             required = inventory_class != "deferred_network"
+            source_sha256 = sha256_file(source)
+            ownership_record = reviewed_ownership.get(source_rel)
+            expanded_destinations = {
+                member.relative: member
+                for destination in destinations
+                for member in expand_split_root(destination, by_absolute)
+            }
+            source_lines = line_count(source)
+            cpp_symbols = (
+                extract_cpp_symbols(source)
+                if unit_kind == "translation_unit"
+                and (ownership_record is not None or review_state == "reviewed")
+                else []
+            )
+            if required and unit_kind == "translation_unit":
+                symbol_evaluation = evaluate_symbol_ownership(
+                    ownership_record,
+                    source_sha256,
+                    cpp_symbols,
+                    expanded_destinations,
+                    by_relative,
+                    by_absolute,
+                )
+                range_evaluation = evaluate_range_ownership(
+                    ownership_record,
+                    source_sha256,
+                    source_lines,
+                    expanded_destinations,
+                    by_relative,
+                    len(implementation_destinations) > 1,
+                )
+            else:
+                symbol_evaluation = SymbolOwnershipEvaluation(
+                    "unreviewed", [], set(), {}
+                )
+                range_evaluation = RangeOwnershipEvaluation("not_required", [], {})
+            ownership_diagnostics = list(symbol_evaluation.diagnostics)
+            ownership_diagnostics.extend(range_evaluation.diagnostics)
+
+            blockers: list[str] = []
             if required and unit_kind == "translation_unit":
                 if mode == "missing":
                     blockers.append("missing_mapping")
@@ -497,11 +899,36 @@ def build_manifest(
                 if review_state != "reviewed":
                     blockers.append("unreviewed_mapping")
                 # Path review is intentionally narrower than symbol/range
-                # provenance. Strict mode must continue to fail until ownership
-                # is assigned and validated.
-                blockers.append("unreviewed_symbol_ownership")
-                if len(implementation_destinations) > 1:
+                # provenance. Strict mode stays red until ownership is both
+                # assigned and validated against current files and symbols.
+                if symbol_evaluation.status != "reviewed":
+                    blockers.append("unreviewed_symbol_ownership")
+                blockers.extend(symbol_evaluation.diagnostics)
+                if range_evaluation.status in ("unreviewed", "invalid"):
                     blockers.append("unreviewed_source_range_ownership")
+                blockers.extend(range_evaluation.diagnostics)
+
+            evidence_unit = evidence_units.get(source_rel)
+            if evidence_unit is not None:
+                matched_evidence_sources.add(source_rel)
+            behavior = evaluate_unit(
+                evidence_unit,
+                source_path=source_rel,
+                source_sha256=source_sha256,
+                unit_kind=unit_kind,
+                inventory_class=inventory_class,
+                review_state=review_state,
+                destination_states=[
+                    DestinationState(
+                        path=info.relative,
+                        sha256=info.sha256,
+                        classification=info.classification,
+                        cargo_reachable=info.cargo_reachable,
+                    )
+                    for info in destinations
+                ],
+                repo_root=repo_root,
+            )
 
             entries.append(
                 {
@@ -511,31 +938,42 @@ def build_manifest(
                     "unit_kind": unit_kind,
                     "source": {
                         "path": source_rel,
-                        "sha256": sha256_file(source),
-                        "file_range": {"start_line": 1, "end_line": line_count(source)},
-                        "symbols": (
-                            extract_cpp_symbols(source)
-                            if unit_kind == "translation_unit" and review_state == "reviewed"
-                            else []
-                        ),
+                        "sha256": source_sha256,
+                        "file_range": {"start_line": 1, "end_line": source_lines},
+                        "symbols": cpp_symbols,
                     },
                     "mapping": {
                         "mode": mode,
                         "review_state": review_state,
                         "candidate_status": candidate_status,
                         "reviewed_path_implementation": reviewed_path_implementation,
-                        "destinations": [destination_record(info) for info in destinations],
+                        "destinations": [
+                            destination_record(
+                                info,
+                                owned_symbols=(
+                                    symbol_evaluation.path_symbols.get(info.relative, ())
+                                    if symbol_evaluation.status == "reviewed"
+                                    else ()
+                                ),
+                                owned_source_ranges=(
+                                    range_evaluation.path_ranges.get(info.relative, ())
+                                    if range_evaluation.status == "reviewed"
+                                    else ()
+                                ),
+                            )
+                            for info in destinations
+                        ],
                         "stale_reviewed_destinations": stale_reviewed_destinations,
-                        "symbol_validation": "unreviewed",
+                        "symbol_validation": symbol_evaluation.status,
+                        "range_validation": range_evaluation.status,
+                        "ownership_diagnostics": ownership_diagnostics,
                     },
-                    "allowed_deviations": [],
-                    "behavior": {
-                        "status": "not_verified",
-                        "evidence": [],
-                    },
+                    "allowed_deviations": sorted(symbol_evaluation.credited_deviations),
+                    "behavior": behavior,
                     "blockers": blockers,
                 }
             )
+
 
     # A production implementation destination shared by multiple required C++
     # translation units needs explicit review; headers intentionally share code.
@@ -579,6 +1017,15 @@ def build_manifest(
             "reviewed_path_implementations": sum(
                 bool(entry["mapping"]["reviewed_path_implementation"]) for entry in scoped
             ),
+            "symbol_ownership_reviewed": sum(
+                entry["mapping"]["symbol_validation"] == "reviewed" for entry in scoped
+            ),
+            "source_range_ownership_reviewed": sum(
+                entry["mapping"]["range_validation"] == "reviewed" for entry in scoped
+            ),
+            "behavior_evidence_units": sum(
+                entry["source"]["path"] in matched_evidence_sources for entry in scoped
+            ),
             "behavior_verified": sum(entry["behavior"]["status"] == "verified" for entry in scoped),
         }
 
@@ -601,12 +1048,94 @@ def build_manifest(
         for source, destinations in sorted(reviewed_mappings.items())
         for destination in destinations
     )
+    digest_rows.extend(
+        f"ownership:{source}:{record.source_sha256}"
+        for source, record in sorted(reviewed_ownership.items())
+    )
+    digest_rows.extend(
+        f"ownership-symbol:{source}:{symbol.name}:{symbol.line}:"
+        f"{assignment.path}:{assignment.sha256}:{rust_symbol}"
+        for source, record in sorted(reviewed_ownership.items())
+        for symbol in record.symbols
+        for assignment in symbol.assignments
+        for rust_symbol in assignment.symbols
+    )
+    digest_rows.extend(
+        f"ownership-range:{source}:{owned.start_line}:{owned.end_line}:"
+        f"{owned.path}:{owned.sha256}"
+        for source, record in sorted(reviewed_ownership.items())
+        for owned in record.source_ranges
+    )
+    digest_rows.extend(evidence_digest_rows(evidence_units))
     input_digest = hashlib.sha256("\n".join(digest_rows).encode("utf-8")).hexdigest()
     reviewed_rust_paths = {
         str(destination["path"])
         for entry in entries
         if entry["mapping"]["review_state"] == "reviewed"
         for destination in entry["mapping"]["destinations"]
+    }
+    reviewed_rust_paths.update(
+        path
+        for record in reviewed_ownership.values()
+        for path in ownership_referenced_paths(record)
+        if path in by_relative
+    )
+    required_sources = {str(entry["source"]["path"]) for entry in required_units}
+    orphan_ownership_sources = sorted(set(reviewed_ownership) - required_sources)
+    invalid_ownership_sources = sorted(
+        str(entry["source"]["path"])
+        for entry in required_units
+        if entry["mapping"]["ownership_diagnostics"]
+    )
+    behavior_evidence_summary = {
+        "verified_units": sum(
+            entry["behavior"]["status"] == "verified" for entry in required_units
+        ),
+        "units_with_records": sum(
+            entry["source"]["path"] in matched_evidence_sources
+            for entry in required_units
+        ),
+        "by_provenance_scope": {
+            scope.scope_id: {
+                "verified_units": scope_counts[scope.scope_id]["behavior_verified"],
+                "units_with_records": scope_counts[scope.scope_id][
+                    "behavior_evidence_units"
+                ],
+            }
+            for scope in SCOPE_ROOTS
+        },
+        # Evidence scope names the oracle the executable evidence ran against
+        # (original_cpp or retail); it is deliberately distinct from the
+        # provenance scope of the unit.
+        "by_evidence_scope": dict(
+            sorted(
+                Counter(
+                    evidence_scope
+                    for entry in required_units
+                    if entry["behavior"]["status"] == "verified"
+                    for evidence_scope in entry["behavior"]["scopes"]
+                ).items()
+            )
+        ),
+        "by_confidence": {
+            "exact": sum(
+                entry["behavior"]["confidence"] == "exact" for entry in required_units
+            ),
+            "tolerance": sum(
+                entry["behavior"]["confidence"] == "tolerance"
+                for entry in required_units
+            ),
+        },
+        "rejected_records": sum(
+            len(entry["behavior"]["rejected_evidence"]) for entry in required_units
+        ),
+        "informational_records": sum(
+            1
+            for entry in required_units
+            for item in entry["behavior"]["evidence"]
+            if item["kind"] in INFORMATIONAL_KINDS
+        ),
+        "unmatched_units": sorted(set(evidence_units) - matched_evidence_sources),
     }
     return {
         "schema_version": SCHEMA_VERSION,
@@ -615,9 +1144,27 @@ def build_manifest(
         "reviewed_mapping_input": {
             "path": REVIEWED_MAPPINGS_FILE,
             "mapping_count": len(reviewed_mappings),
+            "ownership_record_count": len(reviewed_ownership),
             "sha256": (
                 sha256_file(repo_root / REVIEWED_MAPPINGS_FILE)
                 if (repo_root / REVIEWED_MAPPINGS_FILE).is_file()
+                else None
+            ),
+        },
+        "ownership_review": {
+            "record_count": len(reviewed_ownership),
+            "invalid_sources": invalid_ownership_sources,
+            "orphan_sources": orphan_ownership_sources,
+        },
+        "behavior_evidence_input": {
+            "path": EVIDENCE_FILE,
+            "unit_count": len(evidence_units),
+            "record_count": sum(
+                len(unit.records) for unit in evidence_units.values()
+            ),
+            "sha256": (
+                sha256_file(repo_root / EVIDENCE_FILE)
+                if (repo_root / EVIDENCE_FILE).is_file()
                 else None
             ),
         },
@@ -657,6 +1204,16 @@ def build_manifest(
                 for entry in required_units
             ),
             "behavior_verified": sum(entry["behavior"]["status"] == "verified" for entry in required_units),
+            "symbol_ownership_reviewed": sum(
+                entry["mapping"]["symbol_validation"] == "reviewed"
+                for entry in required_units
+            ),
+            "source_range_ownership_reviewed": sum(
+                entry["mapping"]["range_validation"] == "reviewed"
+                for entry in required_units
+            ),
+            "orphan_ownership_records": len(orphan_ownership_sources),
+            "behavior_evidence": behavior_evidence_summary,
             "strict_blockers": sum(blocker_counts.values()),
             "blockers_by_kind": dict(sorted(blocker_counts.items())),
             "duplicate_implementation_destinations": len(duplicate_paths),
@@ -678,6 +1235,8 @@ def write_state(path: Path, manifest: dict[str, object]) -> None:
     required = int(summary["required_translation_units"])
     candidates = int(summary["reachable_implementation_candidates"])
     reviewed = int(summary["reviewed_path_implementations"])
+    symbol_ownership = int(summary["symbol_ownership_reviewed"])
+    range_ownership = int(summary["source_range_ownership_reviewed"])
     behavior = int(summary["behavior_verified"])
 
     def percent(value: int) -> float:
@@ -696,6 +1255,10 @@ def write_state(path: Path, manifest: dict[str, object]) -> None:
         f"ReachableImplementationCandidatePercent={percent(candidates):.2f}",
         f"ReviewedPathImplementations={reviewed}",
         f"ReviewedPathImplementationPercent={percent(reviewed):.2f}",
+        f"ReviewedSymbolOwnership={symbol_ownership}",
+        f"ReviewedSymbolOwnershipPercent={percent(symbol_ownership):.2f}",
+        f"ReviewedSourceRangeOwnership={range_ownership}",
+        f"ReviewedSourceRangeOwnershipPercent={percent(range_ownership):.2f}",
         f"BehaviorVerified={behavior}",
         f"BehaviorVerifiedPercent={percent(behavior):.2f}",
         f"StrictProvenanceBlockers={summary['strict_blockers']}",

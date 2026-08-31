@@ -804,6 +804,14 @@ impl GameLogic {
                 .get(&container_id)
                 .is_some_and(|c| c.transport_exit_delay_frames() > 0);
         let more_remain = stagger && passengers.len() > 1;
+        let container_is_combat_chinook = self
+            .objects
+            .get(&container_id)
+            .is_some_and(|c| c.is_combat_chinook_style_container());
+        let container_is_battle_bus = self
+            .objects
+            .get(&container_id)
+            .is_some_and(|c| c.is_battle_bus_style_container());
         if stagger && passengers.len() > 1 {
             passengers.truncate(1);
         }
@@ -888,11 +896,27 @@ impl GameLogic {
                 // Leftover CaveContain::onRemoving: record_exit + LastEmpty team revert.
                 let _ = self.exit_cave_unit(*pid, container_id);
             }
-            self.record_transport_residual_unload();
+            if container_is_combat_chinook {
+                // Hull-specific channel mirrors the load arm (update.rs:1442);
+                // a Combat Chinook unload is not a generic transport unload.
+                self.record_combat_chinook_residual_unload();
+            } else if container_is_battle_bus {
+                // Hull-specific channel mirrors the load arm (update.rs:1428);
+                // a Battle Bus unload is not a generic transport unload.
+                self.record_battle_bus_residual_unload();
+            } else {
+                self.record_transport_residual_unload();
+            }
         }
         if is_garrison {
             // C++ GarrisonContain::removeAllContained → recalcApparentControllingPlayer.
             self.recalc_garrison_apparent_controller(container_id);
+        } else {
+            // C++ OpenContain::removeContained / TransportContain
+            // onContainListChange: leaving riders re-evaluate
+            // ArmedRidersUpgradeMyWeaponSet, so the hull drops its
+            // PLAYER_UPGRADE weapon set when the last armed rider exits.
+            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
         }
         if any {
             // C++ OpenContain::doUnloadSound once per frame per container.
@@ -1551,7 +1575,7 @@ impl GameLogic {
                     use crate::game_logic::special_power_strikes::{
                         CRUISE_MISSILE_DAMAGE, CRUISE_MISSILE_RADIUS, MOAB_FLAME_DAMAGE,
                     };
-                    self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage(
                         id,
                         producer,
                         team,
@@ -1560,7 +1584,7 @@ impl GameLogic {
                         CRUISE_MISSILE_RADIUS,
                         DamageType::Explosive,
                     );
-                    self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage(
                         id,
                         producer,
                         team,
@@ -1572,6 +1596,17 @@ impl GameLogic {
                 } else {
                     self.special_power_strikes
                         .spawn_neutron_slow_death_field(source, team, pos, self.frame, 0);
+                    // C++ SlowDeath detonation carries the impact sound (FXList
+                    // audio at the blast position) — the registry blob that also
+                    // queues it is suppressed for live delivery.
+                    self.queue_audio_event(
+                        crate::game_logic::AudioEventRequest::new(
+                            crate::game_logic::special_power_strikes::HostSuperweaponKind::NuclearMissile
+                                .impact_audio(),
+                        )
+                        .with_position(pos)
+                        .with_priority(200),
+                    );
                 }
                 if let Some(o) = self.objects.get_mut(&id) {
                     o.fire_create_object_die();
@@ -1704,7 +1739,7 @@ impl GameLogic {
                     .unwrap_or(false);
                 if chem_primary {
                     // Toxin primary blast residual (use secondary damage as toxin splash).
-                    self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage(
                         id,
                         producer,
                         team,
@@ -1716,7 +1751,7 @@ impl GameLogic {
                         DamageType::Toxin,
                     );
                 } else {
-                    self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage(
                         id,
                         producer,
                         team,
@@ -1725,7 +1760,7 @@ impl GameLogic {
                         SCUD_STORM_PRIMARY_RADIUS,
                         DamageType::Explosive,
                     );
-                    self.apply_fuel_air_radius_damage(
+                    let _ = self.apply_fuel_air_radius_damage(
                         id,
                         producer,
                         team,
@@ -1940,7 +1975,7 @@ impl GameLogic {
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
-                self.apply_fuel_air_radius_damage(
+                let (dmg, hits, destroyed) = self.apply_fuel_air_radius_damage(
                     id,
                     producer,
                     team,
@@ -1956,7 +1991,30 @@ impl GameLogic {
                     Some(id),
                     None,
                 );
+                // C++ CarpetBombWeapon HeightDie detonation audio.
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(
+                        crate::game_logic::special_power_strikes::HostSuperweaponKind::CarpetBomb
+                            .impact_audio(),
+                    )
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(200),
+                );
                 self.carpet_bomb_flight_reg.record_impact();
+                let final_wave = self.carpet_bomb_flight_reg.impacts
+                    >= self.carpet_bomb_flight_reg.bombs_scheduled;
+                // Credit the live payload warhead onto the queued strike
+                // (C++ DeliverPayload payload fires its own CarpetBombWeapon).
+                self.special_power_strikes.credit_live_flight_impact(
+                    crate::game_logic::special_power_strikes::HostSuperweaponKind::CarpetBomb,
+                    dmg,
+                    hits,
+                    destroyed,
+                    1,
+                    final_wave,
+                    Vec3::new(pos.x, 0.0, pos.z),
+                );
                 destroy.push(id);
             }
         }
@@ -2015,6 +2073,9 @@ impl GameLogic {
         }
         let formation_size = tier.formation_size().max(1);
         let mut first = None;
+        // One DelayDelivery roll per transport, honored by both the transport
+        // hold and the shell schedule (ObjectCreationList.cpp:375-378).
+        let mut transport_delays: Vec<u32> = Vec::with_capacity(formation_size as usize);
         for i in 0..formation_size {
             // Leftover DeliverPayloadNugget::formation_flight_pose matches C++.
             // WeaponErrorRadius is applied by schedule_drops, not spawn offsets.
@@ -2041,6 +2102,7 @@ impl GameLogic {
             } else {
                 0
             };
+            transport_delays.push(delay);
             let tid = self.create_object(ARTILLERY_BARRAGE_TRANSPORT, team, launch)?;
             if let Some(o) = self.objects.get_mut(&tid) {
                 o.note_producer(source_id);
@@ -2062,8 +2124,13 @@ impl GameLogic {
                 );
             }
         }
-        self.artillery_barrage_flight_reg
-            .schedule_drops(self.frame, source_id.0, target, tier);
+        self.artillery_barrage_flight_reg.schedule_drops(
+            self.frame,
+            source_id.0,
+            target,
+            tier,
+            &transport_delays,
+        );
         first
     }
 
@@ -2168,7 +2235,7 @@ impl GameLogic {
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
-                self.apply_fuel_air_radius_damage(
+                let _ = self.apply_fuel_air_radius_damage(
                     id,
                     producer,
                     team,
@@ -2378,7 +2445,7 @@ impl GameLogic {
             }
         }
         for (id, producer, team, pos) in vulcan {
-            self.apply_fuel_air_radius_damage(
+            let (dmg, hits, destroyed) = self.apply_fuel_air_radius_damage(
                 id,
                 producer,
                 team,
@@ -2386,6 +2453,17 @@ impl GameLogic {
                 A10_VULCAN_PRIMARY_DAMAGE,
                 A10_VULCAN_PRIMARY_RADIUS,
                 DamageType::Bullet,
+            );
+            // Credit the live strafe warhead onto the queued strike
+            // (C++ JetAIUpdate vulcan fires its own weapon).
+            self.special_power_strikes.credit_live_flight_impact(
+                crate::game_logic::special_power_strikes::HostSuperweaponKind::A10Strike,
+                dmg,
+                hits,
+                destroyed,
+                0,
+                false,
+                pos,
             );
         }
         for (id, pos) in dive_starts {
@@ -2410,14 +2488,20 @@ impl GameLogic {
                 self.templates.insert(A10_PAYLOAD_TEMPLATE.to_string(), t);
             }
             for (jet_id, team, drop_pos, target, inherit) in payload_drops {
-                if let Some(mid) = self.create_object(A10_PAYLOAD_TEMPLATE, team, drop_pos) {
+                // C++ DeliverPayloadAIUpdate.cpp:822-832: when the payload
+                // inherits the transport velocity it is spawned at a BACK
+                // position one frame of movement behind the drop bone, so the
+                // same-frame integration lands the payload at the jet instead
+                // of a full velocity step ahead of it.
+                let velocity = crate::game_logic::host_a10_strike_drop_log::a10_missile_fire_velocity(
+                    drop_pos, target, inherit,
+                );
+                let back_pos = drop_pos - velocity;
+                if let Some(mid) = self.create_object(A10_PAYLOAD_TEMPLATE, team, back_pos) {
                     if let Some(o) = self.objects.get_mut(&mid) {
                         o.producer_id = Some(jet_id);
                         o.a10_strike_missile = true;
-                        o.movement.velocity =
-                            crate::game_logic::host_a10_strike_drop_log::a10_missile_fire_velocity(
-                                drop_pos, target, inherit,
-                            );
+                        o.movement.velocity = velocity;
                         let _ = o.set_smart_bomb_target(target);
                     }
                     self.a10_strike_flight_reg.record_drop();
@@ -2443,7 +2527,7 @@ impl GameLogic {
                 (p, o.producer_id, o.team)
             };
             if pos.y <= 5.0 {
-                self.apply_fuel_air_radius_damage(
+                let (dmg, hits, destroyed) = self.apply_fuel_air_radius_damage(
                     id,
                     producer,
                     team,
@@ -2460,6 +2544,28 @@ impl GameLogic {
                     None,
                 );
                 self.a10_strike_flight_reg.record_impact();
+                // Delivery ended: every missile impacted, or the jets have
+                // left the map (C++ HeadOffMapState destroys the transport
+                // with any contained remainder — payload delivery is over).
+                let alive_transports = self
+                    .objects
+                    .values()
+                    .filter(|o| o.a10_strike_transport.is_some() && o.is_alive())
+                    .count();
+                let final_wave = self.a10_strike_flight_reg.impacts
+                    >= self.a10_strike_flight_reg.missiles_scheduled
+                    || alive_transports == 0;
+                // Credit the live missile warhead onto the queued strike
+                // (C++ DeliverPayload missile fires its own weapon on impact).
+                self.special_power_strikes.credit_live_flight_impact(
+                    crate::game_logic::special_power_strikes::HostSuperweaponKind::A10Strike,
+                    dmg,
+                    hits,
+                    destroyed,
+                    1,
+                    final_wave,
+                    Vec3::new(pos.x, 0.0, pos.z),
+                );
                 destroy.push(id);
             }
         }
@@ -3027,7 +3133,7 @@ impl GameLogic {
                 } else {
                     DaisyFlightPayloadTier::DaisyCutter
                 };
-                self.apply_fuel_air_radius_damage(
+                let _ = self.apply_fuel_air_radius_damage(
                     id,
                     producer,
                     team,

@@ -17,8 +17,12 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
         .set_health(1000.0);
     logic.templates.insert("AmericaPowerPlant".into(), st);
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    // C++ ActionManager.cpp:442-443 canResumeConstructionOf requires
+    // KINDOF_DOZER; retail AmericaVehicleDozer authors KindOf = ... DOZER ...
+    // (FixBuildQueue5: Vehicle+Worker alone is not a constructor).
     dozer_t
         .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Worker)
         .set_health(200.0);
     logic
@@ -90,7 +94,6 @@ fn dozer_repair_sets_actively_constructing_and_completes() {
         actively_constructing_model_bit()
     ));
 }
-
 #[test]
 fn resume_construction_assigns_dozer_and_model_bits() {
     use crate::game_logic::host_enum_table_residual::{
@@ -108,8 +111,10 @@ fn resume_construction_assigns_dozer_and_model_bits() {
         .set_health(500.0);
     logic.templates.insert("AmericaPowerPlant".into(), st);
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    // C++ ActionManager.cpp:442-443: resume construction needs KINDOF_DOZER.
     dozer_t
         .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Worker)
         .set_health(200.0);
     logic
@@ -312,6 +317,10 @@ fn resume_construction_allows_dead_or_retasked_builder() {
     if let Some(d) = logic.host_object_mut(did) {
         d.set_ai_state(AIState::Idle);
         d.target = None;
+        // C++ DozerAIUpdate.cpp:2012-2022 cancelTask / internalCancelTask
+        // clears the BUILD task target when the dozer is re-tasked, so
+        // ActionManager.cpp:463-485 no longer sees it as actively building.
+        d.dozer_task_build_target = None;
     }
     assert!(
         logic.can_resume_construction_of(did2, sid),
@@ -447,8 +456,10 @@ fn cancel_construction_clears_dozer_actively_constructing() {
     st.build_cost.supplies = 500;
     logic.templates.insert("AmericaPowerPlant".into(), st);
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    // C++ ActionManager.cpp:442-443: dozer-brain tasks need KINDOF_DOZER.
     dozer_t
         .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Worker)
         .set_health(200.0);
     logic
@@ -624,12 +635,19 @@ fn structure_placement_rejects_no_clear_path_residual() {
         .grid
         .world_to_grid(glam::Vec3::new(100.0, 0.0, 0.0));
     let mid_x = (start.x + goal.x) / 2;
-    for dy in -5..=5 {
+    // C++ zones flood the whole map (grid_layers.rs:199): a partial wall
+    // leaves around-paths in the same zone, so the seal must span the full
+    // grid height.
+    let grid_h = logic.pathfinding_system.grid.height();
+    for gy in 0..grid_h {
         logic
             .pathfinding_system
             .grid
-            .set_blocked(GridPos::new(mid_x, start.y + dy), true);
+            .set_blocked(GridPos::new(mid_x, gy), true);
     }
+    // C++ quickDoesPathExist compares map zones (AIPathfind.cpp:8055); zones
+    // are flood-filled from cell types after edits (grid_layers.rs:199).
+    logic.pathfinding_system.grid.rebuild_path_zones();
     let pad = glam::Vec3::new(100.0, 0.0, 0.0);
     assert_eq!(
         logic.legal_build_code_at_for_builder(Team::USA, pad, "TestPathBarracks", Some(dozer)),
@@ -641,12 +659,13 @@ fn structure_placement_rejects_no_clear_path_residual() {
         LBC_OK
     );
     // Clear wall → path residual OK.
-    for dy in -5..=5 {
+    for gy in 0..grid_h {
         logic
             .pathfinding_system
             .grid
-            .set_blocked(GridPos::new(mid_x, start.y + dy), false);
+            .set_blocked(GridPos::new(mid_x, gy), false);
     }
+    logic.pathfinding_system.grid.rebuild_path_zones();
     assert_eq!(
         logic.legal_build_code_at_for_builder(Team::USA, pad, "TestPathBarracks", Some(dozer)),
         LBC_OK
@@ -677,12 +696,19 @@ fn structure_placement_rejects_not_flat_enough_residual() {
     let w = logic.pathfinding_system.grid.width().max(1) as u32;
     let h = logic.pathfinding_system.grid.height().max(1) as u32;
     let mut heights = vec![0.0_f32; (w * h) as usize];
-    // Raise half the grid by 20 (> AllowedHeightVariation 10).
+    // Raise half the grid by 12 (> AllowedHeightVariation 10). Keep the step
+    // below C++ WorldHeightMap::setCellCliffFlagFromHeights raw slope limit
+    // (maxZ-minZ > 9.8 raw u8 samples): sentinel max 400 makes the 12-unit
+    // step ~7.7 raw, so the boundary stays Clear (not Cliff) and the
+    // footprint height-variation residual (NOT_FLAT) is the deciding check.
+    let max_h = 400.0_f32;
     for y in 0..h {
         for x in 0..w {
             let idx = (y * w + x) as usize;
-            if x as f32 > w as f32 * 0.5 {
-                heights[idx] = 20.0;
+            if x == 0 {
+                heights[idx] = max_h;
+            } else if x as f32 > w as f32 * 0.5 {
+                heights[idx] = 12.0;
             }
         }
     }
@@ -798,6 +824,9 @@ fn structure_placement_rejects_map_edge_residual() {
     ensure_test_player_for_team(&mut logic, Team::USA);
     // Authoritative small map residual.
     logic.override_world_size(200.0, 200.0);
+    // Shroud manager is process-global; these residuals are independent of
+    // shroud, so pin fog off for deterministic parallel runs.
+    logic.set_skirmish_rules(false, true, false, true, 1.0);
     let (min, max) = logic.world_bounds();
     assert!((max.x - min.x - 200.0).abs() < 0.1);
 
@@ -842,6 +871,9 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
+    // Shroud manager is process-global; these residuals are independent of
+    // shroud, so pin fog off for deterministic parallel runs.
+    logic.set_skirmish_rules(false, true, false, true, 1.0);
 
     let mut pile = ThingTemplate::new("ArbitraryRetailSupplyIdentity");
     pile.add_kind_of(KindOf::Structure)
@@ -964,6 +996,9 @@ fn structure_placement_rejects_objects_in_the_way_residual() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
+    // Shroud manager is process-global; these residuals are independent of
+    // shroud, so pin fog off for deterministic parallel runs.
+    logic.set_skirmish_rules(false, true, false, true, 1.0);
     // Barracks not in prereq table → fail-open prereq residual.
     let mut t = ThingTemplate::new("TestBarracksPad");
     t.add_kind_of(KindOf::Structure).set_health(1000.0);
@@ -1019,6 +1054,9 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
+    // Shroud manager is process-global; these residuals are independent of
+    // shroud, so pin fog off for deterministic parallel runs.
+    logic.set_skirmish_rules(false, true, false, true, 1.0);
 
     // Seed templates residual for climb: CC free → Supply → WF → Strategy → PUC.
     for name in [
@@ -1136,6 +1174,9 @@ fn superweapon_structure_requires_tech_building_prereq() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
+    // Shroud manager is process-global; these residuals are independent of
+    // shroud, so pin fog off for deterministic parallel runs.
+    logic.set_skirmish_rules(false, true, false, true, 1.0);
 
     for name in [
         AMERICA_PARTICLE_CANNON_UPLINK,
@@ -1221,6 +1262,17 @@ fn disabled_freezes_structure_superweapon_countdown() {
         .add_kind_of(KindOf::FSSuperweapon)
         .add_kind_of(KindOf::Powered)
         .set_health(4000.0);
+    // Retail PUC authors a SpecialPowerModule for the ParticleCannon strike
+    // (structure-bound PublicTimer, no RequiredScience). C++ dispatch is
+    // per-module (SpecialAbilityUpdate.cpp:284-288).
+    t.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_ParticleUplinkCannonSpecialPower",
+        "SpecialPowerParticleUplinkCannon",
+        SpecialPowerType::ParticleCannon,
+        1_800,
+        None,
+        false,
+    ));
     logic
         .templates
         .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
@@ -1292,6 +1344,21 @@ fn disabled_underpowered_blocks_structure_superweapon_fire() {
         .add_kind_of(KindOf::FSSuperweapon)
         .add_kind_of(KindOf::Powered)
         .set_health(4000.0);
+    // Retail PUC authors one SpecialPowerModule (PublicTimer, not
+    // SharedNSync); the ready gate requires that module evidence
+    // (C++ SpecialPowerModule.cpp:88-94 ctor arms the authored reload).
+    let secs = crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
+        &SpecialPowerType::ParticleCannon,
+    )
+    .expect("puc reload");
+    t.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_SuperweaponSpecialPower",
+        "SpecialPowerParticleUplinkCannon",
+        SpecialPowerType::ParticleCannon,
+        (secs * 30.0).round() as u32,
+        None,
+        false,
+    ));
     logic
         .templates
         .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
@@ -1375,6 +1442,9 @@ fn structure_superweapon_creation_starts_full_recharge() {
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
+    logic.override_world_size(2000.0, 2000.0);
+    // Shroud manager is process-global; pin fog off for deterministic runs.
+    logic.set_skirmish_rules(false, true, false, true, 1.0);
 
     for name in [
         AMERICA_PARTICLE_CANNON_UPLINK,
@@ -1393,6 +1463,38 @@ fn structure_superweapon_creation_starts_full_recharge() {
     }
     // Tech prereq residual buildings (fully built).
     let _ = logic.create_object("GLAPalace", Team::USA, glam::Vec3::new(-50.0, 0.0, 0.0));
+    // Retail SW structures author one SpecialPowerModule each (PublicTimer,
+    // not SharedNSync): the C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:88-94)
+    // arms authored ReloadTime at creation (pre-built) or at construction completion.
+    let sw_modules = [
+        (
+            AMERICA_PARTICLE_CANNON_UPLINK,
+            SpecialPowerType::ParticleCannon,
+            "SpecialPowerParticleUplinkCannon",
+        ),
+        (
+            GLA_SCUD_STORM,
+            SpecialPowerType::ScudStorm,
+            "SpecialPowerScudStorm",
+        ),
+        (
+            CHINA_NUCLEAR_MISSILE_LAUNCHER,
+            SpecialPowerType::NuclearMissile,
+            "SpecialPowerNuclearMissile",
+        ),
+    ];
+    for (name, power, template) in sw_modules {
+        let secs = special_power_reload_seconds(&power).expect("sw reload");
+        let t = logic.templates.get_mut(name).unwrap();
+        t.special_power_modules.push(sw_module_fixture(
+            "ModuleTag_SuperweaponSpecialPower",
+            template,
+            power,
+            (secs * 30.0).round() as u32,
+            None,
+            false,
+        ));
+    }
 
     let puc = logic
         .create_object(
@@ -1584,7 +1686,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
-    logic.set_skirmish_rules(true, true, true, true, 1.0); // limit_superweapons=true
+    logic.set_skirmish_rules(false, true, true, true, 1.0); // fog off; limit_superweapons=true
 
     let mut puc = ThingTemplate::new(AMERICA_PARTICLE_CANNON_UPLINK);
     puc.add_kind_of(KindOf::Structure)
@@ -1641,7 +1743,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
         "Scud also counts as Superweapon link key residual"
     );
     // Unlimited when rule off.
-    logic.set_skirmish_rules(true, true, false, true, 1.0);
+    logic.set_skirmish_rules(false, true, false, true, 1.0);
     assert!(
         logic
             .create_object_under_construction(
@@ -1652,7 +1754,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
             .is_some()
     );
     // Other team still free under limit.
-    logic.set_skirmish_rules(true, true, true, true, 1.0);
+    logic.set_skirmish_rules(false, true, true, true, 1.0);
     ensure_test_player_for_team(&mut logic, Team::China);
     let _ = logic.create_object(
         "AmericaStrategyCenter",
@@ -1793,6 +1895,16 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
         .add_kind_of(KindOf::FSSuperweapon)
         .add_kind_of(KindOf::Powered)
         .set_health(4000.0);
+    // C++ InGameUI SuperweaponInfo rows come from authored SpecialPowerModule
+    // records (structure-bound PublicTimer); a bare template owns no row.
+    t.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_ParticleUplinkCannonSpecialPower",
+        "SpecialPowerParticleUplinkCannon",
+        SpecialPowerType::ParticleCannon,
+        1_800,
+        None,
+        false,
+    ));
     logic
         .templates
         .insert(AMERICA_PARTICLE_CANNON_UPLINK.into(), t);
@@ -1823,8 +1935,10 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
         row.remaining
     );
     assert!(!row.ready);
-    // Destroy structure → removeSuperweapon residual (row gone).
-    logic.mark_object_for_destruction(id, None);
+    // Destroy structure → removeSuperweapon residual (row gone). A killer-less
+    // destroy_object is the C++ GameLogic::destroyObject → DestroyDie /
+    // InstantDeath immediate-removal path (no death-animation deferral).
+    logic.destroy_object(id);
     logic.process_destroy_list();
     let frame2 = PresentationFrame::build_from_logic(&logic, 1);
     assert!(
@@ -1847,6 +1961,14 @@ fn kill_grants_player_skill_points_residual() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_player_for_team(&mut logic, Team::GLA);
+    // Skirmish players sit on distinct C++ alliance teams, so USA/GLA are
+    // ENEMIES for scoreTheKill (Player::getRelationship default).
+    if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+        p.alliance_team = 1;
+    }
+    if let Some(p) = logic.get_player_mut_by_team(Team::GLA) {
+        p.alliance_team = 2;
+    }
     // Fresh skirmish-like SPP residual.
     if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
         p.apply_faction_intrinsic_sciences();
@@ -2051,6 +2173,18 @@ fn airfield_dock_reloads_countermeasures_residual() {
     af.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSAirfield)
         .set_health(5000.0);
+    // Retail AmericaAirfield authors ParkingPlace (NumRows/NumCols/HasRunways):
+    // C++ ParkingPlaceBehaviorModuleData. FSAirfield KindOf alone admits no
+    // aircraft stalls (thing.rs ParkingPlaceMetadata contract).
+    af.parking_place = Some(crate::game_logic::ParkingPlaceMetadata {
+        num_rows: 1,
+        num_cols: 4,
+        approach_height: 60.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: false,
+        heal_amount_per_second: 0.0,
+    });
     logic.templates.insert("AmericaAirfield".into(), af);
 
     let mut raptor = ThingTemplate::new("AmericaJetRaptor");
@@ -2259,6 +2393,17 @@ fn spy_drone_special_power_spawns_vehicle_residual() {
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
         .set_health(5000.0);
+    // Retail AmericaCommandCenter authors a SpyDrone SpecialPowerModule
+    // (RequiredScience SCIENCE_SpyDrone, SharedNSync) — C++ SpecialPowerModule
+    // dispatch is per-module (SpecialPower.cpp / Player::doFindSpecialPowerSourceObject).
+    cc.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_SpyDroneSpecialPower",
+        "SpecialSpyDrone",
+        SpecialPowerType::SpyDrone,
+        30_000,
+        Some(SPY_DRONE_REQUIRED_SCIENCE),
+        true,
+    ));
     logic.templates.insert("AmericaCommandCenter".into(), cc);
     let cc1 = logic
         .create_object(
@@ -2300,6 +2445,33 @@ fn special_power_required_science_gates_shared_superweapons() {
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
         .set_health(5000.0);
+    // Retail CC modules: DaisyCutter (RequiredScience), SpySatellite
+    // (no RequiredScience), ParticleCannon (structure-bound, no science).
+    // C++ dispatch is per-module (SpecialAbilityUpdate.cpp:284-288).
+    cc.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_DaisyCutterSpecialPower",
+        "SpecialDaisyCutter",
+        SpecialPowerType::DaisyCutter,
+        60_000,
+        Some("SCIENCE_DaisyCutter"),
+        true,
+    ));
+    cc.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_SpySatelliteSpecialPower",
+        "SpecialSpySatellite",
+        SpecialPowerType::SpySatellite,
+        45_000,
+        None,
+        true,
+    ));
+    cc.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_ParticleUplinkCannonSpecialPower",
+        "SpecialPowerParticleUplinkCannon",
+        SpecialPowerType::ParticleCannon,
+        1_800,
+        None,
+        false,
+    ));
     logic.templates.insert("AmericaCommandCenter".into(), cc);
     let cc1 = logic
         .create_object(
@@ -2323,8 +2495,20 @@ fn special_power_required_science_gates_shared_superweapons() {
         .is_none()
     );
     assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::SpySatellite));
-    // ParticleCannon structure SW: no science residual.
-    assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::ParticleCannon));
+    // ParticleCannon structure SW: no science residual. The authored module
+    // starts authored ReloadTime at creation (C++ SpecialPowerModule ctor
+    // SpecialPowerModule.cpp:88-94), so the gate reads not-ready-recharging
+    // rather than science-blocked.
+    assert!(
+        crate::game_logic::host_special_power_enum_residual::special_power_required_science(
+            &SpecialPowerType::ParticleCannon
+        )
+        .is_none()
+    );
+    assert!(
+        !logic.is_special_power_ready_for(cc1, &SpecialPowerType::ParticleCannon),
+        "authored module recharging after ctor arming"
+    );
     if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
         p.unlock_science("SCIENCE_DaisyCutter");
     }
@@ -2348,7 +2532,15 @@ fn shared_synced_special_power_timer_is_player_wide() {
     cc.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
         .set_health(5000.0);
-    cc.special_power_cooldown = 10.0;
+    // Retail A10 Thunderbolt module: SharedNSync, RequiredScience, 240s timer.
+    cc.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_A10ThunderboltMissileStrike",
+        "SpecialAbilityA10ThunderboltMissileStrike",
+        SpecialPowerType::Airstrike,
+        7_200,
+        Some("SCIENCE_A10ThunderboltMissileStrike1"),
+        true,
+    ));
     logic.templates.insert("AmericaCommandCenter".into(), cc);
     let cc1 = logic
         .create_object(
@@ -2415,6 +2607,17 @@ fn special_power_ready_uses_controlling_owner_not_first_faction() {
         .add_kind_of(KindOf::CommandCenter)
         .set_health(5000.0);
     cc.special_power_cooldown = 10.0;
+    // Retail A10 Thunderbolt module (SharedNSync + RequiredScience) so the two
+    // owners gate independently — C++ SpecialPowerModule.cpp:278/386
+    // getControllingPlayer, not first same-faction slot.
+    cc.special_power_modules.push(sw_module_fixture(
+        "ModuleTag_A10ThunderboltMissileStrike",
+        "SpecialAbilityA10ThunderboltMissileStrike",
+        SpecialPowerType::Airstrike,
+        7_200,
+        Some("SCIENCE_A10ThunderboltMissileStrike1"),
+        true,
+    ));
     logic.templates.insert("AmericaCommandCenter".into(), cc);
     let cc0 = logic
         .create_object_for_player("AmericaCommandCenter", 0, glam::Vec3::ZERO)
@@ -2850,4 +3053,33 @@ fn demo_and_burton_charge_special_power_enum_residuals() {
             )
             .is_some()
     );
+}
+
+/// Fixture helper: author one retail-style SpecialPowerModule on a template.
+/// C++ SpecialPower.ini / Object INI `Behavior = SpecialPowerModule` pairs
+/// (command button power, RequiredScience, SharedNSync, PublicTimer, reload).
+fn sw_module_fixture(
+    tag: &str,
+    template: &str,
+    power: crate::command_system::SpecialPowerType,
+    reload_frames: u32,
+    science: Option<&str>,
+    shared: bool,
+) -> crate::game_logic::SpecialPowerModuleMetadata {
+    crate::game_logic::SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some(tag.into()),
+        module_kind: crate::game_logic::SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: template.into(),
+        special_power_template_id: 1,
+        command_power: Some(power),
+        reload_time_frames: reload_frames,
+        required_science: science.map(|s| s.to_string()),
+        public_timer: !shared,
+        shared_n_sync: shared,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    }
 }

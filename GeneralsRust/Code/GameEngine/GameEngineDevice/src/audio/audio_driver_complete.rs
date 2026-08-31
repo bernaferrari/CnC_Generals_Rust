@@ -1447,6 +1447,10 @@ impl AudioStream for ManagedAudioStream {
 impl Drop for ManagedAudioStream {
     fn drop(&mut self) {
         // Remove stream from active streams when dropped
+        // SAFETY: `driver` points to the AudioDriver that issued this stream in
+        // SAFETY: create_stream (`self as *const Self`). The driver owns its streams
+        // SAFETY: and outlives them, so the reference is live during Drop; only the
+        // SAFETY: Mutex-guarded active_streams map is touched.
         unsafe {
             if !self.driver.is_null() {
                 let driver = &*self.driver;

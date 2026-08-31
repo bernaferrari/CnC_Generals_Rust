@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "policy": "Machine-editable behavioral parity evidence. A unit promotes to behavior_verified only with a reviewed mapping plus current hash-pinned executable evidence binding source, destination, scenario, and artifact hashes and passing commands. Prose, rust_vs_rust fixtures, stale hashes, failed commands, and path-only entries never promote.",
+  "units": []
+}

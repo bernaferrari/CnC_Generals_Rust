@@ -297,7 +297,6 @@ impl AIPlayer {
             .is_some_and(|player| player.power_available < 0);
         let build_index =
             self.select_priority_or_power_build(game_logic, current_time, is_under_powered);
-
         if let Some(index) = build_index {
             self.relocate_defense_if_illegal(game_logic, index);
             if let Some((template_name, position, mut build_cost)) =
@@ -410,7 +409,13 @@ impl AIPlayer {
                 continue;
             };
             let prior_id = object_id;
-            match game_logic.host_object(object_id) {
+            match game_logic
+                .host_object(object_id)
+                .filter(|object| object.is_alive())
+            {
+                // C++ findObjectByID is an existence test on the live map; a
+                // destroyed-but-not-yet-reaped husk must take the destroyed path
+                // (unbind + timestamp + GLA-hole scan), not the captured path.
                 Some(object) => {
                     if Self::pad_object_still_ours(object, self.player_id, self.team) {
                         building.is_built = object.is_constructed() && !object.is_rebuild_hole;
@@ -512,17 +517,20 @@ impl AIPlayer {
             {
                 power_idx = Some(index);
             }
-            // Automatic pads: C++ canMakeUnit(dozer, bldgPlan=NULL) continues.
         }
-
+        // C++: `if (powerPlan && powerInfo && !powerPlan->isEquivalentTo(bldgPlan))`
+        // — while no FS_POWER scaffold is under construction, the power plan
+        // overrides ANY selection (the isEquivalentTo check only skips an
+        // identical replacement when the selection is already this power
+        // plan, which changes nothing).  Automatic pads alone never win
+        // (`canMakeUnit(dozer, NULL) -> CANMAKE_NO_PREREQ`).
         if let Some(power) = power_idx {
-            if !power_under_construction && selected != Some(power) {
+            if !power_under_construction {
                 selected = Some(power);
             }
         }
         selected
     }
-
     /// C++ `AISkirmishPlayer::buildSpecificAIBuilding` — mark an existing
     /// unbuilt list entry as priority. Does not invent a new pad.
     pub fn build_specific_ai_building(&mut self, thing_name: &str) -> bool {

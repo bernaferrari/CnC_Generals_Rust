@@ -40,7 +40,9 @@ macro_rules! size_of_field {
     ($ty:ty, $field:tt) => {{
         let uninit = core::mem::MaybeUninit::<$ty>::uninit();
         let ptr = uninit.as_ptr();
+        // SAFETY: [Category 11 — provenance] operates on a MaybeUninit that is never dereferenced; addr_of! reads only field metadata without loading memory.
         let field_ptr = unsafe { core::ptr::addr_of!((*ptr).$field) };
+        // SAFETY: [Category 11 — provenance] operates on a MaybeUninit that is never dereferenced; addr_of! reads only field metadata without loading memory.
         core::mem::size_of_val(unsafe { &*field_ptr })
     }};
 }

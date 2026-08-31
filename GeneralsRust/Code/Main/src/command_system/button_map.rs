@@ -160,16 +160,22 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "combatdrop" | "rappell" | "rappel" => Some(CommandType::CombatDrop {
             target: crate::command_system::DropTarget::Location(glam::Vec3::ZERO),
         }),
-        "hackinternet" | "internet" | "starthacking" => Some(CommandType::HackInternet),
-        "returntobase" | "rtb" | "land" => Some(CommandType::ReturnToBase),
+        "hackinternet" | "internet" | "starthacking"
+        // Retail GameData.ini:4099 Command_ChinaInfantryHackerInternetHack
+        // (Command = HACK_INTERNET).
+        | "chinainfantryhackerinternethack" => Some(CommandType::HackInternet),
         "resumeconstruction" | "resume" => Some(CommandType::ResumeConstruction {
             target_id: crate::game_logic::ObjectId(0),
         }),
         "returnsupplies" | "returncargo" | "forcesupplyreturn" => Some(CommandType::ReturnSupplies),
-        "cleanuparea" | "detox" | "clearhazards" => Some(CommandType::DoSpecialPower {
-            power_type: SpecialPowerType::CleanupArea,
-            target: PowerTarget::None,
-        }),
+        // Retail GameData.ini:4274 Command_AmbulanceCleanupArea (Command =
+        // SPECIAL_POWER, SpecialPower = SpecialAbilityAmbulanceCleanupArea).
+        "cleanuparea" | "detox" | "clearhazards" | "ambulancecleanuparea" => {
+            Some(CommandType::DoSpecialPower {
+                power_type: SpecialPowerType::CleanupArea,
+                target: PowerTarget::None,
+            })
+        }
         "clearmines" | "disarmmines" => Some(CommandType::ClearMines),
         "setmineclearingdetail" | "mineclearingdetail" | "mineclearing" => {
             Some(CommandType::SetMineClearingDetail { enabled: true })

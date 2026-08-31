@@ -320,6 +320,7 @@ impl<'a> SurfaceLock<'a> {
     ///
     /// The returned pointer is only valid while the lock is held.
     /// Caller must ensure proper bounds checking and pixel format alignment.
+    // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
     pub unsafe fn get_pixel_ptr(&self, point: Point2D) -> Option<*mut u8> {
         if point.x < 0
             || point.y < 0
@@ -339,6 +340,7 @@ impl<'a> SurfaceLock<'a> {
         let offset = (adjusted_y as usize * self.stride)
             + (adjusted_x as usize * self.surface.pixel_format.bytes_per_pixel());
 
+        // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
         unsafe { Some(self.data.add(offset)) }
     }
 
@@ -352,6 +354,7 @@ impl<'a> SurfaceLock<'a> {
     /// # Safety
     ///
     /// Direct access to pixel data - caller must ensure proper bounds checking.
+    // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
     pub unsafe fn data_ptr(&self) -> *mut u8 {
         self.data
     }

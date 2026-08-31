@@ -962,7 +962,10 @@ pub struct WaterGpuVertex {
     pub packed_c: u32,
 }
 
+// SAFETY: `#[repr(C)]` water vertex of f32 arrays + packed_c u32; byte-exact
+// SAFETY: layout documented against C++ SEA_PATCH_VERTEX, uploaded as raw bytes.
 unsafe impl bytemuck::Pod for WaterGpuVertex {}
+// SAFETY: All-zero fields are valid values; alpha 0.0 is meaningful, not UB.
 unsafe impl bytemuck::Zeroable for WaterGpuVertex {}
 
 impl WaterGpuVertex {
@@ -1032,7 +1035,10 @@ pub struct OverlayGpuVertex {
     pub diffuse: u32,
 }
 
+// SAFETY: `#[repr(C)]` overlay vertex of f32 arrays + diffuse u32, no padding
+// SAFETY: holes; consumed only as raw vertex-buffer bytes.
 unsafe impl bytemuck::Pod for OverlayGpuVertex {}
+// SAFETY: Zeroed fields are valid defaults; no pointer or niche members.
 unsafe impl bytemuck::Zeroable for OverlayGpuVertex {}
 
 impl OverlayGpuVertex {

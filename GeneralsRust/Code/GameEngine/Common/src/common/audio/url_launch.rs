@@ -139,6 +139,9 @@ fn launch_url_windows(url: &str) -> HResult {
     let exe_w = to_wide(&exe);
     let mut cmd_w = to_wide(&launch_command);
 
+        // SAFETY: winapi CreateProcessW with zeroed PROCESS_INFORMATION/
+        // STARTUPINFOW (cb sized), wide buffers built locally; handles are
+        // closed on success below.
     unsafe {
         let mut proc_info: PROCESS_INFORMATION = std::mem::zeroed();
         let mut startup: STARTUPINFOW = std::mem::zeroed();
@@ -330,6 +333,8 @@ fn read_registry_string(
     let path_wide = to_wide(path);
     let value_wide = value_name.map(to_wide);
 
+        // SAFETY: RegOpenKeyExW/RegQueryValueExW receive wide buffers from
+        // to_wide and a valid HKEY out-param; key is closed after query.
     unsafe {
         let mut key: HKEY = std::mem::zeroed();
         let result = RegOpenKeyExW(hkey, path_wide.as_ptr(), 0, KEY_READ, &mut key);

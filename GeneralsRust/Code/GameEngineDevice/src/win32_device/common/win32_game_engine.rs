@@ -300,6 +300,8 @@ impl Win32GameEngine {
         // Set error mode to prevent blue screens
         #[cfg(windows)]
         {
+            // SAFETY: SetErrorMode takes a by-value mask and returns the
+            // SAFETY: previous mode; no pointers are involved.
             self.previous_error_mode = unsafe { SetErrorMode(SEM_FAILCRITICALERRORS) };
         }
         
@@ -355,6 +357,8 @@ impl Win32GameEngine {
         // Restore error mode
         #[cfg(windows)]
         {
+            // SAFETY: restores the mode captured in initialize(); by-value
+            // SAFETY: argument, no pointers.
             unsafe { SetErrorMode(self.previous_error_mode); }
         }
         
@@ -384,6 +388,8 @@ impl Win32GameEngine {
             let mut frequency = 0i64;
             let mut counter = 0i64;
             
+            // SAFETY: writes go through &mut locals passed as *mut i64 with
+            // SAFETY: valid exclusive storage for the call duration.
             unsafe {
                 if QueryPerformanceFrequency(&mut frequency as *mut i64).as_bool() {
                     self.perf_frequency = frequency;
@@ -423,6 +429,10 @@ impl Win32GameEngine {
         
         self.subsystem_states.insert("directx".to_string(), SubsystemState::Initializing);
         
+        // SAFETY: pure COM setup: CreateDXGIFactory2/EnumAdapters/
+        // SAFETY: D3D11CreateDevice/CreateSwapChainForHwnd only receive
+        // SAFETY: interface pointers returned by earlier calls here plus the
+        // SAFETY: engine's live HWND; out-params are valid Option locals.
         unsafe {
             // Create DXGI Factory
             let factory: IDXGIFactory2 = CreateDXGIFactory2(0)?;
@@ -536,6 +546,9 @@ impl Win32GameEngine {
                     hwndTarget: hwnd,
                 };
                 
+                // SAFETY: devices is a valid array of two RAWINPUTDEVICE and
+                // SAFETY: the correct element size is passed; the API only
+                // SAFETY: copies the array during the call.
                 unsafe {
                     if !RegisterRawInputDevices(&devices, std::mem::size_of::<RAWINPUTDEVICE>() as u32).as_bool() {
                         self.subsystem_states.insert("input".to_string(), SubsystemState::Error);
@@ -560,6 +573,9 @@ impl Win32GameEngine {
         
         #[cfg(windows)]
         {
+            // SAFETY: DirectSoundCreate8 returns a fresh COM object stored in
+            // SAFETY: an Option local; SetCooperativeLevel is called on that
+            // SAFETY: live object with the engine's valid HWND.
             unsafe {
                 // Initialize DirectSound
                 let mut ds: Option<IDirectSound8> = None;
@@ -669,6 +685,9 @@ impl Win32GameEngine {
                     hwndTarget: HWND::default(),
                 };
                 
+                // SAFETY: devices holds two valid RIDEV_REMOVE entries with
+                // SAFETY: null hwndTarget (as required) and the correct size;
+                // SAFETY: the API only reads the array during the call.
                 unsafe {
                     let _ = RegisterRawInputDevices(&devices, std::mem::size_of::<RAWINPUTDEVICE>() as u32);
                 }
@@ -698,6 +717,8 @@ impl Win32GameEngine {
         #[cfg(windows)]
         {
             let mut counter = 0i64;
+            // SAFETY: writes through &mut counter (valid i64 storage) with no
+            // SAFETY: other parameters.
             unsafe {
                 if QueryPerformanceCounter(&mut counter as *mut i64).as_bool() {
                     return counter;
@@ -759,6 +780,9 @@ impl Win32GameEngine {
             let mut msg = MSG::default();
             
             // Process all pending messages
+            // SAFETY: msg is a valid writable MSG local and PM_REMOVE makes
+            // SAFETY: the pump single-consumer; PeekMessageW only writes the
+            // SAFETY: MSG and reports availability.
             while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() } {
                 
                 // Handle WM_QUIT message
@@ -771,6 +795,8 @@ impl Win32GameEngine {
                 // This matches the C++ TheMessageTime global variable
                 
                 // Translate and dispatch message
+                // SAFETY: msg was filled by PeekMessageW above and stays
+                // SAFETY: valid on this thread for both calls.
                 unsafe {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
@@ -792,6 +818,8 @@ impl Win32GameEngine {
         #[cfg(windows)]
         {
             if let Some(hwnd) = self.window {
+                // SAFETY: hwnd is the engine's live window handle; IsIconic
+                // SAFETY: is a read-only query with no pointers.
                 unsafe {
                     let is_minimized = IsIconic(hwnd).as_bool();
                     
@@ -880,6 +908,10 @@ impl Win32GameEngine {
     async fn get_memory_usage_mb(&self) -> u64 {
         use windows::Win32::System::ProcessStatus::*;
         
+        // SAFETY: GetCurrentProcess returns the stable pseudo-handle;
+        // SAFETY: GetProcessMemoryInfo receives a default-initialized
+        // SAFETY: PROCESS_MEMORY_COUNTERS plus its exact size, so the write
+        // SAFETY: stays in bounds.
         unsafe {
             let process = GetCurrentProcess();
             let mut counters = PROCESS_MEMORY_COUNTERS::default();
@@ -988,6 +1020,8 @@ impl Win32GameEngine {
         if let Some(hwnd) = self.window {
             let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
             
+            // SAFETY: wide_title is a NUL-terminated wide buffer that outlives
+            // SAFETY: the call; hwnd is the engine's live window.
             unsafe {
                 if !SetWindowTextW(hwnd, PCWSTR(wide_title.as_ptr())).as_bool() {
                     return Err(Win32EngineError::SystemApiError {
@@ -1005,6 +1039,8 @@ impl Win32GameEngine {
     /// Show/hide cursor
     #[cfg(windows)]
     pub fn show_cursor(&self, show: bool) -> Result<()> {
+        // SAFETY: ShowCursor takes a by-value flag and only adjusts the
+        // SAFETY: process-wide display counter; no pointers.
         unsafe {
             ShowCursor(show);
         }
@@ -1014,6 +1050,7 @@ impl Win32GameEngine {
     /// Set cursor position
     #[cfg(windows)]
     pub fn set_cursor_position(&self, x: i32, y: i32) -> Result<()> {
+        // SAFETY: SetCursorPos takes by-value screen coordinates; no pointers.
         unsafe {
             if !SetCursorPos(x, y).as_bool() {
                 return Err(Win32EngineError::SystemApiError {
@@ -1042,6 +1079,12 @@ impl Win32GameEngine {
         let path_wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
         let value_name_wide: Vec<u16> = value_name.encode_utf16().chain(std::iter::once(0)).collect();
         
+        // SAFETY: path_wide/value_name_wide are NUL-terminated wide buffers
+        // SAFETY: alive for every call; RegQueryValueExW first probes the size
+        // SAFETY: (lpData = None), then reads into a buffer of exactly that
+        // SAFETY: size; RegCloseKey runs on every path. The from_raw_parts
+        // SAFETY: cast reinterprets a fully-written REG_SZ buffer (whole
+        // SAFETY: UTF-16 units, heap-aligned) as &[u16] for a local read.
         unsafe {
             let mut key = HKEY::default();
             let result = RegOpenKeyExW(
@@ -1136,6 +1179,8 @@ impl Drop for Win32GameEngine {
             // Do basic cleanup synchronously
             #[cfg(windows)]
             {
+                // SAFETY: restores the mode captured in initialize();
+                // SAFETY: by-value argument, no pointers.
                 unsafe { SetErrorMode(self.previous_error_mode); }
             }
             

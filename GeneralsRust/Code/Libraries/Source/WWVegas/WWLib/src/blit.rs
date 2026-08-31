@@ -26,6 +26,7 @@ pub fn to_buffer(surface: &Surface, rect: Rect, buffer: &mut Buffer) -> bool {
 
     for y in rect.y..rect.y + rect.height {
         for x in rect.x..rect.x + rect.width {
+            // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
             unsafe {
                 if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(x, y)) {
                     let dest = &mut buf[offset..offset + bytes_per_pixel];
@@ -58,6 +59,7 @@ pub fn from_buffer(surface: &mut Surface, rect: Rect, buffer: &Buffer) -> bool {
 
     for y in rect.y..rect.y + rect.height {
         for x in rect.x..rect.x + rect.width {
+            // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
             unsafe {
                 if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(x, y)) {
                     let src = &buf[offset..offset + bytes_per_pixel];
@@ -132,6 +134,7 @@ pub fn bit_blit_clipped(
     if overlapped {
         sstride = -sstride;
         dstride = -dstride;
+        // SAFETY: [Category 10 — OOB] repositions to the last source/dest row within the locked surfaces before a backward overlap-safe pass.
         unsafe {
             sbuffer = sbuffer.offset(((srect.height - 1) * source_stride) as isize) as *mut u8;
             dbuffer = dbuffer.offset(((drect.height - 1) * dest_stride) as isize) as *mut u8;
@@ -145,6 +148,7 @@ pub fn bit_blit_clipped(
         } else {
             blitter.blit_forward(dbuffer, sbuffer, srect.width);
         }
+        // SAFETY: [Category 10 — OOB] repositions to the last source/dest row within the locked surfaces before a backward overlap-safe pass.
         unsafe {
             dbuffer = dbuffer.offset(dstride as isize) as *mut u8;
             sbuffer = sbuffer.offset(sstride as isize);
@@ -194,6 +198,7 @@ pub fn rle_blit_clipped(
         Err(_) => return false,
     };
 
+    // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
     let mut dptr = unsafe {
         dbuffer
             .get_pixel_ptr(dpoint)
@@ -203,11 +208,13 @@ pub fn rle_blit_clipped(
         return false;
     }
 
+    // SAFETY: [Category 3 — dangling] raw data pointer of the locked surface, valid while the lock is held.
     let mut sptr = unsafe { sbuffer.data_ptr() };
     if sptr.is_null() {
         return false;
     }
 
+    // SAFETY: [Category 10 — OOB] walks the well-formed compressed shape stream (u16 line length header per row), staying inside the source buffer.
     unsafe {
         while topmargin > 0 {
             let line_len = *(sptr as *const u16) as i32;
@@ -219,6 +226,7 @@ pub fn rle_blit_clipped(
     let dstride = dest.stride() as i32;
     let height = srect.height.min(drect.height);
     for _ in 0..height {
+        // SAFETY: [Category 10 — OOB] walks the well-formed compressed shape stream (u16 line length header per row), staying inside the source buffer.
         unsafe {
             let line_len = *(sptr as *const u16) as i32;
             let line_data = sptr.add(2);
@@ -333,7 +341,9 @@ fn prep_for_blit<'a>(
     let source_lock = source.lock(Point2D::new(0, 0)).ok()?;
     let dpoint = Point2D::new(dcliprect.x + drect.x, dcliprect.y + drect.y);
     let spoint = Point2D::new(scliprect.x + srect.x, scliprect.y + srect.y);
+    // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
     let dbuffer = unsafe { dest_lock.get_pixel_ptr(dpoint)? };
+    // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
     let sbuffer = unsafe { source_lock.get_pixel_ptr(spoint)? };
 
     Some((

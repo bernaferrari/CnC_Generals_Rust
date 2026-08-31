@@ -241,6 +241,69 @@ impl PathfindingGrid {
         self.build_surface_combiners();
     }
 
+    /// True when `goal` is sealed off from `start` and every blocking cell on
+    /// the separating boundary is a CELL_OBSTACLE structure (no terrain
+    /// Impassable / BridgeImpassable). C++ `AIUpdateInterface::computePath`
+    /// (AIUpdate.cpp:1713-1717) walks a unit to the closest reachable cell
+    /// when `Pathfinder::findPath` fails — the classic click-on-a-building
+    /// case `Pathfinder::findClosestPath` exists for. A boundary that mixes
+    /// terrain walls with a doze-able obstacle gap is terrain-sealed: the
+    /// pathfinder fails closed like `Pathfinder::findPath` itself
+    /// (AIPathfind.cpp:6364-6436) so non-dozers cannot dozerHack the gap.
+    pub(super) fn structure_sealed_goal(&self, start: GridPos, goal: GridPos) -> bool {
+        if !self.is_valid_pos(start) || !self.is_valid_pos(goal) {
+            return false;
+        }
+        let blocking = |p: GridPos| {
+            matches!(
+                self.cell_type(p),
+                PathfindCellType::Obstacle
+                    | PathfindCellType::Impassable
+                    | PathfindCellType::BridgeImpassable
+            )
+        };
+        let mut visited = vec![false; (self.width * self.height) as usize];
+        let mut stack = vec![start];
+        if let Some(idx) = self.bit_index(start) {
+            visited[idx] = true;
+        }
+        let mut boundary: Vec<GridPos> = Vec::new();
+        while let Some(cur) = stack.pop() {
+            if cur == goal {
+                return false;
+            }
+            for n in [
+                GridPos::new(cur.x + 1, cur.y),
+                GridPos::new(cur.x - 1, cur.y),
+                GridPos::new(cur.x, cur.y + 1),
+                GridPos::new(cur.x, cur.y - 1),
+            ] {
+                if !self.is_valid_pos(n) {
+                    continue;
+                }
+                let Some(idx) = self.bit_index(n) else {
+                    continue;
+                };
+                if visited[idx] {
+                    continue;
+                }
+                if blocking(n) {
+                    if !boundary.contains(&n) {
+                        boundary.push(n);
+                    }
+                    continue;
+                }
+                visited[idx] = true;
+                stack.push(n);
+            }
+        }
+        !boundary.is_empty()
+            && boundary
+                .iter()
+                .all(|c| self.cell_type(*c) == PathfindCellType::Obstacle)
+    }
+
+
     /// Leftover `ZoneManager::build_surface_combiners` (GROUND+WATER / GROUND+CLIFF).
     pub(super) fn build_surface_combiners(&mut self) {
         let mut max_z = 0u16;
@@ -1075,6 +1138,11 @@ impl PathfindingGrid {
                     infantry: occ.occ_infantry_mask.get(&key).copied().unwrap_or(0),
                     crushable: occ.occ_fixed_max_crushable.get(&key).copied().unwrap_or(0),
                     goal_unit: occ.occ_goal_unit.get(&key).copied().unwrap_or(0),
+                    pos_unit: occ.occ_pos_unit.get(&key).copied().unwrap_or(0),
+                    pos_player: occ.occ_pos_player.get(&key).copied().unwrap_or(0),
+                    pos_moving: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 1 != 0,
+                    pos_infantry: occ.occ_pos_flags.get(&key).copied().unwrap_or(0) & 2 != 0,
+                    pos_crushable: occ.occ_pos_crushable.get(&key).copied().unwrap_or(0),
                 };
             }
             return OccBits::default();
@@ -1089,9 +1157,13 @@ impl PathfindingGrid {
             infantry: self.occ_infantry_mask.get(idx).copied().unwrap_or(0),
             crushable: self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(0),
             goal_unit: self.occ_goal_unit.get(idx).copied().unwrap_or(0),
+            pos_unit: self.occ_pos_unit.get(idx).copied().unwrap_or(0),
+            pos_player: self.occ_pos_player.get(idx).copied().unwrap_or(0),
+            pos_moving: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 1 != 0,
+            pos_infantry: self.occ_pos_flags.get(idx).copied().unwrap_or(0) & 2 != 0,
+            pos_crushable: self.occ_pos_crushable.get(idx).copied().unwrap_or(0),
         }
     }
-
     pub(super) fn occupancy_cost(
         &self,
         pos: GridPos,
@@ -1110,12 +1182,13 @@ impl PathfindingGrid {
         if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
             return Some(0.0);
         }
+        // C++ checkForMovement keys on the cell's single m_posUnitID, not a
+        // per-player bitset: posUnit==seeker / ignoreId skip, then one
+        // ALLIES→allyFixedCount (or canCrushOrSquish→enemyFixed) verdict.
         let Some(player) = seeker_player else {
             return Some(3.0 * 1.414_213_5);
         };
         let bit = 1u16 << player.min(15);
-        // C++ checkForMovement: ALLIES increment allyFixedCount, never enemyFixed
-        // (AIPathfind.cpp:5037-5066). Only non-allies consult canCrushOrSquish.
         let friend = bit | ally_mask;
         if seeker_is_infantry
             && (bits.infantry & !bit) != 0
@@ -1127,9 +1200,25 @@ impl PathfindingGrid {
                 return Some(0.0);
             }
         }
-        let enemy_fixed = (bits.fixed & !friend) != 0;
-        if enemy_fixed && (crusher_level == 0 || crusher_level <= bits.crushable) {
-            return None;
+        // Single-occupant identity check (C++ PathfindCell::getPosUnit).
+        if bits.pos_unit != 0 {
+            let owner_friend = (bits.pos_player & friend) != 0;
+            if !owner_friend {
+                let enemy_crushable = crusher_level > 0 && crusher_level > bits.pos_crushable;
+                if !enemy_crushable {
+                    return None;
+                }
+            } else if !bits.pos_moving {
+                // C++ ALLIES + UNIT_PRESENT_FIXED → allyFixedCount cost.
+                return Some(3.0 * 1.414_213_5);
+            }
+        } else {
+            // No single identity recorded — fall back to the bitset view so
+            // legacy stamps still block.
+            let enemy_fixed = (bits.fixed & !friend) != 0;
+            if enemy_fixed && (crusher_level == 0 || crusher_level <= bits.crushable) {
+                return None;
+            }
         }
         let mut extra = 0.0;
         // C++ allyMoving +3*COST_DIAGONAL only within dx<10 && dy<10 of start
@@ -1162,10 +1251,21 @@ impl PathfindingGrid {
             return true;
         }
         let Some(player) = seeker_player else {
-            return bits.fixed == 0;
+            return bits.fixed == 0 && bits.pos_unit == 0;
         };
         let bit = 1u16 << player.min(15);
         let friend = bit | ally_mask;
+        // Single-occupant verdict first (C++ m_posUnitID), then the residual
+        // bitset view for cells whose identity was never stamped.
+        if bits.pos_unit != 0 {
+            if (bits.pos_player & friend) == 0 {
+                return false;
+            }
+            if !bits.pos_moving {
+                return false;
+            }
+            return true;
+        }
         if (bits.fixed & friend) != 0 {
             return false;
         }
@@ -1225,20 +1325,26 @@ impl PathfindingGrid {
         if seeker_is_infantry && bits.infantry != 0 && (bits.fixed | bits.moving) == bits.infantry {
             return false;
         }
-        let present = bits.fixed | if consider_transient { bits.moving } else { 0 };
-        if present == 0 {
-            return false;
+        // C++ checkForMovement (AIPathfind.cpp:10419-10442): the cell's single
+        // m_posUnitID decides — ally fixed blocks, enemy blocks unless crushable.
+        if let Some(player) = seeker_player {
+            if bits.pos_unit != 0 {
+                let friend = (1u16 << player.min(15)) | self.ally_mask_for(player);
+                if (bits.pos_player & friend) == 0 {
+                    return crusher_level == 0 || crusher_level <= bits.pos_crushable;
+                }
+                // Allied fixed occupant blocks the patch footprint.
+                return true;
+            }
+            let present = bits.fixed | if consider_transient { bits.moving } else { 0 };
+            let friend = (1u16 << player.min(15)) | self.ally_mask_for(player);
+            if (present & friend) != 0 {
+                return true;
+            }
+            let enemy = (present & !friend) != 0;
+            return enemy && (crusher_level == 0 || crusher_level <= bits.crushable);
         }
-        let Some(player) = seeker_player else {
-            return true;
-        };
-        let bit = 1u16 << player.min(15);
-        let friend = bit | self.ally_mask_for(player);
-        if (present & friend) != 0 {
-            return true;
-        }
-        let enemy = (present & !friend) != 0;
-        enemy && (crusher_level == 0 || crusher_level <= bits.crushable)
+        true
     }
 
     /// C++ `PathfindCell::getConnectLayer` hop target (same XY, other layer).
@@ -1324,15 +1430,42 @@ impl PathfindingGrid {
             Some(player) => (1u16 << player.min(15)) | ally_mask,
             None => 0,
         };
-        if seeker_player.is_some() && (bits.fixed & !friend) != 0 {
-            if crusher_level == 0 || crusher_level <= bits.crushable {
+        // C++ checkForMovement verdict on the cell's single m_posUnitID
+        // (AIPathfind.cpp:5020-5066): ally fixed → allyFixedCount cost, enemy
+        // uncrushable → skip. The bitset fallback keeps legacy stamps working.
+        if seeker_player.is_some() {
+            if bits.pos_unit != 0 {
+                if (bits.pos_player & friend) == 0 {
+                    let crushable = crusher_level > 0 && crusher_level > bits.pos_crushable;
+                    if !crushable {
+                        return None;
+                    }
+                } else if !bits.pos_moving {
+                    // allyFixedCount>0 → +3*COST_DIAGONAL (AIPathfind.cpp:6278-6290).
+                    return Some(3 * COST_DIAG);
+                }
+            } else {
+                if (bits.fixed & !friend) != 0
+                    && (crusher_level == 0 || crusher_level <= bits.crushable)
+                {
+                    return None;
+                }
+                if (bits.fixed & friend) != 0 {
+                    return Some(3 * COST_DIAG);
+                }
+            }
+        } else if bits.pos_unit != 0 || (bits.fixed & !friend) != 0 {
+            if crusher_level == 0 || crusher_level <= {
+                if bits.pos_unit != 0 {
+                    bits.pos_crushable
+                } else {
+                    bits.crushable
+                }
+            } {
                 return None;
             }
         }
         let mut extra = 0i32;
-        if (bits.fixed & friend) != 0 {
-            extra += 3 * COST_DIAG;
-        }
         if (bits.moving & friend) != 0
             && (pos.x - start.x).abs() < 10
             && (pos.y - start.y).abs() < 10
@@ -1374,6 +1507,15 @@ impl PathfindingGrid {
                 occ.occ_goal_unit.insert(key, unit_id);
                 return;
             }
+            // C++ setPosUnit: a single m_posUnitID per cell; the newest
+            // stamp wins (updatePos iterates units in frame order).
+            occ.occ_pos_unit.insert(key, unit_id);
+            occ.occ_pos_player.insert(key, bit);
+            occ.occ_pos_flags.insert(
+                key,
+                (moving as u8) | ((infantry as u8) << 1),
+            );
+            occ.occ_pos_crushable.insert(key, crushable_level);
             if infantry {
                 *occ.occ_infantry_mask.entry(key).or_insert(0) |= bit;
             }
@@ -1399,19 +1541,40 @@ impl PathfindingGrid {
             }
             return;
         }
-        if infantry {
-            if let Some(slot) = self.occ_infantry_mask.get_mut(idx) {
-                *slot |= bit;
-            }
+        if let Some(slot) = self.occ_pos_unit.get_mut(idx) {
+            *slot = unit_id;
         }
+        if let Some(slot) = self.occ_pos_player.get_mut(idx) {
+            *slot = bit;
+        }
+        if let Some(slot) = self.occ_pos_flags.get_mut(idx) {
+            *slot = (moving as u8) | ((infantry as u8) << 1);
+        }
+        if let Some(slot) = self.occ_pos_crushable.get_mut(idx) {
+            *slot = crushable_level;
+        }
+        // The pos stamp IS the fixed/moving record (C++ updatePos): keep the
+        // bitset view in lockstep so identity-less readers still see it.
         if moving {
             if let Some(slot) = self.occ_moving_mask.get_mut(idx) {
                 *slot |= bit;
             }
-        } else if let Some(slot) = self.occ_fixed_mask.get_mut(idx) {
-            *slot |= bit;
-            if let Some(crush) = self.occ_fixed_max_crushable.get_mut(idx) {
-                *crush = (*crush).max(crushable_level);
+            if infantry {
+                if let Some(slot) = self.occ_infantry_mask.get_mut(idx) {
+                    *slot |= bit;
+                }
+            }
+        } else {
+            if let Some(slot) = self.occ_fixed_mask.get_mut(idx) {
+                *slot |= bit;
+            }
+            if let Some(slot) = self.occ_fixed_max_crushable.get_mut(idx) {
+                *slot = (*slot).max(crushable_level);
+            }
+            if infantry {
+                if let Some(slot) = self.occ_infantry_mask.get_mut(idx) {
+                    *slot |= bit;
+                }
             }
         }
     }

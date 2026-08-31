@@ -208,7 +208,7 @@ impl Object {
     /// Initialize object after creation
     pub fn init_object(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let object_id = self.id;
-        crate::object::create::with_create_owner_object(self as *mut Object, || {
+        crate::object::create::with_create_owner_object(self as *mut Object, object_id, || {
             for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
                 module.with_module(|module| {
                     if let Some(create) = module.get_create_interface() {
@@ -239,7 +239,7 @@ impl Object {
     /// Notify create modules that construction has completed.
     pub fn on_build_complete(&mut self) {
         let object_id = self.id;
-        crate::object::create::with_create_owner_object(self as *mut Object, || {
+        crate::object::create::with_create_owner_object(self as *mut Object, object_id, || {
             for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
                 module.with_module(|module| {
                     if let Some(create) = module.get_create_interface() {

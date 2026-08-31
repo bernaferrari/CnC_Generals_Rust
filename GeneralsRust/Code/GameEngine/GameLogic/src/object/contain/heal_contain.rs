@@ -567,11 +567,17 @@ mod tests {
             Ok(())
         }
 
+        // SAFETY: trait contract: caller guarantees `data` is valid for
+        // `data_size` bytes; only that range is copied into the recording
+        // buffer within this call.
         unsafe fn xfer_implementation(
             &mut self,
             data: *mut u8,
             data_size: usize,
         ) -> io::Result<()> {
+            // SAFETY: `xfer_implementation` receives a pointer valid for
+            // `data_size` bytes from the Xfer caller; this read-only slice
+            // view is appended before the call returns.
             let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
             self.bytes.extend_from_slice(bytes);
             Ok(())

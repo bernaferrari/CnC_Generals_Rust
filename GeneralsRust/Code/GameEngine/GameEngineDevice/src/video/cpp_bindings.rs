@@ -117,6 +117,9 @@ macro_rules! c_try {
 /// Initialize the video system
 /// Returns a handle to the video device, or null on failure
 #[unsafe(no_mangle)]
+// SAFETY: C ABI factory with no pointer parameters. On success leaks a
+// SAFETY: Box<VideoDevice> as *mut CVideoDevice; the caller owns it and must
+// SAFETY: release it exactly once via video_device_destroy.
 pub unsafe extern "C" fn video_device_create() -> *mut CVideoDevice {
     let rt = get_runtime();
 
@@ -134,6 +137,9 @@ pub unsafe extern "C" fn video_device_create() -> *mut CVideoDevice {
 
 /// Initialize video device with specific parameters
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be the handle from video_device_create, not yet
+// SAFETY: destroyed; reinterpreted as *mut VideoDevice matching the Box type
+// SAFETY: leaked in create. Exclusive access assumed single-owner per C ABI.
 pub unsafe extern "C" fn video_device_initialize(
     device: *mut CVideoDevice,
     width: c_uint,
@@ -154,6 +160,9 @@ pub unsafe extern "C" fn video_device_initialize(
 
 /// Destroy the video device and free resources
 #[unsafe(no_mangle)]
+// SAFETY: Reclaims the Box<VideoDevice> leaked by video_device_create; `device`
+// SAFETY: must be that exact handle, un-destroyed, and never used again after
+// SAFETY: this call returns.
 pub unsafe extern "C" fn video_device_destroy(device: *mut CVideoDevice) -> CVideoResult {
     if device.is_null() {
         return CVideoResult::ErrorInvalidParameter;
@@ -170,6 +179,8 @@ pub unsafe extern "C" fn video_device_destroy(device: *mut CVideoDevice) -> CVid
 
 /// Create a texture
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle (shared read only); the
+// SAFETY: returned texture id is device-relative, not a pointer.
 pub unsafe extern "C" fn video_device_create_texture(
     device: *mut CVideoDevice,
     width: c_uint,
@@ -202,6 +213,8 @@ pub unsafe extern "C" fn video_device_create_texture(
 
 /// Set render target
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle; texture_id is an opaque
+// SAFETY: device-relative id validated by the async layer.
 pub unsafe extern "C" fn video_device_set_render_target(
     device: *mut CVideoDevice,
     texture_id: c_uint,
@@ -220,6 +233,8 @@ pub unsafe extern "C" fn video_device_set_render_target(
 
 /// Draw primitive with vertices and optional indices
 #[unsafe(no_mangle)]
+// SAFETY: `device` live create-owned handle; remaining parameters are by-value
+// SAFETY: ids/counts interpreted by VideoDevice::draw_primitive.
 pub unsafe extern "C" fn video_device_draw_primitive(
     device: *mut CVideoDevice,
     vertices: *const CVertex,
@@ -251,6 +266,8 @@ pub unsafe extern "C" fn video_device_draw_primitive(
 
 /// Present the current frame
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle; present takes &VideoDevice
+// SAFETY: (shared) matching the const reinterpret below.
 pub unsafe extern "C" fn video_device_present(device: *mut CVideoDevice) -> CVideoResult {
     if device.is_null() {
         return CVideoResult::ErrorInvalidParameter;
@@ -266,6 +283,8 @@ pub unsafe extern "C" fn video_device_present(device: *mut CVideoDevice) -> CVid
 
 /// Get device statistics
 #[unsafe(no_mangle)]
+// SAFETY: `device` live handle; `stats` must be writable for one CVideoStatistics
+// SAFETY: when non-null and is fully overwritten on success.
 pub unsafe extern "C" fn video_device_get_statistics(
     device: *mut CVideoDevice,
     stats: *mut CVideoStatistics,
@@ -287,6 +306,8 @@ pub unsafe extern "C" fn video_device_get_statistics(
 
 /// Set display resolution
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle; scalar parameters only,
+// SAFETY: no additional pointers dereferenced.
 pub unsafe extern "C" fn video_device_set_resolution(
     device: *mut CVideoDevice,
     width: c_uint,
@@ -312,6 +333,7 @@ pub unsafe extern "C" fn video_device_set_resolution(
 
 /// Toggle fullscreen mode
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle; scalar parameters only.
 pub unsafe extern "C" fn video_device_set_fullscreen(
     device: *mut CVideoDevice,
     fullscreen: c_int,
@@ -330,6 +352,7 @@ pub unsafe extern "C" fn video_device_set_fullscreen(
 
 /// Set VSync mode
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle; scalar parameters only.
 pub unsafe extern "C" fn video_device_set_vsync(
     device: *mut CVideoDevice,
     vsync_mode: c_uint,
@@ -356,6 +379,8 @@ pub unsafe extern "C" fn video_device_set_vsync(
 
 /// Get adapter name (caller must free the returned string)
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle. Returns a CString::into_raw
+// SAFETY: allocation that the caller must free with video_device_free_string.
 pub unsafe extern "C" fn video_device_get_adapter_name(device: *mut CVideoDevice) -> *mut c_char {
     if device.is_null() {
         return ptr::null_mut();
@@ -372,6 +397,9 @@ pub unsafe extern "C" fn video_device_get_adapter_name(device: *mut CVideoDevice
 
 /// Free a string allocated by the video device API
 #[unsafe(no_mangle)]
+// SAFETY: `string` must be a pointer previously returned by
+// SAFETY: video_device_get_adapter_name (CString::into_raw) and not freed before;
+// SAFETY: ownership is reclaimed exactly once here.
 pub unsafe extern "C" fn video_device_free_string(string: *mut c_char) {
     if !string.is_null() {
         let _ = CString::from_raw(string);
@@ -384,6 +412,8 @@ thread_local! {
 }
 
 #[unsafe(no_mangle)]
+// SAFETY: No parameters. Returns a borrow of the thread-local LAST_ERROR
+// SAFETY: CString, valid until the next error set on this thread.
 pub unsafe extern "C" fn video_device_get_last_error() -> *const c_char {
     LAST_ERROR.with(|error| match error.borrow().as_ref() {
         Some(c_string) => c_string.as_ptr(),
@@ -393,6 +423,8 @@ pub unsafe extern "C" fn video_device_get_last_error() -> *const c_char {
 
 /// Check if video device is initialized
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle (shared read); result is
+// SAFETY: an int flag, no memory written through user pointers.
 pub unsafe extern "C" fn video_device_is_initialized(device: *mut CVideoDevice) -> c_int {
     if device.is_null() {
         return 0;
@@ -415,6 +447,8 @@ pub unsafe extern "C" fn video_device_is_initialized(device: *mut CVideoDevice) 
 
 /// Get GPU memory usage in bytes
 #[unsafe(no_mangle)]
+// SAFETY: `device` must be a live create-owned handle (shared read); returns a
+// SAFETY: by-value counter.
 pub unsafe extern "C" fn video_device_get_gpu_memory_usage(device: *mut CVideoDevice) -> u64 {
     if device.is_null() {
         return 0;
@@ -461,6 +495,8 @@ pub extern "C" fn create_vertex(
 
 /// Create a simple quad (2 triangles)
 #[unsafe(no_mangle)]
+// SAFETY: `vertices` must be writable for 4 CVertexs and `indices` for 6 u16s;
+// SAFETY: both are fully overwritten from constants before any read.
 pub unsafe extern "C" fn create_quad_vertices(vertices: *mut CVertex, indices: *mut u16) -> c_int {
     if vertices.is_null() || indices.is_null() {
         return -1;

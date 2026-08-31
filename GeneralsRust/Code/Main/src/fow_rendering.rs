@@ -130,7 +130,7 @@ impl PresentationFowGrid {
             width: 0,
             height: 0,
             world_origin_xy: [0.0, 0.0],
-            cell_size: 50.0,
+            cell_size: PRESENTATION_FOW_DEFAULT_CELL_SIZE,
             cells: Vec::new(),
             active: false,
         }

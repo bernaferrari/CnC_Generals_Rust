@@ -429,6 +429,16 @@ pub trait RenderObjClassExt: std::fmt::Debug + Send + Sync {
         }
         // Safety: We're returning a mutable reference to thread-local storage.
         // This is safe because each thread has its own copy of the static.
+        // SAFETY: The `RefCell::borrow_mut()` guard is kept alive for the whole
+        // expression, so no other borrow of this thread-local Vec can exist while we
+        // hold the raw pointer. Because the thread-local is only reachable from the
+        // current thread (each thread gets its own `EMPTY`), and this accessor is its
+        // only means of access, extending the lifetime of the returned `&mut` beyond
+        // the temporary guard is sound: the reference stays tied to `&mut self`, so
+        // re-entrant calls through the same receiver cannot overlap with it.
+        // SAFETY: EMPTY.with hands us a &RefCell unique to this thread; the
+        // borrow_mut() guard below lives as long as the returned reference,
+        // so no other borrow of the Vec can coexist with the returned &mut.
         EMPTY.with(|cell| unsafe {
             // SAFETY: The RefCell is never borrowed elsewhere when we mutate it here,
             // because we only access it through this thread-local interface.

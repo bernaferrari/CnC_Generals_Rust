@@ -105,6 +105,8 @@ impl SingleInstanceGuard {
             let fd = file.as_raw_fd();
 
             // Try to acquire an exclusive lock
+            // SAFETY: fd is a valid open file descriptor borrowed from
+            // `file`, which outlives this call.
             let result = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
 
             if result != 0 {
@@ -170,6 +172,8 @@ impl SingleInstanceGuard {
         #[cfg(unix)]
         {
             // On Unix, use kill with signal 0 to test if process exists
+            // SAFETY: kill with signal 0 performs an existence check; pid
+            // fits i32 by construction (parsed from u32 lock content).
             let result = unsafe { libc::kill(process_id as i32, 0) };
             if result == 0 {
                 return true;
@@ -188,6 +192,8 @@ impl SingleInstanceGuard {
             use std::os::windows::io::AsRawHandle;
             use std::ptr;
 
+            // SAFETY: OpenProcess/CloseHandle pair on a pid from the lock
+            // file; handle is closed immediately on success.
             unsafe {
                 let handle = winapi::um::processthreadsapi::OpenProcess(
                     winapi::um::winnt::PROCESS_QUERY_INFORMATION,

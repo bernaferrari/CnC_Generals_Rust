@@ -25,6 +25,8 @@ use tokio::sync::RwLock;
 
 /// Set transform - matches original W3DDevice::SetTransform(matrix)
 #[no_mangle]
+// SAFETY: C ABI entry. `device` live W3D_DEVICE; `matrix` readable for one
+// SAFETY: W3D_MATRIX, copied before the async call.
 pub unsafe extern "C" fn W3DDevice_SetTransform(
     device: W3D_DEVICE,
     state: W3D_TRANSFORM_STATE,
@@ -51,6 +53,8 @@ pub unsafe extern "C" fn W3DDevice_SetTransform(
 
 /// Get transform - matches original W3DDevice::GetTransform(state, matrix)
 #[no_mangle]
+// SAFETY: C ABI entry. `matrix` must be writable for one W3D_MATRIX when
+// SAFETY: non-null; `device` must be a live W3D_DEVICE.
 pub unsafe extern "C" fn W3DDevice_GetTransform(
     device: W3D_DEVICE,
     state: W3D_TRANSFORM_STATE,

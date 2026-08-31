@@ -357,7 +357,11 @@ impl GameLogic {
             .and_then(|me| me.owner_player_id)
             .and_then(|pid| self.players.get(&pid))
             .map(|p| !p.is_local)
-            .unwrap_or(true);
+            // C++ PartitionFilterRejectBuildings ctor (PartitionManager.cpp:4890-4899):
+            // only a PLAYER_COMPUTER controller sets m_acquireEnemies. The C++
+            // neutral/default controller is PLAYER_HUMAN, so an ownerless object
+            // (tests, pre-assignment) must reject plain enemy structures.
+            .unwrap_or(false);
         if owner_is_computer {
             return true;
         }

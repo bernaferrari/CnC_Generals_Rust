@@ -137,6 +137,8 @@ impl MemoryPoolBlob {
         let layout = Layout::from_size_align(total_size, std::mem::align_of::<usize>())
             .map_err(|e| format!("Failed to create layout: {}", e))?;
 
+        // SAFETY: [Category 13 — library contract] `layout` was validated by
+        // `Layout::from_size_align` just above; allocates the raw pool region.
         let memory = unsafe { alloc(layout) };
         if memory.is_null() {
             return Err("Failed to allocate memory for blob".to_string());
@@ -158,6 +160,7 @@ impl MemoryPoolBlob {
         for (index, is_used) in self.used_blocks.iter_mut().enumerate() {
             if !*is_used {
                 *is_used = true;
+                // SAFETY: [Category 10 — OOB] `index < block_count` (only free slots are picked), so the offset stays inside the `block_size * block_count` region.
                 let block_ptr = unsafe { self.memory.add(index * self.block_size) };
                 return Some(block_ptr);
             }
@@ -167,6 +170,7 @@ impl MemoryPoolBlob {
 
     /// Free a block in this blob
     fn free_block(&mut self, block_ptr: *mut u8) -> bool {
+        // SAFETY: [Category 11 — provenance] `block_ptr` points into this blob's allocation (caller verified the range), so the offset computation is well-defined.
         let block_offset = unsafe { block_ptr.offset_from(self.memory) } as usize;
         if !block_offset.is_multiple_of(self.block_size) {
             return false; // Invalid block pointer
@@ -206,6 +210,7 @@ impl MemoryPoolBlob {
 impl Drop for MemoryPoolBlob {
     fn drop(&mut self) {
         if !self.memory.is_null() {
+            // SAFETY: [Category 12 — invalid free] same pointer/layout pair returned by `alloc` in `new`; blob is being dropped.
             unsafe {
                 dealloc(self.memory, self.layout);
             }
@@ -299,6 +304,7 @@ impl MemoryPool {
         // First try to allocate from existing blobs
         let mut current_blob = self.first_blob_with_free_blocks;
         while let Some(blob_ptr) = current_blob {
+            // SAFETY: [Category 3 — dangling] blob pointers come from Box leaks owned by this pool (`first_blob` chain); they stay alive for the pool's lifetime and access is &mut self-exclusive.
             let blob = unsafe { &mut *blob_ptr };
             if let Some(block_ptr) = blob.allocate_block() {
                 self.used_blocks_in_pool += 1;
@@ -307,6 +313,7 @@ impl MemoryPool {
                 }
 
                 // Zero the memory
+                // SAFETY: [Category 10 — OOB] `block_ptr` is a freshly claimed in-bounds block of exactly `allocation_size` bytes.
                 unsafe {
                     ptr::write_bytes(block_ptr, 0, self.allocation_size);
                 }
@@ -333,10 +340,12 @@ impl MemoryPool {
 
         // Link the new blob into the list
         if let Some(last_blob_ptr) = self.last_blob {
+            // SAFETY: [Category 3 — dangling] blob pointers come from Box leaks owned by this pool (`first_blob` chain); they stay alive for the pool's lifetime and access is &mut self-exclusive.
             let last_blob = unsafe { &mut *last_blob_ptr };
             last_blob.next_blob = Some(Box::new(new_blob));
             let new_blob_ptr =
                 last_blob.next_blob.as_mut().unwrap().as_mut() as *mut MemoryPoolBlob;
+            // SAFETY: [Category 3 — dangling] `new_blob_ptr` is inside the Box just linked into the list; writing its prev link before sharing it is safe.
             unsafe { (*new_blob_ptr).prev_blob = Some(last_blob_ptr) };
             self.last_blob = Some(new_blob_ptr);
         } else {
@@ -365,6 +374,7 @@ impl MemoryPool {
         let mut current_blob = self.first_blob.as_mut();
         while let Some(blob) = current_blob {
             if blob.memory <= block_ptr
+                // SAFETY: [Category 10 — OOB] one-past-the-end of this blob's region, allowed for the ownership range check.
                 && block_ptr < unsafe { blob.memory.add(blob.block_size * blob.block_count) }
                 && blob.free_block(block_ptr)
             {
@@ -510,12 +520,15 @@ impl DynamicMemoryAllocator {
         let layout = Layout::from_size_align(size, std::mem::align_of::<usize>())
             .map_err(|e| format!("Failed to create layout: {}", e))?;
 
+        // SAFETY: [Category 13 — library contract] `layout` was validated by
+        // `Layout::from_size_align` just above; allocates the raw pool region.
         let memory = unsafe { alloc(layout) };
         if memory.is_null() {
             return Err("Failed to allocate memory".to_string());
         }
 
         // Zero the memory
+        // SAFETY: [Category 10 — OOB] zeroes exactly the `size` bytes just allocated.
         unsafe {
             ptr::write_bytes(memory, 0, size);
         }
@@ -540,6 +553,7 @@ impl DynamicMemoryAllocator {
         {
             let (block_ptr, size) = self.raw_blocks.swap_remove(pos);
             let layout = Layout::from_size_align(size, std::mem::align_of::<usize>()).unwrap();
+            // SAFETY: [Category 12 — invalid free] ptr+size recorded at allocation time; removed from raw_blocks so not double-freed.
             unsafe {
                 dealloc(block_ptr, layout);
             }

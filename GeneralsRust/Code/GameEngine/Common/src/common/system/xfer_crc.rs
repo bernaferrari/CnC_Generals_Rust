@@ -257,6 +257,8 @@ impl<X: Xfer> Xfer for XferCRC<X> {
         Ok(())
     }
 
+        // SAFETY: CRC path only reads — from_raw_parts over exactly data_size
+        // bytes per this trait method's contract; nothing is written.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
         if data_size > 0 && !data.is_null() {
             let slice = std::slice::from_raw_parts(data, data_size);
@@ -322,6 +324,8 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
         self.xfer_unsigned_short(&mut len)?;
         if len > 0 {
             let bytes = ascii_string_data.as_bytes();
+                        // SAFETY: bytes is a live String slice with exact length; CRC
+                        // reads only.
             unsafe {
                 self.xfer_implementation(bytes.as_ptr() as *mut u8, bytes.len())?;
             }
@@ -341,6 +345,8 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
         let mut len = units as u8;
         self.xfer_unsigned_byte(&mut len)?;
         if !utf16.is_empty() {
+                        // SAFETY: utf16 is a live Vec slice with exact length; CRC
+                        // reads only.
             unsafe {
                 self.xfer_implementation(utf16.as_ptr() as *mut u8, utf16.len())?;
             }
@@ -348,7 +354,11 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
         Ok(())
     }
 
+            // SAFETY: forwards the same caller-validated pointer contract to
+            // the inner Xfer before CRC-ing the transferred range.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
+                // SAFETY: slice built from the caller-validated pointer contract
+                // of xfer_implementation; read-only for the checksum.
         let result = unsafe { self.inner.xfer_implementation(data, data_size) };
         if result.is_ok() {
             let slice = std::slice::from_raw_parts(data, data_size);

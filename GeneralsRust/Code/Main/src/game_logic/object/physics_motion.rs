@@ -281,15 +281,22 @@ impl Object {
                         victim_h,
                     )
                 {
-                    // C++ SquishCollide.cpp:88-93: HUGE_DAMAGE then CrushDie::onDie
-                    // writes front/back flags + TotalCrushSound. Pre-stamping both
-                    // flags skipped fire_crush_die_from_crusher.
+                    // C++ SquishCollide.cpp:88-93: HUGE_DAMAGE + DEATH_CRUSHED.
+                    // The victim's die pipeline then runs CrushDie::onDie
+                    // (CrushDie.cpp:137-180), which stamps FRONT/BACK crushed
+                    // body flags from the dealer-relative crushLocationCheck.
                     let _ = other.take_damage_from_typed_death(
                         SQUISH_HUGE_DAMAGE,
                         Some(self.id),
                         crate::game_logic::combat::DamageType::Crush,
                         crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
                     );
+                    if matches!(
+                        other.status.death_type,
+                        crate::game_logic::host_usa_pilot::HostDeathType::Crushed
+                    ) {
+                        other.fire_crush_die_from_crusher(Some((us.x, us.z)));
+                    }
                     self.add_physics_overlap(other.id);
                     return true;
                 }

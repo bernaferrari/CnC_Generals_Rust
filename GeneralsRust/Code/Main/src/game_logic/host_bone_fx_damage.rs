@@ -780,11 +780,15 @@ mod tests {
 
     #[test]
     fn invented_names_are_gone() {
+        // include_str! sees this same file; the test module's own assert
+        // strings would false-positive the scan. Production code ends at
+        // the #[cfg(test)] marker, so scan only that prefix.
         let src = include_str!("host_bone_fx_damage.rs");
-        assert!(!src.contains("FX_ScudDamagedBoneFX"));
-        assert!(!src.contains("ToxinLeakBonePSys"));
-        assert!(!src.contains("ScudSmokeBonePSys"));
-        assert!(!src.contains("StructureDamageBonePSys"));
+        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert!(!production.contains("FX_ScudDamagedBoneFX"));
+        assert!(!production.contains("ToxinLeakBonePSys"));
+        assert!(!production.contains("ScudSmokeBonePSys"));
+        assert!(!production.contains("StructureDamageBonePSys"));
     }
 
     fn pristine_fx_slot() -> HostBoneFxAuthored {

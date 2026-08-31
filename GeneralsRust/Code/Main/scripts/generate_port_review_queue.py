@@ -100,6 +100,7 @@ def build_queue(
                             "Record only reachable production Rust destinations that own the behavior.",
                             "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
                             "Keep symbol/range and behavioral proof claims separate from path review.",
+                            "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current.",
                         ],
                         "commands": [
                             [

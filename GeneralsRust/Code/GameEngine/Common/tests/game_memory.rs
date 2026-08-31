@@ -24,6 +24,8 @@ fn game_memory_mem_bound_alignment_is_pointer_safe() {
 #[test]
 fn game_memory_pool_size_rounding_still_works() {
     let mut factory = MemoryPoolFactory::new();
+        // SAFETY: factory-created pools are live for the test's scope; every
+        // deref below stays inside pool API contracts.
     unsafe {
         let p1 = factory.create_memory_pool("Round1", 1, 8, 8);
         assert_eq!((*p1).get_allocation_size(), MEM_BOUND_ALIGNMENT);
@@ -51,6 +53,7 @@ fn game_memory_pool_size_rounding_still_works() {
 #[test]
 fn game_memory_allocated_user_pointers_are_aligned() {
     let mut factory = MemoryPoolFactory::new();
+        // SAFETY: pool is live; allocated blocks stay valid until free_block
     unsafe {
         let pool = factory.create_memory_pool("UserAlign", 1, 8, 8);
         let mut ptrs = Vec::new();
@@ -78,6 +81,8 @@ fn game_memory_allocated_user_pointers_are_aligned() {
 #[test]
 fn game_memory_header_pointer_fields_can_be_written_without_misaligned_ptr() {
     let mut factory = MemoryPoolFactory::new();
+        // SAFETY: block was just allocated from a live pool, so its header
+        // region exists and debug_write_header_fields is in-bounds.
     unsafe {
         let pool = factory.create_memory_pool("HdrAlign", 16, 8, 8);
         let p = (*pool).allocate_block();
@@ -102,6 +107,8 @@ fn game_memory_header_pointer_fields_can_be_written_without_misaligned_ptr() {
 fn game_memory_dma_user_and_header_alignment() {
     let mut factory = MemoryPoolFactory::new();
     let dma = factory.create_dynamic_memory_allocator(&[]);
+        // SAFETY: dma is live for this scope; each pointer is allocated then
+        // freed exactly once through the owning allocator.
     unsafe {
         // Sub-pool path (fits in default 16..1024 pools).
         let small = (*dma).allocate_bytes(3);
@@ -130,6 +137,8 @@ fn game_memory_dma_user_and_header_alignment() {
 #[test]
 fn game_memory_debug_fill_and_walls_still_work() {
     let mut factory = MemoryPoolFactory::new();
+        // SAFETY: p2 comes from allocate_block of a live pool; the 64-byte
+        // read matches that allocation's size.
     unsafe {
         let pool = factory.create_memory_pool("FillWalls", 64, 8, 8);
         let p = (*pool).allocate_block();

@@ -1067,7 +1067,14 @@ fn live_script_tick_runs_one_script_engine_update() {
     // per logic frame.  The live host tick must not also walk
     // MissionScriptRuntime over the same installed lists (hq-fxq1).
     let tick = include_str!("../../world_scripts/scripts_camera/script_runtime_camera.rs");
-    let runtime = include_str!("../../mission_scripts.rs");
+    let runtime = concat!(
+        include_str!("../../mission_scripts/mod.rs"),
+        include_str!("../../mission_scripts/script_requests.rs"),
+        include_str!("../../mission_scripts/script_engine.rs"),
+        include_str!("../../mission_scripts/script_hooks.rs"),
+        include_str!("../../mission_scripts/script_actions.rs"),
+        include_str!("../../mission_scripts/tests.rs"),
+    );
     assert!(tick.contains("engine.update()"));
     assert!(tick.contains("guard.take()"));
     assert!(tick.contains("note_logic_frame"));

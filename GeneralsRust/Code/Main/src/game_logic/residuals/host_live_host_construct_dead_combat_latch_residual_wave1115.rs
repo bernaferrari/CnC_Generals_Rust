@@ -53,7 +53,7 @@ fn dr_source() -> &'static str {
     game_client::drawable::drawable::DRAWABLE_SRC
 }
 fn es_source() -> &'static str {
-    include_str!("../../executable_smoke.rs")
+    crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC
 }
 fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
@@ -100,7 +100,7 @@ pub fn honesty_host_construct_dead_combat_latch_nav_commands_residual_wave1115()
     let es = es_source();
     let cnc = cnc_source();
     let ok = es.contains("Duration::from_secs(12)")
-        && es.contains("!saw_combat_damage")
+        && es.contains("!st.saw_combat_damage")
         && es.contains("Duration::from_secs(4)")
         && es.contains("Duration::from_secs(5)")
         && es.contains("attack_nearest_enemy|auto_target=1")
@@ -121,7 +121,7 @@ pub fn honesty_host_construct_dead_combat_latch_residual_pack_wave1115() -> bool
         && dr.contains("isEffectivelyDead check is commented out")
         && es.contains("Wave 1112/1115")
         && es.contains("Duration::from_secs(12)")
-        && es.contains("!saw_combat_damage")
+        && es.contains("!st.saw_combat_damage")
         && es.contains("Duration::from_secs(4)")
         && es.contains("Duration::from_secs(5)")
         && es.contains("attack_nearest_enemy|auto_target=1")

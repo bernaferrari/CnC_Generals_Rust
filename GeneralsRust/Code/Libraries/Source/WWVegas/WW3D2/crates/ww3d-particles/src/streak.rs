@@ -746,7 +746,12 @@ pub struct StreakVertex {
 }
 
 // Manual implementation of Pod and Zeroable
+// SAFETY: StreakVertex is #[repr(C)] with only Copy POD f32-vector fields
+// (Vec3, Vec4, Vec2); every bit pattern is a valid value with no interior
+// mutability, meeting bytemuck::Pod requirements for GPU upload buffers.
 unsafe impl bytemuck::Pod for StreakVertex {}
+// SAFETY: all-zero bytes are a valid (degenerate) StreakVertex value,
+// satisfying the Zeroable contract for this repr(C) all-f32 struct.
 unsafe impl bytemuck::Zeroable for StreakVertex {}
 
 /// Segmented line renderer for managing multiple streak lines

@@ -66,6 +66,9 @@ impl UIDemo {
         });
 
         // Create surface
+        // SAFETY: `window` is a live winit Window owned by this demo for the whole
+        // SAFETY: run; wgpu keeps the surface valid as long as the window outlives it,
+        // SAFETY: which the demo's single-scope structure guarantees.
         let surface = unsafe { instance.create_surface(window) }?;
 
         // Create adapter

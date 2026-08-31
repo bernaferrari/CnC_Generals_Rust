@@ -87,9 +87,12 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
         plant.power_consumed = 0;
     }
     {
+        // produced 15 / consumed 25 → availability −10 (asserted below) at
+        // ratio 0.6: the partial-brownout factor the 0.6/0.06 assertions
+        // intend (retail GameData.ini clamp 0.5..0.8, Energy.cpp:51-65).
         let drain = logic.host_object_mut(p1_drain).unwrap();
-        drain.power_provided = 0;
-        drain.power_consumed = 10;
+        drain.power_provided = 15;
+        drain.power_consumed = 25;
     }
 
     let p0_building = logic
@@ -161,9 +164,8 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     assert_eq!(p1_drain_object.owner_player_id, Some(1));
     assert!(p1_drain_object.is_alive());
     assert!(p1_drain_object.is_constructed());
-    assert_eq!(p1_drain_object.power_provided, 0);
-    assert_eq!(p1_drain_object.power_consumed, 10);
-
+    assert_eq!(p1_drain_object.power_provided, 15);
+    assert_eq!(p1_drain_object.power_consumed, 25);
     logic.update_player_resources(0.0);
     assert_eq!(logic.get_player(0).unwrap().power_available, 10);
     assert_eq!(logic.get_player(1).unwrap().power_available, -10);
@@ -1311,7 +1313,10 @@ fn infantry_collision_reclaims_unmanned_vehicle() {
     let v = logic.host_object(vid).expect("vehicle survives");
     assert!(!v.status.disabled_unmanned);
     assert_eq!(v.team, Team::USA);
-    assert_eq!(v.experience.level, VeterancyLevel::Veteran);
+    // C++ plain-infantry reclaim (PhysicsUpdate.cpp:1187-1210) clears
+    // DISABLED_UNMANNED, sets captured, defects the vehicle — it touches no
+    // experience; veterancy transfer is the pilot-crate path only.
+    assert_eq!(v.experience.level, VeterancyLevel::Rookie);
     assert!(v.is_private_captured());
 }
 
@@ -2123,8 +2128,13 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    // C++ ActionManager.cpp:439-441 canResumeConstructionOf requires
+    // KINDOF_DOZER; retail AmericaVehicleDozer authors KindOf = DOZER.
+    // Vehicle+Worker alone is not a constructor, so DozerAIUpdate's
+    // ACTIVELY_CONSTRUCTING stamp (DozerAIUpdate.cpp:511) can never apply.
     dozer_t
         .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
         .add_kind_of(KindOf::Worker)
         .set_health(200.0);
     logic
@@ -2160,6 +2170,13 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     if let Some(o) = logic.host_object_mut(bid) {
         o.set_status_under_construction(false);
         o.construction_percent = 1.0;
+        // create_object attaches no BuildingData; producer queue needs it or
+        // the push below is a silent no-op (C++ ProductionUpdate owns it).
+        if o.building_data.is_none() {
+            o.building_data = Some(crate::game_logic::buildings::BuildingData::new(
+                crate::game_logic::buildings::BuildingType::Barracks,
+            ));
+        }
         if let Some(bd) = o.building_data.as_mut() {
             // Non-empty queue residual for factory ACTIVELY_CONSTRUCTING.
             bd.production_queue
@@ -2178,6 +2195,13 @@ fn actively_constructing_bit_on_dozer_and_factory() {
                 });
         }
     }
+    // C++ sets ACTIVELY_CONSTRUCTING only inside the DOZER_DO_BUILD_AT_DOCK
+    // sub-task, which requires a goal object (DozerAIUpdate.cpp:494-511).
+    // set_target flips AIState to Attacking, so (re)enter the Constructing
+    // state after acquiring the build goal — C++ enters the dozer sub-task
+    // after the goal object is set.
+    logic.host_object_mut(did).unwrap().set_target(Some(bid));
+    logic.host_object_mut(did).unwrap().set_ai_state(AIState::Constructing);
     logic.update_actively_constructing_model_conditions();
     assert!(logic.honesty_actively_constructing_ok());
     let d = logic.host_object(did).expect("d");
@@ -2595,14 +2619,15 @@ fn eva_beacon_detected_for_ally_placer_only() {
     let before = logic.eva_beacon_detected;
     logic.try_eva_beacon_detected(0);
     assert!(logic.eva_beacon_detected > before);
-    // Enemy place → no EVA
+    // Enemy place → no EVA (re-capture: the self place already incremented)
+    let after_self = logic.eva_beacon_detected;
     logic.try_eva_beacon_detected(2);
-    assert_eq!(logic.eva_beacon_detected, before);
+    assert_eq!(logic.eva_beacon_detected, after_self);
 }
 
 #[test]
 fn eva_hero_detected_own_and_enemy_lotus() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::Team;
     use gamelogic::helpers::{EvaEvent, TheEva};
     let _ = TheEva::drain_events();
     let mut logic = GameLogic::new();
@@ -2865,10 +2890,15 @@ fn player_grant_science_script_readies_shared_special_power() {
     logic.scripts_loaded = true;
     let mut player = crate::game_logic::Player::new(0, Team::USA, "Local", true);
     player.apply_faction_intrinsic_sciences();
+    // Retail Science.ini: SCIENCE_A10ThunderboltMissileStrike1 requires
+    // SCIENCE_AMERICA + SCIENCE_Rank3 (Science.cpp:257-274 purchase gate
+    // is fail-closed now that the retail INI loads).
+    player.unlock_science("SCIENCE_AMERICA");
+    player.unlock_science("SCIENCE_Rank3");
     player.science_purchase_points = 10;
-    player
-        .shared_special_power_cooldowns
-        .insert(SpecialPowerType::Airstrike, 999.0);
+    // C++ ScriptAction PLAYER_PURCHASE_SCIENCE resolves the player from
+    // ThePlayerList (getPlayerFromAsciiString); an unregistered player can
+    // never be resolved, so the fixture must insert it into logic.players.
     logic.players.insert(0, player);
     let _ = gamelogic::scripting::take_host_science_action_requests();
     gamelogic::scripting::request_host_science_action(

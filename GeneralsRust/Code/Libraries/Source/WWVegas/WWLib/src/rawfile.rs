@@ -960,7 +960,9 @@ impl Drop for RawFile {
 }
 
 // Thread-safe implementation
+// SAFETY: RawFile owns its file handle exclusively and all methods take &mut self, so moving it between threads is sound.
 unsafe impl Send for RawFile {}
+// SAFETY: RawFile owns its file handle exclusively and all methods take &mut self, so moving it between threads is sound.
 unsafe impl Sync for RawFile {}
 
 #[cfg(test)]

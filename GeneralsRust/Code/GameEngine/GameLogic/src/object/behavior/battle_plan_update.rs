@@ -1217,6 +1217,8 @@ fn xfer_battle_plan_status(
     status: &mut BattlePlanStatus,
 ) -> Result<(), String> {
     let mut raw = *status as i32;
+    // SAFETY: `raw` is an initialized stack `i32`; `xfer_user` moves exactly
+    // `size_of::<i32>()` bytes for the duration of the call.
     unsafe { xfer.xfer_user(&mut raw as *mut i32 as *mut u8, std::mem::size_of::<i32>()) }
         .map_err(|e| format!("BattlePlanStatus xfer failed: {:?}", e))?;
 
@@ -1238,6 +1240,8 @@ fn xfer_transition_status(
     status: &mut TransitionStatus,
 ) -> Result<(), String> {
     let mut raw = *status as i32;
+    // SAFETY: `raw` is an initialized stack `i32`; `xfer_user` moves exactly
+    // `size_of::<i32>()` bytes for the duration of the call.
     unsafe { xfer.xfer_user(&mut raw as *mut i32 as *mut u8, std::mem::size_of::<i32>()) }
         .map_err(|e| format!("TransitionStatus xfer failed: {:?}", e))?;
 
@@ -1447,13 +1451,17 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), S
             }
             Ok(())
         }
-        game_engine::system::XferMode::Crc => unsafe {
-            xfer.xfer_user(
-                mask as *mut KindOfMask as *mut u8,
-                std::mem::size_of::<KindOfMask>(),
-            )
-            .map_err(|e| format!("KindOfMask crc xfer failed: {:?}", e))
-        },
+        game_engine::system::XferMode::Crc =>
+            // SAFETY: `mask` is a fully initialized stack `KindOfMask`
+            // (plain integer mask); CRC mode only reads its exact size in
+            // bytes and never retains the pointer.
+            unsafe {
+                xfer.xfer_user(
+                    mask as *mut KindOfMask as *mut u8,
+                    std::mem::size_of::<KindOfMask>(),
+                )
+                .map_err(|e| format!("KindOfMask crc xfer failed: {:?}", e))
+            },
         mode => Err(format!("KindOfMask unsupported xfer mode: {:?}", mode)),
     }
 }

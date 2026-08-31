@@ -1,5 +1,5 @@
 {
-  "input_digest": "bfc5b3a8d060ac15b96302faee4916940b4a7a7d3c05644c01021dda4cb045ae",
+  "input_digest": "97ba96af165f96b4cd67f00dad44e17235a735f6a8154acfed63af129bea086e",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -10,63 +10,115 @@
   "source": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
   "summary": {
     "all_inventory_entries": 2961,
+    "behavior_evidence": {
+      "by_confidence": {
+        "exact": 0,
+        "tolerance": 0
+      },
+      "by_evidence_scope": {},
+      "by_provenance_scope": {
+        "game_engine": {
+          "units_with_records": 0,
+          "verified_units": 0
+        },
+        "game_engine_device": {
+          "units_with_records": 0,
+          "verified_units": 0
+        },
+        "libraries": {
+          "units_with_records": 0,
+          "verified_units": 0
+        },
+        "main": {
+          "units_with_records": 0,
+          "verified_units": 0
+        },
+        "tools": {
+          "units_with_records": 0,
+          "verified_units": 0
+        }
+      },
+      "informational_records": 0,
+      "rejected_records": 0,
+      "units_with_records": 0,
+      "unmatched_units": [],
+      "verified_units": 0
+    },
     "behavior_verified": 0,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 679,
+      "duplicate_implementation_destination": 46,
       "missing_mapping": 15,
-      "no_reachable_implementation": 660,
+      "no_reachable_implementation": 663,
       "unreviewed_mapping": 1384,
-      "unreviewed_source_range_ownership": 31,
+      "unreviewed_source_range_ownership": 4,
       "unreviewed_symbol_ownership": 1389
     },
     "by_scope": {
       "game_engine": {
+        "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 47,
-        "reachable_implementation_candidates": 514,
+        "reachable_implementation_candidates": 513,
         "required": 539,
         "reviewed_path_implementations": 5,
+        "source_range_ownership_reviewed": 0,
+        "symbol_ownership_reviewed": 0,
         "translation_units": 586
       },
       "game_engine_device": {
+        "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 0,
         "reachable_implementation_candidates": 46,
         "required": 103,
         "reviewed_path_implementations": 0,
+        "source_range_ownership_reviewed": 0,
+        "symbol_ownership_reviewed": 0,
         "translation_units": 103
       },
       "libraries": {
+        "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 0,
-        "reachable_implementation_candidates": 177,
+        "reachable_implementation_candidates": 175,
         "required": 378,
         "reviewed_path_implementations": 0,
+        "source_range_ownership_reviewed": 0,
+        "symbol_ownership_reviewed": 0,
         "translation_units": 378
       },
       "main": {
+        "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 0,
         "reachable_implementation_candidates": 1,
         "required": 1,
         "reviewed_path_implementations": 0,
+        "source_range_ownership_reviewed": 0,
+        "symbol_ownership_reviewed": 0,
         "translation_units": 1
       },
       "tools": {
+        "behavior_evidence_units": 0,
         "behavior_verified": 0,
         "deferred_network": 0,
         "reachable_implementation_candidates": 13,
         "required": 368,
         "reviewed_path_implementations": 0,
+        "source_range_ownership_reviewed": 0,
+        "symbol_ownership_reviewed": 0,
         "translation_units": 368
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 314,
-    "reachable_implementation_candidates": 729,
+    "duplicate_implementation_destinations": 23,
+    "orphan_ownership_records": 0,
+    "reachable_implementation_candidates": 726,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 5,
-    "strict_blockers": 4158,
+    "source_range_ownership_reviewed": 0,
+    "strict_blockers": 3501,
+    "symbol_ownership_reviewed": 0,
     "translation_units": 1436
   }
 }
