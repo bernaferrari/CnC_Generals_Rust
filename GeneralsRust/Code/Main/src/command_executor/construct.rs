@@ -205,32 +205,88 @@ impl<'a> CommandExecutor<'a> {
         let builder = units[0];
         let delta = end - start;
         let orient = delta.z.atan2(delta.x);
-        let mut placed = false;
+        let mut placed_segments: Vec<(Vec3, ObjectId)> = Vec::new();
         for pos in positions {
-            if self.place_line_build_segment(builder, template_name, pos, orient)
-                == CommandResult::Success
-            {
-                placed = true;
-            } else if placed {
-                // C++ buildTiledLocations already stopped; a later create
-                // failure should not keep stretching through the line.
-                break;
+            match self.place_line_build_segment(builder, template_name, pos, orient) {
+                Ok(building_id) => placed_segments.push((pos, building_id)),
+                Err(_) if !placed_segments.is_empty() => {
+                    // C++ buildTiledLocations already stopped; a later create
+                    // failure should not keep stretching through the line.
+                    break;
+                }
+                Err(_) => {}
             }
         }
-        if placed {
-            self.game_logic.queue_picked_unit_voice(
-                &[builder],
-                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
-            );
-            // C++ GameLogicDispatch.cpp:1400-1403 — one PlaceBuilding after the line.
-            self.game_logic.queue_audio_event(
-                AudioEventRequest::new(translate_audio_event("PlaceBuilding")).with_object(builder),
-            );
-
-            CommandResult::Success
-        } else {
-            CommandResult::InvalidCommand
+        if placed_segments.is_empty() {
+            return CommandResult::InvalidCommand;
         }
+        self.game_logic.queue_picked_unit_voice(
+            &[builder],
+            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::BuildResponse,
+        );
+        // C++ GameLogicDispatch.cpp:1400-1403 — one PlaceBuilding after the line.
+        self.game_logic.queue_audio_event(
+            AudioEventRequest::new(translate_audio_event("PlaceBuilding")).with_object(builder),
+        );
+
+        // C++ residual contract: buildObjectLineNow (BuildAssistant.cpp:430-454)
+        // places every scaffold first; the dozers then WALK to their segments —
+        // AI_MOVE to a `findGoodBuildOrRepairPosition` approach point
+        // (DozerAIUpdate.cpp:1855-1894) beside the segment footprint and only
+        // flip to AI_CONSTRUCT/Constructing on arrival (DOZER_DO_BUILD_AT_DOCK,
+        // DozerAIUpdate.cpp:499-507). Each selected worker owns one segment and
+        // the walk legs are installed AFTER placement so placement shoves
+        // (moveObjectsForConstruction) cannot clobber the segment destinations.
+        let workers: Vec<ObjectId> = units
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.game_logic.host_object(id).is_some_and(|unit| {
+                    unit.can_construct()
+                        && unit.owner_player_id == Some(self.current_player_id)
+                })
+            })
+            .collect();
+        if !workers.is_empty() {
+            for (seg_idx, &(seg_pos, building_id)) in placed_segments.iter().enumerate() {
+                let worker = workers[seg_idx % workers.len()];
+                if !self
+                    .game_logic
+                    .unit_command_set_order_target(worker, Some(building_id))
+                {
+                    continue;
+                }
+                // C++ construct:1717 newTask(DOZER_TASK_BUILD, obj).
+                self.game_logic.dozer_new_task_build(worker, building_id);
+                // C++ WorkerAIUpdate::newTask: leave supply-truck mode / drop dock.
+                self.game_logic.worker_exit_supply_for_dozer_task(worker);
+                let (worker_pos, pad_radius) = {
+                    match self.game_logic.host_object(building_id) {
+                        Some(b) => (b.get_position(), b.selection_radius),
+                        None => continue,
+                    }
+                };
+                let approach = self.game_logic.find_good_build_or_repair_position(
+                    worker_pos,
+                    seg_pos,
+                    pad_radius,
+                    false,
+                    None,
+                    Some(worker),
+                );
+                // C++ line build: the dozer WALKS to its segment (AI_MOVE ⇒
+                // Moving) and only flips to AI_CONSTRUCT/Constructing on
+                // arrival (DozerAIUpdate DOZER_DO_BUILD_AT_DOCK, cpp:499-507).
+                let _ = self.path_to_goal_with_state_ignoring(
+                    worker,
+                    approach,
+                    AIState::Moving,
+                    Some(building_id),
+                );
+            }
+        }
+
+        CommandResult::Success
     }
 
     /// C++ `BuildAssistant::buildTiledLocations` (BuildAssistant.cpp:1090-1191).
@@ -302,17 +358,17 @@ impl<'a> CommandExecutor<'a> {
         template_name: &str,
         location: Vec3,
         orientation: f32,
-    ) -> CommandResult {
+    ) -> Result<ObjectId, CommandResult> {
         if !self.validate_build_location(location) {
-            return CommandResult::InvalidLocation;
+            return Err(CommandResult::InvalidLocation);
         }
         let (base_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
             Some(t) => (t.build_cost, t.is_kind_of(KindOf::Structure)),
-            None => return CommandResult::InvalidCommand,
+            None => return Err(CommandResult::InvalidCommand),
         };
         let build_cost = self.calc_cost_to_build(template_name, base_cost);
         if !is_structure {
-            return CommandResult::InvalidCommand;
+            return Err(CommandResult::InvalidCommand);
         }
         let team = match self.game_logic.host_object(builder_id) {
             Some(unit)
@@ -320,7 +376,7 @@ impl<'a> CommandExecutor<'a> {
             {
                 unit.team
             }
-            _ => return CommandResult::InvalidCommand,
+            _ => return Err(CommandResult::InvalidCommand),
         };
         if !self.game_logic.is_location_legal_to_build_for_builder(
             team,
@@ -328,7 +384,7 @@ impl<'a> CommandExecutor<'a> {
             template_name,
             Some(builder_id),
         ) {
-            return CommandResult::InvalidLocation;
+            return Err(CommandResult::InvalidLocation);
         }
         // C++ BuildAssistant.cpp:333-343 — same human refuse as buildObjectNow.
         self.clear_removable_for_construction(location, orientation, template_name);
@@ -340,14 +396,14 @@ impl<'a> CommandExecutor<'a> {
             .move_objects_for_construction(location, place_r, Some(builder_id))
             && self.game_logic.player_is_human(self.current_player_id)
         {
-            return CommandResult::InvalidLocation;
+            return Err(CommandResult::InvalidLocation);
         }
         {
             let Some(player) = self.game_logic.get_player_mut(self.current_player_id) else {
-                return CommandResult::InvalidCommand;
+                return Err(CommandResult::InvalidCommand);
             };
             if !player.spend_resources(&build_cost) {
-                return CommandResult::InvalidCommand;
+                return Err(CommandResult::InvalidCommand);
             }
         }
         let Some(building_id) = self.game_logic.create_object_under_construction_for_player(
@@ -361,7 +417,7 @@ impl<'a> CommandExecutor<'a> {
                     .supplies
                     .saturating_add(build_cost.supplies);
             }
-            return CommandResult::InvalidCommand;
+            return Err(CommandResult::InvalidCommand);
         };
         if orientation.abs() > f32::EPSILON {
             let _ = self
@@ -377,7 +433,7 @@ impl<'a> CommandExecutor<'a> {
         let _ = self.game_logic.force_complete_construction(building_id);
         self.game_logic
             .notify_structure_construction_complete(building_id);
-        CommandResult::Success
+        Ok(building_id)
     }
 
     pub(super) fn execute_cancel_construction(

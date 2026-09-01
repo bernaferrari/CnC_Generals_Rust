@@ -9,10 +9,14 @@ use gamelogic::world::{
 };
 
 #[test]
-fn entity_modules_default_on_installs_live_instances() {
-    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::env_compat::remove_var("GENERALS_GAMEWORLD_ENTITY_MODULES");
-    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+fn entity_modules_armed_installs_live_instances() {
+    let _env = AuthorityEnvGuard::lock()
+        .set("GENERALS_GAMEWORLD_SHADOW", "1")
+        .set("GENERALS_GAMEWORLD_ENTITY_MODULES", "1");
+    // Wave 153: "preview ENTITY_MODULES is default off"
+    // (host_gameworld_authority_residual_wave153.rs:48); the attach is
+    // opt-in via GENERALS_GAMEWORLD_ENTITY_MODULES, like every other
+    // GameWorld authority family.
     assert!(crate::gameworld_shadow::gameworld_entity_modules_enabled());
 
     let mut logic = GameLogic::new();

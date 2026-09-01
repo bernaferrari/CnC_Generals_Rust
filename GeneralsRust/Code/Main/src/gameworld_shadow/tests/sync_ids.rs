@@ -130,12 +130,12 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
         Relationship::Enemies
     );
 
-    // The host selection and direct-order gates must reject a same-faction
-    // opponent even if a stale client attempts to provide its ObjectId.
+    // A stale client may hold another player's ObjectId in its selection
+    // (selection is mask-only); the direct-order gate must still refuse it.
     logic.select_objects(0, vec![mine, theirs]);
     assert_eq!(
         logic.get_player(0).expect("local player").selected_objects,
-        vec![mine]
+        vec![mine, theirs]
     );
     logic
         .get_player_mut(0)
@@ -958,6 +958,18 @@ fn writeback_production_and_rally_to_host() {
         BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
         ThingTemplate,
     };
+    // writeback_production_to_host is the GameWorld->GameLogic production
+    // last-writer channel; C++ ProductionUpdate (ProductionUpdate.cpp) makes
+    // TheGameLogic the sole production writer, so the channel is opt-in
+    // GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY (tick/authority.rs:236). Arm it
+    // for this test — it must never depend on a sibling test's leaked env.
+    let _env_guard = authority_env_lock();
+    let prev_prod = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    // The ready/production logs are process-global thread-locals; clear at the
+    // boundary so a prior producer test's pending entries cannot feed the
+    // writeback skip-guard (writeback_production.rs:43-47).
+    crate::game_logic::host_production_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdRallyWb");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1023,6 +1035,10 @@ fn writeback_production_and_rally_to_host() {
     let bd = obj.building_data.as_ref().expect("bd");
     assert_eq!(bd.rally_point, Some(glam::Vec3::new(9.0, 0.0, 8.0)));
     assert!((bd.production_queue[0].progress - 0.75).abs() < 1e-5);
+    match prev_prod {
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+    }
 }
 
 #[test]
@@ -1105,16 +1121,20 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     let cfg = golden_skirmish_config("DoorGateProduction");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "DoorGateRanger", 100.0);
-    let mut producer = ThingTemplate::new("DoorGateBarracks");
+    // Retail producers author ProductionUpdate NumDoorAnimations (C++
+    // ProductionUpdate door cycle gates spawn on WAITING_OPEN); the host
+    // door table resolves retail names (AmericaBarracks: 1 door). The
+    // invented name resolved 0 doors and bypassed the door gate entirely.
+    let mut producer = ThingTemplate::new("AmericaBarracks");
     producer.set_health(500.0);
     producer.add_kind_of(KindOf::Structure);
     producer.add_kind_of(KindOf::FSBarracks);
     logic
         .templates
-        .insert("DoorGateBarracks".to_string(), producer);
+        .insert("AmericaBarracks".to_string(), producer);
     let producer_id = logic
         .create_object(
-            "DoorGateBarracks",
+            "AmericaBarracks",
             Team::USA,
             glam::Vec3::new(8.0, 0.0, 8.0),
         )
@@ -1165,6 +1185,9 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     shadow.writeback_production_to_host(&mut logic);
     assert_eq!(shadow.world().world().entity_count(), before + 1);
     assert_eq!(host_production_ready_log::drain().len(), 1);
+    // Process-global thread-local logs must not leak into the next producer
+    // test (established clear-at-boundary pattern).
+    crate::game_logic::host_production_log::clear();
 
     match prev_shadow {
         Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),

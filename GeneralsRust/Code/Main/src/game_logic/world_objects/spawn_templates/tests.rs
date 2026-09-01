@@ -18,12 +18,12 @@ mod tests {
             .expect("Main crate must remain three levels below repository root");
         let faction_buildings =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/FactionBuilding.ini",
             ))
             .expect("retail FactionBuilding.ini");
         let america_vehicles =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaVehicle.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/AmericaVehicle.ini",
             ))
             .expect("retail AmericaVehicle.ini");
 
@@ -66,12 +66,12 @@ mod tests {
             .expect("Main crate must remain three levels below repository root");
         let china_infantry =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaInfantry.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/ChinaInfantry.ini",
             ))
             .expect("retail ChinaInfantry.ini");
         let faction_buildings =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/FactionBuilding.ini",
             ))
             .expect("retail FactionBuilding.ini");
 
@@ -222,7 +222,7 @@ mod tests {
             .nth(3)
             .expect("Main crate must remain three levels below repository root");
         let special_power = std::fs::read_to_string(
-            repo_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/SpecialPower.ini"),
+            repo_root.join("windows_game/extracted_big_files_v2/INI/SpecialPower.ini"),
         )
         .expect("retail SpecialPower.ini");
         assert!(special_power.contains("SpecialPower SpecialAbilityHackerDisableBuilding"));
@@ -232,7 +232,7 @@ mod tests {
 
         let china_infantry =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaInfantry.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/ChinaInfantry.ini",
             ))
             .expect("retail ChinaInfantry.ini");
         let mut parser = crate::assets::IniParser::new();
@@ -363,7 +363,7 @@ End
             .expect("Main crate must remain three levels below repository root");
         let faction_buildings =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/FactionBuilding.ini",
             ))
             .expect("retail FactionBuilding.ini");
         let mut parser = crate::assets::IniParser::new();
@@ -1084,7 +1084,7 @@ End
             .expect("Main crate must remain three levels below repository root");
         let retail =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/FactionBuilding.ini",
             ))
             .expect("retail FactionBuilding.ini");
         let mut retail_parser = crate::assets::IniParser::new();
@@ -1279,7 +1279,7 @@ End
             .nth(3)
             .expect("Main crate must remain three levels below repository root");
         let retail = std::fs::read_to_string(repo_root.join(
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/CivilianBuilding.ini",
+            "windows_game/extracted_big_files_v2/INI/Object/CivilianBuilding.ini",
         ))
         .expect("retail CivilianBuilding.ini");
         let mut retail_parser = crate::assets::IniParser::new();
@@ -1301,7 +1301,7 @@ End
         }
         let faction_buildings =
             std::fs::read_to_string(repo_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/FactionBuilding.ini",
             ))
             .expect("retail FactionBuilding.ini");
         retail_parser

@@ -140,7 +140,8 @@ fn dragon_tank_residual_flame_and_black_napalm() {
             "dragon flame dmg 10, got {}",
             prim.damage
         );
-        assert!((prim.range - (DRAGON_RANGE - 2.5)).abs() < 1.0);
+        // Retail Weapon.ini:131684 DragonTankFlameWeapon AttackRange 75.0.
+        assert!((prim.range - DRAGON_RANGE).abs() < 1.0);
     }
 
     // BlackNapalm residual upgrade → higher primary damage.
@@ -313,7 +314,8 @@ fn gattling_tank_residual_ramp_fire_rate_and_aa() {
         assert!(is_gattling_tank_template(&g.template_name));
         let prim = g.weapon.as_ref().expect("ground gun");
         assert!((prim.damage - GATTLING_GROUND_DAMAGE).abs() < 0.01);
-        assert!((prim.range - (GATTLING_GROUND_RANGE - 2.5)).abs() < 1.0);
+        // Retail Weapon.ini:129891 GattlingTankGun AttackRange 150.0.
+        assert!((prim.range - GATTLING_GROUND_RANGE).abs() < 1.0);
         assert!(prim.can_target_ground);
         assert!(!prim.can_target_air);
         let sec = g.secondary_weapon.as_ref().expect("aa gun");
@@ -1740,7 +1742,8 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         assert!(is_minigunner_template(&mg.template_name));
         let prim = mg.weapon.as_ref().expect("ground gun");
         assert!((prim.damage - MINIGUNNER_GROUND_DAMAGE).abs() < 0.5);
-        assert!((prim.range - (MINIGUNNER_GROUND_RANGE - 2.5)).abs() < 1.0);
+        // Retail Weapon.ini:135005 Infa_MiniGunnerGun AttackRange 125.0.
+        assert!((prim.range - MINIGUNNER_GROUND_RANGE).abs() < 1.0);
         assert!(prim.can_target_ground && !prim.can_target_air);
         let sec = mg.secondary_weapon.as_ref().expect("aa gun");
         assert!(sec.can_target_air && !sec.can_target_ground);

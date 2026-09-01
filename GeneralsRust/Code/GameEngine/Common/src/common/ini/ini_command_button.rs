@@ -453,6 +453,15 @@ impl ControlBar {
         self.command_buttons.len()
     }
 
+    /// Remove a single command button (test isolation / dynamic relist).
+    /// C++ CommandButton text lists are process-global; mutating tests must
+    /// restore the shared store instead of leaving entries behind.
+    pub fn remove_command_button(&mut self, name: &str) -> bool {
+        let removed = self.command_buttons.remove(name).is_some();
+        self.button_order.retain(|order| order != name);
+        removed
+    }
+
     /// Clear all command buttons
     pub fn clear(&mut self) {
         self.command_buttons.clear();

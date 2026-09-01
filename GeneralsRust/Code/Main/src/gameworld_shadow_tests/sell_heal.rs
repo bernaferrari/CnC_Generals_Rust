@@ -410,7 +410,14 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("SellPad") {
         let mut t = ThingTemplate::new("SellPad");
-        t.add_kind_of(KindOf::Structure);
+        // Retail sellable structures author KINDOF_MP_COUNT_FOR_VICTORY
+        // (FactionBuilding.ini; synthesized structures must carry it too —
+        // buildings.rs:996-1007). Without the bit the skirmish
+        // NO_BUILDINGS rule (C++ VictoryConditions.cpp:87-95 →
+        // Team::hasAnyBuildings mask) defeats the sole owner on frame 0
+        // and kill_player_for_victory destroys the pad mid-sell.
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
         t.set_health(500.0);
         logic.templates.insert("SellPad".into(), t);
     }

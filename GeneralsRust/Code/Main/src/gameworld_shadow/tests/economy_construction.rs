@@ -202,6 +202,21 @@ fn economy_authority_pending_blocks_double_spend() {
         p.resources.supplies = 150;
         p.pending_supply_delta = 0;
     }
+    // Session probe evaluates victory (C++ VictoryConditions.cpp:87-95 /
+    // 168-196): an army-less playable side is defeated on frame 0 and
+    // Player::killPlayer (Player.cpp) wipes its money. Give the human side a
+    // victory-counting structure so the assertion observes the deferred-spend
+    // materialization rather than the defeat wipe.
+    use crate::game_logic::{KindOf, ThingTemplate};
+    if !logic.templates.contains_key("EconKeepAlive") {
+        let mut t = ThingTemplate::new("EconKeepAlive");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
+        logic.templates.insert("EconKeepAlive".into(), t);
+    }
+    let _keep = logic
+        .create_object_for_player("EconKeepAlive", hid, glam::Vec3::new(3.0, 0.0, 3.0))
+        .expect("keep-alive structure");
     let cost = crate::game_logic::Resources {
         supplies: 100,
         power: 0,
@@ -281,6 +296,21 @@ fn credit_supplies_defers_under_economy_authority() {
         p.resources.supplies = 1000;
         p.pending_supply_delta = 0;
     }
+    // Session probe evaluates victory (C++ VictoryConditions.cpp:87-95 /
+    // 168-196): an army-less playable side is defeated on frame 0 and
+    // Player::killPlayer (Player.cpp) wipes its money. Give the human side a
+    // victory-counting structure so the assertion observes economy
+    // materialization rather than the defeat wipe.
+    use crate::game_logic::{KindOf, ThingTemplate};
+    if !logic.templates.contains_key("EconKeepAlive") {
+        let mut t = ThingTemplate::new("EconKeepAlive");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
+        logic.templates.insert("EconKeepAlive".into(), t);
+    }
+    let _keep = logic
+        .create_object_for_player("EconKeepAlive", hid, glam::Vec3::new(3.0, 0.0, 3.0))
+        .expect("keep-alive structure");
     begin_shadow_coupled_tick();
     logic.get_player_mut(hid).unwrap().credit_supplies(250);
     assert_eq!(logic.get_player(hid).unwrap().resources.supplies, 1000);
@@ -541,6 +571,12 @@ fn production_progress_log_drives_set_production_queue() {
 fn exit_delay_remaining_channel_via_production_progress() {
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
+    // writeback_production_to_host is the opt-in GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY
+    // last-writer (default off like C++ no-shadow builds). Enable it here instead of
+    // depending on another test leaking the env var, and restore afterwards.
+    let _env_guard = authority_env_lock();
+    let prev_prod_auth = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     host_production_progress_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ExitDel");
@@ -594,6 +630,10 @@ fn exit_delay_remaining_channel_via_production_progress() {
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
+    match prev_prod_auth {
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
+    }
     let d = logic
         .host_objects()
         .get(&oid)

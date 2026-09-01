@@ -113,7 +113,12 @@ pub fn simulate_host_shock_stun_dual_peel_collect_source() -> bool {
 pub fn simulate_host_shock_stun_dual_peel_dispatch_source() -> bool {
     let ok = sh_source().contains("shock_stun_frames.saturating_sub")
         && gl_source().contains("tick_shock_stun_physics_only()")
-        && crate::game_logic::object::OBJECT_SRC.contains("if countdown")
+        // Live peel channel: the object source no longer branches on the
+        // countdown flag; physics-only peels by delegating
+        // `tick_shock_stun_with_countdown(false)` (tumble/bounce stays host,
+        // GW tick_status_timer_expirations sole-decrements the frames).
+        && crate::game_logic::object::OBJECT_SRC
+            .contains("tick_shock_stun_with_countdown(false)")
         && gl_source().matches("Wave 764").count() >= 1;
     residual_action_store(ResidualHostShockStunDualPeelAction::DispatchSource);
     ok

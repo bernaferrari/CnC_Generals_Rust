@@ -1453,11 +1453,14 @@ impl CommandSystem {
                         return hint.is_mine;
                     }
                     // C++ WeaponSet.cpp:529-543 — CMD_FROM_PLAYER non-force
-                    // attack requires ENEMIES, or a non-allied mine. The RMB
-                    // context command is never force-attack, so a neutral
-                    // (or friendly) crate/tech target must fall through to
-                    // the move-to-crate mapping below.
-                    hint.is_enemy_of_local || hint.is_mine
+                    // attack requires ENEMIES or a non-allied mine. hq-5fhuz
+                    // (closed): RMB attack stays weapon-legal for neutral
+                    // tech/civilian targets (oil derrick, civilian car, angry
+                    // mob); only ordinary/salvage crates fall through to the
+                    // move-to-crate mapping below.
+                    hint.is_enemy_of_local
+                        || hint.is_mine
+                        || (!hint.is_crate && !hint.is_salvage_crate && !hint.is_friendly_of_local)
                 })
             } else {
                 game_logic.is_some_and(|gl| self.can_attack_target(units, target_id, gl))

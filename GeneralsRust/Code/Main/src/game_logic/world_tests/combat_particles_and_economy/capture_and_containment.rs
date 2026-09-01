@@ -775,13 +775,13 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
     let cases = [
         (
             "AmericaVehicleChinook",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaAir.ini",
+            "windows_game/extracted_big_files_v2/INI/Object/AmericaAir.ini",
             Team::USA,
             0,
         ),
         (
             "ChinaVehicleSupplyTruck",
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/ChinaVehicle.ini",
+            "windows_game/extracted_big_files_v2/INI/Object/ChinaVehicle.ini",
             Team::China,
             1,
         ),

@@ -757,7 +757,7 @@ fn retail_overcharge_behavior_metadata_drives_frozen_command_and_live_drain() {
         .expect("Main crate must remain three levels below repository root");
     let retail_source = std::fs::read_to_string(
         repo_root
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini"),
+            .join("windows_game/extracted_big_files_v2/INI/Object/FactionBuilding.ini"),
     )
     .expect("read retail FactionBuilding.ini");
     let mut parser = crate::assets::IniParser::new();

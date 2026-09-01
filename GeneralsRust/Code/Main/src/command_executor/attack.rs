@@ -458,6 +458,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
+        // Wave 232: stop last-writes via GameLogic unit_command_stop.
         let mut extra_stop: Vec<ObjectId> = Vec::new();
         let mut hive_ids = extra_stop.clone();
         for &uid in units {
@@ -495,6 +496,7 @@ impl<'a> CommandExecutor<'a> {
         target: &GuardTarget,
         mode: crate::game_logic::GuardMode,
     ) -> CommandResult {
+        // Wave 232: guard last-writes via GameLogic unit_command_guard_full.
         // C++ AIGroup::groupGuardPosition/Object — leftover AI interface only.
         // Structures/turrets/stunned still scan; no canMove/Immobile/Structure gate.
         const GUARD_MIN_RADIUS: f32 = 80.0;

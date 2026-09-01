@@ -57,7 +57,7 @@ fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 fn ai_source() -> &'static str {
-    include_str!("../../ai.rs")
+    include_str!("../../ai/combat.rs")
 }
 fn golden_source() -> &'static str {
     include_str!("../../golden_skirmish.rs")
@@ -115,7 +115,7 @@ pub fn honesty_host_gameworld_shadow_ai_golden_lock_residual_pack_wave1086() -> 
         && es.contains("Headless smoke must keep `playable_claim == false`")
         && !cnc.contains("playable_claim = true")
         && ui.contains(
-            "Wave 1085: slaver/tip residual fail-closed on unusable/FOW/stealth non-local",
+            "Enemy/neutral effectively stealthed targets fail closed (SelectionInfo parity).",
         );
     residual_action_store(ResidualHostGameworldShadowAiGoldenLockAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);

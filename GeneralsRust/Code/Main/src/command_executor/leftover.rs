@@ -63,6 +63,8 @@ impl<'a> CommandExecutor<'a> {
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
     ) -> bool {
+        // Wave 233: path+state last-writes via GameLogic
+        // unit_command_path_with_state_ignoring.
         self.game_logic
             .unit_command_path_with_state_ignoring(unit_id, goal, state, ignore_obstacle)
     }

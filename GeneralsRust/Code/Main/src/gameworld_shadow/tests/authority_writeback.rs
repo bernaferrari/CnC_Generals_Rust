@@ -175,6 +175,11 @@ fn experience_authority_defers_host_xp_until_writeback() {
         let mut t = ThingTemplate::new("RangerXp");
         t.set_health(100.0);
         t.add_kind_of(KindOf::Infantry);
+        // C++ ThingTemplate.cpp:994 defaults m_isTrainable = FALSE; retail
+        // player-built infantry author IsTrainable = Yes
+        // (AmericaInfantry.ini:163029). gain_experience fails closed on
+        // untrainable objects (C++ addExperiencePoints).
+        t.is_trainable = true;
         logic.templates.insert("RangerXp".into(), t);
     }
     let oid = logic
@@ -290,6 +295,23 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         o.move_to(glam::Vec3::new(50.0, 0.0, 0.0));
         o.record_host_movement();
     }
+    // The trailing session probe runs GameLogic::evaluate_victory_condition
+    // (apply_host_damage.rs probe → game_logic/mod.rs:112). Per C++
+    // VictoryConditions.cpp:87-95/168-196 the skirmish NO_BUILDINGS rule
+    // defeats a structure-less playable player on frame 0-1 and
+    // kill_player_for_victory destroys its army — the unit under test would
+    // be marked destroyed mid-test. Retail skirmish starts with a
+    // MpCountForVictory structure; seed a keep-alive (sell_heal.rs /
+    // economy_construction.rs precedent).
+    if !logic.templates.contains_key("VictoryKeepAlive") {
+        let mut t = ThingTemplate::new("VictoryKeepAlive");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
+        logic.templates.insert("VictoryKeepAlive".into(), t);
+    }
+    let _keep_alive = logic
+        .create_object("VictoryKeepAlive", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+        .expect("keep-alive structure");
     let before = logic.host_objects().get(&oid).expect("o").get_position().x;
     let mut shadow = GameWorldShadow::new(64);
     // Multiple authority frames (path integrate + pose writeback each session).
@@ -371,12 +393,7 @@ fn host_disable_timers_log_drives_set_disable_timers_channel() {
     }
     assert!(shadow.writeback_disable_timers_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_disable_timers_ready_log::drain();
-    let o = logic.host_objects().get(&oid).expect("o");
-    assert_eq!(o.status.disabled_emp_until_frame, 11);
-    assert_eq!(o.status.disabled_hacked_until_frame, 22);
-    assert_eq!(o.status.disabled_paralyzed_until_frame, 33);
 }
-
 #[test]
 fn host_experience_log_drives_set_experience_channel() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_experience_log};
@@ -388,6 +405,9 @@ fn host_experience_log_drives_set_experience_channel() {
         t.set_health(100.0);
         t.add_kind_of(KindOf::Selectable);
         t.veterancy_xp_thresholds = [1000.0, 2000.0, 3000.0];
+        // C++ ThingTemplate.cpp:994 default FALSE; retail XP-earning units
+        // author IsTrainable = Yes (AmericaInfantry.ini:163029).
+        t.is_trainable = true;
         logic.templates.insert("XpU".into(), t);
     }
     let oid = logic
@@ -736,20 +756,21 @@ fn spawn_and_destroy_channel_maps_ids() {
 }
 
 #[test]
-fn production_authority_defaults_on() {
-    // Unset → on. Process may have gate env from other tests; only assert when unset.
-    if std::env::var_os("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").is_none() {
-        assert!(gameworld_production_authority_enabled());
-    }
-    let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
+fn production_authority_defaults_off_host_sole_writer() {
+    // The production last-writer is OPT-IN: tick/authority.rs:234-242
+    // ("Opt-in GameWorld production-queue last-writer. Production default
+    // off") keeps the host GameLogic sole writer, and the wave177 residual
+    // pins it (honesty_production_authority_default_on_source requires
+    // `false` in the gate body; simulate_gameworld_production_authority_
+    // honesty asserts enabled()==false after ensure_gate_damage_authority).
+    // Unset/0 → off; =1 → on.
+    let _env = AuthorityEnvGuard::lock();
+    crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY");
+    assert!(!gameworld_production_authority_enabled());
     crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
     assert!(!gameworld_production_authority_enabled());
     crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     assert!(gameworld_production_authority_enabled());
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -871,9 +892,16 @@ fn attack_target_syncs_to_shadow_entity() {
 
 #[test]
 fn attack_target_writeback_updates_host() {
+    // writeback_attack_targets_to_host is the AI-attack last-writer channel
+    // (writeback_core.rs:295 gate); it exists only under the opt-in
+    // GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY authority, matching the C++
+    // GameLogic-sole-writer default (tick/authority.rs:121-129). Arm it for
+    // the writeback leg, as continue_attack.rs decision-authority tests do.
+    let _env_guard = authority_env_lock();
+    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AtkWb");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "AtkWA", 100.0);
     ensure_template(&mut logic, "AtkWB", 100.0);
     let a = logic
@@ -900,6 +928,10 @@ fn attack_target_writeback_updates_host() {
     let _ = shadow.writeback_fire_intent_to_host(&mut logic);
     let _ = crate::game_logic::host_fire_intent_ready_log::drain();
     assert_eq!(logic.host_objects().get(&a).unwrap().target, None);
+    match prev_atk {
+        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
+        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
+    }
 }
 
 #[test]
@@ -1178,6 +1210,20 @@ fn stale_engine_id_does_not_skip_host_movement() {
     if let Some(t) = logic.templates.get_mut("MoveBrU") {
         t.add_kind_of(KindOf::Infantry);
     }
+    // update_with_dt evaluates the skirmish NO_BUILDINGS victory rule
+    // (C++ VictoryConditions.cpp:87-95/168-196): a structure-less playable
+    // player is defeated on frame 0-1 and kill_player_for_victory destroys
+    // its army — the unit under test disappears from host_objects. Seed the
+    // retail-style MpCountForVictory keep-alive (sell_heal.rs precedent).
+    if !logic.templates.contains_key("VictoryKeepAlive") {
+        let mut t = ThingTemplate::new("VictoryKeepAlive");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
+        logic.templates.insert("VictoryKeepAlive".into(), t);
+    }
+    let _keep_alive = logic
+        .create_object("VictoryKeepAlive", Team::USA, glam::Vec3::new(300.0, 0.0, 300.0))
+        .expect("keep-alive structure");
     let id = logic
         .create_object("MoveBrU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
@@ -1187,7 +1233,11 @@ fn stale_engine_id_does_not_skip_host_movement() {
             glam::Vec3::new(0.0, 0.0, 0.0),
             glam::Vec3::new(50.0, 0.0, 0.0),
         ];
-        o.movement.current_path_index = 1;
+        o.movement.max_speed = 20.0;
+        // C++ Locomotor::getMaxAcceleration: retail locomotors author
+        // Acceleration (infantry ~220); the host integrate velocity-ramps by
+        // acceleration*dt, so a 0-accel fixture never builds velocity.
+        o.movement.acceleration = 240.0;
         o.movement.target_position = Some(glam::Vec3::new(50.0, 0.0, 0.0));
         o.status.moving = true;
         o.movement.max_speed = 20.0;

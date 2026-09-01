@@ -119,6 +119,13 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
     let depot_id = logic
         .create_object("HqPvymnDepot", Team::USA, Vec3::new(80.0, 0.0, 0.0))
         .expect("depot");
+    // C++ SpecialPowerModule ctor (SpecialPowerModule.cpp:86-101) arms every
+    // pre-built non-SharedNSync module with its authored ReloadTime, so a
+    // fresh object is NOT ready. Simulate the reload having elapsed.
+    if let Some(o) = logic.host_object_mut(caster) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::CashHack, 0.0);
+        o.set_special_power_ready_seconds(&SpecialPowerType::Defector, 0.0);
+    }
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -322,6 +329,11 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
     let dummy_id = logic
         .create_object_for_player("HqMsvesDummy", 0, Vec3::new(40.0, 0.0, 0.0))
         .expect("dummy");
+    // C++ ctor arms the pre-built module (SpecialPowerModule.cpp:86-101);
+    // simulate the authored reload having elapsed before the click.
+    if let Some(o) = logic.host_object_mut(tower_id) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::BaikonurRocket, 0.0);
+    }
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -402,6 +414,11 @@ fn battleship_object_target_locks_object_not_position() {
         .expect("tgt");
     if let Some(o) = logic.host_object_mut(ship_id) {
         o.turret_enabled = true;
+    }
+    // C++ ctor arms the pre-built module (SpecialPowerModule.cpp:86-101);
+    // simulate the authored reload having elapsed before the click.
+    if let Some(o) = logic.host_object_mut(ship_id) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::BattleshipBombardment, 0.0);
     }
 
     {
@@ -774,6 +791,17 @@ fn object_target_click_rejects_fogged_ghost() {
     let tank_id = logic
         .create_object_for_player("HqA76exTank", 1, Vec3::new(90.0, 0.0, 0.0))
         .expect("tank");
+    // C++ ctor arms pre-built non-SharedNSync modules
+    // (SpecialPowerModule.cpp:86-101); simulate the reload having elapsed.
+    if let Some(o) = logic.host_object_mut(caster) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::CashHack, 0.0);
+    }
+    if let Some(o) = logic.host_object_mut(ship_id) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::BattleshipBombardment, 0.0);
+    }
+    if let Some(o) = logic.host_object_mut(hunter_id) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::TankHunterTnt, 0.0);
+    }
 
     {
         let mut shroud = get_shroud_manager().lock().expect("shroud");
@@ -866,6 +894,7 @@ fn location_power_unit_click_leftover_gates_shroud() {
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(1, Team::China, "China", false));
 
     let mut a10_mod = test_module(
         SpecialPowerType::Airstrike,
@@ -887,8 +916,20 @@ fn location_power_unit_click_leftover_gates_shroud() {
         .create_object_for_player("HqHr2aeCommandCenter", 0, Vec3::ZERO)
         .expect("cc");
     let enemy_id = logic
-        .create_object_for_player("HqHr2aeEnemy", 0, Vec3::new(80.0, 0.0, 40.0))
+        .create_object_for_player("HqHr2aeEnemy", 1, Vec3::new(80.0, 0.0, 40.0))
         .expect("enemy");
+    // GameLogic::new() resets the shroud world (clear_all drops the grid);
+    // (re)initialize the 512x shroud grid so the leftover cell-shroud gate
+    // sees CELLSHROUD_SHROUDED the way a loaded C++ map does.
+    {
+        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        shroud.clear_all();
+        shroud.init_shroud_grid(512.0, 512.0);
+    }
+    // simulate the authored reload having elapsed before the click.
+    if let Some(o) = logic.host_object_mut(cc_id) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::Airstrike, 0.0);
+    }
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -970,6 +1011,11 @@ fn location_power_unit_click_leftover_gates_underwater_paradrop() {
     let enemy_id = logic
         .create_object_for_player("HqHr2aeWaterUnit", 0, Vec3::new(80.0, 0.0, 40.0))
         .expect("enemy");
+    // C++ ctor arms the pre-built module (SpecialPowerModule.cpp:86-101);
+    // simulate the authored reload having elapsed before the click.
+    if let Some(o) = logic.host_object_mut(cc_id) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::Paradrop, 0.0);
+    }
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1025,6 +1071,11 @@ fn battleship_object_click_rejects_allies_without_consuming() {
     let ally_id = logic
         .create_object_for_player("HqI9iw1Ally", 0, Vec3::new(80.0, 0.0, 0.0))
         .expect("ally");
+    // C++ ctor arms the pre-built module (SpecialPowerModule.cpp:86-101);
+    // simulate the authored reload having elapsed before the click.
+    if let Some(o) = logic.host_object_mut(ship_id) {
+        o.set_special_power_ready_seconds(&SpecialPowerType::BattleshipBombardment, 0.0);
+    }
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);

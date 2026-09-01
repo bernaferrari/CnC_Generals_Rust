@@ -1136,7 +1136,6 @@ impl PresentationFrame {
         } else {
             panel.unit_infos.iter().map(|u| u.object_id.0).collect()
         };
-        let _ = control_bar.update_for_selection(ids);
         control_bar.apply_presentation_money(self.local_supplies as i32);
         control_bar.apply_presentation_can_make(
             &self
@@ -1275,26 +1274,6 @@ impl PresentationFrame {
             control_bar.apply_presentation_availability(residual);
         }
 
-        control_bar.sync_upgrade_cameos_from_presentation(
-            &authored_cameos,
-            &completed_upgrades,
-            if controllable {
-                panel.rally_point
-            } else {
-                None
-            },
-            controllable && panel.special_power_ready,
-            if controllable {
-                panel.special_power_cooldown_remaining
-            } else {
-                0.0
-            },
-            if controllable {
-                panel.special_power_cooldown
-            } else {
-                0.0
-            },
-        );
         // Wave 1110: multi-select count residual excludes sold/unusable.
         // Disabled completed structures still own their command set
         // (C++ ControlBarCommand.cpp:1048-1078).
@@ -1324,6 +1303,35 @@ impl PresentationFrame {
                     .or_else(|| self.command_set_name_including_disabled()),
             );
         }
+        let _ = control_bar.update_for_selection(ids);
+        // Re-project the frozen selection identity after context evaluation:
+        // C++ updateContextCommand's queue branch swaps the portrait for the
+        // build-queue strip (ControlBarCommand.cpp), but this frame's apply is
+        // the authority — the portrait/queue channels must carry snapshot
+        // values, not context-churn defaults.
+        control_bar.sync_selection_display_from_presentation(
+            panel.visible.then_some(panel.primary_name.as_str()),
+            panel.health_current,
+            panel.health_maximum,
+            panel.selected_count,
+            panel.veterancy_overlay.as_deref(),
+            if controllable {
+                panel.production_progress
+            } else {
+                None
+            },
+            if controllable {
+                panel.production_template.as_deref()
+            } else {
+                None
+            },
+            if controllable {
+                &panel.production_queue
+            } else {
+                &empty_queue
+            },
+            controllable && panel.production_paused,
+        );
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
         control_bar.apply_presentation_science_hide_names(&self.local_unlocked_sciences);
         control_bar.sync_rank_progress_from_presentation(
@@ -1365,6 +1373,26 @@ impl PresentationFrame {
             self.local_radar_disabled,
             &self.local_queued_upgrades,
             &ready_sp,
+        );
+        control_bar.sync_upgrade_cameos_from_presentation(
+            &authored_cameos,
+            &completed_upgrades,
+            if controllable {
+                panel.rally_point
+            } else {
+                None
+            },
+            controllable && panel.special_power_ready,
+            if controllable {
+                panel.special_power_cooldown_remaining
+            } else {
+                0.0
+            },
+            if controllable {
+                panel.special_power_cooldown
+            } else {
+                0.0
+            },
         );
     }
 

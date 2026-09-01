@@ -306,7 +306,7 @@ fn parse_percentage(token: &str, line: usize) -> Result<Real, ArmorLoadError> {
 fn default_armor_paths() -> [PathBuf; 3] {
     [
         PathBuf::from("Data/INI/Armor.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/Armor.ini"),
+        PathBuf::from("windows_game/extracted_big_files_v2/INI/Armor.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Armor.ini"),
     ]
 }

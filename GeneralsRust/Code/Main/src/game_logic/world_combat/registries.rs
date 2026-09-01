@@ -812,6 +812,10 @@ impl GameLogic {
             .objects
             .get(&container_id)
             .is_some_and(|c| c.is_battle_bus_style_container());
+        let container_is_troop_crawler = self
+            .objects
+            .get(&container_id)
+            .is_some_and(|c| c.is_troop_crawler_style_container());
         if stagger && passengers.len() > 1 {
             passengers.truncate(1);
         }
@@ -904,6 +908,11 @@ impl GameLogic {
                 // Hull-specific channel mirrors the load arm (update.rs:1428);
                 // a Battle Bus unload is not a generic transport unload.
                 self.record_battle_bus_residual_unload();
+            } else if container_is_troop_crawler {
+                // China Troop Crawler residual unload — mirrors the Combat
+                // Chinook / Battle Bus hull-specific honesty channels above
+                // (a Troop Crawler evac is not a generic transport unload).
+                self.record_troop_crawler_residual_unload();
             } else {
                 self.record_transport_residual_unload();
             }

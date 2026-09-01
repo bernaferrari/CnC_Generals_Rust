@@ -8,11 +8,16 @@ fn angry_mob_pdl_damage_source_authority_source() {
     for (fn_name, token) in [
         (
             "fn update_angry_mobs",
-            "take_damage_from(hit.damage, Some(plan.mob_id))",
+            // Live split uses the immediate-residual attribution API with the
+            // mob nexus as damage source (C++ DamageSystem source-object
+            // attribution on AngryMob pistol fire).
+            "Some(plan.mob_id)",
         ),
         (
             "fn update_point_defense_intercept",
-            "take_damage_from(damage, Some(carrier_id))",
+            // Live split routes PDL return fire through the immediate-residual
+            // attribution API (C++ DamageSystem source-object attribution).
+            "Some(carrier_id)",
         ),
         (
             "fn update_scud_poison_zones",
@@ -24,23 +29,25 @@ fn angry_mob_pdl_damage_source_authority_source() {
         ),
         (
             "fn update_inferno_fire_zones",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            "Some(plan.source_object),",
         ),
         (
             "fn update_firewalls",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            "Some(plan.source_object),",
         ),
         (
             "fn update_helix_napalm_firestorms",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            "Some(plan.source_object),",
         ),
         (
             "fn update_nuclear_tanks_radiation_zones",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            // Live radiation residual routes through take_radiation_field_tick
+            // with the detonating vehicle as damage source.
+            "take_radiation_field_tick(hit.damage, Some(plan.source_object))",
         ),
         (
             "fn update_nuke_cannon_radiation_zones",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            "take_radiation_field_tick(hit.damage, Some(plan.source_object))",
         ),
         (
             "fn update_toxin_tractor_poison_zones",
@@ -370,7 +377,14 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("SellPad") {
         let mut t = ThingTemplate::new("SellPad");
-        t.add_kind_of(KindOf::Structure);
+        // Retail sellable structures author KINDOF_MP_COUNT_FOR_VICTORY
+        // (FactionBuilding.ini; synthesized structures must carry it too —
+        // buildings.rs:996-1007). Without the bit the skirmish
+        // NO_BUILDINGS rule (C++ VictoryConditions.cpp:87-95 →
+        // Team::hasAnyBuildings mask) defeats the sole owner on frame 0
+        // and kill_player_for_victory destroys the pad mid-sell.
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
         t.set_health(500.0);
         logic.templates.insert("SellPad".into(), t);
     }
@@ -753,10 +767,23 @@ fn command_attack_range_snap_movement_authority_source() {
         };
         let w = &src[i..=end];
         assert!(
-            w.contains("gameworld_movement_authority") || w.contains("assign_unit_path"),
+            w.contains("gameworld_movement_authority")
+                || w.contains("assign_unit_path")
+                || w.contains("assign_rtb_path"),
             "{fn_name} must gate pose snaps under movement authority"
         );
     }
+    // Final20b jet rework extracted the RTB approach legs into
+    // `assign_rtb_path` (C++ RETURNING_FOR_LANDING issues the move,
+    // JetAIUpdate.cpp:1536-1541). The pose-snap honesty now lives on the
+    // helper: it must route through the movement-authority-gated
+    // `assign_unit_path`, never a raw teleport.
+    let at = src.find("fn assign_rtb_path").expect("assign_rtb_path");
+    let w = &src[at..src.len().min(at + 1200)];
+    assert!(
+        w.contains("assign_unit_path"),
+        "assign_rtb_path must route pose snaps through assign_unit_path"
+    );
     // command_attack must not always teleport into range when authority on.
     let i = src.find("fn command_attack").unwrap();
     let w = &src[i..i + 5000];
@@ -791,11 +818,12 @@ fn suicide_consume_destroy_damage_authority_source() {
         );
     }
     // Production exit still sets pose but logs move under movement authority
-    // (Wave 758: residual lives on host_apply_unit_production_completions, not
-    // the update_production loop header window).
+    // (Wave 679: pose + move logging lives on the spawn-ready drain
+    // host_apply_production_spawn_ready_completions, not the completion
+    // collector, which only queues host_production_spawn_ready_log::record).
     let i = src
-        .find("fn host_apply_unit_production_completions")
-        .expect("host_apply_unit_production_completions");
+        .find("fn host_apply_production_spawn_ready_completions")
+        .expect("host_apply_production_spawn_ready_completions");
     let w = &src[i..src.len().min(i + 12000)];
     assert!(
         w.contains("gameworld_movement_authority") && w.contains("host_move_log::record"),
@@ -876,7 +904,7 @@ fn map_ground_support_pose_movement_authority_source() {
         "map object terrain grounding must log ground height + move under movement authority"
     );
     let support = src
-        .find("fn update_support_states")
+        .find("fn update_support_states(")
         .expect("update_support_states");
     // update_support_states is large (special-ability residual); scan full fn body.
     let support_end = src[support + 1..]
@@ -996,9 +1024,7 @@ fn create_object_spawn_pose_movement_authority_source() {
     for (name, window) in [
         ("create_object", 25000usize),
         ("create_object_under_construction_with_owner", 4000),
-        ("update_paradrops", 5000),
-        ("on_capture_tunnel_network_residual", 4000),
-        ("on_capture_kick_passengers", 4000),
+        ("on_capture_kick_passengers", 12000),
     ] {
         let at = src
             .find(&format!("fn {name}"))
@@ -1007,6 +1033,40 @@ fn create_object_spawn_pose_movement_authority_source() {
         assert!(
             body.contains("gameworld_movement_authority") && body.contains("host_move_log::record"),
             "{name} must log move dest under movement authority"
+        );
+    }
+    // C++ TunnelTracker capture: the last-tunnel cave-in destroys garrisoned
+    // units in place (TunnelTracker::destroyObject) and a remap keeps them
+    // contained — neither repositions, so movement logging does not apply.
+    // The honest capture channels here are AI decision authority
+    // (Object.cpp:4512-4514 onCapture aiIdle) and cave-in destroy damage.
+    {
+        let at = src
+            .find("fn on_capture_tunnel_network_residual")
+            .expect("tunnel residual");
+        let bytes = src.as_bytes();
+        let mut j = src[at..].find('{').map(|o| at + o).expect("body");
+        let mut depth = 0i32;
+        let end = loop {
+            match bytes.get(j) {
+                Some(b'{') => depth += 1,
+                Some(b'}') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break j;
+                    }
+                }
+                Some(_) => {}
+                None => panic!("unclosed tunnel residual"),
+            }
+            j += 1;
+        };
+        let body = &src[at..=end];
+        assert!(
+            body.contains("clear_target_decision_aware")
+                && body.contains("gameworld_ai_decision_authority")
+                && body.contains("record_set_state"),
+            "tunnel capture must flip AI decision through the decision channel"
         );
     }
     let para = src.find("fn update_paradrops").expect("paradrops");

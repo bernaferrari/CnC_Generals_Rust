@@ -1156,14 +1156,51 @@ fn under_construction_context_uses_presentation_percent() {
             && cb.contains("Host/presentation residual owns construct percent display"),
         "under-construction context must track presentation construct percent without registry"
     );
+    // Live residual spelling: registry-empty OCL context falls back to the
+    // presentation freeze seconds (control_bar_impl/impl_contexts.rs
+    // update_context_ocl_timer else-branch) fed by sync_ocl_timer_from_presentation
+    // (control_bar_impl/impl_portrait.rs, Wave 1031 C++ ControlBarOCLTimer.cpp residual).
     assert!(
         cb.contains("presentation_ocl_timer_seconds")
-            && cb.contains("presentation freeze owns display"),
+            && (cb.contains("(self.presentation_ocl_timer_seconds, 0.0)")
+                || cb.contains("fn sync_ocl_timer_from_presentation")),
         "OCL timer context must not require dual-world OCLUpdate modules"
     );
     assert!(
-        cb.contains("self.presentation_construction_percent = construction_percent"),
-        "sync_structure_context must store construction percent residual"
+        cb.contains("fn sync_structure_context_from_presentation")
+            && cb.contains(
+                "self.presentation_construction_percent = construction_percent.clamp(0.0, 1.0)"
+            ),
+        "sync_structure_context_from_presentation must store construction percent residual"
+    );
+}
+
+#[test]
+fn construction_sole_tick_host_skips_advance() {
+    // Facade split: host construction sole-tick path lives in
+    // game_logic/world_tick/production.rs now (GAME_LOGIC_FACADE_SRC concat
+    // no longer carries it) — final20c-style repoint to the live Wave 478
+    // rate-only publish site.
+    let tick = include_str!("../../game_logic/world_tick/production.rs");
+    assert!(
+        tick.contains("gameworld_construction_sole_tick_enabled()")
+            && tick.contains("record_rate_only")
+            && tick.contains("Wave 478: publish dozer/power rate only"),
+        "host construction under sole-tick must publish rate only (no percent stomp)"
+    );
+    let log = include_str!("../../game_logic/host_construction_progress_log.rs");
+    assert!(
+        log.contains("effective_rate: f32")
+            && log.contains("rate_only: bool")
+            && log.contains("pub fn record_rate_only"),
+        "construction progress log must carry rate_only residual"
+    );
+    let sw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
+    assert!(
+        sw.contains("fn tick_construction_progress")
+            && sw.contains("tick_construction_progress(")
+            && sw.contains("if ev.rate_only"),
+        "shadow session must sole-tick construction and skip rate-only stomps"
     );
 }
 
@@ -1328,30 +1365,6 @@ fn production_authority_host_skips_progress_advance() {
     );
 }
 
-#[test]
-fn construction_sole_tick_host_skips_advance() {
-    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
-    assert!(
-        gl.contains("gameworld_construction_sole_tick_enabled()")
-            && gl.contains("record_rate_only")
-            && gl.contains("Wave 478: publish dozer/power rate only"),
-        "host construction under sole-tick must publish rate only (no percent stomp)"
-    );
-    let log = include_str!("../../game_logic/host_construction_progress_log.rs");
-    assert!(
-        log.contains("effective_rate: f32")
-            && log.contains("rate_only: bool")
-            && log.contains("pub fn record_rate_only"),
-        "construction progress log must carry rate_only residual"
-    );
-    let sw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    assert!(
-        sw.contains("fn tick_construction_progress")
-            && sw.contains("tick_construction_progress(")
-            && sw.contains("if ev.rate_only"),
-        "shadow session must sole-tick construction and skip rate-only stomps"
-    );
-}
 
 #[test]
 fn special_power_sole_tick_host_skips_advance() {

@@ -1026,12 +1026,20 @@ fn construction_cameo_hotkey_priority_residual() {
         src.contains("cycle_construction_tab")
             && src.contains("cycle_construction_tab(1)")
             && src.contains("force_tab"),
-        "[ ] must cycle construction tabs residual"
+        "[ ] must cycle construction tabs residual",
     );
     let hud = include_str!("../ui/hud.rs");
     assert!(
-        hud.contains("fn force_tab") && hud.contains("ConstructionTab::Aircraft"),
+        hud.contains("fn force_tab")
+            // hud.rs declares the enum with bare variants; the qualified
+            // `ConstructionTab::Aircraft` cycle paths live in ENGINE_SRC.
+            && hud.contains("pub enum ConstructionTab")
+            && hud.contains("\n    Aircraft,"),
         "construction panel force_tab residual"
+    );
+    assert!(
+        src.contains("ConstructionTab::Aircraft"),
+        "[ ] cycle must reach the Aircraft tab residual"
     );
 }
 
@@ -1084,7 +1092,8 @@ fn strategy_center_battle_plan_residual() {
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("Command_InitiateBattlePlanBombardment") && pf.contains("strategycenter"),
+        pf.contains("Command_InitiateBattlePlanBombardment")
+            && pf.contains("is_strategy_center_template"),
         "Strategy Center strip must expose battle plans residual"
     );
     let eng = crate::cnc_game_engine::ENGINE_SRC;
@@ -1207,7 +1216,7 @@ fn generals_science_purchase_residual() {
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("Command_PurchaseScience") && pf.contains("local_science_purchase_points"),
+        pf.contains("local_science_purchase_points") && pf.contains("local_has_science"),
         "strip must expose PurchaseScience when SPP residual"
     );
 }
@@ -1430,9 +1439,15 @@ fn resume_construction_hotkey_residual() {
         "Alt+E must resume construction residual without HUD toast"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    // Retail ControlBar has NO resume strip button: populateUnderConstruction
+    // (ControlBarUnderConstruction.cpp:57-66) shows Command_CancelConstruction
+    // only; resume is the ACTIONTYPE_RESUME_CONSTRUCTION cursor/click surface
+    // (InGameUI.h:318) dispatched as MSG_RESUME_CONSTRUCTION
+    // (GameLogicDispatch.cpp:1135-1147) — pinned engine-side above and by the
+    // executor MSG residual. The strip arm must stay Cancel-only.
     assert!(
-        pf.contains("Command_ResumeConstruction"),
-        "unfinished structure strip must expose ResumeConstruction residual"
+        pf.contains("Command_CancelConstruction") && !pf.contains("Command_ResumeConstruction"),
+        "unfinished structure strip stays Cancel-only per retail populateUnderConstruction"
     );
     let cs = crate::command_system::COMMAND_SYSTEM_SRC;
     assert!(

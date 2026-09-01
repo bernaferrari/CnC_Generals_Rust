@@ -149,7 +149,8 @@ pub fn simulate_presentation_shock_power_jet_stamp_source() -> bool {
     let ok = (pf.contains(
         "Wave 519: exploded flail/bounce, power-plant upgrading, jet afterburner residual bits",
     ) || pf
-        .contains("Wave 519: exploded flail/bounce and jet-afterburner residual bits"))
+        .contains("Wave 519: exploded flail/bounce and jet-afterburner residual bits")
+        || pf.contains("Wave 519: exploded flail/bounce residual bits"))
         && en.contains("pub fn exploded_flailing_model_bit")
         && en.contains("pub fn power_plant_upgrading_model_bit")
         && en.contains("pub fn jetafterburner_model_bit")

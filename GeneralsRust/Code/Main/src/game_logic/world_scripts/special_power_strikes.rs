@@ -1047,7 +1047,14 @@ impl GameLogic {
                                 wg.mark_done();
                             }
                             Some(gamelogic::terrain::WaveGuide1Bind::MissingWaypoint) | None => {
-                                wg.final_destination = Some((0.0, 0.0));
+                                // C++ WaveGuideUpdate.cpp:795-822 compares the wave
+                                // against the LAST WaveGuide1 waypoint. With no
+                                // authored path there is no destination to reach —
+                                // binding the spawn corner (0,0) here let a fresh
+                                // flood wave hit "reached destination" on its first
+                                // moving tick and die before motion/damage/water.
+                                // Leave final_destination unset; the wave keeps
+                                // moving along its authored facing.
                                 wg.facing = gori;
                             }
                         }

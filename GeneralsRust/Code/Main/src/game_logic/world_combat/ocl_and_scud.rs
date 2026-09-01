@@ -2383,7 +2383,7 @@ mod tests {
         // (v1 is absent); fall back to v1 where it exists.
         let mut retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../..")
-            .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ObjectCreationList.ini");
+            .join("windows_game/extracted_big_files_v2/INI/ObjectCreationList.ini");
         if !retail.is_file() {
             retail = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../..")

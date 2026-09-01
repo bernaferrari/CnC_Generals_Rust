@@ -5,7 +5,7 @@ use std::{fs, path::PathBuf};
 #[test]
 fn retail_windows_game_weapon_ini_parses_when_present() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Weapon.ini");
+        .join("../../../../windows_game/extracted_big_files_v2/INI/Weapon.ini");
     let Ok(source) = fs::read_to_string(&path) else {
         return;
     };

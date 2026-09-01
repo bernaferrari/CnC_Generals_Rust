@@ -853,8 +853,10 @@ fn frozen_fow_hidden_render_items_skip_before_mesh_construction_or_queueing() {
         .expect("mesh construction helper must follow the render loop")
         .0;
 
+    // Live guard (forward_render.rs render loop): ghosts are FOW-exempt by
+    // design; hidden non-ghost items skip before mesh construction/queueing.
     let hidden_skip = render
-        .find("if item.fow_visibility.visibility_alpha <= 0.01 {")
+        .find("if !is_ghost && item.fow_visibility.visibility_alpha <= 0.01 {")
         .expect("hidden items must be skipped in the render loop");
     let prepare = render
         .find("self.prepare_mesh_instance(graphics_system, item)")

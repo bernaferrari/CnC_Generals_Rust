@@ -188,17 +188,24 @@ mod landmark_bridge_and_new_map_tests {
 
     #[test]
     fn load_map_data_sites_call_leftover_new_map() {
-        let src = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/game_logic/world_save.rs"
-        ));
-        let prod = src.split("#[cfg(test)]").next().expect("production");
+        // Monolith world_save.rs is now a 32-line split facade; the guarded
+        // production sites live in the members: both leftover load_map_data
+        // newMap calls (C++ GameLogic.cpp:1629) in world_players.rs, and the
+        // landmark-bridge registration seam in world_load.rs/world_subsystems.rs.
+        // Clip each member before any #[cfg(test)] so test-module mentions
+        // (e.g. leftover_new_map_enables_water_grid_for_waveguide1) cannot
+        // false-positive the scan.
+        let players = include_str!("world_players.rs");
+        let prod = players.split("#[cfg(test)]").next().expect("production");
         assert!(
             prod.matches("terrain.new_map(false)").count() >= 2,
             "both leftover load_map_data sites must call TerrainLogic::newMap"
         );
-        assert!(prod.contains("register_spawned_landmark_bridges"));
-        assert!(prod.contains("add_landmark_bridge_from_geometry"));
+        let load = include_str!("world_load.rs");
+        let subsystems = include_str!("world_subsystems.rs");
+        assert!(load.contains("register_spawned_landmark_bridges"));
+        assert!(subsystems.contains("register_spawned_landmark_bridges"));
+        assert!(subsystems.contains("add_landmark_bridge_from_geometry"));
     }
 
     #[test]

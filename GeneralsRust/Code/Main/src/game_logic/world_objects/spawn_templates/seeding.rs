@@ -144,10 +144,6 @@ impl GameLogic {
                 continue;
             }
 
-            if Self::should_skip_map_object_template(name) {
-                continue;
-            }
-
             let model_name = definition
                 .model_name
                 .as_deref()
@@ -157,10 +153,16 @@ impl GameLogic {
                 && crate::game_logic::host_move_ambient_audio::definition_has_sound_ambient(
                     &definition,
                 );
+            // The generic host template cannot represent an object whose only
+            // identity is a behavior/draw module — except SoundAmbient-only map
+            // objects, which are seeded so Drawable startAmbientSound can play.
+            // Those carry no draw/behavior payload, so the map-object skip list
+            // (CINE_/Amb_/Scorch/…) must not silence them in the seed path;
+            // should_spawn_fallback keeps the full list.
             if model_name.is_none() && !is_audio_only {
-                // The generic host template cannot represent an object whose
-                // only identity is a behavior/draw module.  SoundAmbient-only
-                // map objects are seeded so Drawable startAmbientSound can play.
+                continue;
+            }
+            if Self::should_skip_map_object_template(name) && !is_audio_only {
                 continue;
             }
             if let Some(model_name) = model_name {

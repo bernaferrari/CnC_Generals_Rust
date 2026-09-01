@@ -73,7 +73,7 @@ fn retail_windows_game_crate_ini_parses_when_present() {
     let _guard = CRATE_TEST_LOCK.lock().expect("crate test lock");
     initialize_crate_system();
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Crate.ini");
+        .join("../../../../windows_game/extracted_big_files_v2/INI/Crate.ini");
     let Ok(source) = fs::read_to_string(&path) else {
         return;
     };

@@ -2414,7 +2414,7 @@ impl GameLogic {
         let Some(target) = self.objects.get(&target_id) else {
             return false;
         };
-        let relation = match (source.owner_player_id, target.owner_player_id) {
+        let mut relation = match (source.owner_player_id, target.owner_player_id) {
             (Some(source_owner), Some(target_owner))
                 if self.player_owner_for_host_object(source) == Some(source_owner)
                     && self.player_owner_for_host_object(target) == Some(target_owner) =>
@@ -2432,6 +2432,19 @@ impl GameLogic {
             }
             _ => Relationship::Neutral,
         };
+        // C++ Object::getRelationship (Object.cpp:1548-1568) default
+        // hostility: two living players on different non-neutral teams are
+        // ENEMIES even when the lobby carries no explicit playerEnemies row.
+        // The click-authority gate (can_unit_hacker_disable_building) applies
+        // this fallback; the running channel must not be stricter than the
+        // click that opened it.
+        if relation == Relationship::Neutral
+            && source.team != Team::Neutral
+            && target.team != Team::Neutral
+            && source.team != target.team
+        {
+            relation = Relationship::Enemies;
+        }
         relation == Relationship::Enemies
     }
 

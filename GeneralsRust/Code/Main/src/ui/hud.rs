@@ -1731,7 +1731,10 @@ mod tests {
 
     #[test]
     fn construction_panel_does_not_invent_faction_cameos() {
-        let src = include_str!("hud.rs");
+        // Scan only the production slice: this test's own assertion literals
+        // live in the same file and would self-match a whole-file include_str.
+        let full = include_str!("hud.rs");
+        let src = full.split("#[cfg(test)]").next().unwrap_or(full);
         assert!(
             !src.contains("fn add_infantry_units")
                 && !src.contains("ChinaInfantryRedguard")

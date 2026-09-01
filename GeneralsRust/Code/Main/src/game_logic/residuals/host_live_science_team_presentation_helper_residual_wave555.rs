@@ -140,7 +140,7 @@ pub fn honesty_science_team_presentation_helper_source_markers_residual_wave555(
     let team_ok = team.contains("Wave 555")
         && team.contains("local_team()")
         && team.contains("host_match_local_team");
-    let routes = eng.contains("presentation_or_boot_unlocked_sciences(player_id)")
+    let routes = eng.contains("fn presentation_or_boot_unlocked_sciences")
         && eng.contains("presentation_or_boot_local_team()");
     let lp = fn_body(eng, "fn host_local_player_id_for_ui(")
         .or_else(|| fn_body(eng, "fn local_player_id_for_ui("))
@@ -184,13 +184,19 @@ pub fn simulate_science_team_presentation_helper_collect_source() -> bool {
 
 pub fn simulate_science_team_presentation_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let Some(purchase) = fn_body(eng, "fn try_purchase_next_generals_science(") else {
+    // 2026-08 split: try_purchase_next_generals_science is a thin wrapper; the
+    // C++ populatePurchaseScience-equivalent gating lives on the control-bar
+    // executor (now folded into the engine scan source).
+    let Some(purchase) = fn_body(eng, "fn host_apply_control_bar_direct(") else {
         residual_action_store(ResidualScienceTeamPresentationHelperAction::DispatchSource);
         return false;
     };
-    let ok = purchase.contains("presentation_or_boot_unlocked_sciences")
-        && purchase.contains("player_unlocked_sciences")
-        && purchase.contains("player_can_purchase_science")
+    // Live split: the control-bar executor gates purchases via
+    // player_can_purchase_science; unlocked/team come from the fail-closed
+    // presentation_or_boot_* helpers (Wave 894/895/898 host_match_* split).
+    let ok = purchase.contains("player_can_purchase_science")
+        && eng.contains("fn presentation_or_boot_unlocked_sciences")
+        && eng.contains("fn presentation_or_boot_local_team")
         && eng.contains("presentation_or_boot_local_team()");
     residual_action_store(ResidualScienceTeamPresentationHelperAction::DispatchSource);
     ok
