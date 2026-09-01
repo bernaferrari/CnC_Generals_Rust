@@ -390,10 +390,10 @@ End
         fs::create_dir_all(temp_root.join("windows_game/extracted_big_files/INIZH/Data/INI"))
             .unwrap();
         fs::create_dir_all(
-            temp_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Default"),
+            temp_root.join("windows_game/extracted_big_files_v2/INI/Default"),
         )
         .unwrap();
-        fs::create_dir_all(temp_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI"))
+        fs::create_dir_all(temp_root.join("windows_game/extracted_big_files_v2/INI"))
             .unwrap();
 
         for path in [
@@ -404,10 +404,10 @@ End
             ),
             temp_root.join("windows_game/extracted_big_files/INIZH/Data/INI/ShellMenuScheme.ini"),
             temp_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/ShellMenuScheme.ini",
+                "windows_game/extracted_big_files_v2/INI/Default/ShellMenuScheme.ini",
             ),
             temp_root
-                .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ShellMenuScheme.ini"),
+                .join("windows_game/extracted_big_files_v2/INI/ShellMenuScheme.ini"),
         ] {
             fs::write(path, b"").unwrap();
         }
@@ -438,12 +438,12 @@ End
             )
             .unwrap(),
             fs::canonicalize(temp_root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/ShellMenuScheme.ini",
+                "windows_game/extracted_big_files_v2/INI/Default/ShellMenuScheme.ini",
             ))
             .unwrap(),
             fs::canonicalize(
                 temp_root
-                    .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ShellMenuScheme.ini"),
+                    .join("windows_game/extracted_big_files_v2/INI/ShellMenuScheme.ini"),
             )
             .unwrap(),
         ];

@@ -1902,9 +1902,21 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
         .set_health(1000.0)
         .set_cost(800, 0);
     logic.templates.insert("AmericaPowerPlant".into(), plant);
+    // BuildableStatus/Prereq residual: the shared sample prereq table couples
+    // AmericaPowerPlant to a constructed AmericaCommandCenter
+    // (host_production_buildable_command_residual PrereqSampleRow). C++
+    // Player::canBuild (Player.cpp canBuild) runs the same ProductionPrerequisite
+    // scan; a satisfied scan is oracle-equivalent to the retail plant whose
+    // FactionBuilding.ini authors no Prerequisites line.
+    let mut cc = ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(4000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    logic
+        .create_object_for_player("AmericaCommandCenter", 0, glam::Vec3::ZERO)
+        .expect("cc");
 
     let did = logic
-        .create_object("AmericaVehicleDozer", Team::USA, glam::Vec3::ZERO)
+        .create_object_for_player("AmericaVehicleDozer", 0, glam::Vec3::ZERO)
         .expect("dozer");
     if let Some(pl) = logic.get_player_mut(0) {
         pl.selected_objects = vec![did];

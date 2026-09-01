@@ -260,13 +260,19 @@ fn hacker_move_command_stops_hacking() {
         "move must PACKING-stop hack cash"
     );
     game_logic.frame = HACKER_CASH_INTERVAL_FRAMES + 1;
+    // ensure_test_player_for_team seeds 100_000 supplies; assert the packed
+    // hacker credited nothing rather than an absolute zero balance.
+    let cash_before_income = game_logic
+        .get_player_mut_by_team(Team::China)
+        .map(|p| p.resources.supplies)
+        .unwrap_or(0);
     game_logic.update_hacker_income();
+    let cash_after_income = game_logic
+        .get_player_mut_by_team(Team::China)
+        .map(|p| p.resources.supplies)
+        .unwrap_or(0);
     assert_eq!(
-        game_logic
-            .get_player_mut_by_team(Team::China)
-            .map(|p| p.resources.supplies)
-            .unwrap_or(0),
-        0,
+        cash_after_income, cash_before_income,
         "no cash after packing"
     );
 }
@@ -652,10 +658,17 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
-    // C++ NeedToFace then Unpack 6730ms + Prep 6000ms before trigger.
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
-    game_logic.update_ai(&[lotus_id, target_id], 7.0);
-    game_logic.update_ai(&[lotus_id, target_id], 6.0);
+    // C++ NeedToFace precedes Unpack 6730ms + Prep 6000ms before trigger.
+    // The facing slice consumes a variable number of ticks at the unit's
+    // turn rate, so drive the channel to its trigger with bounded per-frame
+    // ticks instead of a fixed big-dt budget.
+    for _ in 0..1200 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        if game_logic.honesty_steal_cash_ok() {
+            break;
+        }
+        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+    }
 
     assert!(
         game_logic.honesty_steal_cash_ok(),
@@ -732,10 +745,16 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
-    // C++ leftover SpecialAbilityUpdate: NeedToFace, Unpack 6730ms, Prep 6000ms.
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
-    game_logic.update_ai(&[lotus_id, target_id], 7.0);
-    game_logic.update_ai(&[lotus_id, target_id], 6.0);
+    // C++ leftover SpecialAbilityUpdate: NeedToFace, Unpack 6730ms, Prep
+    // 6000ms. Facing consumes a variable number of ticks at the unit's turn
+    // rate; drive the channel to its trigger with bounded per-frame ticks.
+    for _ in 0..1200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            if game_logic.hero_abilities().cash_stolen_total > 0 {
+                break;
+            }
+            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        }
 
     let lotus = game_logic.host_object(lotus_id).expect("lotus after steal");
     assert_eq!(
@@ -870,9 +889,15 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
-    game_logic.update_ai(&[lotus_id, target_id], 7.0);
-    game_logic.update_ai(&[lotus_id, target_id], 6.0);
+    // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
+    // ticks at the unit's turn rate — drive to trigger with bounded ticks.
+    for _ in 0..1200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            if game_logic.hero_abilities().cash_stolen_total > 0 {
+                break;
+            }
+            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        }
 
     let china_caster = game_logic
         .get_player(1)
@@ -943,8 +968,20 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
         lotus.set_ai_state(AIState::SpecialAbility);
         lotus.target = Some(target_id);
     }
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
-    game_logic.update_ai(&[lotus_id, target_id], 7.0);
+    // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
+    // ticks at the unit's turn rate — reach mid-prep with bounded ticks.
+    for _ in 0..1200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            if game_logic
+                .hero_abilities()
+                .leftover_channel(lotus_id)
+                .map(|ch| ch.phase)
+                == Some(LeftoverSaPhase::Preparing)
+            {
+                break;
+            }
+            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        }
     let phase = game_logic
         .hero_abilities()
         .leftover_channel(lotus_id)
@@ -1072,10 +1109,20 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
-    game_logic.update_ai(&[lotus_id, target_id], 7.0);
+    // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
+    // ticks at the unit's turn rate — drive to trigger with bounded ticks.
     game_logic.queued_audio_events.clear();
-    game_logic.update_ai(&[lotus_id, target_id], 6.0);
+    for _ in 0..1200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            if game_logic
+                .queued_audio_events
+                .iter()
+                .any(|event| event.event_type == LOTUS_TRIGGER_SOUND)
+            {
+                break;
+            }
+            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        }
     assert!(
         game_logic
             .queued_audio_events
@@ -1228,19 +1275,41 @@ fn leftover_burton_flips_180_after_unpack() {
         burton.set_ai_state(AIState::SpecialAbility);
         burton.target = Some(target_id);
     }
-    game_logic.update_ai(&[burton_id, target_id], 1.0 / 30.0);
-    game_logic.update_ai(&[burton_id, target_id], 0.3);
+    // C++ NeedToFace precedes Unpack; the facing slice consumes a variable
+    // number of ticks at the unit's turn rate, so a total-delta assert from
+    // spawn is timeline-dependent. Capture the orientation at the Unpacking
+    // boundary and assert the flip residual itself (~PI across unpack end).
+    use crate::game_logic::host_hero_abilities::LeftoverSaPhase;
+    let mut unpack_start_orientation: Option<f32> = None;
+    for _ in 0..600 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP);
+            let phase = game_logic
+                .hero_abilities()
+                .leftover_channel(burton_id)
+                .map(|ch| ch.phase);
+            if phase == Some(LeftoverSaPhase::Unpacking) {
+                if unpack_start_orientation.is_none() {
+                    unpack_start_orientation = Some(
+                        game_logic
+                            .host_object(burton_id)
+                            .expect("burton")
+                            .get_orientation(),
+                    );
+                }
+            } else if unpack_start_orientation.is_some() {
+                break;
+            }
+        }
+    let unpack_start = unpack_start_orientation.expect("channel must reach Unpacking");
     let facing_after = game_logic
         .host_object(burton_id)
         .expect("burton")
         .get_orientation();
-    let delta = (facing_after - facing_before).abs();
-    let flipped = (delta - std::f32::consts::PI).abs() < 0.05
-        || (delta - std::f32::consts::TAU).abs() < 0.05
-        || (delta - 0.0).abs() > 2.5;
+    let delta = (facing_after - unpack_start).abs();
     assert!(
-        flipped,
-        "Burton must rotate ~PI after unpack (before={facing_before} after={facing_after})"
+        (delta - std::f32::consts::PI).abs() < 0.05,
+        "Burton must rotate ~PI after unpack (unpack_start={unpack_start} after={facing_after})"
     );
 }
 
@@ -1399,6 +1468,12 @@ fn burton_and_tnt_plant_reject_bridges() {
     let bridge_id = game_logic
         .create_object("TestBridge", Team::GLA, Vec3::ZERO)
         .expect("bridge");
+    // C++ SpecialPowerModule ctor arms parsed modules with their authored
+    // ReloadTime at creation; clear it so the click gate sees a ready power.
+    game_logic
+        .host_object_mut(hunter_id)
+        .expect("hunter")
+        .set_special_power_ready_seconds(&SpecialPowerType::TankHunterTnt, 0.0);
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::PlantTimedDemoCharge {
@@ -1513,6 +1588,14 @@ fn tank_hunter_tnt_does_not_consume_cooldown_at_click() {
     let target_id = game_logic
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("bldg");
+    // C++ SpecialPowerModule ctor arms parsed modules with their authored
+    // ReloadTime at creation, so the map legitimately holds the spawn-armed
+    // countdown. Clear it to isolate the click contract: the click must not
+    // consume or restart the charge (consume_at_prep fires at preparation).
+    game_logic
+        .host_object_mut(hunter_id)
+        .expect("hunter")
+        .set_special_power_ready_seconds(&SpecialPowerType::TankHunterTnt, 0.0);
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::TankHunterTnt,
@@ -1654,10 +1737,19 @@ fn disable_vehicle_hack_command_disables_after_reach() {
         lotus.target = Some(target_id);
     }
     game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
-    // C++ NeedToFace then Unpack 2000ms + Prep 2000ms.
-    game_logic.update_ai(&[lotus_id, target_id], 1.0);
-    game_logic.update_ai(&[lotus_id, target_id], 2.1);
-    game_logic.update_ai(&[lotus_id, target_id], 2.1);
+    // C++ NeedToFace then Unpack 2000ms + Prep 2000ms. Facing consumes a
+    // variable number of ticks at the unit's turn rate — drive the channel
+    // to its trigger with bounded per-frame ticks.
+    for _ in 0..1200 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            if game_logic
+                .host_object(target_id)
+                .is_some_and(|t| t.is_hacked_disabled())
+            {
+                break;
+            }
+            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        }
 
     let target_after = game_logic
         .host_object(target_id)
@@ -1701,6 +1793,21 @@ fn disable_vehicle_hack_command_disables_after_reach() {
 fn black_lotus_capture_building_without_upgrade() {
     let mut game_logic = GameLogic::new();
     ensure_test_black_lotus_template(&mut game_logic);
+    // Retail BlackLotus authors the CaptureBuilding SpecialPower module on
+    // the template; the shared bare fixture omits it and the capture command
+    // fails closed without it (no any-unit fallback, SpecialPower.cpp:308).
+    if let Some(template) = game_logic.templates.get_mut("ChinaInfantryBlackLotus") {
+        template.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
+        // Retail SpecialAbilityUpdate ModuleTag_09
+        // (ChinaInfantry.ini:164817-164829): StartAbilityRange 150, UnpackTime
+        // 6730, PreparationTime 6000, PackTime 2800. The capture machine
+        // refuses to invent a zero-duration ability from a partial parse —
+        // without these the Capturing state aborts on the first in-range tick.
+        template.capture_start_ability_range = Some(150.0);
+        template.capture_unpack_time_ms = Some(6_730);
+        template.capture_preparation_time_ms = Some(6_000);
+        template.capture_pack_time_ms = Some(2_800);
+    }
     ensure_test_structure_template(&mut game_logic);
     ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
@@ -1719,6 +1826,12 @@ fn black_lotus_capture_building_without_upgrade() {
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("building");
 
+    // The capture gate shroud-checks the LOCAL player's visibility of the
+    // target; this fixture has no map FOW, so drop the local flag. The
+    // tested contract is the upgrade-less capture command flow.
+    if let Some(player) = game_logic.get_player_mut(1) {
+        player.is_local = false;
+    }
     game_logic.queue_command(crate::command_system::GameCommand {
         command_type: crate::command_system::CommandType::CaptureBuilding {
             target_id: building_id,
@@ -1730,7 +1843,6 @@ fn black_lotus_capture_building_without_upgrade() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-
     {
         let lotus = game_logic.host_object(lotus_id).expect("lotus");
         assert_eq!(
@@ -1754,10 +1866,29 @@ fn black_lotus_capture_building_without_upgrade() {
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
         lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        // The out-of-range tick above installed an approach leg; the fixture
+        // teleport must settle it (C++ SpecialAbilityUpdate.cpp:209-220
+        // aborts unpack/prep while the capturer is still moving).
+        lotus.stop_moving();
         lotus.set_ai_state(AIState::Capturing);
         lotus.target = Some(building_id);
     }
-    game_logic.update_ai(&[lotus_id, building_id], 1.0 / 60.0);
+    // Retail ModuleTag_09 runs unpack 6730ms → preparation 6000ms → trigger →
+    // pack 2800ms as one channel; drive to completion with bounded per-frame
+    // ticks until the ownership transfer honesty lands AND the capturer has
+    // left the Capturing state (startPacking keeps AIState::Capturing through
+    // the pack timer, update.rs SpecialAbilityUpdate.cpp:1812-1836 parity).
+    for _ in 0..2400 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_ai(&[lotus_id, building_id], LOGIC_FRAME_TIMESTEP);
+        let captor_done = game_logic
+            .host_object(lotus_id)
+            .map(|lotus| lotus.ai_state != AIState::Capturing)
+            .unwrap_or(true);
+        if game_logic.honesty_black_lotus_capture_ok() && captor_done {
+            break;
+        }
+    }
 
     assert_eq!(
         game_logic.host_object(building_id).expect("building").team,

@@ -147,9 +147,13 @@ pub fn host_logic_scan_src() -> &'static str {
 pub fn engine_scan_src() -> &'static str {
     static SRC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     SRC.get_or_init(|| {
+        // control_bar_bridge.rs: live PurchaseScience / battle-plan control-bar
+        // executor split (host_apply_control_bar_direct) — the thin selection.rs
+        // wrapper no longer carries the purchase gating tokens.
         format!(
-            "{}{}",
+            "{}{}{}",
             crate::cnc_game_engine::ENGINE_SRC,
+            include_str!("../../cnc_game_engine/control_bar_bridge.rs"),
             crate::presentation_frame::PRESENTATION_FRAME_SRC,
         )
     })

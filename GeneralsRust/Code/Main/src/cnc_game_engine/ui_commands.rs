@@ -2766,14 +2766,20 @@ mod tests {
                 );
         }
         play_named_command_button_unit_specific_sound("Command_BlackLotusHackBuilding", 0);
-        let bar = game_engine::common::ini::ini_command_button::get_control_bar().unwrap();
-        let button = bar
-            .find_command_button_resolved("Command_BlackLotusHackBuilding")
-            .unwrap();
-        assert_eq!(
-            button.unit_specific_sound.playable_event_name(),
-            "BlackLotusVoiceModeBuilding"
-        );
+        let resolved_name = "Command_BlackLotusHackBuilding".to_string();
+        let resolved: String = {
+            let bar = game_engine::common::ini::ini_command_button::get_control_bar().unwrap();
+            bar.find_command_button_resolved(&resolved_name)
+                .map(|b| b.unit_specific_sound.playable_event_name().to_string())
+                .expect("INI control bar")
+        };
+        assert_eq!(resolved, "BlackLotusVoiceModeBuilding");
+        // The INI control bar is process-global; tests that insert buttons
+        // must remove them again or a later serial test sees a non-empty bar
+        // as authoritative and never falls back to name-derived command types.
+        if let Some(mut bar) = game_engine::common::ini::ini_command_button::get_control_bar_mut() {
+            bar.remove_command_button(&resolved_name);
+        }
     }
 
     #[test]

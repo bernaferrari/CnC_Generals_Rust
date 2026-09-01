@@ -49,28 +49,24 @@ impl GameLogic {
             })
             .collect();
 
-        // Pre-scan dozers: exclusive builder + idle at ACTION dock
+        // Pre-scan dozers: exclusive builder + at ACTION dock
         // (C++ DozerActionDoActionState BUILD, DozerAIUpdate.cpp:482-507).
         let dozer_info: Vec<(
             ObjectId,
             Vec3,
             Option<u32>,
             Option<ObjectId>,
-            bool,
             Option<Vec3>,
         )> = self
             .objects
             .values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
             .map(|obj| {
-                let arrived = !obj.status.moving
-                    && obj.movement.current_path_index >= obj.movement.path.len();
                 (
                     obj.id,
                     obj.get_position(),
                     object_owner_player_ids.get(&obj.id).copied().flatten(),
                     obj.target,
-                    arrived,
                     obj.dozer_dock_action,
                 )
             })
@@ -97,19 +93,22 @@ impl GameLogic {
                     let build_radius = obj.selection_radius;
                     let site_template = obj.template_name.clone();
                     let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
-                    // Exclusive dock: only the structure's builder_id (C++ getBuilderID)
-                    // or, if unset, a single targeting dozer may contribute.
                     let exclusive_builder = obj.builder_id;
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(did, pos, owner_player_id, target, arrived, stored_dock)| {
+                        .filter(|(did, pos, owner_player_id, target, stored_dock)| {
                             *owner_player_id == build_owner_player_id
                                 && *target == Some(id)
-                                && *arrived
                                 && exclusive_builder.map(|bid| bid == *did).unwrap_or(true)
                                 && {
-                                    // C++ DOZER_DO_BUILD_AT_DOCK: idle at ACTION dock,
-                                    // not within 70wu of the structure centre (cpp:485-507).
+                                    // C++ DozerActionPickActionPosState
+                                    // (DozerAIUpdate.cpp:318-335): arrival SUCCESS is
+                                    // `dist(dozer, goalPos) <= max(MIN_ACTION_TOLERANCE,
+                                    // boundingSphere + SLOP)` — the distance IS the
+                                    // arrival test, so a live approach leg inside the
+                                    // window still builds while a dozer stopped outside
+                                    // never does. DOZER_DO_BUILD_AT_DOCK (cpp:499-507)
+                                    // then gates progress to this ACTION dock.
                                     let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
                                         *stored_dock,
                                         *pos,

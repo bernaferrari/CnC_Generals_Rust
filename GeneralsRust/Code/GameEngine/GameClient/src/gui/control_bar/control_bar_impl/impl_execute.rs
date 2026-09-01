@@ -721,7 +721,7 @@ mod host_bridge_execution_tests {
         // constructing equivalent fields.  The host path must be driven by
         // the loaded button data, not by a MiG-specific bridge rule.
         const RETAIL_COMMAND_BUTTONS: &str = include_str!(
-            "../../../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandButton.ini"
+            "../../../../../../../../windows_game/extracted_big_files_v2/INI/CommandButton.ini"
         );
         let header = format!("CommandButton {RETAIL_MIG_BUTTON}");
         let tail = &RETAIL_COMMAND_BUTTONS[RETAIL_COMMAND_BUTTONS

@@ -288,9 +288,9 @@ impl WindowManager {
         }
 
         let fallback_paths = [
-            "windows_game/extracted_big_files_v2/INIZH/Data/INI/WindowTransitions.ini",
+            "windows_game/extracted_big_files_v2/INI/WindowTransitions.ini",
             "windows_game/extracted_big_files/INIZH/Data/INI/WindowTransitions.ini",
-            "../windows_game/extracted_big_files_v2/INIZH/Data/INI/WindowTransitions.ini",
+            "../windows_game/extracted_big_files_v2/INI/WindowTransitions.ini",
             "../windows_game/extracted_big_files/INIZH/Data/INI/WindowTransitions.ini",
         ];
         for path in fallback_paths {

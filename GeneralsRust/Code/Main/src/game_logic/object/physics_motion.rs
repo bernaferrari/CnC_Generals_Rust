@@ -1086,12 +1086,19 @@ impl Object {
                 self.set_status_disabled_freefall(false);
                 let _ = self.maybe_kill_when_resting_on_ground();
             }
+            // Settled stun ticks must still re-derive model conditions, or
+            // stale STUNNED/FREEFALL bits from the last stunned refresh stick
+            // after relief (C++ PhysicsBehavior::update re-evaluates
+            // IS_STUNNED / IS_IN_FREEFALL every frame, PhysicsUpdate.cpp:671-702).
+            self.refresh_model_condition_bits();
             return;
         }
         // Capture before this frame's land so first ground contact keeps STUNNED
         // one frame (C++ ≈1 frame grounded stun; FLAILING → STUNNED visible).
+        // Also record pre-tick height band so relief defers on the landing frame.
         let already_on_ground =
             self.shock_grounded_once || self.get_position().y <= self.ground_height + 0.05;
+        let was_significantly_airborne = self.is_significantly_above_terrain();
         // C++ has no stun timer. Keep IS_STUNNED until settle relief.
         let _ = countdown;
         // Integrate YPR while stunned (tumble settle). Motion step skips YPR
@@ -1175,20 +1182,38 @@ impl Object {
             let _ = self.maybe_kill_when_resting_on_ground();
         }
         // C++ PhysicsUpdate.cpp:672-682: clear stun when |vel|<0.5 or not significantly airborne.
-        self.maybe_clear_shock_stun_relief(already_on_ground);
+        self.maybe_clear_shock_stun_relief(already_on_ground, was_significantly_airborne);
         self.refresh_model_condition_bits();
     }
 
     /// C++ STUN_RELIEF_EPSILON / !isSignificantlyAboveTerrain residual.
-    fn maybe_clear_shock_stun_relief(&mut self, _already_on_ground: bool) {
+    fn maybe_clear_shock_stun_relief(
+        &mut self,
+        already_on_ground: bool,
+        was_significantly_airborne: bool,
+    ) {
         if self.shock_stun_frames == 0 {
             return;
         }
         let v = self.movement.velocity;
         const EPS: f32 = 0.5; // C++ STUN_RELIEF_EPSILON
         let vel_settled = v.x.abs() < EPS && v.y.abs() < EPS && v.z.abs() < EPS;
-        // C++: |vel|<0.5 OR !isSignificantlyAboveTerrain (3-frame fall height).
-        if vel_settled || !self.is_significantly_above_terrain() {
+        // C++ PhysicsUpdate.cpp:671-682 — the landing frame and the grounded
+        // sliding tumble keep IS_STUNNED (FLAILING → STUNNED flip observable,
+        // C++ ≈1+ frame grounded stun) until |vel| drops under
+        // STUN_RELIEF_EPSILON; relief then applies on the settled tick.
+        if self.shock_grounded_once
+            && !vel_settled
+            && (already_on_ground || was_significantly_airborne)
+        {
+            return;
+        }
+        // C++: |vel|<0.5 OR !isSignificantlyAboveTerrain (3-frame fall height,
+        // Thing.cpp:308-311). A fast tumbling body steps over the 0.64wu band
+        // between frames, so the terrain clause also requires a settled
+        // vertical speed — otherwise a mid-fall frame inside the band would
+        // clear IS_STUNNED before first ground contact (PhysicsUpdate.cpp:671-682).
+        if vel_settled || (!self.is_significantly_above_terrain() && v.y.abs() < EPS) {
             self.shock_stun_frames = 0;
             self.set_status_disabled_freefall(false);
             self.record_host_shock_stun();

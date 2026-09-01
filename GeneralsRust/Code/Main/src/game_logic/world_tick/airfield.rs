@@ -2475,15 +2475,17 @@ impl GameLogic {
                 }
             }
 
-            // A previous `findSuitableAirfield` fallback writes that field
-            // into producer_id too.  It is not upgraded into a same-owner
-            // producer, but its already-reserved real ParkingPlace may remain
-            // live while the explicit alliance remains valid.  Without this
-            // branch every update would release/reacquire the same allied
-            // space and could lose it to a queue between frames.
+            // C++ getPP(producerID) (JetOrHeliReturnForLandingState::onEnter,
+            // JetAIUpdate.cpp:1509-1511) keeps the producer by liveness alone,
+            // and doLandingCommand (JetAIUpdate.cpp:2277-2312) accepts the
+            // commanded airfield with no ownership/relationship gate. An
+            // ownerless legacy airfield bound to the jet's live landing/RTB
+            // leg therefore stays the target; owner-stamped airfields keep
+            // the strict exact-controller/allied checks above.
             if producer_is_usable
-                && self.is_friendly_airfield(jet_id, producer_id)
-                && self.airfield_has_reserved_space(producer_id, jet_id)
+                && self.jet_rtb_leg_bound_to_ownerless_airfield(jet_id, producer_id)
+                && (self.reserve_airfield_parking_space(producer_id, jet_id).is_some()
+                    || self.airfield_has_reserved_space(producer_id, jet_id))
             {
                 return Some(producer_id);
             }
@@ -2522,6 +2524,35 @@ impl GameLogic {
         candidates.into_iter().find_map(|(airfield_id, _)| {
             self.reserve_airfield_parking_space(airfield_id, jet_id)
                 .map(|_| airfield_id)
+        })
+    }
+
+    /// Ownerless legacy airfield bound to a jet's live landing/RTB leg.
+    /// C++ keeps the producer airfield by liveness alone
+    /// (JetOrHeliReturnForLandingState::onEnter getPP(producerID),
+    /// JetAIUpdate.cpp:1509-1511) and `doLandingCommand`
+    /// (JetAIUpdate.cpp:2277-2312) accepts the commanded airfield without an
+    /// ownership/relationship check; a C++ team-owned airfield always has a
+    /// controlling player, so the host's ownerless legacy objects never hit
+    /// the one-sided-owner veto while their jet flies an explicit leg.
+    fn jet_rtb_leg_bound_to_ownerless_airfield(
+        &self,
+        jet_id: ObjectId,
+        airfield_id: ObjectId,
+    ) -> bool {
+        let Some(airfield) = self.objects.get(&airfield_id) else {
+            return false;
+        };
+        if airfield.owner_player_id.is_some() || !Self::has_usable_airfield_parking_behavior(airfield)
+        {
+            return false;
+        }
+        self.objects.get(&jet_id).is_some_and(|jet| {
+            jet.is_alive()
+                && jet.producer_id == Some(airfield_id)
+                && (jet.jet_ai.landing_in_progress
+                    || jet.return_to_base_requested
+                    || jet.contained_by == Some(airfield_id))
         })
     }
 
@@ -2578,7 +2609,17 @@ impl GameLogic {
         let docked_rearm_pending = self.objects.get(&jet_id).is_some_and(|jet| {
             jet.contained_by.is_some() && jet.airfield_rearm_ready_frame.is_some()
         });
-        if !needs_rearm && !requested && !docked_rearm_pending {
+        // A jet flying an in-progress RTB landing leg (APPROACH/LANDING/TAXI)
+        // keeps progressing through the leg regardless of its current ammo
+        // state: C++ JetAIUpdate drives RETURNING_FOR_LANDING → LANDING →
+        // DOING_LANDING/TAXI as sequential states once entered
+        // (JetAIUpdate.cpp:1509-1541, 2277-2312); isOutOfSpecialReloadAmmo
+        // only gates entering the return, not continuing an open leg.
+        let rtb_leg_in_progress = self
+            .objects
+            .get(&jet_id)
+            .is_some_and(|jet| jet.jet_ai.landing_in_progress || jet.jet_ai.rtb_landing_phase != 0);
+        if !needs_rearm && !requested && !docked_rearm_pending && !rtb_leg_in_progress {
             return false;
         }
 
@@ -2603,7 +2644,8 @@ impl GameLogic {
             return false;
         };
         if !(self.airfield_has_exact_controller_for_jet(jet_id, airfield_id)
-            || self.is_friendly_airfield(jet_id, airfield_id))
+            || self.is_friendly_airfield(jet_id, airfield_id)
+            || self.jet_rtb_leg_bound_to_ownerless_airfield(jet_id, airfield_id))
         {
             let _ = self.release_airfield_parking_space_for_jet(jet_id);
             return false;
@@ -2748,11 +2790,13 @@ impl GameLogic {
                 );
                 crate::game_logic::host_ai_decision_log::record_set_state(jet_id, ordinal);
             }
-            if self.assign_unit_path(jet_id, approach, &[]) {
-                return true;
-            }
-            let _ = self.release_airfield_parking_space_for_jet(jet_id);
-            return false;
+            // C++ aircraft approach legs never fail closed on the ground
+            // grid: RETURNING_FOR_LANDING's onEnter issues the move
+            // (JetAIUpdate.cpp:1536-1541) and AIInternalMoveToState flies the
+            // raw goal. Install the approach leg directly when the leftover
+            // pathfinder refuses an off-grid air goal so an accepted landing
+            // command is not rejected after its reservation was made.
+            return self.assign_rtb_path(jet_id, &[approach]);
         }
 
         if let Some(jet) = self.objects.get_mut(&jet_id) {

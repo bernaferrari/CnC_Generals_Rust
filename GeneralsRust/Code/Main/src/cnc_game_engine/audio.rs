@@ -221,10 +221,12 @@ impl CnCGameEngine {
                 .as_ref()
                 .map(|pres| pres.frame.0)
                 .filter(|frame| *frame != 0)
-                .unwrap_or_else(|| self.game_logic.get_frame());
+                // Wave 560 fail-closed: boot residual frame, no live dual-read.
+                .unwrap_or_else(|| self.presentation_or_boot_logic_frame());
             game_client::eva::set_eva_host_frame(frame);
             // C++ Eva.cpp:422 polls local Energy::hasSufficientPower.
-            let host_frame = self.game_logic.get_frame();
+            // Wave 560 fail-closed: boot residual frame, no live dual-read.
+            let host_frame = self.presentation_or_boot_logic_frame();
             if let Some(player) = self
                 .game_logic
                 .local_player_id()

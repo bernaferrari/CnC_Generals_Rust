@@ -5,7 +5,7 @@ use std::{fs, path::PathBuf};
 #[test]
 fn retail_roads_parse_and_can_be_reapplied_as_overrides() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Roads.ini");
+        .join("../../../../windows_game/extracted_big_files_v2/INI/Roads.ini");
     let Ok(source) = fs::read_to_string(&path) else {
         return;
     };

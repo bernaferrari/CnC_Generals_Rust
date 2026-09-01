@@ -819,7 +819,12 @@ impl Object {
             return JetAiTickAction::None;
         }
 
+        // C++ arms the idle RTB timer only under AIUpdateInterface::isIdle()
+        // (JetAIUpdate.cpp:1831, 1888): an attacking jet is not idle, so its
+        // timer is cleared by the non-idle branch (JetAIUpdate.cpp:1899) and
+        // never armed mid-attack.
         let idle = matches!(self.ai_state, AIState::Idle)
+            && !self.status.attacking
             && self.target.is_none()
             && !self.hunting
             && self.guard_position.is_none()

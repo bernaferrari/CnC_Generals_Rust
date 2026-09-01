@@ -74,9 +74,14 @@ impl PresentationFloatingText {
         }
     }
 
-    /// True while C++ still draws the entry (timeout plus leftover vanish tail).
+    /// True while the presentation residual still draws the entry.
+    ///
+    /// Visibility follows the linear vanish window: alpha stays 1.0 through
+    /// `timeout_frame` and reaches 0 exactly `1/rate` frames later, so the
+    /// entry drops out on that exact frame (spawn + timeout + 10 at the
+    /// retail 0.1 vanish rate). Not the byte-cumulative C++ color tail.
     pub fn is_active_at(&self, logic_frame: u32) -> bool {
-        self.leftover_fade_alpha_u8_at(logic_frame) > 0
+        self.vanish_alpha_at(logic_frame) > 0.0
     }
 
     /// Age in logic frames at `logic_frame` (0 at spawn).
@@ -128,28 +133,6 @@ impl PresentationFloatingText {
     pub fn color_with_vanish_alpha_at(&self, logic_frame: u32) -> (u8, u8, u8, u8) {
         let (r, g, b, a) = self.color_rgba;
         (r, g, b, self.vanish_color_alpha_u8_at(logic_frame, a))
-    }
-
-    /// C++ `updateFloatingText` cumulative per-frame subtract from spawn alpha.
-    /// Leftover `InGameUI::floating_text_alpha_at_frame` — not the 10-frame linear curve.
-    pub fn leftover_fade_alpha_u8_at(&self, logic_frame: u32) -> u8 {
-        let spawn_alpha = self.color_rgba.3;
-        let timeout = self.timeout_frame;
-        if logic_frame <= timeout {
-            return spawn_alpha;
-        }
-        let mut alpha = spawn_alpha as i32;
-        let mut past = 1u32;
-        let mut frame = timeout.saturating_add(1);
-        while frame <= logic_frame {
-            alpha -= (past as f32 * PRESENTATION_FLOATING_TEXT_VANISH_RATE) as i32;
-            if alpha <= 0 {
-                return 0;
-            }
-            past = past.saturating_add(1);
-            frame = frame.saturating_add(1);
-        }
-        alpha as u8
     }
 
     /// Honesty: retail vanish-rate / move-up / timeout presentation fields.
@@ -429,17 +412,20 @@ pub(crate) fn collect_presentation_world_anims(logic: &GameLogic) -> Vec<Present
     out
 }
 
+
 #[cfg(test)]
-mod leftover_fade_tests {
+mod vanish_window_tests {
     use super::*;
 
     #[test]
-    fn leftover_vanish_tail_stays_active_past_linear_zero() {
+    fn vanish_window_ends_when_fade_alpha_hits_zero() {
         let t = PresentationFloatingText::synthetic_cash(50, 0);
-        // timeout=10. Linear vanish_alpha_at hits 0 at frame 20; leftover tail does not.
-        assert!(t.is_active_at(20));
-        assert!(t.leftover_fade_alpha_u8_at(20) > 200);
-        assert!(t.is_active_at(80));
+        // timeout=10. Linear vanish_alpha_at stays >0 through frame 19 and
+        // reaches 0 exactly on frame 20; visibility flips on that frame.
+        assert!(t.is_active_at(0));
+        assert!(t.is_active_at(10));
+        assert!(t.is_active_at(19));
+        assert!(!t.is_active_at(20));
         assert!(!t.is_active_at(200));
     }
 }

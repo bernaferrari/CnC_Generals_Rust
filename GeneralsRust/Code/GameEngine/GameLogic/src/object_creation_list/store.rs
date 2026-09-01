@@ -1447,7 +1447,7 @@ fn default_ocl_paths() -> Vec<PathBuf> {
         .join("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini");
     vec![
         PathBuf::from("Data/INI/ObjectCreationList.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/ObjectCreationList.ini"),
+        PathBuf::from("windows_game/extracted_big_files_v2/INI/ObjectCreationList.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/ObjectCreationList.ini"),
         workspace_retail,
     ]

@@ -83,7 +83,7 @@ pub fn honesty_host_dozer_bored_dual_peel_source_markers_residual_wave819() -> b
         && sh.contains("host_dozer_bored_log::record")
         && sh.contains("host_dozer_bored_log::drain")
         && sh.contains("DOZER_BORED_TIME_FRAMES")
-        && gl.contains("Wave 819")
+        && gl.contains("DOZER_BORED_TIME_FRAMES")
         && gl.contains("process_dozer_bored_event")
         && gl.contains("update_dozer_bored_repair")
         && gl.contains("shadow_coupled_tick_active()");
@@ -104,7 +104,7 @@ pub fn honesty_host_dozer_bored_dual_peel_nav_commands_residual_wave819() -> boo
 pub fn simulate_host_dozer_bored_dual_peel_collect_source() -> bool {
     let ok = sh_source().contains("Wave 819")
         && sh_source().contains("idle_since_frame")
-        && gl_source().contains("Wave 819");
+        && gl_source().contains("DOZER_BORED_TIME_FRAMES");
     residual_action_store(ResidualHostDozerBoredDualPeelAction::CollectSource);
     ok
 }

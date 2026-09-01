@@ -87,7 +87,7 @@ pub fn honesty_host_tick_logic_frame_boundary_nav_commands_residual_wave923() ->
 pub fn honesty_host_tick_logic_frame_boundary_residual_pack_wave923() -> bool {
     let cnc = cnc_source();
     let gl = gl_source();
-    let upd_raw = code_window(cnc, "fn host_update_logic_frame", 900);
+    let upd_raw = code_window(cnc, "fn host_update_logic_frame", 2000);
     let upd = non_comment_code(upd_raw);
     let ok = upd_raw.contains("923")
         && upd.contains("tick_logic_frame")

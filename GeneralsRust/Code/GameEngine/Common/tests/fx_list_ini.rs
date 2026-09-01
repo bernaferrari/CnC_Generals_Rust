@@ -104,7 +104,7 @@ End
 fn retail_windows_game_fx_list_parses_end_to_end_when_present() {
     let _guard = FX_LIST_TEST_LOCK.lock().expect("FXList test lock");
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/FXList.ini");
+        .join("../../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
     let Ok(source) = fs::read_to_string(&path) else {
         return;
     };

@@ -1671,7 +1671,7 @@ mod tests {
         let ini_path = [
             root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object/FactionBuilding.ini"),
             root.join(
-                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/FactionBuilding.ini",
+                "windows_game/extracted_big_files_v2/INI/Object/FactionBuilding.ini",
             ),
         ]
         .into_iter()

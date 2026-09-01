@@ -31,9 +31,9 @@ mod tests {
     fn active_command_map_names() -> Vec<String> {
         let root = repo_root();
         let paths = [
-            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMap.ini"),
-            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMapDebug.ini"),
-            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMapDemo.ini"),
+            root.join("windows_game/extracted_big_files_v2/INI/CommandMap.ini"),
+            root.join("windows_game/extracted_big_files_v2/INI/CommandMapDebug.ini"),
+            root.join("windows_game/extracted_big_files_v2/INI/CommandMapDemo.ini"),
             root.join("windows_game/extracted_big_files_v2/EnglishZH/Data/English/CommandMap.ini"),
             root.join(
                 "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/CommandMap.ini",

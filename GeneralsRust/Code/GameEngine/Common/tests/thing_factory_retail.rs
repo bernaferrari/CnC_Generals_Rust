@@ -20,7 +20,7 @@ fn retail_object_ini_set_populates_gameplay_templates() {
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Warn);
     let object_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Object");
+        .join("../../../../windows_game/extracted_big_files_v2/INI/Object");
     let Ok(entries) = fs::read_dir(&object_dir) else {
         return;
     };

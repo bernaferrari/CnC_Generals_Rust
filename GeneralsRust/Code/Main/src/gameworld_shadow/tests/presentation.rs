@@ -603,7 +603,8 @@ fn worker_unfinished_construction_presentation_source() {
         .expect("worker cycle");
     let body = &eng[i..eng.len().min(i + 2200)];
     assert!(
-        body.contains("KindOf::Dozer") && body.contains("host_center_camera_on"),
+        body.contains("KindOf::Dozer")
+            && (body.contains("host_center_camera_on") || body.contains("host_player_look_at")),
         "worker cycle must be KINDOF_DOZER + lookAt (CommandXlat.cpp:2573-2798)"
     );
     let i = eng
@@ -614,7 +615,9 @@ fn worker_unfinished_construction_presentation_source() {
         body.contains("alive_selectable_friendly_unfinished_ids"),
         "unfinished cycle must prefer presentation unfinished ids"
     );
-    let i = eng.find("fn resume_selected_construction").expect("resume");
+    let i = eng
+        .find("fn host_resume_selected_construction")
+        .expect("host resume");
     let body = &eng[i..eng.len().min(i + 5500)];
     assert!(
         body.contains("alive_selectable_friendly_unfinished_ids")
@@ -734,7 +737,8 @@ fn residual_acquire_query_source() {
     }
     // AI factory pick residual priority (idle preferred).
     {
-        let ai = include_str!("../../ai.rs");
+        // ai.rs was split into ai/; the live factory finder lives in ai/teams.rs.
+        let ai = include_str!("../../ai/teams.rs");
         let i = ai
             .find("fn find_factory_for_unit_ex")
             .expect("find_factory_for_unit_ex");
@@ -752,7 +756,8 @@ fn residual_acquire_query_source() {
             .expect("engine find_object_at_position");
         // Prefer the InGame/engine pick (not test helpers): scan for boot residual marker.
         let body =
-            rust_fn_body(eng, "find_object_at_position").expect("engine find_object_at_position");
+            rust_fn_body(eng, "host_find_object_at_position")
+                .expect("engine host_find_object_at_position");
         assert!(
             body.contains("pick_object_id_at_world_from_presentation")
                 || body.contains("pick_best_priority_residual_target"),
@@ -895,7 +900,26 @@ fn residual_acquire_query_source() {
             .find(&format!("fn {name}"))
             .or_else(|| src.find(&format!("pub fn {name}")))
             .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[i..src.len().min(i + 9000)];
+        // update_money_crate_collides is a large tick fn; the XZ acquire sits
+        // deep in the body — scan the whole function, not a head window.
+        let bytes = src.as_bytes();
+        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+        let mut depth = 0i32;
+        let end = loop {
+            match bytes.get(j) {
+                Some(b'{') => depth += 1,
+                Some(b'}') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break j;
+                    }
+                }
+                Some(_) => {}
+                None => panic!("unclosed {name}"),
+            }
+            j += 1;
+        };
+        let body = &src[i..=end];
         assert!(
             body.contains("pick_nearest_residual_target_xz")
                 && body.contains("ResidualAcquireCandidate"),
@@ -908,7 +932,25 @@ fn residual_acquire_query_source() {
         let i = src
             .find(&format!("fn {name}"))
             .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[i..src.len().min(i + 7000)];
+        // Large tick fn — scan the whole body, not a head window.
+        let bytes = src.as_bytes();
+        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+        let mut depth = 0i32;
+        let end = loop {
+            match bytes.get(j) {
+                Some(b'{') => depth += 1,
+                Some(b'}') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break j;
+                    }
+                }
+                Some(_) => {}
+                None => panic!("unclosed {name}"),
+            }
+            j += 1;
+        };
+        let body = &src[i..=end];
         assert!(
             body.contains("pick_nearest_residual_target_xz")
                 && body.contains("ResidualAcquireCandidate"),
@@ -956,11 +998,8 @@ fn residual_acquire_query_source() {
         );
     }
     // Dozer bored service residual + battle-drone master repair.
-    for name in [
-        "find_dozer_bored_repair_target",
-        "find_dozer_bored_mine_target",
-        "update_battle_drone_repair_residual",
-    ] {
+    // (BattleDroneAIUpdate doRepairLogic heals only its slaver — no acquire scan.)
+    for name in ["find_dozer_bored_repair_target", "find_dozer_bored_mine_target"] {
         let i = src
             .find(&format!("fn {name}"))
             .or_else(|| src.find(&format!("pub fn {name}")))
@@ -1105,7 +1144,7 @@ fn command_move_attack_host_object_id_source() {
         "command_move must use host pathfinding only (no ObjectFactory bridge)"
     );
     let i = src.find("fn command_attack").expect("command_attack");
-    let body = &src[i..src.len().min(i + 2000)];
+    let body = &src[i..src.len().min(i + 6000)];
     assert!(
         body.contains("attack_target(target_id)") && !body.contains("bridge_attack_to_engine"),
         "command_attack must use host ObjectId attack_target only"

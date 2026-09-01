@@ -530,6 +530,17 @@ fn missile_defender_laser_guided_decision_authority() {
     }
     let ok = logic.activate_missile_defender_laser_guided_for_test(mid, eid);
     assert!(ok, "laser guided should activate");
+    // C++ SpecialAbilityUpdate advances startPreparation → continuePreparation
+    // → triggerAbilityEffect on later updates (SpecialAbilityUpdate.cpp
+    // :1276-1293); the AttackTarget decision logs at the channel engage
+    // (engage_target_decision_aware), not at activation. Drive the channel
+    // (bounded, established facing/prep-slice pattern) until the decision lands.
+    for _ in 0..600 {
+        if !host_ai_decision_log::snapshot().is_empty() {
+            break;
+        }
+        logic.update_support_states_for_test(&[mid, eid], 1.0 / 30.0);
+    }
     let events = host_ai_decision_log::drain();
     assert!(
         events.iter().any(|e| {
@@ -864,14 +875,44 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         .create_object("MaU", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("v");
     {
+    // C++ human idle auto-acquire only takes OBJECTSHROUD_CLEAR victims
+    // (AIUpdate.cpp:4608-4619 PartitionFilterFreeOfFog residual, mood.rs
+    // UNFOGGED flag for a local player's scan). No vision pass runs in this
+    // raw fixture, so stamp the retail precondition: the enemy in front of
+    // the start units is shroud-clear for the owning local player.
+    if let Some(pid) = logic.player_id_for_team(Team::USA) {
+        if let Some(mgr) = gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .ok()
+            .as_mut()
+        {
+            mgr.set_host_object_shroud_status(pid, vid.0, gamelogic::common::ObjectShroudStatus::Clear);
+        }
+    }
         let o = logic.host_object_mut(oid).expect("o");
+        // Mood auto-acquire is an IDLE-state scan (mood.rs:601 eligible gate);
+        // the try_mood_auto_acquire_enters_attack precedent sets Idle explicitly.
+        o.set_ai_state(crate::game_logic::AIState::Idle);
         o.auto_acquire_when_idle = true;
-        o.ai_state = crate::game_logic::AIState::Idle;
-        o.target = None;
+        // C++ AutoAcquireEnemiesWhenIdle is a BITFIELD parsed from INI
+        // (AIUpdate.cpp; AUTO_ACQUIRE_* flags) — get_next_mood_target gates
+        // called_during_idle on AUTO_ACQUIRE_IDLE, not the legacy bool.
+        o.auto_acquire_idle_bits |= gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+        // Retail infantry author VisionRange (AmericaInfantry.ini Ranger 150);
+        // the mood scan fails closed on vision <= 0
+        // (mood.rs adjusted_vision_range_for_mood gate).
+        o.vision_range = 150.0;
         // Give a weapon so can_attack is true.
+        // C++ WeaponSet::chooseBestWeaponForTarget (PreferMostDamage) only
+        // considers a slot whose weapon is past its reload clock; a fresh
+        // fixture at frame 0 with last_fire_time 0 / reload 1 has no ready
+        // slot and AIAttackState::chooseWeapon refuses the enter (the
+        // try_mood_auto_acquire_enters_attack precedent authors
+        // last_fire_time -10 for the same reason).
         o.weapon = Some(crate::game_logic::Weapon {
             damage: 10.0,
             range: 100.0,
+            last_fire_time: -10.0,
             ..crate::game_logic::Weapon::default()
         });
     }
@@ -1158,7 +1199,11 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
         is_homing: false,
         damage_type: DamageType::Bullet,
         death_type: HostDeathType::Normal,
-        projectile_object_name: String::new(),
+        // C++ WeaponTemplate::getProjectileTemplate()==NULL (empty name)
+        // routes to delayed damage with NO CombatSystem flight projectile
+        // (weapon_fire.rs is_projectileless_object_name). The shadow apply
+        // must spawn a flight projectile here, so author a projectile object.
+        projectile_object_name: "TestMissile".to_string(),
         projectile_lifecycle: None,
         fire_fx_name: String::new(),
         fire_ocl_name: String::new(),
@@ -1370,17 +1415,43 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     if let Some(t) = logic.templates.get_mut("MvU") {
         t.add_kind_of(KindOf::Infantry);
     }
+    // update_with_dt evaluates the skirmish NO_BUILDINGS victory rule
+    // (C++ VictoryConditions.cpp:87-95/168-196): a structure-less playable
+    // player is defeated on frame 0-1. Seed the MpCountForVictory keep-alive
+    // (stale_engine_id_does_not_skip_host_movement precedent).
+    if !logic.templates.contains_key("VictoryKeepAlive") {
+        let mut t = ThingTemplate::new("VictoryKeepAlive");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
+        logic.templates.insert("VictoryKeepAlive".into(), t);
+    }
+    let _keep_alive = logic
+        .create_object("VictoryKeepAlive", Team::USA, Vec3::new(300.0, 0.0, 300.0))
+        .expect("keep-alive structure");
     let id = logic
         .create_object("MvU", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("unit");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.thing.template.add_kind_of(KindOf::Infantry);
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        // The stale_engine_id twin authors the resolved locomotor path
+        // directly: a mapless first-tick assign still sits in the
+        // computePointOnPath lead fallback (AIPathfind.cpp:910-950) where the
+        // Locomotor.cpp:1393-1430 approach brake zeroes goalSpeed on
+        // distAlongPath 0. Authoring the path mirrors the post-pathfind
+        // FollowPath state the authority must integrate.
+        o.movement.path = vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(100.0, 0.0, 0.0)];
         o.movement.max_speed = 60.0;
+        // C++ Locomotor::getMaxAcceleration: retail locomotors author
+        // Acceleration; velocity ramps by acceleration*dt — a 0-accel
+        // fixture never moves.
+        o.movement.acceleration = 240.0;
+        o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
+        o.status.moving = true;
     }
-    assert!(logic.assign_unit_path(id, Vec3::new(100.0, 0.0, 0.0), &[]));
     let pre = logic.host_objects().get(&id).unwrap().get_position();
-    // One host movement tick must advance pose when shadow is off.
-    logic.update_movement_for_test(&[id], 1.0 / 30.0);
+    for _ in 0..10 {
+        logic.update_with_dt(1.0 / 30.0);
+    }
     let post = logic.host_objects().get(&id).unwrap().get_position();
     let dist = (post - pre).length();
     assert!(
@@ -1396,7 +1467,6 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
 }
-
 #[test]
 fn construction_authority_sets_host_percent_when_shadow_disabled() {
     let _env_guard = authority_env_lock();

@@ -71,6 +71,10 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
         .add_kind_of(KindOf::SupplyCenter)
         .add_kind_of(KindOf::Selectable)
         .set_health(1000.0);
+    // Retail GLASupplyStash authors DockKind SUPPLY_CENTER; the dock
+    // approach-queue fails closed (0 approach positions → claim refused)
+    // without it, so drop-offs can never dock.
+    supply_tpl.dock_kind = crate::game_logic::DockKind::SupplyCenter;
     game_logic
         .templates
         .insert("GLASupplyStash".to_string(), supply_tpl);
@@ -113,7 +117,13 @@ fn worker_shoes_upgrade_speed_and_supply_boost_residual() {
             .honesty_queue_ok(HostUpgradeKind::WorkerShoes)
     );
 
-    game_logic.update();
+    // Retail Upgrade_GLAWorkerShoes BuildTime 10.0s (retail_build_time_secs)
+    // now resolves onto the producer PRODUCTION_UPGRADE queue, so research
+    // needs the full retail frames; the single-update residual assumed the
+    // no-INI fallback. C++ ProductionUpdate owns the timer on the producer.
+    for _ in 0..HostUpgradeKind::WorkerShoes.retail_research_frames() {
+        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    }
 
     assert!(
         game_logic
@@ -544,6 +554,16 @@ fn flashbang_grenade_bezier_flight_and_blast() {
         .add_kind_of(KindOf::Attackable)
         .set_health(500.0);
     logic.templates.insert("TestTank".into(), tank);
+    // Splash-victim infantry: retail flashbang is DamageType SURRENDER
+    // (Weapon.ini:2535-2556) — infantry armors take 100%, vehicles take 0%
+    // (Armor.ini TankArmor SURRENDER = 0%), so the blast contract needs an
+    // infantry victim.
+    let mut conscript = ThingTemplate::new("TestConscript");
+    conscript
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    logic.templates.insert("TestConscript".into(), conscript);
 
     let src = logic
         .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -558,6 +578,10 @@ fn flashbang_grenade_bezier_flight_and_blast() {
         .create_object("TestTank", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
         .unwrap();
     let hp_before = logic.host_object(enemy).unwrap().health.current;
+    let victim = logic
+        .create_object("TestConscript", Team::GLA, Vec3::new(80.0, 0.0, 0.0))
+        .unwrap();
+    let victim_hp_before = logic.host_object(victim).unwrap().health.current;
     let from = Vec3::new(0.0, 0.0, 0.0);
     let aim = Vec3::new(80.0, 0.0, 0.0);
 
@@ -601,9 +625,19 @@ fn flashbang_grenade_bezier_flight_and_blast() {
         .host_object(enemy)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
+    assert_eq!(
+        hp_after, hp_before,
+        "retail TankArmor SURRENDER 0% (Armor.ini:139): vehicles lose no HP to flashbang \
+         (ActiveBody.cpp:509-527 applies the armored amount)"
+    );
+    let victim_hp_after = logic
+        .host_object(victim)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
     assert!(
-        hp_after < hp_before,
-        "blast should damage (before={hp_before} after={hp_after} dmg={FLASHBANG_PRIMARY_DAMAGE})"
+        victim_hp_after < victim_hp_before,
+        "blast should damage infantry (before={victim_hp_before} after={victim_hp_after} \
+         dmg={FLASHBANG_PRIMARY_DAMAGE}; infantry armor SURRENDER 100%)"
     );
 }
 
@@ -767,6 +801,37 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     }
     logic.update_angry_mobs();
     assert!(logic.honesty_angry_mob_member_spawn_ok());
+    // C++ SpawnBehavior.cpp:221-243 replacement-times drain: the first
+    // ANGRY_MOB_INITIAL_MEMBERS slots are due at sync, the rest stream in on
+    // exit-delay dues. Advance through the replacement window to SpawnNumber.
+    let members: Vec<_> = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
+        .collect();
+    assert_eq!(
+        members.len() as u32,
+        ANGRY_MOB_INITIAL_MEMBERS,
+        "initial fill spawns the immediate-due members"
+    );
+    assert!(members.iter().all(|m| {
+        ANGRY_MOB_MEMBER_TEMPLATES
+            .iter()
+            .any(|t| *t == m.template_name.as_str())
+    }));
+    for _ in 0..(ANGRY_MOB_MAX_MEMBERS * 4) {
+        logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
+        logic.update_angry_mobs();
+        let count = logic
+            .host_objects()
+            .values()
+            .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
+            .count() as u32;
+        if count >= ANGRY_MOB_MAX_MEMBERS {
+            break;
+        }
+    }
+    logic.update_angry_mobs();
     let members: Vec<_> = logic
         .host_objects()
         .values()
@@ -775,7 +840,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     assert_eq!(
         members.len() as u32,
         ANGRY_MOB_MAX_MEMBERS,
-        "SpawnNumber members must spawn immediately"
+        "replacement dues complete the SpawnNumber fill"
     );
     assert!(members.iter().all(|m| {
         ANGRY_MOB_MEMBER_TEMPLATES
@@ -1253,7 +1318,15 @@ fn plant_timed_demo_charge_command_plants_after_reach() {
         burton.set_ai_state(AIState::SpecialAbility);
         burton.target = Some(target_id);
     }
-    game_logic.update_ai(&[burton_id, target_id], 1.0 / 60.0);
+    // C++ NeedToFace precedes Unpack; facing consumes a variable number of
+    // ticks at the unit's turn rate — drive to the plant with bounded ticks.
+    for _ in 0..1200 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP);
+        if game_logic.mine_residual_places() >= 1 {
+            break;
+        }
+    }
 
     assert!(
         game_logic.mine_residual_places() >= 1,
@@ -1327,7 +1400,15 @@ fn plant_and_detonate_remote_demo_charge_residual() {
         burton.set_ai_state(AIState::SpecialAbility);
         burton.target = Some(target_id);
     }
-    game_logic.update_ai(&[burton_id, target_id, enemy_id], 1.0 / 60.0);
+    // C++ NeedToFace precedes Unpack; facing consumes a variable number of
+    // ticks at the unit's turn rate — drive to the plant with bounded ticks.
+    for _ in 0..1200 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_ai(&[burton_id, target_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+        if game_logic.mine_residual_places() >= 1 {
+            break;
+        }
+    }
 
     assert!(
         game_logic.mine_residual_places() >= 1,

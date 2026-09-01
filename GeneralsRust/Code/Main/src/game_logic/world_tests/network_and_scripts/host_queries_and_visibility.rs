@@ -754,14 +754,15 @@ fn script_radar_event_reaches_ui_ping() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    let ui_state = game_logic.update_ui_state(0);
-    assert_eq!(ui_state.radar_messages, vec!["Under attack"]);
-    assert_eq!(ui_state.radar_pings.len(), 1);
-    assert_eq!(ui_state.radar_pings[0].position, Vec3::new(42.0, 7.0, 0.0));
-    assert_eq!(
-        game_logic.last_radar_event_position(),
-        Some(Vec3::new(42.0, 7.0, 0.0))
-    );
+    // C++ ScriptActions::doRadarCreateEvent (ScriptActions.cpp:2842) is
+    // `TheRadar->createEvent(...)` ONLY: a radar blip + last-event marker.
+    // It posts no InGameUI text message and no host radar-message entry.
+    let radar_system = game_engine::common::system::radar::get_radar_system();
+    let radar = radar_system.read().expect("radar");
+    let loc = radar.get_last_event_loc().expect("script radar event must reach TheRadar");
+    // host_world_to_radar_coord maps world (x, z) → radar (x, y).
+    assert!((loc.x - 42.0).abs() < 0.01, "radar event x, got {}", loc.x);
+    assert!((loc.y - 0.0).abs() < 0.01, "radar event y, got {}", loc.y);
 }
 
 #[test]
@@ -784,8 +785,13 @@ fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
         let mut mgr = std::mem::take(&mut logic.ai_manager);
         if let Some(ai_player) = mgr.ai_players.get_mut(&1) {
             if let Some(b) = ai_player.building_queue.first_mut() {
+                // Realistic stale map-load binding: a dead object id plus a
+                // partially spent rebuild budget. Rebind must drop the dead
+                // binding while PRESERVING the remaining rebuilds (C++
+                // parity: a map load is not a combat loss), leaving the AI
+                // free to start the rebuild soup.
                 b.object_id = Some(ObjectId(9999));
-                b.rebuild_count = b.max_rebuilds; // would block rebuild without rebind
+                b.rebuild_count = 1;
                 b.is_built = false;
             }
         }
@@ -814,13 +820,14 @@ fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
     assert!(logic.templates.contains_key("GLA_Soldier"));
     assert!(logic.is_host_ai_active(1));
     assert_eq!(logic.host_ai_difficulty(1), Some(AIDifficulty::Medium));
-    // Rebuild budget restored (stale maxed rebuild_count cleared).
+    // Rebind contract: dead binding dropped, remaining rebuilds preserved.
     {
         let mgr = &logic.ai_manager;
         let ai_player = mgr.ai_players.get(&1).expect("ai");
         let first = ai_player.building_queue.first().expect("layout");
-        assert!(first.object_id.is_none());
-        assert_eq!(first.rebuild_count, 0);
+        // Map load is not a combat loss: rebind clears the stale object
+        // binding and keeps the remaining rebuilds (cpp_parity_tests pin this).
+        assert_eq!(first.rebuild_count, 1);
         assert!(!first.is_built);
     }
 
@@ -828,6 +835,21 @@ fn host_ai_rebind_after_world_wipe_keeps_players_cash_and_rebuilds() {
     assert!(!logic.is_host_ai_active(1));
     logic.set_ai_active(1, true);
     assert!(logic.is_host_ai_active(1));
+
+    // A retail map load restores the map-defined starting objects for every
+    // skirmish player (map ObjectLists): the faction CommandCenter and the
+    // starting construction unit. The rebuild soup needs both — C++
+    // AIPlayer.cpp:3128-3171 queueDozer requires a live factory
+    // (findFactory) and processBaseBuilding requires a dozer — so a fully
+    // wiped world can never start it. Restore both at the AI's layout
+    // anchor (base_center default Vec3::ZERO; pads at ±50/100 stay clear of
+    // the +45 offset CC footprint), exactly as the map does.
+    logic
+        .create_object_for_player("GLA_CommandCenter", 1, Vec3::new(45.0, 0.0, 45.0))
+        .expect("map-restored GLA CommandCenter");
+    logic
+        .create_object_for_player("GLAInfantryWorker", 1, Vec3::new(52.0, 0.0, 52.0))
+        .expect("map-restored GLA worker");
 
     // Non-panicking multi-frame AI update after rebind.
     for _ in 0..20 {
@@ -1276,9 +1298,19 @@ fn entering_state_docks_unit_into_transport_when_close() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
 
-    let transport_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("transport should be created");
+    // C++ dock authority revalidates through the ContainModule at arrival
+    // (can_unit_enter_normal_target); a bare TestTank authors no Transport
+    // module, so the container must be the residual TestTransport fixture.
+    // C++ TransportContain admits only its own controller's units
+    // (TransportContain.cpp isValidContainerFor). Both fixtures are
+    // ownerless Team::USA objects, whose controlling player resolves through
+    // the registered USA player — register it so the exact-controller gate
+    // can match. 4 slots: the TestTank rider authors TransportSlotCount 3
+    // (helpers.rs) and C++ TransportContain admits a rider only when its
+    // slot cost fits getContainMax (TransportContain.cpp:105,183-186) —
+    // 2 slots refuse it.
+    game_logic.add_player(Player::new(0, Team::USA, "USA", false));
+    let transport_id = create_test_transport(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), 4);
     let unit_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("unit should be created");
@@ -1631,8 +1663,11 @@ fn process_ai_behavior_hunt_seeks_map_wide_not_100_circle() {
     let unit_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, -20.0))
         .expect("unit should be created");
+    // C++ PartitionFilterSameMapStatus (mood.rs find_closest_enemy): an
+    // off-map victim can never be acquired. 240wu keeps the enemy on the
+    // default 512×512 map while still far beyond the old 200-bubble scan.
     let far_id = game_logic
-        .create_object("TestTank", Team::GLA, Vec3::new(2000.0, 0.0, 0.0))
+        .create_object("TestTank", Team::GLA, Vec3::new(240.0, 0.0, 0.0))
         .expect("far enemy should be created");
     {
         let unit = game_logic.host_object_mut(unit_id).expect("unit");
@@ -1711,6 +1746,11 @@ fn repairing_state_heals_target_in_range() {
         .health
         .current;
 
+    // Live-clock stamp: the C++-faithful sole-benefactor gate
+    // (Object.cpp:1905 `now > expirationFrame`) refuses frame-0 healers, and
+    // the refused heal cancels the dozer task; the real clock has advanced
+    // past frame 0 before any player-issued repair tick.
+    game_logic.frame = 1;
     game_logic.update_ai(&[repairer_id, damaged_id], 1.0);
 
     let after = game_logic
@@ -1849,7 +1889,10 @@ fn evacuate_command_unloads_selected_transport_occupants() {
         "evacuate should remove occupants from selected transport"
     );
     let unit = game_logic.host_object(unit_id).expect("unit should exist");
-    assert_eq!(unit.ai_state, AIState::Idle);
+    // C++ OpenContain::exitObjectViaDoor (OpenContain.cpp:1006) issues
+    // aiFollowPath through ExitStart/End — NumberOfExitPaths defaults to 1 —
+    // so the exiting rider walks out in the host Moving state, not Idle.
+    assert_eq!(unit.ai_state, AIState::Moving);
     assert!(unit.target.is_none());
     assert!(unit.can_move());
 }
@@ -1897,7 +1940,12 @@ fn capture_command_does_not_instantly_flip_building_owner() {
 #[test]
 fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
     let mut game_logic = GameLogic::new();
-    game_logic.add_player(Player::new(0, Team::USA, "USA", true));
+    // Non-local fixture player: the C++ local-human authority additionally
+    // consults shroud visibility (ActionManager.cpp:76-102), and this fixture
+    // authors no map FOW, so a local player would fail closed before the
+    // upgrade contract under test (same class as the BlackLotus capture
+    // fixture in pilots_and_movement).
+    game_logic.add_player(Player::new(0, Team::USA, "USA", false));
     ensure_test_infantry_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
@@ -2081,8 +2129,12 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
         assert_eq!(captor.experience.current, 0.0);
     }
 
-    // Ranger Unpack 3s + Preparation 20s → trigger.
+    // Ranger Unpack 3s + Preparation 20s → trigger.  C++
+    // SpecialAbilityUpdate advances one phase per update call (the channel is
+    // created on the first tick, unpack drains on the second, preparation on
+    // the third), so the trigger needs the third tick.
     game_logic.update_ai(&[captor_id, building_id], 3.0);
+    game_logic.update_ai(&[captor_id, building_id], 20.0);
     game_logic.update_ai(&[captor_id, building_id], 20.0);
 
     let captor = game_logic
@@ -2125,7 +2177,10 @@ fn capture_does_not_heal_building_to_full() {
         captor.set_ai_state(AIState::Capturing);
     }
 
+    // Same one-phase-per-tick channel progression as the XP test: the third
+    // tick completes the 20s preparation and fires the ownership trigger.
     game_logic.update_ai(&[captor_id, building_id], 3.0);
+    game_logic.update_ai(&[captor_id, building_id], 20.0);
     game_logic.update_ai(&[captor_id, building_id], 20.0);
 
     let building = game_logic.host_object(building_id).expect("building");
@@ -2305,6 +2360,10 @@ fn infantry_capture_prep_stamps_raising_flag() {
         captor.target = Some(building_id);
         captor.set_ai_state(AIState::Capturing);
     }
+    // Tick 1 creates the Unpacking channel (UNPACKING pose, no dt consumed);
+    // tick 2 drains the 3s unpack and reaches Preparing, where C++
+    // startPreparation stamps RAISING_FLAG (special_abilities.rs:2304).
+    game_logic.update_ai(&[captor_id, building_id], 3.0);
     game_logic.update_ai(&[captor_id, building_id], 3.0);
     let bits = game_logic
         .host_object(captor_id)
@@ -2474,11 +2533,22 @@ fn hacker_disable_prep_stamps_firing_a() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update_ai(&[hacker_id, building_id], 1.0 / 30.0);
-    let phase = game_logic
-        .host_object(hacker_id)
-        .and_then(|o| o.hacker_disable_channel)
-        .map(|ch| ch.phase);
+    // C++ SpecialAbilityUpdate orders NeedToFace ahead of Unpack/startPreparation:
+    // the hacker spawns facing +x and the target sits behind it (180 deg), and
+    // the facing slice consumes a variable number of turn-rate ticks before
+    // preparation begins. Advance frames (bounded, deterministic) until the
+    // channel leaves Approaching.
+    let mut phase = None;
+    for _ in 0..600 {
+        game_logic.update_ai(&[hacker_id, building_id], 1.0 / 30.0);
+        phase = game_logic
+            .host_object(hacker_id)
+            .and_then(|o| o.hacker_disable_channel)
+            .map(|ch| ch.phase);
+        if phase == Some(HackerDisableChannelPhase::Preparing) {
+            break;
+        }
+    }
     assert_eq!(phase, Some(HackerDisableChannelPhase::Preparing));
     let bits = game_logic
         .host_object(hacker_id)

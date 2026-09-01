@@ -829,10 +829,22 @@ impl Object {
             return 0.0;
         };
         let name = self.weapon_name_for_slot(slot).unwrap_or("");
-        let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
-            name,
-            weapon.damage,
-        );
+        // C++ WeaponSet.cpp:847-851 estimates the WEAPON TEMPLATE's
+        // PrimaryDamage, not a host-stamped Object copy. Retail STATUS paint
+        // weapons (AvengerTargetDesignator) carry their authored duration
+        // damage in Weapon.ini; host paint stamps zero the Object copy for
+        // the no-HP-damage residual, which must not feed chooseBest.
+        let template_damage = gamelogic::weapon::with_weapon_store(|store| {
+            store
+                .find_weapon_template(name)
+                .map(|wt| wt.primary_damage)
+        })
+        .ok()
+        .flatten()
+        .filter(|d| *d > 0.0)
+        .unwrap_or(weapon.damage);
+        let est =
+            crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(name, template_damage);
         let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name);
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
             target,

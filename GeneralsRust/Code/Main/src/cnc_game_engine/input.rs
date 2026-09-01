@@ -1394,7 +1394,8 @@ impl CnCGameEngine {
                 self.game_logic.is_paused(),
                 network_frame_data_ready,
                 dt,
-                self.game_logic.get_frame(),
+                // Wave 560 fail-closed: boot residual frame, no live dual-read.
+                self.presentation_or_boot_logic_frame(),
                 self.last_presentation_frame
                     .as_ref()
                     .map(|p| p.frame.0)

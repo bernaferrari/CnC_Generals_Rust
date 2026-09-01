@@ -674,8 +674,8 @@ fn resolved_video_ini_paths() -> Vec<PathBuf> {
         PathBuf::from("Data/INI/Video.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Default/Video.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/Video.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/Video.ini"),
+        PathBuf::from("windows_game/extracted_big_files_v2/INI/Default/Video.ini"),
+        PathBuf::from("windows_game/extracted_big_files_v2/INI/Video.ini"),
     ];
 
     if let Some(global_data) = get_global_data() {

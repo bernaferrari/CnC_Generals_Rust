@@ -562,7 +562,11 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
         let messages = take_command_list_messages();
         apply_replay_messages_to_host(&messages);
     } else {
-        clear_command_list();
+        // Record mode: drop stale network user orders but keep the
+        // MSG_LOGIC_CRC just posted above — C++ GameLogic.cpp:3625-3654 posts
+        // the CRC before TheRecorder->update() so updateRecord writes it to
+        // the .rep stream; a blanket clear would silently eat it.
+        cull_host_command_list();
     }
 
     for command in take_pending_replay_commands() {

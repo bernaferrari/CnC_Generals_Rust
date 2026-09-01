@@ -1001,6 +1001,7 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         max_shots: i32,
     ) -> CommandResult {
+        // Wave 232: attack-move last-writes via GameLogic unit_command_attack_move_to_ex.
         // C++ AIGroup::groupAttackMoveToPosition (`AIGroup.cpp:2260-2273`):
         // every member gets the identical `pos` — no column/formation spread.
         if !destination.x.is_finite() || !destination.z.is_finite() {

@@ -6,7 +6,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_INI_ROOT: &str = "../windows_game/extracted_big_files_v2/INIZH/Data/INI";
+const DEFAULT_INI_ROOT: &str = "../windows_game/extracted_big_files_v2/INI";
 
 #[derive(Debug, Serialize)]
 struct Dump {

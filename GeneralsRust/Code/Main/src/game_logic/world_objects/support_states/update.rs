@@ -1872,11 +1872,23 @@ impl GameLogic {
                 AIState::SpecialAbility => {
                     let Some(ability) = self.pending_special_abilities.get(&object_id).copied()
                     else {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.stop_moving();
-                            obj.hacker_disable_channel = None;
-                            obj.set_status_using_ability(false);
-                            obj.set_target(None);
+                        // A live leftover channel is an active C++
+                        // SpecialAbilityUpdate module (GameLogic.cpp:3677-3718
+                        // UpdateModules; prep/onExit owned by the module itself,
+                        // SpecialAbilityUpdate.cpp:1276-1293). The generic
+                        // no-pending cleanup must not run for it: set_target(None)
+                        // force-Idles the unit and the new-order gate above then
+                        // aborts the channel one tick later, killing the whole
+                        // MissileDefender laser prep before triggerAbilityEffect.
+                        let has_live_leftover =
+                            self.hero_abilities.leftover_channel(object_id).is_some();
+                        if !has_live_leftover {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.stop_moving();
+                                obj.hacker_disable_channel = None;
+                                obj.set_status_using_ability(false);
+                                obj.set_target(None);
+                            }
                         }
                         continue;
                     };

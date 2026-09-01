@@ -148,11 +148,21 @@ impl PresentationFrame {
             let resolved = game_engine::common::ini::ini_command_button::get_control_bar()
                 .and_then(|bar| bar.find_command_button_resolved(&cmd.command_name).cloned());
             if resolved.is_none() {
-                // C++ ControlBar::getCommandAvailability always consults the
-                // retail CommandButton definition (INI loaded at startup);
-                // with no leftover definition resolved, the host slot gate
-                // verdict stays authoritative instead of a placeholder default
-                // that would re-enable Restricted buttons.
+                // C++ object-level restrictions evaluate before per-button
+                // definition work (ControlBarCommand.cpp:1020-1036) and the
+                // SELL/EXIT_CONTAINER/EVACUATE subdued rules key off the
+                // command type (1156-1373). The authored slot name is the
+                // CommandButton identity, so name-gate those object states
+                // even when the leftover definition is unavailable; the host
+                // slot-gate verdict stays authoritative for the rest.
+                let n = cmd.command_name.to_ascii_lowercase();
+                let subdued_container = ro.disabled_subdued
+                    && (n.contains("sell")
+                        || n.contains("evacuate")
+                        || (n.contains("exit") && !n.contains("beacon")));
+                if ro.single_use_command_used || subdued_container {
+                    cmd.enabled = false;
+                }
                 continue;
             }
             if eval_ids.len() > 1 {
@@ -459,15 +469,32 @@ impl PresentationFrame {
         &self,
         ro: &RenderableObject,
     ) -> Vec<game_client::gui::control_bar::StructureInventoryOccupant> {
-        ro.garrisoned_units
+        // C++ Object::getContain()->getContainedObjects() is a single list; the
+        // host carries it split across garrisoned_units (structures) and
+        // occupants (transports), so both feed inventory/exit binding.
+        // Contained riders are render-excluded (drawable-hidden) so the exit
+        // button binds the roster id itself when no portrait residual exists
+        // (C++ doTransportInventoryUI binds the contain-list identity).
+        let mut contained: Vec<ObjectId> = Vec::new();
+        for id in ro.garrisoned_units.iter() {
+            if !contained.contains(id) {
+                contained.push(*id);
+            }
+        }
+        contained
             .iter()
-            .filter_map(|id| {
-                let occ = self.objects.iter().find(|o| o.id == *id && !o.destroyed)?;
-                Some(game_client::gui::control_bar::occupant_from_presentation(
-                    occ.id.0,
-                    &occ.template_name,
-                    presentation_veterancy_overlay(occ.veterancy),
-                ))
+            .map(|id| {
+                match self.objects.iter().find(|o| o.id == *id && !o.destroyed) {
+                    Some(occ) => game_client::gui::control_bar::occupant_from_presentation(
+                        occ.id.0,
+                        &occ.template_name,
+                        presentation_veterancy_overlay(occ.veterancy),
+                    ),
+                    None => game_client::gui::control_bar::StructureInventoryOccupant {
+                        object_id: id.0,
+                        ..Default::default()
+                    },
+                }
             })
             .collect()
     }

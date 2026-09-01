@@ -136,8 +136,10 @@ pub fn honesty_command_executor_more_authority_api_source() -> bool {
             "unit_command_return_supplies",
         ),
         (
-            "fn path_to_goal_with_state(",
-            "unit_command_path_with_state",
+            // 2026-09-01: path_to_goal_with_state is a thin wrapper; the
+            // authority body delegates to the ignoring variant.
+            "fn path_to_goal_with_state_ignoring(",
+            "unit_command_path_with_state_ignoring",
         ),
         (
             "fn apply_player_stealth_mood_delay(",
@@ -168,7 +170,6 @@ pub fn simulate_live_command_executor_more_authority_api_honesty() -> bool {
     honesty_live_command_executor_more_authority_api_residual_pack_wave233()
         && honesty_command_executor_more_authority_api_source()
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

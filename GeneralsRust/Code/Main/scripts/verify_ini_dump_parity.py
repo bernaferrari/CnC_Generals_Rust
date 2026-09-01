@@ -13,7 +13,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_INI_ROOT = REPO_ROOT / "windows_game/extracted_big_files_v2/INIZH/Data/INI"
+DEFAULT_INI_ROOT = REPO_ROOT / "windows_game/extracted_big_files_v2/INI"
 GENERALS_MD_DUMP = REPO_ROOT / "GeneralsMD/Code/Tools/ini_data_dump.py"
 GENERALS_RUST_ROOT = REPO_ROOT / "GeneralsRust"
 

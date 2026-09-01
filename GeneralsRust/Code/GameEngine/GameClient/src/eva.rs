@@ -1073,7 +1073,7 @@ mod tests {
         let Some(root) = repo_root() else {
             return;
         };
-        let path = root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Eva.ini");
+        let path = root.join("windows_game/extracted_big_files_v2/INI/Eva.ini");
         if !path.exists() {
             return;
         }

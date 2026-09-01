@@ -1050,7 +1050,7 @@ End
 
 const SYSTEM_INI_CANDIDATES: &[&str] = &[
     "windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
-    "windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/System.ini",
+    "windows_game/extracted_big_files_v2/INI/Object/System.ini",
     "../windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
     "../../windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
     "../../../windows_game/extracted_big_files/INIZH/Data/INI/Object/System.ini",
@@ -1789,7 +1789,7 @@ mod tests {
     fn retail_gla_hijacker_block_stops_before_worker() {
         let source = std::fs::read_to_string(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-                "../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/GLAInfantry.ini",
+                "../../../../windows_game/extracted_big_files_v2/INI/Object/GLAInfantry.ini",
             ),
         )
         .expect("read retail GLAInfantry.ini");
@@ -1813,7 +1813,7 @@ mod tests {
     fn retail_america_crusader_block_stops_before_dozer() {
         let source = std::fs::read_to_string(
             std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-                "../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/AmericaVehicle.ini",
+                "../../../../windows_game/extracted_big_files_v2/INI/Object/AmericaVehicle.ini",
             ),
         )
         .expect("read retail AmericaVehicle.ini");

@@ -1854,7 +1854,7 @@ mod tests {
     #[test]
     fn runtime_fx_parser_loads_complete_retail_file_when_present() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/FXList.ini");
+            .join("../../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
         let Ok(source) = std::fs::read_to_string(&path) else {
             return;
         };

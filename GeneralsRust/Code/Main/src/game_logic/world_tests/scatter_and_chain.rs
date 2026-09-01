@@ -3396,7 +3396,12 @@ fn flashbang_scatter_misses_intended_residual() {
     );
     assert!((FLASHBANG_SCATTER_RADIUS - 4.0).abs() < 0.01);
 
-    // Vehicle in splash still takes residual damage by radius.
+    // Retail Weapon.ini:2535-2556 RangerFlashBangGrenadeWeapon is DamageType
+    // SURRENDER, and retail Armor.ini gives every vehicle armor set SURRENDER
+    // 0% (TankArmor line 139; "Capture type weapons are effective only
+    // against infantry"). C++ ActiveBody::attemptDamage applies the armored
+    // amount (the surrender swap-out is compiled out), so the splash ring
+    // still ACQUIRES the vehicle as a victim, but zero HP damage lands.
     let tank = logic
         .create_object("TestTank", Team::GLA, glam::Vec3::new(48.0, 0.0, 0.0))
         .expect("tank");
@@ -3413,7 +3418,11 @@ fn flashbang_scatter_misses_intended_residual() {
         .host_object(tank)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    assert!(hits > 0 && hp_after < hp_before, "splash still hits");
+    assert!(hits > 0, "splash ring still acquires the vehicle victim");
+    assert_eq!(
+        hp_after, hp_before,
+        "SURRENDER × 0% vehicle armor: flashbang cannot dent a tank"
+    );
 }
 
 #[test]

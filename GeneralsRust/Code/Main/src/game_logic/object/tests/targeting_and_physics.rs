@@ -302,10 +302,18 @@ fn shock_stun_ticks_clear_model_bits() {
     let mut tmpl = ThingTemplate::new("StunTick");
     tmpl.add_kind_of(KindOf::Infantry);
     let mut o = Object::new(tmpl, ObjectId(3), Team::USA);
-    assert!(o.apply_shock_wave_impulse(glam::Vec3::new(5.0, 5.0, 0.0)));
-    let start = o.shock_stun_frames;
-    assert!(start >= 40);
-    for _ in 0..start {
+    assert!(o.apply_shock_wave_impulse(glam::Vec3::new(1.5, 3.0, 0.0)));
+    // C++ setStunned(true) arms no duration (Object.cpp:1832); IS_STUNNED
+    // clears via relief only — |vel| < STUN_RELIEF_EPSILON or
+    // !isSignificantlyAboveTerrain (PhysicsUpdate.cpp:671-683). The host
+    // carries that as the u32::MAX no-duration sentinel in
+    // shock_stun_frames, so tick until relief lands (bounce arcs decay
+    // geometrically) instead of counting down a bounded timer.
+    assert!(o.shock_stun_frames > 0);
+    for _ in 0..1200 {
+        if o.shock_stun_frames == 0 {
+            break;
+        }
         o.tick_shock_stun();
     }
     assert_eq!(o.shock_stun_frames, 0);
@@ -1418,7 +1426,12 @@ fn shock_bounce_settles_freefall_and_switches_to_stunned() {
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(tmpl, ObjectId(9), Team::USA);
     o.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
-    assert!(o.apply_shock_wave_impulse(glam::Vec3::new(10.0, 40.0, 0.0)));
+    // Short, near-vertical toss. A tall 40vy arc carries the hull far outside
+    // the default map extent / upside-down by the first bounce, so C++
+    // testStunnedUnitForDestruction (PhysicsUpdate.cpp:505-517) kills it before
+    // the grounded STUNNED flip can be observed. Keep the arc low and lateral
+    // drift tiny so the first ground hit lands a living, stunned unit.
+    assert!(o.apply_shock_wave_impulse(glam::Vec3::new(0.5, 6.0, 0.0)));
     assert!(o.shock_allow_bounce);
     // Climb while velocity positive.
     let mut saw_air = false;
@@ -1967,6 +1980,11 @@ fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
     af_t.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::FSAirfield)
         .set_health(1000.0);
+    // Ownerless legacy objects need a unique alive player per team for the
+    // (None, None) relationship branch to read Allies (same-team USA).
+    if logic.get_player(0).is_none() {
+        logic.add_player(crate::game_logic::Player::new(0, Team::USA, "TestPlayer", true));
+    }
     af_t.parking_place = Some(ParkingPlaceMetadata {
         num_rows: 2,
         num_cols: 2,
@@ -2074,6 +2092,13 @@ fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
             clip_size: 2,
             ..crate::game_logic::Weapon::default()
         });
+    }
+    // C++ order: the physical RTB command stamps the return request first
+    // (doLandingCommand, JetAIUpdate.cpp:2277-2312); the rearm tick then
+    // installs the approach leg. The unnamed auto-reload clip is not an
+    // isOutOfSpecialReloadAmmo trigger by itself.
+    if let Some(j) = logic.objects.get_mut(&inbound) {
+        j.return_to_base_requested = true;
     }
     assert!(logic.try_return_to_base_rearm(inbound));
     {

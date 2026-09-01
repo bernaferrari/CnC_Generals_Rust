@@ -40,7 +40,8 @@ fn ranger_residual_rifle_and_flashbang_splash() {
             "base rifle damage residual 5, got {}",
             w.damage
         );
-        assert!((w.range - (RANGER_RIFLE_RANGE - 2.5)).abs() < 1.0);
+        // Retail Weapon.ini:129508 RangerAdvancedCombatRifle AttackRange 100.0.
+        assert!((w.range - 100.0).abs() < 1.0);
         assert!(
             (w.reload_time - (3.0 / 30.0)).abs() < 0.05,
             "base rifle reload residual ~0.1s (3 frames), got {}",
@@ -56,8 +57,9 @@ fn ranger_residual_rifle_and_flashbang_splash() {
             "flashbang primary damage residual 35, got {}",
             s.damage
         );
-        assert!((s.range - 172.5).abs() < 1.0);
-        assert!((s.min_range - 17.5).abs() < 0.5);
+        // Retail Weapon.ini:131314-131315 flashbang AttackRange 175, MinimumAttackRange 20.
+        assert!((s.range - 175.0).abs() < 1.0);
+        assert!((s.min_range - 20.0).abs() < 0.5);
     }
 
     // Rifle residual vs vehicle: force primary by making secondary not ready
@@ -102,9 +104,11 @@ fn ranger_residual_rifle_and_flashbang_splash() {
         "ranger rifle residual must damage vehicle (before={vehicle_hp_before} after={vehicle_hp_after})"
     );
     let rifle_dmg = vehicle_hp_before - vehicle_hp_after;
+    // Retail Armor.ini TankArmor (Object/FactionUnit.ini:441): SMALL_ARMS 25% —
+    // ActiveBody::attemptDamage applies the armored amount.
     assert!(
-        rifle_dmg >= RANGER_RIFLE_DAMAGE - 0.1,
-        "rifle residual damage ~5, got {rifle_dmg}"
+        (rifle_dmg - RANGER_RIFLE_DAMAGE * 0.25).abs() < 0.1,
+        "rifle residual damage 5 armored to 1.25 vs tank, got {rifle_dmg}"
     );
 
     // FlashBang residual vs infantry cluster: intended primary 35 + radius splash.
@@ -625,10 +629,12 @@ fn rpg_trooper_residual_rocket_and_ap_rockets() {
         assert!(is_rpg_trooper_template(&rpg.template_name));
         let w = rpg.weapon.as_ref().expect("RPG residual");
         assert!((w.damage - RPG_TROOPER_DAMAGE).abs() < 0.5);
-        assert!((w.range - (RPG_TROOPER_RANGE - 2.5)).abs() < 1.0);
+        // Retail Weapon.ini:130798 TunnelDefenderRocketWeapon AttackRange 175.0.
+        assert!((w.range - 175.0).abs() < 1.0);
         assert!(w.can_target_air && w.can_target_ground);
         assert!((w.reload_time - 1.0).abs() < 0.05);
-        assert!((w.min_range - 2.5).abs() < 0.1);
+        // Retail Weapon.ini:130800 MinimumAttackRange 5.0.
+        assert!((w.min_range - 5.0).abs() < 0.1);
     }
 
     // AP Rockets residual: damage × 1.25 → 50.
@@ -884,12 +890,14 @@ fn missile_defender_residual_missile_and_laser_guided() {
         assert!(is_missile_defender_template(&md.template_name));
         let w = md.weapon.as_ref().expect("primary missile residual");
         assert!((w.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
-        assert!((w.range - (MISSILE_DEFENDER_PRIMARY_RANGE - 2.5)).abs() < 1.0);
+        // Retail Weapon.ini:129551 MissileDefenderMissileWeapon AttackRange 175.0.
+        assert!((w.range - MISSILE_DEFENDER_PRIMARY_RANGE).abs() < 1.0);
         assert!(w.can_target_air && w.can_target_ground);
         assert!((w.reload_time - 1.0).abs() < 0.05);
         let sw = md.secondary_weapon.as_ref().expect("laser guided residual");
         assert!((sw.damage - MISSILE_DEFENDER_DAMAGE).abs() < 0.5);
-        assert!((sw.range - (MISSILE_DEFENDER_LASER_RANGE - 2.5)).abs() < 1.0);
+        // Retail Weapon.ini:129576 laser-guided AttackRange 300.0.
+        assert!((sw.range - MISSILE_DEFENDER_LASER_RANGE).abs() < 1.0);
         assert!((sw.reload_time - 0.5).abs() < 0.05);
         assert!(sw.can_target_air && sw.can_target_ground);
     }
@@ -998,7 +1006,8 @@ fn missile_defender_residual_missile_and_laser_guided() {
         assert_eq!(md.target, Some(far_enemy));
         if let Some(sw) = md.secondary_weapon.as_ref() {
             assert!(
-                (sw.range - (MISSILE_DEFENDER_LASER_RANGE - 2.5)).abs() < 1.0,
+                (sw.range - MISSILE_DEFENDER_LASER_RANGE).abs() < 1.0,
+                // Retail Weapon.ini:129576 laser-guided AttackRange 300.0.
                 "laser range residual 300"
             );
         }
@@ -1142,8 +1151,18 @@ fn troop_crawler_residual_detect_stealth_in_range() {
         e.set_status_detected(false);
     }
 
-    game_logic.frame = 1;
-    game_logic.update_stealth_and_detection();
+    // C++ StealthDetectorUpdate scans on its authored DetectionRate cadence
+    // (crawler next-scan ~frame 6 at creation); one tick is not a scan.
+    for f in 1..60u32 {
+        game_logic.frame = f;
+        game_logic.update_stealth_and_detection();
+        if game_logic
+            .host_object(stealth_id)
+            .is_some_and(|e| e.status.detected)
+        {
+            break;
+        }
+    }
     {
         let e = game_logic.host_object(stealth_id).expect("enemy");
         assert!(
@@ -1173,8 +1192,13 @@ fn troop_crawler_residual_detect_stealth_in_range() {
         e.set_status_stealthed(true);
         e.set_status_detected(false);
     }
-    game_logic.frame = 2;
-    game_logic.update_stealth_and_detection();
+    // Advance past another full DetectionRate cadence; the out-of-range enemy
+    // must still never be detected (C++ StealthDetectorUpdate.cpp:179-180
+    // FROM_CENTER_2D range gate).
+    for f in 60..120u32 {
+        game_logic.frame = f;
+        game_logic.update_stealth_and_detection();
+    }
     {
         let e = game_logic.host_object(far_id).expect("far");
         assert!(
@@ -1212,6 +1236,20 @@ fn troop_crawler_residual_transport_load_unload() {
             game_logic.process_commands();
         }
     }
+        // C++ TransportContain files riders out one per exit-door window
+        // (TransportContain.cpp exit-busy + AIExitState poll); the evac
+        // streams over frames. Drain the stream before asserting.
+        for _ in 0..120 {
+            let count = game_logic
+                .host_object(crawler_id)
+                .map(|c| c.transport_count())
+                .unwrap_or(0);
+            if count == 0 {
+                break;
+            }
+            game_logic.frame += 1;
+            game_logic.drain_pending_transport_exits_for_test();
+        }
     {
         let crawler = game_logic.host_object(crawler_id).expect("crawler");
         assert_eq!(
@@ -1263,12 +1301,29 @@ fn troop_crawler_residual_transport_load_unload() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
+    // Same exit-door stream for the 2-rider unload.
+    for _ in 0..120 {
+        let count = game_logic
+            .host_object(crawler_id)
+            .map(|c| c.transport_count())
+            .unwrap_or(0);
+        if count == 0 {
+            break;
+        }
+        game_logic.frame += 1;
+        game_logic.drain_pending_transport_exits_for_test();
+    }
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("free unit");
-        assert_eq!(unit.ai_state, AIState::Idle);
         assert!(unit.contained_by.is_none());
         assert!(unit.can_move());
+        // C++ OpenContain::exitObjectViaDoor → aiFollowPath: an exiting rider
+        // walks out (Moving); Idle only after the walk completes.
+        assert!(matches!(
+            unit.ai_state,
+            AIState::Idle | AIState::Moving
+        ));
     }
     {
         let crawler = game_logic.host_object(crawler_id).expect("empty");

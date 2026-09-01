@@ -260,6 +260,11 @@ fn exclusive_dozer_does_not_stack_build_rate() {
     ensure_test_structure_template(&mut logic);
     ensure_test_dozer_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);
+    // C++ ThingTemplate::calcTimeToBuild (ThingTemplate.cpp:1541-1558): a
+    // 0/0 energy grid returns supply ratio 0 → build time ×2 (min 0.5
+    // speed). The exclusivity contract asserts the 1× rate, so satisfy the
+    // grid instead of eating the low-power penalty.
+    logic.players.get_mut(&0).expect("player").power_produced = 10;
     let sid = logic
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
         .expect("scaffold");
@@ -771,8 +776,20 @@ fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
     );
     assert!(unit.is_selectable(), "completed unit must be selectable");
     assert_eq!(unit.ai_state, AIState::Moving);
-    assert_eq!(unit.movement.target_position, Some(rally));
-    assert_eq!(unit.movement.path.last().copied(), Some(rally));
+    // C++ DefaultProductionExitUpdate.cpp:88-94 pushes the ADJUSTED custom
+    // rally: Pathfinder::adjustDestination (AIPathfind.cpp:5331) spiral +
+    // checkForAdjust → adjustCoordToCell (AIPathfind.cpp:8936-8948) snaps to
+    // the pathfind cell. The destination is that snapped rally, never the
+    // raw coordinate.
+    let dest = unit
+        .movement
+        .target_position
+        .expect("rally destination installed");
+    assert!(
+        (dest - rally).length() < 10.0,
+        "destination must be the cell-adjusted rally {rally}, got {dest}"
+    );
+    assert_eq!(unit.movement.path.last().copied(), Some(dest));
 }
 
 #[test]
@@ -884,3 +901,4 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
     clear_test_template_voices();
     clear_building_loops();
 }
+

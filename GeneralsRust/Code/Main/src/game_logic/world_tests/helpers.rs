@@ -87,6 +87,11 @@ pub(super) fn ensure_test_infantry_template(game_logic: &mut GameLogic) {
     test_infantry.capture_unpack_time_ms = Some(3_000);
     test_infantry.capture_preparation_time_ms = Some(20_000);
     test_infantry.capture_pack_time_ms = Some(2_000);
+    // Retail Ranger authors UnpauseSpecialPowerUpgrade with the exact
+    // `TriggeredBy = Upgrade_InfantryCaptureBuilding` row
+    // (AmericaInfantry.ini:165156-165159); apply_upgrade_to_object unpauses
+    // the capture power only when this trigger matches the upgrade name.
+    test_infantry.capture_upgrade_trigger = Some("Upgrade_InfantryCaptureBuilding".to_string());
     game_logic
         .templates
         .insert("TestInfantry".to_string(), test_infantry);
@@ -665,6 +670,45 @@ pub(super) fn ensure_test_black_lotus_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Hero)
         .set_health(200.0)
         .set_cost(1500, 0);
+    // Retail BlackLotus authors the three leftover SpecialAbility modules
+    // (steal / disable / capture). The host prep channel consumes the typed
+    // charge at preparation (C++ SpecialPower.cpp:308 fail-closed: no
+    // any-unit fallback), so the bare fixture cannot progress past unpack
+    // without them. ReloadTime 0 keeps the tests deterministic (spawn-ready,
+    // like C++ modules with no authored recharge).
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+    for (template, power) in [
+        (
+            "SpecialAbilityBlackLotusStealCashHack",
+            SpecialPowerType::BlackLotusStealCash,
+        ),
+        (
+            "SpecialAbilityBlackLotusDisableVehicleHack",
+            SpecialPowerType::BlackLotusDisableVehicle,
+        ),
+        (
+            "SpecialAbilityBlackLotusCaptureBuilding",
+            SpecialPowerType::BlackLotusCaptureBuilding,
+        ),
+    ] {
+        t.special_power_modules.push(SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: None,
+            module_kind: SpecialPowerModuleKind::SpecialAbility,
+            special_power_template: template.into(),
+            special_power_template_id: 1,
+            command_power: Some(power),
+            reload_time_frames: 0,
+            required_science: None,
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: true,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        });
+    }
     game_logic
         .templates
         .insert("ChinaInfantryBlackLotus".to_string(), t);

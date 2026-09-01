@@ -1045,7 +1045,7 @@ fn w3d_projectile_bone_feedback_retail_tomahawk_scorpion_and_scud_keep_exact_slo
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let ini_root = [
         root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object"),
-        root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object"),
+        root.join("windows_game/extracted_big_files_v2/INI/Object"),
     ]
     .into_iter()
     .find(|candidate| {
@@ -1193,7 +1193,7 @@ fn w3d_hlod_weapon_bones_retail_scorpion_preserves_distinct_default_and_upgrade_
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let ini_path = [
         root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object/GLAVehicle.ini"),
-        root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object/GLAVehicle.ini"),
+        root.join("windows_game/extracted_big_files_v2/INI/Object/GLAVehicle.ini"),
     ]
     .into_iter()
     .find(|candidate| candidate.is_file());
@@ -1391,7 +1391,7 @@ fn w3d_hlod_recoil_kinematics_retail_nuke_and_sentry_keep_distinct_overrides() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let ini_root = [
         root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object"),
-        root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Object"),
+        root.join("windows_game/extracted_big_files_v2/INI/Object"),
     ]
     .into_iter()
     .find(|candidate| {
