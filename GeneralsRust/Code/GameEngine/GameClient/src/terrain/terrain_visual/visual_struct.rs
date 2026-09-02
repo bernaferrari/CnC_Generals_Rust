@@ -97,6 +97,13 @@ pub struct TerrainVisualImpl {
     /// True when the bound albedo is the 1x1 teal fallback, not TWWater01.
     water_texture_is_fallback: bool,
     bound_standing_water_texture: String,
+    /// Last Water.ini standing-water name this visual attempted to bind.
+    /// C++ binds INI overrides once (WaterRenderObjClass::updateMapOverrides
+    /// on map load); re-binding every frame reloaded the DDS 60x/s.
+    requested_standing_water_texture: String,
+    /// True once the water texture search found nothing; the teal fallback
+    /// bind group stays in place and the search is not re-run per frame.
+    water_texture_search_exhausted: bool,
     water_additive_blend: bool,
     river_gpu: RiverGpuState,
     shroud_gpu: ShroudGpuState,
@@ -111,6 +118,15 @@ pub struct TerrainVisualImpl {
     road_texture_bind_group: Option<BindGroup>,
     /// True when the bound albedo is the 2x2 gravel fallback, not a Roads.ini texture.
     road_texture_is_fallback: bool,
+    /// True once the road texture search found nothing; the gravel fallback
+    /// bind group stays in place and the search is not re-run per frame.
+    road_texture_search_exhausted: bool,
+    /// True once the snow texture search found nothing for the current
+    /// wanted name; retried only when the Weather.ini name changes.
+    snow_texture_search_exhausted: bool,
+    /// True once the scorch texture search found nothing for the current
+    /// wanted name.
+    scorch_texture_search_exhausted: bool,
     tree_pipeline: Option<wgpu::RenderPipeline>,
 
     /// Terrain textures

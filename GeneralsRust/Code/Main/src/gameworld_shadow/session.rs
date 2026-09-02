@@ -6,6 +6,7 @@ use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Tr
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
+
 /// Rebuild convenience: one-shot mirror (stable map discarded with the session).
 pub fn mirror_host_into_gameworld(logic: &GameLogic, max_entities: usize) -> GameWorld {
     let mut shadow = GameWorldShadow::new(max_entities);
