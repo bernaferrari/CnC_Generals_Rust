@@ -1119,7 +1119,7 @@ fn locomotor_ini_candidate_paths() -> Vec<PathBuf> {
 
     let relative = [
         "windows_game/extracted_big_files/INIZH/Data/INI/Locomotor.ini",
-        "windows_game/extracted_big_files_v2/INI/Locomotor.ini",
+        "windows_game/extracted_big_files_v2/INIZH/Data/INI/Locomotor.ini",
         "Data/INI/Locomotor.ini",
         "Data/INI/Default/Locomotor.ini",
         "INIZH/Data/INI/Locomotor.ini",

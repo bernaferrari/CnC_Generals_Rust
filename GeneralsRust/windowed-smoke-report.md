@@ -581,3 +581,84 @@ Probes removed (run_loop.rs, session.rs, construct.rs, create_destroy_die.rs,
 host_ops_writeback.rs byte-unchanged vs pre-task). Kept: radar_coupled.rs tests.
 `cargo check -p generals_main` clean; no test greens touched; no git writes; no
 formatters; drive used caffeinate -dis, short timeout, serial.
+
+## MinimapProbe — live zeroing site pinned and FIXED: Wave-818 radar peel was gated behind movement authority (2026-09-02 14:00)
+
+Scope: MinimapSeam's handoff. Method: unconditional InGame RADARPROBE plus
+SEAMPROBE (Wave-818 GW recompute internals), SEAMSYNC (player mapping), RADARHOST
+(host recompute) — one probe-free confirmation drive after removal. No git writes.
+
+### Live truth (probe drive 13:15, generals_exec_smoke_ms1788365731)
+
+Pre-fix RADARPROBE (first drive): local player 0 — `cnt=0 dis=false proof=0
+alive=true pw=0 forced=false` on EVERY InGame frame (n=0 frame 5 → n=199 frame
+577). Never a grant decay — radar_count was simply NEVER granted. RADARHOST:
+host `update_player_radar` ran exactly ONCE (frame 0, no players, no providers) —
+step.rs:1139-1146 skips it whenever `gameworld_shadow_enabled() &&
+shadow_coupled_tick_active()` (Wave 818 ownership), i.e. always in default
+shadow-on coupled play.
+
+SEAMPROBE (400/400 ticks): the GW side is PERFECT — `provs=[t0=1]` (America CC:
+alive, constructed pct=1.00, not disabled, CommandCenter bit, legal provider,
+team 0) and `players=[g0 team=Some(0) cnt=1 dis=false, …]` every tick.
+SEAMSYNC: mapping h0→g0 / h1→g1 / h2→g2 correct, host ids {0,1,2} stable across
+shell→skirmish (MinimapSeam's dense-rebuild + team-staleness suspects: CLEAN —
+neither is the live zeroing path).
+
+### Root cause — the grant reached GW but never landed on host Player
+
+Under shadow the GW Wave-818 recompute owns radar_count
+(status_timers_post.rs) and records host_player_radar_log transitions; its peel
+— `host_player_radar_log::drain()` → `Player::set_radar_state` + online/offline
+audio (session.rs) — sat INSIDE the `if gameworld_movement_authority_enabled()`
+block (session.rs:1134-2189). Movement authority defaults FALSE and only tests
+enable it, so the peel NEVER ran live. The other return path,
+`writeback_economy_to_host` (pd→host radar_count), is behind
+`gameworld_economy_authority_live()` — economy authority also never enabled in
+the engine. Net: nobody wrote radar_count to the host player in shadow-on play →
+`local_has_radar=false` → hud.rs `should_draw_radar_check` false → minimap
+fallback fill. Shadow-off worked because the step.rs gate released the host
+recompute. C++ parity: Player::addRadar lands via RadarUpgrade
+(RadarUpgrade.cpp:111) on the one GameLogic store; RadarUpdate.cpp never grants.
+
+**Fix (session.rs):** relocate the Wave-818 player-radar drain out of the
+movement-authority gate to run unconditionally on every coupled session tick
+(it only consumes the log the GW recompute already produces; idempotent same-value
+sets; single consumer of the log). Wave 818 markers intact (residual
+source-marker checks still pass).
+
+### Victory-probe hazard (flagged by MinimapSeam): NOT firing live
+
+`shadow.probe` → `evaluate_victory_condition` runs per coupled tick
+(session.rs:2591), but the retail CC carries MpCountForVictory (AiFilterFix
+buildings.rs stamps it): SEAMPROBE showed the CC alive+legal on all 400 ticks,
+SEAMSYNC alive=true, status match_over=false. killPlayer (VictoryConditions.cpp
+:196 / :250-281 hasAnyBuildings) never triggered in this fixture.
+
+### Verified live (A/B)
+
+- Pre-fix last frame (ms1788364746/frame.png): minimap box = flat FALLBACK_HUD_FILL
+  panel + border — radar OFF lane.
+- Post-fix (ms_ingame_3/6/9/12.png, drives 13:15 AND 13:42 probe-free): minimap
+  draws the RADAR lane — camera frustum trapezoid, live unit blips, shroud blob.
+- RADARPROBE post-fix: `cnt=1 … has=true` from frame 5 through n=199 (200/200);
+  status InGame, fps≈12, match_over=false.
+- Remainder (documented, NOT the zeroing seam): the terrain band is black —
+  radar terrain-texture hydration (terrain.rs paint source /
+  build_terrain_texture_cpp) never fills in the windowed flow. Identical in the
+  shadow-OFF reference (sf2_ingame_9.png), so it is a separate pre-existing
+  cosmetic lane, orthogonal to radar online.
+
+### Guards / hygiene
+
+Probes removed: run_loop.rs (#03F9), status_timers_post.rs (#32DF),
+construct.rs (#E1D9), crates_radar_power.rs (#973D) — all byte-restored to
+pre-task tags; sole delta is the session.rs relocation. `cargo check -p
+generals_main` clean. Guards: gameworld_shadow 304/304 (incl. radar_coupled
+2/2 rerun by name), combat filter 955/11 then 964/2 on the identical binary
+(documented varying-flake band, final20b; failures = capture/chinook/fire-OCL
+family, zero intersection with this surface), world_tests catalog 8/8. Final
+probe-free release rebuild re-driven (13:42): minimap still draws, 0 probe
+lines in stderr. No git writes; no formatters; caffeinate + short-timeout serial
+drives; evidence under /tmp/wsmoke/{mseam.log, ms_ingame_*.png,
+prefix_mm.png, final_mm.png, ms_status_12.txt}.
