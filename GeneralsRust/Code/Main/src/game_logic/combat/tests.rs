@@ -3,9 +3,13 @@
 #[cfg(test)]
 mod tests {
     /// CombatSystem unit tests apply damage without a GameWorld shadow session,
-    /// so host HP must mutate directly (opt out of damage authority last-writer).
+    /// so host HP must mutate directly: publish the all-off authority context
+    /// barrier (hq-e84zk retired the `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY` env
+    /// opt-out) in case another test leaked a thread-local authority snapshot.
     fn ensure_unit_test_direct_damage() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
+            crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
+        );
     }
 
     use super::*;
@@ -14,7 +18,7 @@ mod tests {
 
     /// The characterization tests in this module share process globals (the
     /// pending-projectile queue, the WeaponStore delayed-damage list, the
-    /// global logic frame, and env-authority flags), so the default parallel
+    /// global logic frame, and the thread-local authority context), so the default parallel
     /// test harness must not run them concurrently inside one process.
     /// Mirrors the host_rng_residual RNG_TEST_LOCK precedent.
     static COMBAT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -226,9 +230,14 @@ mod tests {
         let _combat_serial = combat_test_guard();
         let _authority_guard = crate::gameworld_shadow::authority_env_lock();
         let prior_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-        let prior_projectile = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
+        let prior_authority =
+            crate::game_logic::game_logic::gameworld_authority::current_gameworld_authority();
+        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
+            crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority {
+                projectile: true,
+                ..prior_authority
+            },
+        );
         crate::game_logic::host_projectile_log::clear();
 
         let mut combat = CombatSystem::new();
@@ -271,12 +280,9 @@ mod tests {
             Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
         }
-        match prior_projectile {
-            Some(value) => {
-                crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", value)
-            }
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
-        }
+        crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
+            prior_authority,
+        );
     }
 
     #[test]

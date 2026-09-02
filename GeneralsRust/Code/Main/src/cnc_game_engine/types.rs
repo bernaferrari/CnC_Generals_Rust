@@ -53,6 +53,18 @@ pub(super) fn query_window_is_iconic(window: &Window, fallback: bool) -> bool {
     let zero_sized = size.width == 0 || size.height == 0;
     window.is_minimized().unwrap_or(fallback || zero_sized) || zero_sized
 }
+/// Render-surface extent in logical points (C++ `TheDisplay` width/height).
+///
+/// The swapchain and every logical-space consumer (WND window manager, UI
+/// renderer, tactical viewport) share this size; winit's `inner_size` is
+/// physical and must only be used for input-space math.
+pub(super) fn render_surface_extent(window: &Window) -> (u32, u32) {
+    let scale = window.scale_factor().max(0.0001);
+    let size = window.inner_size();
+    let w = ((size.width as f64) / scale).round().max(1.0) as u32;
+    let h = ((size.height as f64) / scale).round().max(1.0) as u32;
+    (w, h)
+}
 
 /// Apply headless-hide / windowed-show, then return the honest winit residual.
 /// Never invents visibility: headless stays false even if AppKit later reports shown.

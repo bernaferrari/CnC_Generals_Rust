@@ -76,6 +76,10 @@ pub(crate) fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf
             return Ok(path);
         }
     }
+    log::warn!(
+        "resolve_window_script_path: no candidate for '{filename}' cwd={:?}",
+        std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()
+    );
     Err(WindowError::InvalidParameter)
 }
 

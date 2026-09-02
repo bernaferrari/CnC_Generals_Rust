@@ -64,13 +64,15 @@ impl CnCGameEngine {
         let runtime_host_headless = RuntimeHostBridge::is_headless_mode(command_line.as_ref());
         let runtime_host_active =
             RuntimeHostBridge::is_runtime_host_requested(command_line.as_ref());
-        let size = window.inner_size();
-
-        // Initialize WW3D engine to own the swapchain/device
+        // Swapchain extent is the logical window size (C++ TheDisplay
+        // width/height): the WND/UI draw paths author in logical points, so a
+        // physical (Retina) backbuffer leaves them painting the top-left
+        // quadrant of the surface.
+        let (surface_w, surface_h) = super::types::render_surface_extent(&window);
         let mut engine_config = EngineConfig::default();
-        engine_config.width = size.width.max(1);
-        engine_config.height = size.height.max(1);
-
+        engine_config.width = surface_w;
+        engine_config.height = surface_h;
+        let size = winit::dpi::LogicalSize::new(surface_w, surface_h);
         if runtime_host_headless {
             if let Err(err) = ww3d_engine::init_headless(engine_config).await {
                 if !matches!(err, EngineError::AlreadyInitialised) {

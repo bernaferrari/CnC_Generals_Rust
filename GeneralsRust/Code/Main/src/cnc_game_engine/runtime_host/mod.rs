@@ -483,6 +483,17 @@ impl CnCGameEngine {
             "winit_menu_nav" => self.runtime_host_cmd_winit_menu_nav(&args),
             "winit_gameplay_order" => self.runtime_host_cmd_winit_gameplay_order(&args),
             "window_move" | "move_window" => self.runtime_host_cmd_window_move(&args),
+            // Physical drive aids: advance Menu FLASH/BUTTONFLASH transitions
+            // (C++ plays them at 60 fps; windowed Menu frames are ~4 s, so the
+            // SP dropdown is unhittable for 7+ frames without this) and commit
+            // the retail UseAlternateMouse option (C++ OptionsMenu.cpp:1157
+            // checkbox → CommandXlat.cpp:3656 RMB-context-command mode).
+            "tick_main_menu_transitions" => {
+                self.runtime_host_cmd_tick_main_menu_transitions(&args)
+            }
+            "alternate_mouse" | "use_alternate_mouse" => {
+                self.runtime_host_cmd_alternate_mouse(&args)
+            }
             _ => {
                 debug!(
                     "Ignoring unknown runtime host command '{}'",

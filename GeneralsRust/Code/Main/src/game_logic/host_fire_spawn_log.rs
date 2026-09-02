@@ -1,6 +1,7 @@
 //! Frame-local host weapon fire-spawn log for GameWorld fire-spawn authority.
 //!
-//! When `GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY` is on, `queue_projectile` only
+//! When the GameWorld fire-spawn authority context is on
+//! (`GameLogic::set_fire_spawn_authority(true)`), `queue_projectile` only
 //! records here; shadow applies spawns into host CombatSystem before projectile
 //! integrate authority runs.
 //!

@@ -1523,6 +1523,12 @@ impl UIRenderer {
                 if let Some(scissor) = command.scissor_rect {
                     let x = scissor.x.max(0.0).floor() as u32;
                     let y = scissor.y.max(0.0).floor() as u32;
+                    // A scissor outside the render target is a skipped draw,
+                    // never a fatal: wgpu rejects rects exceeding the target
+                    // (stale 800x600 layout coords against a smaller window).
+                    if x >= self.screen_size.0 || y >= self.screen_size.1 {
+                        continue;
+                    }
                     let max_w = self.screen_size.0.saturating_sub(x);
                     let max_h = self.screen_size.1.saturating_sub(y);
                     let w = scissor.width.max(0.0).ceil() as u32;

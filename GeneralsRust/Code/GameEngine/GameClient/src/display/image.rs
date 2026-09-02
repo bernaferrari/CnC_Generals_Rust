@@ -1107,6 +1107,18 @@ fn ensure_engine_filesystem_backends() {
         for path in &deduped {
             big_backend.add_search_path(path);
         }
+        // C++ WW3D asset lookup falls through to the mounted BIG archives
+        // (CFileSystem / GameFileSystem::Init: retail installs keep most shell
+        // atlases, e.g. `Data\English\Art\Textures\SCSmShellUserInterface512_001.tga`,
+        // inside EnglishZH.big/TexturesZH.big rather than on disk). Route the
+        // shared install-layout resolver's BIG roots into the backend so mapped
+        // image hydration resolves those entries.
+        for root in game_engine::common::system::install_layout::zh_install_roots() {
+            big_backend.add_search_path(root);
+        }
+        for root in game_engine::common::system::install_layout::extracted_asset_roots() {
+            big_backend.add_search_path(root);
+        }
     }
 
     fs_guard.clear_cache();
@@ -1523,4 +1535,25 @@ mod tests {
             "found-but-untextured win_draw_image must still queue a visible command; shipped={shipped} queued={queued} renderer={renderer_queued}"
         );
     }
-}
+
+    #[test]
+    fn shell_button_atlas_hydrates_from_retail_big_archive() {
+        // C++ parity: W3D texture lookup falls through to the mounted BIG
+        // archives (`Data\English\Art\Textures\SCSmShellUserInterface512_001.tga`
+        // lives in EnglishZH.big). The engine filesystem backend must resolve
+        // the shared install-layout BIG roots or MainMenu.wnd button pieces
+        // lose their atlas and render as tint-colored fills.
+        if game_engine::common::system::install_layout::zh_install_roots().is_empty() {
+            return; // retail install not discoverable in this environment
+        }
+
+        let mut atlas = Image::with_name("Buttons-Left");
+        atlas.set_filename("SCSmShellUserInterface512_001.tga");
+        assert!(
+            atlas.ensure_image_data_loaded().is_ok(),
+            "retail shell button atlas must hydrate through the BIG archive backend"
+        );
+        let data = atlas.get_image_data().expect("hydrated atlas pixels");
+        assert!(data.dimensions().0 >= 512 && data.dimensions().1 >= 512);
+    }
+ }

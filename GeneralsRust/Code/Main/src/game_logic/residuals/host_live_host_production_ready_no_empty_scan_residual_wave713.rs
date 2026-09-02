@@ -1,6 +1,7 @@
 //! Wave 713: sole-tick production complete requires ready-log membership.
 //! Empty `host_production_ready_log` no longer triggers a host full-queue scan.
-//! GameWorld remains readiness authority under PRODUCTION_AUTHORITY sole-tick.
+//! GameWorld remains readiness authority under production authority sole-tick
+//! (opt-in GameLogic::set_production_authority(true)).
 //! Never flips `playable_claim`.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -187,12 +188,11 @@ mod tests {
     fn sole_tick_empty_ready_log_does_not_complete_queue_head() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_sh = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        let prev_pr = std::env::var_os("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
         host_production_ready_log::clear();
 
         let mut logic = GameLogic::new();
+        logic.set_production_authority(true);
         ensure_template(&mut logic, "ReadyScanFactory");
         ensure_template(&mut logic, "ReadyScanUnit");
         let id = logic
@@ -255,10 +255,6 @@ mod tests {
         match prev_sh {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
-        match prev_pr {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
         }
     }
 }

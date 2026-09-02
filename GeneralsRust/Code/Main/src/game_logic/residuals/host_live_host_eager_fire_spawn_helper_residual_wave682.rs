@@ -1,5 +1,6 @@
 //! Wave 682 residual peels: post-logic fire-spawn apply on coupled tick.
-//! Under FIRE_SPAWN_AUTHORITY, host logic records to `host_fire_spawn_log`;
+//! Under fire-spawn authority (opt-in GameLogic::set_fire_spawn_authority(true)), host
+//! logic records to `host_fire_spawn_log`;
 //! engine drains into CombatSystem immediately after the host frame, before the
 //! full shadow session tail. Never flips `playable_claim`.
 
@@ -254,13 +255,12 @@ mod tests {
     fn post_logic_fire_spawn_drains_log_into_combat() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_s = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        let prev_f = std::env::var_os("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
         host_fire_spawn_log::clear();
         combat::clear_pending_projectile_queue_for_test();
 
         let mut logic = GameLogic::new();
+        logic.set_fire_spawn_authority(true);
         ensure_template(&mut logic, "EagerFireShooter", 100.0);
         ensure_template(&mut logic, "EagerFireTarget", 100.0);
         let shooter = logic
@@ -293,10 +293,6 @@ mod tests {
         match prev_s {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
-        match prev_f {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
         }
     }
 }

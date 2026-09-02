@@ -186,12 +186,11 @@ fn economy_authority_writeback_supplies() {
 fn economy_authority_pending_blocks_double_spend() {
     let _env_guard = authority_env_lock();
 
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
-
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    let mut logic = GameLogic::new();
+    logic.set_economy_authority(true);
     assert!(gameworld_economy_authority_enabled());
     crate::game_logic::host_economy_log::clear();
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconDbl");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -240,13 +239,12 @@ fn economy_authority_pending_blocks_double_spend() {
 #[test]
 fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
-    let prev_e = std::env::var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    let mut logic = GameLogic::new();
+    logic.set_economy_authority(true);
     assert!(gameworld_economy_authority_enabled());
     assert!(!gameworld_economy_authority_live());
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -266,10 +264,6 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
         );
         assert_eq!(p.pending_supply_delta, 0, "no pending when shadow off");
     }
-    match prev_e {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY"),
-    }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -280,12 +274,11 @@ fn economy_authority_mutates_host_supplies_when_shadow_disabled() {
 fn credit_supplies_defers_under_economy_authority() {
     let _env_guard = authority_env_lock();
 
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
-
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    let mut logic = GameLogic::new();
+    logic.set_economy_authority(true);
     assert!(gameworld_economy_authority_enabled());
     crate::game_logic::host_economy_log::clear();
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("EconCredit");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let mut ids: Vec<u32> = logic.get_players().keys().copied().collect();
@@ -329,6 +322,12 @@ fn construction_sole_tick_requires_coupled_frame() {
         !shadow_coupled_tick_active(),
         "tests start outside coupled engine frame"
     );
+    // Arm the channel on this instance (hq-e84zk retired the env flag) so
+    // the coupled frame is the only variable: authority on + shadow on must
+    // freeze host construction progress exactly while a coupled writeback
+    // frame is open.
+    let mut logic = GameLogic::new();
+    logic.set_construction_authority(true);
     assert!(
         !gameworld_construction_sole_tick_enabled(),
         "sole-tick freeze requires coupled engine frame"
@@ -347,25 +346,20 @@ fn damage_authority_live_requires_coupled_frame() {
         !shadow_coupled_tick_active(),
         "tests start outside coupled engine frame"
     );
+    // Arm the channels on this instance (hq-e84zk retired the env flags) so
+    // the coupled frame is the only variable: enabled + shadow must defer
+    // exactly while a coupled writeback frame is open.
+    let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    logic.set_economy_authority(true);
+    logic.set_movement_authority(true);
     assert!(!gameworld_damage_authority_live());
     assert!(!gameworld_economy_authority_live());
     assert!(!gameworld_movement_authority_live());
     begin_shadow_coupled_tick();
-    assert!(
-        gameworld_damage_authority_live()
-            || !gameworld_damage_authority_enabled()
-            || !gameworld_shadow_enabled()
-    );
-    assert!(
-        gameworld_economy_authority_live()
-            || !gameworld_economy_authority_enabled()
-            || !gameworld_shadow_enabled()
-    );
-    assert!(
-        gameworld_movement_authority_live()
-            || !gameworld_movement_authority_enabled()
-            || !gameworld_shadow_enabled()
-    );
+    assert!(gameworld_damage_authority_live() || !gameworld_shadow_enabled());
+    assert!(gameworld_economy_authority_live() || !gameworld_shadow_enabled());
+    assert!(gameworld_movement_authority_live() || !gameworld_shadow_enabled());
     end_shadow_coupled_tick();
     assert!(!gameworld_damage_authority_live());
     assert!(!gameworld_economy_authority_live());
@@ -377,9 +371,9 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     use crate::game_logic::{
         KindOf, Team, ThingTemplate, host_construction_progress_log, host_heal_log,
     };
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
-    assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    assert!(gameworld_damage_authority_enabled());
     let cfg = golden_skirmish_config("ConstHp");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PadHp") {
@@ -425,9 +419,9 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
 #[test]
 fn construction_authority_last_writes_percent() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
-    assert!(gameworld_construction_authority_enabled());
     let mut logic = GameLogic::new();
+    logic.set_construction_authority(true);
+    assert!(gameworld_construction_authority_enabled());
     let cfg = golden_skirmish_config("ConstAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PadAuth") {
@@ -480,8 +474,8 @@ fn construction_authority_last_writes_percent() {
 #[test]
 fn construction_tick_advances_when_rate_logged_without_entity_uc() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     let mut logic = GameLogic::new();
+    logic.set_construction_authority(true);
     let cfg = golden_skirmish_config("RateOnlyUc");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PadRateUc") {
@@ -571,14 +565,13 @@ fn production_progress_log_drives_set_production_queue() {
 fn exit_delay_remaining_channel_via_production_progress() {
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    // writeback_production_to_host is the opt-in GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY
-    // last-writer (default off like C++ no-shadow builds). Enable it here instead of
-    // depending on another test leaking the env var, and restore afterwards.
+    // writeback_production_to_host is the opt-in GameLogic::set_production_authority(true)
+    // last-writer (default off like C++ no-shadow builds). Enable it here; hq-e84zk
+    // retired the env flag.
     let _env_guard = authority_env_lock();
-    let prev_prod_auth = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     host_production_progress_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("ExitDel");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("FactExit") {
@@ -630,10 +623,6 @@ fn exit_delay_remaining_channel_via_production_progress() {
     let _ = crate::game_logic::host_ai_request_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
-    match prev_prod_auth {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
     let d = logic
         .host_objects()
         .get(&oid)

@@ -14,6 +14,7 @@ pub(self) use prelude::*;
 mod authority;
 mod construct;
 mod crate_tick;
+pub mod gameworld_authority;
 mod host;
 mod player;
 mod script_camera;
@@ -33,6 +34,7 @@ pub use crate_tick::{
 pub(self) use crate_tick::{CRATE_EMPTY_NOOP_TICKS, GAME_LOGIC, note_crate_empty_noop_if_any};
 pub(crate) use host::PathfindingHeightSamples;
 pub use host::{GameLogic, RuntimeWeatherState};
+pub use gameworld_authority::{GameWorldAuthority, current_gameworld_authority};
 pub(self) use player::{
     AirfieldHealingInfo, AirfieldParkingSpace, FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL,
     HostHeliTakeoffOrLanding, ObjectSellInfo, REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC,

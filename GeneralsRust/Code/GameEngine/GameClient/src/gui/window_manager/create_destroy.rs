@@ -141,6 +141,11 @@ impl WindowManager {
 
     /// Destroy all windows
     pub fn destroy_all_windows(&mut self) {
+        log::warn!(
+            "destroy_all_windows: roots={} layouts={}",
+            self.root_windows.len(),
+            self.layouts.len()
+        );
         // Add all root windows to destroy queue
         for window in self.root_windows.drain(..) {
             self.destroy_queue.push_back(window);

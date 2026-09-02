@@ -208,14 +208,13 @@ mod tests {
     fn post_logic_destroy_contain_ai_apply_once_through_session() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        let prev_ai = std::env::var_os("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
         host_destroy_log::clear();
         host_contain_log::clear();
         host_ai_decision_log::clear();
 
         let mut logic = GameLogic::new();
+        logic.set_ai_decision_authority(true);
         ensure_template(&mut logic, "EagerDcaUnit", 100.0);
         ensure_template(&mut logic, "EagerDcaVictim", 50.0);
         let id = logic
@@ -270,10 +269,6 @@ mod tests {
         match prev {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
-        match prev_ai {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
         }
     }
 }

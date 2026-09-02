@@ -222,12 +222,11 @@ mod tests {
     fn sole_tick_post_writeback_drains_ready_log() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_sh = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        let prev_sp = std::env::var_os("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
         host_special_power_ready_log::clear();
 
         let mut logic = GameLogic::new();
+        logic.set_special_power_authority(true);
         ensure_template(&mut logic, "SfScudStorm");
         let id = logic
             .create_object("SfScudStorm", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
@@ -252,10 +251,6 @@ mod tests {
         match prev_sh {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
-        match prev_sp {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
         }
     }
 }

@@ -18,8 +18,8 @@ use crate::gui::shell::main_menu::{DisplaySettings, get_main_menu};
 use crate::gui::{
     AnimationType, GLM_DOUBLE_CLICKED, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowWidget, queue_shell_operation, queue_shell_pop, queue_shell_push,
-    queue_shell_reverse_animate_window, queue_shell_shutdown_complete,
-    queue_shell_window_animation, show_shell_map_if_available, try_with_shell_mut,
+    queue_shell_reverse_animate_window, queue_shell_shutdown_complete, queue_shell_window_animation,
+    queue_window_manager_op_deferred, show_shell_map_if_available, try_with_shell_mut,
     with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
@@ -246,8 +246,14 @@ impl MenuCallbacks for SinglePlayerMenu {
 
         with_window_manager(|manager| {
             self.parent = manager.get_window_by_id(self.parent_id);
-            if let Some(parent) = self.parent.as_ref() {
-                let _ = manager.set_focus(Some(parent));
+            // Focus is deferred below: an inline set_focus sends InputFocus to
+            // this same window, whose "SinglePlayerMenuSystem" callback
+            // re-takes the menu RwLock this init dispatch still holds (std
+            // RwLocks are not re-entrant — sampled wedge, credits probe).
+            if let Some(parent) = self.parent.clone() {
+                queue_window_manager_op_deferred(move |manager| {
+                    let _ = manager.set_focus(Some(&parent));
+                });
             }
             if let Some(button_new) = manager.get_window_by_id(self.button_new_id) {
                 queue_shell_window_animation(button_new, AnimationType::SlideLeft, true, 1);
@@ -1275,7 +1281,7 @@ impl OptionsMenu {
     /// C++ has one writable GlobalData object. Rust's live consumers span a
     /// parsed-INI residence and a runtime options residence, so commit this
     /// setting to both before a later LeftHUD callback snapshots it for Main.
-    fn commit_alternate_mouse_setting(alternate_mouse: bool) {
+    pub fn commit_alternate_mouse_setting(alternate_mouse: bool) {
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().use_alternate_mouse = alternate_mouse;
         }
@@ -1363,17 +1369,20 @@ impl MenuCallbacks for OptionsMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        info!(
-            "Initializing Options Menu for layout: {}",
-            layout.get_filename()
-        );
         self.init_ids();
         self.ignore_selected = true;
         with_window_manager(|manager| {
             self.parent = manager.get_window_by_id(self.parent_id);
+            // Modal bookkeeping dispatches no messages — safe inline. Focus is
+            // deferred (see SinglePlayerMenu::init): an inline set_focus would
+            // re-enter the menu RwLock held by this init dispatch.
             if let Some(parent) = self.parent.as_ref() {
-                let _ = manager.set_focus(Some(parent));
                 let _ = manager.set_modal(parent.clone());
+            }
+            if let Some(parent) = self.parent.clone() {
+                queue_window_manager_op_deferred(move |manager| {
+                    let _ = manager.set_focus(Some(&parent));
+                });
             }
         });
         self.populate_controls();
@@ -1756,8 +1765,13 @@ impl MenuCallbacks for MapSelectMenu {
         with_window_manager(|manager| {
             self.parent = manager.get_window_by_id(self.parent_id);
             self.listbox_map = manager.get_window_by_id(self.listbox_map_id);
-            if let Some(parent) = self.parent.as_ref() {
-                let _ = manager.set_focus(Some(parent));
+            // Focus is deferred (see SinglePlayerMenu::init): an inline
+            // set_focus would re-enter the menu RwLock held by this init
+            // dispatch via the window's system callback.
+            if let Some(parent) = self.parent.clone() {
+                queue_window_manager_op_deferred(move |manager| {
+                    let _ = manager.set_focus(Some(&parent));
+                });
             }
             if let Some(button_back) = manager.get_window_by_id(self.button_back_id) {
                 queue_shell_window_animation(button_back, AnimationType::SlideRight, true, 0);
@@ -2029,8 +2043,15 @@ impl MenuCallbacks for CreditsMenu {
         layout.hide(false);
         with_window_manager(|manager| {
             self.parent = manager.get_window_by_id(self.parent_id);
-            if let Some(parent) = self.parent.as_ref() {
-                let _ = manager.set_focus(Some(parent));
+            // Focus is deferred (see SinglePlayerMenu::init): an inline
+            // set_focus sends InputFocus to this same window, whose
+            // "CreditsMenuSystem" callback re-takes the menu RwLock this init
+            // dispatch still holds (std RwLocks are not re-entrant — this was
+            // the sampled CreditsMenu push wedge).
+            if let Some(parent) = self.parent.clone() {
+                queue_window_manager_op_deferred(move |manager| {
+                    let _ = manager.set_focus(Some(&parent));
+                });
             }
         });
 
@@ -2050,9 +2071,13 @@ impl MenuCallbacks for CreditsMenu {
         _layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(parent) = self.parent.as_ref() {
-            with_window_manager(|manager| {
-                let _ = manager.set_focus(Some(parent));
+        // Deferred for the same reason as in init: this update runs under the
+        // menu RwLock write guard taken by the CreditsMenuUpdate dispatch, and
+        // an inline set_focus re-enters that lock via the InputFocus system
+        // callback.
+        if let Some(parent) = self.parent.clone() {
+            queue_window_manager_op_deferred(move |manager| {
+                let _ = manager.set_focus(Some(&parent));
             });
         }
 

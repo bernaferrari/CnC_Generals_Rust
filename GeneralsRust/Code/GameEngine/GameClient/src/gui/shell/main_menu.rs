@@ -952,6 +952,19 @@ impl MainMenu {
             }
         }
 
+        // C++ waits for a >20px mouse move or GWM_CHAR to reveal the first-run
+        // menu (MainMenu.cpp:982-1005), because a human is watching. The
+        // runtime-host windowed smoke run has no physical input, so the menu
+        // would stay hidden forever. Run the exact C++ reveal sequence once,
+        // gated to that mode so interactive sessions keep C++ behavior.
+        if state.not_shown
+            && state.just_entered == false
+            && std::env::var("GENERALS_RUNTIME_HOST_WND").as_deref() == Ok("1")
+        {
+            log::info!("MainMenuUpdate: unattended runtime-host run — revealing main menu");
+            self.reveal_hidden_main_menu(&mut state);
+        }
+
         // Handle transitions - matches C++ lines 847-848
         if state.dont_allow_transitions && self.transitions_finished() {
             state.dont_allow_transitions = false;

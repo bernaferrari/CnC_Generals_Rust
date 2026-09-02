@@ -82,15 +82,21 @@ pub fn honesty_gameworld_production_authority_residual_pack_wave177() -> bool {
         && honesty_gameworld_production_authority_nav_commands_residual_wave177()
 }
 
-/// Source residual: production last-writer defaults off (host sole writer).
+/// Source residual: production last-writer is a per-`GameLogic` context field
+/// (hq-e84zk retired the `GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY` env flag);
+/// default off — host GameLogic stays sole writer (C++ single store).
 pub fn honesty_production_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
+    let ctx = include_str!("../../game_logic/game_logic/gameworld_authority.rs");
     let i = match src.find("pub fn gameworld_production_authority_enabled") {
         Some(i) => i,
         None => return false,
     };
     let body = &src[i..src.len().min(i + 350)];
-    body.contains("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY") && body.contains("false")
+    body.contains("current_gameworld_authority().production")
+        && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")
+        && ctx.contains("pub production: bool")
+        && ctx.contains("production: false")
 }
 
 /// Source residual: host production sole-tick skips full queue progress advance.
@@ -137,6 +143,12 @@ pub fn simulate_gameworld_production_authority_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
+    // Deep-reader barrier: this harness owns no GameLogic instance, so
+    // publish the all-off context explicitly instead of trusting whatever a
+    // prior test left on the thread (fresh-instance parity).
+    crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
+        crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
+    );
     if gameworld_production_authority_enabled() {
         return false;
     }

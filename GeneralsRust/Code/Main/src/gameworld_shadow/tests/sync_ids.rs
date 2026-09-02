@@ -960,17 +960,15 @@ fn writeback_production_and_rally_to_host() {
     };
     // writeback_production_to_host is the GameWorld->GameLogic production
     // last-writer channel; C++ ProductionUpdate (ProductionUpdate.cpp) makes
-    // TheGameLogic the sole production writer, so the channel is opt-in
-    // GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY (tick/authority.rs:236). Arm it
-    // for this test — it must never depend on a sibling test's leaked env.
-    let _env_guard = authority_env_lock();
-    let prev_prod = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    // TheGameLogic the sole production writer, so the channel is opt-in via
+    // GameLogic::set_production_authority(true) (hq-e84zk retired the
+    // GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY env flag). Arm it per-instance.
     // The ready/production logs are process-global thread-locals; clear at the
     // boundary so a prior producer test's pending entries cannot feed the
     // writeback skip-guard (writeback_production.rs:43-47).
     crate::game_logic::host_production_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("ProdRallyWb");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("WarFact") {
@@ -1035,22 +1033,18 @@ fn writeback_production_and_rally_to_host() {
     let bd = obj.building_data.as_ref().expect("bd");
     assert_eq!(bd.rally_point, Some(glam::Vec3::new(9.0, 0.0, 8.0)));
     assert!((bd.production_queue[0].progress - 0.75).abs() < 1e-5);
-    match prev_prod {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
 }
 
 #[test]
 fn production_authority_sole_ticks_queue_progress() {
     let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1")
         .set("GENERALS_GAMEWORLD_SHADOW", "1")
         .couple();
-    assert!(gameworld_production_authority_enabled());
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
+    assert!(gameworld_production_authority_enabled());
     {
         let mut t = ThingTemplate::new("SoleTickFact");
         t.add_kind_of(KindOf::Structure);
@@ -1106,9 +1100,7 @@ fn production_authority_sole_ticks_queue_progress() {
 fn completed_production_waits_for_open_door_before_entity_first_spawn() {
     let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     let _coupled = ShadowCoupleGuard::enter();
 
     use crate::game_logic::host_production_ready_log;
@@ -1118,6 +1110,7 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
 
     host_production_ready_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("DoorGateProduction");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "DoorGateRanger", 100.0);
@@ -1193,19 +1186,13 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
         Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
-    match prev_production {
-        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
 }
 
 #[test]
 fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
     let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     let _coupled = ShadowCoupleGuard::enter();
 
     use crate::game_logic::host_production_ready_log;
@@ -1216,6 +1203,7 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
 
     host_production_ready_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("DoorBatchProduction");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "DoorBatchRanger", 100.0);
@@ -1299,19 +1287,13 @@ fn completed_quantity_batch_emits_every_entity_first_unit_after_open_door() {
         Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
-    match prev_production {
-        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
 }
 
 #[test]
 fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     let _env_guard = authority_env_lock();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    let prev_production = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     let _coupled = ShadowCoupleGuard::enter();
 
     use crate::game_logic::host_production_progress_log;
@@ -1324,6 +1306,7 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     host_production_progress_log::clear();
     host_production_ready_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("QueueSoleTickProduction");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "QueueSoleRanger", 100.0);
@@ -1418,25 +1401,20 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
         Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", value),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
     }
-    match prev_production {
-        Some(value) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", value),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
 }
 
 #[test]
 fn construction_authority_sole_ticks_percent() {
     let _env_guard = authority_env_lock();
 
-    let prev_a = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Tick path is authority-gated; sole-tick freeze is host-side (coupled frame).
+    let mut logic = GameLogic::new();
+    logic.set_construction_authority(true);
     assert!(gameworld_construction_authority_enabled());
     use crate::game_logic::host_construction_progress_log::{self};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
     {
         let mut t = ThingTemplate::new("SoleTickBuild");
         t.add_kind_of(KindOf::Structure);
@@ -1468,10 +1446,6 @@ fn construction_authority_sole_ticks_percent() {
     assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
     let obj = logic.host_object(oid).expect("obj");
     assert!((obj.construction_percent - 0.5).abs() < 1e-4);
-    match prev_a {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
-    }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1481,13 +1455,13 @@ fn construction_authority_sole_ticks_percent() {
 #[test]
 fn special_power_authority_sole_ticks_cooldown() {
     let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1")
         .set("GENERALS_GAMEWORLD_SHADOW", "1")
         .couple();
-    assert!(gameworld_special_power_sole_tick_enabled());
     use crate::game_logic::host_special_power_log::{self};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.set_special_power_authority(true);
+    assert!(gameworld_special_power_sole_tick_enabled());
     {
         let mut t = ThingTemplate::new("SoleTickSp");
         t.add_kind_of(KindOf::Structure);
@@ -1527,24 +1501,19 @@ fn special_power_authority_sole_ticks_cooldown() {
 
 #[test]
 fn shared_special_power_sole_ticks_player_cds() {
-    let prev_a = std::env::var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Sole-tick tick path requires coupled engine frame (same as host freeze).
     begin_shadow_coupled_tick();
-    assert!(gameworld_special_power_sole_tick_enabled());
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::GameLogic;
     use crate::game_logic::host_player_cooldown_log;
     let mut logic = GameLogic::new();
+    logic.set_special_power_authority(true);
+    assert!(gameworld_special_power_sole_tick_enabled());
     let pid = 0u32;
     let Some(p) = logic.get_player_mut(pid) else {
         end_shadow_coupled_tick();
-        match prev_a {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
-        }
         match prev_s {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1574,10 +1543,6 @@ fn shared_special_power_sole_ticks_player_cds() {
         "expected ~3.0 remaining after 2s tick, got {rem}"
     );
     end_shadow_coupled_tick();
-    match prev_a {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY"),
-    }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),

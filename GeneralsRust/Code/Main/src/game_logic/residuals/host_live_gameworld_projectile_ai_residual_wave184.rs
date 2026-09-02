@@ -94,24 +94,23 @@ pub fn honesty_projectile_ai_channel_api_source() -> bool {
         && ai.contains("pub fn record_attack")
 }
 
-/// Source residual: projectile + AI decision last-writers default off.
+/// Source residual: projectile + AI decision last-writers are per-`GameLogic`
+/// context fields (hq-e84zk retired the env flags); default off.
 pub fn honesty_projectile_ai_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    let proj_ok = {
-        let i = match src.find("pub fn gameworld_projectile_authority_enabled") {
-            Some(i) => i,
-            None => return false,
-        };
-        src[i..src.len().min(i + 300)].contains("false")
+    let ctx = include_str!("../../game_logic/game_logic/gameworld_authority.rs");
+    let gate_reads_context = |fn_name: &str, field: &str| {
+        match src.find(&format!("pub fn {fn_name}")) {
+            Some(i) => src[i..src.len().min(i + 300)]
+                .contains(&format!("current_gameworld_authority().{field}")),
+            None => false,
+        }
     };
-    let ai_ok = {
-        let i = match src.find("pub fn gameworld_ai_decision_authority_enabled") {
-            Some(i) => i,
-            None => return false,
-        };
-        src[i..src.len().min(i + 300)].contains("false")
-    };
-    proj_ok && ai_ok
+    gate_reads_context("gameworld_projectile_authority_enabled", "projectile")
+        && gate_reads_context("gameworld_ai_decision_authority_enabled", "ai_decision")
+        && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")
+        && ctx.contains("projectile: false")
+        && ctx.contains("ai_decision: false")
 }
 
 /// Live residual: projectile flight apply + AI decision apply (opt-in authority).
@@ -137,10 +136,11 @@ pub fn simulate_live_gameworld_projectile_ai_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+    let mut logic = GameLogic::new();
+    logic.set_projectile_authority(true);
+    logic.set_ai_decision_authority(true);
     if !gameworld_projectile_authority_enabled() || !gameworld_ai_decision_authority_enabled() {
         return false;
     }
@@ -183,7 +183,6 @@ pub fn simulate_live_gameworld_projectile_ai_honesty() -> bool {
 
     // --- AI decision channel ---
     host_ai_decision_log::clear();
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("LiveProjAi184");
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;

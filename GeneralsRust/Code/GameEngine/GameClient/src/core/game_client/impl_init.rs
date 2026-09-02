@@ -125,6 +125,24 @@ impl GameClient {
         self.initialized = true;
     }
 
+    /// Republish this client's address to the live snapshot slot after the
+    /// owning engine has been moved to its final home.
+    ///
+    /// C++ parity: `TheGameClient` is a stable singleton pointer for the
+    /// process lifetime. The Rust engine owns the client BY VALUE inside
+    /// `CnCGameEngine`, which is constructed inside the boxed boot future and
+    /// then moved out (`run_loop.rs`: `engine = Some(new_engine)`). The raw
+    /// address registered by `mark_initialized`/`init` points into the
+    /// future's memory and dangles the moment that move happens; the next
+    /// `with_live_game_client_mut` (e.g. particle
+    /// `resolve_attached_parent` → `query_live_drawable_fx_pose` at InGame
+    /// entry) then dereferences freed heap and faults (SIGSEGV,
+    /// generals_snap-2026-09-02-{050658,051348}.ips). Must be called once the
+    /// engine has reached its final address, before any frame runs.
+    pub fn republish_live_slot_after_engine_move(&mut self) {
+        register_live_game_client(self);
+    }
+
     /// Discard presentation-owned Drawable state after a successful world
     /// replacement.
     ///

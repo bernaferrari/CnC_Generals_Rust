@@ -193,12 +193,11 @@ mod tests {
     fn post_logic_heal_applies_once_through_session() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_s = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        let prev_d = std::env::var_os("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
         host_heal_log::clear();
 
         let mut logic = GameLogic::new();
+        logic.set_damage_authority(true);
         ensure_template(&mut logic, "EagerHealUnit", 100.0);
         let id = logic
             .create_object("EagerHealUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -233,10 +232,6 @@ mod tests {
         match prev_s {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
-        match prev_d {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
         }
     }
 }

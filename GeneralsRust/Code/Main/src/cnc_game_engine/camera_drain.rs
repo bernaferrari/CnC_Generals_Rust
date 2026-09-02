@@ -2779,6 +2779,7 @@ mod replay_fast_forward_probe {
 
     fn install_replay_factory(engine: &mut CnCGameEngine) -> ObjectId {
         engine.game_logic = GameLogic::new();
+        engine.game_logic.set_production_authority(true);
         engine.gameworld_shadow = Some(GameWorldShadow::new(64));
         engine.last_frame_timing = None;
         engine.last_presentation_frame = None;
@@ -2867,16 +2868,19 @@ mod replay_fast_forward_probe {
         #[cfg(test)]
         let _env_guard = authority_env_lock();
         let _shadow_env = EnvRestore::set("GENERALS_GAMEWORLD_SHADOW", "1");
-        let _production_env = EnvRestore::set("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
         refresh_gameworld_authority_env_caches();
         let _coupled = ShadowCoupleGuard::enter();
+
+        let (_event_loop, mut engine) = replay_fixture_engine()?;
+        // Arm production authority on the engine's GameLogic (hq-e84zk retired
+        // the GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY env flag; re-armed on
+        // every fresh instance inside install_replay_factory).
+        install_replay_factory(&mut engine);
         assert!(
             gameworld_production_sole_tick_enabled(),
             "fixture must take the same coupled production-authority path as the engine"
         );
         drop(_coupled);
-
-        let (_event_loop, mut engine) = replay_fixture_engine()?;
 
         let normal_30 = run_engine_replay_batch(&mut engine, false, 1.0 / 30.0, 1);
         assert_eq!(

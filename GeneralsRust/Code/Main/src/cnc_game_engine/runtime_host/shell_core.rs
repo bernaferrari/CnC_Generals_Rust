@@ -363,4 +363,73 @@ impl CnCGameEngine {
         self.runtime_host_last_gameplay_cmd = format!("window_move_ok:{ox},{oy},{ow}x{oh}");
         log::info!("window_move: requested {x},{y} pt -> winit outer {ox},{oy} {ow}x{oh}");
     }
+
+    /// Advance live MainMenu transitions (`WM::update` → transitions.update).
+    ///
+    /// C++ plays Menu FLASH/BUTTONFLASH groups at 60 fps
+    /// (GameWindowTransitions.cpp `TransitionGroup::update` advances one frame
+    /// per call), so the SP dropdown becomes hittable ~15 frames (~250 ms)
+    /// after the ButtonSinglePlayer GBM_SELECTED. Windowed Menu frames take
+    /// seconds, and `FlashTransition::update` frames 0-3 hold
+    /// `winHide(TRUE)` on the active `dropDownWindows[]` border
+    /// (MainMenu.cpp:1320 `winHide(FALSE)` loses that race), leaving
+    /// ButtonSkirmish parent-hidden and the physical click falling through to
+    /// MainMenuRuler. This command advances the same per-frame ticks the
+    /// injected `winit_menu_nav` path already uses — it never touches
+    /// playable_claim evidence.
+    pub(super) fn runtime_host_cmd_tick_main_menu_transitions(
+        &mut self,
+        args: &HashMap<String, String>,
+    ) {
+        if self.runtime_host_headless {
+            self.runtime_host_last_gameplay_cmd = "tick_transitions_fail_headless".into();
+            return;
+        }
+        if self.current_state != GameState::Menu {
+            self.runtime_host_last_gameplay_cmd =
+                format!("tick_transitions_fail_not_menu:{:?}", self.current_state);
+            return;
+        }
+        let times: u32 = args
+            .get("times")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(16)
+            .clamp(1, 64);
+        #[cfg(feature = "game_client")]
+        game_client::gui::tick_main_menu_transitions(times);
+        self.runtime_host_last_gameplay_cmd = format!("tick_transitions_ok:{times}");
+        log::info!("tick_main_menu_transitions: advanced {times} WM updates");
+    }
+
+    /// Commit the retail `UseAlternateMouse` option through the exact
+    /// Options-menu path (C++ OptionsMenu.cpp:1157-1159 checkbox →
+    /// (*pref)["UseAlternateMouse"] + GlobalData). In alternate mouse mode the
+    /// physical RMB is the context-command button (C++ CommandXlat.cpp:3656:
+    /// "right click is only actioned here if we're in alternate mouse mode"),
+    /// which is the scheme the RMB order latch is authored against. The typed
+    /// host bridge (`HostOptionsRequest::AlternateMouse`) applies it to Main's
+    /// live input residence on the next `host_tick_options_bridge`.
+    pub(super) fn runtime_host_cmd_alternate_mouse(&mut self, args: &HashMap<String, String>) {
+        if self.runtime_host_headless {
+            self.runtime_host_last_gameplay_cmd = "alternate_mouse_fail_headless".into();
+            return;
+        }
+        let enabled = args
+            .get("on")
+            .map(|v| {
+                !(v.eq_ignore_ascii_case("0")
+                    || v.eq_ignore_ascii_case("false")
+                    || v.eq_ignore_ascii_case("no")
+                    || v.eq_ignore_ascii_case("off"))
+            })
+            .unwrap_or(true);
+        #[cfg(feature = "game_client")]
+        {
+            game_client::gui::OptionsMenu::commit_alternate_mouse_setting(enabled);
+        }
+        self.runtime_host_last_gameplay_cmd = format!("alternate_mouse_ok:{enabled}");
+        log::info!(
+            "alternate_mouse: committed UseAlternateMouse={enabled} (host bridge applies next tick)"
+        );
+    }
 }

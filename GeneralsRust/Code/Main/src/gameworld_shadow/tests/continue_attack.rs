@@ -7,11 +7,11 @@ fn ai_decision_buffer_channel_via_push_ai_decision() {
     let _env_guard = authority_env_lock();
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
     let cfg = golden_skirmish_config("AiDec");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("AdU") {
@@ -56,16 +56,14 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
     assert!(gameworld_ai_decision_authority_enabled());
     // Attack writeback must also be on for last-write.
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    logic.set_ai_attack_authority(true);
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiDecAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("AdaU") {
@@ -91,14 +89,6 @@ fn ai_decision_authority_applies_attack_via_gameworld() {
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.target, Some(vid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -108,14 +98,12 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     use crate::game_logic::game_logic::AICommand;
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("AiCmdAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("AcU") {
@@ -171,14 +159,6 @@ fn apply_ai_command_logs_and_host_applies_under_authority() {
     let _ = shadow.writeback_attack_targets_to_host(&mut logic);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -187,14 +167,12 @@ fn continue_attack_after_kill_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("ContAtk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["CaA", "CaD", "CaN"] {
@@ -245,14 +223,6 @@ fn continue_attack_after_kill_decision_authority() {
         logic.host_objects().get(&attacker).unwrap().target,
         Some(next)
     );
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -261,14 +231,12 @@ fn assign_unit_attack_path_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("AtkPath");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["ApU", "ApE"] {
@@ -329,14 +297,6 @@ fn assign_unit_attack_path_decision_authority() {
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -345,12 +305,11 @@ fn path_approach_with_state_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{AIState, KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
     let cfg = golden_skirmish_config("PathSt");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PsU") {
@@ -386,10 +345,6 @@ fn path_approach_with_state_decision_authority() {
         logic.host_objects().get(&oid).unwrap().ai_state,
         AIState::Gathering
     );
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -398,14 +353,12 @@ fn troop_crawler_assault_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("TcAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let crawler_name = "ChinaVehicleTroopCrawler";
@@ -470,14 +423,6 @@ fn troop_crawler_assault_decision_authority() {
         .iter()
         .any(|(id, o)| o.target == Some(enemy) && *id != enemy);
     assert!(hit, "writeback must set some unit target to enemy");
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -486,14 +431,12 @@ fn missile_defender_laser_guided_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("MdAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     // Retail template name residual for missile defender.
@@ -566,14 +509,6 @@ fn missile_defender_laser_guided_decision_authority() {
     let _ = shadow.writeback_attack_targets_to_host(&mut logic);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&mid).unwrap().target, Some(eid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -582,14 +517,12 @@ fn private_attack_object_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("PrivAtk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["PaU", "PaE"] {
@@ -635,14 +568,6 @@ fn private_attack_object_decision_authority() {
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -651,14 +576,12 @@ fn transfer_attack_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("XferAtk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["XaA", "XaFrom", "XaTo"] {
@@ -709,14 +632,6 @@ fn transfer_attack_decision_authority() {
         logic.host_objects().get(&attacker).unwrap().target,
         Some(to)
     );
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -790,14 +705,12 @@ fn apply_engagement_decision_aware_writeback() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("EngAw");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["EaU", "EaE"] {
@@ -836,14 +749,6 @@ fn apply_engagement_decision_aware_writeback() {
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -852,14 +757,12 @@ fn mood_auto_acquire_logs_decision_under_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("MoodAcq");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("MaU") {
@@ -935,14 +838,6 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -951,14 +846,12 @@ fn support_guard_engage_uses_decision_authority() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("GuardEng");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("GeU") {
@@ -995,14 +888,6 @@ fn support_guard_engage_uses_decision_authority() {
     let _ = shadow.writeback_attack_targets_to_host(&mut logic);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -1012,15 +897,13 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
     use crate::ai::{AIDifficulty, AIPlayer};
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
 
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("FacAtk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("FacU", Team::USA, 0.0f32), ("FacE", Team::GLA, 80.0)] {
@@ -1094,14 +977,6 @@ fn faction_ai_launch_attack_decision_authority_writeback() {
         logic.host_objects().get(&usa_unit).unwrap().target,
         Some(enemy)
     );
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -1110,14 +985,12 @@ fn stop_attack_decision_authority_clears_via_writeback() {
 
     use crate::game_logic::host_ai_decision_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("StopAtk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for name in ["Su", "Se"] {
@@ -1162,14 +1035,6 @@ fn stop_attack_decision_authority_clears_via_writeback() {
     let _ = shadow.writeback_attack_targets_to_host(&mut logic);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert!(logic.host_objects().get(&oid).unwrap().target.is_none());
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -1178,10 +1043,10 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
     use crate::game_logic::host_fire_spawn_log;
     use crate::game_logic::host_usa_pilot::HostDeathType;
     let _env_guard = authority_env_lock();
-    let prev = std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY").ok();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    let mut logic = GameLogic::new();
+    logic.set_fire_spawn_authority(true);
     assert!(gameworld_fire_spawn_authority_enabled());
     assert!(gameworld_shadow_enabled());
     host_fire_spawn_log::clear();
@@ -1231,7 +1096,6 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
         die_on_detonate: false,
     });
     // Not yet in combat system.
-    let mut logic = GameLogic::new();
     assert_eq!(logic.combat_system.projectile_count(), 0);
     let spawns = host_fire_spawn_log::drain();
     assert_eq!(spawns.len(), 1);
@@ -1244,10 +1108,6 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
         logic.combat_system.projectile_count() >= 1,
         "shadow apply must spawn into CombatSystem"
     );
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
-    }
     match prev_shadow {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1260,10 +1120,10 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     use crate::game_logic::host_fire_spawn_log;
     use crate::game_logic::host_usa_pilot::HostDeathType;
     let _env_guard = authority_env_lock();
-    let prev = std::env::var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY").ok();
     let prev_shadow = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    let mut logic = GameLogic::new();
+    logic.set_fire_spawn_authority(true);
     assert!(gameworld_fire_spawn_authority_enabled());
     assert!(!gameworld_shadow_enabled());
     host_fire_spawn_log::clear();
@@ -1316,10 +1176,6 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
         "shadow-off + fire_spawn auth must enqueue PENDING_PROJECTILES immediately"
     );
     combat::clear_pending_projectile_queue_for_test();
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY"),
-    }
     match prev_shadow {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1329,15 +1185,14 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
 #[test]
 fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
-    let prev_d = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
     assert!(gameworld_ai_decision_authority_enabled());
     assert!(!gameworld_ai_decision_authority_live());
     crate::game_logic::host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiDecNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "AiUnit", 100.0);
@@ -1364,10 +1219,6 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
         crate::game_logic::host_ai_decision_log::drain().is_empty(),
         "must not defer decisions when shadow is off"
     );
-    match prev_d {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1377,10 +1228,10 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
 #[test]
 fn projectile_authority_steps_host_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
-    let prev_p = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    let mut logic = GameLogic::new();
+    logic.set_projectile_authority(true);
     assert!(gameworld_projectile_authority_enabled());
     assert!(!gameworld_projectile_authority_live());
     // Source must contain live gate so host update_projectiles is not skipped.
@@ -1389,10 +1240,6 @@ fn projectile_authority_steps_host_when_shadow_disabled() {
         src.contains("gameworld_projectile_authority_live()"),
         "host combat must gate projectile defer on live shadow"
     );
-    match prev_p {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
-    }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1402,13 +1249,12 @@ fn projectile_authority_steps_host_when_shadow_disabled() {
 #[test]
 fn movement_authority_integrates_host_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
-    let prev_m = std::env::var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    let mut logic = GameLogic::new();
+    logic.set_movement_authority(true);
     assert!(gameworld_movement_authority_enabled());
     assert!(!gameworld_movement_authority_live());
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "MvU", 100.0);
@@ -1458,10 +1304,6 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
         dist > 0.01,
         "host-only movement must integrate path; pre={pre:?} post={post:?} dist={dist}"
     );
-    match prev_m {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY"),
-    }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1470,14 +1312,13 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
 #[test]
 fn construction_authority_sets_host_percent_when_shadow_disabled() {
     let _env_guard = authority_env_lock();
-    let prev_c = std::env::var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY").ok();
     let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+    let mut logic = GameLogic::new();
+    logic.set_construction_authority(true);
     assert!(gameworld_construction_authority_enabled());
     assert!(!gameworld_construction_authority_live());
     assert!(!gameworld_construction_sole_tick_enabled());
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "HoleT", 500.0);
@@ -1499,10 +1340,6 @@ fn construction_authority_sets_host_percent_when_shadow_disabled() {
             "host-only must set construction_percent immediately"
         );
     }
-    match prev_c {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY"),
-    }
     match prev_s {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
@@ -1516,11 +1353,9 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     host_fire_intent_log::clear();
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "0");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    assert!(!gameworld_ai_attack_authority_enabled());
     let mut logic = GameLogic::new();
+    assert!(!gameworld_ai_attack_authority_enabled());
     let cfg = golden_skirmish_config("AiAtkAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("AaU") {
@@ -1540,15 +1375,11 @@ fn ai_attack_authority_gates_fire_intent_writeback() {
     let _ = crate::game_logic::host_fire_intent_ready_log::drain();
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.fire_intent_count, 0);
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    logic.set_ai_attack_authority(true);
     assert!(gameworld_ai_attack_authority_enabled());
     assert!(shadow.writeback_fire_intent_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_fire_intent_ready_log::drain();
     let o = logic.host_objects().get(&oid).unwrap();
     assert_eq!(o.fire_intent_count, 1);
     assert_eq!(o.last_fire_victim_host, 9);
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }

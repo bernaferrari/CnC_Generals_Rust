@@ -1,5 +1,18 @@
 // Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
 
+/// Depth attachment format for every terrain_visual render pipeline.
+///
+/// All pass call sites that record terrain draws bind this same depth texture:
+/// Main's "main terrain pass" (`pipeline_prewarm.rs`, ww3d frame
+/// `depth_view_arc()`), GameClient `Display` (`display.rs` `depth_view`,
+/// `Depth32Float`), and the W3D renderer forward/depth-prepass views
+/// (`w3d/renderer.rs`, `Depth32Float`). wgpu validates each `set_pipeline`
+/// against the live attachment, so a pipeline authored with
+/// `Depth24PlusStencil8` fatals on first use ("Render pipeline targets are
+/// incompatible with render pass"). Keep the formats identical.
+pub(super) const TERRAIN_PIPELINES_DEPTH_FORMAT: wgpu::TextureFormat =
+    wgpu::TextureFormat::Depth32Float;
+
 /// Main terrain visual implementation matching C++ TerrainVisual
 pub struct TerrainVisualImpl {
     /// Configuration settings

@@ -93,7 +93,8 @@ pub fn honesty_damage_channel_api_source() -> bool {
         && src.contains("pub fn gameworld_damage_authority_enabled")
 }
 
-/// Source residual: damage last-writer defaults off (host sole HP writer).
+/// Source residual: damage last-writer defaults off (host sole HP writer) and
+/// the gate is backed by the GameLogic authority context (hq-e84zk).
 pub fn honesty_damage_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let i = match src.find("pub fn gameworld_damage_authority_enabled") {
@@ -101,7 +102,7 @@ pub fn honesty_damage_authority_default_on_source() -> bool {
         None => return false,
     };
     let body = &src[i..src.len().min(i + 350)];
-    body.contains("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY") && body.contains("false")
+    body.contains("current_gameworld_authority().damage")
 }
 
 /// Live residual: host take_damage logs → shadow apply → health parity.
@@ -125,15 +126,17 @@ pub fn simulate_live_gameworld_damage_channel_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-    if !gameworld_damage_authority_enabled() {
-        return false;
-    }
+    // Authority arm happens on the harness's own instance below (hq-e84zk
+    // context fields; a pre-instance check here would read a stale snapshot).
 
     host_damage_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    if !gameworld_damage_authority_enabled() {
+        return false;
+    }
     let cfg = golden_skirmish_config("LiveDmgCh182");
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;

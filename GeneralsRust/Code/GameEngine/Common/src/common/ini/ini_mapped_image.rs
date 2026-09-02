@@ -806,15 +806,27 @@ fn load_ini_directory_recursive(ini: &mut INI, dir: &Path) {
     collect_ini_files_recursive(dir, &mut files);
     files.sort();
 
+    // Repacked INIZH archives interleave binary fragments inside these INIs;
+    // recover every intact MappedImage/Animation block instead of dropping
+    // the file (plain C++ ImageCollection::load semantics stay for intact
+    // files — strict parse still succeeds first).
+    ini.set_tolerant_blocks(true);
+
     for file in files {
         // Fail-open: a bad HandCreatedMappedImages.INI must not abort boot.
         // C++ ImageCollection::load (Image.cpp:232) continues past missing
         // dirs; Rust additionally skips a single InvalidData file.
-        if let Err(error) = ini.load(&file, INILoadType::Overwrite) {
+        if let Err(error) = ini.load(&file, INILoadType::Overwrite)
+            && let Err(recovery) = ini.load_recovering_truncated_head(&file)
+        {
+            // Fail-open: a bad HandCreatedMappedImages.INI must not abort boot.
+            // C++ ImageCollection::load (Image.cpp:232) continues past missing
+            // dirs; Rust additionally skips a single InvalidData file, then
+            // retries past truncated leading bytes (repacked INIZH.big
+            // head-cut entries) before giving up.
             log::warn!(
-                "MappedImage: failed to load INI '{}' ({:?})",
-                file.display(),
-                error
+                "MappedImage: failed to load INI '{}' (load: {error:?}, recovery: {recovery:?})",
+                file.display()
             );
         }
     }

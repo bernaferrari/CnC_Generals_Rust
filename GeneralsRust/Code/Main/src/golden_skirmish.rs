@@ -962,7 +962,8 @@ fn golden_allow_teleport_pull() -> bool {
 
 /// Materialize `host_damage_log` into host HP/destroy flags.
 ///
-/// Under `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY` (default on), `take_damage` logs
+/// Under a coupled GameWorld damage-authority context (`GameLogic::
+/// set_damage_authority(true)`, default off), `take_damage` logs
 /// intent only and freezes host HP until a GameWorld shadow writeback. Golden
 /// map-world combat is host-only (no dual shadow session), so without this
 /// drain the primary enemy never appears dead and `fought`/`victory` stay false.

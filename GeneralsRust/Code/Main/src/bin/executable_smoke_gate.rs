@@ -4,7 +4,9 @@
 //! Headless `playable_claim` must stay false. Windowed results may be true when
 //! all five retail flags are observed.
 
-use generals_main::executable_smoke::{format_executable_smoke_report, run_executable_smoke};
+use generals_main::executable_smoke::{
+    format_executable_smoke_report, run_executable_smoke, run_executable_smoke_windowed,
+};
 use std::time::Duration;
 
 fn main() {
@@ -24,8 +26,20 @@ fn main() {
     let use_new_game = std::env::var("EXECUTABLE_SMOKE_NEW_GAME")
         .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
         .unwrap_or(true);
+    // EXECUTABLE_SMOKE_WINDOWED=1: launch the child with
+    // `-runtime_host=windowed -windowed` (real visible OS window) and drive
+    // the same automated control-file chain. Physical five-flag latches
+    // (wnd_widget_tree_nav / interactive_gameplay) still require real OS
+    // mouse input; injects keep them honest.
+    let windowed = std::env::var("EXECUTABLE_SMOKE_WINDOWED")
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
+        .unwrap_or(false);
 
-    let r = run_executable_smoke(Duration::from_secs(timeout_secs), use_new_game);
+    let r = if windowed {
+        run_executable_smoke_windowed(Duration::from_secs(timeout_secs), use_new_game)
+    } else {
+        run_executable_smoke(Duration::from_secs(timeout_secs), use_new_game)
+    };
     println!("{}", format_executable_smoke_report(&r));
 
     // Headless: playable_claim must stay false.

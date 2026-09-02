@@ -50,6 +50,8 @@ impl GameLogic {
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
             max_retaliate_distance: 210.0,
+            gameworld_authority:
+                crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
             objects: HostObjectStore::new(),
             host_view_dirty: HashSet::new(),
             vision_last_looks: HashMap::new(),
@@ -669,6 +671,9 @@ impl GameLogic {
             install_multiplayer_scripts: false,
         };
         instance.rebuild_objective_lookup();
+        // Fresh instance = clean authority barrier: deep readers on this thread
+        // see this instance's (default-off) switches, never a prior test's.
+        instance.publish_gameworld_authority_context();
         GameLogic::register_leftover_object_create_overrides_overlay();
         // C++ TheGameLogic::clearGameData tears per-world shroud down with the
         // world (ThePartitionManager::reset + ThePlayerList::reset destroy

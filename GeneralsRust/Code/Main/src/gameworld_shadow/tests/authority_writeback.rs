@@ -7,10 +7,10 @@ fn gameworld_step_movement_advances_move_target() {
     let _env_guard = authority_env_lock();
 
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    // Force movement authority path.
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    // Force movement authority path (per-instance context; hq-e84zk retired
+    // the GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY env flag).
     let mut logic = GameLogic::new();
+    logic.set_movement_authority(true);
     let cfg = golden_skirmish_config("MvAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerMv") {
@@ -54,9 +54,9 @@ fn damage_authority_defers_host_hp_until_writeback() {
     let _env_guard = authority_env_lock();
 
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_damage_log};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
-    assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    assert!(gameworld_damage_authority_enabled());
     let cfg = golden_skirmish_config("DmgAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerDmg") {
@@ -113,9 +113,9 @@ fn damage_authority_defers_host_hp_until_writeback() {
 #[test]
 fn heal_authority_defers_host_hp_until_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_heal_log};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
-    assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    assert!(gameworld_damage_authority_enabled());
     let cfg = golden_skirmish_config("HealAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerHeal") {
@@ -166,9 +166,9 @@ fn heal_authority_defers_host_hp_until_writeback() {
 #[test]
 fn experience_authority_defers_host_xp_until_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_experience_log};
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
-    assert!(gameworld_damage_authority_enabled());
     let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    assert!(gameworld_damage_authority_enabled());
     let cfg = golden_skirmish_config("XpAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerXp") {
@@ -249,7 +249,8 @@ fn experience_authority_defers_host_xp_until_writeback() {
 fn host_update_movement_skips_when_gameworld_movement_authority() {
     let _env_guard = authority_env_lock();
 
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
+    let mut logic = GameLogic::new();
+    logic.set_movement_authority(true);
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_movement_authority_enabled());
     // Shipped host integrate lives in world_tick/movement.rs (split from game_logic.rs).
@@ -274,7 +275,6 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
     assert!(gameworld_movement_authority_live());
     end_shadow_coupled_tick();
     // Session integrates then writebacks.
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MvSkip");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("RangerSk") {
@@ -757,20 +757,17 @@ fn spawn_and_destroy_channel_maps_ids() {
 
 #[test]
 fn production_authority_defaults_off_host_sole_writer() {
-    // The production last-writer is OPT-IN: tick/authority.rs:234-242
-    // ("Opt-in GameWorld production-queue last-writer. Production default
-    // off") keeps the host GameLogic sole writer, and the wave177 residual
-    // pins it (honesty_production_authority_default_on_source requires
-    // `false` in the gate body; simulate_gameworld_production_authority_
-    // honesty asserts enabled()==false after ensure_gate_damage_authority).
-    // Unset/0 → off; =1 → on.
-    let _env = AuthorityEnvGuard::lock();
-    crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY");
+    // The production last-writer is a per-GameLogic context field (hq-e84zk
+    // retired the GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY env flag):
+    // tick/authority.rs keeps the host GameLogic sole writer by default and
+    // the wave177 residual pins the default-off gate. A fresh instance
+    // publishes an all-off barrier; the setter opts this instance in and out.
+    let mut logic = GameLogic::new();
     assert!(!gameworld_production_authority_enabled());
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
-    assert!(!gameworld_production_authority_enabled());
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    logic.set_production_authority(true);
     assert!(gameworld_production_authority_enabled());
+    logic.set_production_authority(false);
+    assert!(!gameworld_production_authority_enabled());
 }
 
 #[test]
@@ -893,14 +890,12 @@ fn attack_target_syncs_to_shadow_entity() {
 #[test]
 fn attack_target_writeback_updates_host() {
     // writeback_attack_targets_to_host is the AI-attack last-writer channel
-    // (writeback_core.rs:295 gate); it exists only under the opt-in
-    // GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY authority, matching the C++
-    // GameLogic-sole-writer default (tick/authority.rs:121-129). Arm it for
-    // the writeback leg, as continue_attack.rs decision-authority tests do.
-    let _env_guard = authority_env_lock();
-    let prev_atk = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
+    // (writeback_core.rs:295 gate); it exists only under the per-instance
+    // opt-in GameLogic::set_ai_attack_authority(true) (hq-e84zk retired the
+    // GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY env flag), matching the C++
+    // GameLogic-sole-writer default.
     let mut logic = GameLogic::new();
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("AtkWb");
     ensure_template(&mut logic, "AtkWA", 100.0);
     ensure_template(&mut logic, "AtkWB", 100.0);
@@ -928,10 +923,6 @@ fn attack_target_writeback_updates_host() {
     let _ = shadow.writeback_fire_intent_to_host(&mut logic);
     let _ = crate::game_logic::host_fire_intent_ready_log::drain();
     assert_eq!(logic.host_objects().get(&a).unwrap().target, None);
-    match prev_atk {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -1201,7 +1192,6 @@ fn stale_engine_id_does_not_skip_host_movement() {
         return;
     }
     // Host-only update_with_dt (no shadow session): keep host integrator on.
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveBridge");
@@ -1366,7 +1356,6 @@ fn engine_object_bridge_off_by_default() {
 fn host_damage_move_write_appears_in_gameworld_single_hp() {
     let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
     assert!(
         matches!(
             crate::authoritative_world::dual_tick_policy(),
@@ -1377,6 +1366,7 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
     assert!(gameworld_shadow_enabled());
 
     let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
     let cfg = golden_skirmish_config("GwStore");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "GwStoreU", 100.0);
@@ -1723,9 +1713,9 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
 fn is_alive_uses_coupled_gameworld_health() {
     let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "1");
 
     let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
     let cfg = golden_skirmish_config("AliveAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "AliveAuthU", 100.0);
