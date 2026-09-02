@@ -218,6 +218,13 @@ pub struct Image {
     status: ImageStatus,
     /// Raw image data (CPU-side)
     image_data: Option<DynamicImage>,
+    /// True once a full filesystem search for `filename` found nothing.
+    /// WND gadget draws run per frame; without this the missing-atlas
+    /// candidates re-walked every search path (case-insensitive readdir)
+    /// each frame — the sampled ~240 ms menu forward-pass tail.
+    /// C++ resolves mapped-image sources once at parse; callers keep their
+    /// tint fallback fill.
+    load_search_failed: bool,
     /// GPU texture resource
     gpu_texture: Option<Arc<GPUTexture>>,
 }
@@ -233,6 +240,7 @@ impl Image {
             image_size: ICoord2D::ZERO,
             status: ImageStatus::NONE,
             image_data: None,
+            load_search_failed: false,
             gpu_texture: None,
         }
     }
@@ -280,6 +288,7 @@ impl Image {
             image_size: ICoord2D::new(width as i32, height as i32),
             status,
             image_data: Some(image_data),
+            load_search_failed: false,
             gpu_texture: None,
         })
     }
@@ -304,6 +313,7 @@ impl Image {
             image_size: ICoord2D::new(width as i32, height as i32),
             status: ImageStatus::HAS_ALPHA | ImageStatus::RAW_TEXTURE,
             image_data: Some(dynamic_image),
+            load_search_failed: false,
             gpu_texture: None,
         })
     }
@@ -536,6 +546,15 @@ impl Image {
             return Err(GameImageError::ImageNotFound(self.name.clone()));
         }
 
+        // A failed search stays failed for this Image: the draw path calls
+        // this every frame and each attempt re-walked every LocalFileSystem
+        // search path (case-insensitive readdir per component). Assets are
+        // static per run; C++ resolves mapped-image sources once at parse
+        // (ImageCollection init) and keeps the tint fill afterwards.
+        if self.load_search_failed {
+            return Err(GameImageError::ImageNotFound(self.filename.clone()));
+        }
+
         ensure_engine_filesystem_backends();
         for candidate in candidate_texture_resource_names(&self.filename) {
             if let Some(decoded) = try_load_image_from_engine_filesystem(&candidate) {
@@ -554,6 +573,7 @@ impl Image {
             }
         }
 
+        self.load_search_failed = true;
         Err(GameImageError::ImageNotFound(self.filename.clone()))
     }
 }
@@ -1058,75 +1078,87 @@ fn decode_image_from_bytes(resource_name: &str, bytes: &[u8]) -> Result<DynamicI
 }
 
 fn ensure_engine_filesystem_backends() {
-    let fs = get_file_system();
-    let Ok(mut fs_guard) = fs.lock() else {
-        return;
-    };
+    // Idempotent and once-only: this runs per image draw (every WND widget,
+    // every frame). Re-running it re-scanned the install-layout roots
+    // (`zh_install_roots` + `extracted_asset_roots` walk up to MAX_SCAN_DIRS
+    // directories each) and wiped the FS cache per call — the 3.7 s/frame
+    // menu stall (sample: flush_ui_to_frame → draw_all → Image::
+    // create_gpu_texture → ensure_image_data_loaded → this fn → readdir).
+    // Search paths and mounted BIG roots never change mid-run, matching
+    // C++ GameFileSystem::Init (once at boot) and the textures.rs twin.
+    static INSTALLED: OnceCell<()> = OnceCell::new();
+    INSTALLED.get_or_init(|| {
+        let fs = get_file_system();
+        let Ok(mut fs_guard) = fs.lock() else {
+            return;
+        };
 
-    let writable = {
-        let data = global_data::read();
-        data.writable.clone()
-    };
+        let writable = {
+            let data = global_data::read();
+            data.writable.clone()
+        };
 
-    let mut search_paths = vec![PathBuf::from(".")];
+        let mut search_paths = vec![PathBuf::from(".")];
 
-    if let Ok(cwd) = std::env::current_dir() {
-        search_paths.push(cwd);
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            search_paths.push(parent.to_path_buf());
+        if let Ok(cwd) = std::env::current_dir() {
+            search_paths.push(cwd);
         }
-    }
-
-    if !writable.mod_dir.is_empty() {
-        search_paths.push(PathBuf::from(&writable.mod_dir));
-    }
-    if !writable.mod_big.is_empty() {
-        if let Some(parent) = Path::new(&writable.mod_big).parent() {
-            search_paths.push(parent.to_path_buf());
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                search_paths.push(parent.to_path_buf());
+            }
         }
-    }
 
-    let mut deduped = Vec::new();
-    for path in search_paths {
-        if !deduped.iter().any(|existing: &PathBuf| existing == &path) {
-            deduped.push(path);
+        if !writable.mod_dir.is_empty() {
+            search_paths.push(PathBuf::from(&writable.mod_dir));
         }
-    }
+        if !writable.mod_big.is_empty() {
+            if let Some(parent) = Path::new(&writable.mod_big).parent() {
+                search_paths.push(parent.to_path_buf());
+            }
+        }
 
-    {
-        let local_backend: &mut LocalFileSystem = fs_guard.ensure_backend(LocalFileSystem::new);
-        for path in &deduped {
-            local_backend.add_search_path(path);
+        let mut deduped = Vec::new();
+        for path in search_paths {
+            if !deduped.iter().any(|existing: &PathBuf| existing == &path) {
+                deduped.push(path);
+            }
         }
-    }
 
-    {
-        let big_backend: &mut BigArchiveBackend = fs_guard.ensure_backend(BigArchiveBackend::new);
-        for path in &deduped {
-            big_backend.add_search_path(path);
+        {
+            let local_backend: &mut LocalFileSystem = fs_guard.ensure_backend(LocalFileSystem::new);
+            for path in &deduped {
+                local_backend.add_search_path(path);
+            }
         }
-        // C++ WW3D asset lookup falls through to the mounted BIG archives
-        // (CFileSystem / GameFileSystem::Init: retail installs keep most shell
-        // atlases, e.g. `Data\English\Art\Textures\SCSmShellUserInterface512_001.tga`,
-        // inside EnglishZH.big/TexturesZH.big rather than on disk). Route the
-        // shared install-layout resolver's BIG roots into the backend so mapped
-        // image hydration resolves those entries.
-        for root in game_engine::common::system::install_layout::zh_install_roots() {
-            big_backend.add_search_path(root);
-        }
-        for root in game_engine::common::system::install_layout::extracted_asset_roots() {
-            big_backend.add_search_path(root);
-        }
-    }
 
-    fs_guard.clear_cache();
+        {
+            let big_backend: &mut BigArchiveBackend = fs_guard.ensure_backend(BigArchiveBackend::new);
+            for path in &deduped {
+                big_backend.add_search_path(path);
+            }
+            // C++ WW3D asset lookup falls through to the mounted BIG archives
+            // (CFileSystem / GameFileSystem::Init: retail installs keep most shell
+            // atlases, e.g. `Data\English\Art\Textures\SCSmShellUserInterface512_001.tga`,
+            // inside EnglishZH.big/TexturesZH.big rather than on disk). Route the
+            // shared install-layout resolver's BIG roots into the backend so mapped
+            // image hydration resolves those entries.
+            for root in game_engine::common::system::install_layout::zh_install_roots() {
+                big_backend.add_search_path(root);
+            }
+            for root in game_engine::common::system::install_layout::extracted_asset_roots() {
+                big_backend.add_search_path(root);
+            }
+        }
 
-    if fs_guard.state() != SubsystemState::Running {
-        let _ = CommonSubsystemInterface::init(&mut *fs_guard);
-    }
+        fs_guard.clear_cache();
+
+        if fs_guard.state() != SubsystemState::Running {
+            let _ = CommonSubsystemInterface::init(&mut *fs_guard);
+        }
+    });
 }
+
 
 /// Import mapped image metadata from the common INI collection into the
 /// client-side collection used by GUI and renderer systems.

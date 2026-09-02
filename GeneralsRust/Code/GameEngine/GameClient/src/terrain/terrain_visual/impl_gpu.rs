@@ -1014,6 +1014,12 @@ impl TerrainVisualImpl {
         if self.road_texture_bind_group.is_some() && !self.road_texture_is_fallback {
             return;
         }
+        // Same negative cache as water: after one failed search the gravel
+        // fallback stays bound instead of re-probing Roads.ini candidates
+        // every frame.
+        if self.road_texture_search_exhausted {
+            return;
+        }
         let Some(layout) = self.road_texture_bind_group_layout.clone() else {
             return;
         };
@@ -1030,6 +1036,7 @@ impl TerrainVisualImpl {
                     "fallback-gravel-2x2".to_string(),
                 ),
             };
+        self.road_texture_search_exhausted = used_fallback;
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         if self.road_sampler.is_none() {
@@ -1087,6 +1094,13 @@ impl TerrainVisualImpl {
         {
             return;
         }
+        // Negative cache for the current wanted name: a failed search keeps
+        // the white fallback bound instead of re-probing per frame. A changed
+        // Weather.ini snow texture name re-opens the search.
+        if self.snow_texture_search_exhausted && self.snow_texture_name.eq_ignore_ascii_case(&wanted)
+        {
+            return;
+        }
         let Some(layout) = self.road_texture_bind_group_layout.clone() else {
             return;
         };
@@ -1103,7 +1117,7 @@ impl TerrainVisualImpl {
                     "fallback-snowflake-1x1".to_string(),
                 ),
             };
-
+        self.snow_texture_search_exhausted = used_fallback;
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         if self.snow_sampler.is_none() {
             self.snow_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1155,6 +1169,11 @@ impl TerrainVisualImpl {
         {
             return;
         }
+        // Negative cache for the (static) wanted scorch name, same shape as snow.
+        if self.scorch_texture_search_exhausted && self.scorch_texture_name.eq_ignore_ascii_case(wanted)
+        {
+            return;
+        }
         let Some(layout) = self.road_texture_bind_group_layout.clone() else {
             return;
         };
@@ -1171,7 +1190,7 @@ impl TerrainVisualImpl {
                     "fallback-exscorch-4x4".to_string(),
                 ),
             };
-
+        self.scorch_texture_search_exhausted = used_fallback;
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         if self.scorch_sampler.is_none() {
             self.scorch_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1444,6 +1463,13 @@ impl TerrainVisualImpl {
         if self.water_texture_bind_group.is_some() && !self.water_texture_is_fallback {
             return;
         }
+        // A failed search stays failed: the teal fallback bind group is bound
+        // and re-probing every frame re-read candidate paths per render call.
+        // `apply_water_transparency_map_overrides` clears this when the INI
+        // standing-water name changes.
+        if self.water_texture_search_exhausted {
+            return;
+        }
         let Some(layout) = self.water_texture_bind_group_layout.clone() else {
             return;
         };
@@ -1460,6 +1486,7 @@ impl TerrainVisualImpl {
                     "fallback-teal-1x1".to_string(),
                 ),
             };
+        self.water_texture_search_exhausted = used_fallback;
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         if self.water_sampler.is_none() {
@@ -1536,14 +1563,17 @@ impl TerrainVisualImpl {
                 })
             })
             .unwrap_or_default();
-        if !wanted.is_empty()
-            && !self
-                .bound_standing_water_texture
-                .to_ascii_lowercase()
-                .contains(&wanted.to_ascii_lowercase())
-        {
+        // C++ applies the INI standing-water override when the map/Water.ini
+        // changes it, not per frame. Rebind only when the requested name
+        // differs from the last attempt: the loaded texture path (e.g.
+        // Art/Textures/water01.dds) rarely contains the INI name
+        // (TWWater01.tga), so the old contains() test forced a full
+        // DDS re-decode + upload every frame (~220 ms of the terrain pass).
+        if !wanted.is_empty() && wanted != self.requested_standing_water_texture {
+            self.requested_standing_water_texture = wanted;
             self.water_texture_bind_group = None;
             self.water_texture_is_fallback = true;
+            self.water_texture_search_exhausted = false;
             self.ensure_water_texture_bind_group(device);
         }
     }

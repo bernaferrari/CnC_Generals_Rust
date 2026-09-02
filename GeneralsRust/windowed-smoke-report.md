@@ -523,3 +523,61 @@ the one-shot run_loop probe (function byte-restored). `cargo check -p game-clien
 and `cargo check -p generals_main --bin generals` clean; no test greens touched; no git
 writes; no formatters; serial windowed runs with caffeinate; evidence under
 /tmp/wsmoke/{sf_ingame_12.png, sf2_ingame_*.png, seamfix*.log}.
+
+---
+
+## MinimapSeam — coupled radar lane proven sound headlessly; live probe needs low-fps gate (2026-09-02 12:45)
+
+Scope: close the minimap coupled-lane seam (SeamFix §3). Method: headless coupled
+repro + full instrumentation, live shadow-on windowed probe drive. No git writes;
+probes removed after use.
+
+### 1. sync_players dense-index rebuild — NOT the live zeroing path (log evidence)
+
+Surviving SeamFix drive logs (generals_exec_smoke_sf*/child_stderr.txt) show the live
+player lifecycle: `Starting new game: Shell` → `Created 3 default players` ({0 USA
+local, 1 GLA, 2 China}), then `Starting new game: Skirmish` → slots {0 USA "Player",
+1 GLA AI} + ReplayObserver id 2, and `Preserving 3 host player(s) across map load`.
+Same id set {0,1,2} on both sides ⇒ `need_rebuild` is FALSE at match start; the
+refresh branch is id-stable and the local slot's team never goes stale. The
+dense-index rebuild branch (entities-live path) cannot be the live zeroing source in
+this flow.
+
+### 2. Headless coupled repro — lane logic SOUND (regression tests landed)
+
+`gameworld_shadow/tests/radar_coupled.rs` (new, 2 tests, passing): one GameLogic +
+one persistent GameWorldShadow across shell→skirmish (and a fresh-shadow control),
+match-start AmericaCommandCenter seeded like Wave 831 (owner-bound, constructed,
+KindOf CommandCenter + MpCountForVictory). Full coupled flow per frame —
+`shadow_session_after_host_tick` (Wave 818 GW radar recompute → sync →
+apply_host_radar_events → player-radar drain → writebacks) — preserves host
+radar_count=1 / has_radar=true. Matches SeamFix's isolated probe; confirms the
+coupled lane does not zero derived radar state for a living, radar-provider-backed
+local player.
+
+Instrumented detour (removed): with a template lacking `MpCountForVictory` (or an
+unowned CC), the session-end parity probe (`shadow.probe` →
+`evaluate_victory_condition`) judges the local player defeated on frame 1 and
+`kill_player_for_victory` destroys the CC → radar zeroed. C++ parity gate
+(VictoryConditions.cpp:196 killPlayer) — a real hazard only when a side lacks a
+victory-counting structure; NOT the live defect (live status shows match_over=false,
+CC alive).
+
+### 3. Live RADARPROBE — gated too tight for a 0.1 fps loop (exact next step)
+
+Shadow-on windowed probe drive (mseam_drive.sh, 12 captures, status
+ms_status_final.txt) ran clean, but RADARPROBE/SEAMPROBE never fired: the windowed
+runtime-host loop runs ~0.09 fps (status fps), so only ~4-6 frames elapse inside
+InGame during captures — my gate (first 4 calls + every 600th) never sampled there.
+Next driver: in `host_update_the_radar`, log unconditionally when
+`state == InGame` (or gate on counter<50), rebuild release, rerun
+`/tmp/wsmoke/mseam_drive.sh`; RADARPROBE lines then give live local_id /
+radar_count / radar_disabled / disable_proof / power / forced plus SEAMPROBE
+session-stage truth. Do NOT work around with radar.force_on (C++ ControlBar
+gate parity).
+
+### Guards / hygiene
+Probes removed (run_loop.rs, session.rs, construct.rs, create_destroy_die.rs,
+host_ops_writeback.rs byte-unchanged vs pre-task). Kept: radar_coupled.rs tests.
+`cargo check -p generals_main` clean; no test greens touched; no git writes; no
+formatters; drive used caffeinate -dis, short timeout, serial.

@@ -31,6 +31,7 @@ pub(super) fn ensure_template(logic: &mut GameLogic, name: &str, hp: f32) {
 
 mod authority_dry_run;
 mod authority_writeback;
+mod radar_coupled;
 mod combat_status;
 mod command_authority;
 mod continue_attack;

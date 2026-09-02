@@ -919,7 +919,6 @@ impl CnCGameEngine {
         let local_player_active = player.map(|p| p.is_alive && !p.is_observer).unwrap_or(true);
         let local_has_radar = player.map(|p| p.has_radar()).unwrap_or(false);
         let radar_forced = self.game_logic.radar_forced();
-
         if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
             radar.set_local_player_active(local_player_active);
             radar.set_local_has_radar(local_has_radar);
