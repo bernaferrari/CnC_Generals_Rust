@@ -72,7 +72,7 @@ pub(super) fn weapon_ini_candidate_paths() -> Vec<PathBuf> {
     // CWD-relative (repo root when tests run from GeneralsRust or workspace).
     let relative = [
         "windows_game/extracted_big_files/INIZH/Data/INI/Weapon.ini",
-        "windows_game/extracted_big_files_v2/INI/Weapon.ini",
+        "windows_game/extracted_big_files_v2/INIZH/Data/INI/Weapon.ini",
         "Data/INI/Weapon.ini",
         "INIZH/Data/INI/Weapon.ini",
     ];
