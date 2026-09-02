@@ -94,24 +94,23 @@ pub fn honesty_fire_special_power_channel_api_source() -> bool {
         && fs.contains("pub fn record")
 }
 
-/// Source residual: fire-spawn + special-power last-writers default off.
+/// Source residual: fire-spawn + special-power last-writers are
+/// per-`GameLogic` context fields (hq-e84zk retired the env flags); default off.
 pub fn honesty_fire_special_power_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    let fire_ok = {
-        let i = match src.find("pub fn gameworld_fire_spawn_authority_enabled") {
-            Some(i) => i,
-            None => return false,
-        };
-        src[i..src.len().min(i + 300)].contains("false")
+    let ctx = include_str!("../../game_logic/game_logic/gameworld_authority.rs");
+    let gate_reads_context = |fn_name: &str, field: &str| {
+        match src.find(&format!("pub fn {fn_name}")) {
+            Some(i) => src[i..src.len().min(i + 300)]
+                .contains(&format!("current_gameworld_authority().{field}")),
+            None => false,
+        }
     };
-    let sp_ok = {
-        let i = match src.find("pub fn gameworld_special_power_authority_enabled") {
-            Some(i) => i,
-            None => return false,
-        };
-        src[i..src.len().min(i + 300)].contains("false")
-    };
-    fire_ok && sp_ok
+    gate_reads_context("gameworld_fire_spawn_authority_enabled", "fire_spawn")
+        && gate_reads_context("gameworld_special_power_authority_enabled", "special_power")
+        && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")
+        && ctx.contains("fire_spawn: false")
+        && ctx.contains("special_power: false")
 }
 
 /// Live residual: special-power ready channel + fire-spawn apply (opt-in).
@@ -141,17 +140,17 @@ pub fn simulate_live_gameworld_fire_special_power_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_FIRE_SPAWN_AUTHORITY", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SPECIAL_POWER_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+    let mut logic = GameLogic::new();
+    logic.set_fire_spawn_authority(true);
+    logic.set_special_power_authority(true);
     if !gameworld_fire_spawn_authority_enabled() || !gameworld_special_power_authority_enabled() {
         return false;
     }
 
     // --- Special power ready channel ---
     host_special_power_log::clear();
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("LiveFireSp185");
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;

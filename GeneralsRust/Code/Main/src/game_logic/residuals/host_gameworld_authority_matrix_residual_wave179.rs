@@ -1,13 +1,16 @@
 //! Wave 179 residual peels: GameWorld authority matrix honesty residual
-//! (all subsystem authorities default-on; engine couples shadow tick around
-//! host update; never flips shell `playable_claim`).
+//! (every last-writer authority is a per-GameLogic context field, default off;
+//! engine couples shadow tick around host update; never flips shell
+//! `playable_claim`).
 //!
 //! Orthogonal to Wave 178 sole-tick coupling residual.
 //! Host residual only — network deferred.
 //!
 //! Sources (architecture migration):
 //! - damage/economy/movement/production/ai_attack/projectile/ai_decision/
-//!   fire_spawn/construction/special_power authorities default-on
+//!   fire_spawn/construction/special_power authorities read the per-instance
+//!   `GameWorldAuthority` context (hq-e84zk retired the
+//!   `GENERALS_GAMEWORLD_*_AUTHORITY` env flags); `DEFAULT_OFF` = all-off
 //! - `CncGameEngine` begin/end_shadow_coupled_tick around host logic update
 //!
 //! Fail-closed:
@@ -82,32 +85,53 @@ pub fn honesty_gameworld_authority_matrix_residual_pack_wave179() -> bool {
         && honesty_gameworld_authority_matrix_nav_commands_residual_wave179()
 }
 
-fn authority_fn_defaults_off(src: &str, fn_name: &str) -> bool {
+fn authority_fn_reads_context(src: &str, fn_name: &str, field: &str) -> bool {
     let i = match src.find(&format!("pub fn {fn_name}")) {
         Some(i) => i,
         None => return false,
     };
     let body = &src[i..src.len().min(i + 400)];
-    // env_flag_cached(..., false) — host sole writer
-    body.contains("false") && body.contains("GENERALS_GAMEWORLD_")
+    // per-GameLogic context read (hq-e84zk) — host sole writer by default
+    body.contains(&format!("current_gameworld_authority().{field}"))
 }
 
-/// Source residual: last-writer authority matrix defaults off (C++ single store).
+/// Source residual: last-writer authority matrix is the per-`GameLogic`
+/// context (hq-e84zk retired the `GENERALS_GAMEWORLD_*_AUTHORITY` env flags;
+/// C++ single store) and defaults every channel off.
 pub fn honesty_authority_matrix_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    let names = [
-        "gameworld_damage_authority_enabled",
-        "gameworld_economy_authority_enabled",
-        "gameworld_movement_authority_enabled",
-        "gameworld_production_authority_enabled",
-        "gameworld_ai_attack_authority_enabled",
-        "gameworld_projectile_authority_enabled",
-        "gameworld_ai_decision_authority_enabled",
-        "gameworld_fire_spawn_authority_enabled",
-        "gameworld_construction_authority_enabled",
-        "gameworld_special_power_authority_enabled",
+    let ctx = include_str!("../../game_logic/game_logic/gameworld_authority.rs");
+    let gates = [
+        ("gameworld_damage_authority_enabled", "damage"),
+        ("gameworld_economy_authority_enabled", "economy"),
+        ("gameworld_movement_authority_enabled", "movement"),
+        ("gameworld_production_authority_enabled", "production"),
+        ("gameworld_ai_attack_authority_enabled", "ai_attack"),
+        ("gameworld_projectile_authority_enabled", "projectile"),
+        ("gameworld_ai_decision_authority_enabled", "ai_decision"),
+        ("gameworld_fire_spawn_authority_enabled", "fire_spawn"),
+        ("gameworld_construction_authority_enabled", "construction"),
+        ("gameworld_special_power_authority_enabled", "special_power"),
     ];
-    names.iter().all(|n| authority_fn_defaults_off(src, n))
+    let ctx_fields = [
+        "damage",
+        "economy",
+        "movement",
+        "ai_attack",
+        "projectile",
+        "ai_decision",
+        "fire_spawn",
+        "construction",
+        "special_power",
+        "production",
+        "weapon",
+    ];
+    gates.iter().all(|(n, f)| authority_fn_reads_context(src, n, f))
+        && ctx.contains("pub struct GameWorldAuthority")
+        && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")
+        && ctx_fields
+            .iter()
+            .all(|f| ctx.contains(&format!("pub {f}: bool")) && ctx.contains(&format!("{f}: false")))
 }
 
 /// Source residual: engine couples shadow tick around host logic update.
@@ -146,6 +170,12 @@ pub fn simulate_gameworld_authority_matrix_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
+    // Deep-reader barrier: this harness owns no GameLogic instance, so
+    // publish the all-off context explicitly instead of trusting whatever a
+    // prior test left on the thread (fresh-instance parity).
+    crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
+        crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
+    );
 
     let all = [
         gameworld_damage_authority_enabled(),

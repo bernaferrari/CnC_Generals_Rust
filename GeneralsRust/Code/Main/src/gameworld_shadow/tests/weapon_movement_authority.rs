@@ -7,11 +7,11 @@ use gamelogic::world::{WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_
 #[test]
 fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
     let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_WEAPON_AUTHORITY", "1")
         .set("GENERALS_GAMEWORLD_SHADOW", "1")
         .couple();
 
     let mut logic = GameLogic::new();
+    logic.set_weapon_authority(true);
     let cfg = golden_skirmish_config("WeapSlot");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("WeapU") {
@@ -127,7 +127,6 @@ fn movement_authority_path_follow_matches_host_only_golden() {
 
     let golden = {
         let _env = AuthorityEnvGuard::lock()
-            .set("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0")
             .set("GENERALS_GAMEWORLD_SHADOW", "0");
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvGold");
@@ -156,10 +155,10 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     };
 
     let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1")
         .set("GENERALS_GAMEWORLD_SHADOW", "1")
         .couple();
     let mut logic = GameLogic::new();
+    logic.set_movement_authority(true);
     let cfg = golden_skirmish_config("MvGw");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("MvGwU") {

@@ -116,13 +116,20 @@ impl WindowManager {
                 note_win_draw_image_command();
                 true
             } else if found_mapped {
+                // C++ W3DDisplay::drawImage treats DrawData COLOR as a modulate
+                // tint on the image, never a standalone fill. When the mapped
+                // image exists but its pixels could not be hydrated (e.g. the
+                // retail atlas lives in EnglishZH.big and decode failed), a
+                // MainMenu.wnd "Buttons-Left" draw would paint its authored
+                // `255 0 0 255` tint as a solid RED rectangle. Render the
+                // honest missing-art palette instead (w3d_gadget_draw parity).
                 let rect = UIRect::new(
                     start_x as f32,
                     start_y as f32,
                     (end_x - start_x) as f32,
                     (end_y - start_y) as f32,
                 );
-                renderer.draw_rect(rect, color_rgba, 0.0);
+                renderer.draw_rect(rect, color_to_rgba(0xFF3D4F63), 0.0);
                 note_win_draw_image_command();
                 true
             } else {

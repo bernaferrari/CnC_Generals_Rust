@@ -1000,12 +1000,16 @@ impl CnCGameEngine {
         }
     }
 
-    /// Live 3D tactical viewport in window pixels (top-left origin).
+    /// Live 3D tactical viewport in surface points (top-left origin).
+    ///
+    /// Matches the swapchain extent (logical window size) so the 3D view, the
+    /// WND/UI draw space, and mouse unprojection share one coordinate space.
     pub(super) fn tactical_viewport_size(&self) -> (f32, f32) {
-        let size = self.window.inner_size();
-        let width = size.width.max(1) as f32;
-        let height = size.height.max(1) as f32;
-        (width, (height * self.tactical_view_height_frac()).max(1.0))
+        let (w, h) = super::types::render_surface_extent(&self.window);
+        (
+            w as f32,
+            ((h as f32) * self.tactical_view_height_frac()).max(1.0),
+        )
     }
 
     pub(super) fn rebuild_tactical_projection(&mut self) {
@@ -1958,6 +1962,19 @@ impl CnCGameEngine {
             warn!("GameEngine::reset GameClient::reset failed: {err}");
         }
 
+        // TheShell teardown: C++ tears the shell screens down with the engine
+        // on match start. Without this, a runtime-host `start_game` issued
+        // while the WND menu stack is pushed (MainMenu +
+        // SkirmishGameOptionsMenu) leaves those screens on the shell stack:
+        // their windows keep drawing over the InGame world and their gadget
+        // hit-testing eats every world click (drive11/m12: menu overlay over
+        // Defcon6, physical LMB could never select a unit). Shell::reset pops
+        // every screen via the immediate path.
+        #[cfg(feature = "game_client")]
+        if let Err(err) = game_client::gui::ShellHandle::default().reset() {
+            warn!("GameEngine::reset TheShell reset failed: {err}");
+        }
+
         if delete_network {
             // C++ GameEngine.cpp:699-704 `delete TheNetwork`.
             crate::network::clear_active_network_interface();
@@ -2019,8 +2036,8 @@ impl CnCGameEngine {
         NetworkClock::clear_override();
 
         self.game_hud = GameHUD::new();
-        let size = self.window.inner_size();
-        self.game_hud.resize(size.width, size.height);
+        let (hud_w, hud_h) = super::types::render_surface_extent(&self.window);
+        self.game_hud.resize(hud_w, hud_h);
 
         self.camera_position = Vec3::new(0.0, 200.0, 200.0);
         self.camera_target = Vec3::new(0.0, 0.0, 0.0);

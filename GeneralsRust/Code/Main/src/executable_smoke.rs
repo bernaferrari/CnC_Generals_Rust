@@ -74,6 +74,25 @@ pub fn run_windowed_acceptance_smoke(
     )
 }
 
+/// Windowed **automated** smoke: `-runtime_host=windowed -windowed` child
+/// (a real, visible OS window) driven through the same runtime-host control
+/// file as the headless automated smoke. The child-side phase-20 ladder uses
+/// winit-equivalent injects (`Injected` origin), so the physical
+/// `wnd_widget_tree_nav` / `interactive_gameplay` latches stay false unless a
+/// real OS mouse input (human or OS clicker) re-enters
+/// `handle_mouse_button_input` — exactly the retail sit-through contract.
+pub fn run_executable_smoke_windowed(
+    timeout: Duration,
+    use_new_game_path: bool,
+) -> ExecutableSmokeResult {
+    run_executable_smoke_with_launch_and_driver(
+        timeout,
+        use_new_game_path,
+        ExecutableSmokeLaunch::Windowed,
+        SmokeDriver::Automated,
+    )
+}
+
 fn run_executable_smoke_with_launch_and_driver(
     timeout: Duration,
     use_new_game_path: bool,

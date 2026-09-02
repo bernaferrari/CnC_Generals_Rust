@@ -10,11 +10,11 @@ use gamelogic::world::WorldMutation;
 #[test]
 fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() {
     let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1")
         .set("GENERALS_GAMEWORLD_SHADOW", "1")
         .couple();
 
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("P4Fact");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("P4Fact") {
@@ -76,11 +76,11 @@ fn production_queue_advances_one_frame_per_logic_update_and_writeback_matches() 
 #[test]
 fn production_door_advances_opening_to_waiting_open() {
     let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1")
         .set("GENERALS_GAMEWORLD_SHADOW", "1")
         .couple();
 
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("P4Door");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("P4Door") {
@@ -110,11 +110,11 @@ fn production_door_advances_opening_to_waiting_open() {
 #[test]
 fn construction_percent_completes_same_frame_and_writeback_matches() {
     let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1")
         .set("GENERALS_GAMEWORLD_SHADOW", "1")
         .couple();
 
     let mut logic = GameLogic::new();
+    logic.set_construction_authority(true);
     let cfg = golden_skirmish_config("P4Ctor");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("P4Ctor") {

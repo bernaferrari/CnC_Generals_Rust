@@ -48,13 +48,20 @@ fn world_mouse_action(
 impl CnCGameEngine {
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            if let Err(err) = ww3d_engine::resize(new_size.width.max(1), new_size.height.max(1)) {
+            // The swapchain follows the logical window size (C++ TheDisplay
+            // width/height): the WND window manager, UI renderer, and tactical
+            // viewport all lay out and draw in logical points, so a physical
+            // (Retina) backbuffer leaves them painting the top-left quadrant.
+            let scale = self.window.scale_factor().max(0.0001);
+            let logical_w = ((new_size.width as f64) / scale).round().max(1.0) as u32;
+            let logical_h = ((new_size.height as f64) / scale).round().max(1.0) as u32;
+            if let Err(err) = ww3d_engine::resize(logical_w, logical_h) {
                 warn!("WW3D resize failed: {err:?}");
             }
 
             // C++ W3DView setHeight: aspect uses the tactical viewport, not the full window.
             self.rebuild_tactical_projection();
-            self.ui_manager.resize(new_size.width, new_size.height);
+            self.ui_manager.resize(logical_w, logical_h);
         }
     }
 
@@ -1650,10 +1657,10 @@ impl CnCGameEngine {
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
         {
-            let size = self.window.inner_size();
+            let (w, h) = super::types::render_surface_extent(&self.window);
             self.render_pipeline.set_tactical_3d_viewport(
-                size.width.max(1) as f32,
-                size.height.max(1) as f32,
+                w as f32,
+                h as f32,
                 self.tactical_view_height_frac(),
             );
             self.rebuild_tactical_projection();

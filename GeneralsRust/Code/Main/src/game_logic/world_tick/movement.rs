@@ -1577,7 +1577,6 @@ mod tests {
     /// (EMP / hack / unmanned / leaflet). Host `update_movement` must halt (hq-psal).
     #[test]
     fn disabled_unit_does_not_advance_in_update_movement() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let start = Vec3::new(0.0, 0.0, 0.0);
         let id = ObjectId(9010);
@@ -1598,7 +1597,6 @@ mod tests {
     /// hq-vpocc: ReallyDamaged uses SpeedDamaged, not pristine max.
     #[test]
     fn really_damaged_unit_uses_speed_damaged() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9020);
         let mut unit = ranger_at(9020, Vec3::ZERO);
@@ -1624,7 +1622,6 @@ mod tests {
     /// hq-fll0r: wander weave offsets heading so two units diverge.
     #[test]
     fn legs_wander_offsets_heading() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let mut make = |id: u32, inc: f32, increasing: bool| {
             let mut unit = ranger_at(id, Vec3::ZERO);
@@ -1728,7 +1725,6 @@ mod tests {
     /// to preferredHeight+surface (hq-ygdfb).
     #[test]
     fn hover_surface_relative_follows_preferred_height() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9301);
         let mut tmpl = ThingTemplate::new("Comanche");
@@ -1760,7 +1756,6 @@ mod tests {
     /// (Locomotor.cpp:2473 / :2288-2316) — no kinematic snap (hq-ygdfb).
     #[test]
     fn idle_hover_maintain_holds_preferred_height() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9302);
         let mut tmpl = ThingTemplate::new("ComancheIdle");
@@ -1788,7 +1783,6 @@ mod tests {
     /// Ground locos still must not dive to Y=0 path cells.
     #[test]
     fn ground_march_does_not_dive_to_path_y() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9303);
         let mut unit = ranger_at(9303, Vec3::new(0.0, 5.0, 0.0));
@@ -1810,7 +1804,6 @@ mod tests {
     #[test]
     fn wheeled_truck_does_not_spin_in_place() {
         // C++ Locomotor.cpp:1437-1454 turnFactor = |speed|/minTurnSpeed.
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9401);
         let mut tmpl = ThingTemplate::new("Humvee");
@@ -1897,7 +1890,6 @@ mod tests {
     /// hq-tb3v5: path lead must keep goal Y so FLAG_CLIMBING latches.
     #[test]
     fn climber_path_lead_keeps_goal_y_and_latches_climbing() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(95021);
         let mut unit = {
@@ -1939,7 +1931,6 @@ mod tests {
     /// hq-tb3v5: descent while CLIMBING faces away and drives reverse toward goal.
     #[test]
     fn climber_descent_reverses_toward_goal() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let gw = logic.pathfinding_system.grid.width().max(0) as u32;
         let gh = logic.pathfinding_system.grid.height().max(0) as u32;
@@ -2149,7 +2140,6 @@ mod tests {
 
     #[test]
     fn treads_angle_coeff_slows_hard_turns() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9601);
         let mut tmpl = ThingTemplate::new("Crusader");
@@ -2180,7 +2170,6 @@ mod tests {
 
     #[test]
     fn wheeled_can_move_backwards_reverses_nearby_rear_goal() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9602);
         let mut tmpl = ThingTemplate::new("Humvee");
@@ -2222,7 +2211,6 @@ mod tests {
     /// hq-t505c: live march must yaw about TurnPivotOffset, not hull center.
     #[test]
     fn march_yaws_around_turn_pivot_offset() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let mk = |id, offset| {
             let mut tmpl = ThingTemplate::new("CombatBike");
@@ -2257,7 +2245,6 @@ mod tests {
     /// hq-py0re: Wings idle hold circles instead of freezing at last waypoint.
     #[test]
     fn wings_idle_hold_circles_at_min_speed() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9701);
         let mut tmpl = ThingTemplate::new("Raptor");
@@ -2301,7 +2288,6 @@ mod tests {
     /// hq-66eos: SET_NORMAL cliff member activates on CELL_CLIFF.
     #[test]
     fn choose_good_locomotor_switches_on_cliff_cell() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
         let mut logic = GameLogic::new();
         let id = ObjectId(9702);
@@ -2341,7 +2327,6 @@ mod tests {
     /// hq-66eos: known SET_NORMAL members bind from template name (no manual list).
     #[test]
     fn choose_good_locomotor_fills_burton_set_from_template_name() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let _ = crate::game_logic::locomotor_bootstrap::ensure_host_locomotor_store();
         let mut logic = GameLogic::new();
         let id = ObjectId(97021);
@@ -2379,7 +2364,6 @@ mod tests {
     /// hq-ene6j: Hover OVER_WATER is sampled from the water table.
     #[test]
     fn hover_sets_over_water_from_water_table() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         #[cfg(feature = "game_client")]
         {
@@ -2435,7 +2419,6 @@ mod tests {
     /// hq-89bqp: blocked-wait caps speed before the march via bumpSpeedLimit.
     #[test]
     fn blocked_wait_caps_speed_before_march() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9704);
         let mut unit = ranger_at(9704, Vec3::ZERO);
@@ -2482,7 +2465,6 @@ mod tests {
 
     #[test]
     fn march_apply_motive_force_zero_flags_driven() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let mut unit = ranger_at(9801, Vec3::ZERO);
         unit.set_orientation(0.0);
@@ -2694,7 +2676,6 @@ mod tests {
     /// hq-xg2ym: NONE-goal leftover settle is 2 cells/s then DARN_CLOSE snap.
     #[test]
     fn leftover_goal_none_settles_final_position() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(7003);
         let mut unit = ranger_at(7003, Vec3::ZERO);
@@ -2735,7 +2716,6 @@ mod tests {
     /// hq-99njb: blocked locoUpdate scrubs 2D motive when already at/above cap.
     #[test]
     fn blocked_loco_update_scrubs_instead_of_marching() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9710);
         let mut unit = ranger_at(9710, Vec3::ZERO);
@@ -2766,7 +2746,6 @@ mod tests {
     /// hq-g9idj: invalid terrain runs 3×3 fixInvalidPosition shove.
     #[test]
     fn fix_invalid_position_3x3_shoves_off_water() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let water = logic
             .pathfinding_system
@@ -2807,7 +2786,6 @@ mod tests {
     /// hq-i4tcw: ALLOW_INVALID_POSITION skips fixInvalidPosition 3x3 shove.
     #[test]
     fn allow_invalid_position_skips_3x3_shove() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let water = logic
             .pathfinding_system
@@ -2858,7 +2836,6 @@ mod tests {
     /// hq-qdgxx: stamped CloseEnoughDist plants before the 1wu default.
     #[test]
     fn close_enough_dist_plants_before_default_one() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9712);
         let start = Vec3::new(0.0, 0.0, 0.0);
@@ -2886,7 +2863,6 @@ mod tests {
     /// hq-qdgxx: ground sanity refuses to finish if last node is > 4 cells away.
     #[test]
     fn close_enough_ground_sanity_refuses_far_last_node() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9713);
         let start = Vec3::new(0.0, 0.0, 0.0);
@@ -2911,7 +2887,6 @@ mod tests {
     /// hq-i9ywj: treatAsAirborne is -(3*3)*gravity (~0.64wu), not 9.0.
     #[test]
     fn treat_as_airborne_uses_three_frame_gravity() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9814);
         let mut unit = ranger_at(9814, Vec3::new(0.0, 2.0, 0.0));
@@ -2934,7 +2909,6 @@ mod tests {
     /// hq-7f4ct: NoSlowDown still runs the far-from-goal IS_BRAKING clear.
     #[test]
     fn no_slow_down_does_not_latch_is_braking_after_path_raise() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9815);
         let mut tmpl = ThingTemplate::new("Aurora");
@@ -3031,7 +3005,6 @@ mod tests {
     /// hq-hq4t8: treatAsAirborne must not freeze path advance / arrival plant.
     #[test]
     fn treat_as_airborne_still_plants_near_goal() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9817);
         let start = Vec3::new(0.0, 2.0, 0.0);
@@ -3062,7 +3035,6 @@ mod tests {
     /// hq-hq4t8: IS_BRAKING pose cheat still runs when treatAsAirborne.
     #[test]
     fn treat_as_airborne_still_applies_braking_cheat() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9818);
         let mut unit = ranger_at(9818, Vec3::new(0.0, 2.0, 0.0));
@@ -3174,7 +3146,6 @@ mod tests {
     /// and inside parse_duration_real(SlideIntoPlaceTime) * per-frame speed.
     #[test]
     fn hover_ultra_accurate_slides_without_yaw() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9820);
         let mut tmpl = ThingTemplate::new("ChinookSlide");
@@ -3241,7 +3212,6 @@ mod tests {
     /// (orient-to-velocity), not the generic yaw-at-goal hover-car path.
     #[test]
     fn thrust_march_orients_to_velocity_not_goal() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(9830);
         let mut tmpl = ThingTemplate::new("ComancheThrust");
@@ -3279,7 +3249,6 @@ mod tests {
     /// hq-7soel: SMALL_TURN must not recap goalSpeed after IS_BRAKING overwrite.
     #[test]
     fn wheeled_small_turn_does_not_recap_after_approach_brake() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(98231);
         let mut truck = {
@@ -3319,7 +3288,6 @@ mod tests {
     /// hq-xlays: idle Wings lift off terrain, not own altitude.
     #[test]
     fn wings_idle_maintain_z_uses_terrain_not_own_altitude() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(98232);
         let mut jet = {
@@ -3357,7 +3325,6 @@ mod tests {
     /// Hover at preferred must not climb via preferredHeight+currentY.
     #[test]
     fn face_angle_does_not_double_lift_off_own_altitude() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(98240);
         let mut heli = {
@@ -3392,7 +3359,6 @@ mod tests {
     /// hq-v9inf / hq-ij10w: leftover CloseEnoughDist3D keep-Z + 3D remaining.
     #[test]
     fn close_enough_dist_3d_does_not_plant_while_high() {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
         let mut logic = GameLogic::new();
         let id = ObjectId(98241);
         let mut dive = {

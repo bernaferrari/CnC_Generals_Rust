@@ -2656,10 +2656,8 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
     let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let prev_dec = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    let prev_dmg = std::env::var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", "0");
+    // Authority channels default off on the fresh GameLogic context —
+    // host-state residual honesty without shadow writeback.
 
     use crate::game_logic::VeterancyLevel;
     use crate::game_logic::host_usa_pilot::{
@@ -2789,14 +2787,6 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
         "pilot consumed after CollideModule-gated auto-recrew residual"
     );
 
-    match prev_dec {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
-    match prev_dmg {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_DAMAGE_AUTHORITY"),
-    }
 }
 
 #[test]

@@ -1787,3 +1787,52 @@ default-on; last-writer `*_AUTHORITY` flags default **off**).
 
 Fail-closed: do not treat GameWorld writeback as live HP/pose/cash unless the
 matching `*_AUTHORITY=1` is set. hq-48k / hq-79qs superseded by this host-as-C++-GameLogic cutover.
+
+## Reviewed device substitutions (platform) — 2026-09-01 (hq-cc2zh)
+
+The port charter machine-registers exactly one deviation: `directx_to_wgpu`
+(`ALLOWED_DEVIATIONS` in `Code/Main/scripts/generate_port_provenance.py`). Four
+device-layer substitutions beyond it are reviewed here — C++ original, Rust
+replacement, reason, honest parity status. These are provenance claims only:
+none of the placeholder files may be listed as reviewed symbol-parity
+destinations in `PORT_PROVENANCE_REVIEWED.json` (an ownership record requires
+assigning every C++ symbol occurrence to a live Rust implementation, which
+these stubs cannot do).
+
+### Bink video — placeholder-only (movies do not render)
+
+- C++ original: `GeneralsMD/Code/GameEngineDevice/Source/VideoDevice/Bink/BinkVideoPlayer.cpp` (416 lines) + `Include/VideoDevice/Bink/BinkVideoPlayer.h` (111 lines). RAD Bink SDK; Windows/DirectX-locked.
+- Rust replacement: `GameEngineDevice/src/VideoDevice/Bink/bink_video_player.rs` (829 lines). Real: Bink container-header parse + metadata (`:27-68` BIK/BIKi/BIK2/BIKg/BIKf/KB2* magics, 44-byte header → width/height/frames/fps/audio tracks) and playback-position plumbing (`frame_index`/`frame_count`/`frame_goto`). Placeholder: `frame_render()` writes a checkerboard pattern instead of decoding (`:147-148`, `:256`, `:317-320`).
+- Reason: no Bink decoder exists as a Rust dependency; the codec is Windows-locked. Header/metadata layer is real; decompression is not.
+- Parity: **placeholder**. `Main/src/cnc_game_engine/camera_drain.rs:147` is fail-closed: "not full BINK parity / playable_claim". Intro/briefing/radar movies advance metadata but never render real frames.
+- **Remaining playability-facing gap: native Bink decoder integration (or asset transcode) is the open gap for retail movie playback.** The rest of the video device (VideoBuffer, stream provider, player state) is in place.
+
+### Miles Sound System → rodio (live audio backend)
+
+- C++ original: `GeneralsMD/Code/GameEngineDevice/Source/MilesAudioDevice/MilesAudioManager.cpp` (3366 lines) + header; Miles6 SDK (`GeneralsMD/Code/Libraries/Source/WWVegas/Miles6`) over DirectSound — Windows-locked.
+- Rust replacement (live path):
+  - Behavioral port: `GameEngine/Common/src/common/audio/game_audio.rs` — `AudioManager` request/playing/fading lists, `getEffectiveVolume`, music track naming, stop/fade semantics, each cited to `MilesAudioManager.cpp` line ranges; rodio output types imported at `:31`. The Common test (`common/audio/tests.rs:305-308`) asserts the prod source wires rodio (`register_rodio_playback_hook`), "Common TheAudio backend must be rodio, not Miles leftover crate".
+  - Dispatch surface: `Main/src/game_logic/audio_dispatch_impl.rs` (1031 lines) resolves INI event names → files and plays them through rodio; spatial sinks in `Main/src/assets/audio.rs:13`. `Main/Cargo.toml:78` pins `rodio = "0.17"`.
+  - Device adapter: `GameEngineDevice/src/miles_audio_device/miles_audio_manager.rs` (270 lines) — rodio-backed `MilesAudioManager` ("replacing the original Miles Sound System backend"); Bink sound-track hook `GameEngine/GameClient/src/bink_audio.rs`.
+- Reason: Miles/DirectSound are Windows-locked; rodio is the sanctioned modern stack alongside wgpu.
+- Parity: **full behavioral port on a substituted backend** — playing/fading/request semantics, volume model, and dispatch match C++ logic; not claimed: Miles spatial/device-handle layer (audio residual: "Full Miles / device handle parity"; process residuals say "not Miles spatial device parity").
+- Non-live scaffolds (do not credit): `GameEngineDevice/src/MilesAudioDevice/miles_audio_manager.rs` (100 lines, placeholder test) and `GameEngineDevice/src/audio/miles_audio_device.rs` (`legacy-full` feature) are not the live path.
+
+### W3D water — real wgpu renderer; `wthree_d_water*` scaffolds are stubs
+
+- C++ original: `GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp` (3490 lines; DX8 wave.vso/wave.pso shaders) + `W3DWaterTracks.cpp` (1296 lines) + `GameEngine/Source/GameClient/Water.cpp` (110 lines; settings/INI surface).
+- Rust replacement (real, wgpu — within `directx_to_wgpu`): `GameEngineDevice/src/W3DDevice/GameClient/Water/water_renderer.rs` (1184 lines; `WaterRenderer` matches `WaterRenderObjClass::init`, `water_shader.wgsl` ports wave.vso/wave.pso), `Water/water_tracks.rs` (682 lines; `WaterTracksSystem`), `Water/water_config.rs` (Water.h/Water.cpp/INIWater.cpp settings), GameClient surface `GameEngine/GameClient/src/terrain/water.rs` re-exported by `GameClient/src/water.rs`.
+- Flagged stubs (reviewed as deviations, not ports): `Water/wthree_d_water.rs` (123 lines), `W3DDevice/GameClient/wthree_d_water.rs` (72 lines), `Water/wthree_d_water_tracks.rs` (122 lines) — their `process(Vec<u8>)` API corresponds to no C++ `W3DWater` method; not wired to the live water path.
+- Parity: **renderer real (wgpu, in-charter); the literal `W3DWater` class scaffold is placeholder-only** and stays uncredited.
+
+### W3DControlBar — stub; live ControlBar is the WND surface
+
+- C++ original: `GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/GUI/GUICallbacks/W3DControlBar.cpp` (1004 lines) — GameWindow draw callbacks (`W3DCameoMovieDraw`, `W3DLeftHUDDraw`, `W3DRightHUDDraw`, `W3DPowerDraw`, `W3DCommandBar*Draw`).
+- Rust replacement: `GameEngineDevice/src/W3DDevice/GameClient/GUI/GUICallbacks/wthree_d_control_bar.rs` (121 lines). Its own `PARITY_NOTE` (`:36-45`) states the stub `process()` API corresponds to no C++ method and lists full-port requirements (GameWindow callback system, Display primitives, InGameUI integration).
+- Parity: **placeholder**. Live control-bar presentation flows through the WND window-manager / GameClient GUI surface (gate honesty: `control_bar_layout_ok`, `control_bar_window_loaded`), not this file.
+
+Fail-closed summary: Bink movies and W3DControlBar draw callbacks are placeholder
+surfaces; water has a real wgpu renderer with the `W3DWater` class scaffold
+uncredited; audio is a real rodio-backed port without Miles spatial/device
+parity. Registering dedicated deviation ids in `ALLOWED_DEVIATIONS` is
+deliberately not done until an ownership record needs to cite one.

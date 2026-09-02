@@ -27,6 +27,10 @@ pub struct GameLogic {
     pub retaliate_friends_radius: f32,
     /// C++ TAiData::m_maxRetaliateDistance residual (default 210).
     pub max_retaliate_distance: f32,
+    /// GameWorld shadow last-writer authority switches (per-instance context;
+    /// replaces the retired `GENERALS_GAMEWORLD_*_AUTHORITY` env flags).
+    /// Defaults all-off: host `GameLogic` is the sole writer (C++ single store).
+    pub(crate) gameworld_authority: crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority,
     /// Objects in the world.
     ///
     /// Own field (not a method on `&mut GameLogic`) so ticks can

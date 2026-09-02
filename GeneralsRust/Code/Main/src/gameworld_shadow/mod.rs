@@ -6,8 +6,10 @@
 //! be mirrored as `WorldMutation`s without pointer ownership.
 //!
 //! Shadow session production default ON (`GENERALS_GAMEWORLD_SHADOW=0` to opt out).
-//! Last-writer `*_AUTHORITY` flags production default **off** so host `GameLogic`
-//! is the sole writer (C++ single-store). Opt in per channel with `=1`.
+//! Last-writer `*_AUTHORITY` channels are per-`GameLogic` context fields
+//! (`GameWorldAuthority`, default **off**) so host `GameLogic` is the sole
+//! writer (C++ single-store). Opt in per channel via `GameLogic::set_*_authority`
+//! setters — the `GENERALS_GAMEWORLD_*_AUTHORITY` env flags are retired (hq-e84zk).
 //!
 //! Dual-tick policy is **AuthorityOnly** (see `authoritative_world::dual_tick_policy`).
 //! Do not populate OBJECT_REGISTRY with host objects.

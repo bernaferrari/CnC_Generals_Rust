@@ -125,15 +125,17 @@ pub fn simulate_live_gameworld_construction_writeback_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_CONSTRUCTION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-    if !gameworld_construction_authority_enabled() {
-        return false;
-    }
+    // Authority arm happens on the harness's own instance below (hq-e84zk
+    // context fields; a pre-instance check here would read a stale snapshot).
 
     host_construction_progress_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_construction_authority(true);
+    if !gameworld_construction_authority_enabled() {
+        return false;
+    }
     let cfg = golden_skirmish_config("LiveConstrWB181");
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;

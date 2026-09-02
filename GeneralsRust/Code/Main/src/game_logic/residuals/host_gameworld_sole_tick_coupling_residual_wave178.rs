@@ -103,15 +103,21 @@ pub fn honesty_sole_tick_requires_coupling_source() -> bool {
         && body.contains("shadow_coupled_tick_active")
 }
 
-/// Source residual: movement last-writer defaults off (host integrates pose).
+/// Source residual: movement last-writer is a per-`GameLogic` context field
+/// (hq-e84zk retired the `GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY` env flag);
+/// default off — host integrates pose (C++ single store).
 pub fn honesty_movement_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
+    let ctx = include_str!("../../game_logic/game_logic/gameworld_authority.rs");
     let i = match src.find("pub fn gameworld_movement_authority_enabled") {
         Some(i) => i,
         None => return false,
     };
     let body = &src[i..src.len().min(i + 300)];
-    body.contains("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY") && body.contains("false")
+    body.contains("current_gameworld_authority().movement")
+        && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")
+        && ctx.contains("pub movement: bool")
+        && ctx.contains("movement: false")
 }
 
 /// Live residual: last-writer off; sole-tick stays off even when coupled.
@@ -137,6 +143,12 @@ pub fn simulate_gameworld_sole_tick_coupling_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
+    // Deep-reader barrier: this harness owns no GameLogic instance, so
+    // publish the all-off context explicitly instead of trusting whatever a
+    // prior test left on the thread (fresh-instance parity).
+    crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
+        crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
+    );
     if gameworld_production_authority_enabled() {
         return false;
     }

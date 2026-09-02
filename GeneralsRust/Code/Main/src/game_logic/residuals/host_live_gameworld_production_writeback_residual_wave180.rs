@@ -120,15 +120,14 @@ pub fn simulate_live_gameworld_production_writeback_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+    host_production_progress_log::clear();
+    let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     if !gameworld_production_authority_enabled() {
         return false;
     }
-
-    host_production_progress_log::clear();
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("LiveProdWB180");
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;

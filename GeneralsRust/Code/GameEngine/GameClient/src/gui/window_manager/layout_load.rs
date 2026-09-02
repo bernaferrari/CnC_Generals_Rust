@@ -56,7 +56,11 @@ impl WindowManager {
             );
             WindowError::GeneralFailure
         })?;
-
+        log::info!(
+            "create_layout_with_windows: {filename} parsed_windows={} wm_windows_before={}",
+            layout_def.windows.len(),
+            self.window_count
+        );
         let layout = self.create_layout(filename.to_string());
         {
             let mut layout_mut = layout.borrow_mut();
@@ -76,7 +80,11 @@ impl WindowManager {
         for window_def in &layout_def.windows {
             self.create_window_from_definition(window_def, None, &layout, &layout_def, &mut info)?;
         }
-
+        log::info!(
+            "create_layout_with_windows done: {filename} created={} wm_windows_after={}",
+            info.windows.len(),
+            self.window_count
+        );
         Ok((layout, info))
     }
 
@@ -87,6 +95,11 @@ impl WindowManager {
         // flush_destroy_queue may borrow the same layout — that double-borrow
         // panics (Shell::pop_immediate residual path).
         let windows = layout.borrow_mut().take_windows();
+        log::info!(
+            "destroy_layout: windows={} roots_before={}",
+            windows.len(),
+            self.root_windows.len()
+        );
         for window in windows {
             let _ = self.destroy_window(window);
         }

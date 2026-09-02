@@ -492,6 +492,17 @@ pub async fn run_cnc_game(
                                     bridge.publish_runtime(&snapshot);
                                 }
                                 engine = Some(new_engine);
+                                // The engine was constructed inside the boxed
+                                // boot future; the live-snapshot slot still
+                                // holds the pre-move raw address (freed heap
+                                // once the box drops). Re-point it at the
+                                // final home BEFORE any frame can run —
+                                // otherwise the first
+                                // `with_live_game_client_mut` (InGame
+                                // particle FX pose resolve) faults.
+                                if let Some(placed) = engine.as_mut() {
+                                    placed.game_client.republish_live_slot_after_engine_move();
+                                }
                                 #[cfg(feature = "integration-diagnostics")]
                                 if cmd_args.wants_integration_diagnostics() {
                                     match pollster::block_on(IntegrationTelemetryBridge::new(

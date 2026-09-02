@@ -172,11 +172,19 @@ pub(crate) fn resolve_window_text(raw_text: &str) -> String {
         return String::new();
     }
 
-    let localized = GameText::fetch(trimmed);
-    if localized.is_empty() {
-        trimmed.to_string()
-    } else {
+    // Idempotent localization: gadget draw runs every frame over the widget's
+    // stored text, and parse-time code (wnd_parse::apply_window_text) already
+    // stores the TRANSLATED string (C++ W3DGadgetStaticTextDraw renders
+    // instData text verbatim, GameText.cpp fetch happens once at parse).
+    // Re-fetching a translated string like "Units" used to wrap it as
+    // `MISSING: 'Units'`. Fall back to the raw text when the key is not a
+    // known label; genuine parse-time misses keep their single MISSING wrap
+    // from GameText::fetch in wnd_parse.
+    let (localized, exists) = GameText::fetch_with_exists(trimmed);
+    if exists && !localized.is_empty() {
         localized
+    } else {
+        trimmed.to_string()
     }
 }
 

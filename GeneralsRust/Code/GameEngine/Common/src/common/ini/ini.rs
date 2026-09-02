@@ -186,6 +186,10 @@ pub struct INI {
     seps_quote: &'static str,
     block_end_token: &'static str,
     end_of_file: bool,
+    /// Skip corrupt blocks/lines instead of failing the file. Repacked
+    /// archives interleave binary fragments mid-file; plain [`Self::load`]
+    /// stays strict — only asset loaders that opt in get recovery.
+    tolerant_blocks: bool,
     /// C++ parity: INI.cpp line 48 - static Xfer *s_xfer
     xfer: Option<std::sync::Mutex<XferCRC<XferLoad<Cursor<Vec<u8>>>>>>,
     #[cfg(debug_assertions)]
@@ -1044,10 +1048,16 @@ impl INI {
             seps_quote: "\"\n=",
             block_end_token: "END",
             end_of_file: false,
+            tolerant_blocks: false,
             xfer: None,
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
+    }
+
+    /// Opt this INI instance into corrupt-block skipping (see the field doc).
+    pub fn set_tolerant_blocks(&mut self, tolerant: bool) {
+        self.tolerant_blocks = tolerant;
     }
 
     /// C++ parity: INI.cpp line 48, 331
@@ -1116,6 +1126,48 @@ impl INI {
         self.un_prep_file();
 
         result
+    }
+
+    /// Load an INI whose leading bytes are truncated.
+    ///
+    /// Repacked `INIZH.big` artifacts store some entries head-cut (entry data
+    /// begins mid-file), so the first parsed line is binary garbage or a
+    /// partial token and the plain [`Self::load`] aborts on `UnknownToken`,
+    /// losing every intact block that follows. This variant skips straight to
+    /// the first line whose first token names a registered block parser and
+    /// parses the intact remainder.
+    pub fn load_recovering_truncated_head<P: AsRef<Path>>(
+        &mut self,
+        filename: P,
+    ) -> INIResult<()> {
+        let path = filename.as_ref();
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                let staged = self
+                    .stage_virtual_file_to_temp(path)
+                    .ok_or(INIError::CantOpenFile)?;
+                let read = fs::read(&staged);
+                let _ = fs::remove_file(&staged);
+                read.map_err(|_| INIError::CantOpenFile)?
+            }
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        let mut cut: Option<usize> = None;
+        let mut offset = 0usize;
+        for line in text.split('\n') {
+            if let Some(token) = line.split_whitespace().next()
+                && self.find_block_parser(token).is_some()
+            {
+                cut = Some(offset);
+                break;
+            }
+            offset += line.len() + 1;
+        }
+        let Some(offset) = cut else {
+            return Err(INIError::UnknownToken);
+        };
+        self.with_inline_source(&text[offset..], |ini| ini.parse_current_file())
     }
 
     /// Give a caller controlled, sequential access to one INI source.
@@ -1240,36 +1292,62 @@ impl INI {
 
     /// Parse the entire file
     fn parse_file(&mut self) -> INIResult<()> {
+        let mut skipping_corrupt_block = false;
         while !self.end_of_file {
             self.read_line()?;
 
-            if let Some(first_token) = self.get_first_token() {
-                // Look up the block parser for this token type
-                if let Some(parser) = self.find_block_parser(&first_token) {
-                    #[cfg(debug_assertions)]
-                    {
-                        self.cur_block_start = first_token.clone();
-                    }
+            let Some(first_token) = self.get_first_token() else {
+                continue;
+            };
+            if skipping_corrupt_block {
+                if first_token.eq_ignore_ascii_case(self.block_end_token) {
+                    skipping_corrupt_block = false;
+                } else if self.find_block_parser(&first_token).is_none() {
+                    continue;
+                }
+                // A new block header ends the skip region and is dispatched
+                // below like any other block.
+                skipping_corrupt_block = false;
+            }
 
-                    parser(self).map_err(|e| {
+            // Look up the block parser for this token type
+            if let Some(parser) = self.find_block_parser(&first_token) {
+                #[cfg(debug_assertions)]
+                {
+                    self.cur_block_start = first_token.clone();
+                }
+
+                if let Err(e) = parser(self) {
+                    if !self.tolerant_blocks {
                         eprintln!(
                             "Error parsing block '{}' in INI file '{}'",
                             first_token, self.filename
                         );
-                        e
-                    })?;
-
-                    #[cfg(debug_assertions)]
-                    {
-                        self.cur_block_start.clear();
+                        return Err(e);
                     }
-                } else {
-                    eprintln!(
-                        "Unknown block '{}' in file '{}' at line {}",
-                        first_token, self.filename, self.line_num
+                    log::warn!(
+                        "INI: skipping corrupt block '{}' in '{}' at line {} ({e:?})",
+                        first_token,
+                        self.filename,
+                        self.line_num
                     );
-                    return Err(INIError::UnknownToken);
+                    skipping_corrupt_block = true;
+                    continue;
                 }
+
+                #[cfg(debug_assertions)]
+                {
+                    self.cur_block_start.clear();
+                }
+            } else if self.tolerant_blocks {
+                // Binary junk between blocks: drop the line and keep going.
+                continue;
+            } else {
+                eprintln!(
+                    "Unknown block '{}' in file '{}' at line {}",
+                    first_token, self.filename, self.line_num
+                );
+                return Err(INIError::UnknownToken);
             }
         }
 

@@ -292,9 +292,14 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                             height,
                             ..
                         }) => {
-                            let collection = get_mapped_image_collection();
-                            if let Some(collection) = collection.try_read() {
-                                if let Some(image) = collection.find_image_by_name(name) {
+                            // Geometry under a short read guard; the draw
+                            // re-locks the collection for write, so never hold
+                            // this guard across draw_mapped_image_clipped
+                            // (same-thread read->write on std RwLock deadlocks).
+                            let draw_rect = {
+                                let collection = get_mapped_image_collection();
+                                collection.try_read().and_then(|collection| {
+                                    collection.find_image_by_name(name)?;
                                     let mut draw_width = if *width > 0 {
                                         *width
                                     } else {
@@ -324,19 +329,27 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                                     if offset_x < x + 1 {
                                         offset_x = x + 1;
                                     }
-                                    let draw_color = gadget_color_opt_to_win_color(column_color)
-                                        .unwrap_or(WIN_COLOR_UNDEFINED);
-                                    draw_mapped_image_clipped(
-                                        image,
+                                    Some((
                                         offset_x,
                                         offset_y,
                                         offset_x + draw_width_i,
                                         offset_y + draw_height_i,
-                                        &column_region,
-                                        draw_color,
-                                    );
-                                }
+                                    ))
+                                })
                             };
+                            if let Some((ix1, iy1, ix2, iy2)) = draw_rect {
+                                let draw_color = gadget_color_opt_to_win_color(column_color)
+                                    .unwrap_or(WIN_COLOR_UNDEFINED);
+                                draw_mapped_image_clipped(
+                                    name,
+                                    ix1,
+                                    iy1,
+                                    ix2,
+                                    iy2,
+                                    &column_region,
+                                    draw_color,
+                                );
+                            }
                         }
                         _ => {
                             if column == 0 {
@@ -507,9 +520,14 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                             height,
                             ..
                         }) => {
-                            let collection = get_mapped_image_collection();
-                            if let Some(collection) = collection.try_read() {
-                                if let Some(image) = collection.find_image_by_name(name) {
+                            // Geometry under a short read guard; the draw
+                            // re-locks the collection for write, so never hold
+                            // this guard across draw_mapped_image_clipped
+                            // (same-thread read->write on std RwLock deadlocks).
+                            let draw_rect = {
+                                let collection = get_mapped_image_collection();
+                                collection.try_read().and_then(|collection| {
+                                    collection.find_image_by_name(name)?;
                                     let mut draw_width = if *width > 0 {
                                         *width
                                     } else {
@@ -539,19 +557,27 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                                     if offset_x < x + 1 {
                                         offset_x = x + 1;
                                     }
-                                    let draw_color = gadget_color_opt_to_win_color(column_color)
-                                        .unwrap_or(WIN_COLOR_UNDEFINED);
-                                    draw_mapped_image_clipped(
-                                        image,
+                                    Some((
                                         offset_x,
                                         offset_y,
                                         offset_x + draw_width_i,
                                         offset_y + draw_height_i,
-                                        &column_region,
-                                        draw_color,
-                                    );
-                                }
+                                    ))
+                                })
                             };
+                            if let Some((ix1, iy1, ix2, iy2)) = draw_rect {
+                                let draw_color = gadget_color_opt_to_win_color(column_color)
+                                    .unwrap_or(WIN_COLOR_UNDEFINED);
+                                draw_mapped_image_clipped(
+                                    name,
+                                    ix1,
+                                    iy1,
+                                    ix2,
+                                    iy2,
+                                    &column_region,
+                                    draw_color,
+                                );
+                            }
                         }
                         _ => {
                             if column == 0 {
@@ -649,7 +675,7 @@ pub(super) fn draw_listbox_hilite_bar(
 }
 
 pub(super) fn draw_mapped_image_clipped(
-    image: &crate::display::image::Image,
+    image_name: &str,
     start_x: i32,
     start_y: i32,
     end_x: i32,
@@ -690,7 +716,7 @@ pub(super) fn draw_mapped_image_clipped(
         let texture = {
             let collection = get_mapped_image_collection();
             let mut collection = collection.write();
-            if let Some(mapped) = collection.find_image_by_name_mut(image.get_name()) {
+            if let Some(mapped) = collection.find_image_by_name_mut(image_name) {
                 if mapped.get_gpu_texture().is_none() {
                     let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
                 }
@@ -733,11 +759,12 @@ pub(super) fn draw_window_image_clipped(
     let Some(collection) = collection.try_read() else {
         return;
     };
-    let Some(mapped) = collection.find_image_by_name(&image.name) else {
+    if collection.find_image_by_name(&image.name).is_none() {
         return;
-    };
+    }
+    drop(collection);
     draw_mapped_image_clipped(
-        mapped,
+        &image.name,
         start_x,
         start_y,
         end_x,

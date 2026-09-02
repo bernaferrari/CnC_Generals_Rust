@@ -2101,6 +2101,12 @@ fn create_gpu_texture_from_rgba(
     height: u32,
     label: Option<&str>,
 ) -> (Texture, TextureView) {
+    // C++ W3D textures are D3D mipmapped (TextureClass autogen chains, and
+    // GameData INI `TextureReductionFactor` biases LOD through SetLOD — the
+    // live sampler already models that bias). Upload a full CPU box-filtered
+    // chain so minified terrain tiles resolve to averaged colors instead of
+    // point-sampled shimmer noise.
+    let mip_levels = (width.max(height)).max(1).ilog2() + 1;
     let texture_size = wgpu::Extent3d {
         width,
         height,
@@ -2110,7 +2116,7 @@ fn create_gpu_texture_from_rgba(
     let texture = device.create_texture(&TextureDescriptor {
         label,
         size: texture_size,
-        mip_level_count: 1,
+        mip_level_count: mip_levels,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: TextureFormat::Rgba8UnormSrgb,
@@ -2118,21 +2124,38 @@ fn create_gpu_texture_from_rgba(
         view_formats: &[],
     });
 
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        rgba,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4 * width),
-            rows_per_image: Some(height),
-        },
-        texture_size,
-    );
+    let mut downsized = image::RgbaImage::from_raw(width, height, rgba.to_vec())
+        .unwrap_or_else(|| image::RgbaImage::new(width.max(1), height.max(1)));
+    let mut level_width = width;
+    let mut level_height = height;
+    for level in 0..mip_levels {
+        let bytes = downsized.as_raw();
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: level,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * level_width),
+                rows_per_image: Some(level_height),
+            },
+            wgpu::Extent3d {
+                width: level_width,
+                height: level_height,
+                depth_or_array_layers: 1,
+            },
+        );
+        if level_width == 1 && level_height == 1 {
+            break;
+        }
+        level_width = (level_width / 2).max(1);
+        level_height = (level_height / 2).max(1);
+        downsized = image::imageops::thumbnail(&downsized, level_width, level_height);
+    }
 
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     (texture, view)

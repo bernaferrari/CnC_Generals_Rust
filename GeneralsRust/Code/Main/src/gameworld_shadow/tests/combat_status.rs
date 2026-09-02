@@ -1086,12 +1086,11 @@ fn host_production_log_drives_set_production_queue_channel() {
         BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
         ThingTemplate,
     };
-    // writeback_production_to_host is the opt-in GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY
-    // last-writer (default off like C++ no-shadow builds). Enable it here instead of
-    // depending on another test leaking the env var, and restore afterwards.
-    let prev_prod_auth = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    // writeback_production_to_host is the opt-in GameLogic::set_production_authority(true)
+    // last-writer (default off like C++ no-shadow builds). Enable it here; hq-e84zk
+    // retired the env flag.
     let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     let cfg = golden_skirmish_config("ProdQueueCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("ProdBarracks") {
@@ -1175,10 +1174,6 @@ fn host_production_log_drives_set_production_queue_channel() {
     let o = logic.host_objects().get(&barracks).expect("b");
     let q = &o.building_data.as_ref().expect("bd").production_queue;
     assert_eq!(q[0].template_name, "ProdRanger");
-    match prev_prod_auth {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -1188,12 +1183,11 @@ fn production_authority_writeback_is_queue_last_writer() {
         BuildingData, BuildingType, KindOf, ProductionItem, ProductionKind, Resources, Team,
         ThingTemplate,
     };
-    let prev = std::env::var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
+    let mut logic = GameLogic::new();
+    logic.set_production_authority(true);
     assert!(gameworld_production_authority_enabled());
     host_production_progress_log::clear();
 
-    let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ProdAuthWB");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("ProdAuthBarracks") {
@@ -1267,7 +1261,7 @@ fn production_authority_writeback_is_queue_last_writer() {
     );
 
     // Authority off: writeback is a no-op.
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "0");
+    logic.set_production_authority(false);
     assert!(!gameworld_production_authority_enabled());
     {
         let o = logic.host_object_mut(oid).expect("o");
@@ -1286,10 +1280,6 @@ fn production_authority_writeback_is_queue_last_writer() {
     );
 
     host_production_progress_log::clear();
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
-    }
 }
 
 #[test]

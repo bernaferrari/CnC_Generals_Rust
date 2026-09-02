@@ -16,6 +16,11 @@ const CSF_STRING_WITH_WAVE: u32 = u32::from_le_bytes(*b"WRTS");
 pub struct GameText {
     map_strings: HashMap<String, String>,
     csf_strings: HashMap<String, String>,
+    /// Lowercase-key mirrors of the tables above: C++ `compareLUT` sorts and
+    /// bsearches with `stricmp` (GameText.cpp:1373-1379), so label lookup is
+    /// case-insensitive. Rebuilt whenever the primary tables are replaced.
+    map_strings_lower: HashMap<String, String>,
+    csf_strings_lower: HashMap<String, String>,
     no_string_list: HashMap<String, String>,
 }
 
@@ -66,20 +71,37 @@ impl GameText {
         guard.map_strings.clear();
         let content = fs::read_to_string(path)?;
         parse_string_file(&content, &mut guard.map_strings);
+        guard.map_strings_lower = guard
+            .map_strings
+            .iter()
+            .map(|(label, value)| (label.to_ascii_lowercase(), value.clone()))
+            .collect();
         Ok(())
     }
 
     pub fn init_runtime_strings() -> Result<usize, Box<dyn std::error::Error>> {
-        let Some(path) = find_csf_path() else {
+        // C++ `Language::init` reads `Data\<lang>\generals.csf` through the
+        // archive filesystem. Resolve the loose extraction first, then the
+        // virtual/BIG filesystem, then a raw ` FSC` header scan over the
+        // install archives (the shipped repacked BIGs store the CSF at an
+        // offset their entry table does not point at).
+        let entries = find_csf_path()
+            .and_then(|path| fs::read(&path).ok())
+            .and_then(|bytes| parse_csf_strings(&bytes))
+            .or_else(load_csf_through_engine_filesystem)
+            .or_else(parse_csf_from_install_archives);
+        let Some(entries) = entries else {
             return Ok(0);
         };
-        let bytes = fs::read(&path)?;
-        let entries = parse_csf_strings(&bytes)
-            .ok_or_else(|| format!("failed to parse CSF string table at {}", path.display()))?;
         Language::clear_localized_strings();
+        let lower: HashMap<String, String> = entries
+            .iter()
+            .map(|(label, value)| (label.to_ascii_lowercase(), value.clone()))
+            .collect();
         {
             let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
             guard.csf_strings = entries.clone();
+            guard.csf_strings_lower = lower;
             guard.no_string_list.clear();
         }
         for (label, value) in &entries {
@@ -91,6 +113,7 @@ impl GameText {
     pub fn reset() {
         let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
         guard.map_strings.clear();
+        guard.map_strings_lower.clear();
         guard.no_string_list.clear();
     }
 
@@ -108,6 +131,15 @@ impl GameText {
                 .csf_strings
                 .get(key)
                 .or_else(|| guard.csf_strings.get(lookup))
+            {
+                return Some(text.clone());
+            }
+            // C++ bsearch + stricmp: case-insensitive label match.
+            let lower = lookup.to_ascii_lowercase();
+            if let Some(text) = guard
+                .map_strings_lower
+                .get(&lower)
+                .or_else(|| guard.csf_strings_lower.get(&lower))
             {
                 return Some(text.clone());
             }
@@ -258,6 +290,94 @@ fn find_csf_path() -> Option<PathBuf> {
     }
 
     candidates.into_iter().find(|candidate| candidate.is_file())
+}
+
+/// C++-parity attempt: read `Data/<lang>/generals.csf` through the engine
+/// virtual filesystem (loose dirs, then BIG archives).
+fn load_csf_through_engine_filesystem() -> Option<HashMap<String, String>> {
+    let language = match get_current_language() {
+        LanguageId::German => "german",
+        LanguageId::French => "french",
+        LanguageId::Spanish => "spanish",
+        LanguageId::Italian => "italian",
+        _ => "english",
+    };
+    let virtual_name = format!("Data/{language}/generals.csf");
+    let file_system = game_engine::common::system::file_system::get_file_system();
+    let mut fs_guard = file_system.lock().ok()?;
+    let mut file = fs_guard.open_file(
+        &virtual_name,
+        game_engine::common::system::file::FileAccess::READ
+            .combine(game_engine::common::system::file::FileAccess::BINARY),
+    )?;
+    let bytes = file.read_entire_and_close().ok()?;
+    parse_csf_strings(&bytes)
+}
+
+/// The shipped repacked `EnglishZH.big` / `W3DEnglishZH.big` carry an intact
+/// `generals.csf` whose entry-table offsets point elsewhere; the real image
+/// still starts with the ` FSC` magic, so scan candidates and keep the
+/// richest parse.
+fn parse_csf_from_install_archives() -> Option<HashMap<String, String>> {
+    let mut archives: Vec<PathBuf> = Vec::new();
+    for root in game_engine::common::system::install_layout::zh_install_roots() {
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("big"))
+            {
+                archives.push(path);
+            }
+        }
+    }
+
+    // Language/patch archives first — the audio archives are huge and never
+    // carry the string table.
+    archives.sort_by_key(|path| {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        (
+            !(name.contains("English") || name.contains("Patch")),
+            name.len(),
+        )
+    });
+
+    let mut best: Option<HashMap<String, String>> = None;
+    for path in archives {
+        let Ok(bytes) = fs::read(&path) else {
+            continue;
+        };
+        let mut start = 0usize;
+        let mut attempts = 0usize;
+        while attempts < 32
+            && let Some(offset) = bytes[start..]
+                .windows(4)
+                .position(|window| window == CSF_ID.to_le_bytes())
+        {
+            let absolute = start + offset;
+            start = absolute + 1;
+            attempts += 1;
+            if let Some(entries) = parse_csf_strings(&bytes[absolute..])
+                && best.as_ref().is_none_or(|best| entries.len() > best.len())
+            {
+                log::info!(
+                    "GameText: recovered {} CSF labels from {} at offset {}",
+                    entries.len(),
+                    path.display(),
+                    absolute
+                );
+                best = Some(entries);
+            }
+        }
+        if best.as_ref().is_some_and(|entries| entries.len() > 512) {
+            break;
+        }
+    }
+    best
 }
 
 fn parse_csf_strings(bytes: &[u8]) -> Option<HashMap<String, String>> {

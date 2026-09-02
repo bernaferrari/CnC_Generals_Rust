@@ -93,7 +93,8 @@ pub fn honesty_economy_movement_channel_api_source() -> bool {
         && mov.contains("pub struct HostMovementEvent")
 }
 
-/// Source residual: economy + movement last-writers default off.
+/// Source residual: economy + movement last-writers default off; gates are
+/// backed by the GameLogic authority context (hq-e84zk).
 pub fn honesty_economy_movement_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let econ_ok = {
@@ -102,7 +103,7 @@ pub fn honesty_economy_movement_authority_default_on_source() -> bool {
             None => return false,
         };
         let body = &src[i..src.len().min(i + 300)];
-        body.contains("false")
+        body.contains("current_gameworld_authority().economy")
     };
     let move_ok = {
         let i = match src.find("pub fn gameworld_movement_authority_enabled") {
@@ -110,7 +111,7 @@ pub fn honesty_economy_movement_authority_default_on_source() -> bool {
             None => return false,
         };
         let body = &src[i..src.len().min(i + 300)];
-        body.contains("false")
+        body.contains("current_gameworld_authority().movement")
     };
     econ_ok && move_ok
 }
@@ -136,19 +137,14 @@ pub fn simulate_live_gameworld_economy_movement_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    // Wave 757: restore authority env if earlier tests forced off (process-global).
     // SAFETY: env mutation funnels through env_compat wrappers; serialized
     // by the repo --test-threads=1 / authority_env_lock convention and
-    // caches are refreshed immediately below.
+    // caches are refreshed immediately below. Authority channels are no
+    // longer env-backed (hq-e84zk) — only the shadow opt-out remains env.
     unsafe {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_ECONOMY_AUTHORITY", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "1");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     }
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-    if !gameworld_economy_authority_enabled() || !gameworld_movement_authority_enabled() {
-        return false;
-    }
     // Wave 757: clear leaked coupled-tick depth from earlier tests so movement
     // writeback is not skipped due to stale pending-host-log gates.
     while crate::gameworld_shadow::shadow_coupled_tick_active() {
@@ -159,6 +155,11 @@ pub fn simulate_live_gameworld_economy_movement_honesty() -> bool {
 
     // --- Economy writeback ---
     let mut logic = GameLogic::new();
+    logic.set_economy_authority(true);
+    logic.set_movement_authority(true);
+    if !gameworld_economy_authority_enabled() || !gameworld_movement_authority_enabled() {
+        return false;
+    }
     let cfg = golden_skirmish_config("LiveEconMv183");
     if apply_skirmish_config(&mut logic, &cfg).is_err() {
         return false;

@@ -941,11 +941,10 @@ fn fire_intent_channel_via_set_fire_intent() {
     // authority (host sole writer default after 0c4d18623); the channel
     // under test is the shadow writeback, so opt in like the projectile
     // and movement authority tests.
-    let prev_attack = std::env::var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", "1");
     use crate::game_logic::host_fire_intent_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
+    logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("FireInt");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("FiU") {
@@ -995,10 +994,6 @@ fn fire_intent_channel_via_set_fire_intent() {
     assert_eq!(o.fire_intent_count, 3);
     assert!((o.last_fire_damage - 42.0).abs() < 1e-5);
     assert_eq!(o.last_fire_slot, 1);
-    match prev_attack {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_ATTACK_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -1121,12 +1116,11 @@ fn projectile_authority_steps_flight_and_writeback() {
     let _env_guard = authority_env_lock();
 
     use crate::game_logic::host_projectile_log;
-    let prev = std::env::var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", "1");
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+    let mut logic = GameLogic::new();
+    logic.set_projectile_authority(true);
     assert!(gameworld_projectile_authority_enabled());
     host_projectile_log::clear();
-    let mut logic = GameLogic::new();
     // Seed one ballistic projectile on host combat system.
     {
         use crate::game_logic::Weapon;
@@ -1189,8 +1183,4 @@ fn projectile_authority_steps_flight_and_writeback() {
         .next()
         .unwrap();
     assert!((p.position.x - after).abs() < 1e-4);
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PROJECTILE_AUTHORITY"),
-    }
 }

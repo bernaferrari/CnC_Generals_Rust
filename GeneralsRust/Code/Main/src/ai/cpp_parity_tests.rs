@@ -2602,9 +2602,9 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
-    // Default AI_DECISION_AUTHORITY is on: launch_attack engages host + logs decisions.
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
+    // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
+    // (retired GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY env): launch_attack engages
+    // host + logs decisions.
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     // Decision logs require coupled shadow writeback frame (live gate).
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
@@ -2612,6 +2612,7 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     host_attack_log::clear();
     host_ai_decision_log::clear();
     let mut logic = GameLogic::new();
+    logic.set_ai_decision_authority(true);
     let cfg = golden_skirmish_config("AiAtk");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("AiAtkU", Team::USA, 0.0f32), ("AiAtkE", Team::GLA, 80.0)] {
@@ -2678,8 +2679,8 @@ fn launch_attack_sets_target_and_logs_host_attack() {
         !unit.movement.path.is_empty() || unit.movement.target_position.is_some(),
         "launch_attack must still pathfind on host under decision authority"
     );
-    // Legacy residual path when decision authority is off.
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "0");
+    // Legacy residual path when decision authority is off (setter flip).
+    logic.set_ai_decision_authority(false);
     host_attack_log::clear();
     host_ai_decision_log::clear();
     if let Some(o) = logic.host_object_mut(usa_unit) {
@@ -2700,10 +2701,6 @@ fn launch_attack_sets_target_and_logs_host_attack() {
     );
     assert_eq!(unit.ai_state, AIState::AttackMoving);
     crate::gameworld_shadow::end_shadow_coupled_tick();
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
 }
 
 #[test]
@@ -2738,14 +2735,13 @@ fn launch_attack_dispatches_crate_attack_move_state() {
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use gamelogic::ai::state_machine::{AiStateType, host_move_attack_state};
 
-    let prev = std::env::var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", "1");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
+    // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
+    // (retired GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY env).
     crate::gameworld_shadow::begin_shadow_coupled_tick();
 
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("AiSm");
+    logic.set_ai_decision_authority(true);
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     for (name, team, x) in [("AiSmU", Team::USA, 0.0f32), ("AiSmE", Team::GLA, 80.0)] {
         if !logic.templates.contains_key(name) {
@@ -2797,10 +2793,6 @@ fn launch_attack_dispatches_crate_attack_move_state() {
     );
 
     crate::gameworld_shadow::end_shadow_coupled_tick();
-    match prev {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY"),
-    }
 }
 
 #[test]

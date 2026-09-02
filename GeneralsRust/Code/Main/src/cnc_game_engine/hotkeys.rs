@@ -1585,10 +1585,7 @@ impl CnCGameEngine {
         }
         self.diplomacy_panel.set_players(rows);
         // Keep panel layout in sync with window.
-        let (w, h) = (
-            self.window.inner_size().width,
-            self.window.inner_size().height,
-        );
+        let (w, h) = super::types::render_surface_extent(&self.window);
         self.diplomacy_panel.resize(w, h);
     }
 

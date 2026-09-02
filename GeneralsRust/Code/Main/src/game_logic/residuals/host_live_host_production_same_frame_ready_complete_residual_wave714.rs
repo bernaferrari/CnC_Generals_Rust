@@ -231,12 +231,11 @@ mod tests {
     fn sole_tick_mid_update_skips_collect_post_writeback_completes() {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_sh = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        let prev_pr = std::env::var_os("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", "1");
         host_production_ready_log::clear();
 
         let mut logic = GameLogic::new();
+        logic.set_production_authority(true);
         ensure_template(&mut logic, "SfFactory");
         ensure_template(&mut logic, "SfUnit");
         let id = logic
@@ -300,10 +299,6 @@ mod tests {
         match prev_sh {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
-        match prev_pr {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_PRODUCTION_AUTHORITY"),
         }
     }
 }
