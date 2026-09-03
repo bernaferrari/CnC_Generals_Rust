@@ -2,8 +2,7 @@
 //! Author: John Ahlquist, March 2002
 //! Desc: Parsing AIData INI entries
 
-use once_cell::sync::OnceCell;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, LazyLock, RwLock};
 
 use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
 use crate::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
@@ -220,7 +219,7 @@ impl AIData {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AIDataStore {
     entries: Vec<AIData>,
 }
@@ -248,21 +247,61 @@ impl AIDataStore {
         }
     }
 }
+/// The active world's AIData store (C++ single-pointer semantics: the one
+/// live world's engine data). `None` resolves to the engine-lifetime store
+/// below, so INI loads outside any world (engine boot, headless snippets,
+/// tests without a world) keep working.
+static AI_DATA_ACTIVE: RwLock<Option<Arc<RwLock<AIDataStore>>>> = RwLock::new(None);
 
-static AI_DATA_STORE: OnceCell<RwLock<AIDataStore>> = OnceCell::new();
+/// Engine-lifetime AIData store. C++ keeps one process-lifetime engine whose
+/// AIData.ini state every world inherits; this is the fallback store while no
+/// GameLogic world is active.
+static AI_DATA_PROCESS_LIFETIME: LazyLock<Arc<RwLock<AIDataStore>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(AIDataStore::default())));
 
-pub fn get_ai_data_store() -> RwLockReadGuard<'static, AIDataStore> {
-    AI_DATA_STORE
-        .get_or_init(|| RwLock::new(AIDataStore::default()))
-        .read()
-        .expect("AI data store read lock")
+/// The engine-lifetime AIData store. World bundles snapshot-clone its content
+/// ([`AIDataStore`] is `Clone`) and install the clone with
+/// [`install_ai_data_store`], so per-world mutations die with the world.
+pub fn process_lifetime_ai_data_store() -> Arc<RwLock<AIDataStore>> {
+    Arc::clone(&AI_DATA_PROCESS_LIFETIME)
 }
 
-pub fn get_ai_data_store_mut() -> RwLockWriteGuard<'static, AIDataStore> {
-    AI_DATA_STORE
-        .get_or_init(|| RwLock::new(AIDataStore::default()))
+/// The active AIData store: the installed world bundle's store, or the
+/// engine-lifetime store when no world is active (C++ `TheAI` data).
+pub fn get_ai_data_store() -> Arc<RwLock<AIDataStore>> {
+    let active = AI_DATA_ACTIVE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    active
+        .as_ref()
+        .map(Arc::clone)
+        .unwrap_or_else(|| Arc::clone(&AI_DATA_PROCESS_LIFETIME))
+}
+
+/// Install a world bundle's AIData store and return the store it replaced.
+pub fn install_ai_data_store(
+    store: Arc<RwLock<AIDataStore>>,
+) -> Option<Arc<RwLock<AIDataStore>>> {
+    let mut active = AI_DATA_ACTIVE
         .write()
-        .expect("AI data store write lock")
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    active.replace(store)
+}
+
+/// Uninstall the active AIData store only if it is still `store` (a stale
+/// world dropping after a newer world must not deactivate the newer world).
+/// Returns `true` when the active slot was cleared.
+pub fn uninstall_ai_data_store_if_current(store: &Arc<RwLock<AIDataStore>>) -> bool {
+    let mut active = AI_DATA_ACTIVE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match active.as_ref() {
+        Some(current) if Arc::ptr_eq(current, store) => {
+            *active = None;
+            true
+        }
+        _ => false,
+    }
 }
 
 fn parse_real_field(tokens: &[&str]) -> INIResult<f32> {
@@ -1067,7 +1106,8 @@ const BUILD_LIST_STRUCTURE_FIELDS: &[FieldParse<BuildListEntry>] = &[
 
 /// Parse AI Data definition from INI file
 pub fn parse_ai_data_definition(ini: &mut INI) -> INIResult<()> {
-    let mut store = get_ai_data_store_mut();
+    let store = get_ai_data_store();
+    let mut store = store.write().expect("AI data store write lock");
     store.ensure_base();
 
     if ini.get_load_type() == INILoadType::CreateOverrides {

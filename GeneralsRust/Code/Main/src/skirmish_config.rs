@@ -1743,8 +1743,8 @@ mod tests {
         );
         logic.reveal_replay_observer_map();
         let id = logic.replay_observer_player_id().expect("observer id");
-        let shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-            .lock()
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        let shroud = shroud_manager.lock()
             .expect("shroud");
         let snap = shroud.snapshot_state();
         assert!(

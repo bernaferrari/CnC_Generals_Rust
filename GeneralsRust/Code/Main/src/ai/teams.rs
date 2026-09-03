@@ -162,9 +162,11 @@ impl AIPlayer {
     /// AIData `TeamResourcesToStart` (`m_teamResourcesToBuild`). Store first,
     /// leftover `the_ai`, then the retail 0.1 residual.
     pub(super) fn team_resources_to_start_frac() -> f32 {
-        let from_store = game_engine::common::ini::get_ai_data_store()
-            .get_active()
-            .map(|d| d.team_resources_to_build);
+        let from_store = {
+            let store = game_engine::common::ini::get_ai_data_store();
+            let store = store.read().expect("AI data store read lock");
+            store.get_active().map(|d| d.team_resources_to_build)
+        };
         let ai_store = gamelogic::ai::the_ai();let leftover = ai_store.read().ok().and_then(|ai| {
             ai.get_ai_data()
                 .read()

@@ -654,6 +654,12 @@ impl RenderFrame {
         (&self.color_texture, &mut self.encoder)
     }
 
+    /// Attachment size in pixels (color target extent).
+    pub fn size(&self) -> (u32, u32) {
+        let extent = self.color_texture.size();
+        (extent.width, extent.height)
+    }
+
     /// Fetch the render target view for this frame.
     pub fn color_view(&self) -> &wgpu::TextureView {
         self.color_view.as_ref()

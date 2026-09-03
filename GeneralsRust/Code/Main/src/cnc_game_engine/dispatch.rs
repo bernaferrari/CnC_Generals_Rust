@@ -962,6 +962,53 @@ impl CnCGameEngine {
             self.match_damage_applied = d;
             self.match_kills = k;
         }
+        // SLUIROSTER (documented diagnostic, env-gated GENERALS_SLUI_PROBE=1):
+        // local-player roster line per status publish for the mid-match
+        // save/load windowed-drive verification (positions/health/selection
+        // compared pre-save vs post-load). Temp probe for the SaveLoadUiHunt;
+        // removed after the drive. Never writes evidence keys.
+        static SLUI_ROSTER_TICKS: std::sync::atomic::AtomicU32 =
+            std::sync::atomic::AtomicU32::new(0);
+        if std::env::var("GENERALS_SLUI_PROBE").as_deref() == Ok("1")
+            && SLUI_ROSTER_TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < u32::MAX
+        {
+            if let Some(frame) = self.last_presentation_frame.as_ref() {
+                let team = frame.local_team();
+                let roster: Vec<String> = frame
+                    .objects
+                    .iter()
+                    .filter(|o| o.team == team && !o.destroyed && !o.sold)
+                    .take(14)
+                    .map(|o| {
+                        format!(
+                            "id={} {} @({:.1},{:.1},{:.1}) hp={:.0}/{:.0} sel={} dest={}",
+                            o.id.0,
+                            o.template_name,
+                            o.position.x,
+                            o.position.y,
+                            o.position.z,
+                            o.health_current,
+                            o.health_max,
+                            o.selected,
+                            o.move_destination
+                                .map(|d| format!("({:.1},{:.1})", d.x, d.y))
+                                .unwrap_or_else(|| "-".to_string())
+                        )
+                    })
+                    .collect();
+                if !roster.is_empty() {
+                    log::warn!(
+                        "SLUI f={} lf={} st={:?} paused={} | {}",
+                        self.frame_counter,
+                        self.presentation_or_boot_logic_frame(),
+                        self.current_state,
+                        self.game_paused,
+                        roster.join(" | ")
+                    );
+                }
+            }
+        }
+
 
         let (window_outer_x, window_outer_y, window_outer_w, window_outer_h) =
             self.runtime_host_window_outer_rect();

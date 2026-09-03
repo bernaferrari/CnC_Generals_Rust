@@ -400,7 +400,8 @@ impl MinimapFowManager {
             }
         };
 
-        let maybe_shroud = get_shroud_manager().lock().ok();
+        let shroud_manager = get_shroud_manager();
+        let maybe_shroud = shroud_manager.lock().ok();
         let use_shroud = maybe_shroud
             .as_ref()
             .map(|shroud| shroud_runtime_active(shroud, player_u32))

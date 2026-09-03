@@ -981,6 +981,7 @@ impl GameLogic {
         } else {
             Vec::new()
         };
+        let mut cell_changed: Vec<ObjectID> = Vec::new();
         if !collision_ids.is_empty() {
             let _ = with_collision_system_mut(|system| {
                 for obj_id in collision_ids {
@@ -1016,7 +1017,18 @@ impl GameLogic {
                     }
                 }
                 let _ = system.process_collisions();
+                cell_changed = system.partition_manager_mut().take_cell_changed_events();
                 Ok::<(), crate::object::collide::CollisionError>(())
+            });
+        }
+        // C++ `PartitionData::friend_updateCellsTouched` fires
+        // `obj->onPartitionCellChange()` inline when the center cell changed
+        // (PartitionManager.cpp:2052-2062) — the movement-driven shroud
+        // look/unlook driver. Deferred here so no object read guard is held
+        // while `handle_partition_cell_maintenance` mutates the object.
+        for obj_id in cell_changed {
+            let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |object_guard| {
+                object_guard.handle_partition_cell_maintenance();
             });
         }
 
@@ -1177,7 +1189,8 @@ impl GameLogic {
             return crate::common::ObjectShroudStatus::Fogged;
         };
         use crate::system::shroud_manager::{get_shroud_manager, ShroudState};
-        let Ok(shroud) = get_shroud_manager().lock() else {
+        let shroud_manager = get_shroud_manager();
+        let Ok(shroud) = shroud_manager.lock() else {
             return crate::common::ObjectShroudStatus::Fogged;
         };
         match shroud.get_shroud_state(player_index as u32, &position) {

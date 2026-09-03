@@ -123,7 +123,8 @@ fn host_fx_obj_is_visible(object_id: u32) -> bool {
     if player < 0 {
         return false;
     }
-    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+    let Ok(shroud) = shroud_manager.lock() else {
         return true;
     };
     match shroud.get_host_object_shroud_status(player as u32, object_id) {
@@ -617,7 +618,8 @@ fn fx_pos_cell_is_clear(primary: Option<&Coord3D>) -> bool {
     if player < 0 {
         return false;
     }
-    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+    let Ok(shroud) = shroud_manager.lock() else {
         return false;
     };
     matches!(

@@ -288,6 +288,12 @@ struct PartitionObject {
     cell: CellCoord,
     cells: Vec<CellCoord>,
     angle: f32,
+    /// C++ `PartitionData::m_lastCell` (PartitionManager.cpp:2054-2062):
+    /// center cell at the previous `friend_updateCellsTouched`. `None` until
+    /// the first update, mirroring the C++ NULL initial value — so the first
+    /// position sync fires `onPartitionCellChange` (the map-start initial
+    /// look) just like C++.
+    shroud_last_cell: Option<CellCoord>,
 }
 
 /// Partition filter trait for object queries
@@ -317,6 +323,12 @@ pub struct PartitionManager {
     pub(crate) shroud: super::partition_shroud::PartitionShroudGrid,
     /// C++ `m_updatedSinceLastReset`.
     updated_since_last_reset: bool,
+    /// Objects whose center partition cell changed since the last drain.
+    /// C++ fires `obj->onPartitionCellChange()` inline from
+    /// `PartitionData::friend_updateCellsTouched`
+    /// (PartitionManager.cpp:2052-2062); here the caller drains and runs
+    /// `handle_partition_cell_maintenance` without object guards held.
+    cell_changed_events: Vec<ObjectId>,
 }
 
 impl PartitionManager {
@@ -328,6 +340,7 @@ impl PartitionManager {
             fogged_cells: HashMap::new(),
             shroud: super::partition_shroud::PartitionShroudGrid::new(),
             updated_since_last_reset: false,
+            cell_changed_events: Vec::new(),
         }
     }
 
@@ -402,6 +415,7 @@ impl PartitionManager {
                 cell,
                 cells,
                 angle,
+                shroud_last_cell: None,
             },
         );
         Ok(())
@@ -428,8 +442,32 @@ impl PartitionManager {
             Some(obj) => (obj.geometry, obj.angle),
             None => return Ok(()),
         };
+        // Re-registration builds a fresh PartitionObject, so carry the
+        // C++ `m_lastCell` memory across the update.
+        let prev_last_cell = self.objects.get(&id).and_then(|obj| obj.shroud_last_cell);
         self.unregister_object(id)?;
-        self.register_object_oriented(id, new_position, geometry, angle)
+        self.register_object_oriented(id, new_position, geometry, angle)?;
+        // C++ PartitionData::friend_updateCellsTouched
+        // (PartitionManager.cpp:2052-2062): when the center cell changed
+        // (including the very first update against the NULL m_lastCell),
+        // the object gets `onPartitionCellChange` — the movement-driven
+        // shroud look/unlook driver.
+        if let Some(obj) = self.objects.get_mut(&id) {
+            let new_cell = obj.cell;
+            let changed = prev_last_cell != Some(new_cell);
+            obj.shroud_last_cell = Some(new_cell);
+            if changed {
+                self.cell_changed_events.push(id);
+            }
+        }
+        Ok(())
+    }
+    /// Drain the ids whose center partition cell changed since the last
+    /// drain. The caller runs `Object::handle_partition_cell_maintenance`
+    /// (C++ `Object::onPartitionCellChange`) for each — deferred so no
+    /// object read guard is held while the object is mutably borrowed.
+    pub fn take_cell_changed_events(&mut self) -> Vec<ObjectId> {
+        std::mem::take(&mut self.cell_changed_events)
     }
     pub fn find_objects_in_radius(
         &self,

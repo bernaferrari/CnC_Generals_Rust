@@ -337,40 +337,12 @@ pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceDa
     menu.draw();
 }
 
-pub(super) fn draw_data_has_compat_default_content(
-    entry: &crate::gui::game_window::WindowDrawData,
-) -> bool {
-    entry.image.is_some()
-        || entry.color != WIN_COLOR_UNDEFINED
-        || entry.border_color != WIN_COLOR_UNDEFINED
-}
 
-pub(super) fn has_compat_default_content(
-    window: &GameWindow,
-    inst_data: &WindowInstanceData,
-) -> bool {
-    window.get_status().contains(WindowStatus::IMAGE)
-        || inst_data.video_buffer.is_some()
-        || inst_data
-            .enabled_draw_data
-            .iter()
-            .any(draw_data_has_compat_default_content)
-        || inst_data
-            .disabled_draw_data
-            .iter()
-            .any(draw_data_has_compat_default_content)
-        || inst_data
-            .hilite_draw_data
-            .iter()
-            .any(draw_data_has_compat_default_content)
-}
-
-pub fn w3d_no_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    if has_compat_default_content(window, inst_data) {
-        crate::gui::game_window::default_draw_callback(window, inst_data);
-    }
-}
-
-pub fn w3d_compat_default_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    crate::gui::game_window::default_draw_callback(window, inst_data);
-}
+/// C++ W3DControlBar.cpp:661-667 — `W3DNoDraw` has an EMPTY body (the
+/// `W3DGameWinDefaultDraw` call is commented out): a NoDraw window renders
+/// NOTHING even when it carries IMAGE status + draw-data images. Those images
+/// are dormant data; e.g. ControlBar.wnd:Munkee (ENABLED+IMAGE, rect
+/// 0,414-799,599) holds `IMAGE: InGameUIChinaBase`, which the ZH retail
+/// window manager never paints. Painting it here leaked atlas art across the
+/// in-match control bar as a giant blurry text band.
+pub fn w3d_no_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {}

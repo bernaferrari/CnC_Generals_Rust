@@ -1528,8 +1528,11 @@ impl AI {
         self.next_group_id = 0;
 
         if let Ok(mut ai_data) = self.ai_data.write() {
-            if let Some(ini_data) = get_ai_data_store().get_active() {
-                *ai_data = convert_ai_data(ini_data);
+            let ini_store = get_ai_data_store();
+            if let Ok(ini_store) = ini_store.read() {
+                if let Some(ini_data) = ini_store.get_active() {
+                    *ai_data = convert_ai_data(ini_data);
+                }
             }
         }
 

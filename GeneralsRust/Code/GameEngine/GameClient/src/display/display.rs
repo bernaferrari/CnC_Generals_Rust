@@ -1094,6 +1094,8 @@ impl DisplayInterface for Display {
                 light_pos,
                 self.graphics.config().format,
                 wgpu::TextureFormat::Depth32Float,
+                // Legacy Display::draw path: keep its full-attachment default.
+                (0.0, 0.0),
             );
         });
 

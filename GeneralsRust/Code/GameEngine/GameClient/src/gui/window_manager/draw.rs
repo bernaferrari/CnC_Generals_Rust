@@ -35,6 +35,24 @@ use std::time::Instant;
 
 use super::*;
 
+/// C++ gadget creation (GameWindowManager.cpp:1857-1862) picks the device
+/// image-draw function when the window carries WIN_STATUS_IMAGE — retail WNDs
+/// author IMAGE on every button that receives runtime imagery
+/// (ControlBar.wnd ButtonCommand01-14, ButtonQueue*, UnitUpgrade*, ...), even
+/// while the draw-data IMAGE slots are still "NoImage". Selecting by authored
+/// draw-data images alone left those buttons on the solid draw, painting the
+/// authored `255 0 0 255` placeholder as solid red rectangles.
+fn default_draw_uses_image(window: &GameWindow) -> bool {
+    window.get_status().contains(WindowStatus::IMAGE)
+        || window
+            .instance_data()
+            .enabled_draw_data
+            .iter()
+            .chain(window.instance_data().disabled_draw_data.iter())
+            .chain(window.instance_data().hilite_draw_data.iter())
+            .any(|draw| draw.image.is_some())
+}
+
 impl WindowManager {
     /// Draw all windows
     pub fn draw_all(&mut self) {
@@ -111,13 +129,7 @@ impl WindowManager {
     }
 
     pub(crate) fn apply_default_draw_callback(&self, window: &mut GameWindow) {
-        let has_image = window
-            .instance_data()
-            .enabled_draw_data
-            .iter()
-            .chain(window.instance_data().disabled_draw_data.iter())
-            .chain(window.instance_data().hilite_draw_data.iter())
-            .any(|draw| draw.image.is_some());
+        let has_image = default_draw_uses_image(window);
 
         let draw = match (window.widget(), has_image) {
             (Some(WindowWidget::PushButton(_)), true) => w3d_gadget_push_button_image_draw,

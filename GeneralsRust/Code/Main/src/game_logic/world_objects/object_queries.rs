@@ -984,7 +984,8 @@ impl GameLogic {
         if target.get_template().always_visible || target.contained_by.is_some() {
             return false;
         }
-        let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        let Ok(shroud) = shroud_manager.lock() else {
             return false;
         };
         match shroud.get_host_object_shroud_status(player_id, target.id.0) {
@@ -2167,8 +2168,8 @@ impl GameLogic {
                     .get(&owner_id)
                     .is_some_and(|player| player.is_local)
                 {
-                    let visible = gamelogic::system::shroud_manager::get_shroud_manager()
-                        .lock()
+                    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+                    let visible = shroud_manager.lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
                         .unwrap_or(false);
                     if !visible {
@@ -2361,8 +2362,8 @@ impl GameLogic {
                     .get(&owner_id)
                     .is_some_and(|player| player.is_local)
                 {
-                    let visible = gamelogic::system::shroud_manager::get_shroud_manager()
-                        .lock()
+                    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+                    let visible = shroud_manager.lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
                         .unwrap_or(false);
                     if !visible {
@@ -3208,7 +3209,8 @@ mod human_enter_fog_gate_tests {
     }
 
     fn set_target_shroud(player_id: u32, object_id: ObjectId, status: ObjectShroudStatus) {
-        let mut mgr = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut mgr = shroud_manager.lock().expect("shroud");
         mgr.set_host_object_shroud_status(player_id, object_id.0, status);
     }
 

@@ -20,7 +20,8 @@ use crate::common::thing::thing::KindOfType;
 use std::io;
 
 fn upgrade_templates_in_serialization_order() -> Option<Vec<(String, u128)>> {
-    let center = get_upgrade_center()?;
+    let center = get_upgrade_center();
+    let center = center.read().expect("UpgradeCenter poisoned");
     Some(
         center
             .get_template_names()
@@ -994,7 +995,7 @@ pub trait Xferable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ini::ini_upgrade::{get_upgrade_center_mut, initialize_upgrade_center};
+    use crate::common::ini::ini_upgrade::{get_upgrade_center, initialize_upgrade_center};
     use crate::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -1043,7 +1044,8 @@ mod tests {
         initialize_upgrade_center();
 
         let (mask_a, mask_c) = {
-            let mut center = get_upgrade_center_mut().unwrap();
+            let center = get_upgrade_center();
+            let mut center = center.write().expect("UpgradeCenter poisoned");
             let mask_a = center
                 .get_or_create_template(&AsciiString::from("XferOrderUpgradeA"))
                 .get_upgrade_mask();

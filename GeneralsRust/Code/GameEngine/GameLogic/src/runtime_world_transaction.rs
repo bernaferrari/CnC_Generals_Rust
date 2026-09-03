@@ -212,7 +212,8 @@ impl RuntimeWorldGlobals {
             std::mem::take(&mut *guard)
         };
         let shroud = {
-            let mut guard = get_shroud_manager()
+            let shroud_manager = get_shroud_manager();
+            let mut guard = shroud_manager
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             std::mem::replace(&mut *guard, ShroudManager::new())
@@ -284,7 +285,8 @@ impl RuntimeWorldGlobals {
             std::mem::replace(&mut *guard, script_engine)
         };
         let old_shroud = {
-            let mut guard = get_shroud_manager()
+            let shroud_manager = get_shroud_manager();
+            let mut guard = shroud_manager
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             std::mem::replace(&mut *guard, shroud)

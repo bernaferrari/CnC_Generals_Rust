@@ -1539,7 +1539,8 @@ mod tests {
         // snapshots, then pendingUndoShroudReveals.
         let _lock = test_state_lock();
         {
-            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            let shroud_manager = get_shroud_manager();
+            let mut shroud = shroud_manager.lock().expect("shroud");
             shroud.init_shroud_grid(100.0, 100.0);
             let mut snapshot = shroud.snapshot_state();
             if let Some(grid) = snapshot.grid.as_mut() {
@@ -1563,7 +1564,8 @@ mod tests {
         }
 
         {
-            let mut shroud = get_shroud_manager().lock().expect("shroud");
+            let shroud_manager = get_shroud_manager();
+            let mut shroud = shroud_manager.lock().expect("shroud");
             shroud.init_shroud_grid(100.0, 100.0);
         }
         {

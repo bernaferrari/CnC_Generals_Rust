@@ -961,7 +961,8 @@ fn radar_scan_special_power_reveals_fow() {
 
     // Isolate global shroud for this residual test.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(512.0, 512.0);
     }
@@ -996,7 +997,8 @@ fn radar_scan_special_power_reveals_fow() {
 
     // Baseline: target shroud not visible.
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
             "precondition: scan target must start shrouded"
@@ -1035,7 +1037,8 @@ fn radar_scan_special_power_reveals_fow() {
 
     // FOW observable: center cell visible after scan.
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
             "RadarScan must reveal FOW at target center"
@@ -1061,7 +1064,8 @@ fn radar_scan_special_power_reveals_fow() {
     );
     assert!(game_logic.radar_scans().expirations() >= 1);
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
             "temporary reveal must undo after duration (fogged/hidden)"
@@ -1147,7 +1151,8 @@ fn spy_satellite_special_power_reveals_fow() {
 
     // Isolate global shroud for this residual test.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
     }
@@ -1185,7 +1190,8 @@ fn spy_satellite_special_power_reveals_fow() {
 
     // Baseline: target shroud not visible.
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
             "precondition: spy sat target must start shrouded"
@@ -1213,7 +1219,8 @@ fn spy_satellite_special_power_reveals_fow() {
         "scan must start at 0, not instant 300"
     );
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &near_center),
             "offset cell must stay fogged until grow covers it"
@@ -1241,7 +1248,8 @@ fn spy_satellite_special_power_reveals_fow() {
 
     // FOW observable: center cell visible after grow.
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
             "SpySatellite must reveal FOW at target center"
@@ -1271,7 +1279,8 @@ fn spy_satellite_special_power_reveals_fow() {
     );
     assert!(game_logic.spy_satellites().expirations() >= 1);
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
             "temporary reveal must undo after duration (fogged/hidden)"
@@ -1418,7 +1427,8 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 
     // Isolate global shroud for this residual test.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
     }
@@ -1462,7 +1472,8 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 
     // Baseline: enemy position shrouded, unit effectively stealthed.
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
             "precondition: enemy must start shrouded"
@@ -1522,7 +1533,8 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 
     // FOW observable: enemy cell visible after spy vision residual.
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
             "CiaIntelligence must reveal FOW at enemy unit position"
@@ -1571,7 +1583,8 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         "vision_spied residual mark must clear after expiry"
     );
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
             "temporary reveal must undo after duration (fogged/hidden)"
@@ -1602,7 +1615,8 @@ fn cia_intelligence_looker_follows_moving_enemy() {
     // terrain grid).  A bigger map grid must therefore be initialized AFTER
     // the world exists, like ThePlayerList's Shroud after newMap.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
     }
@@ -1627,7 +1641,8 @@ fn cia_intelligence_looker_follows_moving_enemy() {
     logic.update_cia_intelligence();
     let new_center = Coord3D::new(moved.x, moved.z, moved.y);
     {
-        let shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &new_center),
             "CIA looker must share vision at the enemy's new position"

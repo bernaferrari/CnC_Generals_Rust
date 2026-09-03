@@ -501,7 +501,8 @@ fn fx_pos_cell_is_clear(primary: Point3<f32>, local_player_index: i32) -> bool {
         y: primary.y,
         z: primary.z,
     };
-    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+    let Ok(shroud) = shroud_manager.lock() else {
         return false;
     };
     matches!(

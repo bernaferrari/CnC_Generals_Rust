@@ -1692,7 +1692,8 @@ fn build_by_supplies_places_named_template_near_warehouse() {
 #[test]
 fn skirmish_new_map_uses_aidata_side_build_list() {
     {
-        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        let store = game_engine::common::ini::get_ai_data_store();
+        let mut store = store.write().expect("AI data store write lock");
         store.ensure_base();
         if let Some(data) = store.get_active_mut() {
             data.rotate_skirmish_bases = false;
@@ -1723,6 +1724,7 @@ fn skirmish_new_map_uses_aidata_side_build_list() {
         }
     }
 
+    {
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(
         1,
@@ -1775,8 +1777,10 @@ fn skirmish_new_map_uses_aidata_side_build_list() {
         wf_pad.is_buildable(),
         "non-CC entries incrementNumRebuilds so first build does not spend the last slot"
     );
+    }
     {
-        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        let store = game_engine::common::ini::get_ai_data_store();
+        let mut store = store.write().expect("AI data store write lock");
         if let Some(data) = store.get_active_mut() {
             data.side_build_lists
                 .retain(|l| !l.side.eq_ignore_ascii_case("America"));

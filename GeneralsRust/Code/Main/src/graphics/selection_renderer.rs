@@ -884,6 +884,10 @@ pub fn enqueue_selection_render(
 
     if !selected_units.is_empty() || !order_line_vertices.is_empty() {
         let world_renderer = Arc::clone(&renderer);
+        // C++ dx8wrapper Set_Viewport parity: this world-space overlay renders
+        // through the SAME tactical viewport as the terrain and mesh lanes, so
+        // its depth reads/writes line up row-for-row with theirs.
+        let (vp_w, vp_h) = pipeline.tactical_viewport_pixel_size();
         pipeline.enqueue_pre_scene_callback(move |frame| {
             let color_view = frame.color_view_arc();
             let depth_view = frame.depth_view_arc();
@@ -916,6 +920,11 @@ pub fn enqueue_selection_render(
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
+            let vp_w = vp_w.max(1.0);
+            let vp_h = vp_h.max(1.0);
+            render_pass.set_viewport(0.0, 0.0, vp_w, vp_h, 0.0, 1.0);
+            render_pass.set_scissor_rect(0, 0, vp_w as u32, vp_h as u32);
 
             world_renderer.draw(
                 &mut render_pass,

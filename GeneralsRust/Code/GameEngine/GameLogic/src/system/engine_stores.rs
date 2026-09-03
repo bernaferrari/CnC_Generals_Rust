@@ -6,6 +6,18 @@
 //!
 //! - `upgrade_center` — C++ `TheUpgradeCenter` (UpgradeCenter, Upgrade.h).
 //! - `ai` — C++ `TheAI` (AI, AI.h), including its `AiData` (`TheAI->getAiData()`).
+//! - `ini_upgrade_center` — the Common-crate INI-side `Upgrade.ini` store
+//!   (`game_engine::common::ini::ini_upgrade`, C++ TheUpgradeCenter parse half).
+//! - `ai_data` — the Common-crate `AIData.ini` parse-side store
+//!   (`game_engine::common::ini::ini_ai_data`).
+//! - `shroud` — the shroud/fog-of-war manager (C++ PartitionManager shroud).
+//!
+//! The two Common-crate stores stay *types* of the Common crate (the INI
+//! parser there writes them during `AIData`/`Upgrade` block parsing, and
+//! `game_engine` cannot depend on `gamelogic`); only their *instances* moved
+//! here. Common keeps an active-slot with an engine-lifetime fallback
+//! (`install_ai_data_store` / `install_upgrade_center`); world install/uninstall
+//! below keeps those slots pointing at this bundle's instances.
 //!
 //! C++ engine init order (GameEngine.cpp `GameEngine::init`): TheUpgradeCenter
 //! subsystem (:468) is created and `Upgrade.ini`-loaded before TheAI (:480),
@@ -26,9 +38,13 @@
 //! C++ accessor-name mapping is preserved at the existing call sites:
 //! `ctx.upgrade_center()` ~ `TheUpgradeCenter`, `ctx.ai()` ~ `TheAI`.
 
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
+
+use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
+use game_engine::common::ini::ini_upgrade::{self, UpgradeCenter as IniUpgradeCenter};
 
 use crate::ai::AI;
+use crate::system::shroud_manager::ShroudManager;
 use crate::upgrade::center::UpgradeCenter;
 
 /// The C++-inherited engine stores owned by a GameLogic world.
@@ -42,6 +58,17 @@ pub struct EngineStores {
     /// contents swap the whole-world restore transaction already performs at
     /// map-load boundaries and C++ `TheAI->reset()` at clearGameData.
     ai: Arc<RwLock<AI>>,
+    /// Common-crate INI-side TheUpgradeCenter store (`Upgrade.ini` parse
+    /// state). Engine-lifetime bundles share the Common process store; world
+    /// bundles hold a snapshot clone under a fresh lock.
+    ini_upgrade_center: Arc<RwLock<IniUpgradeCenter>>,
+    /// Common-crate `AIData.ini` parse-side store. Same split as
+    /// `ini_upgrade_center`: shared engine-lifetime store, snapshot per world.
+    ai_data: Arc<RwLock<AIDataStore>>,
+    /// Shroud/fog-of-war manager (C++ PartitionManager shroud state). World
+    /// bundles snapshot-clone the engine-lifetime content under a fresh lock
+    /// so per-world mutations die with the world.
+    shroud: Arc<Mutex<ShroudManager>>,
 }
 
 impl EngineStores {
@@ -54,6 +81,11 @@ impl EngineStores {
         Self {
             upgrade_center: Arc::new(RwLock::new(center)),
             ai: Arc::new(RwLock::new(AI::new())),
+            // Engine-lifetime bundles share the Common stores themselves so
+            // INI loads outside any world land in the store gameplay reads.
+            ini_upgrade_center: ini_upgrade::process_lifetime_upgrade_center(),
+            ai_data: ini_ai_data::process_lifetime_ai_data_store(),
+            shroud: Arc::new(Mutex::new(ShroudManager::new())),
         }
     }
 
@@ -66,6 +98,9 @@ impl EngineStores {
         Self {
             upgrade_center: Arc::new(RwLock::new(upgrade_center)),
             ai: Arc::new(RwLock::new(AI::new())),
+            ini_upgrade_center: ini_upgrade_center_snapshot(),
+            ai_data: ai_data_snapshot(),
+            shroud: Arc::new(Mutex::new(engine_shroud_snapshot())),
         }
     }
 
@@ -77,6 +112,21 @@ impl EngineStores {
     /// C++ `TheAI`.
     pub fn ai(&self) -> &Arc<RwLock<AI>> {
         &self.ai
+    }
+
+    /// Common INI-side UpgradeCenter store.
+    pub fn ini_upgrade_center(&self) -> &Arc<RwLock<IniUpgradeCenter>> {
+        &self.ini_upgrade_center
+    }
+
+    /// Common `AIData.ini` store.
+    pub fn ai_data(&self) -> &Arc<RwLock<AIDataStore>> {
+        &self.ai_data
+    }
+
+    /// Shroud/fog-of-war manager.
+    pub fn shroud(&self) -> &Arc<Mutex<ShroudManager>> {
+        &self.shroud
     }
 }
 
@@ -106,6 +156,8 @@ pub fn active() -> Arc<EngineStores> {
 
 /// Install a world bundle as active and return the bundle it replaced.
 pub fn install_active(world: Arc<EngineStores>) -> Option<Arc<EngineStores>> {
+    ini_ai_data::install_ai_data_store(Arc::clone(&world.ai_data));
+    ini_upgrade::install_upgrade_center(Arc::clone(&world.ini_upgrade_center));
     let mut active = ACTIVE
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -116,16 +168,25 @@ pub fn install_active(world: Arc<EngineStores>) -> Option<Arc<EngineStores>> {
 /// dropping after a newer world must not deactivate the newer world).
 /// Returns `true` when the active slot was cleared.
 pub fn uninstall_active_if_current(world: &Arc<EngineStores>) -> bool {
-    let mut active = ACTIVE
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    match active.as_ref() {
-        Some(current) if Arc::ptr_eq(current, world) => {
-            *active = None;
-            true
+    // Clear the EngineStores slot first and release its lock before touching
+    // the Common-side slots: world install takes them in the opposite order.
+    let was_current = {
+        let mut active = ACTIVE
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match active.as_ref() {
+            Some(current) if Arc::ptr_eq(current, world) => {
+                *active = None;
+                true
+            }
+            _ => false,
         }
-        _ => false,
+    };
+    if was_current {
+        ini_ai_data::uninstall_ai_data_store_if_current(&world.ai_data);
+        ini_upgrade::uninstall_upgrade_center_if_current(&world.ini_upgrade_center);
     }
+    was_current
 }
 
 /// Create the stores for a new GameLogic world and install them as the
@@ -150,6 +211,44 @@ fn engine_upgrade_center_snapshot() -> UpgradeCenter {
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     center.clone()
+}
+
+/// Snapshot clone of the engine-lifetime shroud content under a fresh lock,
+/// so a new world inherits seeded/INI-level shroud state while per-world
+/// mutations cannot leak back.
+fn engine_shroud_snapshot() -> ShroudManager {
+    PROCESS_LIFETIME
+        .shroud()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+/// Snapshot clone of the engine-lifetime Common UpgradeCenter content under
+/// a fresh lock, mirroring [`engine_upgrade_center_snapshot`].
+fn ini_upgrade_center_snapshot() -> Arc<RwLock<IniUpgradeCenter>> {
+    let store = ini_upgrade::process_lifetime_upgrade_center();
+    let snapshot = store
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    Arc::new(RwLock::new(snapshot))
+}
+
+/// Snapshot clone of the engine-lifetime Common AIData store under a fresh
+/// lock so per-world mutations die with the world.
+fn ai_data_snapshot() -> Arc<RwLock<AIDataStore>> {
+    let store = ini_ai_data::process_lifetime_ai_data_store();
+    let snapshot = store
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    Arc::new(RwLock::new(snapshot))
+}
+
+/// Shroud/fog-of-war manager accessor: the active bundle's manager.
+pub fn shroud_manager() -> Arc<Mutex<ShroudManager>> {
+    Arc::clone(active().shroud())
 }
 
 /// C++ `TheAI` accessor: the active bundle's AI.

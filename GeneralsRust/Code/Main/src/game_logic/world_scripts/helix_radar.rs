@@ -1932,7 +1932,8 @@ impl GameLogic {
         if work.is_empty() {
             return;
         }
-        let Ok(mut shroud_mgr) = get_shroud_manager().lock() else {
+        let shroud_manager = get_shroud_manager();
+        let Ok(mut shroud_mgr) = shroud_manager.lock() else {
             return;
         };
         for (player_id, location, old_r, new_r, player_mask) in &work {

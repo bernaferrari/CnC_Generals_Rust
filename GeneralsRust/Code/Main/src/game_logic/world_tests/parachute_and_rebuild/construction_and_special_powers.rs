@@ -761,7 +761,8 @@ fn structure_placement_rejects_shrouded_location_residual() {
 
     // Init shroud grid residual covering world.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.init_shroud_grid(400.0, 400.0);
         // Leave map shrouded (default Hidden) — do not reveal.
     }
@@ -779,7 +780,8 @@ fn structure_placement_rejects_shrouded_location_residual() {
     // Permanent reveal → CELLSHROUD_CLEAR residual (active lookers).
     // Temporary reveal only leaves FOGGED, which still blocks build residual.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         let _ = shroud.reveal_map_for_player_permanently(0);
     }
     assert_eq!(
@@ -794,7 +796,8 @@ fn structure_placement_rejects_shrouded_location_residual() {
 
     // fog_of_war off → fail-open even if shrouded again.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         let _ = shroud.shroud_map_for_player(0);
     }
     logic.set_skirmish_rules(false, true, false, true, 1.0);
@@ -808,7 +811,8 @@ fn structure_placement_rejects_shrouded_location_residual() {
     );
     // Leave permanent reveal so later fog-on tests see CLEAR residual.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         let _ = shroud.reveal_map_for_player_permanently(0);
     }
 }

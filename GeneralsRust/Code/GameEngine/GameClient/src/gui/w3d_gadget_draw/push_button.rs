@@ -402,7 +402,11 @@ pub(super) fn draw_push_button_image_base(window: &GameWindow, inst_data: &Windo
         return;
     }
 
-    draw_push_button_solid_base(window, inst_data);
+    // C++ W3DGadgetPushButtonImageDrawOne (W3DPushButton.cpp:288-368) draws
+    // nothing when the state's image slot is empty — a button parsed with
+    // WIN_STATUS_IMAGE (ControlBar.wnd command/queue buttons) stays invisible
+    // until `setControlCommand` binds its cameo. Falling back to the solid
+    // draw here painted the authored `255 0 0 255` placeholder as solid red.
 }
 
 pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {

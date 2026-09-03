@@ -127,7 +127,8 @@ impl AudioShroudResolver for GameLogicAudioShroudResolver {
             return true;
         }
 
-        let Ok(shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(shroud) = shroud_manager.lock() else {
             return true;
         };
 

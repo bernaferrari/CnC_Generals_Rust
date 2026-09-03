@@ -420,6 +420,9 @@ impl WgpuWrapper {
             encoder: &mut frame.encoder,
             color_view: &frame.color_view,
             depth_view,
+            // Legacy DX8-emulation path: (0, 0) keeps the full-attachment
+            // viewport behavior this path has always had.
+            size: (0, 0),
         })?;
         frame.had_pass = true;
         self.pending_clear = None;

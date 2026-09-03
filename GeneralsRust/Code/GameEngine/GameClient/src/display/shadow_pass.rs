@@ -863,9 +863,24 @@ pub fn record_shadow_and_occlusion_passes(
     light_pos: [f32; 3],
     color_format: wgpu::TextureFormat,
     depth_format: wgpu::TextureFormat,
+    // C++ dx8wrapper Set_Viewport parity: this world-space overlay runs under
+    // the same tactical device viewport as the terrain/mesh lanes. (w, h) in
+    // framebuffer pixels; (0, 0) keeps the full-attachment default.
+    viewport_px: (f32, f32),
 ) {
     let _ = present_volumetric_shadows(depth_format);
     let overlays = present_occluded_player_color_silhouette();
+    let casters = collect_volume_casters();
+    if casters.is_empty() && overlays.is_empty() {
+        return;
+    }
+    let apply_viewport = |pass: &mut wgpu::RenderPass<'_>| {
+        let (vw, vh) = (viewport_px.0.max(1.0), viewport_px.1.max(1.0));
+        pass.set_viewport(0.0, 0.0, vw, vh, 0.0, 1.0);
+        pass.set_scissor_rect(0, 0, vw as u32, vh as u32);
+    };
+    let _ = present_volumetric_shadows(depth_format);
+    let mut overlays = present_occluded_player_color_silhouette();
     let casters = collect_volume_casters();
     if casters.is_empty() && overlays.is_empty() {
         return;
@@ -917,6 +932,7 @@ pub fn record_shadow_and_occlusion_passes(
                         occlusion_query_set: None,
                         timestamp_writes: None,
                     });
+                    apply_viewport(&mut pass);
                     pass.set_pipeline(if stencil {
                         &gpu.volume_pipeline
                     } else {
@@ -953,6 +969,7 @@ pub fn record_shadow_and_occlusion_passes(
                         occlusion_query_set: None,
                         timestamp_writes: None,
                     });
+                    apply_viewport(&mut pass);
                     pass.set_pipeline(&gpu.fill_pipeline);
                     pass.set_bind_group(0, &bind_group, &[]);
                     pass.draw(0..4, 0..1);
@@ -960,6 +977,16 @@ pub fn record_shadow_and_occlusion_passes(
             }
         }
 
+        // UTBSHADOWTAG (documented diagnostic, GENERALS_UTBSHADOWTAG=1):
+        // paint every shadow-pass overlay billboard pure blue to prove
+        // whether unexplained screen artifacts originate in this pass.
+        let utb_shadow_tag =
+            std::env::var("GENERALS_UTBSHADOWTAG").as_deref() == Ok("1");
+        if utb_shadow_tag {
+            for overlay in overlays.iter_mut() {
+                overlay.color = [0.0, 0.0, 1.0, 1.0];
+            }
+        }
         if overlays.is_empty() {
             return;
         }
@@ -997,6 +1024,7 @@ pub fn record_shadow_and_occlusion_passes(
             occlusion_query_set: None,
             timestamp_writes: None,
         });
+        apply_viewport(&mut pass);
         pass.set_pipeline(&gpu.overlay_pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.set_vertex_buffer(0, overlay_buffer.slice(..));

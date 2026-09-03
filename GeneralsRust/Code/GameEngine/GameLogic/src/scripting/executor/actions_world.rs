@@ -368,11 +368,10 @@ impl ScriptActionDispatcher {
         let Ok(players) = player_list().read() else {
             return Ok(ScriptActionResult::Success);
         };
-        let mut shroud_mgr = crate::system::shroud_manager::get_shroud_manager()
-            .lock()
-            .map_err(|_| {
-                ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
-            })?;
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
+            ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
+        })?;
 
         if !player_name.is_empty() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
@@ -403,11 +402,10 @@ impl ScriptActionDispatcher {
         let Ok(players) = player_list().read() else {
             return Ok(ScriptActionResult::Success);
         };
-        let mut shroud_mgr = crate::system::shroud_manager::get_shroud_manager()
-            .lock()
-            .map_err(|_| {
-                ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
-            })?;
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
+            ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
+        })?;
 
         if !player_name.is_empty() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
@@ -440,11 +438,10 @@ impl ScriptActionDispatcher {
         let Ok(players) = player_list().read() else {
             return Ok(ScriptActionResult::Success);
         };
-        let mut shroud_mgr = crate::system::shroud_manager::get_shroud_manager()
-            .lock()
-            .map_err(|_| {
-                ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
-            })?;
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
+            ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
+        })?;
 
         if !player_name.is_empty() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
@@ -477,11 +474,10 @@ impl ScriptActionDispatcher {
         let Ok(players) = player_list().read() else {
             return Ok(ScriptActionResult::Success);
         };
-        let mut shroud_mgr = crate::system::shroud_manager::get_shroud_manager()
-            .lock()
-            .map_err(|_| {
-                ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
-            })?;
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let mut shroud_mgr = shroud_manager.lock().map_err(|_| {
+            ScriptError::ExecutionFailed("Failed to lock ShroudManager".to_string())
+        })?;
 
         if !player_name.is_empty() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {

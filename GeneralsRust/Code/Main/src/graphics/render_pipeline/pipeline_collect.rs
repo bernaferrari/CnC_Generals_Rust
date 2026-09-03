@@ -1809,6 +1809,13 @@ impl RenderPipeline {
                 let depth_view = frame.depth_view_arc();
                 let color_view = frame.color_view_arc();
                 let encoder = frame.encoder();
+                // UTBWATERNULL (documented diagnostic, GENERALS_UTBWATERNULL=1):
+                // skip the main water pass together with the terrain water
+                // lanes to prove whether unexplained screen artifacts
+                // originate in the water family.
+                if std::env::var("GENERALS_UTBWATERNULL").as_deref() == Ok("1") {
+                    return Ok(());
+                }
                 let terrain_visual_guard =
                     game_client::terrain::terrain_visual::get_terrain_visual().ok();
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

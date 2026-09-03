@@ -482,6 +482,7 @@ impl CnCGameEngine {
             "winit_click_named" => self.runtime_host_cmd_winit_click_named(&args),
             "winit_menu_nav" => self.runtime_host_cmd_winit_menu_nav(&args),
             "winit_gameplay_order" => self.runtime_host_cmd_winit_gameplay_order(&args),
+            "winit_click_at" => self.runtime_host_cmd_winit_click_at(&args),
             "window_move" | "move_window" => self.runtime_host_cmd_window_move(&args),
             // Physical drive aids: advance Menu FLASH/BUTTONFLASH transitions
             // (C++ plays them at 60 fps; windowed Menu frames are ~4 s, so the

@@ -1596,22 +1596,40 @@ pub fn resolve_extracted_audiozh_path(filename: &str) -> Option<String> {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or(leaf);
-    const ROOTS: &[&str] = &[
+    // CWD-relative roots miss in the live binary: `main.rs` chdirs to the
+    // executable's directory (`set_current_dir(exe_dir)`), so bare
+    // `windows_game/...` never matches from there. Anchor roots at the
+    // executable's ancestor directories (target/release -> GeneralsRust) so
+    // extracted `AudioZH` trees are found regardless of the process cwd.
+    let mut roots: Vec<PathBuf> = [
         "windows_game/extracted_big_files/AudioZH",
         "windows_game/extracted_big_files_v2/AudioZH",
         "../windows_game/extracted_big_files/AudioZH",
         "../../windows_game/extracted_big_files/AudioZH",
-    ];
+    ]
+    .iter()
+    .map(PathBuf::from)
+    .collect();
+    if let Ok(exe) = std::env::current_exe() {
+        for ancestor in exe.ancestors().skip(1).take(4) {
+            for tail in [
+                "windows_game/extracted_big_files/AudioZH",
+                "windows_game/extracted_big_files_v2/AudioZH",
+            ] {
+                roots.push(ancestor.join(tail));
+            }
+        }
+    }
     const SUBS: &[&str] = &["", "Sounds", "Music", "Speech", "Streams"];
     const EXTS: &[&str] = &[".wav", ".mp3", ".WAV", ".MP3"];
     let mut candidates: Vec<PathBuf> = Vec::new();
-    for root in ROOTS {
-        candidates.push(PathBuf::from(root).join(&native));
+    for root in &roots {
+        candidates.push(root.join(&native));
         for sub in SUBS {
             let dir = if sub.is_empty() {
-                PathBuf::from(root)
+                root.clone()
             } else {
-                PathBuf::from(root).join(sub)
+                root.join(sub)
             };
             candidates.push(dir.join(leaf));
             for ext in EXTS {

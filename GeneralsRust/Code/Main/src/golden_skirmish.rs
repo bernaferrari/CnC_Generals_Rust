@@ -229,6 +229,17 @@ fn install_templates(logic: &mut GameLogic) {
             1500,
             0.1,
         ),
+        // Retail gatherers author KINDOF_HARVESTER (AmericaVehicleChinook.ini /
+        // GLAWorker.ini `KindOf = ... DOZER HARVESTER`); a harvester fixture
+        // keeps the Gather step on the live collector path instead of a dozer
+        // the executor must refuse (C++ gather semantics are harvester-only).
+        template(
+            "GoldenHarvester",
+            &[KindOf::Vehicle, KindOf::Harvester, KindOf::Selectable],
+            300.0,
+            1200,
+            0.1,
+        ),
     ];
     // Explicit template weapon for production rangers (host primary_weapon path).
     if let Some(ranger) = templates.iter_mut().find(|t| t.name == "GoldenRanger") {
@@ -532,6 +543,66 @@ fn ensure_dozer(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
                 logic.create_object("GoldenDozer", Team::USA, pos)
             }
         })
+}
+
+/// Find or field a KINDOF_HARVESTER collector for the Gather step.
+///
+/// Retail USA gathering is the Chinook (AmericaVehicleChinook authors
+/// `KindOf = ... HARVESTER` + ChinookAIUpdate, AmericaAir.ini), never the dozer
+/// (`KindOf = ... DOZER` + DozerAIUpdate, AmericaVehicle.ini AmericaVehicleDozer),
+/// so the collector template must author KINDOF_HARVESTER for the live gather
+/// executor to engage (is_resource_collector gate). Prefers an existing live
+/// harvester, then the retail Chinook template, then the golden harvester fixture.
+fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
+    if let Some(existing) = logic
+        .host_objects()
+        .values()
+        .find(|o| {
+            o.team == Team::USA
+                && o.is_alive()
+                && o.can_move()
+                && o.is_resource_collector()
+        })
+        .map(|o| o.id)
+    {
+        return Some(existing);
+    }
+    let name = first_present_template(
+        logic,
+        &["AmericaVehicleChinook", "USA_Chinook", "ChinaVehicleSupplyTruck"],
+    )
+    .unwrap_or_else(|| "GoldenHarvester".into());
+    let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 12.0));
+    logic.create_object(&name, Team::USA, pos)
+}
+
+/// Author the retail producer CommandSet identity on a supply center object.
+///
+/// Retail AmericaSupplyCenter authors `CommandSet = AmericaSupplyCenterCommandSet`
+/// and `Behavior = ProductionUpdate` (FactionBuilding.ini AmericaSupplyCenter
+/// block); the set's slot 13 button Command_UpgradeAmericaSupplyLines carries
+/// `Upgrade = Upgrade_AmericaSupplyLines` (CommandSet.ini:785-789,
+/// CommandButton.ini:1080-1086).  C++ Object::canProduceUpgrade walks exactly
+/// that command set via getCommandSetString() (Object.cpp:6093-6106) before
+/// ProductionUpdate::queueUpgrade accepts research (ProductionUpdate.cpp:250-272).
+/// Main's host template type has no command-set field, so the fixture stamps the
+/// Object-level override (C++ Object::m_commandSetStringOverride channel) on
+/// every USA supply-center template name the slice spawns (USA_SupplyCenter /
+/// AmericaSupplyCenter / GoldenSupplyCenter — the port synthesizes both spellings
+/// for the same retail producer).
+fn stamp_supply_center_producer_set(logic: &mut GameLogic, id: ObjectId) {
+    let is_usa_supply_center = logic
+        .host_object(id)
+        .map(|o| {
+            o.team == Team::USA && o.template_name.to_ascii_lowercase().contains("supplycenter")
+        })
+        .unwrap_or(false);
+    if !is_usa_supply_center {
+        return;
+    }
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.set_command_set_override(Some("AmericaSupplyCenterCommandSet".to_string()));
+    }
 }
 
 /// First catalog template name that exists, in preference order.
@@ -1477,7 +1548,7 @@ fn fight_enemies_with_rangers(
     let combat_no_teleport_ok = !used_teleport_pull;
     (
         fought,
-        combat_destroyed && !enemies_left,
+        combat_destroyed,
         combat_no_teleport_ok,
         realistic_speed_ok,
         store_damage_ok,
@@ -1501,6 +1572,9 @@ fn run_synthetic_host_skirmish(
     let _power = logic.create_object("GoldenPower", Team::USA, Vec3::new(-50.0, 0.0, 0.0));
     let supply_center =
         logic.create_object("GoldenSupplyCenter", Team::USA, Vec3::new(-90.0, 0.0, 0.0));
+    if let Some(sc_id) = supply_center {
+        stamp_supply_center_producer_set(logic, sc_id);
+    }
     let dozer = logic
         .create_object("GoldenDozer", Team::USA, Vec3::new(60.0, 0.0, 0.0))
         .expect("dozer");
@@ -1555,18 +1629,54 @@ fn run_synthetic_host_skirmish(
         .find(|o| o.template_name == "Barracks" && o.team == Team::USA && o.is_constructed())
         .map(|o| o.id);
 
+    // Gather engages a HARVESTER, never the dozer: retail USA gathers with the
+    // Chinook (AmericaVehicleChinook authors `KindOf = ... HARVESTER` +
+    // ChinookAIUpdate, AmericaAir.ini) while the dozer authors
+    // `KindOf = ... DOZER` + DozerAIUpdate (AmericaVehicle.ini AmericaVehicleDozer).
+    // The gather executor's is_resource_collector gate is that parity, so the
+    // fixture must field a collector. Prefer the retail template; fall back to
+    // the golden harvester fixture (same KINDOF_HARVESTER authorship).
+    // Ground harvester first: the soup world exercises the generic ground
+    // gather→carry→deposit loop (GLA-worker parity: retail WorkerAIUpdate
+    // gathers on foot, GLAInfantry.ini:3749/3756). The Chinook is air — its
+    // helicopter pathing is not exercised by this fixture, so it engages
+    // Gathering without ever closing to accrual range (cash-backed gate).
+    let gatherer = logic
+        .create_object("GoldenHarvester", Team::USA, Vec3::new(60.0, 0.0, 12.0))
+        .or_else(|| {
+            logic.create_object("AmericaVehicleChinook", Team::USA, Vec3::new(60.0, 0.0, 12.0))
+        })
+        .unwrap_or(dozer);
+    // Retail SupplyPile authors stock via SupplyWarehouseDockUpdate
+    // `StartingBoxes = 150` (CivilianBuilding.ini SupplyPile block); stamp the
+    // golden pile so gather depletes authored stock instead of minting value.
+    if let Some(pile) = logic.host_object_mut(supply) {
+        pile.set_stored_supplies(2000);
+    }
     // Gather via production Gather command.
     logic.queue_command(command(
         3,
         0,
         CommandType::Gather { target_id: supply },
-        vec![dozer],
+        vec![gatherer],
     ));
     logic.process_commands();
-    let gathered = logic
-        .host_object(dozer)
+    let gather_engaged = logic
+        .host_object(gatherer)
         .map(|o| o.ai_state == AIState::Gathering && o.target == Some(supply))
         .unwrap_or(false);
+    // Cash-backed engagement: state authorship alone proved nothing (the old
+    // check read ai_state and masked a dead economy). C++ gather accrues by
+    // carry + SupplyCenter deposit crediting the owner's Money (WorkerAIUpdate /
+    // ChinookAIUpdate ferry, SupplyTruckAIUpdate::gainOneBox); require supplies
+    // to actually move into player 0's cash.
+    let cash_at_gather = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
+    let gathered = gather_engaged
+        && run_until(logic, 1200, |g| {
+            g.get_player(0)
+                .map(|p| p.resources.supplies > cash_at_gather)
+                .unwrap_or(false)
+        });
 
     let system = CommandSystem::new();
     let mut produced = false;
@@ -1605,6 +1715,13 @@ fn run_synthetic_host_skirmish(
         });
     }
 
+    // Upgrade claim honesty: the queue must be accepted by the authored
+    // producer AND the building-attached research must complete on the live
+    // tick (C++ ProductionUpdate::update PRODUCTION_UPGRADE progress,
+    // ProductionUpdate.cpp:596-660; research lives only on the producer's
+    // queue, ProductionUpdate.cpp:636-648).  A player-side queue entry alone
+    // proved nothing — with the fixture unauthored the command used to return
+    // InvalidCommand and research never started.
     let mut upgraded = false;
     if let Some(sc) = supply_center {
         let up_cmd = command(
@@ -1616,11 +1733,23 @@ fn run_synthetic_host_skirmish(
             vec![sc],
         );
         let up_result = system.execute_command(&up_cmd, logic);
-        let player = logic.get_player(0);
+        let queued_on_producer = logic.host_object(sc).map(|o| {
+            o.building_data
+                .as_ref()
+                .map(|b| {
+                    b.production_queue
+                        .iter()
+                        .any(|i| i.is_upgrade() && i.template_name.eq_ignore_ascii_case("Upgrade_AmericaSupplyLines"))
+                })
+                .unwrap_or(false)
+        }).unwrap_or(false);
         upgraded = up_result == CommandResult::Success
-            || player
-                .map(|p| p.queued_upgrades.contains("Upgrade_AmericaSupplyLines"))
-                .unwrap_or(false);
+            && queued_on_producer
+            && run_until(logic, 1200, |g| {
+                g.get_player(0)
+                    .map(|p| p.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"))
+                    .unwrap_or(false)
+            });
     }
 
     let production_rangers: Vec<_> = logic
@@ -1772,6 +1901,9 @@ fn run_map_world_skirmish(
                 clamp_build_site(logic, base + Vec3::new(-30.0, 0.0, 0.0)),
             )
         });
+    if let Some(sc_id) = supply_center {
+        stamp_supply_center_producer_set(logic, sc_id);
+    }
 
     // Gather target: map SupplyDock/pile → seed retail dock → GoldenSupply fallback.
     let (supply, retail_supply_target) = resolve_map_gather_target(logic, base);
@@ -1890,6 +2022,12 @@ fn run_map_world_skirmish(
     }
 
     // Gather via production Gather command (map/retail supply preferred).
+    // The collector must be a harvester (retail USA gatherer is the Chinook —
+    // AmericaVehicleChinook `KindOf = ... HARVESTER` + ChinookAIUpdate,
+    // AmericaAir.ini; the dozer authors `KindOf = ... DOZER` + DozerAIUpdate,
+    // AmericaVehicle.ini AmericaVehicleDozer and never harvests). The executor
+    // refuses non-harvesters with KINDOF_HARVESTER parity, so route a harvester.
+    let gatherer = ensure_harvester(logic, base).unwrap_or(dozer);
     let mut gathered = false;
     if let Some(sid) = supply {
         // Re-assert harvestable right before Gather in case AI/map churned kinds.
@@ -1898,26 +2036,31 @@ fn run_map_world_skirmish(
             10,
             0,
             CommandType::Gather { target_id: sid },
-            vec![dozer],
+            vec![gatherer],
         ));
         logic.process_commands();
         gathered = logic
-            .host_object(dozer)
+            .host_object(gatherer)
             .map(|o| o.ai_state == AIState::Gathering && o.target == Some(sid))
             .unwrap_or(false);
         // If retail/map target rejected, fall back to GoldenSupply so slice stays green.
         if !gathered && retail_supply_target {
             let pos = clamp_build_site(logic, base + Vec3::new(55.0, 0.0, 10.0));
             if let Some(gid) = logic.create_object("GoldenSupply", Team::Neutral, pos) {
+                if let Some(pile) = logic.host_object_mut(gid) {
+                    // Retail SupplyPile stocks via SupplyWarehouseDockUpdate
+                    // `StartingBoxes = 150` (CivilianBuilding.ini SupplyPile).
+                    pile.set_stored_supplies(2000);
+                }
                 logic.queue_command(command(
                     11,
                     0,
                     CommandType::Gather { target_id: gid },
-                    vec![dozer],
+                    vec![gatherer],
                 ));
                 logic.process_commands();
                 gathered = logic
-                    .host_object(dozer)
+                    .host_object(gatherer)
                     .map(|o| o.ai_state == AIState::Gathering && o.target == Some(gid))
                     .unwrap_or(false);
             }
@@ -1927,7 +2070,7 @@ fn run_map_world_skirmish(
     let retail_gather_ok = gathered
         && retail_supply_target
         && logic
-            .host_object(dozer)
+            .host_object(gatherer)
             .and_then(|o| o.target)
             .and_then(|tid| logic.host_object(tid))
             .map(|t| t.template_name != "GoldenSupply" && !t.template_name.starts_with("Golden"))

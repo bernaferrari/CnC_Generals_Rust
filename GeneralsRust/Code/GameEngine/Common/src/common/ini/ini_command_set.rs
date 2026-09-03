@@ -394,19 +394,33 @@ impl CommandSetManager {
         let mut manager =
             get_command_set_manager_mut().expect("Command set manager not initialized");
 
-        // Check if command set already exists
-        if let Some(existing_set) = manager.find_command_set(&name) {
+        // Check if command set already exists.
+        // C++ ControlBar.cpp:1949-1981 (KM's note): on a duplicate the existing
+        // set is re-used and its fields re-parsed ("nuke the old button with
+        // the new one"); the DEBUG_CRASH there is debug-only. Recovered retail
+        // repacks legitimately re-author CommandSet blocks inside
+        // MappedImages TextureSize_512 control-bar files before
+        // Data/INI/CommandSet.ini loads, so a hard abort here killed the whole
+        // strict parse and left the ControlBar bridge uninitialized.
+        if manager.find_command_set(&name).is_some() {
             if ini.get_load_type() != super::ini::INILoadType::CreateOverrides {
-                eprintln!(
-                    "Duplicate command set {} found at line {} in '{}'",
+                log::debug!(
+                    "Duplicate command set {} found at line {} in '{}' — re-parsing into existing set (retail overwrite)",
                     name,
                     ini.get_line_num(),
                     ini.get_filename()
                 );
-                return Err(INIError::InvalidData);
+                let existing_set = manager
+                    .find_command_set_mut(&name)
+                    .expect("command set just found is missing");
+                existing_set.parse_command_set_fields(ini)?;
+                existing_set.validate()?;
             } else {
                 // Create override
-                let base_set = existing_set.clone();
+                let base_set = manager
+                    .find_command_set(&name)
+                    .expect("command set just found is missing")
+                    .clone();
                 let override_set = manager.new_command_set_override(&base_set);
                 override_set.parse_command_set_fields(ini)?;
                 override_set.validate()?;

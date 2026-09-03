@@ -342,6 +342,40 @@ impl CnCGameEngine {
         };
     }
 
+    /// Windowed drive aid: left-click at a client logical point through the
+    /// same `handle_mouse_button_input` path as physical winit input
+    /// (`MouseInputOrigin::Injected`). InGame only; headless fails closed.
+    /// World-pick / build-placement clicks need a free cursor position, which
+    /// `winit_click_named` (gadget centers only) cannot express.
+    pub(super) fn runtime_host_cmd_winit_click_at(&mut self, args: &HashMap<String, String>) {
+        if self.runtime_host_headless {
+            self.runtime_host_last_gameplay_cmd = "winit_click_at_fail_headless".into();
+            return;
+        }
+        if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.runtime_host_last_gameplay_cmd = "winit_click_at_fail_not_ingame".into();
+            return;
+        }
+        let (Some(x), Some(y)) = (
+            args.get("x").and_then(|s| s.trim().parse::<f32>().ok()),
+            args.get("y").and_then(|s| s.trim().parse::<f32>().ok()),
+        ) else {
+            self.runtime_host_last_gameplay_cmd = "winit_click_at_fail_no_point".into();
+            return;
+        };
+        let size = self.window.inner_size();
+        if x < 0.0 || y < 0.0 || x > size.width as f32 || y > size.height as f32 {
+            self.runtime_host_last_gameplay_cmd =
+                format!("winit_click_at_fail_out_of_window:{x},{y}");
+            return;
+        }
+        self.inject_winit_equivalent_cursor_at(x, y);
+        self.inject_winit_equivalent_mouse_button(winit::event::MouseButton::Left, true);
+        self.inject_winit_equivalent_mouse_button(winit::event::MouseButton::Left, false);
+        log::info!("winit_click_at: injected LMB at ({x},{y}) (inject, not physical)");
+        self.runtime_host_last_gameplay_cmd = format!("winit_click_at_ok:{x},{y}");
+    }
+
     /// Park the OS window in point-space so a HID clicker can hit gadgets
     /// that would otherwise sit under overlapping IDE/agent windows.
     /// Does not inject mouse and does not touch playable_claim evidence.

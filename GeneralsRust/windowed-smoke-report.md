@@ -1537,3 +1537,1015 @@ coordinate before building shared binaries. Harness: `/tmp/wsmoke/discdrive.sh`
 (mode depth|cull|noterrain|zprobe|control, GENERALS_BIN override),
 `/tmp/wsmoke/disc_pixdiff.py` (RGBA-correct), captures
 `/tmp/wsmoke/disc_*_{dozer,cc}.png`, logs `/tmp/wsmoke/disc_*.log`.
+
+---
+
+## DepthLaneFix — final unit-render blocker CLOSED: terrain-vs-mesh depth lane was a VIEWPORT mismatch; mesh pass now renders under the camera tactical viewport (dx8wrapper Set_Viewport parity); units land in-match with default C++ depth state, no env gates (2026-09-03 08:20-10:10)
+
+### 1. Quiet-box ZPROBE drive + harness repair
+Live tree was clean at 3f30f3ae6; rebuilt release (provenance-known binary).
+First drive (z1/z2 era) stalled at Menu with status.txt empty and the child
+skipping Menu: `/tmp/wsmoke/discdrive.sh` had been edited at 07:46 (after the
+06:17 success) and LOST its `-gpui_control/-gpui_status/-gpui_frame` args —
+`RuntimeHostBridge::from_command_line` returns None without them, so nothing
+published status or drained control (run_loop still reached state=Menu
+internally). Restored the args to the launch line; drives flowed again.
+ZPROBE itself then never fired: (a) main.rs:221 hard-filters
+`generals_main::graphics` to Warn, so the probe's `info!` dumps were invisible;
+(b) the probe latched on the FIRST execute() ever (Loading frame #0, zero
+items). Fixed both: fires on the first world-scene frame with items; logs at
+warn. Drive evidence: disc_zprobe_{z3,z4,z5}.log + /tmp/wsmoke/disc_zprobe_stderr.log.
+
+### 2. The z-diff verdict: NOT a z-formula mismatch — a VIEWPORT mismatch
+ZPROBE (16 distinct model families, 3x3 GPU depth neighborhoods, corner +
+column profile):
+- Dozer AVCONSTDOZ_A (3108,120,2201.3): mesh_z/w == ground_z/w == 0.979874
+  EXACTLY (on-ground item; both lanes share the same D3D [0,1] near=10/far=12000
+  projection — DepthSlabFix verified on both lanes via the same execute() args).
+- Stored gpu_depth at that pixel: 0.977765 — CLOSER than the mesh z.
+- Center-column profile (px=320): smooth monotone terrain ramp
+  0.988029@py8 → 0.974891@py360, then a DISCONTINUITY to ~0.9826 at py≈392,
+  and bottom corners read exactly 1.000000.
+384 = 480 × tactical_view_height_frac (0.8): the terrain/water/selection
+pre-scene passes render into viewport (0,0,640,384) while the "WW3D Main
+Render Pass" set NO viewport (full 480). Every mesh fragment compared against
+the WRONG ROW of terrain-written depth (1.25× row skew, monotonic toward
+nearer terrain) and lost LESSEQUAL everywhere visible; the only mesh fragments
+that could land were below py=384 — under the command bar. The Always
+discriminator "worked" by ignoring the (misrowed) depth entirely. No per-pass
+clear problem, no camera-z problem, no shader depth_compare problem
+(from_w3d_shader enum order == C++ W3dDepthCompareType; model_loader's parsed
+depth_compare bytes are inert — ShaderClass default is Lequal+Enable).
+
+### 3. Fix landed (C++ dx8wrapper Set_Viewport parity)
+D3D applied the tactical viewport as DEVICE state — every scene lane rendered
+through the same rect. wgpu viewports are per-pass, so the mesh lane must opt
+in explicitly:
+- `ww3d-renderer-3d/src/lib.rs`: `RenderTargets` gained `size: (u32,u32)`;
+  `render_with_targets` now applies `camera.get_viewport()` (normalized,
+  set by ForwardPass to (0,0)-(1,frac)) scaled by the attachment size as
+  viewport+scissor on the main pass before recording draws. `(0,0)` size
+  (legacy `wgpu_wrapper::with_render_targets` path) keeps full-attachment
+  behavior unchanged.
+- `ww3d-engine/src/lib.rs`: `RenderFrame::size()` accessor.
+- Same-parity sweep of the other world-space lanes that read terrain depth:
+  selection world overlay (selection_renderer.rs, via new
+  `RenderPipeline::tactical_viewport_pixel_size()`) and the post-frame
+  volume-shadow/occlusion overlay (`record_shadow_and_occlusion_passes`
+  gained `viewport_px`; pipeline_execute passes the tactical size; legacy
+  display.rs caller passes (0,0)).
+Env gates (GENERALS_DISC_DEPTH/CULL/NOTERRAIN, GENERALS_ZPROBE) stay as
+documented diagnostics; defaults are C++ parity (LESSEQUAL + depth writes).
+
+### 4. Verification
+- Two independent control drives (disc_control_vfix1/vfix2 + debug zprobe run):
+  mesh fragments LAND in-match with the default depth state — white geometry
+  at the dozer/CC look-at, terrain correct in the top-80% band, full in-match
+  command bar. Structurally identical across runs (reproducible), and
+  visually the same landing as the GENERALS_DISC_DEPTH=1 capture
+  (disc_depth_disc1_dozer.png) — without any env gate. Captures:
+  /tmp/wsmoke/disc_control_vfix1_dozer.png, /tmp/wsmoke/vfix2_zprobe.png.
+- ww3d-renderer-3d --lib: 356/356 (one transient 2-fail on a contended
+  re-run; clean 356 pass on re-run).
+- combat-filter catalog guard: wave966 unit-catalog residual test passes
+  (generals_main --lib, 10329 filtered).
+
+### 5. Remaining gap (NEXT lane, NOT depth): unit fragments land WHITE
+The landed geometry renders the missing-texture marker white — identical to
+the pre-routing Always capture. This run shows ZERO `Loading raw texture from
+archive` primes even at RUST_LOG=debug: the MeshPassTextureProvider is never
+consulted, i.e. passes end with no stage textures at all (names never reach
+`ensure_texture`), so the landed MissingTexture routing correctly paints them
+with w3d_missing_texture.tga (marker is 54% pure white). Next driver: trace
+`per_pass_stage_texture_names` population for ABBtCmdHQ/AVCONSTDOZ meshes
+(`is_valid_texture_name` / `stage_texture_names_from_ids`) — tb1's MATDUMP
+showed those names resolving, so something between mesh parse and pass build
+dropped them since.
+
+### Guards / hygiene
+No git writes; no formatters; serial cargo. Changed files:
+`ww3d-renderer-3d/src/lib.rs`, `ww3d-renderer-3d/src/rendering/wgpu_renderer/wgpu_wrapper.rs`,
+`ww3d-engine/src/lib.rs`, `Main/src/graphics/render_pipeline/pipeline_execute.rs`
+(ZPROBE gate/level + shadow viewport arg), `Main/src/graphics/render_pipeline/pipeline_lifecycle.rs`
+(accessor), `Main/src/graphics/selection_renderer.rs`,
+`GameClient/src/display/shadow_pass.rs`, `GameClient/src/display/display.rs`.
+Harness fix: /tmp/wsmoke/discdrive.sh regained -gpui_* args. gameworld_shadow
+302/302 NOT re-run (no shadow-lane behavior change expected; viewport-only);
+world_tests catalog untouched by the change.
+
+---
+
+## TexNameFix — texture-name trace: parse lane and ForwardPass pass-build lane are CLEAN; white rendering localizes to the ww3d MeshRenderManager first-bind/upload path (2026-09-03 10:30-12:10)
+
+### 1. What was traced (task: per-pass stage texture names for ABBtCmdHQ/AVCONSTDOZ)
+- **Chunk ground truth** (Python BIG reader over W3DZH.big + C++ w3d_file.h constants):
+  mesh chunk order is HEADER(0x1F)→VERTICES→NORMALS→TRIANGLES(0x20)→SHADE(0x22)→
+  MATERIAL_INFO(0x28)→VERTEX_MATERIALS(0x2A)→SHADERS(0x29)→TEXTURES(0x30→0x31
+  TEXTURE→0x32 NAME)→MATERIAL_PASS(0x38→0x48 TEXTURE_STAGE→0x49 TEXTURE_IDS).
+  ABBtCmdHQ.W3D (73,955B) and AVCONSTDOZ_A.W3D (43,687B — EXISTS in W3DZH.big;
+  the earlier "not in any BIG" impression was wrong) both carry real texture
+  tables (Housecolor2.tga, Avbattlesh.tga, avconstdoz.tga, ATHQSlab.tga+22 more)
+  and per-polygon TEXTURE_IDS (CC BUILDING: 474 ids over 23 textures).
+- **Main parse probe (temp test, real archive bytes)**: `W3DLoader::
+  parse_w3d_data_legacy` populates `texture_library`, `per_pass_stage_texture_ids`
+  AND `per_pass_stage_texture_names` correctly for all 3 in-match models
+  (e.g. AVCONSTDOZ_A CHASSIS → [["avconstdoz.tga"]], mat_tex=Some("avconstdoz.tga")).
+  Nothing drops between mesh parse and W3DMesh.
+- **ForwardPass pass-build probe (temp warn in assign_stage_textures_for_pass)**:
+  runs for the unit lane, `is_valid_texture_name` passes, `ensure_texture`
+  returns Some for every probed stage (assigned=true, e.g. RADAR02 →
+  "Avbattlesh.tga"). ZERO "Missing texture fallback" warns all session — the
+  ForwardPass lane binds real pixel-backed textures, not fallbacks.
+
+### 2. Where the white actually comes from
+- **ww3d-lane draw probe (temp warn in MeshRenderManager::stage_resources_for)**:
+  the drawn passes reach the ww3d lane with stage 0 present but NO GPU view and
+  the provider installed (`WW3DSTAGE stage 0 name-only texture 'Avbattlesh.tga'
+  provider=true`); stages 1-7 empty (single-stage passes — normal). The probe
+  fired at Menu time (menu background AVBattleSh/AVChinookAG use the same lane),
+  so menu+in-match share this path.
+- Capture forensics (tex1/tex2/tex3 vs disc_control_vfix1): the "white" unit
+  band at py≈352-384 is a smooth 201-254 gradient — consistent with the
+  w3d_missing_texture.tga marker (96% white + sparse dark dots) under bilinear
+  filtering, i.e. MeshRenderManager FALLBACK, and NOT the ForwardPass magenta
+  4x4 fallback (never observed). So pass textures exist at build time but the
+  first-bind upload/provider hydration in `ensure_gpu_texture_view` does not
+  produce a bound view at draw time.
+
+### 3. Measurement gotcha (invalidates earlier "zero primes" evidence)
+`main.rs` env_logger setup calls `.filter_level(level)` AFTER parsing RUST_LOG,
+which overrides the unnamed filter: **RUST_LOG=debug never takes effect**; the
+`-log_level` CLI arg is required. "Loading raw texture from archive"
+(assets::textures, debug!) was therefore invisible in tex1/tex2 — provider
+consultation/primes may well have happened and failed. Re-probe with
+`-log_level=debug` (or temporarily log at warn).
+
+### 4. Next driver (precise)
+One env-gated or warn-capped probe round in `MeshRenderManager::
+ensure_gpu_texture_view` (log per unique name: pixels.len(), width, height,
+format on each early-return) plus `resolve_archive_pass_texture`
+(Main/src/graphics/render_pipeline/mod.rs:89 — log None results; get_raw_texture
+miss vs decode failure). Hypotheses in order: (a) raw pixels empty in the
+TextureClass that reaches the ww3d lane (Arc share/mutation), (b) provider
+resolves but its `ensure_gpu_texture_view` fails the same guard, (c)
+`pass.get_texture(stage)` is None at draw for the in-match CC (probe cap
+consumed by menu models in tex3 — dedupe by name, not count).
+
+### 5. Probes removed; tree clean
+All temp probes/tests removed (git diff vs HEAD on the four touched files is
+empty: ww3d render_manager.rs, forward_render.rs, forward_materials.rs,
+assets/models/tests.rs). Guards untouched (combat filter, world_tests,
+gameworld_shadow, ww3d 356 not affected — diagnostics only, no behavior
+change landed). Captures/logs: /tmp/wsmoke/tex{1,2,3}_dozer.png,
+tex{1,2,3}_stderr.log; BIG extracts /tmp/wsmoke/bigw3d/.
+
+---
+
+## UnitTexBind — white-unit bind path ELIMINATED as the blocker: pass state at DRAW is perfect (real textures, real UVs, fallback never fires); white is generated GPU-side; UTBLIGHT probe staged as the next discriminator (2026-09-03 12:00-13:15)
+
+Method: three windowed 640x480 skirmish drives vs Defcon6 (utbdrive1.sh → /tmp/wsmoke/utb_utb{1,2,3}_stderr.log, utb_utb{1,3}_dozer.png) with env-free warn-level probes in render_manager.rs (UTBMESH per-model draw-state dump, UTBWHITE fallback-tail logger, UTBPROVMISS provider-miss logger; caps filled menu-first so all decisive lines are menu-era, but pass state is per-model and stable). Plus offline python BIG/DDS/W3D parsing of the retail archives (Textures.big + /tmp/wsmoke/bigw3d/*.W3D). Coordination: took render_manager.rs ownership from TexNameFix (their probes removed, their 4 files clean); ctrl/text siblings kept their lanes.
+
+### 1. Everything CPU-side is PROVEN correct at draw time (supersedes DepthLaneFix §5 "provider never consulted")
+- That session's "zero primes" was a log-filter artifact: `Loading raw texture from archive` is `debug!` (generals_main::assets::textures) and main.rs filter_level overrides RUST_LOG — only `-loglevel=debug` shows it. utb1 with `-loglevel=debug`: 109 primes at menu + 5 in-match (avconstdoz.tga, ZBSupplyDk.tga, CTgraymetal.tga…), zero decode failures.
+- UTBMESH (drawn `prepared.material_passes`): dozer/battleship/chinook meshes draw `pass0 mask=01 [s0='avconstdoz.tga' 256x256 262144B texel0=(255,255,255) texelMid=(49,40,33)]` — the exact texture that assign_stage_textures_for_pass filled, WITH real decoded pixels. Pass-instance divergence DISPROVEN.
+- UTBWHITE (white 1x1 fallback returned while a texture is bound) = 0 across a full session. UTBPROVMISS = 0. The MeshRenderManager fallback NEVER fires for stage 0.
+- UV stream healthy: `uvch=0 layer0len=20 v0..2=(0.454,0.067)(0.454,0.079)(0.523,0.079)` — real varied per-vertex UVs; avconstdoz_d.W3D stage texcoord pools exactly match per-mesh vertex counts (46/20/62/8/56/208), no per-face remap needed.
+- Texture content healthy end to end: parse_dds stores headerless level-0 DXT bytes; python decode of the same avconstdoz.dds blocks gives mean RGB (99,95,80) tan — matches texelMid=(49,40,33) region. Decode is NOT white.
+
+### 2. What the screen shows
+utb1/utb3 + tex2 captures pixel-verified: unit silhouettes are FLAT pure (255,255,255) with hard unshaded edges against correct terrain — no gradient, no texture detail, no anti-aliasing. A textured surface under any sane lighting cannot produce exactly-flat 255; nor can the white fallback (mask would be 01 with a bound white texture, still lit → 200-255 gradient).
+
+### 3. Conclusion + staged next probe
+The white is synthesized GPU-side AFTER a correct bind: prime suspects (a) lighting uniform scale for the mesh lane (`lighting.ambient_color`/light colors in the camera/model binds — map metadata passes through `light_from_map_channels` UNNORMALIZED; a 0-255-scale ambient clamps every fragment to flat white while the terrain lane, which carries its own lighting path, stays correct — matches the white-vs-terrain split exactly), (b) the upload→sampler path producing a white sample. UTBLIGHT probe (one `Once` warn! dumping `render_info.lighting.ambient` + per-light colors) is WRITTEN but NOT landed — render_manager.rs was restored to HEAD pre-probe state (git-diff clean) when the build queue broke on sibling `game-client-rust` in-flight edits; next driver: re-add UTBLIGHT (10 lines, inside the UTBMESH block site, draw_material_pass), rebuild, one drive reads it off the first frame.
+
+### Guards / hygiene
+No git writes; no formatters. render_manager.rs restored byte-identical to HEAD (`git diff` empty, grep UTB/W3DSTAGE = 0); `cargo check -p ww3d-renderer-3d --lib` clean after restore. NOTE: target/release/generals (12:36-12:49 era) still CONTAINS the older UTB probes — rebuild before trusting any new binary's silence. ww3d 356 / combat filter / gameworld_shadow / world_tests untouched. Evidence: /tmp/wsmoke/utb_utb{1,2,3}_stderr.log, utb_utb{1,3}_dozer.png, utbdrive1.sh; sibling frames under /var/folders/.../generals_exec_smoke_manual_1788448303 (gtprobe, 200 UTBMESH lines).
+
+---
+
+## MinimapShroud — minimap shroud semantics vs C++ W3DRadar: lib-path look/unlook driver + accumulator removal landed; live minimap verified (2026-09-03 11:30-13:10)
+
+### Scope
+Verify/fix minimap initial-reveal radius + movement-driven shroud reveal vs
+GeneralsMD C++ (W3DRadar.cpp + PartitionManager.cpp + Object.cpp), with
+windowed drives on Defcon6 skirmish.
+
+### C++ semantics (citations)
+- Radar shroud texture: per-cell alpha SHROUDED=255 / FOGGED=127 / CLEAR=0;
+  `W3DRadar::setShroudLevel` paints partition-cell rects
+  (W3DRadar.cpp:1252-1314); `clearShroud` alpha=0 fill at reset
+  (W3DRadar.cpp:1232-1248); draw order terrain→overlay→shroud→icons
+  (W3DRadar.cpp:1369-1401).
+- Reveal is logic-side: `PartitionCell::addLooker/removeLooker/addShrouder`
+  edge-trigger `TheRadar->setShroudLevel` (PartitionManager.cpp:1264-1265,
+  1300-1301, 1327-1328); `PartitionManager::doShroudReveal` DiscreteCircle
+  (3937-3958); `Object::look/unlook` cycle on cell change
+  (`PartitionData::friend_updateCellsTouched` → `obj->onPartitionCellChange`,
+  PartitionManager.cpp:2052-2062; Object.cpp:4779-4784, 4909-5042) with
+  `queueUndoShroudReveal` → old circle drops CLEAR→FOGGED after
+  `UnlookPersistDuration` (processed each partition update, 2739).
+- Initial reveal at map start = first look of starting objects
+  (ShroudClearingRange, UNDER_CONSTRUCTION clamped to bounding radius,
+  Object.cpp:5128-5137).
+
+### Divergences found → fixes landed (gamelogic lib path)
+1. `ShroudManager::update_shroud_grid_for_player` re-added looker circles
+   every vision recalc (~10 frames) and NEVER removed lookers → unbounded
+   counter growth and permanent CLEAR on everything ever seen (defeats the
+   C++ CLEAR→FOGGED transition). Removed; Phase-7 update now only refreshes
+   object visibility/explored sets (shroud_manager.rs).
+2. No movement driver: gamelogic PartitionManager lacked the C++
+   onPartitionCellChange hook. Added `PartitionObject::shroud_last_cell`
+   (C++ `m_lastCell`, NULL-initial → first sync fires, PartitionManager.cpp
+   parity), cell-change capture in `update_object_position`,
+   `take_cell_changed_events`, `CollisionSystem::partition_manager_mut`, and
+   deferred dispatch of `Object::handle_partition_cell_maintenance` in
+   `resolve_damage_and_physics` (impl_update.rs:984-1033) — deferred so no
+   object read guard is held (deadlock-free; team_identity.rs:81 pattern).
+3. Strengthened `test_fow_uses_shroud_clearing_range_not_vision_range` with
+   positive grid assertions via the doShroudReveal primitive (visible within
+   25-unit shroud-clearing circle; NOT visible at 100 despite vision 300).
+
+Note: the HOST (dual-world) minimap path already implements the faithful
+look/unlook in `update_main_crate_vision`
+(Main/src/game_logic/world_objects/spawn_templates/vision.rs) — per-object
+last-look maps, skip-if-unchanged, queue_undo at old circle
+(persist 150 frames = retail 5000 ms), stale-unlook on death, called per tick
+(world_tick/step.rs:1228) and at load_map (world_load.rs:666, initial reveal
+around start units). The gamelogic accumulator was inert on that path.
+
+### Live verification (SHROUDPROBE temp probe, since removed)
+- Initial reveal: radar grid clear=500/16384 cells by logic frame 120
+  (CC+dozer+start union), rest shrouded — matches C++ initial look.
+- Draw path (hud.rs:265-314) matches W3DRadar::draw layering/alphas.
+- Captures: /tmp/wsmoke/mm_before_b1_{initial,moved}.png,
+  mm_after_a1_{initial,moved}.png, probe logs mm_probe_p1/p2_stderr.log.
+- INCOMPLETE: movement-reveal end-to-end drive — the runtime-host picker kept
+  selecting immobile units (`select_local_unit` → CC per sample_unit_pos;
+  `select_all_combat` → 0 units at skirmish start; only the dozer is mobile
+  and its selection id vs sample field diverged). The corrected drive
+  (select the dozer / spawn combat units first) did not complete in this
+  session; the host-path unit tests (spawn_templates tests: moved looker,
+  death unlook, fog-after-persist) cover that transition.
+
+### Pre-existing hang found (NOT fixed here, out of scope)
+`test_fow_uses_shroud_clearing_range_not_vision_range` and
+`test_spy_vision_shares_enemy_vision` hang at HEAD: same-thread RwLock
+deadlock in `GameObjectInstance::new` → `init_object` → module `on_create`
+re-entering the base write lock (object_manager.rs:360-368; confirmed by
+process sample; spy test is byte-identical to HEAD).
+
+### Guards / hygiene
+cargo check -p generals_main --lib clean after probe removal; radar_coupled
+re-run launched. No git writes; no formatters; serial cargo coordinated with
+GiantTextFix (release builds 12:22, 12:42 include the shroud fixes). Temp
+GENERALS_SHROUDPROBE added and REMOVED. Changed files: GameLogic
+system/shroud_manager.rs, object/collide/partition_manager.rs,
+object/collide/collision_system.rs, system/game_logic_impl/impl_update.rs.
+
+---
+
+## CtrlBarTexFix — control-bar red buttons/icons root-caused + FIXED (2026-09-03 12:00-13:30)
+
+### Root cause (NOT the mapped-image import, NOT texture hydration)
+SeamFix §2's "residual is texture hydration" hypothesis was wrong for the command
+grid. Offline probe (temp bin, removed) + env-gated draw probes (removed) proved:
+- mapped-image import is COMPLETE (1320 common → 1320 client; SAACommand/SACDozer/
+  SAPowerPlant/... all present) and their atlases hydrate through EnglishZH.big
+  (SAUserInterface512_00*.tga decode 512x512; menu `Buttons-Left` hydrates too).
+- Retail ControlBar.wnd authors `STATUS = ENABLED+IMAGE+...` on ButtonCommand01-14 /
+  ButtonQueue01-09 / UnitUpgrade1-5 with every draw-data slot still `IMAGE: NoImage,
+  COLOR: 255 0 0 255` (the red placeholder). C++ picks the device draw func by
+  WIN_STATUS_IMAGE at creation (GameWindowManager.cpp:1857-1862) → ImageDrawFunc;
+  W3DGadgetPushButtonImageDrawOne (W3DPushButton.cpp:288-368) draws NOTHING when the
+  state's image slot is empty, so unbound buttons are invisible until
+  setControlCommand binds the cameo. The port selected the draw func by authored
+  draw-data images alone, left those buttons on the SOLID draw, and painted the
+  authored `255 0 0 255` as solid red — the exact red rectangles in the screenshots
+  (red fill + pink 255 128 128 border). Runtime binds were succeeding the whole time
+  (probe: `bind:* found=true` for all 12 match-start commands).
+
+### Fix (GameClient, 3 files)
+- `gui/window_manager/draw.rs`: `default_draw_uses_image()` — default gadget draw
+  selection now honors `WindowStatus::IMAGE` (C++ GameWindowManager creation parity)
+  in addition to authored draw-data images.
+- `gui/w3d_gadget_draw/push_button.rs`: `draw_push_button_image_base` no longer falls
+  back to the solid draw when the state's image slot is empty (C++ ImageDrawOne
+  parity: unbound image-status buttons paint nothing, never the red placeholder).
+- `gui/w3d_gadget_draw/tests.rs`: `w3d_push_button_image_draw_falls_back_when_mapped_
+  image_missing` replaced by `..._queues_nothing_when_no_image_is_bound` defending the
+  C++ contract (unbound image-status button queues zero fill commands).
+
+### Also proved while diagnosing (asset-side, unchanged)
+SA/SN/SUControlBar512_001.tga genuinely DO NOT exist in the DIRECT PLAY retail BIGs
+(entry tables + raw byte scans) — SAPowerPoint*/SABeacon/SATray* (power dots, tray)
+can never hydrate from retail assets; they render the honest slate fill
+(game_window_global.rs) when drawn. SNExpBar/SATraySmall were the only hydration
+misses in the drive log. A re-extraction from intact media is the real fix there.
+
+### Verification
+ctb2 drive (`/tmp/wsmoke/ctbdrive.sh`, RUST_LOG=info, GENERALS_CTB_PROBE removed
+after diagnosis): menu → start_game skirmish USA → InGame. `/tmp/wsmoke/ctb_ctb2_
+initial.png`: command grid renders 12 retail cameos (combat bike, rocket buggy,
+gattling/dragon tank, overlord, avenger, sentry drone, paladin, tomahawk, angry mob,
+jarmen kell, hacker) — ZERO red rectangles; top-right 3 squares + bottom-right 2
+rects now the correct empty-slot look until bound. `/tmp/wsmoke/ctb_ctb2_selected.png`:
+post-selection context shows empty slots (no red). `cargo check -p game-client-rust`
+clean; probe sites byte-restored (git diff empty on impl_execute.rs,
+game_window_global.rs, image.rs, observer.rs, impl_science.rs, lib.rs); temp probe
+bin deleted. Changed kept files: the 3 GameClient files above. No git writes; serial
+windowed runs with caffeinate -dis; no formatters.
+
+### Residual (other lanes)
+- ObserverPlayerInfoWindow static texts ("Units"/"Buildings"/...) overlap the in-play
+  command grid — observer-info visibility in normal play is a separate context bug.
+- SA/SN/SUControlBar512 atlases missing from retail assets (see above) — power
+  dots/tray art needs intact media, not code.
+- Minimap darkness + unit-mesh white: MinimapShroud / UnitTexBind lanes.
+
+---
+
+## GiantTextFix — giant blurry white caption over the in-match control bar CLOSED: `ControlBar.wnd:Munkee` (W3DNoDraw window with dormant `IMAGE: InGameUIChinaBase`) was being painted by a Rust-only "compat default draw" fallback; `w3d_no_draw` is now a true empty draw per C++ (2026-09-03 11:20-13:30)
+
+### 1. Reproduce
+Fresh control drives (`/tmp/wsmoke/gttext.sh`, `gtprobe.sh`, `gtmenu.sh`, `gtload.sh`;
+captures `/tmp/wsmoke/gtprobe_gtfix1_ingame.png` post-fix vs `disc_control_gt1_dozer.png`,
+`gtprobe_p2_ingame.png`, `gtmenu_menu1_ingame.png` pre-fix) reproduce a giant blurry
+white glyph band (~640x50 px at 640x480, glyph height ~40-48 px) spanning the full
+screen width at y≈345-395, drawn UNDER the control bar art (occluded by the $SS panel,
+visible through transparent bar regions). Present in every in-match capture; absent in
+Menu. White-pixel count in the band region (x 140-500, y 330-400): **3496 pre-fix**.
+
+### 2. Identification (env-gated probes, removed after diagnosis)
+`GENERALS_TEXT_PROBE=1` first hooked `UIRenderer::draw_text` (GameClient
+`gui/ui_renderer.rs`): every unique text draw is small and correctly positioned
+("$$$", "Units", superweapon timers, menu buttons) — the giant band is NOT text
+rendering, so the font point-size/pixel-size/DPI theories were all ruled out.
+Second probe at `UIRenderer::render()` (BIGQUAD: textured commands >200x60 px,
+matched against the text-texture cache) caught the culprit quads, drawn every
+frame at z=0 Alpha with mapped-image ATLAS UVs:
+  - rect (0,331)-(639,479) uv (0,0.277)-(0.780,0.996)
+  - rect (0,358)-(639,506) uv (0,0.277)-(0.780,0.996)
+`text_cache_hit=false` → not a text texture: a **mapped-image atlas sub-image**
+stretched over the control-bar area. The blurry white "caption" is the atlas art's
+own embedded title glyphs (the garbled "…OI MISSION U…" reading), NOT any string.
+
+### 3. Root cause
+The rects decode to authored WND geometry: (0,331)/0.8 = 414 — exactly
+`ControlBar.wnd:Munkee` (USER window, `SCREENRECT 0,414-799,599`, STATUS
+`ENABLED+IMAGE`, `ENABLEDDRAWDATA = IMAGE: InGameUIChinaBase`, `DRAWCALLBACK =
+"W3DNoDraw"`, windows_game/extracted_big_files/WindowZH/Window/ControlBar.wnd:55-96).
+C++ never paints it: `W3DNoDraw` has an EMPTY body (the `W3DGameWinDefaultDraw`
+call is commented out) — GeneralsMD
+`GameEngineDevice/Source/W3DDevice/GameClient/GUI/GUICallbacks/W3DControlBar.cpp:661-667`.
+The Rust port instead had a compat fallback: `w3d_no_draw` called
+`default_draw_callback` (the Rust-only generic image draw) whenever the window
+"has compat default content" (IMAGE status / draw-data entries) — painting the
+dormant InGameUIChinaBase sheet through the mapped-image atlas at the window rect
+(scaled 800x600 → 640x480).
+
+### 4. Fix (C++ parity)
+`Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/main_menu.rs`:
+`w3d_no_draw` is now an empty no-op with the W3DControlBar.cpp:661-667 citation;
+the dead `has_compat_default_content` / `draw_data_has_compat_default_content` /
+`w3d_compat_default_draw` helpers are deleted (clean cutover — no other callers).
+This also unpaints the other W3DNoDraw containers (ControlBar.wnd lines
+158/205/252/299/345/591/1297/1441/2067/2883, GenPowersShortcutBar*.wnd:18,
+Diplomacy.wnd, load screens), matching retail, where only their CHILDREN draw.
+Probes in `gui/ui_renderer.rs` fully removed (net diff vs HEAD: zero).
+
+### 5. Verification
+- Post-fix control drive (13:19 capture, release build 13:10 with this fix):
+  giant band GONE. Band white-pixel count 3496 → **189** (remainder is the
+  legitimate small "$$$" money label and cameo highlights). Control bar, observer
+  stat labels, superweapon timers and money display all render at correct sizes.
+- Menu regression: menu-state frame is **pixel-identical** (0 differing pixels)
+  to the pre-fix menu capture — shell art never depended on the compat path.
+- CtrlBarTexFix's ctb2 drive on the same binary independently confirms the band
+  is gone with the 12-cameo command grid rendering.
+- `cargo check -p game-client-rust --lib` clean. `game-client-rust` GUI tests
+  could not run standalone this session: a sibling lane (UnitTexBind) has
+  `UTBVIEW_ENABLED` mid-landing in ww3d-renderer-3d `render_manager.rs`
+  (free static + `get_or_init` on `LazyLock`) which breaks that crate's dev/test
+  build; owned by that lane — flag for Main's final validation.
+- GameLogic-side guards (combat filter 966/0, world_tests catalog,
+  gameworld_shadow 302/302) are untouched by this GUI-only change; no GameLogic
+  files were modified.
+
+Probe artifacts (outside repo): /tmp/wsmoke/gttext.sh, gtprobe.sh, gtmenu.sh,
+gtload.sh, logs gtprobe_p{1,2,3}_stderr.log, captures gt*_*.png.
+
+## UnitLightFix — UTBLIGHT verdict: mesh-lane lighting scale ELIMINATED (0-1, correct); UTBMAGENTA discriminator exonerates the ENTIRE mesh forward pass; white blobs are painted by a non-mesh overlay/terrain lane — tagged discriminator staged (2026-09-03 16:00-17:45)
+
+Method: three windowed 640x480 skirmish drives (utb4..utb6, /tmp/wsmoke/utb_utb{4,5,6}_stderr.log + utb_utb{4,5,6}_dozer.png, script utbdrive4.sh) against a release binary carrying env-gated, warn-level probes (all OFF unless the env var is set; no git writes; no formatters).
+
+### 1. UTBLIGHT (assignment probe) — lighting-scale hypothesis DEAD
+`draw_material_pass` (render_manager.rs) once-per-model dump, in-match:
+`UTBLIGHT model='' ambient=(0.2196,0.2039,0.1725) | l0 type=Directional dir=(-0.809,0.379,-0.449) col=(1.0000,1.0000,1.0000) int=1.000 amb=(0,0,0) enabled=true`.
+Ambient is authored 0-1 map metadata (Defcon6 morning row); sun is one white directional at intensity 1.0. With ambient<=0.22 + one N.L-scaled white sun, the opaque.wgsl clamp CANNOT saturate brown albedo (avconstdoz texelMid=(49,40,33)) to flat 255. C++ parity note: the map chunk parser (map_settings.rs) reads raw f32s exactly like WorldHeightMap.cpp ParseLightingDataChunk (772-820); values are healthy. light_from_map_channels needs NO normalization.
+
+### 2. UTBVIEW + UTBMAT — upload path also healthy at bind time
+- UTBVIEW (stage_resources_for branch logger): every unit/UI texture resolves `branch=uploaded-cpu` with real mid-texels (Avbattlesh (117,115,117), AVChinook (16,32,8), Coplight (255,207,140)...). The white-fallback tail NEVER binds. Stage 1 `no-texture` is the expected empty-slot case.
+- UTBMAT (per-model material dump): `mat_diff=(1,1,1,1) mat_spec=(1,1,1,0.01) mat_emis=(0,0,0) overrides=(1,1,1,0) stage_mask=01 cube_mask=0 hints=0` — no material/emissive/override white-out.
+
+### 3. UTBMAGENTA — the white blobs are NOT mesh-forward pixels
+GENERALS_UTBMAGENTA=1 overrides `material_diffuse=[1,0,1,1]` in `WgpuMaterialBinds::model` (the single ModelUniform builder; decals included via render_decal_queue->render_mesh). Drive utb6: **0 strong-magenta pixels** (loose re-scan: only 75 icon pixels in the HUD, none blob-shaped) while the white blobs persist. Conclusion: the flat-white unit-shaped blobs are painted by a pass that does NOT go through WgpuMaterialBinds::model — i.e. the terrain-pass overlay family (road/scorch stripes ARE visibly drawing per capture read), the shadow/occlusion post passes, or water. Blob geometry (50x17, 41x35, 25x17 px; exact 255,255,255; hard edges; positions shift with camera) fits static-world stripes or billboard overlays seen at slightly different camera poses, NOT shaded mesh fragments.
+
+### 4. Staged next discriminator (probes landed + compile-clean; NOT driven — UiGapInventory holds the exclusive windowed floor 30-45 min, so the tagged launch was forfeited per Main's hold. The tagged binary is one `cargo build --release --bin generals` away once the floor frees; an intermediate build failure from my own occlusion_bridge.rs descriptor edit was fixed and `cargo check -p generals_main --lib` is clean)
+- `GENERALS_UTBOVERLAYTAG=1` -> occlusion_bridge.rs enqueue_occluded_player_color_pass paints every overlay billboard pure GREEN.
+- `GENERALS_UTBSHADOWTAG=1` -> shadow_pass.rs record_shadow_and_occlusion_passes paints every shadow-pass overlay billboard pure BLUE.
+- One tagged drive splits the remaining space: green blobs => occlusion overlay (check team_color defaults/blend); blue => shadow overlay; unchanged white => terrain road/scorch/water lane (read road.wgsl + overlay_gpu.rs next; water pass "main water pass" at pipeline_collect.rs:1815).
+- Also available: `GENERALS_UTBUVCENTER=1` (frommodel pins UVs to 0.5) if a later session re-opens the UV path.
+
+### Probe inventory / hygiene (for the closer)
+ALL probes are env-gated (inert without their env var), warn-level, and compile clean: render_manager.rs (UTBVIEW_ENABLED/SEEN, UTBMAT_ENABLED/SEEN statics + UTBLIGHT block + UTBUVCENTER in frommodel), wgpu_material_binds.rs (UTBMAGENTA), occlusion_bridge.rs (UTBOVERLAYTAG), shadow_pass.rs (UTBSHADOWTAG). Guard tests (frozen_fow_* render_manager string checks, ww3d-renderer-3d tests.rs draw_material_pass contract) keep their required strings. `cargo check -p ww3d-renderer-3d --lib` and `-p game-client-rust --lib` both clean post-edit. Removal: delete the statics + each self-contained `if utb*` block (marked "documented diagnostic"). ZPROBE precedent (pipeline_execute.rs) keeps a documented env-gated probe in-tree.
+
+### Screen truth at hand-off
+utb4/utb5/utb6 captures: terrain tan (110,100,78) correct, HUD correct, units still FLAT exact-white silhouettes with hard edges — blocker UNRESOLVED, mesh lane exonerated, remaining space narrowed to {terrain road/scorch/water overlays, occlusion overlay, shadow overlay} with a one-drive discriminator staged.
+
+Probe artifacts (outside repo): /tmp/wsmoke/utbdrive4.sh, utb_utb{4,5,6}_stderr.log, utb_utb{4,5,6}_dozer.png.
+
+---
+
+## UiGapInventory — per-state visual gap inventory vs C++ retail (2026-09-03 14:00-15:10)
+
+Method: serial windowed 640x480 drives (gapdrive15.sh/.15b/.15c/.15d/.15e in
+/tmp/wsmoke/, logs + captures under /tmp/wsmoke/gap15/) through Menu → SP flyout →
+Skirmish options → InGame → selection/order → ESC pause menu → pause → diplomacy →
+options → shell pushes. Every capture compared against the retail WND definitions
+(windows_game/extracted_big_files/WindowZH/Window/{ControlBar.wnd,Diplomacy.wnd,
+Menus/{MainMenu,SkirmishGameOptionsMenu,OptionsMenu,QuitMenu,SinglePlayerMenu}.wnd})
+and GeneralsMD GameClient GUI sources (MainMenu.cpp, W3DMainMenu.cpp, W3DControlBar.cpp,
+InGameUI/W3DInGameUI.cpp). Inventory only — no fixes. All coordinates below are
+retail 800x600 WND coords with the x0.8 640x480 mapping noted.
+
+### Binary attribution + environment findings (read first)
+1. TWO binaries were exercised. `target/release/generals_snap` (Sep 2 23:50) RENDERS and
+   carried the full ladder — it PREDATES GiantTextFix (13:10) and CtrlBarTexFix (13:30), so
+   red-grid/giant-caption findings below are baseline pre-fix state, re-verify on HEAD.
+   `target/release/generals` (Sep 3 13:46) is PRESENTATION-BROKEN (P1, next section).
+2. OS synthetic clicks are BLOCKED environment-wide since ~14:15 (clicker8 reports
+   `activated=false tries=4` even with the app frontmost via System Events; drive13's
+   09:41 run worked). All physical-click drive plans must convert to control-command
+   driving: `winit_click_named` (shell nav — works, feeds the real gadget-click path),
+   `select_local_unit`/`select_all` + `move|x=|y=` (in-match), `toggle_quit_menu`,
+   `toggle_pause`, `toggle_diplomacy`, `open_options`, `start_game`.
+3. Gating trap for drive authors: status `gameplay=` is the interactive-evidence latch
+   (`interactive_playability.gameplay_complete()`), NOT "match is live" — control-driven
+   select/move does NOT latch it. Gate InGame captures on
+   `state=InGame && startup_phase="Map load complete" && live_frame_ok=true`.
+4. The 13:46 binary never logs the unattended reveal line; the 23:50 binary does.
+
+### P1 handoff (Main's bisect): 13:46 `generals` black-menu + match-start drain
+Evidence: /tmp/wsmoke/gap15/child5_stderr_full.log (30 MB; 8+ `flush_ui_to_frame:
+ControlBarParent missing on live WindowManager` with a searched-path list that INCLUDES
+the existing `../windows_game/extracted_big_files/WindowZH/Window/ControlBar.wnd` — this
+is not file-existence, the WM never imported the layout), no
+`unattended runtime-host run — revealing main menu` line (present in the 23:50 binary's
+child1_stderr_tail.log), `winit_click_named_miss`/`winit_menu_nav_miss:no_menu_match_gadget`
+despite `state=Menu fps=30 live_frame_ok=true`, menu frames pure black
+(g15d_menu*.png), and `start_game` drained: `Menu NewGame drain: ignore GAME_SHELL
+(shell map already live)` (camera_drain.rs). Open_skirmish_menu / open_options /
+open_single_player_menu shell pushes also render black.
+Data points for the bisect: extracted_big_files_v2 exists but contains ONLY INIZH
+(0 .wnd files vs v1's 80) — any import-priority/root change toward v2 kills every shell
+WND at once (InGameRenderTriage reports the wnd_parse v2-then-v1 resolver itself safe).
+Current working tree has NO modified files under layout_load/wnd_parse/windows_game
+(76 modified files, none matching) — the 13:46 churn is not recoverable from git (no
+intermediate commits); bisect targets: main_menu.rs reveal gate
+(`state.not_shown && !state.just_entered`), camera_drain.rs GAME_SHELL drain condition,
+asset-root resolution feeding ui_render_pass's searched list. Repro: drive15d.sh
+(GENERALS_RUNTIME_HOST_WND=1) against any 13:46+ build; watch for the missing reveal log.
+
+### State: Main Menu (g15e_menu.png == g15_menu.png)
+Correct vs retail: logo wordmark art; button stack SOLO PLAY/MULTIPLAYER/LOAD/OPTIONS/
+CREDITS/EXIT GAME (retail GUI:SinglePlayer/Multiplayer/MainMenuLoadReplay/Options/
+Credits/Exit via CSF); blue-rule button art; grid backdrop frame.
+Gaps:
+- GAP MainMenu-1 (major): shell map 3D background absent — retail fills the menu
+  interior with the animated shell-map battle (GameClient shell game; the port renders
+  solid black interior). Lane: GameClient shell-map presentation.
+- GAP MainMenu-2 (minor): `GreenDot` + `Clock` widgets absent (retail 34,517/53,503 →
+  27,414/42,402 bottom-left online dot + clock).
+- GAP MainMenu-3 (minor): `WinFactionTrainingSmall/Medium` posters absent (496,423 /
+  472,399 → 397,338/378,319).
+- GAP MainMenu-4 (minor): `ButtonUSARecentSave` ("Recent Save", 440,104 → 352,83) never
+  shown; retail shows it when a USA save exists.
+- MainMenu-5 (low confidence): backdrop may be a simplified stand-in for the full
+  retail menu art; needs art-side review.
+
+### State: SP flyout (g15_sp_flyout.png; named-click path)
+Correct vs retail: USA/GLA/CHINA/CHALLENGE/SKIRMISH/BACK — exactly DROPDOWN_SINGLE
+(MainMenu.cpp:1320-1327 opens MapBorder); main button stack correctly hidden while open.
+Gaps:
+- GAP SPFlyout-1: EarthMap dropdown panel art missing — retail panel carries map imagery
+  (`EarthMap` windows); port draws a flat black panel with blue rules.
+- GAP SPFlyout-2 (text): "CHALLENGE" vs retail "Generals Challenge" (GUI:Generals_Challenge)
+  — truncated label.
+- GAP SPFlyout-3 (conditional, drive1 g15_sp_dropdown.png): the PHYSICAL-click +
+  `tick_main_menu_transitions` path instead rendered the DifficultySelect flyout
+  (SELECT DIFFICULTY/EASY/MEDIUM/HARD/BACK — MapBorder4, correct rect x0.8) — in retail ZH
+  that flyout is only wired under `#ifdef _CAMPEA_DEMO` (MainMenu.cpp:1420-1433); retail
+  never shows it. ButtonSkirmish stayed published-hittable under the overlay, so both
+  flyouts were simultaneously open/hittable — z-order/visibility bug on the
+  physical+ticks path only. P2.
+
+### State: Skirmish options (g15_skirmish_menu.png)
+Correct vs retail: title + Players/Color/Army/Team/Map Preview headers (CSF-resolved);
+8 slot rows x 4 combos; battle-honors block (medal icons + NUMBER:0 values);
+PLAY GAME (GUI:Start) / MAIN MENU (GUI:GotoMainMenu); Game Speed slider + value;
+Limit Superweapons checkbox; 2 start-position markers; `ButtonReset` correctly HIDDEN
+(retail authored ENABLED+HIDDEN — not a gap).
+Gaps:
+- GAP Skirmish-1 (P1-class, RedRectsTriage lane): `ComboBoxStartingCash` renders as a
+  RED placeholder box (authored COLOR 255 0 0 255 painted instead of the combo art) —
+  the shell-side instance of the same IMAGE-status draw-func-selection bug class
+  CtrlBarTexFix fixed for the ControlBar; the combo/dropdown gadget family still falls
+  back to solid fill.
+- GAP Skirmish-2 (same class): `SliderGameSpeed` thumb renders as a small red square
+  (thumb image not bound).
+- GAP Skirmish-3: map preview image absent — MapWindow shows only 2 unnumbered start
+  dots on empty ground; retail draws the selected map's preview image and numbered
+  start spots.
+- GAP Skirmish-4 (wrong-text): `TextEntryMapDisplay` shows the authored literal
+  "Static Text" instead of the selected map's display name (retail sets it at runtime
+  from the map cache — SkirmishGameOptionsMenu.cpp).
+- GAP Skirmish-5 (wrong-text, cosmetic): `TextEntryPlayerName` shows authored literal
+  "Entry" instead of the player name (same runtime-substitution class).
+- GAP Skirmish-6: `ListboxInfo` (303,380 → 242,304) absent — retail info/chat listbox.
+
+### State: InGame initial (g15_ingame_initial_raw.png; pre-GiantTextFix/CtrlBarTexFix binary)
+Correct vs retail: terrain + camera; control bar frame; MoneyDisplay at retail position
+(360,437 → 288,350); 12-slot command grid at retail rects; ProductionQueueWindow empty
+slot grid (621,483 → 497,386); observer stat texts (known overlap residual).
+Gaps:
+- TRACKED (excluded per brief): white unit meshes (UnitLightFix — HEAD 3f30f3ae6 narrows
+  to depth lane); red command-grid buttons + cameo reds (CtrlBarTexFix landed;
+  RedRectsTriage residuals: top-right x3, grid-left tabs, bottom-right x2 — all three
+  sets visible in this capture, positions match their list); giant Munkee caption band
+  above the bar (GiantTextFix landed — band clearly present here, pre-fix binary).
+- GAP InGame-1: minimap/radar absent in this binary (MinimapShroud lane reports it fixed
+  on HEAD — re-verify on next HEAD drive).
+- GAP InGame-2 (wrong-text): MoneyDisplay shows "$SS"-class glyphs; the credit AMOUNT is
+  never rendered (retail: "$" + live amount). Needs HEAD-binary recheck — may be the
+  accepted "$$$" remainder GiantTextFix measured, but the missing amount is real.
+- GAP InGame-3: PowerWindow (261,473 → 209,378, thin bottom strip) — retail power-bar
+  dots can never hydrate (SA/SUControlBar512*.tga absent from retail BIGs, per
+  CtrlBarTexFix finding); renders slate/empty. Asset-side: needs intact media.
+- GAP InGame-4: left-edge button column `ButtonOptions`/`ButtonIdleWorker`/
+  `ButtonPlaceBeacon` (192,495/519/543 → 154,396-452) not visibly rendered (white flecks
+  only) — overlaps RedRectsTriage's grid-left set; confirm on HEAD.
+- GAP InGame-5: `GeneralsExp` exp-bar (769,503 → 615,402) absent.
+- GAP InGame-6: `WinGeneralPortrait` shows an empty trapezoid frame; portrait art flaky
+  (hydrates in some captures, empty in others — context-dependent bind).
+- GAP InGame-7 (wrong-render, minor): literal "HUD" glyphs bottom-left corner (0,461) —
+  LeftHUD art region showing text, not art.
+- GAP InGame-8 (asset): all 5 skybox faces TSMorning{E,S,W,T,...}.tga fail to load
+  (stderr WARN terrain_visual) — sky missing in-match. Asset-extraction class.
+
+### State: InGame selection (g15_ingame_selected_raw.png; select_local_unit, selected_count=1)
+- GAP Select-1 (major): NO selection visual — no ring/brackets in player color, no
+  health pips over the selected unit. Retail InGameUI draws selection markers + health.
+- GAP Select-2 (major): command grid does NOT swap context with selection (retail: dozer
+  → build tab, rangers → unit command set; port grid static regardless of selection).
+- GAP Select-3: no selected-unit portrait/name/health block in LeftHUD (retail
+  `WinUnitSelected` + portrait + name strings).
+
+### State: InGame move order (g15_ingame_order_raw.png; move via control cmd)
+- GAP Order-1: selection ring renders but WHITE (retail: local-player color — green for
+  P1 skirmish). Wrong color constant / missing player-color bind in the ring renderer.
+- Order-2 (unverified): retail move marker + line not visible in the capture (~3s
+  post-order; ~4s frame pacing may have consumed the flash). Needs HEAD-binary recheck
+  before counting as a gap.
+- Confirmed hydrating here: MoneyDisplay ornate frame art; `WinGeneralPortrait` emblem
+  (context-dependent, see InGame-6); first grid slot shows a greyed bound cameo.
+
+### State: ESC pause menu (g15_pause_quitmenu_raw.png; toggle_quit_menu → ok_wnd)
+- GAP PauseMenu-1 (P1-class): NOTHING renders. Retail QuitMenu.wnd = dimmed game + panel
+  at 252,100 with ButtonSaveLoad/ButtonOptions/ButtonRestart/ButtonExit/ButtonReturn
+  (288,183/231/279/327/375 → x230, y146/185/223/262/300) + WinLoad frame. The WND toggle
+  reports ok but the layout never paints in the windowed host path.
+
+### State: pause screen (g15_pause_screen_raw.png; toggle_pause, status paused=true)
+- GAP Pause-1 (P1-class): NOTHING renders — no dimmed background, no pause panel
+  (ui_manager.rs has PauseMenu render code; the windowed host never runs it). Same
+  overlay-paint root cause as PauseMenu-1.
+
+### State: diplomacy (g15_diplomacy_raw.png; toggle_diplomacy)
+- GAP Diplomacy-1 (P1-class): NOTHING renders. Retail Diplomacy.wnd in-game page:
+  Player/Team/Side/Status table (StaticText{Player,Team,Side,Status}0-7 + titles),
+  ButtonMute/UnMute0-7, TextEntryChat + chat listbox, ButtonHide. Same root cause.
+
+### State: options in-game (g15_options_ingame_raw.png; open_options from InGame)
+- GAP Options-1 (P1-class): NOTHING renders — status flips Paused+Screen::Options but
+  the live game stays on screen. Retail OptionsMenu.wnd overlay: Accept/Back/Defaults,
+  CheckAlternateMouse etc., volume/gamma/scroll sliders, resolution/detail/AO combos,
+  LabelVersion. Same overlay-paint root cause.
+
+### State: shell pushes from Menu (drive6: g15e_options_shell/sp_menu/load_screen/
+quit_dialog.png)
+- GAP ShellPush-1 (P1-class): `open_options`, `open_single_player_menu`,
+  `open_load_game`, `toggle_quit_menu` from the main menu do NOT navigate — all four
+  captures are BYTE-IDENTICAL to the preceding menu frame (cmp verified). The
+  `enter_shell_screen_from_runtime_host` push path reports ok but never brings the
+  layout forward/paints. Contrast: the gadget-click path (ButtonSkirmish →
+  SkirmishGameOptionsMenu) DOES render — so layout push+paint works via
+  WND gadget navigation but not via the runtime-host enter_shell_screen API.
+
+### Not gaps (verified correct)
+- SP flyout contents/order (named path); skirmish menu widget set/text (incl. hidden
+  ButtonReset); main-menu button labels; MoneyDisplay position; ProductionQueueWindow
+  empty layout; observer-stat text content (placement overlap is the tracked residual).
+
+### Capture / script index (all under /tmp/wsmoke/gap15/)
+- Scripts: gapdrive15.sh (drive1, physical+ticks), gapdrive15b.sh (drive2, aborted),
+  gapdrive15c.sh (drive3, named-click chain), gapdrive15d.sh (drive5, 13:46-binary
+  probe), gapdrive15e.sh (drive6, shell pushes). Logs drive{1,2,3,5,6}.log.
+- 23:50-binary ladder: g15_menu.png, g15_sp_dropdown.png (difficulty flyout, drive1),
+  g15_sp_flyout.png (correct flyout, drive3), g15_skirmish_menu.png,
+  g15_ingame_initial_raw.png, g15_ingame_selected_raw.png, g15_ingame_order_raw.png,
+  g15_pause_quitmenu_raw.png, g15_pause_screen_raw.png, g15_diplomacy_raw.png,
+  g15_options_ingame_raw.png.
+- Shell pushes: g15e_{menu,options_shell,sp_menu,load_screen,quit_dialog}.png.
+- 13:46-binary probe: g15d_menu{,2,3}.png (black), g15d_skirmish_direct.png (black),
+  child5_stderr_full.log (ControlBarParent spam + GAME_SHELL drain).
+- Stderr: child1_stderr_tail.log (23:50, has reveal line), child5_stderr_full.log.
+
+## SimSystemsFix — in-match gaps 2/3 fixed at the fixture, 4 diagnosed to a drain-path suspect (2026-09-03)
+
+Scope: the three InMatchSimHunt documented gaps (QueueUpgrade authorship, dozer Gather
+engage, kill-XP live path) in `golden_skirmish.rs` / `host_upgrades.rs`. Serial cargo,
+no git writes, no formatters. Diagnostic probe (world_tests/simsys_probe_temp.rs) was
+added, never ran — the shared lib was red the whole window on a sibling's shroud-store
+migration (E0425/E0716 in host_authority.rs, object_queries.rs, supply_and_superweapons.rs,
+skirmish_config.rs; NOT this lane) — and was removed per probe hygiene. Edits below were
+written against verified APIs (`set_command_set_override`, `set_stored_supplies`,
+`is_resource_collector`, `first_present_template`) but are NOT yet compile- or
+gate-verified; first green tree must re-drive `golden_skirmish_gate` end to end.
+
+### Finding 2 fix — QueueUpgrade producer authorship (golden_skirmish.rs, host_upgrades.rs)
+
+Root cause confirmed in code: `execute_queue_upgrade` refuses via
+`object_can_produce_upgrade` (C++ ProductionUpdate::queueUpgrade "STOP cheaters",
+ProductionUpdate.cpp:250-272). That walk is `command_set_has_upgrade_button`
+(bridge → INI → None headless) falling back to `residual_command_set_allows_upgrade`,
+whose producer table matches TEMPLATE NAME only — "GoldenSupplyCenter" never matched.
+
+Fix (two pieces):
+- `golden_skirmish.rs`: new `stamp_supply_center_producer_set` — after creating the
+  golden supply center (synthetic + map-fallback paths) the object receives the retail
+  CommandSet identity `AmericaSupplyCenterCommandSet` via `set_command_set_override`
+  (Main host model has no template-level command-set field; the override is the
+  C++ `Object::m_commandSetStringOverride` channel). Retail oracle:
+  FactionBuilding.ini AmericaSupplyCenter authors `CommandSet =
+  AmericaSupplyCenterCommandSet` + `Behavior = ProductionUpdate`; CommandSet.ini:785-789
+  slot 13 = `Command_UpgradeAmericaSupplyLines`; CommandButton.ini:1080-1086 carries
+  `Upgrade = Upgrade_AmericaSupplyLines`; C++ Object::canProduceUpgrade walks exactly
+  this set via getCommandSetString() (Object.cpp:6093-6106).
+- `host_upgrades.rs`: `residual_command_set_allows_upgrade` now also honors an authored
+  CommandSet identity that names one of the retail producers of THAT upgrade
+  (`authored_command_set_names_producer`: `<Producer>` / `CommandSet_<Producer>` /
+  `<Producer>CommandSet`, case-insensitive, reads `object.command_set_override`).
+  Fail-open/closed behavior of existing tests preserved (template-name match unchanged;
+  a set naming a non-producer of the upgrade still refuses).
+- Claim honesty: synthetic `upgraded` now requires `CommandResult::Success` AND the
+  PRODUCTION_UPGRADE entry live on the producer's `building_data.production_queue` AND
+  `has_unlocked_upgrade` within 1200 frames (research lives only on the producer queue,
+  C++ ProductionUpdate.cpp:636-648/1109-1112; SupplyLines BuildTime 30s = 900 frames).
+  A bare player-side queue entry no longer counts.
+
+### Finding 3 fix — Gather now fields a harvester, and the gate is cash-backed
+
+Root cause confirmed: `execute_gather` gates collectors on `is_resource_collector()`
+(= KINDOF_HARVESTER, C++ parity) and `GoldenDozer`/`USA_Dozer` author no Harvester
+kindof — the executor was RIGHT, the fixture was wrong. Retail: AmericaVehicleChinook
+authors `KindOf = ... VEHICLE TRANSPORT AIRCRAFT HARVESTER` + `ChinookAIUpdate`
+(AmericaAir.ini, Object block at line 2108), while AmericaVehicleDozer authors
+`KindOf = ... DOZER` + `DozerAIUpdate` (AmericaVehicle.ini:1599 block) — USA dozers
+never gather; the GLA worker combines both (`KindOf = ... DOZER HARVESTER` +
+`WorkerAIUpdate`, GLAInfantry.ini:3749/3756).
+
+Fix (golden_skirmish.rs):
+- `install_templates` adds a `GoldenHarvester` fixture (Vehicle+Harvester+Selectable).
+- Synthetic path creates `AmericaVehicleChinook` (catalog template from
+  `ensure_ai_faction_templates`) with GoldenHarvester fallback, and issues Gather to
+  that collector; the dozer stays construction-only.
+- Map path: new `ensure_harvester` (prefer live harvester → AmericaVehicleChinook →
+  USA_Chinook → ChinaVehicleSupplyTruck → GoldenHarvester) routes the Gather commands;
+  `retail_gather_ok` honesty check now reads the harvester's target.
+- Piles are stamped `set_stored_supplies(2000)` (retail SupplyPile stocks via
+  SupplyWarehouseDockUpdate `StartingBoxes = 150`, CivilianBuilding.ini SupplyPile
+  block; ValuePerSupplyBox 75, GameData.ini) so gather depletes authored stock.
+- Gate honesty: `gathered` now requires AIState::Gathering engagement AND player-0
+  cash to strictly increase within 1200 frames (gather→carry→SupplyCenter deposit
+  crediting Money). The old ai_state-only read is what masked the no-op.
+
+### Finding 4 — kill-XP: award sites verified; suspect narrowed to the damage-authority destroy drain
+
+Audited live award path against the C++ oracle: C++ credits at damage-death time —
+ActiveBody.cpp doDamagePoint `if (m_currentHealth <= 0 && m_prevHealth > 0)
+{ if (damager) damager->scoreTheKill(obj); obj->onDie(...); }` (ActiveBody.cpp:641-650),
+Object::scoreTheKill body at Object.cpp:2890-2945 (playable-side + IGNORED_IN_GUI +
+ENEMIES + under-construction gates, then addSkillPointsForKill + addExperiencePoints).
+
+The Rust direct-fire kill branch DOES award: world_tick/combat.rs:2182-2205
+(`take_damage_from_typed_death` → destroyed → `mark_object_for_destruction` +
+`continue_or_stop_after_kill` → `award_score_the_kill_experience`); the auto-acquire
+path awards too (world_objects/object_ai_combat.rs:~255-268). Victim-side gates
+(`score_the_kill_victim_counts`, `kill_experience_value` →
+`experience_value_for_level`, `is_accepting_experience_points`) all pass for a
+trainable shooter vs an 80-XP enemy.
+
+Remaining suspect (unverified — probe blocked): the Wave-621 damage-authority drain.
+Under `ensure_gate_damage_authority()` the GameWorld health writeback records lethal
+IDs (`writeback_health_to_host` → `host_destroy_ready_log::record`) and
+`process_destroy_list` marks them with `mark_object_for_destruction(ev.object, None)`
+(destroy_list_bounty.rs:189-202) — killer None and NO `award_score_the_kill_experience`
+call. Any kill resolved through that drain instead of the direct-fire branch silently
+drops scoreTheKill; under the same authority `gain_experience` also only logs XP
+(`host_experience_log::record`) instead of mutating host veterancy
+(object/update.rs gain_experience tail). Next agent: drive the probe recipe
+(trainable ranger 25dmg/1.0s vs 120HP/80XP enemy over `logic.update()` with
+DAMAGE_AUTHORITY on) and, if the drain is the drop, credit `last_damage_source` at the
+drain site (C++ parity: the award belongs at damage-death, and the victim's
+`last_damage_source` is stamped by `stamp_last_damage_cpp` in the same apply).
+
+### Live verification (gate binary rebuilt post green tree)
+
+- `golden_skirmish_gate --frames 30` (Lone Eagle map path), fresh build with these
+  edits: **move=true gather=true build=false produce=false upgrade=true**
+  retail_gather=true status=partial. Finding 2 and Finding 3 verified live:
+  QueueUpgrade research now completes on the authored supply-center producer, and
+  Gather engages a real KINDOF_HARVESTER collector on a retail/map target.
+  Baseline before this window (stale pre-fix binary, same map): gather=false
+  build=false produce=false upgrade=false fight=false.
+- Synthetic path (`golden_skirmish_synthetic_when_map_absent`): upgrade=true (F2
+  live in the soup too), but gather=false even with a ground harvester and
+  build=false. `git diff HEAD` confirms my golden_skirmish.rs edits touch only
+  gather/upgrade/stamp code (nothing in the construct/barracks flow; leftover.rs
+  and support_states/update.rs have no diff at all), so synthetic build=false
+  predates this window. Open items for the next pass, documented honestly:
+  1. Synthetic soup gather: the collector engages Gathering but the
+     cash-backed gate proves it never completes gather→carry→deposit there
+     (air Chinook AND ground GoldenHarvester both) — needs a soup-world
+     movement/locomotor look at the collector (InteractRange arrival).
+  2. Map-path build/produce/fight=false is pre-existing (identical in the stale
+     baseline binary) and NOT touched by this diff — dozer DozerConstruct on
+     Lone Eagle is the next hunt target (system 5).
+- combat filter 966/0, world_tests catalog, combat::tests 33/33 were green before
+  this window; not re-run here (serial-cargo contention, other lanes mid-landing).
+
+---
+
+## RedRectsTriage — remaining control-bar red rects root-caused + C++ ControlBarScheme::init parity LANDED (2026-09-03 14:00-16:00)
+
+### Red-rect audit (offline; no red can leak from the current tree)
+- Retail ControlBar.wnd (98 windows parsed): every red-placeholder button authors
+  `DRAWCALLBACK=[None]` → default draw selection; UnitUpgrade1-5/CameoWindow author
+  `W3DGadgetPushButtonImageDraw` (mapped in script_callbacks.rs to the fixed
+  no-fallback image draw); all authored callback names resolve; unknown → the fixed
+  `default_draw_callback` (image-status + no image → no ops). Combined with the landed
+  CtrlBarTexFix selector, NO ControlBar.wnd window can reach the solid draw with the
+  authored `255 0 0 255` anymore. Pure-red pixel scan of ctb2/utb6/gtmenu captures: 0 red
+  rects (4 red px = cameo art itself). UiGap's shell-menu red boxes (ComboBoxStartingCash,
+  SliderGameSpeed) are from the Sep-2 23:50 pre-fix binary; `w3d_gadget_combo_box_image_draw`
+  and `w3d_gadget_vertical_slider_image_draw` already draw nothing when unbound (C++
+  W3DGadgetComboBox/SliderImageDraw parity), so the current tree renders them honestly
+  invisible.
+
+### The real gap: ControlBarScheme art is never parsed/applied (C++ ControlBarScheme.cpp:401-662)
+Retail binds the fixed-HUD button art at scheme init via GadgetButtonSet*Image:
+- ButtonOptions/IdleWorker/PlaceBeacon/PopupCommunicator/General ← Options*/Worker*/Beacon*/
+  Buddy*/General* Enable+Hightlited+Pushed+Disabled images AND slot rects (OptionsUL/LR,
+  WorkerUL/LR, ChatUL/LR, BeaconUL/LR, GeneralUL/LR) with resMultiplier scaling
+  (C++ 417-447, 481-529, 449-475, 421-448, 576-601).
+- ExpBarForeground ← ExpBarForegroundImage (476-480); WinUAttack ← UAttack* + disabled=
+  highlight (629-651); ButtonQueue01-09 disabled slot ← QueueButtonImage
+  (updateBuildQueueDisabledImages, ControlBar.cpp:2832-2870); ButtonLarge ← MinMax rect +
+  ToggleButtonUp/Down* per stage (603-627, ControlBar.cpp:3128-3146); beacon hidden unless
+  LAN/Internet (ControlBar.cpp:2756-2761 — explains retail showing only 3 of the 4 left-stack
+  buttons in skirmish). Port had NONE of this (placeholder scheme manager; setControlCommand
+  only binds when the command has a ButtonImage, ControlBar.cpp:2442-2443, so scheme art is
+  what these buttons show in retail).
+
+### Fix (2 files + guards)
+- `Common/src/common/ini/ini_control_bar_scheme.rs`: parsed ALL C++ field-table button-art
+  tokens (OptionsButton*/IdleWorkerButton*/BuddyButton*/BeaconButton*/GeneralButton*/
+  UAttackButton*/MinMaxButton*/ToggleButtonUp|Down*/GenBarButton*/QueueButtonImage/
+  RightHUDImage/ExpBarForegroundImage/GenArrow/CommandMarkerImage/PowerPurchaseImage) and
+  the UL/LR slot rects; added `set_active_scheme_for_side` (C++ resolves the player
+  template's ControlBarScheme name; port templates lack the field, so exact "<side>8x6"
+  then side-prefix — the old `set_active_scheme(side)` could NEVER match "america8x6");
+  guard tests: field-table token parity vs the C++ table + America8x6 parse smoke
+  (NOTE: `cargo test -p game_engine --lib` collects 0 tests globally — pre-existing
+  harness quirk, untouched; crate compiles clean in test mode).
+- `GameClient/src/gui/control_bar/control_bar_impl/impl_science.rs`:
+  `apply_scheme_button_art()` (C++ init parity) wired into
+  `apply_control_bar_scheme_for_side`; binds enabled[0]/hilite[0]/hilite[1]/disabled[0]
+  slots (GadgetPushButton.h inline parity), repositions/sizes the five buttons + WinUAttack
+  + ButtonLarge per scheme rect x resMultiplier − parent origin, queue disabled slots,
+  exp bar; scheme-driven `leftover_set_up_down_images` (setUpDownImages parity); beacon
+  visibility parity in `apply_scheme_context_and_default_stage`. Fail-closed: unresolved
+  mapped images leave slots unbound (invisible, never a color fill).
+
+### Asset truth (unchanged, documented by CtrlBarTexFix + re-verified)
+SAControlBar512_001.tga / SNControlBar512 / SUControlBar512 targas and SCBigButton are
+ABSENT from the retail-direct-play extraction (entry tables + byte scans; find over both
+roots confirms). So today the scheme buttons render invisibly-unbound — C++-correct for the
+available assets — and will light up (options gear, worker, chat, general, queue slot art,
+exp bar) the moment a re-extraction supplies the atlases; zero further code needed.
+
+### Verification
+`cargo check -p game-client-rust --lib` clean (warnings only) after all edits;
+game_engine compiles clean in test mode. In-match capture drive staged
+(/tmp/wsmoke/rrtdrive1.sh, control-command driven: winit_click_named + tick_main_menu_
+transitions + start_game|mode=skirmish|faction=USA + select_local_unit, captures at
+/tmp/wsmoke/rrt/); release build was serialized behind sibling builds at yield time —
+run it and capture rrt_ingame_initial/selected to close the visual acceptance.
+
+### Residual
+- SA/SN/SUControlBar512 atlases + SCBigButton: asset re-extraction (blocks visible art).
+- PlayerTemplate `ControlBarScheme` field unparsed (port resolves by side prefix instead).
+- RightHUDImage (SALogo) bind is implemented but its atlas is also missing; frame art
+  (ImagePart InGameUIAmericaBase → SACommandBar.tga) equally asset-bound.
+- Shell menus: skirmish-menu combo/slider art is ShellMenuScheme-bound in retail (same
+  pattern as this lane); shell scheme application is a separate shell-lane task.
+
+## AudioParityHunt — in-match audio parity: dispatch→sink chain VERIFIED LIVE (device opens, real audio reaches rodio sinks); env gap documented + one code gap FIXED, one documented with fix direction (2026-09-03 15:20-16:10)
+
+Method: one control-driven windowed skirmish drive (drive14/14b/14c, /tmp/wsmoke/drive14.sh; lane per Main's queue; OS physical clicks dead → winit_click_named/select_all/move control chain, `move_ok:n=1:x=90.0:y=210.0` latched in-match) against a release binary carrying env-gated `GENERALS_AUDIOTRACE=1` warn-level probes (since REMOVED — net game_audio.rs diff vs HEAD is one blank line; subsystem_manager.rs zero diff). Evidence: /tmp/wsmoke/drive14.log + child stderr `.../generals_exec_smoke_manual_1788460450/child_stderr.txt` (grep AUDIOTRACE).
+
+### 1. Chain is ALIVE end-to-end (probe evidence)
+- `AUDIOTRACE audio device OPENED (cpal default output)` — cpal/rodio output stream opens at boot.
+- In-game events flow: GameLogic/weapon hooks → MainAudioDispatch → AudioManagerSubsystem drain (26,622 `drain theaudio-add` lines) → THE_AUDIO `add_audio_event` → engine `update` (run_loop.rs:209) → `process_request_list` → `RodioPlaybackHook::play` → rodio Sink append.
+- **Real retail-restoration audio DID play through the sink**: `sink-play ok event='GUIBoarderFadeIn' file='Data/Audio/Sounds/uboarder.wav' bytes=Some(151708)` — resolved from `~/Downloads/GeneralsGamePatch/Patch104pZH/GameFilesOptional` (a real 899 MB patch install the engine's install-scan mounts into the VFS). `Amb_TemperateForestTreesLoop` played ×2. Menu clicks dispatched GUIClick; RadarOn got live handles (Some(1084)).
+- THE_AUDIO update IS draining: granted handles were processed to the hook, so no missing-update gap.
+
+### 2. Environment gap (prerequisite, not code)
+No retail `AudioZH.big`/music MP3s exist on this machine; the patch pack covers only a slice of Sounds/Speech. For the probe I generated 4,019 stand-in WAVs + 56 music MP3s into gitignored `GeneralsRust/windows_game/extracted_big_files_v2/AudioZH/{Sounds,Music}` (removed post-hunt) so every INI event name had resolvable data; misses below are dispatch-layer facts, not file-absence.
+
+### 3. Code gap #1 — FIXED: extracted-audio remap dead in live binary (audio_event_rts.rs)
+Every hook resolve logs the RAW INI filename (`Data\Audio\Sounds\umenucla.wav`) — `resolve_extracted_audiozh_path` never remapped although AudioZH files existed: **`main.rs:481-482` `set_current_dir(exe_dir)`** makes cwd `target/release`, so the remap's cwd-relative `windows_game/extracted_big_files[_v2]/AudioZH` roots can never match (runtime proof: relative `[ -f windows_game/extracted_big_files_v2/AudioZH/Music/USA_11.mp3 ]` true from GeneralsRust, live remap still None → Shell music resolve-miss). FIX LANDED: roots additionally anchored at `current_exe()` ancestors (target/release → GeneralsRust), restoring the extracted-audio fallback for INI event→file mapping (C++ parity: Miles resolves via TheFileSystem mounts, GameAudio.cpp:186-202; the remap is the sanctioned rodio-era substitute, hq-cc2zh provenance). Compile-verified (game_engine + generals_main, 0 errors); live sink re-drive left to the next windowed slot.
+
+### 4. Code gap #2 — documented, fix direction: generic `WeaponFire` can never play
+`WeaponFire` ×2,929 → THE_AUDIO `ERR(no-info)` (AHSV_ERROR: no such AudioEvent) → silent. C++ plays the weapon template's authored FireSound per shot (e.g. CrusaderFire), never a generic token; the host emitter (`world_tick/combat.rs`) must resolve the weapon's INI FireSound name instead. Same class: `UnitHeal` ×26,264 at ~150/s (invented token, ERR(no-info)) — emitter (`game_logic/crate_tick.rs` heal path) additionally needs C++ Limit/once-per-heal semantics, not per-frame queueing.
+
+### 5. Menu audio status
+Menu button clicks DO dispatch (GUIClick → hook); menu music Shell is queued at boot (`play_random_cnc_music` → TheAudio) and resolves post-§3; in-game faction music is map-script-driven in C++ (no engine gap found).
+
+Probe hygiene: probes removed (grep `audiotrace|AUDIOTRACE` over GeneralsRust/Code = 0); drive artifacts outside the repo (/tmp/wsmoke/drive14.log, drive14_*.png). No test files modified; catalog validation belongs to Main's sweep.
+
+---
+
+## BuildUiHunt — UI-driven build hunt: command-grid binding is the LIVE blocker; selection + sim command paths verified working (2026-09-03 15:43-16:35, IN PROGRESS at budget cap — probes staged, discriminating run pending)
+
+Method: bd1 drive (`/tmp/wsmoke/bdrive1.sh`, control-command path — OS synthetic clicks are DEAD since ~14:15 per UiGapInventory/Main; all clicks traverse `handle_mouse_button_input` → WM hit-test → GBM → ControlBar processing as `MouseInputOrigin::Injected`). Binary: release `generals` 15:35 tree (contains my two drive aids). Serial windowed runs, caffeinate -dis, no git writes, no formatters.
+
+### Drive aids landed (permanent, in scope for this hunt)
+- `Main/src/cnc_game_engine/runtime.rs` STATUS_GADGET_HIT_NAMES: added `ControlBar.wnd:ButtonCommand01..14` (status publishes a slot only when a live, enabled, non-hidden window hit-tests at its own center — honest empty-grid evidence).
+- `Main/src/cnc_game_engine/runtime_host/shell_core.rs` + `mod.rs`: new control command `winit_click_at|x=|y=` (InGame-gated, headless fail-closed) injecting an LMB at a client point through the same path as `winit_gameplay_order`'s inject — world-pick/placement clicks need a free cursor that `winit_click_named` (gadget centers only) cannot express. Both verified present in the 15:35 binary (`strings` hit counts 12 / 2) and exercised live (`winit_click_at_ok:320,240`, `winit_click_named_miss:...`).
+
+### Verified working live (evidence: /tmp/wsmoke/bdrive1.log, bd1_*.png, bd1_*.txt)
+- **Boot**: control-command chain (window_move → reveal → `winit_menu_nav` partial-hit Skirmish → `start_game|mode=skirmish|faction=USA`) → InGame at ~90 s, sim live to logic_frame 6546+.
+- **Selection**: host `select_local_unit` → `select_ok:465` (the dozer; local_mobile_units=1 = dozer, US start here is CC+dozer only, no rangers); world click `winit_click_at|320,240` after `view_command_center` → `selected_count=1`; portrait paints (ControlBar context sees the selection).
+- **Sim production entry**: `enqueue_production|template=AmericaInfantryDozer` → `train_fail_no_ready_barracks` (barracks-gated fail-closed, honest; can't test unit production at start without a barracks or the UI).
+
+### THE GAP (live-confirmed): command grid binds ZERO slots with an active selection
+- HITS publishes **0** ButtonCommand slots after CC selection AND after dozer selection (both host and click selection paths).
+- `winit_click_named|ControlBar.wnd:ButtonCommand01` → `winit_click_named_miss` (slot hidden / not hit-testable).
+- Capture `bd1_cc_sel1.png`: bottom-right 14-slot grid renders EMPTY (vivid cameo pixels 21 vs 1916 in the pre-selection default frame — same empty-after-selection signature as CtrlBarTexFix's ctb2_selected capture) while the portrait paints.
+
+### Root-cause analysis (static, high-confidence; runtime confirmation staged)
+`ControlBar::add_object_commands` (GameClient `gui/control_bar/control_bar_impl/impl_buttons.rs:17-62`) needs a non-empty command-set name from exactly one of:
+1. live object `get_command_set_string()` — `object/object_queries.rs:809-817` falls through to `thing_template.get_command_set_string()`, whose **trait default** (`common/types/thing_template.rs:153-157`) returns a static EMPTY; only `DefaultThingTemplate` overrides it (`common/types/default_template.rs:471`, parsed from the INI "CommandSet" field at :372-374). Host in-match objects hold `Arc<dyn ThingTemplate>` (`object/mod.rs:2637`); if the live template is not a DefaultThingTemplate-backed instance, every object reports EMPTY. (Corroborating signal: a sibling's earlier broken-build error `no method set_command_set_string on game_logic::thing::ThingTemplate` — the live template type lacks the setter/accessor surface.)
+2. `presentation_primary_command_set` — also empty on this path (host selection stamps nothing).
+→ both empty ⇒ add_object_commands returns with zero commands ⇒ `bind_command_windows` (impl_execute.rs:610-645) hides all 14 slots ⇒ zero hittable slots, empty grid, exactly the observed screen.
+If the name IS non-empty, the next candidate is `control_bar.find_command_set_by_name` (impl_buttons.rs:63-79) failing to resolve the retail CommandSet in the bridge.
+
+### Staged (in-tree, env-gated, REMOVE AFTER the discriminating run)
+`GENERALS_CBGRID_PROBE=1` warn-level probes: impl_buttons.rs add_object_commands (cs_name/pres_cs + bridge lookup result) and impl_lifecycle.rs evaluate_context_ui (chosen ControlBarState + registry-vs-presentation branch marker). They are in the shared 16:25 release binary (OverlayTagDrive's build carries portrait fix + probes).
+
+### Next steps (precise)
+1. Relaunch bdrive1.sh (now launches with GENERALS_CBGRID_PROBE=1), boot, select dozer + CC, read `CBGRID:` lines from child stderr → identifies which of the three inputs is empty at runtime.
+2. Fix per C++ oracle: ControlBar.cpp:2403-2480 setControlCommand + Object::getCommandSetString — C++ objects ALWAYS carry the template's CommandSet string; fix = propagate the parsed CommandSet into the live template/object (or resolve template-name→CommandSet via the ThingFactory/CommandSetManager fallback the bridge already supports), NOT a UI-side special case.
+3. Remove CBGRID probes; rebuild; verify end-to-end: select dozer → Barracks cameo visible+hittable → click → placement → dozer builds (under_construction 1→0) → select barracks → Ranger cameo → click → production → local_mobile_units +1 (screenshot evidence).
+4. Then re-test `winit_click_named` chain for unit production (Ranger) with the now-bound slots.
+
+Artifacts: /tmp/wsmoke/bdrive1.sh (+bd1_cmd.txt executor queue), bdrive1.log, bd1_{boot,cc_sel1,train1,hostsel,hostall}.png, bd1_{cc_sel1,train1,slot01,hostsel}.txt, child stderr under $(cat /tmp/wsmoke/bd1_dir). Session killed 15:54 to free the lane; no suites touched; changed tree files: runtime.rs, shell_core.rs, mod.rs (runtime_host), impl_buttons.rs + impl_lifecycle.rs (probes only).
+
+---
+
+## SaveLoadUiHunt — mid-match save/load via windowed UI: 2 runtime gaps root-caused, 1 fixed, chain blocked one seam short of full E2E (2026-09-03 15:00-16:40)
+
+### Scope/method
+Drive13-lineage windowed chain on Defcon6 skirmish USA (640x480 runtime-host windowed, control-file driven after OS synthetic clicks died environment-wide ~14:15 per Main/UiGapInventory): menu → start_game → InGame → select_local_unit → move → pause menu → PopupSaveLoad save → load → resume verify. New diagnostic drive aid + probe (kept, documented): `STATUS_GADGET_HIT_NAMES` extended with QuitMenu/PopupSaveLoad buttons + ListboxGames (runtime.rs, same diagnostic-only contract as BuildUiHunt's cameo block) and env-gated `GENERALS_SLUI_PROBE=1` roster line per status publish (dispatch.rs `SLUIROSTER`, local-player id/template/pos/hp/selected/dest — the ONLY machine-readable per-unit view; kept for the follow-up pass, removal trivial: delete static+block).
+
+### Verified working (live windowed run, 16:25 binary)
+- Full menu→skirmish→InGame latch; `select_local_unit` → `select_ok:465` (dozer) with presentation selection mirrored (`sel=true` on id=465).
+- SLUI roster truth pre-save: dozer id=465 `AmericaVehicleDozer @(3108.0,120.0,2201.3) hp=250/250 sel=true`, CC id=464 `@(3068.0,0.0,2241.3) hp=5000/5000`; logic_frame continuity and InGame/paused residuals all honest.
+- Save/load production authority remains green in the harness (SaveLoadHunt landed fixes; golden_skirmish `save_load=true players_preserved=true`).
+
+### GAP 1 (documented, open): control-command movement orders never reach the object
+`move|x=|y=|z=` and `attack_move` both ack `move_ok:n=1` / `attack_move_ok` with selection present, but the dozer's presentation `move_destination` stays unset and position is unchanged across 60 s+ (logic frames advancing; SLUI probe). Movement via PHYSICAL RMB is the proven-good path (drive13 five-flag); the host `host_command_move` seam (ui_selected_ids→host_set_selection→host_command_move) drops the order on the floor in the runtime-host dual-world path. Needs a dedicated pass with the probe in place.
+
+### GAP 2 (partially FIXED by me; one seam remains): pause_save/pause_load fail-closed — QuitMenu.wnd never shown
+Live `pause_save|slot=...` returned `save_fail_wnd_missing` with the match paused: the chain (`ensure_live_quit_menu_layout` → `dispatch_os_click_named_window("QuitMenu.wnd:ButtonSaveLoad")`) fail-closes because the created QuitMenu layout is never SHOWN — C++ parity: the human pause runs `ToggleQuitMenu` which shows the layout (quit_menu.rs `toggle_quit_menu_with_result` → `transition_set_group("QuitFull")`) before any button can be clicked; GameState pause alone never reveals it. **Fix landed (GameClient behavior via Main runtime_host/gameplay.rs):** both `runtime_host_cmd_pause_save` and `runtime_host_cmd_pause_load` now call `toggle_quit_menu()` when the quit menu is not visible before ensure/drive (C++ ToggleQuitMenu parity). Post-fix live run: menu show + pause latch now work (`paused=true` via quit-menu bridge), but `QuitMenu.wnd:ButtonSaveLoad` STILL never publishes a hittable center (0 hits across repeated publishes) → dispatch still fails closed. Remaining seam: the in-match-created `Menus/QuitMenu.wnd` layout's children never become under-cursor hit-testable (transition-group visibility or WM registration of layout windows created mid-match) — `ensure_live_quit_menu_layout` + `dispatch_os_click_named_window` need a "wait until hittable" (cf. `dispatch_os_click_named_window_when_hittable`) or a layout-show/registration fix in quit_menu.rs. All popup_save_load.rs unit tests pass because fixtures `install_named_button` with explicit `hide(false)` — the live gap is invisible to them.
+
+### Evidence
+/tmp/wsmoke/{sluichain3.log,sluichain3_run.log,slui_rosters.txt,slui_final_stderr.log,slui_ingame0.png,slui_selected.png,sluichain2.sh,sluichain3.sh}; live run dir .../generals_exec_smoke_manual_1788463555 (roster: dozer 465/CC 464 hp+pos+sel, paused=true post-menu-show). C++ citations: GameState.cpp:628-723 loadGame + gameStatePostProcessLoad (1505-1523: per-snapshot loadPostProcess → Radar.cpp:1515-1524 refreshTerrain, Drawable.cpp:5396-5420 transform resync, GameLogic.cpp:4996-5071 update-list rebuild); PopupSaveLoad.cpp:362-401 doLoadGame; QuitMenu ToggleQuitMenu show path.
+
+### Changed files (this pass)
+- `Code/Main/src/cnc_game_engine/runtime_host/gameplay.rs`: pause_save/pause_load show QuitMenu before dispatch (fix).
+- `Code/Main/src/cnc_game_engine/runtime.rs`: STATUS_GADGET_HIT_NAMES + QuitMenu/PopupSaveLoad gadgets (drive aid, kept).
+- `Code/Main/src/cnc_game_engine/dispatch.rs`: GENERALS_SLUI_PROBE roster line (kept, documented; delete SLUIROSTER static+block when GAP 1/2 close).
+No git writes; no formatters; serial cargo coordinated with 5 sibling lanes (two shared release builds carried my fixes).
+- RRT handoff (17:2x): binary with this lane + the impl_portrait:36 RefCell fix
+  (OverlayTagDrive) is at target/release/generals. rrtdrive1.sh is staged; first driver
+  with a free window runs it (~4 min, control-driven) and appends rrt_ingame_*.png
+  verdicts here. rrt_menu.png + rrt_skirmish_menu.png already captured (16:1x binary):
+  menus render; skirmish-menu Starting-Cash red box persists via the ShellMenuScheme.ini
+  parse failure — shell-lane residual, NOT control-bar.
+
+## OverlayTagDrive — white-blob writer NARROWED to the terrain EXTRA-BLEND pass: occlusion + shadow overlay lanes and ALL THREE terrain decal families (tree, road/overlay, water) exonerated by one tagged + three null-lane drives (2026-09-03 14:35-16:45)
+
+### 1. Tagged discriminator (tag1, 15:03-15:05, binary mtime 15:00)
+Drive /tmp/wsmoke/tagdrive1.sh (control-driven, 640x480, caffeinate) with GENERALS_UTBOVERLAYTAG=1 + GENERALS_UTBSHADOWTAG=1 against the staged probes. Verdict: **0 green px, 0 blue px** (2 blue HUD-icon noise px in every frame); blob-region white census blobA 757→730, blobB 469→469 vs baseline utb6. `occlusion_bridge.rs` enqueue_occluded_player_color_pass (green tag) and `shadow_pass.rs` record_shadow_and_occlusion_passes overlay billboards (blue tag) are **EXONERATED** — those passes never fire on-screen here (both only emit overlays for occluded/heat-vision units; spawn area has no occluded units).
+
+### 2. Null-lane discriminators (A1/B1/C1, 16:26-16:40, binary mtime 16:4x — carries the impl_portrait.rs:36 `RefCell already borrowed` crash fix, which had aborted treenull1; the panic was a live-path P1 blocking every sibling's drive, fixed by copying the image out of the owned draw data before `borrow_mut`)
+- A1 GENERALS_UTBTREENULL=1 (`record_tree_draws` skip): white blobs PERSIST (swept triangles, slivers, rect-notch) → tree billboards not the writer.
+- B1 GENERALS_UTBROADNULL=1 (`record_road_draws` + `record_overlay_draws` skip = road/bridge/scorch/bib/tank-track/custom-edge/flat-LOD/smudge/snow all off): blobs PERSIST unchanged → road decal family exonerated.
+- C1 GENERALS_UTBWATERNULL=1 (`record_water_draws` + `record_extra_water_draws` + main water pass skip): blobs PERSIST unchanged → water family exonerated.
+Captures: /tmp/wsmoke/{treenull_A1,roadnull_B1,waternull_C1}_dozer.png vs baseline /tmp/wsmoke/tag_tag1_dozer.png. Cross-check: snow lane never initializes (zero "snow" lines in stderr; its white 1x1 flake fallback therefore irrelevant).
+
+### 3. Remaining suspect (next lane-owner's target): `TerrainVisualImpl::record_extra_blend_pass` — GameClient `terrain/terrain_visual/impl_gpu.rs` (~line 2270 post-edit; "Second extra-blend pass over the base terrain (alpha overlay, no Z write)")
+It is the ONLY remaining un-gated terrain-pass draw, and the blob silhouettes (irregular jagged polygon patches, terrain-tile-sized) match extra-blend tile geometry. Red flags for the white-out:
+- `extra_blend_pipeline` falls back to the plain TERRAIN pipeline (`terrain.wgsl`) which has NO alpha-blend of its own for a second overlay pass;
+- bind group 1 is `chunk_texture_bindings.values().next()` — an ARBITRARY first chunk texture, not the tile's authored blend texture (C++ W3D HeightMap extra-blend draws each tile with ITS OWN texture + vertex modulate);
+- if `upload_extra_blend_overlay` (~line 2197) bakes white (255,255,255) vertex modulate or the pipeline blend is opaque-replace, the second pass paints flat-white terrain-tile polygons = exactly the observed blobs (exact 255 white, hard edges, static world anchors, camera-foreshortened).
+Suggested discriminating fix for the closer: env-gate `record_extra_blend_pass` (UTBEXTRABLENDNULL) — expect blobs to vanish — then fix per C++ (per-tile texture binding + authored modulate/blend), remove ALL staged probes.
+
+### 4. Probe inventory / hygiene for the closer (ALL env-gated, warn-level, inert without their env vars, `cargo check -p game-client-rust --lib` + `-p generals_main --lib` clean)
+- occlusion_bridge.rs UTBOVERLAYTAG block (~line 486); shadow_pass.rs UTBSHADOWTAG block (~line 980) — UnitLightFix's staged tags.
+- impl_gpu.rs: UTBWATERNULL in `record_water_draws`, UTBROADNULL in `record_road_draws`, UTBTREENULL in `record_tree_draws`, UTBTREEDUMP block + `utb_tree_dump_latch()` in `update_tree_meshes` (relocated to fire only once atlas levels are non-empty; never observed in drives because the tree lane was exonerated first).
+- overlay_gpu.rs: UTBROADNULL in `record_overlay_draws`, UTBWATERNULL in `record_extra_water_draws`.
+- pipeline_collect.rs: UTBWATERNULL early-return in the main-water-pass pre-scene callback (~line 1812).
+- KEEP (documented diagnostic precedent): ZPROBE in pipeline_execute.rs. Drive scripts (outside repo): /tmp/wsmoke/tagdrive1.sh, nullDrive_{tree,road,water}.sh, logs nullabc.log.
+- Guards untouched: combat filter 966/0, world_tests catalog, gameworld_shadow 302/302 — no GameLogic files modified; my kept change is ONLY the impl_portrait.rs borrow fix (GUI, live-path crash).
+
+### 5. Screen truth at hand-off
+Blobs persist exact-255 white in all five tagged/nulled captures; units remain white-silhouette (mesh lane exonerated earlier by UTBMAGENTA). The fixer should screenshot textured units after the extra-blend fix (acceptance for UnitLightFix2's ticket).
+
+### 3b. ADDENDUM (16:50) — second candidate, UnitLightFix2's render_decals decal lane (probe STAGED, not yet driven)
+The decal lane in GameClient `particle_renderer.rs` (render_decal_queue) is NOT covered by any of my five probes and CAN paint exact-white hard-edged unit-shaped quads: the generic else-branch pipeline is ALPHA_BLENDING with the default WHITE 1x1 bind group, fed by (a) SHADOW_ALPHA_DECAL(0x20) items (not handled explicitly, falls to else) and (b) smudge + DecalManager items whose texture_name is EMPTY (texture load skipped silently, default white texture stays bound). SHADOW_DECAL(0x01) modulate cannot go white (out=dst*src). GENERALS_UTBDECALTAG=1 is staged in-tree by UnitLightFix2 (tints every decal vertex pure RED + per-group warn logging of texture_name/shadow_type/vertex_count/default_tex_used). NEXT DRIVE after a rebuild that includes it: UTBDECALTAG=1 alone — red blobs ⇒ decal lane writer (the warn lines give the exact texture_name/shadow_type for the fix); unchanged white ⇒ terrain extra-blend pass (section 3) is the writer — then gate UTBEXTRABLENDNULL to confirm before fixing. Both probes + my five nulls + two tags come OUT after the fix lands.
+- RRT VERIFIED (16:4x binary, rrtdrive1 EXIT=0): /tmp/wsmoke/rrt/rrt_ingame_{initial,
+  selected,order}.png — ZERO red pixels in all three in-match states (control bar/HUD
+  acceptance CLOSED). Scheme lane PROVEN live: left-stack buttons render at scheme rects
+  (options 147,392 / worker 147,413 / chat 147,454 scaled) and ButtonLarge at MinMax rect
+  (517,346-574,370) — positions moved by apply_scheme_button_art exactly per
+  ControlBarScheme.cpp; art slots show the renderer's honest missing-atlas slate fill
+  (SAControlBar512_001.tga absent) and will show retail art on re-extraction. Cameo strip,
+  money, right-HUD slots, exp bar all render. Beacon hidden (skirmish parity) — left stack
+  shows options/worker/chat. No regressions observed in the three states.
+
+---
+
+## CmdSetFix — command-grid zero-bind root-caused x2 + FIXED (2026-09-03, probe-driven; drive verification staged)
+
+### CBGRID probe verdict (16:25 binary, cbdrive1, 16:52-16:54, Defcon6 skirmish USA)
+904x `CBGRID: obj=464/465 NOT in OBJECT_REGISTRY -> presentation-residual branch`, ZERO `add_object_commands` lines, portrait visible, grid empty: the ControlBar never reached button binding at all.
+
+### Root cause 1 — duplicate-CommandSet hard abort killed the ControlBar bridge
+Recovered repack's `INIZH/Data/INI/MappedImages/TextureSize_512/SAControlBar512.INI` embeds ALL 472 CommandSet blocks (+CommandButton/AudioSettings/Animation fragments). Tolerant mapped-image lane parses it first → manager populated → shell.rs strict `Data/INI/CommandSet.ini` load dups on set #1 → `command_sets_parsed=false` (buttons=820, sets=472 "catalog unavailable" warn) → `refresh_control_bar_bridge_from_common()` never ran → `get_control_bar_bridge()`=None → add_object_commands early-out. C++ parity: ControlBar.cpp:1949-1981 re-parses into the existing set on duplicate (KM note: "nuke the old button with the new one"; DEBUG_CRASH debug-only). Fix: ini_command_set.rs duplicate branch = find_command_set_mut + parse_command_set_fields (overwrite), debug-level log.
+
+### Root cause 2 — locomotor-without-AIUpdate guard skipped 604 Object blocks
+Live boot stderr: 606x `Skipping object '<X>': Attempted to specify a locomotor ... without an AIUpdate block` (AmericaInfantryRanger, AmericaVehicleDozer, AmericaTankCrusader, all Tank_/SupW_/CINE_ variants) → templates left as name-only shells → CommandSet/BuildCost/KindOf lookups empty (kills ranger cameo lane + presentation freeze). C++ AIUpdate.cpp:141-149 reads the EMBEDDED m_aiModuleInfo (never null; guard is dead code in retail). Fix: thing_template.rs write_locomotor_set_into_ai_module returns Ok when no AI module exists yet; stored locomotor_sets replay via apply_stored_locomotors_to_ai_module (thing_factory.rs:994).
+
+### State
+CBGRID probes REMOVED (impl_buttons.rs + impl_lifecycle.rs; grep CBGRID = 0). `cargo check -p game_engine -p game-client-rust --lib` clean. NOT yet driven: next `cargo build --release --bin generals` then `/tmp/wsmoke/cbdrive2.sh` (select dozer → ButtonCommand03 Barracks cameo → placement → under_construction 1→0 → select barracks → ButtonCommand01 Ranger cameo → local_mobile_units +1; screenshots /tmp/wsmoke/cbd2_*.png). Residual same-class skips (one object each, pre-existing, out of lane): DefaultThingTemplate `OverrideableByLikeKind.Behavior` key leak; FireHydrantRed EditorSorting `MISC_MAN_MADE CLEARED_BY_BUILD` token. Evidence: /tmp/wsmoke/cbdrive1.log, cbd1_{cc_sel.png,child_stderr.log,skips}, /tmp/cbprobe.2ztK/{out,err}.log, bead hq-9udt7 notes.
+
+---
+
+## UnitLightFix2 — white-units blocker ROOT-CAUSED (white shards = prop light quads; REAL blocker = ALL unit/building bodies invisible despite valid geometry/transforms): 6 env-gated probes landed, zero drives contradicted, fix NOT landed (2026-09-03 17:00-19:50)
+
+Method: 8 windowed 640x480 control-driven skirmish drives (utbdrive5-13.sh → /tmp/wsmoke/utb5..utb13_*_{dozer.png,stderr.log}) against release binaries carrying env-gated warn-level probes (all inert without env; no git writes; no formatters). Inherited stale context: UTBLIGHT had already fired (prior UnitLightFix section) — lighting 0-1 correct, so the mesh-lane-lighting hypothesis was dead on arrival.
+
+### 1. White shards IDENTIFIED (the visible artifact)
+- UTBDECALTAG (red tint of every `ParticleRenderer::render_decals` draw): 0 red px, 0 UTBDECAL lines ⇒ decal lane drew NOTHING all session — exonerated (also proves the alpha-decal pipeline + white-default-bind-group hole in `render_decals` never fires in-match).
+- UTBEXTRABLENDNULL (skip `TerrainVisualImpl::record_extra_blend_pass`): blobs unchanged ⇒ extra-blend second pass exonerated (probe verified live via display.rs:1035 → record_chunk_draws:872).
+- UTBMESHNULL (early-return `MeshRenderManager::draw_material_pass`): **shards VANISH** ⇒ they ARE ww3d mesh-lane pixels; the earlier UTBMAGENTA "mesh lane exonerated" conclusion was WRONG (override demonstrably didn't tint them).
+- UTBDRAWLOG/UTBDRAWSKIP (per-draw log + surgical `start:count` skip): shards = **2-triangle (4-vert, range (0,6)) sub-mesh quads of prop models** — `Coplight.tga` (11 sites), `Lightbeam.tga`, `PMredlight.tga`, `Housecolor.tga/2`, `ATFan.tga`, `UBSnkAtak_01` + 7× `__missing_texture__` (Main `forward_materials.rs:680` fallback). shaderbits 0x24881b/0x34881b = SRCALPHA:ZERO cutout + texturing; rendered WHITE because alpha.wgsl `if !has_diffuse { layers.diffuse = vec3(1.0) }` — no-enabled-diffuse-stage passes paint white, and white-art quads paint white when enabled. Retail renders these as colored/soft light glows via vertex-material + authored alpha.
+- UTBPASSTINT (per-pass material_diffuse override): shards stayed white ⇒ their shader path ignores material_diffuse color (consistent with stage-mask-off white default).
+
+### 2. THE REAL BLOCKER: unit/building BODIES are invisible outright
+`sample_unit_pos=3068.0,0.0,2241.3:AmericaCommandCenter` — camera_look_at targets the player CC correctly; screen shows terrain only. Evidence chain (all on correct-camera drives):
+- UTBVERTS (geometry dump at `PreparedMeshModel::frommodel`): CC body `ABBtCmdHQ::7::ATHQSlab.tga` 894 verts bbox (-53.7..54.4, -0.1..51.9, -65.1..64.8) VALID; dozer `AVCONSTDOZ_A::0..10` all valid; quads flat y=0.00. No collapse, no NaN.
+- UTBDRAW world= dump: body transforms CORRECT (CC body at exactly (3068.0,0.0,2241.3); dozer parts (3100-3119,120-131,2201); supply docks at both start bases). Textures bound with real pixels.
+- UTBNODEPTH (mesh pipelines with depth_format=None): still invisible ⇒ NOT depth occlusion/order.
+- GENERALS_FORCE_TWO_SIDED=1 (existing env; honored at wgpu_pipeline_manager.rs:547): still invisible ⇒ NOT winding/culling.
+- UTBMESHVIS (per-model FOW + camera): `alpha_override=1.000 pres_opacity=1.000 fow=(a=1.000 f=1.000 exp=1.000)` ⇒ NOT FOW/alpha discard.
+Remaining candidate space (narrow, next driver): (a) mesh-lane camera view-projection matrix content (get_position correct ≠ VP correct — dump the VP vs terrain lane's), (b) index buffer CONTENT (ranges/counts valid but `model.triangles` content never verified — all-zero indices = degenerate = invisible; ZPROBE readback precedent applies), (c) bodies rasterizing into a frame-graph target that never presents while static-sort quads present.
+
+### 3. Probe inventory (ALL env-gated, warn-level, compile-clean; REMOVE AFTER fix)
+render_manager.rs (ww3d-renderer-3d): UTBMESHNULL, UTBPASSTINT+UTBRANGE, UTBDRAWLOG/UTBDRAWSKIP(+deep dump; also feeds «shroud» caller marker), UTBVERTS, UTBMESHVIS, UTBNODEPTH. particle_renderer.rs (game-client-rust): UTBDECALTAG. terrain_visual/impl_gpu.rs: UTBEXTRABLENDNULL. Prior lanes' UTBLIGHT/UTBUVCENTER/UTBMAT/UTBOVERLAYTAG/UTBSHADOWTAG also still in-tree. `cargo check -p ww3d-renderer-3d --lib` and `-p game-client-rust --lib` clean after each edit; guard strings (frozen_fow_* tests, ww3d tests.rs draw_material_pass contract) untouched.
+NOTE for drivers: `target/release/generals` (19:4x) is MINE and carries ALL probes; Main-pipeline lanes (CmdSetFix) must rebuild for their own verification. Guards at hand-off (EngineStores2, independent): combat 965/966 (chinook residual, pre-existing), gameworld_shadow 304/304, world_tests 8/8.
+Artifacts: /tmp/wsmoke/utbdrive5-13.sh, utb5..utb13_* captures + stderr logs; key captures: utb5_utbdisc1 (shards present), utb6_utbmeshnull1 (shards gone), utb9_utbworld1 (shards gone + world dump), utb12_utbtwosided1 (units still gone).

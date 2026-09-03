@@ -201,9 +201,13 @@ impl GameLogic {
         use crate::game_logic::host_radar_stealth_vision_residual::{
             VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL, VISION_ALERT_RANGE_MODIFIER_RESIDUAL,
         };
-        let leftover = game_engine::common::ini::get_ai_data_store()
-            .get_active()
-            .map(|d| (d.alert_range_modifier, d.aggressive_range_modifier));
+        let leftover = {
+            let store = game_engine::common::ini::get_ai_data_store();
+            let store = store.read().expect("AI data store read lock");
+            store
+                .get_active()
+                .map(|d| (d.alert_range_modifier, d.aggressive_range_modifier))
+        };
         let leftover = leftover.or_else(|| {
             gamelogic::ai::the_ai().read().ok().and_then(|ai| {
                 ai.get_ai_data()
@@ -290,7 +294,9 @@ impl GameLogic {
 
     /// C++ TAiData::m_guardChaseUnitFrames — leftover AIData, else retail 4s.
     pub fn host_guard_chase_unit_frames(&self) -> u32 {
-        let leftover = game_engine::common::ini::get_ai_data_store()
+        let store = game_engine::common::ini::get_ai_data_store();
+        let store = store.read().expect("AI data store read lock");
+        let leftover = store
             .get_active()
             .map(|d| d.guard_chase_unit_frames)
             .filter(|&frames| frames > 0)
@@ -310,7 +316,9 @@ impl GameLogic {
 
     /// C++ TAiData::m_guardEnemyScanRate — leftover AIData, else 0.5s.
     pub fn host_guard_enemy_scan_rate(&self) -> u32 {
-        game_engine::common::ini::get_ai_data_store()
+        let store = game_engine::common::ini::get_ai_data_store();
+        let store = store.read().expect("AI data store read lock");
+        store
             .get_active()
             .map(|d| d.guard_enemy_scan_rate)
             .filter(|&rate| rate > 0)
@@ -328,7 +336,9 @@ impl GameLogic {
 
     /// C++ TAiData::m_guardEnemyReturnScanRate — leftover AIData, else 1s.
     pub fn host_guard_enemy_return_scan_rate(&self) -> u32 {
-        game_engine::common::ini::get_ai_data_store()
+        let store = game_engine::common::ini::get_ai_data_store();
+        let store = store.read().expect("AI data store read lock");
+        store
             .get_active()
             .map(|d| d.guard_enemy_return_scan_rate)
             .filter(|&rate| rate > 0)

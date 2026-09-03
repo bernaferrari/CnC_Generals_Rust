@@ -28,9 +28,13 @@ impl<'a> CommandExecutor<'a> {
         use crate::game_logic::host_ai_path_combat_residual_wave105::{
             DISTANCE_REQUIRES_GROUP_RESIDUAL, MIN_DISTANCE_FOR_GROUP_RESIDUAL,
         };
-        let from_store = game_engine::common::ini::get_ai_data_store()
-            .get_active()
-            .map(|d| (d.min_distance_for_group, d.distance_requires_group));
+        let from_store = {
+            let store = game_engine::common::ini::get_ai_data_store();
+            let store = store.read().expect("AI data store read lock");
+            store
+                .get_active()
+                .map(|d| (d.min_distance_for_group, d.distance_requires_group))
+        };
         let (min_d, req) = from_store
             .or_else(|| {
                 gamelogic::ai::the_ai().read().ok().and_then(|ai| {
