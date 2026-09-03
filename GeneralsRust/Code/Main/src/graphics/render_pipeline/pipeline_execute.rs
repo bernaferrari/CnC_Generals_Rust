@@ -315,17 +315,36 @@ impl RenderPipeline {
             // frame's final depth attachment (the attachment persists across frames;
             // the terrain pass clears it and draws first). Fully synchronous:
             // submit, poll, map, read, unmap — no cross-frame mapped window.
+            // Fires on the first IN-MATCH world-scene frame that queued items
+            // (execute also runs for Loading/Menu shell frames with zero items);
+            // logs at warn because main.rs filters generals_main::graphics to Warn.
             static ZPROBE_DONE: std::sync::atomic::AtomicBool =
                 std::sync::atomic::AtomicBool::new(false);
             static ZPROBE_ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
                 std::env::var("GENERALS_ZPROBE").as_deref() == Ok("1")
             });
-            if *ZPROBE_ENABLED && !ZPROBE_DONE.swap(true, std::sync::atomic::Ordering::Relaxed)
+            if *ZPROBE_ENABLED
+                && render_world_scene
+                && !shell_scene
+                && !self.render_items.is_empty()
+                && !ZPROBE_DONE.swap(true, std::sync::atomic::Ordering::Relaxed)
             {
                 let view_proj = *projection_matrix * *view_matrix;
                 let mut report = String::from("ZPROBE item clip-z dump:");
                 let mut samples: Vec<(i32, i32, f32)> = Vec::new();
-                for (i, item) in self.render_items.iter().take(6).enumerate() {
+                let mut seen_models: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                let mut sampled = 0usize;
+                for (i, item) in self.render_items.iter().enumerate() {
+                    if sampled >= 16 {
+                        break;
+                    }
+                    // One sample per model family: the item list repeats a base
+                    // building's meshes many times; distinct families cover both
+                    // buried-origin buildings and on-ground units (dozer).
+                    if !seen_models.insert(item.model_name.clone()) {
+                        continue;
+                    }
                     let p = item.world_position;
                     let clip = view_proj * p.extend(1.0);
                     if !(clip.w > 0.001) || !clip.z.is_finite() {
@@ -333,6 +352,9 @@ impl RenderPipeline {
                     }
                     let z_over_w = clip.z / clip.w;
                     let ndc = clip.truncate() / clip.w;
+                    if !(-1.1..=1.1).contains(&ndc.x) || !(-1.1..=1.1).contains(&ndc.y) {
+                        continue;
+                    }
                     let px = ((ndc.x * 0.5 + 0.5) * 640.0).clamp(0.0, 639.0) as i32;
                     let py = ((0.5 - ndc.y * 0.5) * 480.0).clamp(0.0, 479.0) as i32;
                     let ground = game_client::terrain::terrain_visual::get_terrain_visual()
@@ -354,8 +376,9 @@ impl RenderPipeline {
                         item.model_name, p.x, p.y, p.z, z_over_w, px, py, ground, ground_z
                     ));
                     samples.push((px, py, z_over_w));
+                    sampled += 1;
                 }
-                info!("{}", report);
+                warn!("{}", report);
 
                 self.enqueue_post_frame_callback(move |gpu_frame| {
                     let Some(depth_view) = gpu_frame.depth_view_arc() else {
@@ -423,11 +446,25 @@ impl RenderPipeline {
                     };
                     let mut line = String::from("ZPROBE GPU depth readback (previous frame):");
                     for (px, py, mesh_z) in &samples {
+                        // 3x3 neighborhood: the exact pixel may be a nearer
+                        // occluder (or the item's own buried origin); neighbors
+                        // expose whether ANY adjacent depth accepts the mesh z.
+                        let mut min_d = f32::INFINITY;
+                        let mut max_d = f32::NEG_INFINITY;
+                        for dy in -1..=1 {
+                            for dx in -1..=1 {
+                                let d = read(px + dx, py + dy);
+                                min_d = min_d.min(d);
+                                max_d = max_d.max(d);
+                            }
+                        }
                         line.push_str(&format!(
-                            "\n  px=({},{}) gpu_depth={:.6} mesh_z/w={:.6}",
+                            "\n  px=({},{}) gpu_depth={:.6} min3x3={:.6} max3x3={:.6} mesh_z/w={:.6}",
                             px,
                             py,
                             read(*px, *py),
+                            min_d,
+                            max_d,
                             mesh_z
                         ));
                     }
@@ -437,9 +474,34 @@ impl RenderPipeline {
                         h as i32 / 2,
                         read(w as i32 / 2, h as i32 / 2)
                     ));
+                    // Clear-value check: nothing but the terrain pre-scene pass
+                    // (Clear 1.0 + Less) is expected to write this attachment, so
+                    // untouched pixels must read 1.0. A 0.0 corner means the
+                    // observed attachment was never cleared by that lane.
+                    for (cx, cy, tag) in [
+                        (0, 0, "tl"),
+                        (w as i32 - 1, 0, "tr"),
+                        (0, h as i32 - 1, "bl"),
+                        (w as i32 - 1, h as i32 - 1, "br"),
+                    ] {
+                        line.push_str(&format!(
+                            "\n  corner {} ({},{}) gpu_depth={:.6}",
+                            tag,
+                            cx,
+                            cy,
+                            read(cx, cy)
+                        ));
+                    }
+                    // Center-column profile: a monotone far-to-near ramp is a
+                    // sane terrain surface; plateaus/off-formula values indict a
+                    // specific writer or a lane z mismatch.
+                    line.push_str("\n  column px=320 profile:");
+                    for py in (8..h as i32).step_by(32) {
+                        line.push_str(&format!(" {:.6}", read(320, py)));
+                    }
                     drop(data);
                     buffer.unmap();
-                    info!("{}", line);
+                    warn!("{}", line);
                     Ok(())
                 });
             }
@@ -460,6 +522,7 @@ impl RenderPipeline {
                 .and_then(|lighting| lighting.sun_direction)
                 .unwrap_or([0.0, 0.0, -1.0]);
             let device = graphics_system.device_arc();
+            let shadow_viewport_px = self.tactical_viewport_pixel_size();
             self.enqueue_post_frame_callback(move |gpu_frame| {
                 let Some(depth_view) = gpu_frame.depth_view_arc() else {
                     return Ok(());
@@ -475,6 +538,7 @@ impl RenderPipeline {
                     light_pos,
                     color_format,
                     depth_format,
+                    shadow_viewport_px,
                 );
                 Ok(())
             });

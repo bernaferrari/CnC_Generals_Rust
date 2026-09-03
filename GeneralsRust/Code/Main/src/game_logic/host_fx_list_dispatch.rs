@@ -179,7 +179,8 @@ fn host_object_is_shrouded_for_local(id: u32) -> bool {
     if player < 0 {
         return false;
     }
-    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+    let Ok(shroud) = shroud_manager.lock() else {
         return false;
     };
     match shroud.get_host_object_shroud_status(player as u32, id) {

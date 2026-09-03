@@ -987,7 +987,9 @@ impl UpgradeMuxData {
             return;
         }
 
-        if let Some(upgrade_center) = get_upgrade_center() {
+        let upgrade_center = get_upgrade_center();
+        let upgrade_center = upgrade_center.read().expect("UpgradeCenter poisoned");
+        {
             for upgrade_name in &self.removal_upgrade_names {
                 let lookup_name =
                     crate::common::ascii_string::AsciiString::from(upgrade_name.as_str());
@@ -1023,9 +1025,8 @@ impl UpgradeMuxData {
             let activation_upgrade_names = self.activation_upgrade_names.clone();
             let conflicting_upgrade_names = self.conflicting_upgrade_names.clone();
 
-            let Some(upgrade_center) = get_upgrade_center() else {
-                panic!("UpgradeMuxData references upgrades before TheUpgradeCenter is initialized");
-            };
+            let upgrade_center = get_upgrade_center();
+            let upgrade_center = upgrade_center.read().expect("UpgradeCenter poisoned");
 
             self.activation_mask = Self::resolve_upgrade_mask(
                 &upgrade_center,
@@ -1118,7 +1119,7 @@ impl UpgradeMuxData {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ini::ini_upgrade::{get_upgrade_center_mut, initialize_upgrade_center};
+    use crate::common::ini::ini_upgrade::{get_upgrade_center, initialize_upgrade_center};
     use crate::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -1193,7 +1194,8 @@ mod tests {
         let activation_name = AsciiString::from("UpgradeMuxDataActivationTest");
         let conflicting_name = AsciiString::from("UpgradeMuxDataConflictTest");
         let (activation_mask, conflicting_mask) = {
-            let mut center = get_upgrade_center_mut().unwrap();
+            let center = get_upgrade_center();
+            let mut center = center.write().expect("UpgradeCenter poisoned");
             let activation_mask = center
                 .get_or_create_template(&activation_name)
                 .get_upgrade_mask();

@@ -682,7 +682,8 @@ impl ThePartitionManager {
             return CellShroudStatus::Shrouded;
         }
 
-        let Ok(shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(shroud) = shroud_manager.lock() else {
             return CellShroudStatus::Shrouded;
         };
         match shroud.get_shroud_state(player_index as u32, loc) {
@@ -694,7 +695,8 @@ impl ThePartitionManager {
 
     /// Mirrors C++ ThePartitionManager->doShroudReveal().
     pub fn do_shroud_reveal(&self, center: &Coord3D, radius: Real, player_mask: PlayerMaskType) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.do_shroud_reveal(center, radius, player_mask.bits());
@@ -704,7 +706,8 @@ impl ThePartitionManager {
 
     /// Mirrors C++ ThePartitionManager->undoShroudReveal().
     pub fn undo_shroud_reveal(&self, center: &Coord3D, radius: Real, player_mask: PlayerMaskType) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.undo_shroud_reveal(center, radius, player_mask.bits());
@@ -719,7 +722,8 @@ impl ThePartitionManager {
         radius: Real,
         player_mask: PlayerMaskType,
     ) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         let persist_frames = game_engine::common::global_data::read_safe()
@@ -742,7 +746,8 @@ impl ThePartitionManager {
 
     /// Mirrors C++ ThePartitionManager->doShroudCover().
     pub fn do_shroud_cover(&self, center: &Coord3D, radius: Real, player_mask: PlayerMaskType) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.do_shroud_cover(center, radius, player_mask.bits());
@@ -750,7 +755,8 @@ impl ThePartitionManager {
 
     /// Mirrors C++ ThePartitionManager->undoShroudCover().
     pub fn undo_shroud_cover(&self, center: &Coord3D, radius: Real, player_mask: PlayerMaskType) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.undo_shroud_cover(center, radius, player_mask.bits());
@@ -764,7 +770,8 @@ impl ThePartitionManager {
         threat_value: u32,
         player_mask: PlayerMaskType,
     ) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.do_threat_affect(center, radius, threat_value, player_mask.bits());
@@ -780,7 +787,8 @@ impl ThePartitionManager {
         threat_value: u32,
         player_mask: PlayerMaskType,
     ) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.undo_threat_affect(center, radius, threat_value, player_mask.bits());
@@ -796,7 +804,8 @@ impl ThePartitionManager {
         value: u32,
         player_mask: PlayerMaskType,
     ) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.do_value_affect(center, radius, value, player_mask.bits());
@@ -812,7 +821,8 @@ impl ThePartitionManager {
         value: u32,
         player_mask: PlayerMaskType,
     ) {
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud) = shroud_manager.lock() else {
             return;
         };
         shroud.undo_value_affect(center, radius, value, player_mask.bits());

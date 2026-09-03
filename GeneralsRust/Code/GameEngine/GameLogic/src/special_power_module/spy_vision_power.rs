@@ -65,7 +65,8 @@ impl SpyVisionSpecialPower {
             .max(0.0) as u32;
         let player_mask = 1u32 << (player_id.min((MAX_PLAYER_COUNT - 1) as u32));
 
-        let mut shroud = get_shroud_manager()
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager
             .lock()
             .map_err(|_| "ShroudManager lock poisoned".to_string())?;
         shroud.do_shroud_reveal(

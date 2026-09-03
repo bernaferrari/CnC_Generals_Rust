@@ -664,6 +664,7 @@ impl AIPlayer {
 
     pub(super) fn aidata_rotate_skirmish_bases() -> bool {
         let store = game_engine::common::ini::get_ai_data_store();
+        let store = store.read().expect("AI data store read lock");
         if let Some(data) = store.get_active() {
             return data.rotate_skirmish_bases;
         }
@@ -683,6 +684,7 @@ impl AIPlayer {
     pub(super) fn aidata_max_recruit_distance() -> f32 {
         let from_store = (|| {
             let store = game_engine::common::ini::get_ai_data_store();
+            let store = store.read().expect("AI data store read lock");
             store.get_active().map(|d| d.max_recruit_distance)
         })();
         let dist = from_store
@@ -703,6 +705,7 @@ impl AIPlayer {
     pub(super) fn aidata_side_build_entries(side: &str) -> Option<Vec<SideBuildPad>> {
         {
             let store = game_engine::common::ini::get_ai_data_store();
+            let store = store.read().expect("AI data store read lock");
             if let Some(data) = store.get_active() {
                 if let Some(list) = data
                     .side_build_lists
@@ -818,6 +821,7 @@ impl AIPlayer {
     pub(super) fn aidata_side_skillsets(side: &str) -> Option<[Vec<String>; 5]> {
         {
             let store = game_engine::common::ini::get_ai_data_store();
+            let store = store.read().expect("AI data store read lock");
             if let Some(data) = store.get_active() {
                 if let Some(info) = data
                     .side_info

@@ -811,7 +811,8 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         .owner_player_id = Some(1);
 
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
         shroud.mark_host_object_seen(0, id.0);
@@ -828,7 +829,8 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     );
 
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
         shroud.mark_host_object_seen(0, id.0);
@@ -848,7 +850,8 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     );
 
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
         // Keep the FOW runtime active for the viewer but leave this object

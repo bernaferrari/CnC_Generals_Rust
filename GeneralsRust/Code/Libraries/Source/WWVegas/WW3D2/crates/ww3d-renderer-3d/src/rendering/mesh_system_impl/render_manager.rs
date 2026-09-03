@@ -15,6 +15,21 @@ use super::*;
 /// manager defers to it when a pass texture carries only its W3D name, then
 /// uploads the returned pixels through the same first-bind path as CPU-only
 /// pass textures.
+
+static UTBVIEW_ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    std::env::var("GENERALS_UTBVIEW").as_deref() == Ok("1")
+});
+static UTBVIEW_SEEN: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashSet<(String, &'static str)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+// UTBMAT (documented diagnostic, GENERALS_UTBMAT=1): once per model, log the
+// material uniforms and stage masks that compose the mesh fragment color.
+static UTBMAT_ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    std::env::var("GENERALS_UTBMAT").as_deref() == Ok("1")
+});
+static UTBMAT_SEEN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 pub type MeshPassTextureProvider =
     Arc<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
 
@@ -70,7 +85,15 @@ impl PreparedMeshModel {
             }
 
             for channel in 0..MAX_VERTEX_UV_SETS {
-                let [u, v] = model.uv_channel_coords(channel, index);
+                // UTBUVCENTER (documented diagnostic, GENERALS_UTBUVCENTER=1):
+                // pin every UV to the texture center. If units render textured
+                // under this env while authored UVs render flat texel0-white,
+                // the UV delivery path (vertex attribute -> sampler) is broken.
+                let [u, v] = if std::env::var("GENERALS_UTBUVCENTER").as_deref() == Ok("1") {
+                    [0.5, 0.5]
+                } else {
+                    model.uv_channel_coords(channel, index)
+                };
                 vertex_data.push(u);
                 vertex_data.push(v);
             }
@@ -128,6 +151,43 @@ impl PreparedMeshModel {
         // Compute per-pass index ranges from polygon renderer list
         // This ensures we only draw geometry belonging to each pass
         let pass_index_ranges = compute_pass_index_ranges(model, &index_data);
+
+        // UTBVERTS (documented diagnostic, GENERALS_UTBVERTS=1, once per
+        // model): dump the packed geometry's extent so a collapsed/NaN vertex
+        // array (invisible meshes) is visible CPU-side without GPU readback.
+        if std::env::var("GENERALS_UTBVERTS").as_deref() == Ok("1")
+            && !model.vertices.is_empty()
+        {
+            static UTBVERTS_SEEN: std::sync::LazyLock<
+                std::sync::Mutex<std::collections::HashSet<String>>,
+            > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+            let mut min = [f32::MAX; 3];
+            let mut max = [f32::MIN; 3];
+            for vertex in &model.vertices {
+                min[0] = min[0].min(vertex.x);
+                min[1] = min[1].min(vertex.y);
+                min[2] = min[2].min(vertex.z);
+                max[0] = max[0].max(vertex.x);
+                max[1] = max[1].max(vertex.y);
+                max[2] = max[2].max(vertex.z);
+            }
+            let key = format!(
+                "model='{}' verts={} tris={} bbox=({:.2}..{:.2}, {:.2}..{:.2}, {:.2}..{:.2}) v0=({:.2},{:.2},{:.2}) ranges={:?}",
+                model.name,
+                model.vertices.len(),
+                model.triangles.len(),
+                min[0], max[0], min[1], max[1], min[2], max[2],
+                model.vertices[0].x, model.vertices[0].y, model.vertices[0].z,
+                pass_index_ranges,
+            );
+            let unseen = UTBVERTS_SEEN
+                .lock()
+                .map(|mut seen| seen.insert(key.clone()))
+                .unwrap_or(false);
+            if unseen {
+                log::warn!("UTBVERTS {}", key);
+            }
+        }
 
         Ok(Self {
             vertex_buffer,
@@ -1012,7 +1072,7 @@ impl MeshRenderManager {
         // while retaining each range's index selection and avoiding a second
         // draw of any geometry that the source model does not own.
         for pass in &prepared.material_passes {
-            self.issue_draw_call(prepared, pass, render_pass);
+            self.issue_draw_call(prepared, pass, render_pass, "«shroud»", [0.0; 3]);
         }
         self.stats.material_passes += prepared.material_passes.len() as u32;
         self.stats.shader_switches += 1;
@@ -1090,6 +1150,51 @@ impl MeshRenderManager {
         arena: &mut FrameUniformArena,
         resources: &mut RenderPassResources,
     ) -> W3dResult<()> {
+        // UTBMESHNULL (documented diagnostic, GENERALS_UTBMESHNULL=1):
+        // skip every ww3d mesh-lane material draw. If the unexplained white
+        // shards vanish with this set, they are mesh-lane pixels and the
+        // UTBMAGENTA tag demonstrably did not reach the pipeline that draws
+        // them; if they persist, a non-mesh pass paints them.
+        if std::env::var("GENERALS_UTBMESHNULL").as_deref() == Ok("1") {
+            return Ok(());
+        }
+        // UTBLIGHT (documented diagnostic, GENERALS_UTBLIGHT=1, once per model):
+        // dump the mesh-lane lighting environment at draw time to discriminate
+        // lighting-uniform-scale blowout (ambient/light colors far above 1.0
+        // clamp every fragment to flat white) from an upload/sampler white sample.
+        static UTBLIGHT_SEEN: std::sync::LazyLock<
+            std::sync::Mutex<std::collections::HashSet<String>>,
+        > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+        let utblight_first = std::env::var("GENERALS_UTBLIGHT").as_deref() == Ok("1")
+            && UTBLIGHT_SEEN
+                .lock()
+                .map(|mut seen| seen.insert(mesh.name.clone()))
+                .unwrap_or(false);
+        if utblight_first {
+            match render_info.lighting.as_ref() {
+                Some(env) => {
+                    let mut desc = format!(
+                        "ambient=({:.4},{:.4},{:.4})",
+                        env.ambient.x, env.ambient.y, env.ambient.z
+                    );
+                    for (i, light) in env.lights.iter().enumerate() {
+                        if let Ok(light) = light.lock() {
+                            desc.push_str(&format!(
+                                " | l{} type={:?} dir=({:.3},{:.3},{:.3}) col=({:.4},{:.4},{:.4}) int={:.3} amb=({:.4},{:.4},{:.4}) enabled={}",
+                                i, light.light_type,
+                                light.direction.x, light.direction.y, light.direction.z,
+                                light.color.x, light.color.y, light.color.z,
+                                light.intensity,
+                                light.ambient.x, light.ambient.y, light.ambient.z,
+                                light.enabled,
+                            ));
+                        }
+                    }
+                    log::warn!("UTBLIGHT model='{}' {}", mesh.name, desc);
+                }
+                None => log::warn!("UTBLIGHT model='{}' lighting=NONE", mesh.name),
+            }
+        }
         let uv_override_pass = mesh
             .uv_offset_override()
             .map(|offset| Self::material_pass_with_uv_offset(pass, offset));
@@ -1117,6 +1222,12 @@ impl MeshRenderManager {
             pipeline_shader.set_alpha_blend_enable(true);
         }
 
+        // UTBNODEPTH (documented diagnostic, GENERALS_UTBNODEPTH=1):
+        // create mesh pipelines with no depth attachment testing; if invisible
+        // units pop into view with this set they were depth-occluded (draw
+        // order/depth-state bug), if they stay hidden the geometry itself is
+        // degenerate or off-screen.
+        let utb_nodepth = std::env::var("GENERALS_UTBNODEPTH").as_deref() == Ok("1");
         let pipeline = self.pipeline_mgr.get_or_create(
             &pipeline_shader,
             stage_masks.mask,
@@ -1126,7 +1237,7 @@ impl MeshRenderManager {
             wgpu::PrimitiveTopology::TriangleList,
             vertex_format,
             self.color_format,
-            self.depth_format,
+            if utb_nodepth { None } else { self.depth_format },
             0,
             force_two_sided,
         );
@@ -1139,7 +1250,7 @@ impl MeshRenderManager {
             render_info,
         )?;
 
-        let (material_diffuse, material_specular, material_emissive) =
+        let (mut material_diffuse, material_specular, material_emissive) =
             material_properties(pass.get_vertex_material());
         let material_overrides = [
             render_info.alpha_override * mesh.presentation_opacity(),
@@ -1149,7 +1260,116 @@ impl MeshRenderManager {
         ];
         let (visibility_alpha, visibility_falloff, is_explored) =
             mesh.frozen_fow_visibility().model_uniform_values();
-
+        // UTBMAT (documented diagnostic, GENERALS_UTBMAT=1, once per model):
+        // dump the per-model material uniforms that multiply the sampled
+        // albedo, to discriminate a GPU material/emissive white-out from an
+        // upload-path white sample.
+        if *UTBMAT_ENABLED {
+            let key = mesh.name.clone();
+            let unseen = UTBMAT_SEEN
+                .lock()
+                .map(|mut seen| seen.insert(key))
+                .unwrap_or(false);
+            if unseen {
+                let tex0 = pass
+                    .get_texture(0)
+                    .map(|texture| {
+                        format!(
+                            "'{}' {}x{} fmt={:?} px={}",
+                            texture.get_name(),
+                            texture.width,
+                            texture.height,
+                            texture.format,
+                            texture.raw_pixels().len()
+                        )
+                    })
+                    .unwrap_or_else(|| "none".to_string());
+                log::warn!(
+                    "UTBMAT model='{}' mat_diff=({:.3},{:.3},{:.3},{:.3}) mat_spec=({:.3},{:.3},{:.3},{:.3}) mat_emis=({:.3},{:.3},{:.3}) overrides=({:.3},{:.3},{:.3},{:.3}) stage_mask={:02x} cube_mask={:08x} hints={:08x} tex0={}",
+                    mesh.name,
+                    material_diffuse[0], material_diffuse[1], material_diffuse[2], material_diffuse[3],
+                    material_specular[0], material_specular[1], material_specular[2], material_specular[3],
+                    material_emissive[0], material_emissive[1], material_emissive[2],
+                    material_overrides[0], material_overrides[1], material_overrides[2], material_overrides[3],
+                    stage_masks.mask, stage_masks.cube_mask, stage_masks.hints,
+                    tex0,
+                );
+            }
+        }
+        // UTBMESHVIS (documented diagnostic, GENERALS_UTBMESHVIS=1, once per
+        // model): dump per-model visibility (FOW alpha/falloff/explored,
+        // alpha_override) and the mesh-lane camera eye, to attribute invisible
+        // units to an alpha discard vs a stale camera.
+        if std::env::var("GENERALS_UTBMESHVIS").as_deref() == Ok("1") {
+            static UTBMESHVIS_SEEN: std::sync::LazyLock<
+                std::sync::Mutex<std::collections::HashSet<String>>,
+            > = std::sync::LazyLock::new(|| {
+                std::sync::Mutex::new(std::collections::HashSet::new())
+            });
+            let utb_vis_key = format!(
+                "{}|{}|{}",
+                mesh.name,
+                mesh.alpha_override,
+                (visibility_alpha, visibility_falloff, is_explored).0
+            );
+            let unseen = UTBMESHVIS_SEEN
+                .lock()
+                .map(|mut seen| seen.insert(utb_vis_key))
+                .unwrap_or(false);
+            if unseen {
+                let utb_cam = render_info.camera.get_position();
+                log::warn!(
+                    "UTBMESHVIS model='{}' alpha_override={:.3} pres_opacity={:.3} fow=(a={:.3} f={:.3} exp={:.3}) cam=({:.1},{:.1},{:.1}) world=({:.1},{:.1},{:.1})",
+                    mesh.name,
+                    mesh.alpha_override,
+                    mesh.presentation_opacity(),
+                    visibility_alpha,
+                    visibility_falloff,
+                    is_explored,
+                    utb_cam.x,
+                    utb_cam.y,
+                    utb_cam.z,
+                    mesh.transform.w_axis.x,
+                    mesh.transform.w_axis.y,
+                    mesh.transform.w_axis.z,
+                );
+            }
+        }
+        // UTBPASSTINT (documented diagnostic, GENERALS_UTBPASSTINT=1):
+        // per-pass material_diffuse override — pass0 red, pass1 green, pass2
+        // blue, pass3+ yellow — to identify which material pass paints the
+        // white shards and whether the shader honors material_diffuse.
+        // UTBRANGE (same env): once per model+pass, dump the authored draw
+        // range so an invisible base pass (start,0) is visible in logs.
+        if std::env::var("GENERALS_UTBPASSTINT").as_deref() == Ok("1") {
+            material_diffuse = match pass.get_pass_index() {
+                0 => [1.0, 0.0, 0.0, 1.0],
+                1 => [0.0, 1.0, 0.0, 1.0],
+                2 => [0.0, 0.0, 1.0, 1.0],
+                _ => [1.0, 1.0, 0.0, 1.0],
+            };
+            static UTBRANGE_SEEN: std::sync::LazyLock<
+                std::sync::Mutex<std::collections::HashSet<String>>,
+            > = std::sync::LazyLock::new(|| {
+                std::sync::Mutex::new(std::collections::HashSet::new())
+            });
+            let utb_pi = pass.get_pass_index();
+            let utb_key = format!("{}|{}", mesh.name, utb_pi);
+            let unseen = UTBRANGE_SEEN
+                .lock()
+                .map(|mut seen| seen.insert(utb_key))
+                .unwrap_or(false);
+            if unseen {
+                log::warn!(
+                    "UTBRANGE model='{}' pass={} range={:?} all={:?} idx_buf={}",
+                    mesh.name,
+                    utb_pi,
+                    prepared.pass_index_ranges.get(utb_pi).copied(),
+                    prepared.pass_index_ranges,
+                    prepared.index_buffer.is_some(),
+                );
+            }
+        }
         let model_binds = WgpuMaterialBinds::model(
             self.gpu_device.as_ref(),
             pipeline.as_ref(),
@@ -1248,7 +1468,15 @@ impl MeshRenderManager {
             self.stats.vertex_color_passes += 1;
         }
 
-        self.issue_draw_call(prepared, pass, render_pass);
+        let utb_t = mesh.transform.w_axis;
+        let utb_translation = [utb_t.x, utb_t.y, utb_t.z];
+        self.issue_draw_call(
+            prepared,
+            pass,
+            render_pass,
+            &mesh.name,
+            utb_translation,
+        );
 
         self.stats.material_passes += 1;
         self.stats.shader_switches += 1;
@@ -1267,10 +1495,11 @@ impl MeshRenderManager {
         prepared: &PreparedMeshModel,
         pass: &MaterialPassClass,
         render_pass: &mut wgpu::RenderPass<'_>,
+        mesh_name: &str,
+        mesh_translation: [f32; 3],
     ) {
         // Get the pass index for filtering
         let pass_index = pass.get_pass_index();
-
         // C++ DX8 mesh rendering semantics (MeshClass::Render_Material_Pass /
         // DX8PolygonRendererList): a material pass only re-draws polygon
         // renderers authored for that pass index. The base pass (0) owns the
@@ -1283,7 +1512,76 @@ impl MeshRenderManager {
         } else {
             (0, 0)
         };
-
+        // UTBDRAW (documented diagnostic, GENERALS_UTBDRAWLOG=1 or
+        // GENERALS_UTBDRAWSKIP="start:count,..."): log every distinct
+        // material-pass draw; optionally skip exact (start,count) matches to
+        // identify which draw produces the unexplained white shards.
+        static UTBDRAW_SEEN: std::sync::LazyLock<
+            std::sync::Mutex<std::collections::HashSet<String>>,
+        > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+        let utb_skip_spec = std::env::var("GENERALS_UTBDRAWSKIP").ok();
+        let utb_skip = utb_skip_spec.as_deref().map(|spec| {
+            spec.split(',')
+                .filter_map(|entry| {
+                    let mut parts = entry.trim().split(':');
+                    let start = parts.next()?.trim().parse::<u32>().ok()?;
+                    let count = parts.next()?.trim().parse::<u32>().ok()?;
+                    Some((start, count))
+                })
+                .any(|(start, count)| start == start_index && count == count)
+        })
+        .unwrap_or(false);
+        let utb_key = format!(
+            "model='{}' pass={} start={} count={} verts={} indexed={} tex0='{}' world=({:.1},{:.1},{:.1})",
+            mesh_name,
+            pass_index,
+            start_index,
+            count,
+            prepared.vertex_count,
+            prepared.index_buffer.is_some(),
+            pass.get_texture(0)
+                .map(|texture| texture.get_name())
+                .unwrap_or_default(),
+            mesh_translation[0],
+            mesh_translation[1],
+            mesh_translation[2],
+        );
+        let unseen = UTBDRAW_SEEN
+            .lock()
+            .map(|mut seen| seen.insert(utb_key.clone()))
+            .unwrap_or(false);
+        let utb_log = std::env::var("GENERALS_UTBDRAWLOG").as_deref() == Ok("1");
+        if utb_log && unseen {
+            log::warn!("UTBDRAW {}", utb_key);
+        }
+        if utb_skip {
+            if unseen {
+                let tex = pass.get_texture(0);
+                let px = tex.as_ref().map(|t| t.raw_pixels()).unwrap_or_default();
+                let fmt = tex
+                    .as_ref()
+                    .map(|t| format!("{:?}", t.format))
+                    .unwrap_or_default();
+                let (tw, th) = tex.as_ref().map(|t| (t.width, t.height)).unwrap_or((0, 0));
+                let vdc = pass.diffuse_vertex_colors.as_ref();
+                log::warn!(
+                    "UTBDRAWSKIP model='{}' tex=({}x{} fmt={} pxlen={} px0={:02x?}) diffvc={} v0={:?} shaderbits={:08x} world=({:.1},{:.1},{:.1})",
+                    mesh_name,
+                    tw,
+                    th,
+                    fmt,
+                    px.len(),
+                    &px[..px.len().min(16)],
+                    vdc.map(|colors| colors.len()).unwrap_or(0),
+                    vdc.and_then(|colors| colors.first()).copied(),
+                    pass.shader.get_bits(),
+                    mesh_translation[0],
+                    mesh_translation[1],
+                    mesh_translation[2],
+                );
+            }
+            return;
+        }
         if prepared.index_buffer.is_some() && count > 0 {
             // Draw only the indices for this specific pass
             render_pass.draw_indexed(start_index..start_index + count, 0, 0..1);
@@ -1417,55 +1715,104 @@ impl MeshRenderManager {
 
             bind_groups.push(Arc::new(bind_group));
         }
-
         bind_groups
     }
 
     fn stage_resources_for(&self, pass: &MaterialPassClass, stage: usize) -> StageResources {
-        if let Some(texture) = pass.get_texture(stage) {
+        let texture_opt = pass.get_texture(stage);
+        let utbview_enabled = *UTBVIEW_ENABLED;
+        let (resources, branch) = if let Some(texture) = texture_opt {
             if let Some(view) = texture.get_texture_view() {
                 let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
                 let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
-                return StageResources {
-                    view_2d: Arc::new(view),
-                    view_cube: self.fallback_textures.view_cube.clone(),
-                    sampler,
-                };
-            }
-            // CPU-only pass texture (pixels without a GPU upload): perform the
-            // first-bind upload now instead of silently substituting the white
-            // fallback, which painted units/buildings untextured.
-            if let Some(view) = self.ensure_gpu_texture_view(texture) {
+                (
+                    StageResources {
+                        view_2d: Arc::new(view),
+                        view_cube: self.fallback_textures.view_cube.clone(),
+                        sampler,
+                    },
+                    "preassigned-view",
+                )
+            } else if let Some(view) = self.ensure_gpu_texture_view(texture) {
                 let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
                 let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
-                return StageResources {
-                    view_2d: view,
-                    view_cube: self.fallback_textures.view_cube.clone(),
-                    sampler,
-                };
-            }
-            // W3D placeholder pass texture (name only, no pixels/view):
-            // resolve it through the host-installed archive-backed provider
-            // (C++ WW3DAssetManager::Get_Texture parity) and upload the
-            // hydrated pixels through the same first-bind path. Resolving by
-            // name means the upload cache above serves every later frame.
-            if let Some(provider) = self.pass_texture_provider.as_ref() {
-                if let Some(hydrated) = provider(texture.get_name()) {
-                    if let Some(view) = self.ensure_gpu_texture_view(&hydrated) {
-                        let sampler_desc =
-                            sampler_descriptor_for_settings(&hydrated.stage_settings);
-                        let sampler =
-                            Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
-                        return StageResources {
-                            view_2d: view,
-                            view_cube: self.fallback_textures.view_cube.clone(),
-                            sampler,
-                        };
+                (
+                    StageResources {
+                        view_2d: view,
+                        view_cube: self.fallback_textures.view_cube.clone(),
+                        sampler,
+                    },
+                    "uploaded-cpu",
+                )
+            } else {
+                // W3D placeholder pass texture (name only, no pixels/view):
+                // resolve it through the host-installed archive-backed provider
+                // (C++ WW3DAssetManager::Get_Texture parity) and upload the
+                // hydrated pixels through the same first-bind path.
+                match self
+                    .pass_texture_provider
+                    .as_ref()
+                    .and_then(|provider| provider(texture.get_name()))
+                {
+                    Some(hydrated) => {
+                        if let Some(view) = self.ensure_gpu_texture_view(&hydrated) {
+                            let sampler_desc =
+                                sampler_descriptor_for_settings(&hydrated.stage_settings);
+                            let sampler = Arc::new(
+                                self.gpu_device.wgpu_device().create_sampler(&sampler_desc),
+                            );
+                            (
+                                StageResources {
+                                    view_2d: view,
+                                    view_cube: self.fallback_textures.view_cube.clone(),
+                                    sampler,
+                                },
+                                "provider-hydrated",
+                            )
+                        } else {
+                            (self.fallback_stage_resources(), "provider-upload-failed")
+                        }
                     }
+                    None => (self.fallback_stage_resources(), "provider-miss"),
                 }
             }
-        }
+        } else {
+            (self.fallback_stage_resources(), "no-texture")
+        };
 
+        if utbview_enabled {
+            let name = texture_opt
+                .map(|texture| texture.get_name().to_string())
+                .unwrap_or_default();
+            let texel_mid = texture_opt.and_then(|texture| {
+                let pixels = texture.raw_pixels();
+                let (w, h) = (texture.width as usize, texture.height as usize);
+                if w > 0 && h > 0 && pixels.len() >= w * h * 4 {
+                    let mid = ((h / 2) * w + w / 2) * 4;
+                    Some([pixels[mid], pixels[mid + 1], pixels[mid + 2], pixels[mid + 3]])
+                } else {
+                    None
+                }
+            });
+            let key = (name.clone(), branch);
+            let unseen = UTBVIEW_SEEN
+                .lock()
+                .map(|mut seen| seen.insert(key))
+                .unwrap_or(false);
+            if unseen {
+                log::warn!(
+                    "UTBVIEW stage={} name='{}' branch={} texel_mid={:?}",
+                    stage,
+                    name,
+                    branch,
+                    texel_mid,
+                );
+            }
+        }
+        resources
+    }
+
+    fn fallback_stage_resources(&self) -> StageResources {
         StageResources {
             view_2d: self.fallback_textures.view_2d.clone(),
             view_cube: self.fallback_textures.view_cube.clone(),

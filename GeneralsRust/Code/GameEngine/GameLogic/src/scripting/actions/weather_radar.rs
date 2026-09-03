@@ -900,7 +900,8 @@ impl ScriptAction for RevealMapEntireAction {
             .read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
 
-        let mut shroud_manager = crate::system::shroud_manager::get_shroud_manager()
+        let shroud_store = crate::system::shroud_manager::get_shroud_manager();
+        let mut shroud_manager = shroud_store
             .lock()
             .map_err(|_| GameLogicError::Threading("Failed to lock ShroudManager".to_string()))?;
 
@@ -971,7 +972,8 @@ impl ScriptAction for ShroudMapEntireAction {
             .read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
 
-        let mut shroud_manager = crate::system::shroud_manager::get_shroud_manager()
+        let shroud_store = crate::system::shroud_manager::get_shroud_manager();
+        let mut shroud_manager = shroud_store
             .lock()
             .map_err(|_| GameLogicError::Threading("Failed to lock ShroudManager".to_string()))?;
 

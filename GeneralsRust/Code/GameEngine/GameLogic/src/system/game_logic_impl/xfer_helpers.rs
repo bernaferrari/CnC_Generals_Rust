@@ -494,9 +494,8 @@ fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<()
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    let mut shroud = get_shroud_manager()
-        .lock()
-        .map_err(|_| XferStatus::InvalidData)?;
+    let shroud_manager = get_shroud_manager();
+    let mut shroud = shroud_manager.lock().map_err(|_| XferStatus::InvalidData)?;
     // C++ xfers into the already-allocated live cell array.
     let mut snapshot = shroud.snapshot_state();
 

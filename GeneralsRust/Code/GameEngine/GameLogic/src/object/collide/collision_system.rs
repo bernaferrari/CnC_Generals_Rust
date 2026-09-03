@@ -809,6 +809,11 @@ impl CollisionSystem {
         &self.partition_manager
     }
 
+    /// Mutably get the partition manager (cell-change event drain).
+    pub fn partition_manager_mut(&mut self) -> &mut PartitionManager {
+        &mut self.partition_manager
+    }
+
     /// Get the response handler (for custom responses)
     pub fn response_handler(&self) -> &CollisionResponseHandler {
         &self.response_handler

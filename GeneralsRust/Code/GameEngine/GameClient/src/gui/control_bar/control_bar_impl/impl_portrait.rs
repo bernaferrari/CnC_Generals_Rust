@@ -31,10 +31,16 @@ impl ControlBar {
         }
         if !highlight {
             if let Some(win) = leftover_find_window(BUTTON_GENERAL) {
-                if let Some(data) = win.borrow().get_enabled_draw_data(0) {
-                    if let Some(image) = data.image {
-                        let _ = win.borrow_mut().set_enabled_image(0, image);
-                    }
+                // Copy the image out of the owned draw data first: the
+                // `win.borrow()` guard in a nested if-let lives until the
+                // whole block ends, so a nested `borrow_mut` panics
+                // ("RefCell already borrowed") on the live path.
+                let image = win
+                    .borrow()
+                    .get_enabled_draw_data(0)
+                    .and_then(|data| data.image);
+                if let Some(image) = image {
+                    let _ = win.borrow_mut().set_enabled_image(0, image);
                 }
             }
         }

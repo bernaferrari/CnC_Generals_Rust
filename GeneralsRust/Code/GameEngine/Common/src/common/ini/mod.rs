@@ -81,7 +81,7 @@ pub use ini::{
 };
 pub use ini_ai_data::{
     AIData, AiSideBuildList, AiSideInfo, BuildListEntry, SkillSet, get_ai_data_store,
-    get_ai_data_store_mut, parse_ai_data_definition,
+    parse_ai_data_definition,
 };
 pub use ini_animation::{
     Anim2DCollection, Anim2DMode, Anim2DTemplate, get_anim2d_collection, parse_anim2d_definition,

@@ -12,17 +12,15 @@ use crate::common::thing::thing::KindOfType;
 use std::fmt;
 
 fn get_upgrade_names_sorted() -> Vec<String> {
-    get_upgrade_center()
-        .map(|center| {
-            let mut names = center
-                .get_template_names()
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>();
-            names.sort();
-            names
-        })
-        .unwrap_or_default()
+    let center = get_upgrade_center();
+    let center = center.read().expect("UpgradeCenter poisoned");
+    let mut names = center
+        .get_template_names()
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 /// Xfer version type

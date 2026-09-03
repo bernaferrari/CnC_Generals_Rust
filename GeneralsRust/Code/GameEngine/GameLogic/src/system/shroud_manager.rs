@@ -48,7 +48,7 @@ use game_engine::common::system::radar::{CellShroudStatus, get_radar_system};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Maximum number of players in game
 const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
@@ -396,7 +396,7 @@ impl PartitionCell {
 
 /// Grid-based shroud tracking for spatial queries
 /// Matches C++ PartitionManager grid structure
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ShroudGrid {
     /// Grid dimensions (cells)
     width: usize,
@@ -1180,6 +1180,7 @@ struct SightingInfo {
 ///
 /// This singleton manages fog-of-war information for all players,
 /// maintaining a cache of which objects are visible to each player.
+#[derive(Clone)]
 pub struct ShroudManager {
     /// Visible objects for each player (indexed by player ID 0-7)
     player_visible_objects: Vec<HashSet<ObjectID>>,
@@ -1531,7 +1532,11 @@ impl ShroudManager {
         // Process pending temporary shroud reveals (expire old ones)
         self.process_pending_undo_shroud_reveals(frame);
 
-        // For each player, determine which objects are visible
+        // For each player, determine which objects are visible.
+        // C++ parity: terrain shroud lookers are owned by the per-object
+        // look/unlook cycle (`Object::handleShroud`, Object.cpp:4779-4784,
+        // driven by PartitionData cell changes); this pass only refreshes
+        // object visibility + explored sets.
         for player_id in 0..MAX_PLAYER_COUNT {
             if let Err(e) = self.update_visibility_for_player(player_id as u32, &object_manager) {
                 debug!(
@@ -1539,14 +1544,6 @@ impl ShroudManager {
                     player_id, e
                 );
                 // Continue with other players on error
-            }
-
-            // Update explored territory from current visibility
-            self.update_explored_territory(player_id);
-
-            // Update shroud grid with shroud-clearing ranges
-            if needs_vision_recalc {
-                self.update_shroud_grid_for_player(player_id as u32, &object_manager);
             }
         }
 
@@ -1926,46 +1923,6 @@ impl ShroudManager {
         }
     }
 
-    /// Update shroud grid with shroud-clearing ranges for a player
-    ///
-    /// Uses counter-based system to properly track multiple lookers
-    fn update_shroud_grid_for_player(
-        &mut self,
-        player_id: u32,
-        object_manager: &crate::object_manager::ObjectManager,
-    ) {
-        if player_id >= MAX_PLAYER_COUNT as u32 {
-            return;
-        }
-
-        let grid = match self.shroud_grid.as_mut() {
-            Some(g) => g,
-            None => return,
-        };
-
-        // Get all units owned by this player
-        let viewer_ids = object_manager.get_objects_owned_by_player(player_id);
-
-        // Add circular reveals for each unit's shroud-clearing range
-        // Using single player mask since this is per-player vision
-        let _player_mask = 1 << player_id;
-
-        for viewer_id in viewer_ids {
-            if let Some(viewer_arc) = object_manager.get_object(viewer_id) {
-                if let Ok(viewer_guard) = viewer_arc.read() {
-                    let viewer_pos = viewer_guard.get_position();
-                    let viewer_shroud_range = viewer_guard
-                        .base()
-                        .read()
-                        .map(|base| base.get_shroud_clearing_range())
-                        .unwrap_or(0.0);
-
-                    // Use do_shroud_reveal with counter-based system
-                    grid.do_shroud_reveal(&viewer_pos, viewer_shroud_range, player_id as usize);
-                }
-            }
-        }
-    }
 
     /// Check if an object has been explored by a player (even if not currently visible)
     ///
@@ -2651,12 +2608,12 @@ impl Default for ShroudManager {
     }
 }
 
-/// Global singleton instance
-static SHROUD_MANAGER: OnceLock<Mutex<ShroudManager>> = OnceLock::new();
-
-/// Get the global ShroudManager singleton
-pub fn get_shroud_manager() -> &'static Mutex<ShroudManager> {
-    SHROUD_MANAGER.get_or_init(|| Mutex::new(ShroudManager::new()))
+/// The active ShroudManager (C++ `ThePartitionManager` shroud state): the
+/// installed world bundle's manager, or the engine-lifetime manager when no
+/// GameLogic world is active. World bundles snapshot-clone the engine
+/// content under a fresh lock, so per-world mutations die with the world.
+pub fn get_shroud_manager() -> Arc<Mutex<ShroudManager>> {
+    crate::system::engine_stores::shroud_manager()
 }
 
 #[cfg(test)]
@@ -2743,9 +2700,9 @@ mod tests {
         let manager1 = get_shroud_manager();
         let manager2 = get_shroud_manager();
 
-        // Both should return the same static instance
+        // Both should resolve to the same active-bundle instance
         assert!(
-            std::ptr::eq(manager1 as *const _, manager2 as *const _),
+            std::ptr::eq(&*manager1, &*manager2),
             "Singleton should return same instance"
         );
     }
@@ -3822,6 +3779,12 @@ mod tests {
         shroud.set_vision_recalc_interval(1);
         shroud.update(1).unwrap();
 
+        // Terrain shroud lookers are owned by the per-object look/unlook
+        // cycle (C++ Object::look -> ThePartitionManager->doShroudReveal,
+        // Object.cpp:4938-4970). Drive that reveal primitive directly with
+        // the viewer's shroud-clearing range for player 0.
+        shroud.do_shroud_reveal(&viewer_pos, 25.0, 0b1);
+
         assert!(
             !shroud.can_see_object(0, 301),
             "C++ Object::look reveals with getShroudClearingRange(), not vision range"
@@ -3829,6 +3792,11 @@ mod tests {
         assert!(
             !shroud.is_position_visible(0, &target_pos),
             "grid reveal should also use shroud-clearing range"
+        );
+        assert!(
+            shroud.is_position_visible(0, &Coord3D::new(10.0, 0.0, 0.0)),
+            "inside the 25-unit shroud-clearing circle must be revealed \
+             even though vision range is 300"
         );
         assert!(shroud.can_see_object(0, 300));
     }

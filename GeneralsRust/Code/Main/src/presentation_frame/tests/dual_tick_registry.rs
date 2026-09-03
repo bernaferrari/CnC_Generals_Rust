@@ -443,7 +443,8 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
 
     // Isolate global shroud — prior FOW tests may leave permanent reveal.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
     }
 
@@ -612,7 +613,8 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
 
     // Isolate global shroud manager for this test.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0); // 10x10 cells at 50 wu
         shroud.mark_host_object_seen(0, 1);
@@ -627,7 +629,8 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     // Activate FOW runtime (visible membership) without permanent map reveal so
     // baseline is not fail-open fully-visible and reveal can change fingerprint.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0); // 10x10
         // Host residual API — keeps FOW filters active without dual registry.
@@ -687,7 +690,8 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     let frozen_r8 = snap.fow_grid.to_r8_texture();
     let frozen_projected_fp = snap.projected_shroud.content_fingerprint();
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         // Permanent reveal → all cells Visible on the live manager.
         shroud.reveal_map_for_player_permanently(0).expect("reveal");
     }

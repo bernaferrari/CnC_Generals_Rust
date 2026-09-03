@@ -337,7 +337,29 @@ fn residual_command_set_allows_upgrade(object: &Object, upgrade_name: &str) -> b
     preferred.iter().any(|name| {
         object.template_name.eq_ignore_ascii_case(name)
             || object.get_template().name.eq_ignore_ascii_case(name)
+            // C++ Object::canProduceUpgrade starts from findCommandSet(
+            // getCommandSetString()) (Object.cpp:6093-6106): the object's
+            // authored CommandSet identity decides its upgrade buttons. When
+            // the parsed catalog is unavailable, a fixture or override that
+            // authors a retail producer's CommandSet (e.g. a supply center
+            // fixture carrying `AmericaSupplyCenterCommandSet`, retail
+            // FactionBuilding.ini AmericaSupplyCenter `CommandSet =`) inherits
+            // that producer's buttons for this residual walk.
+            || authored_command_set_names_producer(object, name)
     })
+}
+
+/// True when the object's authored CommandSet string names `producer`'s
+/// canonical retail set (`<Producer>`, `CommandSet_<Producer>` or
+/// `<Producer>CommandSet`, ASCII case-insensitive).
+fn authored_command_set_names_producer(object: &Object, producer: &str) -> bool {
+    let set_name = object.command_set_override.as_deref().unwrap_or("").trim();
+    if set_name.is_empty() {
+        return false;
+    }
+    let n = set_name.to_ascii_lowercase();
+    let p = producer.to_ascii_lowercase();
+    n == p || n == format!("commandset_{p}") || n == format!("{p}commandset")
 }
 
 /// China CommandCenter RadarUpgrade is TriggeredBy `Upgrade_ChinaRadar`.

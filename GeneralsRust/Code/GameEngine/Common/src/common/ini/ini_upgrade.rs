@@ -8,9 +8,8 @@
 //! Author: Colin Day, March 2002 (Converted to Rust)
 //! Desc:   Upgrade database
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, LazyLock, RwLock};
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::rts::special_power::AcademyClassificationType;
@@ -331,7 +330,7 @@ impl UpgradeTemplate {
 }
 
 /// Upgrade center - manages all upgrade templates and research
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UpgradeCenter {
     templates: HashMap<String, UpgradeTemplate>,
     template_order: Vec<String>,
@@ -520,29 +519,72 @@ impl Default for UpgradeCenter {
     }
 }
 
-/// Global upgrade center instance
-static UPGRADE_CENTER: OnceCell<RwLock<UpgradeCenter>> = OnceCell::new();
+/// The active world's UpgradeCenter (C++ single-pointer semantics: the one
+/// live world's center). `None` resolves to the engine-lifetime center below,
+/// so Upgrade.ini loads outside any world (engine boot, headless snippets,
+/// tests without a world) keep working.
+static UPGRADE_CENTER_ACTIVE: RwLock<Option<Arc<RwLock<UpgradeCenter>>>> = RwLock::new(None);
 
-/// Initialize the global upgrade center
-pub fn initialize_upgrade_center() {
-    if UPGRADE_CENTER.get().is_none() {
+/// Engine-lifetime UpgradeCenter. C++ keeps one process-lifetime engine whose
+/// Upgrade.ini definitions every world inherits; this is the fallback center
+/// while no GameLogic world is active.
+static UPGRADE_CENTER_PROCESS_LIFETIME: LazyLock<Arc<RwLock<UpgradeCenter>>> =
+    LazyLock::new(|| {
         let mut center = UpgradeCenter::new();
+        // C++ UpgradeCenter::init runs before Upgrade.ini is parsed.
         center.init();
-        let _ = UPGRADE_CENTER.set(RwLock::new(center));
+        Arc::new(RwLock::new(center))
+    });
+
+/// The engine-lifetime UpgradeCenter. World bundles snapshot-clone its
+/// content ([`UpgradeCenter`] is `Clone`) and install the clone with
+/// [`install_upgrade_center`], so per-world scripted registrations die with
+/// the world.
+pub fn process_lifetime_upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
+    Arc::clone(&UPGRADE_CENTER_PROCESS_LIFETIME)
+}
+
+/// Initialize the engine-lifetime upgrade center (C++ engine boot order).
+pub fn initialize_upgrade_center() {
+    LazyLock::force(&UPGRADE_CENTER_PROCESS_LIFETIME);
+}
+
+/// The active UpgradeCenter (C++ `TheUpgradeCenter`): the installed world
+/// bundle's center, or the engine-lifetime center when no world is active.
+pub fn get_upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
+    let active = UPGRADE_CENTER_ACTIVE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    active
+        .as_ref()
+        .map(Arc::clone)
+        .unwrap_or_else(|| Arc::clone(&UPGRADE_CENTER_PROCESS_LIFETIME))
+}
+
+/// Install a world bundle's UpgradeCenter and return the center it replaced.
+pub fn install_upgrade_center(
+    center: Arc<RwLock<UpgradeCenter>>,
+) -> Option<Arc<RwLock<UpgradeCenter>>> {
+    let mut active = UPGRADE_CENTER_ACTIVE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    active.replace(center)
+}
+
+/// Uninstall the active UpgradeCenter only if it is still `center` (a stale
+/// world dropping after a newer world must not deactivate the newer world).
+/// Returns `true` when the active slot was cleared.
+pub fn uninstall_upgrade_center_if_current(center: &Arc<RwLock<UpgradeCenter>>) -> bool {
+    let mut active = UPGRADE_CENTER_ACTIVE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    match active.as_ref() {
+        Some(current) if Arc::ptr_eq(current, center) => {
+            *active = None;
+            true
+        }
+        _ => false,
     }
-}
-
-/// Get a reference to the global upgrade center
-pub fn get_upgrade_center() -> Option<RwLockReadGuard<'static, UpgradeCenter>> {
-    UPGRADE_CENTER
-        .get()
-        .map(|center| center.read().expect("UpgradeCenter poisoned"))
-}
-
-pub fn get_upgrade_center_mut() -> Option<RwLockWriteGuard<'static, UpgradeCenter>> {
-    UPGRADE_CENTER
-        .get()
-        .map(|center| center.write().expect("UpgradeCenter poisoned"))
 }
 
 /// Parse a boolean value from string
@@ -614,8 +656,8 @@ impl IniUpgrade {
     pub fn register_template(template: UpgradeTemplate) -> UpgradeResult<()> {
         initialize_upgrade_center();
 
-        let mut center = get_upgrade_center_mut()
-            .ok_or_else(|| UpgradeError::CenterError("Center not initialized".to_string()))?;
+        let center = get_upgrade_center();
+        let mut center = center.write().expect("UpgradeCenter poisoned");
 
         center.register_template(template);
         Ok(())
@@ -623,19 +665,17 @@ impl IniUpgrade {
 
     /// Find an upgrade template by name
     pub fn find_template_by_name(name: &AsciiString) -> Option<UpgradeTemplate> {
-        if let Some(center) = get_upgrade_center() {
-            center.find_template(name).cloned()
-        } else {
-            None
-        }
+        let center = get_upgrade_center();
+        let center = center.read().expect("UpgradeCenter poisoned");
+        center.find_template(name).cloned()
     }
 
     /// Research an upgrade
     pub fn research_upgrade(name: &AsciiString) -> UpgradeResult<()> {
         initialize_upgrade_center();
 
-        let mut center = get_upgrade_center_mut()
-            .ok_or_else(|| UpgradeError::CenterError("Center not initialized".to_string()))?;
+        let center = get_upgrade_center();
+        let mut center = center.write().expect("UpgradeCenter poisoned");
 
         center.research_upgrade(name)
     }

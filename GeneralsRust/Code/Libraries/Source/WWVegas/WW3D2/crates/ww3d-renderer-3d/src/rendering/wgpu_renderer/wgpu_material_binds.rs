@@ -200,6 +200,15 @@ impl WgpuMaterialBinds {
             texture_alpha_mask,
             cube_mask_u32,
         ];
+        // UTBMAGENTA (documented diagnostic, GENERALS_UTBMAGENTA=1): tint every
+        // mesh-lane draw magenta by overriding the albedo multiplier. Proves
+        // whether a screen artifact is produced by the mesh forward pass or by
+        // a different overlay pass.
+        let material_diffuse = if std::env::var("GENERALS_UTBMAGENTA").as_deref() == Ok("1") {
+            [1.0, 0.0, 1.0, 1.0]
+        } else {
+            material_diffuse
+        };
         let model_uniform = ModelUniform {
             model: *model,
             normal_matrix,

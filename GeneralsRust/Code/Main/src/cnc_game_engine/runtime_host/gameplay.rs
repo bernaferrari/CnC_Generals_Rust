@@ -286,9 +286,14 @@ impl CnCGameEngine {
             self.pending_popup_save_slot = Some(slot.clone());
             self.pending_popup_save_display_name = Some(display.clone());
 
-            // Pause → QuitMenu.wnd:ButtonSaveLoad → PopupSaveLoad.wnd:ButtonSave
-            // → SaveDesc/Overwrite confirmation.  All steps are live WND
-            // dispatch; no direct save is allowed below.
+            // C++ pause parity: the human pause SHOWS QuitMenu.wnd before
+            // its Save/Load button can be clicked (ToggleQuitMenu owns the
+            // visible layout; GameState pause alone never reveals it). The
+            // click dispatch below fail-closes on a hidden gadget, so show
+            // the live quit layout first (idempotent: only when hidden).
+            if !game_client::gui::callbacks::is_quit_menu_visible() {
+                game_client::gui::callbacks::toggle_quit_menu();
+            }
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();
             let bind = ensure_live_popup_save_load_layout();
@@ -330,7 +335,11 @@ impl CnCGameEngine {
             };
             self.host_publish_popup_save_load_inventory();
             self.popup_save_load_bridge_initialized = true;
-            // Live PopupSaveLoad.wnd children only — do not rebind SaveLoad.wnd.
+            // C++ pause parity (same as pause_save): show QuitMenu.wnd so
+            // the SaveLoad button dispatch hits a visible gadget.
+            if !game_client::gui::callbacks::is_quit_menu_visible() {
+                game_client::gui::callbacks::toggle_quit_menu();
+            }
             let quit_layout = ensure_live_quit_menu_layout();
             let quit_save_load = quit_layout && drive_os_wnd_quit_menu_save_load_like_cpp();
             let bind = ensure_live_popup_save_load_layout();

@@ -175,8 +175,8 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     // Register the captor's maintained sight of the target the way the live
     // vision pass would (fixture style of scripts_and_capture.rs:2392).
     {
-        let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-            .lock()
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        let mut shroud = shroud_manager.lock()
             .expect("shroud");
         shroud.set_host_object_shroud_status(
             0,

@@ -955,7 +955,8 @@ impl GameClient {
             y: pos.y,
             z: pos.z,
         };
-        let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        let Ok(shroud) = shroud_manager.lock() else {
             return ShroudStatus::Shrouded;
         };
 

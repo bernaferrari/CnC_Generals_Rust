@@ -2748,10 +2748,15 @@ impl ThingTemplate {
         names: &[AsciiString],
     ) -> Result<(), String> {
         let Some(data) = self.friend_get_ai_module_info().cloned() else {
-            return Err(format!(
-                "Attempted to specify a locomotor for object {} without an AIUpdate block.",
-                self.name_string
-            ));
+            // C++ AIUpdateModuleData::parseLocomotorSet (AIUpdate.cpp:141-149)
+            // resolves ThingTemplate::friend_getAIModuleInfo, which returns the
+            // EMBEDDED m_aiModuleInfo and is never null — the !self guard is
+            // dead code in retail. Objects authoring a top-level `Locomotor`
+            // without an AIUpdate block must keep parsing (CommandSet, KindOf,
+            // BuildCost, geometry all live in the same block); the set stored
+            // in self.locomotor_sets replays via
+            // apply_stored_locomotors_to_ai_module when a module installs.
+            return Ok(());
         };
         let updated =
             crate::common::thing::thing_template_locomotor::apply_locomotor_set_to_module_data(

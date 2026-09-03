@@ -930,6 +930,13 @@ impl TerrainVisualImpl {
     }
 
     fn record_overlay_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        // UTBROADNULL (documented diagnostic, GENERALS_UTBROADNULL=1):
+        // skip bib/track/edge/flat-LOD/smudge/snow overlays together with
+        // the road lane to prove whether unexplained screen artifacts
+        // originate in this overlay family.
+        if std::env::var("GENERALS_UTBROADNULL").as_deref() == Ok("1") {
+            return;
+        }
         let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -971,6 +978,13 @@ impl TerrainVisualImpl {
     }
 
     fn record_extra_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        // UTBWATERNULL (documented diagnostic, GENERALS_UTBWATERNULL=1):
+        // skip shoreline/river/polygon-water/grid draws together with the
+        // water lane to prove whether unexplained screen artifacts
+        // originate in this overlay family.
+        if std::env::var("GENERALS_UTBWATERNULL").as_deref() == Ok("1") {
+            return;
+        }
         let Some(camera_bg) = self.terrain_camera_bind_group.as_ref() else {
             return;
         };

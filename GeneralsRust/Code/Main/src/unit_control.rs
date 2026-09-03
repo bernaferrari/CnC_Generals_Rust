@@ -1524,8 +1524,8 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         {
-            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-                .lock()
+            let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+            let mut shroud = shroud_manager.lock()
                 .expect("shroud");
             shroud.clear_all();
         }
@@ -1694,8 +1694,8 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         {
-            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-                .lock()
+            let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+            let mut shroud = shroud_manager.lock()
                 .expect("shroud");
             shroud.clear_all();
         }

@@ -993,7 +993,8 @@ impl PathfindingSystem {
 
     /// C++ `TheAI->getAiData()->m_attackUsesLineOfSight` (default true).
     pub(super) fn attack_uses_line_of_sight() -> bool {
-        if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
+        let store = game_engine::common::ini::get_ai_data_store();
+        if let Some(data) = store.read().expect("AI data store read lock").get_active() {
             return data.attack_uses_line_of_sight;
         }
         gamelogic::ai::the_ai()

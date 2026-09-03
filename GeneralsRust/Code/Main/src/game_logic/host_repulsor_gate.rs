@@ -47,7 +47,8 @@ pub fn clear_aidata_ini_applied_for_test() {
 /// Otherwise use retail Yes so civilian panic is not dead without extracted INI.
 pub fn from_aidata() -> bool {
     if aidata_ini_applied() {
-        if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
+        let store = game_engine::common::ini::get_ai_data_store();
+        if let Some(data) = store.read().expect("AI data store read lock").get_active() {
             return data.enable_repulsors;
         }
     }

@@ -559,7 +559,8 @@ impl GameLogic {
 
     /// C++ `TheAI->getAiData()->m_attackIgnoreInsignificantBuildings`.
     fn aidata_attack_ignore_insignificant_buildings() -> bool {
-        if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
+        let store = game_engine::common::ini::get_ai_data_store();
+        if let Some(data) = store.read().expect("AI data store read lock").get_active() {
             return data.attack_ignore_insignificant_buildings;
         }
         gamelogic::ai::the_ai()
@@ -576,7 +577,8 @@ impl GameLogic {
 
     /// C++ `TheAI->getAiData()->m_attackUsesLineOfSight` (default true).
     fn aidata_attack_uses_line_of_sight() -> bool {
-        if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
+        let store = game_engine::common::ini::get_ai_data_store();
+        if let Some(data) = store.read().expect("AI data store read lock").get_active() {
             return data.attack_uses_line_of_sight;
         }
         gamelogic::ai::the_ai()
@@ -1466,7 +1468,8 @@ mod common_target_parity {
             AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS,
         };
         let prev = {
-            let mut store = game_engine::common::ini::get_ai_data_store_mut();
+            let store = game_engine::common::ini::get_ai_data_store();
+            let mut store = store.write().expect("AI data store write lock");
             store.ensure_base();
             let prev = store
                 .get_active()
@@ -1477,6 +1480,7 @@ mod common_target_parity {
             }
             prev
         };
+        {
         let mut logic = GameLogic::new();
         logic.frame = 100;
         let mut at = ThingTemplate::new("MoodHutAtk");
@@ -1528,8 +1532,10 @@ mod common_target_parity {
             Some(inf),
             "ignore-insig must still acquire units"
         );
+        }
         {
-            let mut store = game_engine::common::ini::get_ai_data_store_mut();
+            let store = game_engine::common::ini::get_ai_data_store();
+            let mut store = store.write().expect("AI data store write lock");
             if let Some(data) = store.get_active_mut() {
                 data.attack_ignore_insignificant_buildings = prev;
             }

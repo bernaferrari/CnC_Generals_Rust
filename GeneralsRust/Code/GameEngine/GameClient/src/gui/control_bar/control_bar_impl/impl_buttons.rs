@@ -50,7 +50,6 @@ impl ControlBar {
         if command_set_name.is_empty() {
             return Ok(());
         }
-
         let command_set = control_bar
             .find_command_set_by_name(&command_set_name)
             .or_else(|| {
@@ -60,7 +59,6 @@ impl ControlBar {
         let Some(command_set) = command_set else {
             return Ok(());
         };
-
         const WND_SLOTS: usize = 14;
         context.available_commands.clear();
         context.contain_data.clear();

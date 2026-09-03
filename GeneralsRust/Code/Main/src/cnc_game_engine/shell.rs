@@ -1547,9 +1547,8 @@ impl CnCGameEngine {
                         }
                         // EnableRepulsors is parsed before SideInfo; apply leftover even if
                         // a later nested field warned.
-                        if game_engine::common::ini::get_ai_data_store()
-                            .get_active()
-                            .is_some()
+                        let store = game_engine::common::ini::get_ai_data_store();
+                        if store.read().expect("AI data store read lock").get_active().is_some()
                         {
                             Self::apply_startup_ai_data_enable_repulsors();
                         }

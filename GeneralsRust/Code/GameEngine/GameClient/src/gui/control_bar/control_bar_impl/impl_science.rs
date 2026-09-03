@@ -701,16 +701,44 @@ impl ControlBar {
     }
 
     fn leftover_set_up_down_images(&self) {
-        let image = match self.control_bar_stage {
-            ControlBarStage::Low => ["ControlBarUp", "ButtonLargeUp", "ToggleBarUp"],
-            ControlBarStage::Default => ["ControlBarDown", "ButtonLargeDown", "ToggleBarDown"],
-            ControlBarStage::Hidden => return,
+        // C++ ControlBar::setUpDownImages (ControlBar.cpp:3128-3146): the
+        // up/down toggle button shows the scheme's ToggleButtonDown* art in the
+        // default stage and ToggleButtonUp* art when collapsed to the low
+        // stage. Unresolved mapped images leave the slots unbound (the image
+        // draw paints nothing, W3DPushButton.cpp:288-368).
+        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager()
+        else {
+            return;
         };
-        for name in image {
-            if leftover_mapped_image(name).is_some() {
-                leftover_set_enabled_image(BUTTON_LARGE, name);
-                break;
-            }
+        let Some(scheme) = manager.read().get_active_scheme().cloned() else {
+            return;
+        };
+        let (on, inside, pushed) = if self.control_bar_stage == ControlBarStage::Low {
+            (
+                &scheme.toggle_button_up_on,
+                &scheme.toggle_button_up_in,
+                &scheme.toggle_button_up_pushed,
+            )
+        } else {
+            (
+                &scheme.toggle_button_down_on,
+                &scheme.toggle_button_down_in,
+                &scheme.toggle_button_down_pushed,
+            )
+        };
+        let Some(win) = leftover_find_window(BUTTON_LARGE) else {
+            return;
+        };
+        let mut guard = win.borrow_mut();
+        let data = guard.instance_data_mut();
+        if let Some(image) = leftover_mapped_image(on) {
+            data.enabled_draw_data[0].image = Some(image);
+        }
+        if let Some(image) = leftover_mapped_image(inside) {
+            data.hilite_draw_data[0].image = Some(image);
+        }
+        if let Some(image) = leftover_mapped_image(pushed) {
+            data.hilite_draw_data[1].image = Some(image);
         }
     }
 
@@ -812,8 +840,181 @@ impl ControlBar {
             let _ = manager.load_scheme(side);
         }
         if let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() {
-            let _ = manager.write().set_active_scheme(side.to_string());
+            let _ = manager.write().set_active_scheme_for_side(side);
         }
+        self.apply_scheme_button_art();
+    }
+
+    /// C++ ControlBarScheme::init (ControlBarScheme.cpp:401-662): bind the
+    /// active scheme's fixed-HUD art to the ControlBar.wnd windows and move
+    /// them to the scheme slot rects. Button art (options / idle worker /
+    /// beacon / communicator / general / up-down toggle / queue slots / exp
+    /// bar / u-attack) is stored on the same draw-data slots C++
+    /// GadgetButtonSetEnabledImage / GadgetButtonSetHiliteImage /
+    /// GadgetButtonSetHiliteSelectedImage / GadgetButtonSetDisabledImage write
+    /// (enabled[0], hilite[0], hilite[1], disabled[0]). Image names that do
+    /// not resolve through the mapped-image collection leave the slot unbound
+    /// so the image draw paints nothing (W3DPushButton.cpp:288-368) — never a
+    /// color fill from the authored placeholder.
+    fn apply_scheme_button_art(&self) {
+        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager()
+        else {
+            return;
+        };
+        let Some(scheme) = manager.read().get_active_scheme().cloned() else {
+            return;
+        };
+
+        // C++ resMultiplier = display / m_ScreenCreationRes
+        // (ControlBarScheme.cpp:417-419).
+        let (screen_w, screen_h) = leftover_display_size();
+        let creation_w = scheme.screen_creation_res.x.max(1) as f32;
+        let creation_h = scheme.screen_creation_res.y.max(1) as f32;
+        let mult_x = screen_w as f32 / creation_w;
+        let mult_y = screen_h as f32 / creation_h;
+        let scale = |v: i32, mult: f32| (v as f32 * mult).round() as i32;
+
+        let bind_slot =
+            |slot: &mut Option<crate::gui::game_window::Image>, name: &str| {
+                if !name.is_empty() {
+                    if let Some(image) = leftover_mapped_image(name) {
+                        *slot = Some(image);
+                    }
+                }
+            };
+
+        let art_slots = [
+            (
+                "ControlBar.wnd:ButtonOptions",
+                &scheme.options_button_enable,
+                &scheme.options_button_hightlited,
+                &scheme.options_button_pushed,
+                &scheme.options_button_disabled,
+                (scheme.options_ul, scheme.options_lr),
+            ),
+            (
+                "ControlBar.wnd:ButtonIdleWorker",
+                &scheme.idle_worker_button_enable,
+                &scheme.idle_worker_button_hightlited,
+                &scheme.idle_worker_button_pushed,
+                &scheme.idle_worker_button_disabled,
+                (scheme.worker_ul, scheme.worker_lr),
+            ),
+            (
+                "ControlBar.wnd:ButtonPlaceBeacon",
+                &scheme.beacon_button_enable,
+                &scheme.beacon_button_hightlited,
+                &scheme.beacon_button_pushed,
+                &scheme.beacon_button_disabled,
+                (scheme.beacon_ul, scheme.beacon_lr),
+            ),
+            (
+                "ControlBar.wnd:PopupCommunicator",
+                &scheme.buddy_button_enable,
+                &scheme.buddy_button_hightlited,
+                &scheme.buddy_button_pushed,
+                &scheme.buddy_button_disabled,
+                (scheme.chat_ul, scheme.chat_lr),
+            ),
+            (
+                BUTTON_GENERAL,
+                &scheme.general_button_enable,
+                &scheme.general_button_hightlited,
+                &scheme.general_button_pushed,
+                &scheme.general_button_disabled,
+                (scheme.general_ul, scheme.general_lr),
+            ),
+        ];
+        for (window_name, enable, hilite, pushed, disabled, (ul, lr)) in art_slots {
+            let Some(win) = leftover_find_window(window_name) else {
+                continue;
+            };
+            let mut guard = win.borrow_mut();
+            {
+                let data = guard.instance_data_mut();
+                bind_slot(&mut data.enabled_draw_data[0].image, enable);
+                bind_slot(&mut data.hilite_draw_data[0].image, hilite);
+                bind_slot(&mut data.hilite_draw_data[1].image, pushed);
+                bind_slot(&mut data.disabled_draw_data[0].image, disabled);
+            }
+            // C++ positions each button at scheme UL * resMultiplier minus the
+            // parent screen position, and sizes it LR-UL * resMultiplier
+            // (ControlBarScheme.cpp:432-447 and siblings).
+            let (screen_x, screen_y) = guard.get_screen_position();
+            let (rel_x, rel_y) = guard.get_position();
+            let (parent_x, parent_y) = (screen_x - rel_x, screen_y - rel_y);
+            let width = scale(lr.x, mult_x) - scale(ul.x, mult_x);
+            let height = scale(lr.y, mult_y) - scale(ul.y, mult_y);
+            let _ = guard.set_position(scale(ul.x, mult_x) - parent_x, scale(ul.y, mult_y) - parent_y);
+            let _ = guard.set_size(width.max(1), height.max(1));
+        }
+
+        // ExpBarForeground: C++ winSetEnabledImage(0, m_expBarForeground)
+        // (ControlBarScheme.cpp:476-480).
+        if let Some(win) = leftover_find_window("ControlBar.wnd:ExpBarForeground") {
+            if let Some(image) = leftover_mapped_image(&scheme.exp_bar_foreground_image) {
+                let _ = win.borrow_mut().set_enabled_image(0, image);
+            }
+        }
+
+        // WinUAttack: enabled + disabled(=highlight) images and slot reposition
+        // (ControlBarScheme.cpp:629-651).
+        if let Some(win) = leftover_find_window(WIN_U_ATTACK) {
+            let mut guard = win.borrow_mut();
+            if let Some(image) = leftover_mapped_image(&scheme.u_attack_button_enable) {
+                let _ = guard.set_enabled_image(0, image);
+            }
+            if let Some(image) = leftover_mapped_image(&scheme.u_attack_button_hightlited) {
+                let data = guard.instance_data_mut();
+                data.disabled_draw_data[0].image = Some(image);
+            }
+            let (screen_x, screen_y) = guard.get_screen_position();
+            let (rel_x, rel_y) = guard.get_position();
+            let (parent_x, parent_y) = (screen_x - rel_x, screen_y - rel_y);
+            let _ = guard.set_position(
+                scale(scheme.u_attack_ul.x, mult_x) - parent_x,
+                scale(scheme.u_attack_ul.y, mult_y) - parent_y,
+            );
+            let _ = guard.set_size(
+                (scale(scheme.u_attack_lr.x, mult_x) - scale(scheme.u_attack_ul.x, mult_x)).max(1),
+                (scale(scheme.u_attack_lr.y, mult_y) - scale(scheme.u_attack_ul.y, mult_y)).max(1),
+            );
+        }
+
+        // Build queue slots: disabled image = scheme queue art
+        // (C++ updateBuildQueueDisabledImages, ControlBar.cpp:2832-2870).
+        if !scheme.queue_button_image.is_empty() {
+            if let Some(image) = leftover_mapped_image(&scheme.queue_button_image) {
+                for index in 1..=9 {
+                    if let Some(win) =
+                        leftover_find_window(&format!("ControlBar.wnd:ButtonQueue{index:02}"))
+                    {
+                        let mut guard = win.borrow_mut();
+                        let data = guard.instance_data_mut();
+                        data.disabled_draw_data[0].image = Some(image.clone());
+                    }
+                }
+            }
+        }
+
+        // Min/max toggle (ButtonLarge): scheme slot position; art comes from
+        // setUpDownImages on every stage switch
+        // (ControlBarScheme.cpp:603-627, ControlBar.cpp:3128-3146).
+        if let Some(win) = leftover_find_window(BUTTON_LARGE) {
+            let mut guard = win.borrow_mut();
+            let (screen_x, screen_y) = guard.get_screen_position();
+            let (rel_x, rel_y) = guard.get_position();
+            let (parent_x, parent_y) = (screen_x - rel_x, screen_y - rel_y);
+            let _ = guard.set_position(
+                scale(scheme.min_max_ul.x, mult_x) - parent_x,
+                scale(scheme.min_max_ul.y, mult_y) - parent_y,
+            );
+            let _ = guard.set_size(
+                (scale(scheme.min_max_lr.x, mult_x) - scale(scheme.min_max_ul.x, mult_x)).max(1),
+                (scale(scheme.min_max_lr.y, mult_y) - scale(scheme.min_max_ul.y, mult_y)).max(1),
+            );
+        }
+        self.leftover_set_up_down_images();
     }
 
     pub fn set_control_bar_scheme_by_player_side(&mut self, player_side: &str) {
@@ -843,6 +1044,16 @@ impl ControlBar {
             self.observer_mode = false;
             let _ = self.switch_to_context(ControlBarState::None, None);
         }
+
+        // C++ setControlBarSchemeByPlayer (ControlBar.cpp:2756-2761): the
+        // beacon-placement button only exists in LAN/Internet multiplayer;
+        // hide it in skirmish, single-player, and observer sessions.
+        let game_mode = gamelogic::helpers::TheGameLogic::get_game_mode();
+        leftover_hide_window(
+            "ControlBar.wnd:ButtonPlaceBeacon",
+            game_mode != gamelogic::system::game_logic::GAME_LAN
+                && game_mode != gamelogic::system::game_logic::GAME_INTERNET,
+        );
 
         self.switch_control_bar_stage(ControlBarStage::Default);
         self.mark_ui_dirty();

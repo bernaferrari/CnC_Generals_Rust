@@ -197,7 +197,8 @@ fn start_new_game_applies_retail_enable_repulsors() {
 fn apply_aidata_enable_repulsors_honors_parsed_ini_no() {
     crate::game_logic::host_repulsor_gate::mark_aidata_ini_applied();
     {
-        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        let store = game_engine::common::ini::get_ai_data_store();
+        let mut store = store.write().expect("AI data store write lock");
         store.ensure_base();
         if let Some(data) = store.get_active_mut() {
             data.enable_repulsors = false;
@@ -212,7 +213,8 @@ fn apply_aidata_enable_repulsors_honors_parsed_ini_no() {
     assert!(!crate::game_logic::host_repulsor_gate::is_enabled());
     crate::game_logic::host_repulsor_gate::clear_aidata_ini_applied_for_test();
     {
-        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        let store = game_engine::common::ini::get_ai_data_store();
+        let mut store = store.write().expect("AI data store write lock");
         if let Some(data) = store.get_active_mut() {
             data.enable_repulsors = false;
         }

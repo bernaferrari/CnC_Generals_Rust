@@ -2484,7 +2484,8 @@ fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
         o.completed_waypoint_labels = vec!["HeroPath".into()];
     }
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(1, id.0, ObjectShroudStatus::Shrouded);
         shroud.set_host_object_shroud_status(2, id.0, ObjectShroudStatus::Clear);
     }

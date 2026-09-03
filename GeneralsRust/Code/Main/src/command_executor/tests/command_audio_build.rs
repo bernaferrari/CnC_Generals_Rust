@@ -1419,7 +1419,8 @@ fn group_path_thresholds_read_aidata_store() {
     use glam::Vec3;
 
     let prev = {
-        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        let store = game_engine::common::ini::get_ai_data_store();
+        let mut store = store.write().expect("AI data store write lock");
         store.ensure_base();
         let data = store.get_active_mut().expect("aidata");
         let prev = (data.min_distance_for_group, data.distance_requires_group);
@@ -1427,6 +1428,7 @@ fn group_path_thresholds_read_aidata_store() {
         data.distance_requires_group = 50000.0;
         prev
     };
+    {
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("GP_TH");
     tpl.add_kind_of(KindOf::Vehicle);
@@ -1446,8 +1448,10 @@ fn group_path_thresholds_read_aidata_store() {
             "click below AIData MinDistanceForGroup must skip group path"
         );
     }
+    }
     {
-        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        let store = game_engine::common::ini::get_ai_data_store();
+        let mut store = store.write().expect("AI data store write lock");
         if let Some(data) = store.get_active_mut() {
             data.min_distance_for_group = prev.0;
             data.distance_requires_group = prev.1;

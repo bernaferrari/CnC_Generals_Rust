@@ -716,7 +716,8 @@ fn object_target_click_rejects_fogged_ghost() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
     }
 
@@ -804,7 +805,8 @@ fn object_target_click_rejects_fogged_ghost() {
     }
 
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Fogged);
         shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Fogged);
     }
@@ -853,7 +855,8 @@ fn object_target_click_rejects_fogged_ghost() {
     );
 
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Clear);
         shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Clear);
     }
@@ -887,7 +890,8 @@ fn location_power_unit_click_leftover_gates_shroud() {
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(512.0, 512.0);
     }
@@ -922,7 +926,8 @@ fn location_power_unit_click_leftover_gates_shroud() {
     // (re)initialize the 512x shroud grid so the leftover cell-shroud gate
     // sees CELLSHROUD_SHROUDED the way a loaded C++ map does.
     {
-        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        let shroud_manager = get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(512.0, 512.0);
     }

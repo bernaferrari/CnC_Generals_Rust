@@ -148,6 +148,67 @@ pub struct ControlBarScheme {
     pub video_parts: Vec<ControlBarSchemeVideoPart>,
     /// Screen creation resolution (matches C++ m_ScreenCreationRes)
     pub screen_creation_res: ICoord2D,
+    // --- C++ ControlBarScheme fixed-HUD button art (ControlBarScheme.cpp field
+    // table, "…ButtonEnable/Hightlited/Pushed/Disabled" mapped-image names) ---
+    pub options_button_enable: String,
+    pub options_button_hightlited: String,
+    pub options_button_pushed: String,
+    pub options_button_disabled: String,
+    pub idle_worker_button_enable: String,
+    pub idle_worker_button_hightlited: String,
+    pub idle_worker_button_pushed: String,
+    pub idle_worker_button_disabled: String,
+    pub buddy_button_enable: String,
+    pub buddy_button_hightlited: String,
+    pub buddy_button_pushed: String,
+    pub buddy_button_disabled: String,
+    pub beacon_button_enable: String,
+    pub beacon_button_hightlited: String,
+    pub beacon_button_pushed: String,
+    pub beacon_button_disabled: String,
+    pub general_button_enable: String,
+    pub general_button_hightlited: String,
+    pub general_button_pushed: String,
+    pub general_button_disabled: String,
+    pub u_attack_button_enable: String,
+    pub u_attack_button_hightlited: String,
+    pub u_attack_button_pushed: String,
+    pub min_max_button_enable: String,
+    pub min_max_button_hightlited: String,
+    pub min_max_button_pushed: String,
+    pub toggle_button_up_in: String,
+    pub toggle_button_up_on: String,
+    pub toggle_button_up_pushed: String,
+    pub toggle_button_down_in: String,
+    pub toggle_button_down_on: String,
+    pub toggle_button_down_pushed: String,
+    pub gen_bar_button_in: String,
+    pub gen_bar_button_on: String,
+    pub queue_button_image: String,
+    pub right_hud_image: String,
+    pub exp_bar_foreground_image: String,
+    pub gen_arrow: String,
+    pub command_marker_image: String,
+    pub power_purchase_image: String,
+    // --- C++ ControlBarScheme slot rects (m_*UL / m_*LR) ---
+    pub min_max_ul: ICoord2D,
+    pub min_max_lr: ICoord2D,
+    pub general_ul: ICoord2D,
+    pub general_lr: ICoord2D,
+    pub u_attack_ul: ICoord2D,
+    pub u_attack_lr: ICoord2D,
+    pub options_ul: ICoord2D,
+    pub options_lr: ICoord2D,
+    pub worker_ul: ICoord2D,
+    pub worker_lr: ICoord2D,
+    pub chat_ul: ICoord2D,
+    pub chat_lr: ICoord2D,
+    pub beacon_ul: ICoord2D,
+    pub beacon_lr: ICoord2D,
+    pub power_bar_ul: ICoord2D,
+    pub power_bar_lr: ICoord2D,
+    pub money_ul: ICoord2D,
+    pub money_lr: ICoord2D,
 }
 
 impl Default for ControlBarScheme {
@@ -215,6 +276,64 @@ impl Default for ControlBarScheme {
             animation_parts: Vec::new(),
             video_parts: Vec::new(),
             screen_creation_res: ICoord2D { x: 800, y: 600 },
+            options_button_enable: String::new(),
+            options_button_hightlited: String::new(),
+            options_button_pushed: String::new(),
+            options_button_disabled: String::new(),
+            idle_worker_button_enable: String::new(),
+            idle_worker_button_hightlited: String::new(),
+            idle_worker_button_pushed: String::new(),
+            idle_worker_button_disabled: String::new(),
+            buddy_button_enable: String::new(),
+            buddy_button_hightlited: String::new(),
+            buddy_button_pushed: String::new(),
+            buddy_button_disabled: String::new(),
+            beacon_button_enable: String::new(),
+            beacon_button_hightlited: String::new(),
+            beacon_button_pushed: String::new(),
+            beacon_button_disabled: String::new(),
+            general_button_enable: String::new(),
+            general_button_hightlited: String::new(),
+            general_button_pushed: String::new(),
+            general_button_disabled: String::new(),
+            u_attack_button_enable: String::new(),
+            u_attack_button_hightlited: String::new(),
+            u_attack_button_pushed: String::new(),
+            min_max_button_enable: String::new(),
+            min_max_button_hightlited: String::new(),
+            min_max_button_pushed: String::new(),
+            toggle_button_up_in: String::new(),
+            toggle_button_up_on: String::new(),
+            toggle_button_up_pushed: String::new(),
+            toggle_button_down_in: String::new(),
+            toggle_button_down_on: String::new(),
+            toggle_button_down_pushed: String::new(),
+            gen_bar_button_in: String::new(),
+            gen_bar_button_on: String::new(),
+            queue_button_image: String::new(),
+            right_hud_image: String::new(),
+            exp_bar_foreground_image: String::new(),
+            gen_arrow: String::new(),
+            command_marker_image: String::new(),
+            power_purchase_image: String::new(),
+            min_max_ul: ICoord2D { x: 0, y: 0 },
+            min_max_lr: ICoord2D { x: 0, y: 0 },
+            general_ul: ICoord2D { x: 0, y: 0 },
+            general_lr: ICoord2D { x: 0, y: 0 },
+            u_attack_ul: ICoord2D { x: 0, y: 0 },
+            u_attack_lr: ICoord2D { x: 0, y: 0 },
+            options_ul: ICoord2D { x: 0, y: 0 },
+            options_lr: ICoord2D { x: 0, y: 0 },
+            worker_ul: ICoord2D { x: 0, y: 0 },
+            worker_lr: ICoord2D { x: 0, y: 0 },
+            chat_ul: ICoord2D { x: 0, y: 0 },
+            chat_lr: ICoord2D { x: 0, y: 0 },
+            beacon_ul: ICoord2D { x: 0, y: 0 },
+            beacon_lr: ICoord2D { x: 0, y: 0 },
+            power_bar_ul: ICoord2D { x: 0, y: 0 },
+            power_bar_lr: ICoord2D { x: 0, y: 0 },
+            money_ul: ICoord2D { x: 0, y: 0 },
+            money_lr: ICoord2D { x: 0, y: 0 },
         }
     }
 }
@@ -796,6 +915,35 @@ impl ControlBarSchemeManager {
         }
     }
 
+    /// C++ ControlBarSchemeManager::setControlBarSchemeByPlayer resolves the
+    /// player template's `ControlBarScheme` name (PlayerTemplate.ini
+    /// `ControlBarScheme America8x6`). The port's player templates do not
+    /// carry that field yet, so resolve by side: exact "<side>8x6" first
+    /// (the retail scheme set), then any scheme whose name starts with the
+    /// side. Fails closed with no active scheme.
+    pub fn set_active_scheme_for_side(&mut self, side: &str) -> Result<(), &'static str> {
+        let side_lower = side.trim().to_lowercase();
+        if side_lower.is_empty() {
+            return Err("Empty side");
+        }
+        let preferred = format!("{side_lower}8x6");
+        if self.set_active_scheme(preferred).is_ok() {
+            return Ok(());
+        }
+        let candidate = self
+            .schemes
+            .keys()
+            .find(|name| name.starts_with(&side_lower))
+            .cloned();
+        match candidate {
+            Some(name) => self.set_active_scheme(name),
+            None => {
+                self.active_scheme = None;
+                Err("No scheme for side")
+            }
+        }
+    }
+
     /// Get the active control bar scheme
     pub fn get_active_scheme(&self) -> Option<&ControlBarScheme> {
         self.active_scheme
@@ -1005,6 +1153,74 @@ parse_string_field!(parse_background_image, background_image);
 parse_string_field!(parse_button_layout, button_layout);
 parse_string_field!(parse_font_name, font_name);
 parse_u32_field!(parse_font_size, font_size);
+macro_rules! parse_coord_field {
+    ($fn_name:ident, $field:ident) => {
+        fn $fn_name(_ini: &mut INI, scheme: &mut ControlBarScheme, args: &[&str]) -> INIResult<()> {
+            let (x, y) = parse_icoord2d(args)?;
+            scheme.$field = ICoord2D { x, y };
+            Ok(())
+        }
+    };
+}
+
+parse_string_field!(parse_queue_button_image, queue_button_image);
+parse_string_field!(parse_right_hud_image, right_hud_image);
+parse_string_field!(parse_options_button_enable, options_button_enable);
+parse_string_field!(parse_options_button_hightlited, options_button_hightlited);
+parse_string_field!(parse_options_button_pushed, options_button_pushed);
+parse_string_field!(parse_options_button_disabled, options_button_disabled);
+parse_string_field!(parse_idle_worker_button_enable, idle_worker_button_enable);
+parse_string_field!(parse_idle_worker_button_hightlited, idle_worker_button_hightlited);
+parse_string_field!(parse_idle_worker_button_pushed, idle_worker_button_pushed);
+parse_string_field!(parse_idle_worker_button_disabled, idle_worker_button_disabled);
+parse_string_field!(parse_buddy_button_enable, buddy_button_enable);
+parse_string_field!(parse_buddy_button_hightlited, buddy_button_hightlited);
+parse_string_field!(parse_buddy_button_pushed, buddy_button_pushed);
+parse_string_field!(parse_buddy_button_disabled, buddy_button_disabled);
+parse_string_field!(parse_beacon_button_enable, beacon_button_enable);
+parse_string_field!(parse_beacon_button_hightlited, beacon_button_hightlited);
+parse_string_field!(parse_beacon_button_pushed, beacon_button_pushed);
+parse_string_field!(parse_beacon_button_disabled, beacon_button_disabled);
+parse_string_field!(parse_general_button_enable, general_button_enable);
+parse_string_field!(parse_general_button_hightlited, general_button_hightlited);
+parse_string_field!(parse_general_button_pushed, general_button_pushed);
+parse_string_field!(parse_general_button_disabled, general_button_disabled);
+parse_string_field!(parse_u_attack_button_enable, u_attack_button_enable);
+parse_string_field!(parse_u_attack_button_hightlited, u_attack_button_hightlited);
+parse_string_field!(parse_u_attack_button_pushed, u_attack_button_pushed);
+parse_string_field!(parse_min_max_button_enable, min_max_button_enable);
+parse_string_field!(parse_min_max_button_hightlited, min_max_button_hightlited);
+parse_string_field!(parse_min_max_button_pushed, min_max_button_pushed);
+parse_string_field!(parse_toggle_button_up_in, toggle_button_up_in);
+parse_string_field!(parse_toggle_button_up_on, toggle_button_up_on);
+parse_string_field!(parse_toggle_button_up_pushed, toggle_button_up_pushed);
+parse_string_field!(parse_toggle_button_down_in, toggle_button_down_in);
+parse_string_field!(parse_toggle_button_down_on, toggle_button_down_on);
+parse_string_field!(parse_toggle_button_down_pushed, toggle_button_down_pushed);
+parse_string_field!(parse_gen_bar_button_in, gen_bar_button_in);
+parse_string_field!(parse_gen_bar_button_on, gen_bar_button_on);
+parse_string_field!(parse_exp_bar_foreground_image, exp_bar_foreground_image);
+parse_string_field!(parse_gen_arrow, gen_arrow);
+parse_string_field!(parse_command_marker_image, command_marker_image);
+parse_string_field!(parse_power_purchase_image, power_purchase_image);
+parse_coord_field!(parse_min_max_ul, min_max_ul);
+parse_coord_field!(parse_min_max_lr, min_max_lr);
+parse_coord_field!(parse_general_ul, general_ul);
+parse_coord_field!(parse_general_lr, general_lr);
+parse_coord_field!(parse_u_attack_ul, u_attack_ul);
+parse_coord_field!(parse_u_attack_lr, u_attack_lr);
+parse_coord_field!(parse_options_ul, options_ul);
+parse_coord_field!(parse_options_lr, options_lr);
+parse_coord_field!(parse_worker_ul, worker_ul);
+parse_coord_field!(parse_worker_lr, worker_lr);
+parse_coord_field!(parse_chat_ul, chat_ul);
+parse_coord_field!(parse_chat_lr, chat_lr);
+parse_coord_field!(parse_beacon_ul, beacon_ul);
+parse_coord_field!(parse_beacon_lr, beacon_lr);
+parse_coord_field!(parse_power_bar_ul, power_bar_ul);
+parse_coord_field!(parse_power_bar_lr, power_bar_lr);
+parse_coord_field!(parse_money_ul, money_ul);
+parse_coord_field!(parse_money_lr, money_lr);
 
 fn parse_text_color(_ini: &mut INI, scheme: &mut ControlBarScheme, args: &[&str]) -> INIResult<()> {
     let (r, g, b, a) = parse_rgba_tokens(args)?;
@@ -1152,6 +1368,238 @@ const CONTROL_BAR_SCHEME_FIELDS: &[FieldParse<ControlBarScheme>] = &[
     FieldParse {
         token: "ChatPanelY",
         parse: parse_chat_panel_y,
+    },
+    FieldParse {
+        token: "QueueButtonImage",
+        parse: parse_queue_button_image,
+    },
+    FieldParse {
+        token: "RightHUDImage",
+        parse: parse_right_hud_image,
+    },
+    FieldParse {
+        token: "OptionsButtonEnable",
+        parse: parse_options_button_enable,
+    },
+    FieldParse {
+        token: "OptionsButtonHightlited",
+        parse: parse_options_button_hightlited,
+    },
+    FieldParse {
+        token: "OptionsButtonPushed",
+        parse: parse_options_button_pushed,
+    },
+    FieldParse {
+        token: "OptionsButtonDisabled",
+        parse: parse_options_button_disabled,
+    },
+    FieldParse {
+        token: "IdleWorkerButtonEnable",
+        parse: parse_idle_worker_button_enable,
+    },
+    FieldParse {
+        token: "IdleWorkerButtonHightlited",
+        parse: parse_idle_worker_button_hightlited,
+    },
+    FieldParse {
+        token: "IdleWorkerButtonPushed",
+        parse: parse_idle_worker_button_pushed,
+    },
+    FieldParse {
+        token: "IdleWorkerButtonDisabled",
+        parse: parse_idle_worker_button_disabled,
+    },
+    FieldParse {
+        token: "BuddyButtonEnable",
+        parse: parse_buddy_button_enable,
+    },
+    FieldParse {
+        token: "BuddyButtonHightlited",
+        parse: parse_buddy_button_hightlited,
+    },
+    FieldParse {
+        token: "BuddyButtonPushed",
+        parse: parse_buddy_button_pushed,
+    },
+    FieldParse {
+        token: "BuddyButtonDisabled",
+        parse: parse_buddy_button_disabled,
+    },
+    FieldParse {
+        token: "BeaconButtonEnable",
+        parse: parse_beacon_button_enable,
+    },
+    FieldParse {
+        token: "BeaconButtonHightlited",
+        parse: parse_beacon_button_hightlited,
+    },
+    FieldParse {
+        token: "BeaconButtonPushed",
+        parse: parse_beacon_button_pushed,
+    },
+    FieldParse {
+        token: "BeaconButtonDisabled",
+        parse: parse_beacon_button_disabled,
+    },
+    FieldParse {
+        token: "GenBarButtonIn",
+        parse: parse_gen_bar_button_in,
+    },
+    FieldParse {
+        token: "GenBarButtonOn",
+        parse: parse_gen_bar_button_on,
+    },
+    FieldParse {
+        token: "ToggleButtonUpIn",
+        parse: parse_toggle_button_up_in,
+    },
+    FieldParse {
+        token: "ToggleButtonUpOn",
+        parse: parse_toggle_button_up_on,
+    },
+    FieldParse {
+        token: "ToggleButtonUpPushed",
+        parse: parse_toggle_button_up_pushed,
+    },
+    FieldParse {
+        token: "ToggleButtonDownIn",
+        parse: parse_toggle_button_down_in,
+    },
+    FieldParse {
+        token: "ToggleButtonDownOn",
+        parse: parse_toggle_button_down_on,
+    },
+    FieldParse {
+        token: "ToggleButtonDownPushed",
+        parse: parse_toggle_button_down_pushed,
+    },
+    FieldParse {
+        token: "GeneralButtonEnable",
+        parse: parse_general_button_enable,
+    },
+    FieldParse {
+        token: "GeneralButtonHightlited",
+        parse: parse_general_button_hightlited,
+    },
+    FieldParse {
+        token: "GeneralButtonPushed",
+        parse: parse_general_button_pushed,
+    },
+    FieldParse {
+        token: "GeneralButtonDisabled",
+        parse: parse_general_button_disabled,
+    },
+    FieldParse {
+        token: "UAttackButtonEnable",
+        parse: parse_u_attack_button_enable,
+    },
+    FieldParse {
+        token: "UAttackButtonHightlited",
+        parse: parse_u_attack_button_hightlited,
+    },
+    FieldParse {
+        token: "UAttackButtonPushed",
+        parse: parse_u_attack_button_pushed,
+    },
+    FieldParse {
+        token: "MinMaxButtonEnable",
+        parse: parse_min_max_button_enable,
+    },
+    FieldParse {
+        token: "MinMaxButtonHightlited",
+        parse: parse_min_max_button_hightlited,
+    },
+    FieldParse {
+        token: "MinMaxButtonPushed",
+        parse: parse_min_max_button_pushed,
+    },
+    FieldParse {
+        token: "MinMaxUL",
+        parse: parse_min_max_ul,
+    },
+    FieldParse {
+        token: "MinMaxLR",
+        parse: parse_min_max_lr,
+    },
+    FieldParse {
+        token: "GeneralUL",
+        parse: parse_general_ul,
+    },
+    FieldParse {
+        token: "GeneralLR",
+        parse: parse_general_lr,
+    },
+    FieldParse {
+        token: "UAttackUL",
+        parse: parse_u_attack_ul,
+    },
+    FieldParse {
+        token: "UAttackLR",
+        parse: parse_u_attack_lr,
+    },
+    FieldParse {
+        token: "OptionsUL",
+        parse: parse_options_ul,
+    },
+    FieldParse {
+        token: "OptionsLR",
+        parse: parse_options_lr,
+    },
+    FieldParse {
+        token: "WorkerUL",
+        parse: parse_worker_ul,
+    },
+    FieldParse {
+        token: "WorkerLR",
+        parse: parse_worker_lr,
+    },
+    FieldParse {
+        token: "ChatUL",
+        parse: parse_chat_ul,
+    },
+    FieldParse {
+        token: "ChatLR",
+        parse: parse_chat_lr,
+    },
+    FieldParse {
+        token: "BeaconUL",
+        parse: parse_beacon_ul,
+    },
+    FieldParse {
+        token: "BeaconLR",
+        parse: parse_beacon_lr,
+    },
+    FieldParse {
+        token: "PowerBarUL",
+        parse: parse_power_bar_ul,
+    },
+    FieldParse {
+        token: "PowerBarLR",
+        parse: parse_power_bar_lr,
+    },
+    FieldParse {
+        token: "MoneyUL",
+        parse: parse_money_ul,
+    },
+    FieldParse {
+        token: "MoneyLR",
+        parse: parse_money_lr,
+    },
+    FieldParse {
+        token: "CommandMarkerImage",
+        parse: parse_command_marker_image,
+    },
+    FieldParse {
+        token: "ExpBarForegroundImage",
+        parse: parse_exp_bar_foreground_image,
+    },
+    FieldParse {
+        token: "PowerPurchaseImage",
+        parse: parse_power_purchase_image,
+    },
+    FieldParse {
+        token: "GenArrow",
+        parse: parse_gen_arrow,
     },
     FieldParse {
         token: "ChatPanelWidth",
@@ -1474,5 +1922,114 @@ mod tests {
         // 1920/1080 = 1.77, 1280/720 = 1.77, 1024/768 = 1.33
         // So 1280x720 should be closer
         assert_eq!(found.unwrap().get_name(), "1280x720");
+    }
+
+    #[test]
+    fn field_table_recognizes_cpp_fixed_hud_button_tokens() {
+        // C++ ControlBarScheme.cpp:55-138 field table. These tokens feed
+        // ControlBarScheme::init (ControlBarScheme.cpp:401-662) which binds
+        // the fixed HUD button art (options / idle worker / beacon /
+        // communicator / general / toggle / queue / exp bar); dropping any of
+        // them silently leaves the matching ControlBar.wnd button unbound.
+        let cpp_tokens = [
+            "QueueButtonImage",
+            "RightHUDImage",
+            "OptionsButtonEnable",
+            "OptionsButtonHightlited",
+            "OptionsButtonPushed",
+            "OptionsButtonDisabled",
+            "IdleWorkerButtonEnable",
+            "IdleWorkerButtonHightlited",
+            "IdleWorkerButtonPushed",
+            "IdleWorkerButtonDisabled",
+            "BuddyButtonEnable",
+            "BuddyButtonHightlited",
+            "BuddyButtonPushed",
+            "BuddyButtonDisabled",
+            "BeaconButtonEnable",
+            "BeaconButtonHightlited",
+            "BeaconButtonPushed",
+            "BeaconButtonDisabled",
+            "GeneralButtonEnable",
+            "GeneralButtonHightlited",
+            "GeneralButtonPushed",
+            "GeneralButtonDisabled",
+            "UAttackButtonEnable",
+            "UAttackButtonHightlited",
+            "UAttackButtonPushed",
+            "MinMaxButtonEnable",
+            "MinMaxButtonHightlited",
+            "MinMaxButtonPushed",
+            "ToggleButtonUpIn",
+            "ToggleButtonUpOn",
+            "ToggleButtonUpPushed",
+            "ToggleButtonDownIn",
+            "ToggleButtonDownOn",
+            "ToggleButtonDownPushed",
+            "GenBarButtonIn",
+            "GenBarButtonOn",
+            "MinMaxUL",
+            "MinMaxLR",
+            "GeneralUL",
+            "GeneralLR",
+            "UAttackUL",
+            "UAttackLR",
+            "OptionsUL",
+            "OptionsLR",
+            "WorkerUL",
+            "WorkerLR",
+            "ChatUL",
+            "ChatLR",
+            "BeaconUL",
+            "BeaconLR",
+            "PowerBarUL",
+            "PowerBarLR",
+            "MoneyUL",
+            "MoneyLR",
+            "CommandMarkerImage",
+            "ExpBarForegroundImage",
+            "PowerPurchaseImage",
+            "GenArrow",
+        ];
+        for token in cpp_tokens {
+            assert!(
+                CONTROL_BAR_SCHEME_FIELDS
+                    .iter()
+                    .any(|field| field.token.eq_ignore_ascii_case(token)),
+                "ControlBarScheme field table is missing C++ token {token}"
+            );
+        }
+    }
+
+    #[test]
+    fn field_table_parses_america8x6_button_art_and_slots() {
+        let mut scheme = ControlBarScheme::default();
+        for field in CONTROL_BAR_SCHEME_FIELDS {
+            let args: &[&str] = match field.token.to_ascii_lowercase().as_str() {
+                "queuebuttonimage" => &["SCBigButton"],
+                "optionsbuttonenable" => &["SAOptions"],
+                "optionsbuttonhightlited" => &["SAOptionsH"],
+                "idleworkerbuttonenable" => &["SAWorker"],
+                "generalbuttonenable" => &["SAGeneral"],
+                "expbarforegroundimage" => &["SAExpBar"],
+                "optionsul" => &["X:184", "Y:490"],
+                "optionslr" => &["X:220", "Y:514"],
+                "generalul" => &["X:719", "Y:432"],
+                "generallr" => &["X:799", "Y:463"],
+                _ => continue,
+            };
+            (field.parse)(&mut INI::new(), &mut scheme, args)
+                .unwrap_or_else(|err| panic!("parse {} failed: {err:?}", field.token));
+        }
+        assert_eq!(scheme.queue_button_image, "SCBigButton");
+        assert_eq!(scheme.options_button_enable, "SAOptions");
+        assert_eq!(scheme.options_button_hightlited, "SAOptionsH");
+        assert_eq!(scheme.idle_worker_button_enable, "SAWorker");
+        assert_eq!(scheme.general_button_enable, "SAGeneral");
+        assert_eq!(scheme.exp_bar_foreground_image, "SAExpBar");
+        assert_eq!((scheme.options_ul.x, scheme.options_ul.y), (184, 490));
+        assert_eq!((scheme.options_lr.x, scheme.options_lr.y), (220, 514));
+        assert_eq!((scheme.general_ul.x, scheme.general_ul.y), (719, 432));
+        assert_eq!((scheme.general_lr.x, scheme.general_lr.y), (799, 463));
     }
 }

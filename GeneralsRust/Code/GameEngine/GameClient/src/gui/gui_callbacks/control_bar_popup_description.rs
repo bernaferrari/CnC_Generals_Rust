@@ -413,12 +413,11 @@ fn leftover_production_count_for_obj(obj: &gamelogic::object::Object) -> Option<
 }
 
 fn leftover_upgrade_cost(upgrade_name: &str) -> i32 {
-    game_engine::common::ini::ini_upgrade::get_upgrade_center()
-        .and_then(|center| {
-            center
-                .find_template(&upgrade_name.to_string().into())
-                .map(|template| template.requirements.cost as i32)
-        })
+    let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
+    let center = center.read().expect("UpgradeCenter poisoned");
+    center
+        .find_template(&upgrade_name.to_string().into())
+        .map(|template| template.requirements.cost as i32)
         .unwrap_or(0)
 }
 
@@ -530,8 +529,9 @@ fn populate_layout_for_command(
             }
         }
     } else if !command_button.upgrade.is_empty() {
-        if let Some(center) = game_engine::common::ini::ini_upgrade::get_upgrade_center() {
-            let upgrade_name = command_button.upgrade.clone();
+        let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
+        let center = center.read().expect("UpgradeCenter poisoned");
+        let upgrade_name = command_button.upgrade.clone();
             if let Some(template) = center.find_template(&upgrade_name.into()) {
                 let has_upgrade = player_guard
                     .as_ref()
@@ -579,7 +579,6 @@ fn populate_layout_for_command(
                     }
                 }
             }
-        }
     }
 
     let name_id =

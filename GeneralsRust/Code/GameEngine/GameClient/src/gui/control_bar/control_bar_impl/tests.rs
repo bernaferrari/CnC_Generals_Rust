@@ -106,8 +106,8 @@ mod tests {
 
         game_engine::common::ini::ini_upgrade::initialize_upgrade_center();
         {
-            let mut center = game_engine::common::ini::ini_upgrade::get_upgrade_center_mut()
-                .expect("INI upgrade center");
+            let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
+            let mut center = center.write().expect("INI upgrade center");
             let template = center.new_template(
                 game_engine::common::ascii_string::AsciiString::from(UPGRADE),
             );

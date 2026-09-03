@@ -2105,8 +2105,8 @@ mod staged_restore_tests {
         // staged candidate must carry these raw counters and the pending
         // expiry queue rather than retaining its map-load singleton state.
         let expected_shroud = {
-            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-                .lock()
+            let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+            let mut shroud = shroud_manager.lock()
                 .expect("source shroud lock");
             shroud.do_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1);
             shroud.queue_undo_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1, 41, 321);
@@ -2257,8 +2257,8 @@ mod staged_restore_tests {
                 .read()
                 .map(|sides| (sides.get_num_sides(), sides.get_num_teams()))
                 .unwrap_or_default();
-            let shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-                .lock()
+            let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+            let shroud = shroud_manager.lock()
                 .map(|shroud| shroud.snapshot_state())
                 .unwrap_or_default();
             let mut named = gamelogic::scripting::engine::get_named_object_tracker()

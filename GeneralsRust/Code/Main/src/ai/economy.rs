@@ -897,6 +897,7 @@ impl AIPlayer {
 
     pub(super) fn aidata_supply_center_safe_radius() -> Option<f32> {
         let store = game_engine::common::ini::get_ai_data_store();
+        let store = store.read().expect("AI data store read lock");
         if let Some(radius) = store.get_active().map(|d| d.supply_center_safe_radius) {
             return Some(radius);
         }

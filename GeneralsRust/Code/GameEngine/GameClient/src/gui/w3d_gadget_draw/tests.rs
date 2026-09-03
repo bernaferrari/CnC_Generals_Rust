@@ -691,16 +691,21 @@ fn w3d_push_button_draw_queues_fallback_when_colors_undefined() {
 }
 
 #[test]
-fn w3d_push_button_image_draw_falls_back_when_mapped_image_missing() {
+fn w3d_push_button_image_draw_queues_nothing_when_no_image_is_bound() {
+    // C++ W3DGadgetPushButtonImageDrawOne (W3DPushButton.cpp:288-368) skips
+    // the drawImage block when the state's image slot is empty: an
+    // IMAGE-status button (ControlBar.wnd command buttons) renders nothing
+    // until setControlCommand binds art — never the authored red fill.
     super::reset_shipped_ui_draw_command_count();
     let mut window = test_window(20, 60, 64, 64);
     window.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE);
     let button = PushButton::new(8, 0, 0, 64, 64);
     window.set_widget(WindowWidget::PushButton(button));
     super::w3d_gadget_push_button_image_draw(&window, window.instance_data());
-    assert!(
-        super::shipped_ui_draw_command_count() > 0,
-        "image push button must still queue fallback commands without mapped art"
+    assert_eq!(
+        super::shipped_ui_draw_command_count(),
+        0,
+        "unbound image-status button must not paint a placeholder fill"
     );
 }
 

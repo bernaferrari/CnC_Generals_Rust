@@ -127,6 +127,17 @@ impl RenderPipeline {
         self.forward_pass.tactical_view_height_frac = frac;
     }
 
+    /// The tactical viewport rect in framebuffer pixels — the exact rect the
+    /// terrain/water pre-scene passes render through (`(0, 0, w, h*frac)`).
+    /// C++ `W3DView::setHeight` parity: every world-space lane shares this
+    /// device viewport, so their depth writes line up row-for-row.
+    pub fn tactical_viewport_pixel_size(&self) -> (f32, f32) {
+        (
+            self.tactical_viewport_width,
+            self.tactical_viewport_height * self.tactical_view_height_frac,
+        )
+    }
+
     /// Install the immutable direct-host shroud sidecar for the frame just
     /// supplied to [`Self::set_presentation_frame`].
     ///

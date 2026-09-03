@@ -136,6 +136,35 @@ pub(super) const STATUS_GADGET_HIT_NAMES: &[&str] = &[
     "MainMenu.wnd:ButtonDiffBack",
     "SkirmishGameOptionsMenu.wnd:ButtonStart",
     "SkirmishMapSelectMenu.wnd:ButtonOk",
+    // In-match command-grid cameos (ControlBar.wnd ButtonCommand01-14). A slot
+    // publishes only when a live, enabled, non-hidden window hit-tests at its
+    // own center, so empty/unbound slots stay omitted (BuildUiHunt drive aid).
+    "ControlBar.wnd:ButtonCommand01",
+    "ControlBar.wnd:ButtonCommand02",
+    "ControlBar.wnd:ButtonCommand03",
+    "ControlBar.wnd:ButtonCommand04",
+    "ControlBar.wnd:ButtonCommand05",
+    "ControlBar.wnd:ButtonCommand06",
+    "ControlBar.wnd:ButtonCommand07",
+    "ControlBar.wnd:ButtonCommand08",
+    "ControlBar.wnd:ButtonCommand09",
+    "ControlBar.wnd:ButtonCommand10",
+    "ControlBar.wnd:ButtonCommand11",
+    "ControlBar.wnd:ButtonCommand12",
+    "ControlBar.wnd:ButtonCommand13",
+    "ControlBar.wnd:ButtonCommand14",
+    // In-match save/load chain (SaveLoadUiHunt drive aid): QuitMenu
+    // ButtonSaveLoad opens PopupSaveLoad.wnd; ListboxGames publishes the
+    // list center for affine row-1 math; confirm buttons publish only while
+    // their HIDDEN parent is shown. Same diagnostic-only contract as above.
+    "QuitMenu.wnd:ButtonSaveLoad",
+    "QuitMenu.wnd:ButtonReturn",
+    "PopupSaveLoad.wnd:ButtonSave",
+    "PopupSaveLoad.wnd:ButtonLoad",
+    "PopupSaveLoad.wnd:ButtonSaveDescConfirm",
+    "PopupSaveLoad.wnd:ButtonOverwriteConfirm",
+    "PopupSaveLoad.wnd:ButtonLoadConfirm",
+    "PopupSaveLoad.wnd:ListboxGames",
 ];
 
 /// Diagnostic clicker-aim fragment for status.txt. Never writes playable_claim

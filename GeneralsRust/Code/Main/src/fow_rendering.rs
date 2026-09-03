@@ -880,7 +880,8 @@ impl FOWRenderingBridge {
     /// should pass `shell_bypass=true` to force fully-visible cells when dimensions
     /// are known.
     pub fn snapshot_terrain_grid(player_id: u32, shell_bypass: bool) -> PresentationFowGrid {
-        let Ok(shroud_mgr) = get_shroud_manager().lock() else {
+        let shroud_manager = get_shroud_manager();
+        let Ok(shroud_mgr) = shroud_manager.lock() else {
             return PresentationFowGrid::inactive();
         };
 

@@ -94,7 +94,9 @@ fn resolve_upgrade_cameo_button_image(
     }
 
     // 2) Common INI UpgradeTemplate.ButtonImage (same Upgrade.ini field)
-    if let Some(center) = game_engine::common::ini::ini_upgrade::get_upgrade_center() {
+    {
+        let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
+        let center = center.read().expect("UpgradeCenter poisoned");
         let key = game_engine::common::ascii_string::AsciiString::from(trimmed);
         if let Some(template) = center.find_template(&key) {
             let image = template.button_image.as_str().trim();

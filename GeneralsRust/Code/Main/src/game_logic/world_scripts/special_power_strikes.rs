@@ -1572,7 +1572,8 @@ impl GameLogic {
         let Some(pid) = viewer_player_id else {
             return true;
         };
-        let Ok(mgr) = get_shroud_manager().lock() else {
+        let shroud_manager = get_shroud_manager();
+        let Ok(mgr) = shroud_manager.lock() else {
             return true;
         };
         if !mgr.has_shroud_grid() {

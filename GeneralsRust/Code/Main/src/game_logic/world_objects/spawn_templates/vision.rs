@@ -333,7 +333,8 @@ impl GameLogic {
         viewing_team: Team,
     ) -> Option<ShroudVisibilitySnapshot> {
         let player_id = self.player_id_for_team(viewing_team)?;
-        let shroud_mgr = get_shroud_manager().lock().ok()?;
+        let shroud_manager = get_shroud_manager();
+        let shroud_mgr = shroud_manager.lock().ok()?;
         let raw_visible_objects = shroud_mgr.get_visible_objects(player_id);
 
         // Match existing fail-open behavior while shroud has not produced runtime visibility yet.

@@ -122,6 +122,12 @@ pub struct RenderTargets<'a> {
     pub encoder: &'a mut wgpu::CommandEncoder,
     pub color_view: &'a wgpu::TextureView,
     pub depth_view: Option<&'a wgpu::TextureView>,
+    /// Attachment size in pixels. The main render pass applies the camera's
+    /// normalized viewport against this rect (C++ `dx8wrapper::Set_Viewport`
+    /// parity: D3D kept one device viewport that every scene lane — terrain
+    /// pre-scene, meshes, overlays — rendered through, so their depth writes
+    /// line up row-for-row). `(0, 0)` leaves the full-attachment default.
+    pub size: (u32, u32),
 }
 
 // Alias for backward compatibility
@@ -625,6 +631,31 @@ impl Renderer {
                     timestamp_writes: None,
                 });
 
+            // C++ dx8wrapper::Set_Viewport parity: D3D applied the tactical
+            // viewport as DEVICE state, so the terrain pre-scene pass and the
+            // mesh pass rendered through the SAME pixel rect and their depth
+            // writes lined up row-for-row. wgpu viewports are per-pass, so the
+            // mesh pass must explicitly reuse the camera's (tactical) viewport
+            // here; rendering full-attachment while the terrain writes a
+            // frac-height sub-rect makes every mesh fragment compare against
+            // the WRONG ROW of terrain depth (units vanish behind terrain).
+            if let Some(camera) = self.camera.as_ref() {
+                let (aw, ah) = (targets.size.0, targets.size.1);
+                if aw > 0 && ah > 0 {
+                    let vp = camera.get_viewport();
+                    let x0 = vp.min.x * aw as f32;
+                    let y0 = vp.min.y * ah as f32;
+                    let vw = ((vp.max.x - vp.min.x) * aw as f32).max(1.0);
+                    let vh = ((vp.max.y - vp.min.y) * ah as f32).max(1.0);
+                    render_pass.set_viewport(x0, y0, vw, vh, 0.0, 1.0);
+                    let sx = (x0 as u32).min(aw - 1);
+                    let sy = (y0 as u32).min(ah - 1);
+                    let sw = (vw as u32).clamp(1, aw - sx);
+                    let sh = (vh as u32).clamp(1, ah - sy);
+                    render_pass.set_scissor_rect(sx, sy, sw, sh);
+                }
+            }
+
             mesh_manager.render_pass(
                 &mut render_pass,
                 &prepared.opaque,
@@ -657,11 +688,13 @@ impl Renderer {
             Some(timing.total_seconds()),
             Some(timing.frame_number),
         );
+        let size = frame.size();
         self.render_with_targets(
             RenderTargets {
                 encoder: frame.encoder(),
                 color_view: color_view.as_ref(),
                 depth_view: depth_ref,
+                size,
             },
             clear_color,
             render_info,

@@ -1135,7 +1135,8 @@ impl GameLogic {
     pub fn is_build_location_shroud_clear(&self, player_id: u32, position: glam::Vec3) -> bool {
         use gamelogic::common::Coord3D;
         use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
-        let Ok(shroud) = get_shroud_manager().lock() else {
+        let shroud_manager = get_shroud_manager();
+        let Ok(shroud) = shroud_manager.lock() else {
             return true;
         };
         if !shroud.has_shroud_grid() {
