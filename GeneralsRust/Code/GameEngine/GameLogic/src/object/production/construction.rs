@@ -2,7 +2,7 @@
 //!
 //! Faithful port of C++ DozerAIUpdate construction logic from DozerAIUpdate.cpp
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::*;
 use crate::helpers::{TheTerrainLogic, TheThingFactory};
 use crate::system::shroud_manager::{ShroudState, get_shroud_manager};
@@ -257,7 +257,7 @@ impl FoundationValidator {
 
         // 2. Clear Path Check
         if self.check_clear_path {
-            if let Ok(ai_guard) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinding) = ai_guard.pathfinding_system() {
                     if let Ok(pf) = pathfinding.read() {
                         let layer = TheTerrainLogic::get()

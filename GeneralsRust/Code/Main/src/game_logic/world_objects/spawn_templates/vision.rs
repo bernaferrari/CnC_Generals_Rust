@@ -227,12 +227,7 @@ impl GameLogic {
             HostPartitionFootprint, cells_touched_for_footprint, mix_object_shroud_from_cells,
         };
         use gamelogic::common::{Relationship, types::ObjectShroudStatus};
-        use gamelogic::system::shroud_manager::ShroudState;
-
-        let leftover_cell_size = shroud_mgr
-            .grid_dimensions()
-            .map(|(_, _, s)| s)
-            .unwrap_or(40.0);
+        use game_engine::common::system::radar::CellShroudStatus;
 
         let object_snaps: Vec<_> = self
             .objects
@@ -291,17 +286,17 @@ impl GameLogic {
                 let mut shrouded_cells = 0usize;
                 let mut fogged_cells = 0usize;
                 for &(cx, cz) in &cells {
-                    // Leftover DiscreteCircle lookers, not PARTITION_MANAGER square disk.
-                    match leftover_discrete_circle_looker_cell(
-                        &shroud_mgr,
-                        pid,
-                        cx,
-                        cz,
-                        leftover_cell_size,
-                    ) {
-                        ShroudState::Hidden => shrouded_cells += 1,
-                        ShroudState::Explored => fogged_cells += 1,
-                        ShroudState::Visible => {}
+                    // C++ PartitionData::getShroudedStatus
+                    // (PartitionManager.cpp:1582) mixes over the LIVE 40wu
+                    // partition shroud grid that the look pass above stamps
+                    // (stamp_partition_cell_lookers). The legacy ShroudManager
+                    // grid is never advanced on this host path (last_upd stays
+                    // 0) and reads Hidden everywhere, which fogged the whole
+                    // world out of the presentation FOW snapshot.
+                    match gamelogic::object::partition_cell_shroud_status(pid as i32, cx, cz) {
+                        CellShroudStatus::Shrouded => shrouded_cells += 1,
+                        CellShroudStatus::Fogged => fogged_cells += 1,
+                        CellShroudStatus::Clear => {}
                     }
                 }
                 let ever = shroud_mgr.host_object_ever_seen(pid, id.0);

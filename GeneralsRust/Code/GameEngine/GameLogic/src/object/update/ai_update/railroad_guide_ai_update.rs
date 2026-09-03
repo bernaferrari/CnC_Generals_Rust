@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
 use crate::common::{
@@ -961,7 +961,7 @@ impl RailroadBehavior {
             return;
         }
 
-        if let Ok(ai) = THE_AI.write() {
+        let ai_store = the_ai(); if let Ok(ai) = ai_store.write() {
             let _ = self.with_object(|obj_guard| {
                 if let Some(pathfinder) = ai.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {

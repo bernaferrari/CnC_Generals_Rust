@@ -662,3 +662,878 @@ probe-free release rebuild re-driven (13:42): minimap still draws, 0 probe
 lines in stderr. No git writes; no formatters; caffeinate + short-timeout serial
 drives; evidence under /tmp/wsmoke/{mseam.log, ms_ingame_*.png,
 prefix_mm.png, final_mm.png, ms_status_12.txt}.
+
+---
+
+## SaveLoadHunt — in-match save/load roundtrip depth hunt: 2 load-fails + 1 apply-order clobber + 1 xfer-field loss FIXED (2026-09-02)
+
+Scope: golden_skirmish `save_load_ok` depth verification. Method: three read-only
+scout audits (ObjectSnapshot capture↔restore field diff; all 44 lifecycle-tail
+persist suffix capture↔apply pairing; C++ Xfer parity for the session seams
+paradrop/radar/battlebus/slowdeath-stun/cleanup-hazard/Weapon), then fixes +
+regression guards + harness runs. Serial cargo; no git writes; no formatters.
+
+### Fixed (each with a guard)
+
+1. **`KindOf` xfer ordinal 71 was save-only — load aborted.**
+   `Code/Main/src/save_load/xfer.rs`: `write_kind_of_variant` mapped
+   `TechBuilding => 71` but `read_kind_of_variant` had NO 71 arm → any payload
+   carrying that KindOf failed the whole load with "Invalid KindOf variant: 71"
+   (append-only convention violated once). Added the read arm + new census
+   `KindOf::ALL_KIND_OF` (host_types.rs) and test
+   `every_kind_of_xfer_ordinal_round_trips` (write↔read total bijection, no
+   ordinal reuse). Note: Common's `xfer_kind_of` is name-based (ordinal-drift
+   immune); only Main's compact u8 map had the hole. CleanupHazard=83 verified
+   present on BOTH sides (write xfer.rs:270 / read :358 post-fix numbering).
+2. **SPCD suffix: unpaused special-power cooldown aborted every such load.**
+   `special_power_cooldown_persist.rs` v1 omitted the pauses table when empty
+   and inferred presence from `!rest.is_empty()` — but OXOB always follows in
+   the shared lifecycle tail (one entry per object), so the decoder read the
+   sibling ASCII magic as a ~1.1e9 table count (multi-GB `Vec::with_capacity` /
+   Corrupted) → whole load failed. v2 now ALWAYS encodes the pauses table;
+   v1 reads use a bounded absence probe (count > 2^16 = sibling magic, never a
+   real count); `decode_table` got sanity bounds (1<<20 entries). Guards:
+   `v2_unpaused_cooldown_tolerates_trailing_sibling_suffix`,
+   `v1_absent_pauses_ignores_trailing_sibling_suffix`,
+   `v1_present_pauses_table_still_decodes`.
+3. **Turret residual apply-order clobber (TRAI after OXOB).**
+   `builder.rs` restore applied `turret_aim_persist` (resets 12 turret fields
+   for EVERY object) AFTER `object_xfer_persist` (47 fields incl. all 15 turret
+   fields, captured for every object) → OXOB-restored idle-scan/hold/substate
+   state was zeroed for any object outside TRAI's capture predicate. Reordered
+   TRAI before OXOB (comment cites C++ single `TurretAI::xfer`; TRAI kept for
+   legacy tails without OXOB). Scout claim that TRAI lacked the two idle-scan
+   fields was wrong (they are in TRAI v? payload lines 39-40); the order was
+   the real bug.
+4. **Direct-Xfer `Weapon` record dropped clip/reload residual (F1).**
+   `xfer_helpers.rs impl XferData for Weapon` carries only 10 of 16 Weapon
+   fields — the direct-Xfer object path lost `clip_size/clip_reload_time/
+   splash_radius/reloading_clip/last_bonus_rof` that the serde (production
+   .sav) path kept; a mid-clip-reload slot reset to `Weapon::default()`.
+   C++ `Weapon::xfer` v3 persists m_status RELOADING_CLIP + m_ammoInClip
+   (Weapon.cpp:3364-3367). Fixed as a versioned V21 object tail
+   (`WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION`, bincode+direct writers
+   bumped 20→21; v20 bincode payloads decode as the unchanged current serde
+   layout; direct validator accepts 1..=21). Guard:
+   `direct_xfer_v21_appends_weapon_clip_residual_and_keeps_alignment`
+   (v21 roundtrip + v20 old-layout alignment sentinel).
+5. **Logic-only loads died on client ThingFactory.**
+   `GameClient/src/core/game_client/leftover.rs` (`GameClient::xfer` load
+   branch) demanded the ThingFactory global before decoding ANY drawable — a
+   headless in-match quicksave (drawable_count == 0, e.g. unit-test /
+   logic-only process) failed the whole load with "ThingFactory not
+   initialized". This broke the pre-existing
+   `save_file_roundtrip_preserves_lifecycle_envelope` too. Factory is now
+   required only when `drawable_count > 0` (C++ assumes the factory always
+   exists; the host now matches that contract only where it has work).
+6. **E2E guard**: `save_file_roundtrip_survives_unpaused_cooldown_and_keeps_
+   weapon_clip` (lifecycle_save_file.rs) — full SaveFileManager production
+   .sav save→load with an unpaused ParticleCannon cooldown + mid-clip-reload
+   weapon; asserts cooldown (88.0), clip/splash/reload state survive.
+
+### Verified
+
+- `cargo test -p generals_main --lib save_load::xfer` → 2/2;
+  `...snapshot::special_power_cooldown` → 6/6;
+  `...snapshot::lifecycle_save_file` → 3/3 (incl. the previously red
+  envelope test); `...snapshot::turret_aim` → 2/2;
+  `...snapshot::object_xfer_persist` → 8/8 (after revert, below).
+- `golden_skirmish_gate` (release, with all fixes): **save_load=true,
+  players_preserved=true, checkpoints=3**. Gate overall FAIL is NOT save/load:
+  map-path `gather/build/produce/fight=false` → `victory=false status=partial`
+  — economy/production/combat sim lanes (pre-existing sibling churn; same
+  tree also fails the 4 tests below).
+- Not re-run this pass: `save_load_demo` (dev-tools debug build; the same
+  SnapshotBuilder/SaveFileManager surface is covered by the suites above) and
+  `deterministic_trace_compare` (needs a baseline trace pair; fixture CRC path
+  covered by `deterministic_fixture_trace`).
+
+### Precisely documented, NOT fixed (owned elsewhere / pre-existing at HEAD)
+
+- `world_and_weapon_snapshots` 4 red (pre-existing / sibling mid-flight, none
+  touch my files): `snapshot_restore_recovers_veterancy_from_tracker_data`
+  (`gain_experience(180)` no longer levels — template `is_trainable` default
+  false + unchanged code = red at HEAD);
+  `host_upgrade_capture_mid_flight_save_load_completes_unlock` +
+  `save_file_roundtrip_preserves_pending_host_upgrade` ("player research queue
+  must hold Capture" — upgrade/center.rs is uncommitted EngineStores migration
+  work); `special_power_a10_mid_flight_save_load_still_impacts` (strike
+  completes not latching; strike code identical to HEAD, test last touched at
+  HEAD).
+- `ai_team_persist::snapshot_round_trips_waypoint_queue_and_order` — Ranger
+  classified `Resource` in snapshot (file verified byte-identical to HEAD;
+  classification heuristic lives in builder/thing template defaults).
+- Deliberate keep-behavior restored after audit: `reset_object_xfer`
+  intentionally does NOT reset `safe_occlusion_frame`, and TMAI absent-suffix
+  intentionally keeps `team_common_attack_targets` (guard tests
+  `absent_suffix_keeps_template_safe_occlusion_frame` etc. document these —
+  I reverted my initial fail-closed resets there).
+- Benign audit notes on record: score_keeper `current_score` decoded-not-applied
+  (re-derived by `calculate_score()`); CleanupHazard C++ fields
+  m_bestTargetID/m_inRange/m_nextScanFrames re-derived on first post-load scan
+  (CLHA carries pos/moveRange/nextShotFrame = C++ v1 essentials);
+  PhysicsBehavior non-stun fields skipped (subsystem not simulated).
+- Suffix-scan hardening direction (report only): 43 of 44 magics are
+  length-bounded and mis-parse needs a payload-embedded magic + exact version
+  u32 (≤1e-3 upper bound, far lower in practice); SPCD was the one real hole
+  and is fixed; a length-chained manifest would remove the class.
+
+Changed files (this pass): `Code/Main/src/save_load/xfer.rs`,
+`Code/Main/src/game_logic/host_types.rs` (census const only),
+`Code/Main/src/save_load/snapshot/{types,legacy_bincode,object,special_power_
+cooldown_persist,turret-apply-in-builder}.rs` (builder.rs reorder),
+`Code/Main/src/save_load/snapshot/{lifecycle_save_file,tests/world_and_weapon_
+snapshots}.rs` (tests), `Code/GameEngine/GameClient/src/core/game_client/
+leftover.rs`. `module_runtime_persist.rs` countermeasures absent-suffix clear
+kept (its guards pass). Guards/serial runs honored; no probes left in tree.
+
+## UnitRenderHunt — CRITICAL QUESTION ANSWERED: units/buildings DO submit draw calls in-match, but only ONE degenerate untextured mesh reaches pixels (2026-09-02 18:50)
+
+Method: temp WARN probes in pipeline_collect (collect buckets) + forward_render (queue
+counts), temp Debug log clamp, drive14/14b/14c (direct `start_game` control path;
+view_command_center + camera_look_at dozer + zoom captures). Probes REMOVED — the three
+files are byte-identical to HEAD (`git checkout --` of pipeline_collect.rs,
+forward_render.rs, win_main.rs; remaining render_pipeline diff is MinimapTerrain's
+pipeline_minimap.rs). CAUTION: target/release/{generals,generals_snap} (18:44) still
+contain probe strings — next release build clears them. Evidence:
+/tmp/wsmoke/d14_ingame_{default,cc,dozer}.png, d14_status_*.txt, d14c_stderr.log,
+drive14.log.
+
+### Live in-match truth (Defcon6, USA, frame 435, probes 200 lines)
+
+- Collect: alive=470, clear=3, fogged=0, hidden=467, missing=0, items=103.
+  OWN-PASSED AmericaCommandCenter a=1.00 models=4 / AmericaVehicleDozer a=1.00;
+  OWN-FILTERED GLAHoleCommandCenter a=0.00 e=0.00 — FOW lane is CORRECT (own units
+  Clear, enemy base unexplored). FOW is NOT the bug. render_model_missing=0 —
+  W3D models LOAD from the BIGs (ABBtCmdHQ, AVDozer etc. resolve synchronously).
+- Queue: `UNITRENDER-QUEUE queued=103/103 errors=0 hidden=0` with sample
+  `ABBtCmdHQ_AC@(3068,2241) a=1.00 pass=ForwardOpaque` — exactly the CC position the
+  camera was pointed at; zero "No cached W3D model" warnings. Meshes REACH the ww3d
+  renderer.
+- Screen: terrain + HUD only. ONE ~35px untextured white mesh draws at the dozer's
+  exact world position and roughly correct perspective size (d14_ingame_dozer.png);
+  the CC complex draws nothing visible.
+- Same symptom out-of-match: shellmap queues 89 meshes/frame (AVChinookAG a=1.00) yet
+  the main-menu background is black — the drop is in the shared ww3d mesh draw path,
+  NOT match-specific.
+
+### Fix site (smallest parity change; C++ oracle W3DDrawModule → dx8renderer)
+
+`ww3d-renderer-3d/src/rendering/mesh_system_impl/render_manager.rs` — render_mesh()
+issues every mesh unconditionally; the silent kill is in the per-pass geometry slice:
+`issue_draw_call()` (line ~1238) resolves `(start_index,count)` from
+`PreparedMeshModel.pass_index_ranges`, and `compute_pass_index_ranges()`
+(helpers.rs:260) builds those ranges from `model.polygon_renderer_list` grouped by
+`renderer.material_pass.get_pass_index()`. When a model's polygon-renderer list is
+empty/its pass indices mismatch `prepared.material_passes`, the resolved range is
+(0,0) → zero-index draw call, no error, no pixels; a mesh that falls back to range[0]
+is the lone visible blob. Secondary suspect for the white/untextured look:
+`create_texture_bind_groups` in the same file. Suggested next probe (one drive):
+WARN the resolved (start,count) + polygon_renderer_list.len() + material_passes.len()
+per model in PreparedMeshModel::frommodel — that pins which side of the mismatch is
+empty. Gap size: ONE module (~1.8k lines), no missing subsystem — W3D parsing, BIG
+asset loading, collect/queue/draw chain all exist and run; only the pass→geometry
+slicing/texture-bind step inside MeshRenderManager is broken.
+
+### Notes
+- Camera evidence: view_command_center + camera_look_at|x=3108|y=120|z=2201 land the
+  camera correctly (status camera_pos/target match dozer sample pos).
+- fps in windowed runtime-host is now ~4-11 (was 0.08 in the morning drive) — the
+  09:47 generals_snap was stale; drive scripts must run the freshly built binary
+  (generals_snap was refreshed by cp from generals).
+
+---
+
+## UnitRenderFix — pass-slicing + texture-bind fixes landed; in-match invisibility NOT yet solved (2026-09-02 23:50)
+
+Method: fresh WARN probes inside the ww3d draw path (MESHPREP in PreparedMeshModel::frommodel,
+MESHPASS/MESHSTATS in MeshRenderManager::render_pass, MESHDRAW per-mesh sample, MESHZERO in
+issue_draw_call, TEXTUREMISS/FALLBACKPASS in forward_materials) + drive14c lineage runs
+(20:05 and 19:33 binaries). All probes REMOVED after data collection;
+forward_materials.rs is byte-identical to HEAD again; mesh_bounds_probe bin deleted.
+Evidence: /tmp/wsmoke/d14_ingame_{dozer,cc}.png, child_stderr logs in the two
+`$(getconf DARWIN_USER_TEMP_DIR)generals_exec_smoke_manual_*` dirs (latest:
+/tmp/wsmoke/current_dir).
+
+### Probed reality (supersedes the (0,0)-range hypothesis — that one is DEAD)
+- The queue→draw chain is healthy: `MESHPASS opaque=103` and
+  `MESHSTATS meshes_rendered=103 draw_calls=103 tris=2016 zero_draws=0` (pre-fix run).
+  All queued meshes resolve models, prepare, and issue indexed draws. MESHZERO only ever
+  fired for `pass_index=1` on two-pass meshes (ranges=[(0,N)]) — i.e. extra passes with no
+  authored polygon-renderer ranges, which the old `ranges[0]` fallback was re-drawing with
+  the wrong pass state.
+- Per-draw state of the invisible meshes is GOOD: MESHDRAW shows rigid meshes at sensible
+  world positions (3068–3120, 0–132, 2192–2299 — camera was at 3108/2201), fow_alpha=1.00,
+  opacity=1.00. Mesh sizes 2–106 tris (CC slab 474 tris, 894 verts) — plausible low-poly
+  2003-era geometry, NOT empty.
+- The one visible white blob (dozer position, ~35px) is a 2–4 tri mesh.
+- Texture names DO miss in the archive: `TEXTUREMISS 'AVChinook.tga' primed and still
+  unresolved` etc. — ensure_texture runs prime+lookup and still falls back for all unit
+  textures (AVChinook/Avamphib/Housecolor/ATCemWall01...). The two ZHCA_UI* UI meshes bound
+  real names. This is an asset-lane defect (BIG candidate paths vs mounted archives —
+  note `BIG archives loaded in 0.00s` at boot and 0 "Loading raw texture from archive"
+  debug lines all session), NOT a bind-group one.
+
+### Landed (permanent, ww3d-renderer-3d/src/rendering/mesh_system_impl/render_manager.rs)
+1. **Strict pass→geometry slicing (C++ MeshClass::Render_Material_Pass /
+   DX8PolygonRendererList parity):** issue_draw_call no longer falls back to
+   `ranges[0]`/all-indices when `pass_index >= pass_index_ranges.len()`. A pass with no
+   authored range owns no geometry and draws nothing; base pass 0 owns the fallback range.
+   Verified live: zero_draws=30 with MESHZERO all pass_index=1 two-pass extras suppressed,
+   base draws unchanged (draw_calls=103, tris=2016). This also removes the multi-pass
+   overdraw that ran extra-pass state over the base pass.
+2. **Lazy GPU texture upload (`ensure_gpu_texture_view` + name-keyed side cache):**
+   stage_resources_for previously fell back to the 1×1 WHITE texture whenever a pass
+   texture had CPU pixels but no gpu_texture — which is ALWAYS true for unit textures
+   (forward_materials build_texture only fills pixels; nothing outside render2d ever calls
+   create_wgpu_texture). Now the first bind uploads the pixels (32-bit RGBA/BGRA formats,
+   length-guarded) and caches the view. This is the fix for the "untextured white" look;
+   real textures additionally require the texture-name resolution fix above.
+
+### Reverted (unverified, keep out of tree)
+An index-order flip in build_mesh_model (to compensate the det<0 gameplay→render axis
+mirror) was built, driven, and produced no visible change — it is REVERTED;
+forward_materials.rs is byte-identical to HEAD. Analysis notes: the axis swap (Y↔Z,
+det=-1) flips winding, and wgpu Ccw/cull-Back vs D3D9 D3DCULL_CW conventions disagree —
+whoever fixes the invisibility next should start by dumping one invisible mesh's
+post-transform vertex positions and testing the pipeline with cull_mode=None.
+
+### Open (the actual blocker)
+Why do 2–106 tri meshes with correct transforms/alpha draw zero pixels? Next steps for the
+next driver: (1) capture one invisible mesh's vertex buffer bounds after transform (probe
+frommodel bounds or run a GPU capture) — rules vertex-payload collapse in/out; (2) flip
+wgpu_pipeline_manager cull_mode to None for mesh pipelines for one run — winding test, zero
+risk; (3) fix texture-name resolution (asset lane: TexturesZH.big lookup) so hydration has
+real pixels; (4) re-check `ww3d_peak≈1.3µs` render health numbers — units rendering should
+move it to ms-scale. Constraints honored: no git writes, no formatters, serial cargo,
+probes removed, guards/tests untouched (world_tests, combat filter, gameworld_shadow,
+minimap radar lanes untouched).
+
+## UnitRenderFix2 — three discriminators run; unit meshes DO reach pixels; remaining defects pinned (2026-09-02 22:15)
+
+Method: drive14c lineage (start_game → InGame → CC view → dozer look-at), one binary per
+discriminator, screenshot after each step. All temporary probes/overrides REMOVED after;
+final tree = the two permanent UnitRenderFix changes only (`cargo check -p generals_main
+--bin generals` clean). Evidence: /tmp/wsmoke/urf2_final_{default,cc,dozer}.png, raw logs in
+`$(getconf DARWIN_USER_TEMP_DIR)generals_exec_smoke_manual_*` (see /tmp/wsmoke/current_dir).
+
+### 1. cull_mode=None (winding test) — NEGATIVE
+Forced `cull_mode: None` on every ww3d mesh pipeline for one run (wgpu_pipeline_manager).
+No change vs baseline: same one white dozer blob, CC complex still invisible. Winding from
+the det<0 gameplay→render axis swap is NOT the killer; C++ D3DCULL_CW/Ccw question closed.
+
+### 2. Vertex-bounds probe — payload and camera are HEALTHY in-match
+Per-frame probe in MeshRenderManager::render_mesh dumped post-transform clip bounds of the
+first drawn mesh for 300 frames, plus a model-space payload census (VPAYLOAD) and a
+per-model draw census (MDRAW, 200 first draw calls with names/counts/world/NDC):
+- Model payloads are NOT collapsed: AVBattleSh::17 = 868 verts / 566 tris, 397 distinct
+  positions, sane bounds ±170; all sampled meshes similar.
+- The in-match view-projection is a proper perspective (w 500–1200, NDC in-range). The
+  IDENTITY view-projection seen in the very first probe came from the menu/shell lane
+  (WgpuMainRenderer::from_backend seeds `set_camera(CameraClass::new())`); in-match
+  forward_render sets view/proj/position per frame — camera path is fine.
+- MDRAW proves the unit meshes (AVChinookAG, AVBattleSh, PRG props) are ISSUED at valid
+  on-screen NDC with correct world translations. The earlier "zero pixels" picture is
+  outdated: with the landed lazy-upload + strict-slicing fixes, meshes do rasterize —
+  the dozer blob + small shards at the dozer position ARE unit submeshes rendering
+  untextured. The large CC slab in the CC view is the remaining invisible case.
+
+### 3. Depth test off + full-index draw — partial
+With depth_compare=Always/write-off, MORE white slivers appear (fragments previously
+depth-killed — a real secondary defect in the depth lane worth its own pass), but meshes
+still render as fragments, not full silhouettes. Drawing the full index range instead of
+the strict pass-sliced range changed nothing (slicing is not losing geometry).
+
+### 4. Texture resolution — NOT a lookup bug: the asset DATA is absent
+`ensure_texture` → prime → archive candidates all behave as coded; zero
+"Loading raw texture from archive" lines and zero missing-texture warns fire because the
+unit textures were never present in any mounted archive: the on-disk game data
+(windows_game/{extracted_big_files,extracted_big_files_v2,Command & Conquer Generals Zero
+Hour}) contains NO .big archives and no Art/Textures tree with unit textures
+(AVChinook.tga / Avbattlesh.tga / Housecolor.tga exist nowhere on disk; only map-embedded
+textures like water01.dds / TRCobbleStones.tga / Defcon6 map tgas resolve — exactly the
+ones that DO render). No code fix can hydrate these; the fix is provisioning the texture
+BIGs (Generals.big / W3D texture archives) into the mounted search paths.
+
+### Net state
+Units render untextured-white at plausible screen positions; visible-defect list is now:
+(a) unit texture DATA not provisioned (environment, not code); (b) depth-lane kills some
+mesh fragments (secondary); (c) large CC slab still absent in CC view (primary open
+render defect — candidate next probe: GPU-side capture or per-submesh visibility flags on
+the CC model's passes, not winding/payload/camera, all three now ruled out).
+All probes removed; pipeline_manager and issue_draw_call byte-restored to the landed
+UnitRenderFix semantics; no green suites touched.
+
+## In-match sim-depth hunt (InMatchSimHunt)
+
+Goal: verify economy / combat / special powers / upgrades / veterancy / dozer-build
+actually run in a live match, using the port's own oracles (golden_skirmish_gate,
+in-world tests). Method: harness drives + a temporary #[test] that drove full
+`logic.update()` frames on the synthetic host fixture with per-system probes
+(removed after diagnosis; findings below).
+
+### Verified live (already working, evidence cited)
+
+- **Production tick** — `update_production` + `update_player_upgrades` run every
+  host tick (world_tick/step.rs:1085-1092); research completion with
+  producer-queue liveness per C++ ProductionUpdate.cpp:636-648/1109-1112
+  (object_ai_combat.rs:239-398).
+- **Combat kills / fought** — golden gate fought path; kill credit plumbing
+  `continue_or_stop_after_kill` → `award_score_the_kill_experience`
+  (world_tick/shock.rs:999-1012) mirrors C++ Object::scoreTheKill +
+  Player::addSkillPointsForKill.
+- **Special powers** — superweapon strikes queue + complete + apply authored
+  damage on the live tick (`update_special_power_strikes` /
+  `update_a10_strike_flights` are ticked in step.rs:283/690); a10/carpet/daisy
+  in-world tests (strategy_and_artillery.rs:2449+) drive the same host path.
+- **Veterancy gain math** — `gain_experience` (object/update.rs:817) applies
+  per-template thresholds + retail veterancy bonuses (+10/20% etc.); direct
+  `award_experience` on a killable enemy leveled a trainable ranger Rookie→Veteran.
+- **Dozer build** — golden gate constructed/same_world_production paths.
+
+### Finding 1 — FIXED: golden fixture structures lacked MpCountForVictory → both players defeated on frame 1 (economy no-op)
+
+Repro: synthetic host world + skirmish players; on the first
+`logic.update()`, `evaluate_victory_condition` (step.rs:1209 → mod.rs:97-121)
+marks every player defeated: `counts_as_victory_building` requires
+STRUCTURE && **MpCountForVictory** (victory_conditions.rs:357-360, C++
+Team::hasAnyBuildings mask), and `install_templates`' golden structures
+(GoldenCC/GoldenPower/GoldenSupplyCenter/Barracks/GoldenEnemyCC) carried no
+such bit → `is_defeated` NO_BUILDINGS ⇒ pending_kills for players 0 and 1 on
+frame 1. `kill_player_for_victory` (presence.rs:259-267) then zeroes
+`resources.supplies` and `is_alive=false` — observed empirically: cash
+20000/10000 → 0/0 at frame 100 (all four isolation variants). Consequence:
+in the synthetic golden slice, supply income, upgrade affordability, and any
+player-scoped economy were dead even while the gate printed green (its
+`gathered` check reads `ai_state`, not cash; `upgraded` was satisfied by the
+queue-side `Success` before the wipe mattered).
+
+Fix (C++/in-repo oracle): buildings.rs:996-1008 already stamps
+MpCountForVictory on every synthesized structure ("...or skirmish annihilation
+rules defeat everyone on frame 0") — retail FactionBuilding.ini authors
+KINDOF_MP_COUNT_FOR_VICTORY on faction structures. Applied the same stamp in
+`install_templates` (golden_skirmish.rs, structure loop before insert).
+Verified: cash 20000 now stays through 900+1400 update frames; player 0 alive.
+
+### Finding 2 — documented, not fixed (fixture gap + likely live no-op): QueueUpgrade refused for the golden producer
+
+With cash restored, `CommandType::QueueUpgrade` on GoldenSupplyCenter returns
+`InvalidCommand`; `object_can_produce_upgrade` = false, production queue stays
+empty, research never starts (0/1400 frames). The C++ oracle
+ProductionUpdate::queueUpgrade (C++ :250-272, :596) requires the producer to
+canProduceUpgrade (CommandSet/ProductionUpdate walk) — the golden fixture
+template authors neither, so the harness's `upgraded=true` only proves the
+player-side queue bookkeeping, not building-attached research. Fix direction:
+author a ProductionUpdate + upgrade command-set entry on GoldenSupplyCenter in
+install_templates (or exercise a retail template like USA_SupplyCenter with the
+real INI in the map-world path), then the existing research tick completes it
+(900 residual frames; SupplyLines retail BuildTime 30s = 900 frames per
+host_upgrades.rs:2037).
+
+### Finding 3 — documented: dozer Gather never engages in the synthetic fixture
+
+Post-fix, Gather command leaves the GoldenDozer `Idle`/target None for 900
+frames (no cash accrual, gain_frames=0). Harness `gathered=true` is measured
+immediately after `process_commands` in some states and is not a cash-based
+check, so the green gate masks this. Fix direction: the gather executor likely
+requires a dock/warehouse association (supply-center adjacency or
+`SupplyCenter`-kind dock binding) that the synthetic layout doesn't satisfy —
+trace `execute_gather` and require a cash-backed gather assertion in the gate
+(supplies increase) so the economy claim is honest.
+
+### Finding 4 — documented: kill-XP not credited through the live damage path
+
+A ranger (trainable=true, in range, weapon 25/1.0s) killed a 120 HP armor-0
+enemy (kill_xp=80) at frame 181 via AttackObject over the live tick:
+`host_experience_log`/`host_veterancy_log` stayed empty and the ranger stayed
+Rookie — while calling `award_experience(ranger, 80)` directly leveled it
+(Rookie→Veteran, +10/20% bonuses applied). So `gain_experience`/
+`award_score_the_kill_experience` are correct; something between the damage
+path and scoreTheKill (killer identity via `last_damage_source`, or the
+structure-topple destroy-list deferral for KindOf::Structure victims) drops the
+award. Fix direction: instrument `mark_object_for_destruction` /
+destroy-list scoreTheKill for structure victims and verify the killer id is
+the ranger at award time (C++ Object::scoreTheKill awards on
+ActiveBody::attemptDamage damage-death regardless of death-animation deferral).
+
+### Guards / hygiene
+
+- Production delta: only `install_templates` in golden_skirmish.rs ( MpCountForVictory
+  stamp). `cargo check -p generals_main --lib` clean. Both temp probe tests
+  removed; file parses (rustc scoped probe clean).
+- No git writes, no formatters; serial cargo with peer backoff.
+- Pre-existing observation: golden_skirmish_gate --frames 30 (map path) printed
+  status=partial (gather/build/produce/upgrade/fight false) on this tree during
+  a heavily concurrent window — findings 2-4 above are the likely mechanics
+  behind those false flags; a clean re-drive is left to the main agent's
+  validation pass.
+
+## MinimapTerrain — terrain band hydrated: async render-side tile hydration rebuilt the radar texture (2026-09-02 20:45)
+
+Scope: MinimapProbe's documented remainder (terrain band black). Method: live
+windowed manual drives (Defcon6 skirmish, shadow-on AND shadow-off) with
+temporary env-gated probes, all removed after use. No git writes.
+
+### Root cause — three stacked defects, all timing/asset-shaped
+
+1. Ordering. C++ `W3DRadar::newMap` builds the terrain texture at map load with
+   WorldHeightMap tile textures already resident (W3DRadar.cpp:977-993). In the
+   windowed Rust flow the render pipeline hydrates the client TerrainVisual
+   (heightmap + source tiles) asynchronously in
+   `sync_render_terrain_visual` (start_game.rs:551), i.e. AFTER
+   `Radar::newMap` painted the band from an unhydrated paint source — black —
+   and nothing ever rebuilt it.
+2. Extension-less tile class names. `resolve_source_tile_texture_path` probed
+   `Art/Terrain/GrassMediumType22` (no `.tga`); `resource_candidates` returns
+   no candidate for extension-less names (textures.rs:725-743), so every class
+   resolved UNRESOLVED even with the archives mounted. C++ appends ".tga"
+   (WorldHeightMap tile-source load).
+3. Missing assets. This install carries NO Art/Terrain TGAs at all (only map
+   preview TGAs are extracted), so even with the extension fixed every class
+   fails to resolve. The 3D world view already covers this with the tree
+   buffer's deterministic stand-in tile generator (tree_buffer.rs
+   `stand_in_tile_bgra`) — that is why the world looks colored while the radar
+   probe showed `has_tiles=false` and `terrain_color_at → None/[[0,0,0]]`.
+   Additionally `leftover_radar_terrain_color_at` returned Some([0,0,0]) for
+   the heightmap-but-no-tiles state instead of None, so the radar's fallback
+   base color never applied.
+
+### Fix (three small pieces)
+
+- `GameClient/terrain/terrain_visual/impl_core.rs`: tile class candidates now
+  carry `.tga` (C++ WorldHeightMap parity); when the asset still cannot be
+  resolved the class synthesizes the SAME stand-in tiles the 3D tree buffer
+  uses, so the radar band matches the world view.
+- `GameClient/terrain/terrain_visual/api.rs`: `leftover_radar_terrain_color_at`
+  returns None until the visual has hydrated source tiles (radar then uses its
+  C++-shaped fallback base color instead of painting black).
+- `Main/cnc_game_engine/start_game.rs` (`sync_render_terrain_visual`): after
+  the visual hydrates, re-run `Radar::refresh_terrain` (C++ parity:
+  `W3DRadar::refreshTerrain`, W3DRadar.cpp:1421-1432) so the once-per-map build
+  happens with resident tile data.
+
+### Verified live (manual windowed drives, Defcon6 skirmish)
+
+- Shadow-on (/tmp/mterr_final) and shadow-off (/tmp/mterr_shadowoff): the
+  minimap's explored region now renders terrain coloring (same stand-in
+  palette as the 3D view) under the camera frustum; black elsewhere is the
+  shroud layer (expected, matches MinimapProbe's shroud-blob observation).
+- Draw-path probe (pre-removal): `RADARDRAW nonblack=16384/16384` every InGame
+  frame in both modes — the terrain texture is fully painted at draw time.
+- Pre-fix equivalent drives showed `hydrate classes=11/16 has_tiles=false`
+  with every class UNRESOLVED, and a black band.
+
+### Guards / hygiene
+
+- Probes removed: radar/terrain.rs build probe, pipeline_minimap.rs hydrate
+  probe, hud.rs draw probe, impl_core debug resolver — all byte-restored.
+- `cargo check -p generals_main` clean. Scoped guards: gameworld_shadow
+  radar_coupled 2/2 (lib, by name). NOTE: `game-client-rust --test
+  terrain_visual` tree_atlas tests (2/27) fail on this shared tree
+  (`tree_atlas_mips_reach_terrain_visual_upload_path`,
+  `tree_atlas_live_draw_matches_cpp_blit_mip_and_lod`); they exercise only the
+  tree-buffer atlas path (no source-tile-class intersection with this change —
+  A/B blocked because HEAD impl_core does not compile against sibling-modified
+  tree_buffer/api). Left for the main agent's project-wide validation.
+- No formatters; serial cargo; caffeinate + short-timeout drives; kill+relaunch
+  on freeze. No git writes.
+
+## TextureProvision — unit-texture archives mount and resolve; DXT-decode fix landed in forward-material lane; remaining white = ww3d bind path never consults it (2026-09-03 00:05)
+
+Method: python BIG parser inventory of all 3 archive trees; full log mining of the 22:13
+binary's in-match run; one RUST_LOG=debug drive (drive15 lineage, `-loglevel=debug` is the
+real switch — `filter_level` in main.rs:218 overrides RUST_LOG); TEXPROBE info! probe in
+ForwardPass::ensure_texture (added, driven, REMOVED — source clean); two 640x480 windowed
+skirmish drives against Defcon6. Evidence: /tmp/wsmoke/{d15_stderr.log,tex3_stderr.log,
+tex1_dozer.png,tex1_cc.png,d15_ingame_dozer.png}.
+
+### Asset provisioning facts (supersedes UnitRenderFix2's "data absent" conclusion)
+- Retail ZH tree `Downloads/Command and Conquer Generals + Zero Hour (DIRECT PLAY)
+  [blaze69]/…` contains BOTH installs: ZH dir (INIZH/TexturesZH/W3DZH.big…) and the base
+  Generals dir (`Command and Conquer Generals/`: Textures.big 3748 members, W3D.big 4556,
+  Terrain.big…). Base Textures.big holds every unit skin as DXT .dds under
+  `Art\Textures\`: avchinook.dds, avbattlesh.dds, avamphib.dds, avconstdoz.dds,
+  housecolor.dds/.dds2 (205 MB) etc. (64 AV* members). Housecolor.tga itself ships in
+  W3DZH.big as `Art\W3D\Housecolor.tga` (102 MB).
+- The archive backend ALREADY mounts all of this: archive.rs `add_default_search_paths`
+  sibling scan (`push_install_layout_paths`) matches the DIRECT PLAY bundle name and pushes
+  the base install dir; core init loads `*.big` from every search path. Proof: zero
+  "Base Generals archives not loaded" warns in a full in-match log (that warn fires unless
+  BOTH Textures.big and W3D.big mount), and 115 `Loading raw texture from archive:` prime
+  lines (AVChinook.tga, Avamphib.tga, Housecolor2.tga, …) with ZERO "Missing texture
+  fallback"/"Texture parse failed"/"could not be loaded" warns — every prime resolved.
+  `texture_candidate_paths` (textures.rs:167) already does C++-parity tga↔dds swap +
+  `Art/Textures/` prefixing; big_file_system lookups normalize `\`→`/` + lowercase.
+- ZH unit skins are house-color bases: AVConstDoz.W3D references Housecolor2.tga ×171 +
+  crane01.tga etc.; the C++ Recolor_Mesh/ZHC livery parity already exists
+  (render_item.rs apply_house_color_livery).
+
+### Landed (permanent): forward_materials.rs build_texture DXT→RGBA8 decode
+`TextureManager::parse_dds` keeps the compressed DXT payload (test-pinned), but
+`ForwardPass::build_texture` built an Rgba8Unorm TextureClass from it →
+`replace_pixels` length check (w*h*4) rejected it → build_texture Err → silent white
+fallback, no warn (matches all logs: units white, zero texture warns). And even past that,
+MeshRenderManager::ensure_gpu_texture_view only uploads 32-bit RGBA. Fix: decode
+Dxt1/Dxt3/Dxt5 → RGBA8 in build_texture via the existing ww3d dds_loader decoders
+(same fallback TextureManager::create_gpu_texture already uses). Compiles clean
+(release build 23:11); probes added and removed; file restored minus the fix.
+
+### Not fixed here (ownership + new root cause, precisely)
+In-match units still render as the small white blob (tex1_dozer.png; CC complex still
+invisible — DepthSlabFix's depth/pass case). TEXPROBE probe (placed before the empty-name
+gate) fired ZERO times across a full in-match run: ForwardPass::ensure_texture is never
+reached for unit meshes, i.e. the unit draw path (GameClient render bridge →
+ww3d MeshRenderManager/PreparedMeshModel) never routes materials through the
+forward-material texture lane at all — its MaterialPassClass textures are built elsewhere
+(render_manager.rs = DepthSlabFix; render bridge = presentation lane) and never call the
+archive-backed resolver. Next driver: point the ww3d-side pass-texture construction at
+TextureManager::prime_raw_texture/create_gpu_texture (or route it through
+ForwardPass::ensure_texture), then the DXT-decoded archive textures hydrate units.
+
+### Guards / hygiene
+No git writes; no formatters; probes removed (grep TEXPROBE = 0 in tree); combat filter,
+world_tests, gameworld_shadow, menu greens untouched. Stray generals_snap/caffeinate
+processes killed. /tmp/wsmoke drive scripts + captures preserved as evidence.
+
+---
+
+## DepthSlabFix — depth-lane fragment kills root-caused + FIXED; CC slab depth/clip half FIXED; remaining blocker re-pinned to a world-placement convention mismatch (2026-09-02 22:30-00:20)
+
+### Discriminator 1 — per-mesh NDC/transform/pass-state probe (UNITRENDER3, removed)
+Temp env-gated probe in `MeshRenderManager::render_mesh` (dumped per mesh: tri/vert/idx,
+pass_index_ranges, per-pass shader depth/blend/alpha/cull bits, post-transform NDC bounds,
+w range, opacity/FOW/hidden; camera near/far + proj/view matrices). Pre-fix reality:
+- EVERY unit mesh's post-transform NDC z sat in [0.998, 1.000] while w ran 500-1836 —
+  the z formula was exactly `1.001 - 1.001/d` = a near=1/far=1000 [0,1] projection.
+- The in-match MESH lane camera was `CameraClass` DEFAULTS (90° FOV view_plane ±1,
+  near=1, far=1000), NOT the tactical projection forward_render had just installed.
+- Root cause chain: `forward_render.rs` called `set_position` AFTER
+  `set_view_matrix/set_projection_matrix`; `set_position` marks the camera dirty and
+  `update_frustum -> get_view_projection_matrix -> update_matrices` rebuilds BOTH matrices
+  from view-plane/clip-plane defaults. Additionally `impl Clone for CameraClass` copied the
+  cached matrices but then forced `matrices_dirty=true` and called `update_matrices()`,
+  destroying them again on the very `self.camera.clone()` handed to the renderer.
+- Meanwhile the TERRAIN lane used the raw tactical matrices. With the old GL-style
+  `perspective_rh` z mapping, terrain z_ndc ~0.499 vs mesh z_ndc ~0.999 at the same world
+  point: mesh fragments lost the depth test by ~half the depth range everywhere -> the
+  slivers, and anything past w=1000 (the CC slab, w=1020-1120) clipped outright -> the
+  invisible CC slab. Depth-always showing MORE slivers is exactly this: nothing was
+  legitimately occluding the units; they were depth-behind ALL terrain.
+
+### Fixes landed (permanent)
+1. `ww3d-renderer-3d/src/rendering/camera_system/camera.rs`:
+   - `Clone` now preserves the cached matrices + dirty state and does NOT rebuild — cached
+     matrices are data, not stale cache.
+   - `set_projection_matrix` clears `matrices_dirty` (explicit matrices are authoritative).
+2. `Main/src/graphics/render_pipeline/forward_render.rs`: camera update order is now
+   set_position FIRST, then view, then projection (position's dirty-rebuild is transient;
+   the tactical matrices are what render).
+3. `Main/src/cnc_game_engine/types.rs`: `perspective_rh_from_horizontal_fov` builds the
+   C++ D3D depth mapping directly (NDC z [0,1]; `CameraClass::Get_D3D_Projection_Matrix`,
+   camera.cpp:707-732) instead of glam's GL-style [-1,1] `perspective_rh` (which in wgpu
+   clips everything nearer than the sqrt(near*far) midpoint and halves depth resolution).
+   x/y columns unchanged (framing identical). Clip planes now C++ W3DView parity:
+   near=MAP_XY_FACTOR=10 (W3DView.cpp:549-563, MapObject.h:35), far=12000 (C++ 1200
+   extended x10 whenever the whole terrain can be visible; port keeps the extended value
+   so no zoom level clips).
+   Depth state vs C++ otherwise already matched: compare Lequal (shader.cpp:979
+   `ZFUNC=Get_Depth_Compare()+1` == wgpu LessEqual mapping), write enabled for opaque,
+   no bias (Set_DX8_ZBias default 0; the RTS3DScene ZBias 0.0001 shrink only applies to
+   the selection-marker extra pass), viewport MinZ/MaxZ 0..1, depth cleared to 1.0 per
+   frame by the terrain pre-scene pass.
+4. `mesh_system_impl/tests.rs`: repaired a stale source-shape assertion
+   (`bones.bones` -> the actual `array<mat4x4<f32>>` + `bones[bone_index]` contract of
+   projected_shroud_skinned.wgsl); this failure was pre-existing on HEAD (file unmodified).
+
+### Verification (probe run, fixes in binary)
+- Mesh-lane projection in flight = near=10/far=12000 [0,1], 50-degree tactical FOV
+  (P00=2.1445, P11=2.8593, aspect 1.333) — no longer the 90-degree defaults.
+- Unit meshes z_ndc left the far plane (AVBattleSh 0.983-0.987 at w 558-718) and units now
+  RASTERIZE above terrain: /tmp/wsmoke/ds1_ingame_cc.png shows unit geometry rendering
+  where the pre-fix run rendered bare terrain. Depth-lane defect CLOSED.
+- `cargo check -p ww3d-renderer-3d -p generals_main` clean; `cargo test -p
+  ww3d-renderer-3d --lib` 356/356 green. Probes removed (grep UNITRENDER3/PLACEPROBE = 0
+  in tree); render_manager.rs carries only the pre-existing landed UnitRenderFix hunks.
+
+### Remaining blocker (precise): world-placement basis mismatch, next driver
+With depth fixed, mesh pixels appear but sit DISPLACED from their gameplay objects:
+- PLACEPROBE at the `world_matrix * mesh_local_transform` composition site:
+  CC slab ABBtCmdHQ#7 world_t=(-271.8, 31.2, 725.8) local_t=(0,0,0) -> composed=(-271.8,
+  31.2, 725.8) (self-consistent; model_bounds y 0..51.9 explains the +19 y of the
+  reconstruction). AVBattleSh (612.9, 17.5, 73.7), PRG props spread (1177, 670, 1331...).
+- Reconstructing the slab's world position from the dumped default-view matrices gives
+  (-275.9, 49.9, 734.5) — the mesh draws exactly where world_matrix says. So composition
+  is fine; the COORDINATES disagree between lanes: `camera_look_at|x=3108|y=120|z=2201`
+  centers the camera on the gameplay point while the dozer mesh renders off-center
+  (top-left, partly offscreen in /tmp/wsmoke/ds1_ingame_dozer.png), and the CC complex
+  renders ~1100 units from where `view_command_center` aims. I.e. RenderItem.world_matrix
+  (pipeline_collect / drawable-state lane) and the tactical view_matrix use DIFFERENT
+  gameplay->render basis conversions (the det<0 Y-up/Z-up axis swap is applied on one
+  side but not the other, or with a different rotation/sign).
+- This is NOT a depth/blend/cull issue (cull=None, depth=Always already ruled out by
+  UnitRenderFix2; this probe adds: transform composition healthy, NDC/w sane, shader
+  states C++-conformant). Next driver: dump one known object's gameplay position + its
+  RenderItem.world_matrix translation + the tactical view_matrix in the same frame, diff
+  the two basis maps, and fix the offending conversion (candidates:
+  pipeline_collect/pipeline_drawable_state world_matrix construction vs the orbit->view
+  matrix in input.rs/start_game.rs; C++ oracle W3DView::buildCameraTransform +
+  RenderObjClass transform propagation).
+- Evidence: /tmp/wsmoke/ds1_stderr.log (PLACEPROBE + UNITRENDER3 dumps),
+  ds1_ingame_{default,cc,dozer}.png (post-fix), prior-run captures overwritten in place.
+  Old binary snapshots kept at target/release/generals_ds1 (contains the inert env-gated
+  probe; the TREE does not).
+
+## RenderBasisFix — ww3d pass textures now hydrate from the archive resolver (LANDED); "world-placement basis mismatch" DISPROVEN by one-frame dumps — real blocker is the presentation FOW snapshot hiding all units after shroud activation (~frame 474); own-force bypass landed, final stamp channel still open (2026-09-03 01:00-02:30)
+
+Method: five windowed 640x480 skirmish drives vs Defcon6 (rbdrive1-5.sh, /tmp/wsmoke/rb1-5_*);
+env-gated GENERALS_WORLDDIFF probes (info!/warn!) at pipeline_collect (gameplay pos vs
+world_matrix t + tactical view/proj), MeshRenderManager::render_mesh (mesh_t + mesh-lane
+camera + EFFECTIVE projection P-values + NDC), and update_main_crate_vision (per-player
+shroud status census). All probes REMOVED from tree (grep WORLDDIFF = 0); `cargo check -p
+ww3d-renderer-3d -p generals_main` clean after removal.
+
+### Blocker 2 LANDED: ww3d mesh pass textures hydrate from the archive-backed resolver
+- New: `MeshPassTextureProvider` (Arc<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>)
+  on `MeshRenderManager` (render_manager.rs; re-exported via mesh_system), forwarded by
+  `RendererClass::set_pass_texture_provider` (lib.rs) and
+  `WgpuMainRenderer::set_pass_texture_provider` (wgpu_main_renderer.rs).
+- `MeshRenderManager::stage_resources_for` (render_manager.rs:1439-1458): when a W3D pass
+  texture is a name-only placeholder (no GPU view, no pixels — exactly what
+  `TextureClass::from_w3d_descriptor` builds in mesh_system_impl/materials.rs:212), it now
+  asks the provider, then uploads the hydrated RGBA8 through the existing first-bind
+  `ensure_gpu_texture_view` (cached by name; provider queried at most once per texture).
+- Main side (render_pipeline/mod.rs): `resolve_archive_pass_texture` = C++
+  WW3DAssetManager::Get_Texture parity — `AssetManager::prime_texture_raw_blocking`
+  (block_in_place, same context forward_materials already uses) + `get_raw_texture` +
+  Dxt1/Dxt3/Dxt5 -> RGBA8 via the ww3d dds_loader decoders (mirrors
+  TextureManager::create_gpu_texture and ForwardPass::build_texture) +
+  `TextureClass::with_format(.., Rgba8Unorm)::replace_pixels`. Installed once from
+  pipeline_lifecycle.rs right after `ForwardPass::initialize`.
+- In-match evidence (rb2_stderr.log, -loglevel=debug): 119 "Loading raw texture from
+  archive:" primes THROUGH the new lane incl. Housecolor2.tga, ATFan.tga, ATHQSlab.tga,
+  AVChinook.tga; zero decode failures, zero install failures. Textures are bound at draw
+  time (screenshots still show few unit pixels — see blocker below for why).
+
+### Blocker 1 root-caused: the "basis mismatch" does not exist; units are hidden by FOW
+- One-frame diffs (rb3/rb4): for EVERY dumped object, RenderItem.world_matrix translation ==
+  gameplay position EXACTLY (local CC ABBtCmdHQ (3068.0,0.0,2241.3) ==
+  sample_unit_pos; enemy CC (-271.8,31.2,725.8); UBCmdHQ (2209.0,109.4,831.8) == collect
+  gameplay_pos). Mesh-lane camera == tactical camera (cam_pos matches status camera_pos);
+  effective projection == DepthSlabFix's D3D [0,1] near=10/far=12000 (P00=2.1445,
+  P11=3.5742, M22=-1.0008, M23=-10.0083, M32=-1); CC slab NDC=(0.000,-0.584,z=0.984) —
+  CENTERED on screen. The prior session's "CC renders ~1100 units off" was a misread of
+  near-camera white sliver props; depth fix verification should be re-read in that light.
+- Actual failure: meshes render (and probes fire) only up to render frame ~474; captures at
+  frame ~1050 show render_fow_filtered=467/470 alive, render_item_count=0 — the
+  presentation FOW snapshot hides the whole world once the shroud runtime activates, so
+  zero unit items are queued (bare terrain + stale UI in every capture since DepthSlabFix).
+- FOW census probe (update_main_crate_vision): per-player host-object shroud statuses are
+  HEALTHY (player 0: 409 Clear / 4 PartialClear / 18 Shrouded; players 1-2 similar), so the
+  statuses are NOT the source. Entity floats (overlay.rs:265-273 stamps
+  obj.fow_visibility from ent.fow_visibility_alpha) are the hidden-stamp channel; writers
+  are construct.rs:1550/2117 (sync_from_host paths — presentation.rs/session.rs call these)
+  and SetFow mutations (apply_host_fow_events <- host_fow_log <- set_fow_residual: no
+  production caller => inert channel).
+- Landed (permanent, C++-parity): construct.rs both stamp sites now force
+  ObjectVisibility::FULLY_VISIBLE for objects owned by the local player (mirrors
+  presentation_frame/build.rs:512-518 "Always see own force"; C++ PartitionManager keeps
+  own objects Clear because they sit inside their own lookers' radius). This did NOT change
+  the rb4 outcome — the float writes that hide the world at ~frame 474 come through a
+  channel that did not exercise the patched sync during the drive window. Next driver:
+  (1) dump ent.fow_visibility_alpha per entity around frames 400-600 to catch the writer
+  (candidates: a construct sync variant with a stale local_player_id, or a shadow-side
+  re-stamp); (2) check whether `logic.local_player_id()` on the shadow tick equals the
+  census's player 0; (3) re-verify the own-force bypass with a probe at construct.rs:1558
+  printing vis per own object.
+- Textured-at-correct-position acceptance: NOT yet met in a screenshot (units unqueued at
+  capture time); the texture binding itself is proven live at draw time (primes + zero
+  fallback warns) and the placement is proven correct (NDC dumps). Once the FOW stamp gap
+  closes, both blockers' acceptance should land together in one capture.
+
+### Guards / hygiene
+No git writes; no formatters; serial cargo. Probes removed (grep -r WORLDDIFF GeneralsRust/
+Code = 0); world_tests/combat filter untouched; ww3d-renderer-3d lib tests not run
+(node-wgpu harness needs a window; cascade tests in render_manager.rs untouched by the
+change). Drive scripts + captures preserved: /tmp/wsmoke/rbdrive1-5.sh, rb1-5_*.png,
+rb1-5_stderr.log (rb2/rb3/rb5 include -loglevel=debug evidence).
+
+## FowWriterHunt — frame-474 FOW writer CAUGHT + FIXED: presentation cell-mix read a dead shroud grid; now reads the live 40wu partition grid (C++ PartitionData::getShroudedStatus parity) + controlling-player team fallback at all stamp sites (2026-09-03 02:30-04:00)
+
+Method: three windowed 640x480 skirmish drives vs Defcon6 (fpdrive1-3.sh, /tmp/wsmoke/fp1_*) with
+an env-gated log-only probe (GENERALS_FOWPROBE=1; removed from tree afterwards, grep fow_probe = 0,
+`cargo check -p generals_main` clean after removal).
+
+### Root cause (probe evidence, fp1_stderr_run2.log frame=300 window)
+- Writer = the FOWRenderingBridge query inside BOTH construct.rs sync stamp sites; the own-force
+  bypass fired only 16/3760 stamps and SetFow mutations = 0 (channel genuinely inert). The hidden
+  stamps started at frame 0, not 474 — "frame 474" was when the prior session's capture window
+  opened, not a state transition.
+- `logic.local_player_id()` = Some(0) on the shadow tick — CORRECT. The real holes:
+  1. `obj.owner_player_id` is Some(0) for only ~2/470 roster objects (teams={"GLA":5,"USA":2,
+     "Neutral":463} — map props + sparse owners), so the own-force bypass almost never matched.
+  2. The vision pass's object status mix (vision.rs) sourced per-cell state from
+     `ShroudManager::get_shroud_state` — the LEGACY ShroudManager grid, never advanced on the host
+     path (vis_set=3, exp_set=3, last_upd=0) → every cell reads Hidden → every non-owned object
+     stamped Shrouded → bridge HIDDEN → presentation floats hidden → 465-467/470 render inputs
+     FOW-filtered (bare terrain in every capture since DepthSlabFix).
+
+### Fix (permanent, C++ parity)
+- vision.rs status mix now reads `gamelogic::object::partition_cell_shroud_status(pid, cx, cz)` —
+  the LIVE 40wu partition shroud grid that the same pass already stamps via
+  `stamp_partition_cell_lookers`. This is exactly C++ `PartitionData::getShroudedStatus`
+  (PartitionManager.cpp:1582) mixing footprint COI cells; the dead legacy-grid reader
+  (`leftover_discrete_circle_looker_cell`) is removed (clean cutover).
+- construct.rs both sync stamp sites + presentation_frame/build.rs `fow_visibility` +
+  `freeze_direct_object_shroud_facts` resolve the controlling player with the same team fallback
+  the look pass uses (`obj.owner_player_id.or_else(logic.player_id_for_team(obj.team))`; C++
+  Object::getControllingPlayer parity) so the own-force bypass actually covers own force.
+
+### Evidence (fp1_stderr.log run5/run6, fp1_status_timeline.log)
+- hidden stamps 3736→2560 per window; presentation hidden 465→320/470 (the 320 are beyond all
+  looker radii — correct FOW); render_fow_filtered 465→318-320 stable from frame 234 through 638+.
+- Unit meshes queued PAST frame 474 (items=103 through frame 441/578/638 with no collapse; the
+  old bug froze collection at ~frame 474). local_mobile_units=1 (dozer alive, gameplay issues).
+- NOT yet met: "textured units visible" in a screenshot. Drives 2/3 centered the camera on the
+  dozer/CC (sample_unit_pos 3068.0,0.0,2241.3 / 3108.0,120.0,2201.3) — captures still show the
+  same white untextured slivers (also present in rb1 pre-fix captures). Mesh-pass texture
+  hydration is proven live at draw time (prior session's 119 primes, zero failures), so the
+  remaining gap is model/material selection or lighting for those specific objects — next
+  driver should dump UnitRenderInput draw_models + mesh material for the CC/dozer at capture time.
+
+### Guards / hygiene
+No git writes; no formatters; serial cargo. Probes fully removed (fow_probe.rs deleted; call
+sites in construct.rs / apply_host_misc.rs / overlay.rs / camera_drain.rs / lib.rs reverted).
+combat filter 966/0, world_tests catalog, gameworld_shadow 302/302 and ww3d-renderer-3d 356/356
+suites NOT re-run (project-wide validation is the driver's job); scoped `cargo check -p
+generals_main` clean before and after probe removal. Drives + captures preserved: /tmp/wsmoke/
+fpdrive1-3.sh, fp1_*.png, fp1_stderr*.log, fp1_status_timeline*.log.
+
+---
+
+## TextureBindFix — unit-material/texture selection DISPROVEN as the blocker; meshes draw in-view with hydrated textures and zero pixels land; blocker re-pinned to depth/present interaction (2026-09-03 04:00-05:50)
+
+Method: four windowed 640x480 skirmish drives vs Defcon6 (tbdrive1.sh, /tmp/wsmoke/tb1_*)
+with an env-gated log probe (GENERALS_MATDUMP) at three seams: pass build
+(forward_materials build_material_pass_from_mesh / assign_stage_textures_for_pass),
+collect (pipeline_collect per-item world/NDC for dozer/CC templates), and draw
+(ww3d MeshRenderManager draw_material_pass: mesh_t + camera view-proj NDC; and
+stage_resources_for texture staging). All probes REMOVED after diagnosis
+(grep MATDUMP/GENERALS_MATDUMP = 0 in tree; `cargo check -p generals_main --bin
+generals` clean; forward_materials.rs and render_manager.rs restored to their
+pre-probe byte state). Evidence: /tmp/wsmoke/tb1_stderr_run{1,2b,3,4}.log,
+tb1_{dozer,cc,late}_run{1-4}.png.
+
+### 1. Texture/material selection is HEALTHY at every seam (handoff question closed)
+- Pass build (run3): ABBtCmdHQ meshes resolve per-stage textures correctly —
+  BUILDING→ATHQSlab.tga, FAN01/03→ATFan.tga, HOUSECOLOR01-06→Housecolor2.tga,
+  FENCE→PMWallChn2.tga, GIRDERS→ATrailings01.tga (MATDUMP input lines). RenderItem
+  materials carry diffuse 0.80/0.80/0.80 opacity 1.00; draw_models keys exact.
+- Draw staging (run1): stage_resources_for sees stage-0 textures with REAL pixels
+  and no GPU view (first-bind upload path): Avbattlesh.tga 512²/1 MiB, Housecolor2.tga
+  256², AVChinook.tga, PRGrey, Coplight — zero "MATDRAWW miss" lines, zero
+  fallback-white hydrations for unit textures. The provider/archive lane is NOT
+  the defect.
+- FOW/opacity: every unit-textured pass draws with fow_alpha=1.00, opacity=1.00.
+- Transforms: dozer meshes draw at mesh_t=(3093.5,123.3,2208.5)/(3106.4,123.3,2194.2)
+  (gameplay (3108,120,2201) ✓); local CC at (3068.0,0.0,2241.3) with Housecolor2
+  slabs at (3082-3090,44-46,2297-2299) and ATFan at (3044.3,28.1,2236.5) — the whole
+  local base ISSUES draws.
+- Mesh-lane camera: cam=(3068.0,430.0,1837.3) = the tactical camera (50,993 of
+  53,433 draws; remainder (827.9,327.5,-404.0) = a second camera pass). The dozer
+  projects to mesh_ndc=(-0.18,-0.20,0.98) w=469.8 — CENTERED IN VIEW with sane w
+  and D3D-mapped z (0.98 at d=470, near=10/far=12000).
+
+### 2. What actually happens on screen (pixel-verified, supersedes prior capture reads)
+- All in-match captures since at least d15 (Sep 2 22:53) — ds1, rb1-5, fp1, tb1 — are
+  pixel-equivalent: brown terrain, black control bar with red placeholder buttons,
+  ONE white UI strip at y=358-379 (369 px total, control-bar text). There are NO
+  unit pixels of any color in ANY capture; the historical "white untextured slivers"
+  description does not correspond to queued unit meshes reaching the frame. (Caution
+  for future drivers: frame.png is RGBA PNG; decoding it as RGB8 produces a
+  diagonal channel-weave that looks like corruption.)
+- At the dozer's exact in-view pixel (262,288) the frame shows pure terrain
+  (116,106,83)-family — the mesh issues draw calls through draw_material_pass with
+  correct bind groups and never lands a fragment.
+
+### 3. Remaining blocker (precise, next driver)
+Everything through fragment SETUP is proven correct (geometry, camera, NDC, textures,
+bind groups, alpha). The kill happens between rasterization setup and the present:
+depth interaction with the terrain pre-scene pass is the prime suspect (mesh
+Lequal vs terrain-written depth; DepthSlabFix aligned the formulas but the terrain
+pass writes depth in the SAME frame and meshes may lose everywhere terrain draws).
+Cheapest discriminator, one build+drive: env-gate `create_depth_stencil_state_from_shader`
+(wgpu_pipeline_manager.rs:1151) to depth_compare=Always + depth_write=false for the
+mesh pipelines (UnitRenderFix2 discriminator #3) and/or skip the terrain pre-scene
+pass for one run; if units appear, diff terrain-vs-mesh z at one world point and fix
+the offending lane. Secondary defect found: 13 draw passes carry stages=[] (no
+textures at all → shader outputs unmodulated white); find via the run4 MATDRAWDRAW
+dedupe key and give them the C++ MissingTexture path.
+
+### Guards / hygiene
+No git writes; no formatters; serial cargo. Probes fully removed (grep
+GENERALS_MATDUMP = 0 in tree); combat filter / world_tests / gameworld_shadow /
+ww3d-renderer-3d suites NOT re-run (project-wide validation is the driver's job);
+scoped `cargo check -p generals_main --bin generals` clean after removal. Drive
+script + captures + probe logs preserved: /tmp/wsmoke/tbdrive1.sh, tb1_stderr_run*.log,
+tb1_*_run*.png.
+
+---
+
+## DepthDiscrim — depth test CONFIRMED as the unit-render blocker via env-gated discriminator; z-diff instrument + MissingTexture routing landed; final lane fix blocked on box contention (2026-09-03 05:50-08:10)
+
+### 1. Discriminator result (one build, three documented env gates)
+`GENERALS_DISC_DEPTH=1` (mesh-pipeline `depth_compare=Always` +
+`depth_write=false`, wgpu_pipeline_manager.rs `get_or_create`) makes units LAND:
+capture `/tmp/wsmoke/disc_depth_disc1_dozer.png` shows white unit geometry at the
+dozer/CY look-at plus the full in-match command bar, cash display and sidebar
+(baseline captures are terrain+placeholder bar only, 45.42% of frame pixels
+differ). The historical "white untextured slivers" ARE the queued unit meshes:
+they were being depth-rejected, exactly as TextureBindFix hypothesized.
+`GENERALS_DISC_CULL=1` was not needed (cull untouched in the depth run — winding
+is innocent); `GENERALS_DISC_NOTERRAIN=1` was inconclusive as designed (other
+pre-scene callbacks keep `clear_color=None`, so the scene pass `Load`s a
+never-cleared attachment instead of clearing — noted for the next driver).
+C++ parity anchors: dx8wrapper.cpp:3686-3687 (`D3DCULL_CW`, `D3DCMP_LESSEQUAL`).
+
+### 2. Landed in-tree (documented diagnostics, defaults are C++ parity)
+- `wgpu_pipeline_manager.rs`: `disc_depth_always()` / `disc_cull_none()`
+  (LazyLock env gates) applied to every pipeline built there.
+- `pipeline_prewarm.rs`: `GENERALS_DISC_NOTERRAIN` skips the terrain pre-scene.
+- ZPROBE (`GENERALS_ZPROBE=1`, one-shot): CPU-side mesh clip z/w + terrain
+  height per render item, plus a synchronous GPU depth readback of the depth
+  attachment (own encoder, submit/poll/map/read/unmap inside the post-frame
+  callback — no cross-frame mapped window). `ww3d-engine` DepthTarget gained
+  `COPY_SRC` for this. `cargo check -p generals_main --bin generals` clean.
+
+### 3. MissingTexture routing LANDED (secondary defect, 13 `stages=[]` passes)
+`forward_materials.rs` `build_material_pass_from_mesh`: the
+`get_texturing() != Disable` gate is removed — EVERY pass that ends with zero
+bound stage textures now gets the shared `w3d_missing_texture.tga` identity at
+stage 0 (W3DAssetManager.cpp:127-225 / dx8wrapper.cpp:2875-2889 parity). The 13
+in-match `stages=[]` passes previously rendered unmodulated white; they now
+render the retail missing-texture marker. Compile-checked; runtime screenshot
+verification pending the same drive window as the z-diff.
+
+### 4. Blocker (environmental, NOT code): box contention starves windowed drives
+Since ~06:40 an Android emulator (qemu-system-aarch64-headless, sibling lane)
+holds load ~4-5; Menu frames run 300ms+ and children need >10 min to reach a
+state the drive can use (status publication trails boot). Four consecutive
+z-diff drives (disc5/6/7/zclean, incl. one from a scratch HEAD+my-changes copy
+at `/tmp/zbuild_generals`) timed out before Menu reveal. The z-diff numbers
+(GPU depth at unit pixels vs mesh z/w) are the only missing input for the final
+lane fix. Next driver: re-run
+`GENERALS_BIN=<clean binary> GENERALS_ZPROBE=1 /tmp/wsmoke/discdrive.sh zprobe <tag>`
+on a quiet box (`pgrep qemu`), then fix whichever lane the numbers indict —
+terrain-written depth (fix terrain lane), mesh camera z (fix camera lane), or a
+depth-writing overlay (per-pass clear semantics). Do NOT keep the Always gate
+as the fix: it breaks occlusion (C++ is LESSEQUAL with writes).
+
+### Guards / hygiene
+No git writes; no formatters; serial cargo (scratch builds used a copied tree
+with sibling WIP files restored to HEAD via `git show` — zero writes to the
+live tree or index). Sibling churn note: GameLogic AI lane WIP swept into
+release builds breaks boot (child skips Menu, status.txt never published) —
+coordinate before building shared binaries. Harness: `/tmp/wsmoke/discdrive.sh`
+(mode depth|cull|noterrain|zprobe|control, GENERALS_BIN override),
+`/tmp/wsmoke/disc_pixdiff.py` (RGBA-correct), captures
+`/tmp/wsmoke/disc_*_{dozer,cc}.png`, logs `/tmp/wsmoke/disc_*.log`.

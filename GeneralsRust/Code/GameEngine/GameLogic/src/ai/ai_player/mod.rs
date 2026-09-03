@@ -24,7 +24,7 @@ use crate::ai::modules::{
     BuildOrderOptimizer, DifficultyHandler, StrategicDecision, StrategicDecisionMaker,
     ThreatAssessmentSystem,
 };
-use crate::ai::{AI, AiError, AiGroup, AttitudeType, ScienceType, THE_AI};
+use crate::ai::{AI, AiError, AiGroup, AttitudeType, ScienceType, the_ai};
 use crate::ai::{CommandSourceType, GuardMode};
 use crate::common::Snapshot;
 use crate::common::xfer::{Xfer, XferExt};

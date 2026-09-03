@@ -10,7 +10,7 @@ use super::integration::with_ai_integration_mut;
 use super::pathfind::PathfindLayerEnum;
 use super::{
     AiCommandInterface, AiCommandParams, AiCommandType, AiError, AttitudeType, GuardMode,
-    PartitionFilter, THE_AI, resolve_attack_priority_info_for_object, search_qualifiers,
+    PartitionFilter, the_ai, resolve_attack_priority_info_for_object, search_qualifiers,
     vision_factors,
 };
 use crate::ai::native::{NativeState, NativeStateMachine, WaypointGraph, WaypointNode};
@@ -1026,7 +1026,7 @@ impl AiStateMachine {
                 )
             })
         {
-            let attack_uses_los = THE_AI
+            let ai_store = the_ai();let attack_uses_los = ai_store
                 .read()
                 .ok()
                 .and_then(|ai| {
@@ -1038,7 +1038,7 @@ impl AiStateMachine {
                 .unwrap_or(false);
 
             if attack_uses_los && !attacker_above && !target_above {
-                let blocked = THE_AI
+                let ai_store = the_ai();let blocked = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -1083,7 +1083,7 @@ impl AiStateMachine {
                 )
             })
         {
-            let attack_uses_los = THE_AI
+            let ai_store = the_ai();let attack_uses_los = ai_store
                 .read()
                 .ok()
                 .and_then(|ai| {
@@ -1094,7 +1094,7 @@ impl AiStateMachine {
                 })
                 .unwrap_or(false);
             if attack_uses_los && !attacker_above {
-                let blocked = THE_AI
+                let ai_store = the_ai();let blocked = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -1127,7 +1127,7 @@ impl AiStateMachine {
         let move_result = self.update_move_to_state(state)?;
 
         let (scan_rate, qualifiers, range) = {
-            let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
             let ai_data = ai.get_ai_data();
             let Ok(ai_data_guard) = ai_data.read() else {
                 return Err(AiError::LockFailed);
@@ -1150,7 +1150,7 @@ impl AiStateMachine {
             state.scratch.last_hunt_scan_frame = current_frame;
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let new_target = {
-                let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 ai.find_closest_enemy(
                     self.owner_id,
                     range,
@@ -1238,7 +1238,7 @@ impl AiStateMachine {
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
 
             let enemy_found = {
-                let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 if let Some(polygon) = filter_polygon {
                     struct PolygonFilter {
                         polygon: crate::polygon_trigger::PolygonTrigger,
@@ -1392,7 +1392,7 @@ impl AiStateMachine {
 
         let current_frame = self.current_frame();
         let (scan_rate, qualifiers, range) = {
-            let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
             let ai_data = ai.get_ai_data();
             let Ok(ai_data_guard) = ai_data.read() else {
                 return Err(AiError::LockFailed);
@@ -1417,7 +1417,7 @@ impl AiStateMachine {
             state.scratch.last_hunt_scan_frame = current_frame;
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let enemy = {
-                let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 ai.find_closest_enemy(
                     self.owner_id,
                     range,
@@ -1601,7 +1601,7 @@ impl AiStateMachine {
         let current_frame = self.current_frame();
 
         let (guard_scan_rate, qualifiers, range) = {
-            let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
             let ai_data = ai.get_ai_data();
             let Ok(ai_data_guard) = ai_data.read() else {
                 return Err(AiError::LockFailed);
@@ -1638,7 +1638,7 @@ impl AiStateMachine {
 
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let enemy_found = {
-                let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 if matches!(state.guard_mode, GuardMode::GuardFlyingUnitsOnly) {
                     let filter = GuardFlyingOnlyFilter;
                     ai.find_closest_enemy(
@@ -1683,7 +1683,7 @@ impl AiStateMachine {
         let current_frame = self.current_frame();
 
         let (hunt_scan_rate, qualifiers, range) = {
-            let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
             let ai_data = ai.get_ai_data();
             let Ok(ai_data_guard) = ai_data.read() else {
                 return Err(AiError::LockFailed);
@@ -1711,7 +1711,7 @@ impl AiStateMachine {
 
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let new_target = {
-                let ai = THE_AI.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 ai.find_closest_enemy(
                     self.owner_id,
                     range,

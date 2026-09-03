@@ -7,7 +7,7 @@
 //! Author: Converted from C++ original by Michael S. Booth
 
 use super::pathfinding_system::{PathRequest, PathResult, PathfindingSystem};
-use crate::ai::{AI, AiCommandInterface, AiCommandParams, AiError, AiGroup, AttitudeType, THE_AI};
+use crate::ai::{AI, AiCommandInterface, AiCommandParams, AiError, AiGroup, AttitudeType, the_ai};
 use crate::common::{Coord3D, ObjectID, Real};
 use crate::modules::UpdateModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -451,7 +451,7 @@ impl AIUpdate {
             }
             AiTaskData::GroupUpdate { group_id, command } => {
                 // Update AI group behavior
-                if let Ok(ai_guard) = THE_AI.read() {
+                let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                     if let Some(group) = ai_guard.get_group_by_id(group_id) {
                         if let Ok(mut group_guard) = group.write() {
                             let _ = group_guard.ai_do_command(&command);

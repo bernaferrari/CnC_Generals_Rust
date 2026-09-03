@@ -98,7 +98,7 @@ impl ExitPath {
     pub fn validate(&mut self) -> bool {
         self.attempts += 1;
 
-        if let Ok(ai) = crate::ai::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
             if let Some(ps) = ai.pathfinding_system() {
                 if let Ok(ps_guard) = ps.read() {
                     let spawn_to_door =

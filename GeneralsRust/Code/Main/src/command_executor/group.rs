@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
     /// C++ `TheAI->getAiData()->m_minDistanceForGroup` /
-    /// `m_distanceRequiresGroup`. Store first, leftover THE_AI, then retail
+    /// `m_distanceRequiresGroup`. Store first, leftover the_ai, then retail
     /// residuals (100 / 500).
     fn group_path_distance_thresholds() -> (f32, f32) {
         use crate::game_logic::host_ai_path_combat_residual_wave105::{
@@ -33,7 +33,7 @@ impl<'a> CommandExecutor<'a> {
             .map(|d| (d.min_distance_for_group, d.distance_requires_group));
         let (min_d, req) = from_store
             .or_else(|| {
-                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
                     ai.get_ai_data()
                         .read()
                         .ok()

@@ -17,7 +17,7 @@ use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{
     BehaviorModuleData, xfer_behavior_module_base_versions,
 };
-use crate::upgrade::center::THE_UPGRADE_CENTER;
+use crate::upgrade::center::get_upgrade_center;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -587,7 +587,7 @@ impl GenerateMinefieldBehavior {
                 .mine_upgrade_trigger
                 .as_deref()
                 .unwrap_or("Upgrade_ChinaEMPMines");
-            let upgrade = THE_UPGRADE_CENTER
+            let upgrade = get_upgrade_center()
                 .read()
                 .ok()
                 .and_then(|center| center.find_upgrade(upgrade_name));

@@ -327,7 +327,7 @@ impl GameLogic {
             };
 
         if is_wall {
-            if let Ok(ai) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
                 if let Some(pf) = ai.pathfinder() {
                     if let Ok(mut pf) = pf.write() {
                         pf.remove_wall_piece(object_id);

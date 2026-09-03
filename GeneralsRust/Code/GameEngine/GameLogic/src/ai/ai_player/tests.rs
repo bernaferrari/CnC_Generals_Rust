@@ -3,13 +3,13 @@ use super::*;
 #[allow(dead_code)]
 fn set_var(key: &str, value: &str) {
     // SAFETY: AI env toggles; test access is serialized (--test-threads=1 convention).
-    unsafe { set_var(key, value) }
+    unsafe { std::env::set_var(key, value) }
 }
 
 #[allow(dead_code)]
 fn remove_var(key: &str) {
     // SAFETY: AI env toggles; test access is serialized (--test-threads=1 convention).
-    unsafe { remove_var(key) }
+    unsafe { std::env::remove_var(key) }
 }
 
 #[test]
@@ -588,7 +588,7 @@ fn arm_structure_timer_applies_wealth_mods_like_cpp() {
     // C++: m_structureTimer = TheAI->getAiData()->m_structureSeconds * FPS
     // (live AIData, not a per-player field). Snapshot and restore AIData.
     let prev_seconds = {
-        let ai_g = THE_AI.write().expect("ai");
+        let ai_store = the_ai();let ai_g = ai_store.write().expect("ai");
         let data_arc = ai_g.get_ai_data().clone();
         drop(ai_g);
         let mut data = data_arc.write().expect("data");
@@ -608,7 +608,7 @@ fn arm_structure_timer_applies_wealth_mods_like_cpp() {
     );
     assert_eq!(player_ai.structure_timer, 499);
     {
-        let ai_g = THE_AI.write().expect("ai restore");
+        let ai_store = the_ai();let ai_g = ai_store.write().expect("ai restore");
         let data_arc = ai_g.get_ai_data().clone();
         drop(ai_g);
         let mut data = data_arc.write().expect("data restore");

@@ -31,7 +31,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -1285,7 +1285,7 @@ pub(crate) fn attack_view_blocked(
     victim: Option<&Object>,
     victim_pos: &Coord3D,
 ) -> bool {
-    THE_AI
+    the_ai()
         .read()
         .ok()
         .and_then(|ai| {
@@ -1316,7 +1316,7 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
         return false;
     }
 
-    let ai_crushes_infantry = THE_AI
+    let ai_store = the_ai();let ai_crushes_infantry = ai_store
         .read()
         .ok()
         .and_then(|ai| {

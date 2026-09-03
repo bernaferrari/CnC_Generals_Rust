@@ -1,4 +1,4 @@
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::ai::path_optimization::PathOptimizer;
 use crate::ai::pathfind_astar::{PATHFIND_CELL_SIZE_F, PathfindLayerEnum as OptLayer};
 use crate::common::coord::*;
@@ -1286,7 +1286,7 @@ impl Pathfinder {
             return false;
         }
 
-        let attack_uses_los = THE_AI
+        let ai_store = the_ai();let attack_uses_los = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1687,7 +1687,7 @@ pub fn update_goal_for_object(
         }
     };
     drop(obj_guard);
-    if let Ok(ai) = THE_AI.read() {
+    let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
         if let Some(pf) = ai.pathfinder() {
             if let Ok(pf) = pf.read() {
                 pf.update_goal_cells(
@@ -1715,7 +1715,7 @@ pub fn update_goal_for_object(
 /// internal goal map and returns the grid-cell-center position.  In this port
 /// we compute it directly from the world→grid→world round-trip.
 pub fn goal_position(pos: &Coord3D) -> Option<Coord3D> {
-    let ai = THE_AI.read().ok()?;
+    let ai_store = the_ai();let ai = ai_store.read().ok()?;
     let pf_arc = ai.pathfinder()?;
     let pf = pf_arc.read().ok()?;
 
@@ -1751,7 +1751,7 @@ pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<
     }
 
     // Try full A* pathfinder first, fall back to straight-line if unavailable.
-    if let Some(pathfinder) = THE_AI.read().ok().and_then(|ai| ai.pathfinder()) {
+    let ai_store = the_ai(); if let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) {
         if let Ok(pf_guard) = pathfinder.read() {
             if let Some(waypoints) =
                 pf_guard.find_path(&start, &end, crate::path::SURFACE_GROUND, false)

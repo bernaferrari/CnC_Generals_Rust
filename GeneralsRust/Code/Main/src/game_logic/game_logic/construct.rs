@@ -41,6 +41,9 @@ impl GameLogic {
         let mission_hooks = MissionScriptHooks::new().expect("Mission script runtime init failed");
 
         let mut instance = Self {
+            // C++ engine-init order (GameEngine.cpp:468-481): the upgrade
+            // center and AI stores exist before the world that owns them.
+            engine_stores: gamelogic::system::engine_stores::new_for_world_installed(),
             attack_priority_sets: std::collections::HashMap::new(),
             team_common_attack_targets: std::collections::HashMap::new(),
             guard_next_enemy_scan: HashMap::new(),

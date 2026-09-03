@@ -31,7 +31,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -326,7 +326,7 @@ impl ClassicState for AIIdleState {
                     if let Some(ai) = owner_guard.get_ai_update_interface() {
                         if let Ok(mut ai_guard) = ai.lock() {
                             if owner_guard.is_kind_of(KindOf::CanBeRepulsed) && ai_guard.is_idle() {
-                                let enemy = THE_AI
+                                let ai_store = the_ai();let enemy = ai_store
                                     .read()
                                     .ok()
                                     .and_then(|ai| {

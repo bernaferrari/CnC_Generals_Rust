@@ -7,9 +7,15 @@ use crate::fow_rendering::{ProjectedShroudMetadata, ProjectedShroudSnapshot};
 pub(super) fn freeze_direct_object_shroud_facts(
     obj: &crate::game_logic::Object,
     local_player_id: u32,
+    local_team: Team,
     fow_shell_bypass: bool,
 ) -> PresentationDrawableShroudFacts {
-    let raw_status = if fow_shell_bypass || obj.owner_player_id == Some(local_player_id) {
+    // Team fallback mirrors the look pass (C++ Object::getControllingPlayer):
+    // the sparse host registry often leaves owner_player_id unset.
+    let raw_status = if fow_shell_bypass
+        || obj.owner_player_id == Some(local_player_id)
+        || obj.team == local_team
+    {
         // The host FOW bridge deliberately preserves C++ own-force/no-partition
         // clear behavior even when the standalone manager has no membership.
         PresentationObjectShroudStatus::Clear
@@ -509,16 +515,22 @@ impl PresentationFrame {
                 };
                 authored * instance
             };
+            // Same controlling-player resolution as gameworld_shadow/construct.rs:
+            // the sparse host registry often leaves owner_player_id unset, so
+            // fall back to team (update_main_crate_vision look-pass parity;
+            // C++ Object::getControllingPlayer).
+            let resolved_owner =
+                obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
             let fow_visibility = if fow_shell_bypass {
                 ObjectVisibility::FULLY_VISIBLE
-            } else if obj.owner_player_id == Some(local_player_id) {
+            } else if resolved_owner == Some(local_player_id) {
                 // Always see own force (structures + builders + army).
                 ObjectVisibility::FULLY_VISIBLE
             } else {
                 FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
             };
             let drawable_shroud =
-                freeze_direct_object_shroud_facts(obj, local_player_id, fow_shell_bypass);
+                freeze_direct_object_shroud_facts(obj, local_player_id, local_team, fow_shell_bypass);
             let visual_template_name = direct_host_visual_template_name(obj);
             let visual_mesh_scale =
                 direct_host_visual_mesh_scale(logic, obj, &visual_template_name);

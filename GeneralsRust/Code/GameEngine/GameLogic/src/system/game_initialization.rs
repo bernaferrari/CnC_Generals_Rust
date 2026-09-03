@@ -11,7 +11,7 @@ use super::game_start::{GameStartSequence, ScriptResult};
 use super::map_loader::{Coord3D, MapCache, MapLoader};
 use super::player_init::{Difficulty, PlayerInitializer, PlayerList, make_player_template};
 use super::victory_conditions::{ScoreKeeper, VictoryConditions, VictoryType};
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 use crate::common::well_known_keys::{
     key_multiplayer_start_index, key_player_allies, key_player_color, key_player_display_name,
@@ -289,7 +289,7 @@ impl GameInitializer {
         game_state.map_loader.load_map(map_path)?;
         let map_data = game_state.map_loader.to_map_data();
 
-        if let Ok(mut ai) = THE_AI.write() {
+        let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
             ai.init();
         }
         if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {

@@ -82,7 +82,7 @@
 //! - **Determinism**: Same frame order every game for multiplayer sync
 //! - **Synchronization**: All systems must complete before next frame
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::ai::integration::with_ai_integration_mut;
 use crate::common::{
     AsciiString, Bool, Color, Coord3D, DisabledMaskType, INVALID_ID, Int, KindOf, ObjectID,

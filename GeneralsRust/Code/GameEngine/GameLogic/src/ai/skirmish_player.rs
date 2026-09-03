@@ -1,5 +1,5 @@
 use super::ai_player::{AIPlayer, WorkOrder};
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::build_list_info::BuildListInfo;
 use crate::common::Snapshot;
 use crate::common::coord::*;
@@ -156,7 +156,7 @@ impl AISkirmishPlayer {
         };
 
         let mut build_list = None;
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Ok(ai_data) = ai_guard.get_ai_data().read() {
                 if let Some(entry) = ai_data
                     .side_build_lists
@@ -288,7 +288,7 @@ impl AISkirmishPlayer {
         };
         // C++ walks m_sideInfo until side match, then calls with that entry's
         // m_baseDefenseStructure1 (even if empty — template lookup fails fast).
-        let defense_name = THE_AI.read().ok().and_then(|ai| {
+        let ai_store = the_ai();let defense_name = ai_store.read().ok().and_then(|ai| {
             ai.get_ai_data().read().ok().and_then(|data| {
                 data.side_info
                     .iter()
@@ -370,7 +370,7 @@ impl AISkirmishPlayer {
                 offset = offset.normalized();
             }
             let mut defense_distance = self.base.get_base_radius();
-            if let Ok(ai_guard) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Ok(ai_data) = ai_guard.get_ai_data().read() {
                     defense_distance += ai_data.skirmish_base_defense_extra_distance;
                 }
@@ -529,7 +529,7 @@ impl AISkirmishPlayer {
             out
         };
 
-        let Some(pf_arc) = THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = the_ai();let Some(pf_arc) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
         let Ok(pf) = pf_arc.read() else {
@@ -672,7 +672,7 @@ impl AISkirmishPlayer {
         let current_frame = TheGameLogic::get_frame();
         // C++: TheAI->getAiData()->m_rebuildDelaySeconds * LOGICFRAMES_PER_SECOND
         // Retail AIData = 30; fall back when AIData unloaded / zero.
-        let rebuild_delay_frames = THE_AI
+        let ai_store = the_ai();let rebuild_delay_frames = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1005,7 +1005,7 @@ impl AISkirmishPlayer {
             return;
         };
 
-        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
+        let ai_store = the_ai();let (poor, wealthy, poor_mod, wealthy_mod) = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1082,7 +1082,7 @@ impl AISkirmishPlayer {
             return;
         };
 
-        let (poor, wealthy, poor_mod, wealthy_mod) = THE_AI
+        let ai_store = the_ai();let (poor, wealthy, poor_mod, wealthy_mod) = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1281,7 +1281,7 @@ impl AISkirmishPlayer {
             base_radius = 300.0;
         }
 
-        let extra = THE_AI
+        let ai_store = the_ai();let extra = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1390,7 +1390,7 @@ impl AISkirmishPlayer {
             let positions: Vec<Coord3D> = OBJECT_REGISTRY
                 .with_object(obj_id, |g| vec![*g.get_position()])
                 .unwrap_or_default();
-            if let Ok(ai_guard) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pf_arc) = ai_guard.pathfinder() {
                     if let Ok(mut pf) = pf_arc.write() {
                         pf.remove_object_from_map(obj_id, &positions);
@@ -1441,7 +1441,7 @@ impl AISkirmishPlayer {
         }
 
         let mut angle = 0.0f32;
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Ok(ai_data) = ai_guard.get_ai_data().read() {
                 if ai_data.rotate_skirmish_bases {
                     angle = match grid_index {
@@ -1802,7 +1802,7 @@ impl AISkirmishPlayer {
         };
         let current_money = player_guard.get_money().get_money();
 
-        let (poor, wealthy) = THE_AI
+        let ai_store = the_ai();let (poor, wealthy) = ai_store
             .read()
             .ok()
             .and_then(|ai| {

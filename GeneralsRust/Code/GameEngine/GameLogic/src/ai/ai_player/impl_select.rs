@@ -74,7 +74,7 @@ impl AIPlayer {
             }
         }
 
-        let resources_mod = THE_AI
+        let ai_store = the_ai();let resources_mod = ai_store
             .read()
             .ok()
             .and_then(|ai| {

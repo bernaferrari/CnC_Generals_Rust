@@ -1104,7 +1104,7 @@ fn notify_first_slaved_update(obj: &Object, source_id: ObjectID) {
 fn add_object_to_pathfind_map(obj: &Object) {
     let id = obj.get_id();
     let pos = *obj.get_position();
-    let Ok(ai) = crate::ai::THE_AI.read() else {
+    let ai_store = crate::ai::the_ai();let Ok(ai) = ai_store.read() else {
         return;
     };
     let Some(pathfinder) = ai.pathfinder() else {
@@ -1184,7 +1184,7 @@ fn pathfind_cell_type_at(
         _ => AStarLayer::Top,
     };
 
-    crate::ai::THE_AI
+    crate::ai::the_ai()
         .read()
         .ok()
         .and_then(|ai| ai.pathfinder())
@@ -2219,7 +2219,7 @@ End
         let _guard = TEST_GLOBALS.lock().unwrap();
         ensure_neutral_player_with_team();
         use crate::ai::pathfind_astar::PathfindCellType;
-        // Default THE_AI pathfinder is a 1000x1000 Clear grid; negative cells are absent.
+        // Default the_ai pathfinder is a 1000x1000 Clear grid; negative cells are absent.
         let pos = Coord3D::new(-50.0, -50.0, 5.0);
         assert_eq!(
             super::pathfind_cell_type_at(&pos, PathfindLayerEnum::Ground),

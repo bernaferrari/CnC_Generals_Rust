@@ -43,6 +43,10 @@ use ww3d_renderer_3d::rendering::{
     wgpu_main_renderer::{WgpuMainRenderer, WgpuMainRendererConfig},
 };
 use ww3d_renderer_3d::texture_system::{TextureClass, TextureFormat};
+use ww3d_renderer_3d::rendering::mesh_system::MeshPassTextureProvider;
+use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
+    DdsCompression, decode_dxt1, decode_dxt3, decode_dxt5,
+};
 use ww3d_renderer_3d::w3d_format::{
     W3dMaterialInfoStruct, W3dRGBAStruct, W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct,
     W3dVertexMaterialStruct,
@@ -74,6 +78,58 @@ pub(crate) fn gameplay_to_render_transform(matrix: Mat4) -> Mat4 {
     // (X/Z ground, Y-up). Only imported mesh vertex payloads still need axis
     // conversion at build time.
     matrix
+}
+
+/// C++ `WW3DAssetManager::Get_Texture` parity for the ww3d mesh pass-texture
+/// lane: resolve a W3D texture name against the archive-backed TextureManager
+/// raw cache and hand the ww3d renderer decoded RGBA8 pixels. The mesh lane's
+/// `MaterialPassClass` textures are W3D placeholders (name only), so without
+/// this bridge every unit/building material binds the white fallback
+/// (windowed-smoke-report.md § TextureProvision).
+fn resolve_archive_pass_texture(name: &str) -> Option<TextureClass> {
+    let requested = name.trim();
+    if requested.is_empty() || requested.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let asset_manager = get_asset_manager()?;
+    let mut asset_manager = asset_manager.lock().unwrap_or_else(|e| e.into_inner());
+    // First visible use loads synchronously (W3DAssetManager.cpp:127-225).
+    asset_manager.prime_texture_raw_blocking(requested);
+    let raw = asset_manager.get_raw_texture(requested)?.clone();
+    drop(asset_manager);
+
+    // Mirror TextureManager::create_gpu_texture / ForwardPass::build_texture:
+    // block-compressed archive payloads decode to RGBA8 because the mesh bind
+    // path (MeshRenderManager::ensure_gpu_texture_view) only uploads 32-bit
+    // surfaces.
+    let decoded = match raw.dds_compression {
+        Some(DdsCompression::Dxt1) => decode_dxt1(&raw.data, raw.width, raw.height),
+        Some(DdsCompression::Dxt3) => decode_dxt3(&raw.data, raw.width, raw.height),
+        Some(DdsCompression::Dxt5) => decode_dxt5(&raw.data, raw.width, raw.height),
+        None => Ok(raw.data.clone()),
+    };
+    let data = match decoded {
+        Ok(data) => data,
+        Err(err) => {
+            warn!("Pass texture '{}' decode failed: {err}", requested);
+            return None;
+        }
+    };
+    let mut texture =
+        TextureClass::with_format(requested, raw.width, raw.height, TextureFormat::Rgba8Unorm);
+    texture.replace_pixels(data).ok()?;
+    Some(texture)
+}
+
+/// Install the archive-backed pass-texture resolver on the ww3d scene
+/// renderer. Called once from pipeline lifecycle after the forward pass (and
+/// its renderer) exists; the mesh manager consults it lazily per texture name
+/// and caches the upload, so this adds no per-frame cost.
+pub(crate) fn install_archive_pass_texture_provider(renderer: &WgpuMainRenderer) {
+    let provider: MeshPassTextureProvider = Arc::new(resolve_archive_pass_texture);
+    if let Err(err) = renderer.set_pass_texture_provider(provider) {
+        warn!("Failed to install ww3d pass-texture provider: {err:?}");
+    }
 }
 
 pub(super) fn transform_has_finite_components(transform: Mat4) -> bool {

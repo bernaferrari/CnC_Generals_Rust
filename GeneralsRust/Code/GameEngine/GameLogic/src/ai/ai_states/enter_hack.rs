@@ -393,7 +393,7 @@ impl AIState for AIAttackSquadState {
         // Fallback behavior: attack closest enemy when no squad context is available.
         if attack_machine.get_current_state_id() == Some(LegacyAIStateType::Idle as u32) {
             let attack_priority = resolve_attack_priority_info_for_object(context.owner_id);
-            if let Ok(ai) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
                 if let Ok(Some(victim)) = ai.find_closest_enemy(
                     context.owner_id,
                     9999.9,

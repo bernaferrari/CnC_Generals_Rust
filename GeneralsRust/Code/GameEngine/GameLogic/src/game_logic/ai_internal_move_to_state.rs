@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::{
     BodyDamageType, Coord3D, KindOf, LOGICFRAMES_PER_SECOND, ModelConditionFlags,
     ObjectStatusTypes, PathfindLayerEnum, UnsignedInt, Xfer, XferExt, XferMode, XferVersion,

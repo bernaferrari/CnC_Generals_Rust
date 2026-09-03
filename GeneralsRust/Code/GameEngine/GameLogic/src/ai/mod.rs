@@ -3013,7 +3013,7 @@ impl Pathfinder {
         victim_pos: &Coord3D,
     ) -> bool {
         // Global AI data switch.
-        let attack_uses_los = THE_AI
+        let ai_store = the_ai();let attack_uses_los = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -3625,30 +3625,32 @@ pub trait PartitionFilter {
     fn debug_get_name(&self) -> &str;
 }
 
-// Global AI instance - using once_cell for thread-safe singleton
-pub static THE_AI: Lazy<Arc<RwLock<AI>>> = Lazy::new(|| Arc::new(RwLock::new(AI::new())));
+/// C++ `TheAI` accessor: the active GameLogic world's AI store
+/// (C++ AI.cpp:280). Resolves through the GameLogic-owned
+/// [`crate::system::engine_stores`] context: worlds install a fresh bundle
+/// at construction, so per-world AI/AiData mutations and lock poisoning die
+/// with the world instead of leaking across tests or matches. While no
+/// world is active this resolves to the engine-lifetime fallback bundle
+/// (C++ has one process-lifetime engine).
+pub fn the_ai() -> Arc<RwLock<AI>> {
+    crate::system::engine_stores::the_ai()
+}
 
 /// Move the legacy AI singleton contents out for a whole-world restore
-/// transaction while preserving the `THE_AI` `Arc`/`RwLock` identity.
+/// transaction while preserving the lock identity.
 ///
 /// Candidate save restore may initialize the AI before it is known to be
 /// valid.  Replacing the wrapper would strand aliases held by the active
 /// world, while clearing it would corrupt the active match on rollback.  The
 /// runtime transaction owns the only raw use of this boundary API.
 pub(crate) fn take_global_ai_for_world_boundary() -> AI {
-    let mut ai = THE_AI
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    std::mem::replace(&mut *ai, AI::new())
+    crate::system::engine_stores::take_ai_for_world_boundary()
 }
 
 /// Install legacy AI contents at a whole-world restore boundary and return
 /// the contents they replaced.  See [`take_global_ai_for_world_boundary`].
 pub(crate) fn replace_global_ai_for_world_boundary(next: AI) -> AI {
-    let mut ai = THE_AI
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    std::mem::replace(&mut *ai, next)
+    crate::system::engine_stores::replace_ai_for_world_boundary(next)
 }
 
 // Core AI systems

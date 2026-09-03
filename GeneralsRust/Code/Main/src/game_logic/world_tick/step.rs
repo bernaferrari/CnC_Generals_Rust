@@ -1001,7 +1001,7 @@ impl GameLogic {
         // critical: objects update first, then AI observes new positions and
         // issues commands for the next frame.
         {
-            // 1. THE_AI.update only drains the crate Pathfinder queue (it no
+            // 1. the_ai.update only drains the crate Pathfinder queue (it no
             //    longer walks crate groups / ThePlayerList — that is AIManager).
             // Host objects live in GameLogic.objects, not OBJECT_REGISTRY, so
             // an empty crate world has no pathfinder work the host needs.
@@ -1009,16 +1009,16 @@ impl GameLogic {
             // AIManager.update below remains the real TheAI residual.
             let crate_world_empty = gamelogic::object::registry::OBJECT_REGISTRY.is_empty();
             if !crate_world_empty {
-                if let Ok(mut ai) = THE_AI.write() {
+                let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
                     if let Err(e) = ai.update(self.frame) {
-                        log::warn!("THE_AI update failed at frame {}: {:?}", self.frame, e);
+                        log::warn!("the_ai update failed at frame {}: {:?}", self.frame, e);
                     }
                 }
             } else {
                 static SKIP_THE_AI: std::sync::Once = std::sync::Once::new();
                 SKIP_THE_AI.call_once(|| {
                     log::info!(
-                        "Skipping THE_AI.update: OBJECT_REGISTRY/crate world is empty; \
+                        "Skipping the_ai.update: OBJECT_REGISTRY/crate world is empty; \
                          crate pathfinder never sees host objects (host AIManager still runs)"
                     );
                 });

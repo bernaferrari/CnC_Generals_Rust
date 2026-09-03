@@ -1168,7 +1168,7 @@ fn template_wants_repulsor_helper(template: &dyn ThingTemplate) -> bool {
     if !template.is_kind_of(KindOf::CanBeRepulsed) {
         return false;
     }
-    crate::ai::THE_AI
+    crate::ai::the_ai()
         .read()
         .ok()
         .and_then(|ai| {

@@ -17,7 +17,7 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use glam::EulerRot;
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, CoordOrigin, Int, KindOf, LOGICFRAMES_PER_SECOND, ModuleData,
@@ -1502,7 +1502,7 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
             let _ = guard.set_position(&ppinfo.hangar_internal);
             let _ = guard.set_orientation(ppinfo.hangar_internal_orient);
         }
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pf_arc) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pf_arc.write() {
                     pf.add_object_to_map(object_id, &[ppinfo.hangar_internal], false);

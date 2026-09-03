@@ -74,7 +74,7 @@ fn xfer_game_logic_objects_load(
         let _ = logic.register_object(arc);
         if walk_on_wall {
             if let Some(object_id) = wall_id {
-                if let Ok(ai) = THE_AI.read() {
+                let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
                     if let Some(pathfinder) = ai.pathfinder() {
                         if let Ok(mut pf) = pathfinder.write() {
                             pf.add_wall_piece(object_id);
@@ -90,7 +90,7 @@ fn xfer_game_logic_objects_load(
 
 fn pathfinder_new_map_after_polygon_load() {
     // C++ GameLogic.cpp:4880 `TheAI->pathfinder()->newMap()` after trigger restore.
-    if let Ok(ai) = THE_AI.read() {
+    let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
         if let Some(pathfinder) = ai.pathfinder() {
             if let Ok(mut pf) = pathfinder.write() {
                 if let Ok(terrain) = get_terrain_logic().read() {

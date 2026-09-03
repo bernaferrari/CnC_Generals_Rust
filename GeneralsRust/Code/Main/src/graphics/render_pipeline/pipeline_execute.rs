@@ -308,6 +308,144 @@ impl RenderPipeline {
         )?;
         #[cfg(feature = "game_client")]
         {
+            // ZPROBE (documented diagnostic, GENERALS_ZPROBE=1, one-shot): dump the
+            // mesh-lane clip z/w per render item next to the GPU depth the terrain
+            // pre-scene pass wrote at the same pixels. The readback runs on its own
+            // encoder inside the post-frame callback, so it observes the PREVIOUS
+            // frame's final depth attachment (the attachment persists across frames;
+            // the terrain pass clears it and draws first). Fully synchronous:
+            // submit, poll, map, read, unmap — no cross-frame mapped window.
+            static ZPROBE_DONE: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            static ZPROBE_ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+                std::env::var("GENERALS_ZPROBE").as_deref() == Ok("1")
+            });
+            if *ZPROBE_ENABLED && !ZPROBE_DONE.swap(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                let view_proj = *projection_matrix * *view_matrix;
+                let mut report = String::from("ZPROBE item clip-z dump:");
+                let mut samples: Vec<(i32, i32, f32)> = Vec::new();
+                for (i, item) in self.render_items.iter().take(6).enumerate() {
+                    let p = item.world_position;
+                    let clip = view_proj * p.extend(1.0);
+                    if !(clip.w > 0.001) || !clip.z.is_finite() {
+                        continue;
+                    }
+                    let z_over_w = clip.z / clip.w;
+                    let ndc = clip.truncate() / clip.w;
+                    let px = ((ndc.x * 0.5 + 0.5) * 640.0).clamp(0.0, 639.0) as i32;
+                    let py = ((0.5 - ndc.y * 0.5) * 480.0).clamp(0.0, 479.0) as i32;
+                    let ground = game_client::terrain::terrain_visual::get_terrain_visual()
+                        .ok()
+                        .and_then(|mut guard| {
+                            guard
+                                .as_mut()
+                                .and_then(|visual| visual.get_height_at(p.x, p.z).ok())
+                        })
+                        .unwrap_or(f32::NAN);
+                    let ground_clip = view_proj * Vec4::new(p.x, ground, p.z, 1.0);
+                    let ground_z = if ground_clip.w > 0.001 {
+                        ground_clip.z / ground_clip.w
+                    } else {
+                        f32::NAN
+                    };
+                    report.push_str(&format!(
+                        "\n  item{i} model={} world=({:.1},{:.2},{:.1}) mesh_z/w={:.6} px=({},{}) ground_h={:.2} ground_z/w={:.6}",
+                        item.model_name, p.x, p.y, p.z, z_over_w, px, py, ground, ground_z
+                    ));
+                    samples.push((px, py, z_over_w));
+                }
+                info!("{}", report);
+
+                self.enqueue_post_frame_callback(move |gpu_frame| {
+                    let Some(depth_view) = gpu_frame.depth_view_arc() else {
+                        return Ok(());
+                    };
+                    let texture = depth_view.texture();
+                    let size = texture.size();
+                    let (w, h) = (size.width, size.height);
+                    let bytes_per_row = (w * 4).div_ceil(256) * 256;
+                    let device = gpu_frame.device_arc();
+                    let queue = gpu_frame.queue_arc();
+                    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("ZPROBE depth readback"),
+                        size: bytes_per_row as u64 * h as u64,
+                        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                        mapped_at_creation: false,
+                    });
+                    let mut encoder = device.create_command_encoder(
+                        &wgpu::CommandEncoderDescriptor {
+                            label: Some("ZPROBE depth copy"),
+                        },
+                    );
+                    encoder.copy_texture_to_buffer(
+                        wgpu::TexelCopyTextureInfo {
+                            texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyBufferInfo {
+                            buffer: &buffer,
+                            layout: wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(bytes_per_row),
+                                rows_per_image: Some(h),
+                            },
+                        },
+                        wgpu::Extent3d {
+                            width: w,
+                            height: h,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                    queue.submit(Some(encoder.finish()));
+                    let slice = buffer.slice(..);
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    slice.map_async(wgpu::MapMode::Read, move |result| {
+                        let _ = tx.send(result);
+                    });
+                    let _ = device
+                        .poll(wgpu::PollType::Wait {
+                            submission_index: None,
+                            timeout: None,
+                        });
+                    if rx.recv_timeout(std::time::Duration::from_secs(5)).is_err() {
+                        warn!("ZPROBE depth map timed out");
+                        return Ok(());
+                    }
+                    let data = slice.get_mapped_range();
+                    let read = |px: i32, py: i32| -> f32 {
+                        let px = px.clamp(0, w as i32 - 1) as usize;
+                        let py = py.clamp(0, h as i32 - 1) as usize;
+                        let off = py * bytes_per_row as usize + px * 4;
+                        f32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
+                    };
+                    let mut line = String::from("ZPROBE GPU depth readback (previous frame):");
+                    for (px, py, mesh_z) in &samples {
+                        line.push_str(&format!(
+                            "\n  px=({},{}) gpu_depth={:.6} mesh_z/w={:.6}",
+                            px,
+                            py,
+                            read(*px, *py),
+                            mesh_z
+                        ));
+                    }
+                    line.push_str(&format!(
+                        "\n  center px=({},{}) gpu_depth={:.6}",
+                        w as i32 / 2,
+                        h as i32 / 2,
+                        read(w as i32 / 2, h as i32 / 2)
+                    ));
+                    drop(data);
+                    buffer.unmap();
+                    info!("{}", line);
+                    Ok(())
+                });
+            }
+        }
+        #[cfg(feature = "game_client")]
+        {
             // C++ DoShadows(true) after opaque flush.
             let depth_format = graphics_system
                 .depth_format()

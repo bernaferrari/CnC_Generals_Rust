@@ -29,7 +29,7 @@ use super::native::WaypointGraph;
 use super::pathfind_complete::{PathRequest, PathResult};
 use super::skirmish_player::AISkirmishPlayer;
 use super::states::{AIStateMachine, AIStateType};
-use super::{AiError, THE_AI};
+use super::{AiError, the_ai};
 
 /// Wave 285: host-only path has no dual-world factory objects.
 #[inline]
@@ -670,7 +670,7 @@ impl AiIntegrationManager {
             }
         }
 
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if let Ok(terrain) = get_terrain_logic().read() {
@@ -892,7 +892,7 @@ impl AiIntegrationManager {
         positions: &[Coord3D],
         is_fence: bool,
     ) -> Result<(), AiError> {
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -913,7 +913,7 @@ impl AiIntegrationManager {
         object_id: ObjectID,
         positions: &[Coord3D],
     ) -> Result<(), AiError> {
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -936,7 +936,7 @@ impl AiIntegrationManager {
         acceptable_surfaces: u32,
         is_crusher: bool,
     ) -> Result<Option<Vec<Coord3D>>, AiError> {
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -965,7 +965,7 @@ impl AiIntegrationManager {
         }
 
         if is_obstacle {
-            if let Ok(ai_guard) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {
                         if OBJECT_REGISTRY
@@ -996,7 +996,7 @@ impl AiIntegrationManager {
         self.object_state_machines.remove(&object_id);
 
         // Remove from pathfinding map
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if OBJECT_REGISTRY
@@ -1164,7 +1164,7 @@ impl AiIntegrationManager {
 
     /// Submit a pathfinding request using the classic pathfinder.
     pub fn request_path(&mut self, request: PathRequest) -> Result<(), AiError> {
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1183,7 +1183,7 @@ impl AiIntegrationManager {
 
     /// Force pathfinder reset (for map changes)
     pub fn reset_pathfinder(&mut self) -> Result<(), AiError> {
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1275,7 +1275,7 @@ pub fn ai_execute(frame_time: Instant) -> Result<(), AiError> {
         .unwrap_or(Err(AiError::NotInitialized))?;
 
     // Update the legacy AI singleton after modern systems have produced orders.
-    let mut ai = THE_AI.write().map_err(|_| AiError::InvalidObject)?;
+    let ai_store = the_ai();let mut ai = ai_store.write().map_err(|_| AiError::InvalidObject)?;
     ai.update(TheGameLogic::get_frame())?;
     Ok(())
 }

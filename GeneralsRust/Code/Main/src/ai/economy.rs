@@ -901,7 +901,7 @@ impl AIPlayer {
             return Some(radius);
         }
         drop(store);
-        gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+        gamelogic::ai::the_ai().read().ok().and_then(|ai| {
             ai.get_ai_data()
                 .read()
                 .ok()

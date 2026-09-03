@@ -10,7 +10,7 @@
 //!
 //! Matches C++ AIStates.cpp::AIInternalMoveToState::update() lines 1743-1920
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::ai::pathfinding_system::{
     GridCoord, MovementCapabilities, Path, PathRequest, PathResult, PathfindLayerEnum,
     PathfindingSystem,
@@ -327,7 +327,7 @@ impl PathFollowingController {
         }
 
         let mut straight_line = false;
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(pf_guard) = pathfinder.read() {
                     straight_line = pf_guard.is_line_passable_for_surfaces(

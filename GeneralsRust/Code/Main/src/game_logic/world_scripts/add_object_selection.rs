@@ -1121,11 +1121,11 @@ impl GameLogic {
         println!("🤖 Setting up AI opponents for skirmish match...");
 
         // --- Initialize the gamelogic crate AI subsystem ---
-        // THE_AI singleton (pathfinder, groups) and the AiIntegrationManager
+        // the_ai singleton (pathfinder, groups) and the AiIntegrationManager
         // must be initialized before any AI player updates run.
-        if let Ok(mut ai) = THE_AI.write() {
+        let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
             ai.init();
-            log::info!("THE_AI singleton initialized for skirmish");
+            log::info!("the_ai singleton initialized for skirmish");
         }
         if let Err(e) = initialize_ai_integration() {
             log::warn!("AiIntegrationManager init failed (non-fatal): {:?}", e);

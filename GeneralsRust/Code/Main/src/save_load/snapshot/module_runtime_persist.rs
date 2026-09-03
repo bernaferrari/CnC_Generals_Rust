@@ -70,6 +70,8 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    // Fail-closed: a reused GameLogic must not keep pre-load flare states.
+    game_logic.countermeasures.clear();
     let Some(suffix) = find_msrt_suffix(bytes) else {
         return Ok(());
     };

@@ -16,6 +16,10 @@ impl RenderPipeline {
 
         // Initialize forward pass
         let forward_pass = ForwardPass::initialize(graphics_system)?;
+        // C++ WW3DAssetManager::Get_Texture parity: let the ww3d mesh lane
+        // hydrate W3D pass textures from the archive-backed TextureManager
+        // (unit/building skins otherwise bind the white fallback).
+        install_archive_pass_texture_provider(&forward_pass.renderer);
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
         let initial_lighting = CachedLighting {
             sun_direction: Some(sun_direction),

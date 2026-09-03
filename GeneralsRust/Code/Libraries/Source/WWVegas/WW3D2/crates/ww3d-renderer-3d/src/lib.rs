@@ -452,6 +452,13 @@ impl Renderer {
         self.mesh_render_manager.set_asset_manager(asset_manager)
     }
 
+    /// Install the host's archive-backed pass-texture resolver so W3D pass
+    /// textures that carry only a name hydrate from the game's texture
+    /// manager (C++ `WW3DAssetManager::Get_Texture` parity).
+    pub fn set_pass_texture_provider(&mut self, provider: MeshPassTextureProvider) {
+        self.mesh_render_manager.set_pass_texture_provider(provider);
+    }
+
     /// Access swapchain state if the renderer has been wired to a surface.
     pub fn swapchain_state(&self) -> Option<&RendererSwapchainState> {
         self.swapchain_state.as_ref()

@@ -207,7 +207,6 @@ impl RenderPipeline {
             // Wave 509: TOPPLED / FREEFALL / NIGHT / SNOW bits included in stamp helper.
             // Wave 510: CAPTURED / LOADED / POWER_PLANT_UPGRADED bits included in stamp helper.
             // Wave 511: BURNED / AFLAME / SPECIAL_CHEERING / CARRYING bits included in stamp helper.
-            // Wave 512: CONTINUOUS_FIRE / PRONE / PREATTACK / TURRET_ROTATE bits included in stamp helper.
             // Wave 513: JAMMED / DYING / RELOADING / PACKING / UNPACKING bits included in stamp helper.
             // Wave 515: RAISING_FLAG (surrendered) bit included in stamp helper.
             let template_name_owned = u.template_name.clone();

@@ -13,7 +13,7 @@ use crate::helpers::TheGameLogic;
 use crate::state_machine::{StateReturnType, StateExitType};
 use crate::ai::ai_states::{AIState, AIStateType, AIStateMachineContext};
 use crate::ai::object_registry::OBJECT_REGISTRY;
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::locomotor::{PathFollowingState, Locomotor, BodyDamageType as LocoBodyDamageType, update_movement_with_pathfinding};
 use crate::modules::AIUpdateInterfaceExt;
 use std::sync::{Arc, Mutex};
@@ -131,7 +131,7 @@ impl AIState for AIMoveToState {
             None => return StateReturnType::Failed,
         };
 
-        let pathfinding = match THE_AI.read().ok().and_then(|ai| ai.pathfinding_system()) {
+        let pathfinding = match the_ai().read().ok().and_then(|ai| ai.pathfinding_system()) {
             Some(system) => system,
             None => return StateReturnType::Failed,
         };

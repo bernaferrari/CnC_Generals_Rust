@@ -30,7 +30,7 @@ use crate::ai::object_registry::get_legacy_object;
 use crate::ai::states::{AIAttackThenIdleStateMachine, AIStateType as LegacyAIStateType};
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiError};
-use crate::ai::{THE_AI, resolve_attack_priority_info_for_object, search_qualifiers};
+use crate::ai::{the_ai, resolve_attack_priority_info_for_object, search_qualifiers};
 use crate::common::{
     CommandSourceType, Coord2D, Coord3D, INVALID_ID, KindOf, LOGICFRAMES_PER_SECOND,
     LocomotorSetType, ModelConditionFlags, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real,

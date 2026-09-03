@@ -1300,7 +1300,7 @@ fn leftover_line_passable_non_final_gate_skips_final_goal() {
             None,
         )
     );
-    // Live host world is often origin-centered; leftover THE_AI grid is 0..N.
+    // Live host world is often origin-centered; leftover the_ai grid is 0..N.
     let centered = PathfindingSystem::new_with_origin(Vec3::new(-256.0, 0.0, -256.0), 512.0, 512.0);
     assert!(
         centered.leftover_should_use_direct_path_for_line_passable_non_final_goal(
@@ -1310,7 +1310,7 @@ fn leftover_line_passable_non_final_gate_skips_final_goal() {
             SURFACE_GROUND,
             None,
         ),
-        "non-final line-passable must leftover-install onto live cells, not leftover THE_AI"
+        "non-final line-passable must leftover-install onto live cells, not leftover the_ai"
     );
     let mut walled = PathfindingSystem::new(200.0, 200.0);
     for y in 0..20 {

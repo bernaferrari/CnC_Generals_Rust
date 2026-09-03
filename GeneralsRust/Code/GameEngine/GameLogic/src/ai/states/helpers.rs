@@ -31,7 +31,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -132,7 +132,7 @@ pub(crate) fn is_point_on_wall(pos: &Coord3D) -> bool {
 }
 
 pub(crate) fn get_wall_height() -> Real {
-    THE_AI
+    the_ai()
         .read()
         .ok()
         .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))

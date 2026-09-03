@@ -483,7 +483,7 @@ impl GameLogic {
         trace!("GameLogic::update_ai_players(frame={})", frame);
 
         // Access the global AI system
-        if let Ok(mut ai) = THE_AI.write() {
+        let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
             if let Err(e) = ai.update(frame) {
                 return Err(GameLogicError::AIError(format!("AI update failed: {}", e)));
             }
@@ -1369,7 +1369,7 @@ impl GameLogic {
 
         let mut marker = "MARKER:TheAI".to_string();
         let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
-        if let Ok(ai) = crate::ai::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
             if let Some(pathfinder) = ai.pathfinder() {
                 if let Ok(pathfinder) = pathfinder.read() {
                     pathfinder.crc_pathfinder(&mut xfer);

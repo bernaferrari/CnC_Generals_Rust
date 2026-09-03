@@ -5,7 +5,7 @@
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
-use crate::ai::{AiGroup, THE_AI};
+use crate::ai::{AiGroup, the_ai};
 use crate::common::{Coord3D, Relationship};
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -357,7 +357,7 @@ pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<Arc<
         .get_members()
         .to_vec();
 
-    let mut ai_guard = THE_AI
+    let ai_store = the_ai();let mut ai_guard = ai_store
         .write()
         .map_err(|_| GameLogicError::Threading("Failed to lock AI system".to_string()))?;
     let group = ai_guard.create_group();

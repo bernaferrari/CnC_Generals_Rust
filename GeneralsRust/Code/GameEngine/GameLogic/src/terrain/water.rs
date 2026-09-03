@@ -285,7 +285,7 @@ impl TerrainLogic {
         // C++ TerrainLogic.cpp:2331-2338 forceMapRecalculation — live host
         // restamps Water cells even when the crate pathfinder is empty.
         queue_host_pathfind_recalculation();
-        let pathfinder = if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); let pathfinder = if let Ok(ai_guard) = ai_store.read() {
             ai_guard.pathfinder()
         } else {
             None

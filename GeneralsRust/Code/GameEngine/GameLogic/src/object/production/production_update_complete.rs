@@ -39,7 +39,7 @@ use crate::modules::{
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::system::game_logic;
 use crate::upgrade::UpgradeStatus;
-use crate::upgrade::center::THE_UPGRADE_CENTER;
+use crate::upgrade::center::get_upgrade_center;
 use crate::upgrade::template::UpgradeType;
 use game_engine::bit_flags::create_model_condition_flags;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -1410,7 +1410,7 @@ impl ProductionUpdateComplete {
                     );
                 }
             }
-            if let Ok(center) = THE_UPGRADE_CENTER.read() {
+            if let Ok(center) = get_upgrade_center().read() {
                 if let Some(upgrade) = center.find_upgrade(&upgrade_name) {
                     let cost = player
                         .read()

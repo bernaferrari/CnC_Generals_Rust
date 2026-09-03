@@ -31,7 +31,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -1717,7 +1717,7 @@ impl AIAttackAreaState {
             polygon: (*polygon).clone(),
         };
 
-        let victim_id = THE_AI
+        let ai_store = the_ai();let victim_id = ai_store
             .read()
             .ok()?
             .find_closest_enemy(

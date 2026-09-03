@@ -1787,7 +1787,7 @@ fn split_image_into_tree_tiles(image: &image::RgbaImage, rows: usize) -> Vec<Vec
     tiles
 }
 
-fn stand_in_tile_bgra(texture_name: &str, local_ndx: usize) -> Vec<u8> {
+pub(crate) fn stand_in_tile_bgra(texture_name: &str, local_ndx: usize) -> Vec<u8> {
     let mut tile = vec![0u8; TREE_TILE_DATA_LEN];
     let mut hash = 2166136261u32 ^ local_ndx as u32;
     for byte in texture_name.bytes() {

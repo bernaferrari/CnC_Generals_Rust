@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::OBJECT_REGISTRY;
@@ -182,7 +182,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             return false;
         };
 
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if was_structure {
@@ -255,7 +255,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             }
         }
 
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if let Ok(replacement_guard) = replacement_object.read() {

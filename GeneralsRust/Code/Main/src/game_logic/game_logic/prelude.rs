@@ -42,7 +42,7 @@ pub(super) use game_engine::common::well_known_keys::{
     key_player_name, key_player_night_color, key_player_start_money, key_team_is_singleton,
     key_team_name, key_team_owner,
 };
-pub(super) use gamelogic::ai::THE_AI;
+pub(super) use gamelogic::ai::the_ai;
 pub(super) use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 pub(super) use gamelogic::common::CommandSourceType;
 pub(super) use gamelogic::modules::AIUpdateInterfaceExt;

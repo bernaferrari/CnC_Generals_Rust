@@ -562,7 +562,7 @@ impl GameLogic {
         if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
             return data.attack_ignore_insignificant_buildings;
         }
-        gamelogic::ai::THE_AI
+        gamelogic::ai::the_ai()
             .read()
             .ok()
             .and_then(|ai| {
@@ -579,7 +579,7 @@ impl GameLogic {
         if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
             return data.attack_uses_line_of_sight;
         }
-        gamelogic::ai::THE_AI
+        gamelogic::ai::the_ai()
             .read()
             .ok()
             .and_then(|ai| {

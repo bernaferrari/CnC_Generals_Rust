@@ -621,7 +621,7 @@ impl MobNexusContain {
                     }
                     _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
                 };
-                crate::ai::THE_AI
+                crate::ai::the_ai()
                     .read()
                     .ok()
                     .and_then(|ai_sys| {

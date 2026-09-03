@@ -31,7 +31,7 @@ use crate::common::{
 };
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::player::Player;
-use crate::upgrade::center::THE_UPGRADE_CENTER;
+use crate::upgrade::center::get_upgrade_center;
 use std::collections::VecDeque;
 
 /// Wave 326 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -609,7 +609,7 @@ impl ProductionUpdateBehavior {
                     .unwrap_or(1),
                 ProductionType::Upgrade => {
                     let upgrade_name = production.upgrade_to_research.as_deref().unwrap_or("");
-                    let upgrade = THE_UPGRADE_CENTER
+                    let upgrade = get_upgrade_center()
                         .read()
                         .ok()
                         .and_then(|c| c.find_upgrade(upgrade_name));

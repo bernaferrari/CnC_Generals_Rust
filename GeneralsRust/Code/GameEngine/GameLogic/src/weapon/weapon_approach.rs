@@ -1,6 +1,6 @@
 //! C++ `Weapon::computeApproachTarget` (Weapon.cpp:1977-2102).
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::{Coord3D, KindOf};
 use crate::helpers::TheTerrainLogic;
 use crate::path::{PATHFIND_CELL_SIZE_F, SURFACE_AIR, SURFACE_GROUND};
@@ -116,7 +116,7 @@ impl Weapon {
         );
 
         if source_snap.adjusts_destination {
-            if let Ok(ai) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
                 if let Some(pathfinder) = ai.pathfinder() {
                     if let Ok(pf) = pathfinder.read() {
                         let surfaces = if source_snap.airborne {

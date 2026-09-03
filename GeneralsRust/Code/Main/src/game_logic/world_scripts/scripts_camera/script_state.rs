@@ -248,7 +248,7 @@ impl GameLogic {
         map
     }
 
-    /// Host named-unit query (scripts/AI). Prefer this over empty crate THE_AI groups.
+    /// Host named-unit query (scripts/AI). Prefer this over empty crate the_ai groups.
     pub fn host_named_unit_id(&self, name: &str) -> Option<ObjectId> {
         if name.is_empty() {
             return None;

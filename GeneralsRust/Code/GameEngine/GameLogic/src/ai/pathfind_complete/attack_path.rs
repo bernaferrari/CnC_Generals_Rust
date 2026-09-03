@@ -421,7 +421,7 @@ impl PathfindingSystem {
         // KINDOF / container / slaver lookups skip when attacker INVALID_ID.
 
         // Global switch TheAI->getAiData()->m_attackUsesLineOfSight
-        let los_enabled = crate::ai::THE_AI
+        let ai_store = crate::ai::the_ai();let los_enabled = ai_store
             .read()
             .ok()
             .and_then(|ai| {

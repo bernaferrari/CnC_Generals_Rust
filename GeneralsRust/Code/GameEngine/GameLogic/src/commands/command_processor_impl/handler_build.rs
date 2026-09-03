@@ -341,7 +341,7 @@ impl DefaultCommandHandler {
         // C++ doSetRallyPoint: BasicHumanLocomotor, not the building's own loco.
         let loco = basic_human_rally_locomotor_set();
 
-        let path_ok = crate::ai::THE_AI
+        let ai_store = crate::ai::the_ai();let path_ok = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())

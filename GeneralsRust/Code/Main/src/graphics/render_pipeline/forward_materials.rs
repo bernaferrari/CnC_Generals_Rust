@@ -8,6 +8,9 @@
     clippy::all
 )]
 use super::*;
+use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
+    DdsCompression, decode_dxt1, decode_dxt3, decode_dxt5,
+};
 
 impl ForwardPass {
     pub(super) fn build_mesh_model(
@@ -311,9 +314,14 @@ impl ForwardPass {
         }
 
         let has_bound_texture = self.assign_stage_textures_for_pass(&mut pass, mesh, pass_index)?;
-        if !has_bound_texture && pass.shader.get_texturing() != TexturingType::Disable {
-            // C++ Get_Texture miss binds MissingTexture (magenta), never disables texturing.
-            // W3DAssetManager.cpp:127-225; dx8wrapper.cpp:2875-2889.
+        if !has_bound_texture {
+            // C++ Get_Texture miss binds MissingTexture (magenta), never disables
+            // texturing and never falls back to unmodulated white output.
+            // W3DAssetManager.cpp:127-225; dx8wrapper.cpp:2875-2889. This includes
+            // the 13 in-match passes whose stages resolve empty (`stages=[]`):
+            // they previously rendered unmodulated white; they now carry the
+            // shared `w3d_missing_texture.tga` identity so missing texture data
+            // is visible exactly as retail renders an unresolvable texture.
             pass.set_texture(0, self.ensure_fallback_texture()?);
         }
         Self::assign_vertex_colors_for_pass(&mut pass, mesh, pass_index);
@@ -684,15 +692,37 @@ impl ForwardPass {
         } else {
             TextureFormat::Rgba8Unorm
         };
+        // C++ W3DTextureLoad (W3DAssetManager) hands the rasterizer uncompressed
+        // 32-bit surfaces. The mesh bind path (MeshRenderManager::
+        // ensure_gpu_texture_view) can only upload 32-bit RGBA payloads — a DXT
+        // payload fails its width*height*4 length guard and the pass falls back
+        // to the white missing-texture, which painted every compressed-DDS unit
+        // texture (AVChinook.dds / Housecolor2.dds from Textures.big) white.
+        // Decode block-compressed payloads to RGBA8 here, matching the
+        // asset-lane fallback in TextureManager::create_gpu_texture.
+        let data = match raw.dds_compression {
+            Some(DdsCompression::Dxt1) => Some(
+                decode_dxt1(&raw.data, raw.width, raw.height)
+                    .map_err(|e| anyhow::anyhow!("DXT1 decode for '{}': {e}", texture_name)),
+            ),
+            Some(DdsCompression::Dxt3) => Some(
+                decode_dxt3(&raw.data, raw.width, raw.height)
+                    .map_err(|e| anyhow::anyhow!("DXT3 decode for '{}': {e}", texture_name)),
+            ),
+            Some(DdsCompression::Dxt5) => Some(
+                decode_dxt5(&raw.data, raw.width, raw.height)
+                    .map_err(|e| anyhow::anyhow!("DXT5 decode for '{}': {e}", texture_name)),
+            ),
+            None => None,
+        };
+        let data = data.transpose()?.unwrap_or_else(|| raw.data.clone());
 
         let mut texture = TextureClass::with_format(texture_name, raw.width, raw.height, format);
         texture
-            .replace_pixels(raw.data.clone())
+            .replace_pixels(data)
             .map_err(|e| anyhow::anyhow!("Failed to upload pixels for '{}': {e}", texture_name))?;
-
         Ok(Arc::new(texture))
     }
-
     pub(super) fn build_vertex_material(material: &W3DMaterial) -> VertexMaterialClass {
         let mut vm = VertexMaterialClass::new(&material.name);
         vm.diffuse = glam::Vec3::new(

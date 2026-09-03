@@ -408,7 +408,7 @@ impl Object {
             VeterancyLevel::Heroic => Some("HEROIC"),
         };
         if let Some(level_str) = level_name {
-            if let Ok(center) = crate::upgrade::center::THE_UPGRADE_CENTER.read() {
+            if let Ok(center) = crate::upgrade::center::get_upgrade_center().read() {
                 if let Some(upgrade) = center.find_veterancy_upgrade(level_str) {
                     self.give_upgrade(&upgrade);
                 }

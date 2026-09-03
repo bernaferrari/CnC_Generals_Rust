@@ -519,6 +519,9 @@ impl CameraClass {
         self.projection_matrix = projection_matrix;
         // Update view-projection matrix
         self.view_projection_matrix = self.projection_matrix * self.view_matrix;
+        // The caller installed exact matrices; treat the cache as fresh so a
+        // later dirty-rebuild cannot replace them with view-plane defaults.
+        self.matrices_dirty = false;
         self.update_frustum();
     }
 
@@ -765,7 +768,7 @@ impl RenderObjClass for CameraClass {
 
 impl Clone for CameraClass {
     fn clone(&self) -> Self {
-        let mut cloned = Self {
+        let cloned = Self {
             name: self.name.clone(),
             transform: self.transform,
             transform_identity: self.transform_identity,
@@ -785,13 +788,17 @@ impl Clone for CameraClass {
             view_matrix: self.view_matrix,
             projection_matrix: self.projection_matrix,
             view_projection_matrix: self.view_projection_matrix,
-            matrices_dirty: true, // Force recalculation
+            // The cached view/projection matrices are valid data: forward
+            // render installs them explicitly (set_view_matrix /
+            // set_projection_matrix). Rebuilding here from view-plane/clip
+            // defaults (the C++ Update_Frustum path) would silently replace
+            // the tactical projection with the 90°/near-1/far-1000 defaults
+            // and push every mesh behind the terrain's depth values.
+            matrices_dirty: self.matrices_dirty,
             frustum: self.frustum.clone(),
             ref_count: std::sync::atomic::AtomicU32::new(1),
         };
 
-        cloned.update_matrices();
-        cloned.update_frustum();
         cloned
     }
 }

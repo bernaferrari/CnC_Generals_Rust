@@ -762,7 +762,7 @@ impl PathfindingSystem {
 
     /// Leftover `should_use_direct_path_for_line_passable_non_final_goal` leftover-installed
     /// onto live terrain (pinched + passable, no occupancy). Does not consult leftover
-    /// `THE_AI` pathfinder — that grid is not the live map.
+    /// `the_ai` pathfinder — that grid is not the live map.
     pub fn leftover_should_use_direct_path_for_line_passable_non_final_goal(
         &self,
         is_final_goal: bool,

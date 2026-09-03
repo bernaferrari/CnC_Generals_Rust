@@ -9,6 +9,16 @@
 )]
 use super::*;
 
+/// C++ `WW3DAssetManager::Get_Texture` parity (W3DAssetManager.cpp:127-225):
+/// resolves a W3D pass-texture name to a hydrated `TextureClass` (decoded
+/// RGBA8 pixels). The host installs an archive-backed implementation; the mesh
+/// manager defers to it when a pass texture carries only its W3D name, then
+/// uploads the returned pixels through the same first-bind path as CPU-only
+/// pass textures.
+pub type MeshPassTextureProvider =
+    Arc<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
+
+
 #[derive(Clone)]
 pub struct PreparedMeshModel {
     vertex_buffer: Arc<wgpu::Buffer>,
@@ -235,9 +245,16 @@ impl RenderPassResources {
 pub struct MeshRenderManager {
     gpu_device: Arc<GpuDevice>,
     preparedmodels: HashMap<usize, Arc<PreparedMeshModel>>,
+    /// Lazily uploaded GPU views for pass textures that carry CPU-only
+    /// pixels. C++ parity: WW3DAssetManager::Get_Texture creates the D3D
+    /// texture on first use (W3DAssetManager.cpp:127-225); the port's pass
+    /// textures are built with pixel data but no GPU upload, so the mesh
+    /// manager owns the first-bind upload, keyed by texture name.
+    gpu_texture_views: Mutex<HashMap<String, Arc<wgpu::TextureView>>>,
     stats: MeshRenderStats,
     pipeline_mgr: WgpuPipelineManager,
     asset_manager: Option<Arc<Mutex<AssetManager>>>,
+    pass_texture_provider: Option<MeshPassTextureProvider>,
     color_format: wgpu::TextureFormat,
     depth_format: Option<wgpu::TextureFormat>,
     fallback_textures: MeshFallbackTextures,
@@ -290,9 +307,11 @@ impl MeshRenderManager {
         Self {
             gpu_device,
             preparedmodels: HashMap::new(),
+            gpu_texture_views: Mutex::new(HashMap::new()),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
             asset_manager: None,
+            pass_texture_provider: None,
             color_format: wgpu::TextureFormat::Bgra8UnormSrgb,
             depth_format: Some(wgpu::TextureFormat::Depth32Float),
             fallback_textures,
@@ -355,6 +374,14 @@ impl MeshRenderManager {
         self.asset_manager = Some(asset_manager);
         Ok(())
     }
+    /// Install the host's archive-backed pass-texture resolver (C++
+    /// `WW3DAssetManager::Get_Texture` parity). Called once at renderer
+    /// initialization; the mesh manager consults it only for W3D pass
+    /// textures that carry a name but no pixels.
+    pub fn set_pass_texture_provider(&mut self, provider: MeshPassTextureProvider) {
+        self.pass_texture_provider = Some(provider);
+    }
+
 
     fn create_fallback_textures(
         device: &wgpu::Device,
@@ -1244,17 +1271,16 @@ impl MeshRenderManager {
         // Get the pass index for filtering
         let pass_index = pass.get_pass_index();
 
-        // Find the index range for this specific pass
+        // C++ DX8 mesh rendering semantics (MeshClass::Render_Material_Pass /
+        // DX8PolygonRendererList): a material pass only re-draws polygon
+        // renderers authored for that pass index. The base pass (0) owns the
+        // geometry ranges resolved in `compute_pass_index_ranges`; a pass with
+        // no authored range (pass_index >= ranges.len() or a (start, 0) entry)
+        // owns no geometry and must not fall back to re-drawing the whole
+        // mesh with the wrong pass state.
         let (start_index, count) = if pass_index < prepared.pass_index_ranges.len() {
             prepared.pass_index_ranges[pass_index]
-        } else if !prepared.pass_index_ranges.is_empty() {
-            // Fallback to first range if pass index is out of bounds
-            prepared.pass_index_ranges[0]
-        } else if prepared.index_count > 0 {
-            // Fallback: render all indices (backward compatibility)
-            (0, prepared.index_count)
         } else {
-            // Empty mesh
             (0, 0)
         };
 
@@ -1406,6 +1432,38 @@ impl MeshRenderManager {
                     sampler,
                 };
             }
+            // CPU-only pass texture (pixels without a GPU upload): perform the
+            // first-bind upload now instead of silently substituting the white
+            // fallback, which painted units/buildings untextured.
+            if let Some(view) = self.ensure_gpu_texture_view(texture) {
+                let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
+                let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
+                return StageResources {
+                    view_2d: view,
+                    view_cube: self.fallback_textures.view_cube.clone(),
+                    sampler,
+                };
+            }
+            // W3D placeholder pass texture (name only, no pixels/view):
+            // resolve it through the host-installed archive-backed provider
+            // (C++ WW3DAssetManager::Get_Texture parity) and upload the
+            // hydrated pixels through the same first-bind path. Resolving by
+            // name means the upload cache above serves every later frame.
+            if let Some(provider) = self.pass_texture_provider.as_ref() {
+                if let Some(hydrated) = provider(texture.get_name()) {
+                    if let Some(view) = self.ensure_gpu_texture_view(&hydrated) {
+                        let sampler_desc =
+                            sampler_descriptor_for_settings(&hydrated.stage_settings);
+                        let sampler =
+                            Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
+                        return StageResources {
+                            view_2d: view,
+                            view_cube: self.fallback_textures.view_cube.clone(),
+                            sampler,
+                        };
+                    }
+                }
+            }
         }
 
         StageResources {
@@ -1413,6 +1471,85 @@ impl MeshRenderManager {
             view_cube: self.fallback_textures.view_cube.clone(),
             sampler: self.default_sampler.clone(),
         }
+    }
+
+    /// Upload a CPU-only pass texture on first bind and cache its view,
+    /// keyed by texture name. Only 32-bit uncompressed formats are uploaded;
+    /// anything else keeps the manager's fallback texture.
+    fn ensure_gpu_texture_view(&self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
+        let key = texture.get_name().to_ascii_lowercase();
+        if let Ok(cache) = self.gpu_texture_views.lock() {
+            if let Some(view) = cache.get(&key) {
+                return Some(Arc::clone(view));
+            }
+        }
+
+        let pixels = texture.raw_pixels();
+        let (width, height) = (texture.width, texture.height);
+        if pixels.is_empty() || width == 0 || height == 0 {
+            return None;
+        }
+        let wgpu_format = match texture.format {
+            crate::texture_system::TextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
+            crate::texture_system::TextureFormat::Rgba8UnormSrgb => {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            }
+            crate::texture_system::TextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8Unorm,
+            crate::texture_system::TextureFormat::Bgra8UnormSrgb => {
+                wgpu::TextureFormat::Bgra8UnormSrgb
+            }
+            _ => return None,
+        };
+        let expected = width as usize * height as usize * 4;
+        if pixels.len() < expected {
+            return None;
+        }
+
+        let device = self.gpu_device.wgpu_device();
+        let queue = self.gpu_device.queue();
+        let gpu_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&format!("MeshManager Pass Texture {}", texture.get_name())),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &gpu_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels[..expected],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = Arc::new(gpu_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+
+        if let Ok(mut cache) = self.gpu_texture_views.lock() {
+            if let Some(existing) = cache.get(&key) {
+                // Another thread won the upload race; reuse its view.
+                return Some(Arc::clone(existing));
+            }
+            cache.insert(key, Arc::clone(&view));
+        }
+        Some(view)
     }
 
     pub fn render_polygon_renderer<'rp>(

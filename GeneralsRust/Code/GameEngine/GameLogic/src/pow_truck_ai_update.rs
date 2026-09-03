@@ -927,7 +927,7 @@ impl POWTruckAIUpdate {
             );
             if closest_target.is_none() || dist_sq < closest_dist_sq {
                 let path_ok = loco_set.as_ref().is_some_and(|loco| {
-                    crate::ai::THE_AI
+                    crate::ai::the_ai()
                         .read()
                         .ok()
                         .and_then(|the_ai| the_ai.pathfinder())

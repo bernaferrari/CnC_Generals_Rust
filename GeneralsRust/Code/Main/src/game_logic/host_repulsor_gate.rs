@@ -54,11 +54,11 @@ pub fn from_aidata() -> bool {
     RETAIL_ENABLE_REPULSORS
 }
 
-/// Apply leftover `THE_AI` + process-wide gate from the resolved AIData value.
+/// Apply leftover `the_ai` + process-wide gate from the resolved AIData value.
 pub fn apply_resolved_to_leftover_and_gate() -> bool {
     let enabled = from_aidata();
     set_enabled(enabled);
-    if let Ok(ai) = gamelogic::ai::THE_AI.write() {
+    let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.write() {
         if let Ok(mut data) = ai.get_ai_data().write() {
             data.enable_repulsors = enabled;
         }

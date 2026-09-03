@@ -643,7 +643,7 @@ impl AIPlayer {
             out
         };
         let loco = gamelogic::locomotor::LocomotorSet::from_surfaces(surfaces);
-        let leftover_pf = gamelogic::ai::THE_AI
+        let ai_store = gamelogic::ai::the_ai();let leftover_pf = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder());

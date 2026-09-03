@@ -813,7 +813,7 @@ impl PartitionManager {
         }
         // Impassable / CLEAR_CELLS_ONLY: C++ floors to PATHFIND_CELL_SIZE.
         {
-            use crate::ai::THE_AI;
+            use crate::ai::the_ai;
             use crate::ai::pathfind_astar::PathfindCellType;
             let cell_size = crate::path::PATHFIND_CELL_SIZE_F;
             let snapped = Coord3D::new(
@@ -822,7 +822,7 @@ impl PartitionManager {
                 pos.z,
             );
             let snapped_pf = crate::common::Coord3D::new(snapped.x, snapped.y, snapped.z);
-            let cell_type = THE_AI.read().ok().and_then(|ai| {
+            let ai_store = the_ai();let cell_type = ai_store.read().ok().and_then(|ai| {
                 ai.pathfinder().and_then(|pf| {
                     pf.read()
                         .ok()
@@ -936,9 +936,9 @@ impl PartitionManager {
 
         if let Some(source_id) = options.source_to_path_to_dest {
             if let Some(src) = self.objects.get(&source_id) {
-                use crate::ai::THE_AI;
+                use crate::ai::the_ai;
                 let src_pos = src.position;
-                let exists = THE_AI.read().ok().and_then(|ai| {
+                let ai_store = the_ai();let exists = ai_store.read().ok().and_then(|ai| {
                     ai.pathfinder().and_then(|pf| {
                         pf.read().ok().and_then(|pf| {
                             OBJECT_REGISTRY.with_object(source_id, |obj| {

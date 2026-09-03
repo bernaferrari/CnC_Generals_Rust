@@ -774,7 +774,7 @@ impl PathfindingSystem {
 
     /// Public line-clear check for path validation.
     pub fn is_line_clear_between(&self, from: &Coord3D, to: &Coord3D) -> bool {
-        if let Ok(ai_guard) = super::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(pf) = pathfinder.read() {
                     return pf.is_line_clear_between(from, to);
@@ -803,7 +803,7 @@ impl PathfindingSystem {
     /// Request a path (async)
     pub fn request_path(&mut self, request: PathRequest) {
         // Prefer classic AIPathfind for fidelity.
-        if let Ok(ai_guard) = super::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(pf) = pathfinder.read() {
                     let classic_request = ClassicPathRequest {

@@ -609,7 +609,7 @@ fn set_path_from_waypoint_prepends_current_position_like_cpp() {
         "Terminal".to_string(),
     );
     let raw_terminal = Coord3D::new(33.8, 39.2, 0.0);
-    let expected_terminal = THE_AI
+    let ai_store = the_ai();let expected_terminal = ai_store
         .read()
         .ok()
         .and_then(|ai| ai.pathfinder())

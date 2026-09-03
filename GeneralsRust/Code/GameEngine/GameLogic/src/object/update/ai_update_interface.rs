@@ -1035,7 +1035,7 @@ impl AIUpdateInterface {
                 if victim_above {
                     true
                 } else {
-                    let view_blocked = crate::ai::THE_AI
+                    let ai_store = crate::ai::the_ai();let view_blocked = ai_store
                         .read()
                         .ok()
                         .and_then(|ai| ai.pathfinder())
@@ -1193,7 +1193,7 @@ impl AIUpdateInterface {
             return false;
         }
 
-        let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             self.path_timestamp = TheGameLogic::get_frame();
             self.blocked_frames = 0;
             self.is_blocked_and_stuck = false;
@@ -1280,7 +1280,7 @@ impl AIUpdateInterface {
             return false;
         }
 
-        let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             self.path_timestamp = TheGameLogic::get_frame();
             self.blocked_frames = 0;
             self.is_blocked_and_stuck = false;
@@ -1493,7 +1493,7 @@ impl AIUpdateInterface {
             return false;
         }
 
-        let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
         let Ok(pathfinder) = pathfinder.read() else {
@@ -1912,7 +1912,7 @@ impl AIUpdateInterface {
             return None;
         };
 
-        let pathfinder_arc = crate::ai::THE_AI
+        let ai_store = crate::ai::the_ai();let pathfinder_arc = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())?;
@@ -2842,7 +2842,7 @@ mod tests {
 
     impl Drop for PathfinderCellCleanup {
         fn drop(&mut self) {
-            let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder())
+            let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder())
             else {
                 return;
             };
@@ -3734,7 +3734,7 @@ mod tests {
         OBJECT_REGISTRY.register_object(object_id, &object);
         let _object_cleanup = RegisteredObjectCleanup(object_id);
 
-        let pathfinder = crate::ai::THE_AI
+        let ai_store = crate::ai::the_ai();let pathfinder = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())

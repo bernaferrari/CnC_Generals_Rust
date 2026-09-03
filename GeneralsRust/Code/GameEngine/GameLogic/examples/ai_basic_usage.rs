@@ -3,7 +3,7 @@
 //! This example demonstrates how to use the converted AI system.
 
 use gamelogic::{
-    THE_AI,
+    the_ai,
     ai::{AiCommandInterface, AiSideInfo, AttitudeType, CommandSourceType},
     common::Coord3D,
     initialize, reset, update,
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create an AI group
     println!("Creating AI group...");
     let group = {
-        let mut ai = THE_AI.write().unwrap();
+        let ai_store = the_ai();let mut ai = ai_store.write().unwrap();
         ai.create_group()
     };
 
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test AI data configuration
     println!("\nTesting AI data configuration...");
     {
-        let ai_data = THE_AI.read().unwrap().get_ai_data();
+        let ai_store = the_ai();let ai_data = ai_store.read().unwrap().get_ai_data();
         let mut data = ai_data.write().unwrap();
 
         // Add side information
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     {
-        let mut ai = THE_AI.write().unwrap();
+        let ai_store = the_ai();let mut ai = ai_store.write().unwrap();
         ai.destroy_group(group_id)?;
         println!("✓ Destroyed group {}", group_id);
 

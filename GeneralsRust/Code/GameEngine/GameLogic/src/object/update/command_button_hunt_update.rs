@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
 
 use crate::action_manager::TheActionManager;
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::command_button::{CommandButtonId, MAX_COMMANDS_PER_SET};
 use crate::commands::command::CommandType;
 use crate::common::types::ControlBarInterface;
@@ -463,7 +463,7 @@ impl CommandButtonHuntUpdate {
         let mut best_target = None;
         let mut best_priority: i32 = 0;
         let mut best_raw_priority: i32 = 0;
-        let attack_priority_distance_modifier = THE_AI
+        let ai_store = the_ai();let attack_priority_distance_modifier = ai_store
             .read()
             .ok()
             .and_then(|ai| {

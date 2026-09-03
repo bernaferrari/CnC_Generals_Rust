@@ -344,6 +344,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         68 => Ok(KindOf::Bridge),
         69 => Ok(KindOf::BridgeTower),
         70 => Ok(KindOf::StealthGarrison),
+        71 => Ok(KindOf::TechBuilding),
         72 => Ok(KindOf::LandmarkBridge),
         73 => Ok(KindOf::AutoRallypoint),
         74 => Ok(KindOf::WalkOnTopOfWall),
@@ -630,6 +631,29 @@ mod tests {
         ] {
             assert_eq!(write_kind_of_variant(kind_of), expected_id);
             assert_eq!(read_kind_of_variant(expected_id).unwrap(), kind_of);
+        }
+    }
+
+    #[test]
+    fn every_kind_of_xfer_ordinal_round_trips() {
+        // Save/load contract: every ordinal write_kind_of_variant emits must be
+        // loadable. A write arm appended without its read arm fails the whole
+        // load at read_kind_of_variant ("Invalid KindOf variant: 71") — the
+        // exact failure TechBuilding=71 shipped with. ALL_KIND_OF is the
+        // declaration-order variant census; write/read maps must be a total
+        // bijection over it.
+        let mut seen = std::collections::HashSet::new();
+        for kind in crate::game_logic::KindOf::ALL_KIND_OF {
+            let ordinal = write_kind_of_variant(*kind);
+            assert!(
+                seen.insert(ordinal),
+                "KindOf::{kind:?} reuses xfer ordinal {ordinal}"
+            );
+            assert_eq!(
+                read_kind_of_variant(ordinal).unwrap(),
+                *kind,
+                "KindOf::{kind:?} saves as {ordinal} but does not load"
+            );
         }
     }
 }

@@ -138,7 +138,7 @@ impl TerrainLogic {
         );
         let start_cell = GridCoord::from_world(&start_world);
         let end_cell = GridCoord::from_world(&end_world);
-        let ai_guard = THE_AI.read().ok()?;
+        let ai_store = the_ai();let ai_guard = ai_store.read().ok()?;
         let pathfinder = ai_guard.pathfinder()?;
         let mut pathfinder_guard = pathfinder.write().ok()?;
         Some(pathfinder_guard.add_bridge_ex(

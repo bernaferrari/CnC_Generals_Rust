@@ -7,7 +7,7 @@ use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::action_manager::ActionManager;
-use crate::ai::{CommandSourceType, THE_AI};
+use crate::ai::{CommandSourceType, the_ai};
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     AsciiString, Bool, Coord3D, INVALID_ID, Int, KindOf, MODELCONDITION_ACTIVELY_CONSTRUCTING,
@@ -533,7 +533,7 @@ impl DozerAIUpdate {
             false
         };
         if is_ai {
-            if let Ok(ai) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
                 range *= ai
                     .get_ai_data()
                     .read()

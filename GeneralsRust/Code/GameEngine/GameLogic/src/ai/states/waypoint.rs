@@ -31,7 +31,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -174,7 +174,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
                 }
             }
             if let Some(group_id) = owner_guard.get_group_id() {
-                if let Ok(ai_lock) = THE_AI.read() {
+                let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
                     if let Some(group) = ai_lock.find_group(group_id) {
                         if let Ok(mut group_guard) = group.write() {
                             speed = group_guard.get_speed();
@@ -326,7 +326,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
                 if let Ok(player_guard) = player.read() {
                     if player_guard.is_skirmish_ai() {
                         if let Some(group_id) = owner_guard.get_group_id() {
-                            if let Ok(ai_lock) = THE_AI.read() {
+                            let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
                                 if let Some(group) = ai_lock.find_group(group_id) {
                                     if let Ok(group_guard) = group.read() {
                                         if let Some(center) = group_guard.get_center() {
@@ -502,7 +502,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
         let mut group_offset = Coord2D::new(0.0, 0.0);
         if self.move_as_group {
             if let Some(group_id) = owner_guard.get_group_id() {
-                if let Ok(ai_lock) = THE_AI.read() {
+                let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
                     if let Some(group) = ai_lock.find_group(group_id) {
                         if let Ok(mut group_guard) = group.write() {
                             speed = group_guard.get_speed();

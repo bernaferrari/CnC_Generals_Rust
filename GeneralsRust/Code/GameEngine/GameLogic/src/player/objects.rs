@@ -204,7 +204,7 @@ impl Player {
             )
         };
 
-        if let Ok(ai_guard) = crate::ai::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinding) = ai_guard.pathfinding_system() {
                 if let Ok(mut system) = pathfinding.write() {
                     let layer =

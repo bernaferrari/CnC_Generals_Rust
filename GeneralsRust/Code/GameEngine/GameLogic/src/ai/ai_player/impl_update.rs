@@ -23,7 +23,7 @@ impl AIPlayer {
         // C++ AIPlayer ctor: m_teamSeconds = TheAI->getAiData()->m_teamSeconds;
         // Structure interval is read live from AIData each arm (0.0 is valid = every tick).
         // Prefer live AIData; fall back to retail Default/AIData.ini constants when unloaded.
-        let (team_seconds, structure_seconds) = if let Ok(ai) = THE_AI.read() {
+        let ai_store = the_ai(); let (team_seconds, structure_seconds) = if let Ok(ai) = ai_store.read() {
             if let Ok(data) = ai.get_ai_data().read() {
                 let team = if data.team_seconds > 0.0 {
                     data.team_seconds
@@ -464,7 +464,7 @@ impl AIPlayer {
             return true;
         };
 
-        let aidata_r = THE_AI.read().ok().and_then(|ai| {
+        let ai_store = the_ai();let aidata_r = ai_store.read().ok().and_then(|ai| {
             ai.get_ai_data()
                 .read()
                 .ok()

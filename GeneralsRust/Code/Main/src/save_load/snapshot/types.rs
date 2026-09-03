@@ -59,8 +59,13 @@ use std::time::SystemTime;
 /// `ObjectSnapshot` records stay aligned with v1-v18 streams. Version 20
 /// appends C++ `StealthUpdate::xfer` disguise identity / transition
 /// (`StealthUpdate.cpp:1141-1177`) as a world tail so nested object records
-/// stay aligned with v1-v19 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 20;
+/// stay aligned with v1-v20 streams. Version 21 appends the per-weapon
+/// clip/splash/reload residual (clip_size, clip_reload_time, splash_radius,
+/// reloading_clip, last_bonus_rof) that the serde payload always carried but
+/// the historical direct-Xfer `Weapon` record dropped — C++ `Weapon::xfer` v3
+/// (Weapon.cpp:3364-3367) persists `m_status` RELOADING_CLIP + `m_ammoInClip`
+/// so a mid-clip-reload slot resumes after load.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 21;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -68,7 +73,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 20;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 20;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 21;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -87,6 +92,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION: u32 = 17;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION: u32 = 18;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION: u32 = 19;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION: u32 = 20;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION: u32 = 21;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -97,7 +103,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
         1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19
-        | 20 => Ok(()),
+        | 20 | 21 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,

@@ -164,7 +164,7 @@ impl AIHuntState {
     }
 
     fn scan_for_enemies(&mut self, context: &mut AIStateMachineContext) -> Option<ObjectID> {
-        let ai = THE_AI.read().ok()?;
+        let ai_store = the_ai();let ai = ai_store.read().ok()?;
         let attack_priority = resolve_attack_priority_info_for_object(context.owner_id);
         ai.find_closest_enemy(
             context.owner_id,
@@ -503,7 +503,7 @@ impl AIState for AIMoveAwayFromRepulsorsState {
             return StateReturnType::Failed;
         };
 
-        let enemy_id = THE_AI
+        let ai_store = the_ai();let enemy_id = ai_store
             .read()
             .ok()
             .and_then(|ai| {
