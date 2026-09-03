@@ -9,7 +9,7 @@ use super::ScriptAction;
 use super::helpers::*;
 use crate::action_manager::TheActionManager;
 use crate::ai::integration::with_ai_integration_mut;
-use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, THE_AI};
+use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, GuardMode, the_ai};
 use crate::commands::command::CommandType;
 use crate::commands::{Command, CommandPriority, QueuedCommand, get_command_queue_manager};
 use crate::common::PlayerIndex;

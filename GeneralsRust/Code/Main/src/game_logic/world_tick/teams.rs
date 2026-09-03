@@ -89,9 +89,9 @@ fn leftover_wander_tick_timer(can_be_repulsed: bool, timer: i32, wait_frames: i3
     }
 }
 
-/// Leftover `THE_AI.find_closest_repulsor` then live leftover-faithful host port.
+/// Leftover `the_ai.find_closest_repulsor` then live leftover-faithful host port.
 fn leftover_wander_has_repulsor(logic: &GameLogic, id: ObjectId, vision: f32) -> bool {
-    let leftover_hit = gamelogic::ai::THE_AI
+    let ai_store = gamelogic::ai::the_ai();let leftover_hit = ai_store
         .read()
         .ok()
         .and_then(|ai| ai.find_closest_repulsor(id.0, vision).ok())
@@ -205,7 +205,7 @@ impl GameLogic {
             .get_active()
             .map(|d| (d.alert_range_modifier, d.aggressive_range_modifier));
         let leftover = leftover.or_else(|| {
-            gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+            gamelogic::ai::the_ai().read().ok().and_then(|ai| {
                 ai.get_ai_data()
                     .read()
                     .ok()
@@ -295,7 +295,7 @@ impl GameLogic {
             .map(|d| d.guard_chase_unit_frames)
             .filter(|&frames| frames > 0)
             .or_else(|| {
-                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
                     ai.get_ai_data()
                         .read()
                         .ok()
@@ -315,7 +315,7 @@ impl GameLogic {
             .map(|d| d.guard_enemy_scan_rate)
             .filter(|&rate| rate > 0)
             .or_else(|| {
-                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
                     ai.get_ai_data()
                         .read()
                         .ok()
@@ -333,7 +333,7 @@ impl GameLogic {
             .map(|d| d.guard_enemy_return_scan_rate)
             .filter(|&rate| rate > 0)
             .or_else(|| {
-                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
                     ai.get_ai_data()
                         .read()
                         .ok()

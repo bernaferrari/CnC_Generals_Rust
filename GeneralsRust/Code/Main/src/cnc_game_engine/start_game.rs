@@ -857,6 +857,18 @@ impl CnCGameEngine {
             }
         }
 
+        // C++ W3DRadar.cpp:977-993 builds the radar terrain texture at newMap
+        // with WorldHeightMap tiles already resident; here the render pipeline
+        // hydrates the visual (heightmap + source tiles) asynchronously, so
+        // Radar::newMap may have painted the band black. Re-run
+        // buildTerrainTexture once hydration completes (C++ parity:
+        // W3DRadar::refreshTerrain, W3DRadar.cpp:1421-1432).
+        if let Ok(mut radar) =
+            game_engine::common::system::radar::get_radar_system().write()
+        {
+            radar.refresh_terrain();
+        }
+
         // Presentation already seeded by caller; road bake cannot dual-read live GameLogic.
         if let Err(err) = render_pipeline.sync_runtime_map_roads() {
             warn!(

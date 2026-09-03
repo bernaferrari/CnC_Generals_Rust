@@ -140,7 +140,7 @@ impl TerrainLogic {
         let bridge_object_id = bridge.get_bridge_info().bridge_object_id;
         let bridge_layer = bridge.get_layer();
 
-        if let Some(ai_guard) = THE_AI.read().ok() {
+        let ai_store = the_ai(); if let Some(ai_guard) = ai_store.read().ok() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pathfinder_guard) = pathfinder.write() {
                     pathfinder_guard.change_bridge_state(bridge_layer, false);
@@ -362,7 +362,7 @@ impl TerrainLogic {
             return false;
         };
 
-        if let Some(ai_guard) = THE_AI.read().ok() {
+        let ai_store = the_ai(); if let Some(ai_guard) = ai_store.read().ok() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pathfinder_guard) = pathfinder.write() {
                     pathfinder_guard.change_bridge_state(bridge_layer, false);

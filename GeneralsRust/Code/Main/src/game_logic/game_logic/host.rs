@@ -10,6 +10,12 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// GameLogic-owned engine stores (C++ TheUpgradeCenter / TheAI context).
+    /// Installed as the active bundle on construction so every
+    /// `the_ai()` / `get_upgrade_center()` access in this world resolves
+    /// here; uninstalled on drop (see `impl Drop for GameLogic`).
+    pub(crate) engine_stores:
+        std::sync::Arc<gamelogic::system::engine_stores::EngineStores>,
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
@@ -1312,6 +1318,15 @@ pub struct GameLogic {
     pub(super) replay_observer_player_id: Option<u32>,
     /// C++ startNewGame installs MultiplayerScripts.scb when numTeams > 1.
     pub(super) install_multiplayer_scripts: bool,
+}
+
+impl Drop for GameLogic {
+    fn drop(&mut self) {
+        // C++ TheUpgradeCenter/TheAI live and die with the owning world.
+        // Deactivate this world's bundle only if a newer world has not
+        // already replaced it as the active store context.
+        gamelogic::system::engine_stores::uninstall_active_if_current(&self.engine_stores);
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1,6 +1,6 @@
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::states::{AIAttackObjectState, AIEnterState, AIPickUpCrateState};
-use crate::ai::{GuardMode, THE_AI, object_registry::get_legacy_object, vision_factors};
+use crate::ai::{GuardMode, the_ai, object_registry::get_legacy_object, vision_factors};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
@@ -88,7 +88,7 @@ fn last_damage_overrides_nemesis(
 }
 
 fn get_guard_enemy_scan_rate() -> u32 {
-    let Ok(ai_guard) = THE_AI.read() else {
+    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
         return 30;
     };
     let data = ai_guard.get_ai_data();
@@ -99,7 +99,7 @@ fn get_guard_enemy_scan_rate() -> u32 {
 }
 
 fn get_guard_chase_unit_frames() -> u32 {
-    let Ok(ai_guard) = THE_AI.read() else {
+    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
         return 0;
     };
     let data = ai_guard.get_ai_data();
@@ -110,7 +110,7 @@ fn get_guard_chase_unit_frames() -> u32 {
 }
 
 fn get_guard_enemy_return_scan_rate() -> u32 {
-    let Ok(ai_guard) = THE_AI.read() else {
+    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
         return 60;
     };
     let data = ai_guard.get_ai_data();
@@ -830,7 +830,7 @@ impl AIGuardMachine {
     }
 
     pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
-        let ai = THE_AI.read().ok();
+        let ai_store = the_ai();let ai = ai_store.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
                 obj_id,
@@ -1444,7 +1444,7 @@ impl ClassicState for AIGuardOuterState {
         }
 
         let mut range = {
-            let ai = THE_AI
+            let ai_store = the_ai();let ai = ai_store
                 .read()
                 .map_err(|_| "guard outer AI lock poisoned".to_string())?;
             ai.get_adjusted_vision_range_for_object(

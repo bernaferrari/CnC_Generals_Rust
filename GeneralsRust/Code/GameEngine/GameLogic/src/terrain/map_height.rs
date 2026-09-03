@@ -544,7 +544,7 @@ impl TerrainLogic {
     }
 
     pub(super) fn get_wall_height(&self) -> Real {
-        THE_AI
+        the_ai()
             .read()
             .ok()
             .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))
@@ -552,7 +552,7 @@ impl TerrainLogic {
     }
 
     pub(super) fn is_point_on_wall(&self, pos: &Coord3D) -> bool {
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(pathfinder_guard) = pathfinder.read() {
                     return pathfinder_guard.is_point_on_wall(pos);

@@ -718,7 +718,7 @@ impl AIPlayer {
     /// C++ rebuild delay frames from AIData `m_rebuildDelaySeconds` (default path).
     /// Retail AIData = 30; zero/unloaded AIData falls back to REBUILD_DELAY_SECONDS.
     pub(super) fn rebuild_delay_frames(&self) -> u32 {
-        let seconds = THE_AI
+        let ai_store = the_ai();let seconds = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -743,7 +743,7 @@ impl AIPlayer {
         self.ready_to_build_structure = false;
         // Live AIData structureSeconds (0.0 is valid retail). Keep field snapshot
         // in sync for xfer/tests that set structure_seconds directly.
-        let structure_seconds = THE_AI
+        let ai_store = the_ai();let structure_seconds = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.structure_seconds))
@@ -774,7 +774,7 @@ impl AIPlayer {
 
     /// Retail AIData structure wealth params; zero AIData fields → Default/AIData.ini fallbacks.
     pub(super) fn structure_wealth_params() -> (i32, i32, f32, f32) {
-        THE_AI
+        the_ai()
             .read()
             .ok()
             .and_then(|ai| {
@@ -813,7 +813,7 @@ impl AIPlayer {
 
     /// Retail AIData team wealth params; zero AIData fields → Default/AIData.ini fallbacks.
     pub(super) fn team_wealth_params() -> (i32, i32, f32, f32) {
-        THE_AI
+        the_ai()
             .read()
             .ok()
             .and_then(|ai| {

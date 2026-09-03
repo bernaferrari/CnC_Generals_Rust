@@ -411,7 +411,7 @@ impl AIState for AIWanderState {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
-                let enemy_id = THE_AI
+                let ai_store = the_ai();let enemy_id = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -555,7 +555,7 @@ impl AIState for AIWanderInPlaceState {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
-                let enemy_id = THE_AI
+                let ai_store = the_ai();let enemy_id = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -699,7 +699,7 @@ impl AIState for AIPanicState {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
-                let enemy_id = THE_AI
+                let ai_store = the_ai();let enemy_id = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {

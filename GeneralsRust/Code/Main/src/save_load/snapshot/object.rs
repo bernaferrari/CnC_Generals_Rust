@@ -698,6 +698,29 @@ impl ObjectSnapshot {
             self.weapon_bonus_frenzy_until_frame = 0;
         }
 
+        // v21 appended the per-weapon clip/splash/reload residual. The
+        // historical direct-Xfer `Weapon` record (xfer_helpers
+        // `impl XferData for Weapon`) carries only the ten core fields, so a
+        // mid-clip-reload slot (C++ `Weapon::xfer` v3 persists `m_status`
+        // RELOADING_CLIP + `m_ammoInClip`, Weapon.cpp:3364-3367) reset to
+        // `Weapon::default()` on load while the serde path kept the values.
+        // Append after the v12 gate so older streams keep their layout.
+        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION {
+            xfer.xfer_marker_label("WeaponClipResidual")?;
+            for weapon in &mut self.weapons {
+                xfer.xfer_marker_label("ClipSize")?;
+                xfer.xfer_u32(&mut weapon.clip_size)?;
+                xfer.xfer_marker_label("ClipReloadTime")?;
+                xfer.xfer_f32(&mut weapon.clip_reload_time)?;
+                xfer.xfer_marker_label("SplashRadius")?;
+                xfer.xfer_f32(&mut weapon.splash_radius)?;
+                xfer.xfer_marker_label("ReloadingClip")?;
+                xfer.xfer_bool(&mut weapon.reloading_clip)?;
+                xfer.xfer_marker_label("LastBonusRof")?;
+                xfer.xfer_f32(&mut weapon.last_bonus_rof)?;
+            }
+        }
+
         Ok(())
     }
 }

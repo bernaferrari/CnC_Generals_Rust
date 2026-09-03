@@ -31,7 +31,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -283,7 +283,7 @@ impl ClassicState for AIFollowPathState {
         if let Ok(owner_guard) = owner.read() {
             if owner_guard.get_formation_id() != FormationID::NONE {
                 if let Some(group_id) = owner_guard.get_group_id() {
-                    if let Ok(ai_lock) = THE_AI.read() {
+                    let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
                         if let Some(group) = ai_lock.find_group(group_id) {
                             if let Ok(mut group_guard) = group.write() {
                                 if let Some(ai) = owner_guard.get_ai_update_interface() {

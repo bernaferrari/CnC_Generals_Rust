@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
 use crate::ai::group::GuardMode;
-use crate::ai::{AiCommandType, CommandSourceType, THE_AI};
+use crate::ai::{AiCommandType, CommandSourceType, the_ai};
 use crate::common::ThingTemplate;
 use crate::common::xfer::XferExt;
 use crate::common::{
@@ -1347,7 +1347,7 @@ impl FlightDeckBehavior {
 
         let _ = object_guard.set_position(&creation_pos);
         let _ = object_guard.set_orientation(heading);
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pf_arc) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pf_arc.write() {
                     pf.add_object_to_map(object_id, &[creation_pos], false);

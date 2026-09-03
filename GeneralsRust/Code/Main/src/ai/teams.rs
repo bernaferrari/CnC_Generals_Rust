@@ -160,12 +160,12 @@ impl AIPlayer {
     }
 
     /// AIData `TeamResourcesToStart` (`m_teamResourcesToBuild`). Store first,
-    /// leftover `THE_AI`, then the retail 0.1 residual.
+    /// leftover `the_ai`, then the retail 0.1 residual.
     pub(super) fn team_resources_to_start_frac() -> f32 {
         let from_store = game_engine::common::ini::get_ai_data_store()
             .get_active()
             .map(|d| d.team_resources_to_build);
-        let leftover = gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+        let ai_store = gamelogic::ai::the_ai();let leftover = ai_store.read().ok().and_then(|ai| {
             ai.get_ai_data()
                 .read()
                 .ok()
@@ -1458,10 +1458,10 @@ impl AIPlayer {
         self.next_team_time = current_time + (timer as f32 / LOGIC_FRAMES_PER_SECOND);
     }
 
-    /// Leftover `AIPlayer::team_wealth_params`: THE_AI AIData with retail
+    /// Leftover `AIPlayer::team_wealth_params`: the_ai AIData with retail
     /// Default/AIData.ini fallbacks when a field is zero / unset.
     pub(super) fn team_wealth_params() -> (i32, i32, f32, f32) {
-        gamelogic::ai::THE_AI
+        gamelogic::ai::the_ai()
             .read()
             .ok()
             .and_then(|ai| {

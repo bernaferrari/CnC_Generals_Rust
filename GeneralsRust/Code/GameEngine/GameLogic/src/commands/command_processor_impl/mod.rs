@@ -43,7 +43,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use crate::system::beacon_manager::{BeaconManager, get_beacon_manager};
-use crate::upgrade::center::THE_UPGRADE_CENTER;
+use crate::upgrade::center::get_upgrade_center;
 use crate::weapon::{NO_MAX_SHOTS_LIMIT, WeaponLockType, WeaponSetType, WeaponSlotType};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data as get_engine_global_data;

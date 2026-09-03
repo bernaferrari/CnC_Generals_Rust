@@ -641,10 +641,16 @@ impl ForwardPass {
                 }
             };
 
-            // Update camera state - must happen before queueing meshes
+            // Update camera state - must happen before queueing meshes.
+            // Order matters: set_position marks the camera dirty and would
+            // rebuild the just-installed matrices from view-plane/clip
+            // defaults (90° FOV, near 1, far 1000), so it must run FIRST.
+            // The explicit view/projection are installed last and stay
+            // authoritative (C++ CameraClass::Apply parity: the D3D
+            // projection built from ViewPlane/clip planes is what renders).
+            self.camera.set_position(camera_position);
             self.camera.set_view_matrix(*view_matrix);
             self.camera.set_projection_matrix(*projection_matrix);
-            self.camera.set_position(camera_position);
             let frac = self.tactical_view_height_frac.clamp(0.05, 1.0);
             self.camera
                 .set_viewport(glam::Vec2::new(0.0, 0.0), glam::Vec2::new(1.0, frac));

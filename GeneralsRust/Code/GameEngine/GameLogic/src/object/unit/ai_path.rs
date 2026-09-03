@@ -48,7 +48,7 @@ pub fn leftover_should_use_direct_path_for_line_passable_non_final_goal(
     if surfaces == 0 {
         return false;
     }
-    let Some(ai) = THE_AI.read().ok() else {
+    let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
         return false;
     };
     let Some(pathfinder) = ai.pathfinder() else {
@@ -178,7 +178,7 @@ impl UnitAIUpdate {
         let locomotor_set = get_unit_arc(self.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.locomotor_set.clone()))
             .ok_or_else(|| "unit no longer available".to_string())?;
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return Ok(false);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -231,7 +231,7 @@ impl UnitAIUpdate {
             .map_err(|_| "unit lock poisoned".to_string())?
             .get_position();
 
-        let snapped = THE_AI
+        let ai_store = the_ai();let snapped = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())
@@ -293,8 +293,8 @@ impl UnitAIUpdate {
         }
 
         let request = self.build_classic_path_request(destination, false)?;
-        let path_result =
-            THE_AI
+        let ai_store = the_ai();let path_result =
+            ai_store
                 .read()
                 .ok()
                 .and_then(|ai| ai.pathfinder())
@@ -324,8 +324,8 @@ impl UnitAIUpdate {
         }
 
         self.retry_path = true;
-        let closest_result =
-            THE_AI
+        let ai_store = the_ai();let closest_result =
+            ai_store
                 .read()
                 .ok()
                 .and_then(|ai| ai.pathfinder())
@@ -390,7 +390,7 @@ impl UnitAIUpdate {
         }
 
         let view_blocked = if self.is_doing_ground_movement() {
-            THE_AI
+            the_ai()
                 .read()
                 .ok()
                 .and_then(|ai| ai.pathfinder())
@@ -464,8 +464,8 @@ impl UnitAIUpdate {
         self.destroy_path();
 
         let request = self.build_classic_path_request(destination, false)?;
-        let closest_result =
-            THE_AI
+        let ai_store = the_ai();let closest_result =
+            ai_store
                 .read()
                 .ok()
                 .and_then(|ai| ai.pathfinder())
@@ -522,7 +522,7 @@ impl UnitAIUpdate {
                     .map(|repulsor_guard| *repulsor_guard.get_position())
             })
             .unwrap_or(repulsor_pos1);
-        let repulsed_distance = THE_AI
+        let ai_store = the_ai();let repulsed_distance = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -534,8 +534,8 @@ impl UnitAIUpdate {
             .unwrap_or(0.0);
         let safe_radius = owner_vision_range + repulsed_distance;
         let request = self.build_classic_path_request(owner_pos, false)?;
-        let safe_result =
-            THE_AI
+        let ai_store = the_ai();let safe_result =
+            ai_store
                 .read()
                 .ok()
                 .and_then(|ai| ai.pathfinder())
@@ -627,7 +627,7 @@ impl UnitAIUpdate {
     pub(super) fn queue_path_request_now(&self, destination: Coord3D) -> Result<(), String> {
         let request = self.build_classic_path_request(destination, false)?;
 
-        if let Some(ai) = THE_AI.read().ok() {
+        let ai_store = the_ai(); if let Some(ai) = ai_store.read().ok() {
             if let Some(pathfinder) = ai.pathfinder() {
                 pathfinder
                     .read()

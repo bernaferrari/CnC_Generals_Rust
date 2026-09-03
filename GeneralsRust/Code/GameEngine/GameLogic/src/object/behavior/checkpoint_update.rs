@@ -5,7 +5,7 @@
 //! Author: Matthew D. Campbell / Mark Lorenzen (C++ version)
 //! Rust conversion: 2025
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::{
     GeometryInfo, ModelConditionFlag, ModuleData, ObjectID, Real, UnsignedInt, XferVersion,
 };
@@ -178,12 +178,12 @@ impl CheckpointUpdate {
             obj.set_geometry_info(scan_geometry);
         }
 
-        let enemy = THE_AI.read().ok().and_then(|ai| {
+        let ai_store = the_ai();let enemy = ai_store.read().ok().and_then(|ai| {
             ai.find_closest_enemy(obj_id, vision_range, 0, None, None)
                 .ok()
                 .flatten()
         });
-        let ally = THE_AI
+        let ai_store = the_ai();let ally = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.find_closest_ally(obj_id, vision_range, 0).ok().flatten());

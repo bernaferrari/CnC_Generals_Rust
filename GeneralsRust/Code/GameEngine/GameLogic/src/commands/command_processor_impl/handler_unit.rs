@@ -502,7 +502,7 @@ impl DefaultCommandHandler {
             }
         };
 
-        let upgrade = match THE_UPGRADE_CENTER
+        let upgrade = match get_upgrade_center()
             .read()
             .ok()
             .and_then(|center| center.find_upgrade_by_key(upgrade_key))
@@ -559,7 +559,7 @@ impl DefaultCommandHandler {
             }
         };
 
-        let upgrade = match THE_UPGRADE_CENTER
+        let upgrade = match get_upgrade_center()
             .read()
             .ok()
             .and_then(|center| center.find_upgrade_by_key(upgrade_key))

@@ -2203,7 +2203,7 @@ mod staged_restore_tests {
         source.add_player(Player::new(1, Team::China, "Computer", false));
         source.setup_skirmish_ai(0);
         let (first_live_ai_group_id, second_live_ai_group_id) = {
-            let mut ai = gamelogic::ai::THE_AI.write().expect("lock live legacy AI");
+            let ai_store = gamelogic::ai::the_ai();let mut ai = ai_store.write().expect("lock live legacy AI");
             let first = ai.create_group();
             let first = first.read().expect("read first live AI group").get_id();
             let second = ai.create_group();
@@ -2271,7 +2271,7 @@ mod staged_restore_tests {
                 .read()
                 .map(|engine| engine.is_some())
                 .unwrap_or(false);
-            let legacy_ai_groups = gamelogic::ai::THE_AI
+            let ai_store = gamelogic::ai::the_ai();let legacy_ai_groups = ai_store
                 .read()
                 .map(|ai| {
                     (
@@ -2338,7 +2338,7 @@ mod staged_restore_tests {
 
         assert_eq!(global_probe(), before, "rollback must restore live globals");
         let resumed_ai_group_id = {
-            let mut ai = gamelogic::ai::THE_AI
+            let ai_store = gamelogic::ai::the_ai();let mut ai = ai_store
                 .write()
                 .expect("lock restored legacy AI");
             let resumed = ai.create_group();

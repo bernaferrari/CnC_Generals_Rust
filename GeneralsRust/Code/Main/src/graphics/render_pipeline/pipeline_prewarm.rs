@@ -370,6 +370,15 @@ impl RenderPipeline {
         view_matrix: &Mat4,
         projection_matrix: &Mat4,
     ) -> Result<()> {
+        // Documented diagnostic gate: GENERALS_DISC_NOTERRAIN=1 skips the terrain
+        // pre-scene pass entirely; with no pre-scene callbacks the WW3D scene pass
+        // clears color+depth itself (wgpu_main_renderer clear path), probing
+        // whether terrain-written depth evicts unit fragments. Default (unset) is
+        // C++ parity: terrain draws first into the shared depth buffer
+        // (W3DSceneRender pass order, dx8wrapper per-frame ZFUNC LESSEQUAL).
+        if std::env::var("GENERALS_DISC_NOTERRAIN").as_deref() == Ok("1") {
+            return Ok(());
+        }
         static LOGGED_ZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
         static LOGGED_NONZERO_TERRAIN_CHUNKS: AtomicBool = AtomicBool::new(false);
 

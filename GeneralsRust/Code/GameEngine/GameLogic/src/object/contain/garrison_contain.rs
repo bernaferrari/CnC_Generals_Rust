@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::{
     CommandSourceType, Coord3D, DisabledType, GameResult, INVALID_ID, KindOf, ModelConditionFlags,
     ModelConditionState, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PathfindLayerEnum,
@@ -941,7 +941,7 @@ impl GarrisonContain {
     ) -> bool {
         let mut set = LocomotorSet::new();
         set.add_locomotor("cur".to_string(), loco.clone());
-        THE_AI
+        the_ai()
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())

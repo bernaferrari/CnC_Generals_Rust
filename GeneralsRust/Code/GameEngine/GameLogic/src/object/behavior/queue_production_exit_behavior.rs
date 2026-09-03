@@ -17,7 +17,7 @@
 //! - Exit path generation
 //! - Airborne creation support
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
@@ -499,7 +499,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                 }
             }
 
-            if let Ok(ai_guard) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {
                         pf.add_object_to_map(new_obj_id, &[result.exit_position], false);
@@ -508,7 +508,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             }
 
             let mut natural_rally = self.get_natural_rally_point(&building_transform, true);
-            if let Ok(ai_guard) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(pf) = pathfinder.read() {
                         if let Ok(obj_guard) = obj.read() {

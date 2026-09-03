@@ -6,7 +6,7 @@ use crate::ai::{AiCommandParams, AiCommandType, GUICommandType};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 
 use crate::action_manager::TheActionManager;
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::Snapshot;
 use crate::common::command::*;
 use crate::common::coord::*;
@@ -33,7 +33,7 @@ use crate::special_power::*;
 use crate::team::Team;
 use crate::terrain::get_terrain_logic;
 use crate::upgrade::UpgradeTemplate;
-use crate::upgrade::center::THE_UPGRADE_CENTER;
+use crate::upgrade::center::get_upgrade_center;
 use crate::waypoint::*;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
 use game_engine::common::system::build_assistant;
@@ -1832,7 +1832,7 @@ impl AIGroup {
 
     /// Queue an upgrade for all capable members (matches C++ AIGroup::queueUpgrade)
     pub fn queue_upgrade(&self, upgrade: &Arc<UpgradeTemplate>) {
-        let upgrade_center = THE_UPGRADE_CENTER.clone();
+        let upgrade_center = get_upgrade_center().clone();
 
         for &member_id in &self.member_list {
             let can_queue = OBJECT_REGISTRY
@@ -2193,7 +2193,7 @@ impl AIGroup {
         let Some((min, max, mut center, _)) = self.get_min_max_and_center() else {
             return None;
         };
-        let (min_dist, require_dist, _min_inf, _min_veh) = THE_AI
+        let ai_store = the_ai();let (min_dist, require_dist, _min_inf, _min_veh) = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -2289,7 +2289,7 @@ impl AIGroup {
                         let Some(set) = ai_guard.get_locomotor_set_clone() else {
                             return true;
                         };
-                        THE_AI
+                        the_ai()
                             .read()
                             .ok()
                             .and_then(|ai| ai.pathfinder())
@@ -2320,7 +2320,7 @@ impl AIGroup {
         }
 
         const PATH_DIAMETER_IN_CELLS: i32 = 6;
-        THE_AI.read().ok().and_then(|ai| {
+        the_ai().read().ok().and_then(|ai| {
             ai.pathfinder().and_then(|pf| {
                 pf.read()
                     .ok()
@@ -2362,7 +2362,7 @@ impl AIGroup {
         let Some(center) = self.get_center() else {
             return false;
         };
-        let min_count = THE_AI
+        let ai_store = the_ai();let min_count = ai_store
             .read()
             .ok()
             .and_then(|ai| {

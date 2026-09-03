@@ -8,7 +8,7 @@ use super::body_module::{
     BodyResult, DamageInfo, DamageInfoInput, DamageType, MaxHealthChangeType, ObjectId,
     VeterancyLevel,
 };
-use crate::ai::{CommandSourceType, THE_AI};
+use crate::ai::{CommandSourceType, the_ai};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::types::ThingTemplate;
 use crate::common::{
@@ -102,7 +102,7 @@ fn should_retaliate_against_aggressor(obj: &Object, damager: &Object) -> bool {
     if damager.relationship_to(obj) != Relationship::Enemies {
         return false;
     }
-    let max_dist = THE_AI
+    let ai_store = the_ai();let max_dist = ai_store
         .read()
         .ok()
         .and_then(|ai| {
@@ -169,7 +169,7 @@ fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
     if !should_retaliate_against_aggressor(victim, damager) {
         return;
     }
-    let friends_radius = THE_AI
+    let ai_store = the_ai();let friends_radius = ai_store
         .read()
         .ok()
         .and_then(|ai| {
@@ -912,7 +912,7 @@ impl ActiveBody {
                 }
 
                 if object_id != INVALID_ID {
-                    if let Ok(ai_guard) = crate::ai::THE_AI.read() {
+                    let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
                         if let Some(pathfinder) = ai_guard.pathfinder() {
                             if let Ok(mut pf_guard) = pathfinder.write() {
                                 pf_guard.remove_object_from_map(object_id, &[]);
@@ -1912,7 +1912,7 @@ impl BodyModuleInterface for ActiveBody {
         // C++ ActiveBody.cpp:655-701 — civilians become repulsors; friends retaliate.
         if let Some(owner) = self.get_owner() {
             if let Ok(mut owner_guard) = owner.try_write() {
-                let enable_repulsors = THE_AI
+                let ai_store = the_ai();let enable_repulsors = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {

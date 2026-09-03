@@ -2,7 +2,7 @@
 //!
 //! Reacts when an enemy is within vision range by toggling the ENEMYNEAR model condition.
 
-use crate::ai::{THE_AI, search_qualifiers};
+use crate::ai::{the_ai, search_qualifiers};
 use crate::common::{
     AsciiString, Bool, LOGICFRAMES_PER_SECOND, MODELCONDITION_ENEMYNEAR, ModuleData, ObjectID,
     UnsignedInt, XferVersion,
@@ -94,7 +94,7 @@ impl EnemyNearUpdate {
                 return;
             };
             let vision_range = obj.get_vision_range();
-            let enemy = THE_AI.read().ok().and_then(|ai| {
+            let ai_store = the_ai();let enemy = ai_store.read().ok().and_then(|ai| {
                 ai.find_closest_enemy(
                     obj.get_id(),
                     vision_range,

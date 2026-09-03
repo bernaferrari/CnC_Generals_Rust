@@ -1093,7 +1093,7 @@ impl Object {
 
     pub fn get_group(&self) -> Option<Arc<RwLock<crate::ai::AiGroup>>> {
         let group_id = self.group_id?;
-        crate::ai::THE_AI
+        crate::ai::the_ai()
             .read()
             .ok()
             .and_then(|ai_guard| ai_guard.find_group(group_id))

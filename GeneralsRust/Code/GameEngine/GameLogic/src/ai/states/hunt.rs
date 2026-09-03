@@ -31,7 +31,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, THE_AI,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -115,7 +115,7 @@ impl AIHuntState {
         let mut victim = if team_victim.is_some() && attack_info.is_none() {
             team_victim.clone()
         } else {
-            let enemy_id = THE_AI.read().ok().and_then(|ai| {
+            let ai_store = the_ai();let enemy_id = ai_store.read().ok().and_then(|ai| {
                 ai.find_closest_enemy(
                     owner_id,
                     9999.9,
@@ -140,7 +140,7 @@ impl AIHuntState {
                 })
                 .unwrap_or(false);
             if units_should_hunt {
-                let fallback_id = THE_AI.read().ok().and_then(|ai| {
+                let ai_store = the_ai();let fallback_id = ai_store.read().ok().and_then(|ai| {
                     ai.find_closest_enemy(
                         owner_id,
                         9999.9,

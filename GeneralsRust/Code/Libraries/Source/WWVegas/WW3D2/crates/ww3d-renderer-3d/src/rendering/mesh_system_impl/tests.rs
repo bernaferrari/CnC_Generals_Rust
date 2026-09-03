@@ -295,7 +295,11 @@ fn projected_shroud_draw_is_after_authored_passes_for_rigid_and_skinned_meshes()
         assert!(shader.contains("textureSample(shroud_texture"));
         assert!(shader.contains("model.material_diffuse"));
     }
-    assert!(skinned.contains("bones.bones"));
+    // The skinned shroud shader declares `bones` as a bare
+    // `array<mat4x4<f32>>` storage (indexed `bones[bone_index]`), not a
+    // wrapper struct — assert that actual contract.
+    assert!(skinned.contains("array<mat4x4<f32>>"));
+    assert!(skinned.contains("bones[bone_index]"));
 }
 
 #[test]

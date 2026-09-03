@@ -15,7 +15,7 @@ pub(super) use crate::ai::pathfinding_system::PathfindLayerEnum as PfLayer;
 pub(super) use crate::ai::states::{AIStateMachine, AIStateType};
 pub(super) use crate::ai::turret::{TurretAI, TurretStateMachine};
 pub(super) use crate::ai::{
-    AiCommandInterface, MoodMatrixAction, THE_AI, mood_matrix_adjustment, mood_matrix_parameters,
+    AiCommandInterface, MoodMatrixAction, the_ai, mood_matrix_adjustment, mood_matrix_parameters,
     search_qualifiers,
 };
 pub(super) use crate::attack::CanAttackResult;

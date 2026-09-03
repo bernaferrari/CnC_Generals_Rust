@@ -606,7 +606,7 @@ impl Object {
     /// Best-effort C++ Pathfinder::removePos / updatePos around a layer change.
     /// No-ops when AI/pathfinder is not constructed (unit tests, early boot).
     pub(super) fn sync_pathfinder_pos(&self, remove_only: bool) {
-        let Ok(ai_guard) = crate::ai::THE_AI.read() else {
+        let ai_store = crate::ai::the_ai();let Ok(ai_guard) = ai_store.read() else {
             return;
         };
         let Some(pathfinder) = ai_guard.pathfinder() else {

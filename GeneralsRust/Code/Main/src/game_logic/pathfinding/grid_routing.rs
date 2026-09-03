@@ -551,7 +551,7 @@ impl PathfindingGrid {
                 self.stamp_aircraft_goal_cell(GridPos::new(i, j), obj.id.0);
             }
         }
-        if let Ok(ai) = gamelogic::ai::THE_AI.read() {
+        let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(pf) = pf.read() {
                     let dest = gamelogic::common::Coord3D::new(goal.x, goal.z, goal.y);

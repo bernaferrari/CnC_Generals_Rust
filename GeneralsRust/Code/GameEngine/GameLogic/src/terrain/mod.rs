@@ -12,7 +12,7 @@
 //! - Terrain flattening for buildings
 
 use crate::ai::pathfind_complete::GridCoord;
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::CoordOrigin;
 use crate::common::*;
 use crate::damage::{DamageInfo, DamageType, DeathType};

@@ -2869,3 +2869,103 @@ fn direct_xfer_rejects_future_writer_before_emitting_any_record_bytes() {
     ));
     assert!(bytes.into_inner().is_empty());
 }
+
+#[test]
+fn direct_xfer_v21_appends_weapon_clip_residual_and_keeps_alignment() {
+    use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
+    use crate::game_logic::Weapon;
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let clip_residual = |clip_size: u32,
+                         clip_reload_time: f32,
+                         splash_radius: f32,
+                         reloading_clip: bool,
+                         last_bonus_rof: f32| Weapon {
+        clip_size,
+        clip_reload_time,
+        splash_radius,
+        reloading_clip,
+        last_bonus_rof,
+        ..Weapon::default()
+    };
+
+    let build_world = |version: u32| {
+        let mut world = WorldSnapshot::default();
+        world.version = version;
+        world.frame_number = 77;
+        let object_id = ObjectId(404);
+        let mut object = default_object_snapshot();
+        object.id = object_id;
+        object.template_name = "ClipResidualObject".to_string();
+        object.weapons.push(clip_residual(
+            5, 3.0, 12.5, true, 1.5,
+        ));
+        world.objects.insert(object_id, object);
+
+        let mut player = default_player_snapshot();
+        player.id = 3;
+        player.name = "PostWeaponAlignment".to_string();
+        world.players.push(player);
+        world
+    };
+
+    // v21: the clip/splash/reload residual rides along and the reader stays
+    // aligned for the fields after the object map.
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        build_world(WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION)
+            .xfer(&mut writer)
+            .expect("write v21 world");
+        let mut sentinel = 0xC0DE_CAFEu32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read v21 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+    assert_eq!(restored.players[0].name, "PostWeaponAlignment");
+    assert_eq!(sentinel, 0xC0DE_CAFE);
+    let weapon = &restored
+        .objects
+        .get(&ObjectId(404))
+        .expect("restored v21 object")
+        .weapons[0];
+    assert_eq!(weapon.clip_size, 5);
+    assert!((weapon.clip_reload_time - 3.0).abs() < 1e-4);
+    assert!((weapon.splash_radius - 12.5).abs() < 1e-4);
+    assert!(weapon.reloading_clip);
+    assert!((weapon.last_bonus_rof - 1.5).abs() < 1e-4);
+
+    // v20 stream: pre-tail layout still loads and leaves Weapon::default()
+    // residual values (the historical behavior) without mis-consuming bytes.
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        build_world(WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION)
+            .xfer(&mut writer)
+            .expect("write v20 world");
+        let mut sentinel = 0xFEED_F00Du32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read v20 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+    assert_eq!(restored.players[0].name, "PostWeaponAlignment");
+    assert_eq!(sentinel, 0xFEED_F00D);
+    let weapon = &restored
+        .objects
+        .get(&ObjectId(404))
+        .expect("restored v20 object")
+        .weapons[0];
+    assert_eq!(weapon.clip_size, 0);
+    assert!(!weapon.reloading_clip);
+}

@@ -191,7 +191,7 @@ impl PathfindingSystem {
         };
         let mut dest = dest;
 
-        if let Ok(ai) = gamelogic::ai::THE_AI.read() {
+        let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(pf) = pf.read() {
                     let mut dest3 = gamelogic::common::Coord3D::new(dest.x, dest.z, dest.y);
@@ -996,7 +996,7 @@ impl PathfindingSystem {
         if let Some(data) = game_engine::common::ini::get_ai_data_store().get_active() {
             return data.attack_uses_line_of_sight;
         }
-        gamelogic::ai::THE_AI
+        gamelogic::ai::the_ai()
             .read()
             .ok()
             .and_then(|ai| {
@@ -1331,7 +1331,7 @@ impl PathfindingSystem {
             self.grid.wall_height = geom.height;
         }
         if self.grid.wall_height <= 0.0 {
-            if let Ok(ai) = gamelogic::ai::THE_AI.read() {
+            let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.read() {
                 if let Ok(data) = ai.get_ai_data().read() {
                     if data.wall_height > 0.0 {
                         self.grid.wall_height = data.wall_height;

@@ -239,6 +239,17 @@ fn install_templates(logic: &mut GameLogic) {
             ..Weapon::default()
         });
     }
+    // Retail faction structures author KINDOF_MP_COUNT_FOR_VICTORY
+    // (FactionBuilding.ini; buildings.rs stamps the same bit on every
+    // synthesized structure).  Victory evaluation counts only
+    // STRUCTURE && MP_COUNT_FOR_VICTORY members (C++ Team::hasAnyBuildings),
+    // so without the bit both players are defeated on frame 1: killPlayer
+    // wipes cash and is_alive, dead-ending economy / upgrade research.
+    for template in templates.iter_mut() {
+        if template.is_kind_of(KindOf::Structure) {
+            template.add_kind_of(KindOf::MpCountForVictory);
+        }
+    }
     for t in templates {
         logic.templates.insert(t.name.clone(), t);
     }

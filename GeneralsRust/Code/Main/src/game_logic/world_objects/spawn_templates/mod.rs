@@ -315,25 +315,6 @@ fn unshroud_stale_host_partition_covers(
     }
 }
 
-/// C++ `PartitionData::getShroudedStatus` mixes footprint cells painted by
-/// `doShroudReveal`'s DiscreteCircle lookers. Leftover `ShroudManager` is
-/// that store; `PARTITION_MANAGER` still walks a square `r²` disk.
-fn leftover_discrete_circle_looker_cell(
-    shroud_mgr: &gamelogic::system::shroud_manager::ShroudManager,
-    player_id: u32,
-    cx: i32,
-    cz: i32,
-    cell_size: f32,
-) -> gamelogic::system::shroud_manager::ShroudState {
-    let half = cell_size * 0.5;
-    let world = gamelogic::common::Coord3D::new(
-        cx as f32 * cell_size + half,
-        cz as f32 * cell_size + half,
-        0.0,
-    );
-    shroud_mgr.get_shroud_state(player_id, &world)
-}
-
 mod definition;
 mod metadata;
 mod seeding;

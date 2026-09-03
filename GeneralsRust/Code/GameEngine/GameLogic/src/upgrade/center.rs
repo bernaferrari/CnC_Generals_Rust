@@ -5,7 +5,6 @@
 //!
 //! Original C++ Author: Colin Day, March 2002
 
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -15,17 +14,10 @@ use super::{
 use crate::common::*;
 use game_engine::common::ini::INI;
 
-/// Global upgrade center singleton
-/// Matches C++ TheUpgradeCenter
-pub static THE_UPGRADE_CENTER: Lazy<Arc<RwLock<UpgradeCenter>>> = Lazy::new(|| {
-    let mut center = UpgradeCenter::new();
-    // C++ UpgradeCenter::init runs before Upgrade.ini is parsed.
-    center.init();
-    Arc::new(RwLock::new(center))
-});
 
 /// Central registry for upgrade templates
 /// Matches C++ UpgradeCenter from Upgrade.h
+#[derive(Clone)]
 pub struct UpgradeCenter {
     /// All upgrade templates indexed by name key
     upgrades: HashMap<NameKeyType, Arc<UpgradeTemplate>>,
@@ -266,14 +258,15 @@ impl Default for UpgradeCenter {
 /// Matches C++ TheUpgradeCenter usage
 
 pub fn get_upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
-    THE_UPGRADE_CENTER.clone()
+    crate::system::engine_stores::upgrade_center()
 }
 
 pub fn with_upgrade_center<F, R>(f: F) -> R
 where
     F: FnOnce(&UpgradeCenter) -> R,
 {
-    let center = THE_UPGRADE_CENTER
+    let center = get_upgrade_center();
+    let center = center
         .read()
         .expect("UpgradeCenter lock poisoned");
     f(&center)
@@ -283,7 +276,8 @@ pub fn with_upgrade_center_mut<F, R>(f: F) -> R
 where
     F: FnOnce(&mut UpgradeCenter) -> R,
 {
-    let mut center = THE_UPGRADE_CENTER
+    let center = get_upgrade_center();
+    let mut center = center
         .write()
         .expect("UpgradeCenter lock poisoned");
     f(&mut center)

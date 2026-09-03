@@ -1689,7 +1689,12 @@ impl Snapshotable for GameClient {
 
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
             }
-        } else {
+        } else if drawable_count > 0 {
+            // Logic-only in-match saves (headless host, unit tests) carry
+            // drawable_count == 0; C++ Drawable::xfer assumes TheThingFactory
+            // always exists, but demanding it here failed those loads before
+            // a single drawable was even decoded. Require it only when there
+            // is actually a drawable to resolve a template for.
             let factory_guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
             let factory = factory_guard
                 .as_ref()

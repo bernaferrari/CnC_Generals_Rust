@@ -369,6 +369,13 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+        // C++ has ONE TurretAI::xfer per module; here TRAI (15-field subset,
+        // resets all objects first) must run BEFORE OXOB (47 fields incl. all
+        // 15 turret fields, captured for every object). OXOB is the final
+        // turret authority — running TRAI after it zeroed OXOB-restored
+        // idle-scan/hold/substate state for objects outside TRAI's capture
+        // predicate. TRAI stays ahead only for legacy tails without OXOB.
+        super::turret_aim_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::object_xfer_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -386,7 +393,6 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::turret_aim_persist::apply_from_lifecycle_tail(&snapshot.lifecycle_tail, game_logic)?;
         super::stealth_grant_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,

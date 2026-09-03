@@ -13,7 +13,19 @@ use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 
 const SPCD_MAGIC: &[u8; 4] = b"SPCD";
-const SPCD_VERSION: u32 = 1;
+/// v2: the pauses table is always encoded (possibly empty). v1 omitted the
+/// table when empty and inferred presence from a non-empty buffer tail, but
+/// later suffixes in the shared lifecycle tail (OXOB writes one entry per
+/// object) always follow — decode_table then read a sibling ASCII magic as a
+/// ~1.1e9 table count and aborted the whole load. Any unpaused running
+/// cooldown plus one other suffix was enough to fail every such load.
+const SPCD_VERSION: u32 = 2;
+/// decode_table sanity bound. Real tables are bounded by player/object
+/// counts; anything larger means the reader is off-stream (see v1 fallback).
+const SPCD_MAX_TABLE_ENTRIES: u32 = 1 << 20;
+/// v1 absence bound: a real pauses-table count can never reach this, while
+/// every sibling suffix magic is uppercase ASCII (`>= "AAAA"` = 0x41414141).
+const SPCD_V1_ABSENT_PAUSES_COUNT: u32 = 1 << 16;
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     let players = capture_player_timers(game_logic);
@@ -26,9 +38,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     append_u32(bytes, SPCD_VERSION);
     encode_table(bytes, &players);
     encode_table(bytes, &objects);
-    if !pauses.is_empty() {
-        encode_table(bytes, &pauses);
-    }
+    encode_table(bytes, &pauses);
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
@@ -37,20 +47,44 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != SPCD_VERSION {
+    if version == 0 || version > SPCD_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown SPCD suffix version {version}"
         )));
     }
     let players = decode_table(&mut rest)?;
     let objects = decode_table(&mut rest)?;
+    let pauses = if version >= 2 {
+        // v2 always carries the pauses table, possibly empty.
+        decode_table(&mut rest)?
+    } else {
+        // v1 wrote the table only when non-empty; absence must be inferred
+        // without consuming sibling suffix bytes.
+        match v1_optional_pauses_table(&mut rest) {
+            Some(table) => table?,
+            None => Vec::new(),
+        }
+    };
     apply_player_timers(game_logic, &players);
     apply_object_maps(game_logic, &objects);
-    if !rest.is_empty() {
-        let pauses = decode_table(&mut rest)?;
-        apply_object_pauses(game_logic, &pauses);
-    }
+    apply_object_pauses(game_logic, &pauses);
     Ok(())
+}
+
+/// v1 pauses-table presence probe. `None` = table absent; the remainder
+/// belongs to later lifecycle-tail suffixes and must not be consumed.
+fn v1_optional_pauses_table(
+    rest: &mut &[u8],
+) -> Option<SaveLoadResult<Vec<(u32, Vec<(String, f32)>)>>> {
+    if rest.len() < 4 {
+        return None;
+    }
+    let count = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
+    if count > SPCD_V1_ABSENT_PAUSES_COUNT {
+        // A sibling suffix's ASCII magic, not a pauses count.
+        return None;
+    }
+    Some(decode_table(rest))
 }
 
 fn capture_player_timers(game_logic: &GameLogic) -> Vec<(u32, Vec<(String, f32)>)> {
@@ -202,11 +236,23 @@ fn encode_table(out: &mut Vec<u8>, table: &[(u32, Vec<(String, f32)>)]) {
 }
 
 fn decode_table(rest: &mut &[u8]) -> SaveLoadResult<Vec<(u32, Vec<(String, f32)>)>> {
-    let count = take_u32(rest)? as usize;
+    let count = take_u32(rest)?;
+    if count > SPCD_MAX_TABLE_ENTRIES {
+        return Err(SaveLoadError::Corrupted(format!(
+            "SPCD table count {count} exceeds bound"
+        )));
+    }
+    let count = count as usize;
     let mut table = Vec::with_capacity(count);
     for _ in 0..count {
         let id = take_u32(rest)?;
-        let timer_count = take_u32(rest)? as usize;
+        let timer_count = take_u32(rest)?;
+        if timer_count > SPCD_MAX_TABLE_ENTRIES {
+            return Err(SaveLoadError::Corrupted(format!(
+                "SPCD timer count {timer_count} exceeds bound"
+            )));
+        }
+        let timer_count = timer_count as usize;
         let mut timers = Vec::with_capacity(timer_count);
         for _ in 0..timer_count {
             let name_len = take_u32(rest)? as usize;
@@ -263,6 +309,7 @@ mod tests {
         assert_eq!(take_u32(&mut rest).unwrap(), SPCD_VERSION);
         let players = decode_table(&mut rest).unwrap();
         let objects = decode_table(&mut rest).unwrap();
+
         assert_eq!(players[0].0, 1);
         assert_eq!(players[0].1[0].0, "ParticleCannon");
         assert!((players[0].1[0].1 - 77.5).abs() < 1e-4);
@@ -276,6 +323,67 @@ mod tests {
         assert!(find_spcd_suffix(b"no-magic-here").is_none());
     }
 
+    #[test]
+    fn v2_unpaused_cooldown_tolerates_trailing_sibling_suffix() {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::{Player, Team};
+
+        // Regression: v1 inferred pauses-table presence from a non-empty
+        // tail; OXOB (one entry per object) always follows SPCD, so an
+        // unpaused running cooldown decoded the sibling magic as a ~1.1e9
+        // table count and failed the whole load.
+        let mut source = GameLogic::new();
+        source.add_player(Player::new(1, Team::USA, "USA", true));
+        if let Some(player) = source.get_player_mut(1) {
+            player.reset_shared_special_power_timer(&SpecialPowerType::ParticleCannon, 77.5);
+        }
+        let mut bytes = b"HIST".to_vec();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        assert!(bytes.windows(4).any(|w| w == SPCD_MAGIC));
+        // OXOB-style trailing sibling suffix.
+        bytes.extend_from_slice(b"OXOB");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xab; 8]);
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("v2 apply must not fail");
+        let remaining = logic
+            .get_player(1)
+            .and_then(|p| p.shared_special_power_cooldowns.get(&SpecialPowerType::ParticleCannon).copied())
+            .expect("cooldown restored");
+        assert!((remaining - 77.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn v1_absent_pauses_ignores_trailing_sibling_suffix() {
+        use crate::game_logic::{Player, Team};
+
+        let mut bytes = b"HIST".to_vec();
+        bytes.extend_from_slice(SPCD_MAGIC);
+        append_u32(&mut bytes, 1); // v1
+        encode_table(&mut bytes, &[(1, vec![("ParticleCannon".into(), 77.5)])]);
+        encode_table(&mut bytes, &[]);
+        bytes.extend_from_slice(b"OXOB");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xab; 8]);
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("v1 apply must not fail");
+    }
+
+    #[test]
+    fn v1_present_pauses_table_still_decodes() {
+        let mut bytes = b"HIST".to_vec();
+        append_u32(&mut bytes, 1); // v1
+        encode_table(&mut bytes, &[]);
+        encode_table(&mut bytes, &[]);
+        encode_table(&mut bytes, &[(3, vec![("NuclearMissile".into(), 2.0)])]);
+
+        let mut logic = GameLogic::new();
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("v1 apply");
+    }
     #[test]
     fn snapshot_round_trips_shared_and_object_special_power_cooldowns() {
         use crate::command_system::SpecialPowerType;

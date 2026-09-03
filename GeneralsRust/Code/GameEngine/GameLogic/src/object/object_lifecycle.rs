@@ -281,7 +281,7 @@ impl Object {
     pub(crate) fn run_destructor_tail(&mut self) {
         let pos = *self.get_position();
         let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
-        if let Ok(ai) = crate::ai::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(mut pf) = pf.write() {
                     pf.remove_object_from_map(self.id, &footprint);

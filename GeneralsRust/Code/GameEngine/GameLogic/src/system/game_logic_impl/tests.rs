@@ -327,7 +327,7 @@ mod tests {
     fn empty_world_second_tick_keeps_incrementing_frame() {
         // Same C++ GameLogic.cpp:3799 contract as a second empty tick.
         // Do not use the process-wide singleton here: update_game_logic()
-        // can block on THE_AI / script globals while other crate tests run.
+        // can block on the_ai / script globals while other crate tests run.
         let _lock = test_state_lock();
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
@@ -915,7 +915,7 @@ mod tests {
         assert!(obj.has_any_special_power());
         assert!(obj.is_kind_of(KindOf::WalkOnTopOfWall));
 
-        if let Ok(ai) = crate::ai::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(mut pf) = pf.write() {
                     pf.add_wall_piece(88);

@@ -591,6 +591,15 @@ impl TerrainVisualImpl {
         self.chunk_manager.renderable_chunk_count()
     }
 
+    /// Any source tile pixel data hydrated? C++ `WorldHeightMap` always has
+    /// resident tile textures before `TheRadar->newMap` builds the radar
+    /// terrain texture (W3DRadar.cpp:991); the windowed pipeline hydrates them
+    /// asynchronously, so the radar paint source must distinguish
+    /// not-yet-hydrated (None → radar fallback color) from sampled pixels.
+    pub fn has_terrain_source_tiles(&self) -> bool {
+        self.source_tiles.iter().any(Option::is_some)
+    }
+
     pub fn load_source_tiles_from_texture_classes(
         &mut self,
         classes: &[TerrainSourceTileClass],
@@ -656,27 +665,25 @@ impl TerrainVisualImpl {
             Ok(value) if value > 0 => value,
             _ => return Ok(0),
         };
-        let Some(path) = Self::resolve_source_tile_texture_path(&class.name) else {
-            return Ok(0);
+        // C++ reads tile textures from the mounted art archives; this install
+        // may not carry Art/Terrain TGAs. Mirror the 3D tree-buffer fallback:
+        // synthesize a deterministic stand-in tile per class name so the radar
+        // band shows the same terrain coloring as the world view instead of
+        // black / unresolved samples.
+        let resolved_image = Self::resolve_source_tile_texture_path(&class.name)
+            .and_then(|path| image::open(&path).ok())
+            .map(|img| img.to_rgba8());
+        let (image_width, image_height, available_tiles) = match resolved_image.as_ref() {
+            Some(image) => {
+                let w = image.width() as usize;
+                let h = image.height() as usize;
+                if w < 64 || h < 64 {
+                    return Ok(0);
+                }
+                (w, h, (w / 64).saturating_mul(h / 64))
+            }
+            None => (64, 64, num_tiles),
         };
-
-        let image = image::open(&path)
-            .map_err(|err| {
-                TerrainError::TextureError(GameImageError::LoadError {
-                    path: path.display().to_string(),
-                    source: Box::new(err),
-                })
-            })?
-            .to_rgba8();
-        let image_width = image.width() as usize;
-        let image_height = image.height() as usize;
-        if image_width < 64 || image_height < 64 {
-            return Ok(0);
-        }
-
-        let available_columns = image_width / 64;
-        let available_rows = image_height / 64;
-        let available_tiles = available_columns.saturating_mul(available_rows);
         let read_tiles = num_tiles.min(available_tiles);
         let rows = Self::source_tile_square_width(read_tiles, class.width);
         if rows == 0 {
@@ -692,17 +699,27 @@ impl TerrainVisualImpl {
         for tile_row in 0..rows {
             for tile_col in 0..rows {
                 let mut tile = TileData::new();
-                for y in 0..64usize {
-                    for x in 0..64usize {
-                        let src_x = tile_col * 64 + x;
-                        let src_y = tile_row * 64 + y;
-                        let rgba = image.get_pixel(src_x as u32, src_y as u32).0;
-                        let dst = (y * 64 + x) * 4;
-                        tile.data[dst] = rgba[2];
-                        tile.data[dst + 1] = rgba[1];
-                        tile.data[dst + 2] = rgba[0];
-                        tile.data[dst + 3] = rgba[3];
+                if let Some(image) = resolved_image.as_ref() {
+                    for y in 0..64usize {
+                        for x in 0..64usize {
+                            let src_x = tile_col * 64 + x;
+                            let src_y = tile_row * 64 + y;
+                            let rgba = image.get_pixel(src_x as u32, src_y as u32).0;
+                            let dst = (y * 64 + x) * 4;
+                            tile.data[dst] = rgba[2];
+                            tile.data[dst + 1] = rgba[1];
+                            tile.data[dst + 2] = rgba[0];
+                            tile.data[dst + 3] = rgba[3];
+                        }
                     }
+                } else {
+                    // Same generator the 3D tree buffer uses for missing
+                    // textures, so the radar band matches the world view.
+                    let stand_in = crate::terrain::tree_buffer::stand_in_tile_bgra(
+                        &class.name,
+                        count,
+                    );
+                    tile.data.copy_from_slice(&stand_in);
                 }
                 tile.tile_location_in_texture = ((tile_col * 64) as i32, (tile_row * 64) as i32);
                 tile.update_mips();
@@ -729,6 +746,24 @@ impl TerrainVisualImpl {
     }
 
     fn resolve_source_tile_texture_path(class_name: &str) -> Option<PathBuf> {
+        // Map tile-texture class names are extension-less (e.g.
+        // "GrassMediumType22"); the on-disk / BIG-archive assets are
+        // `Art/Terrain/<name>.tga`. C++ WorldHeightMap loads tile textures
+        // with the explicit `.tga` name (WorldHeightMap.cpp
+        // `m_tileSourceTextures` ← `name + ".tga"`), so candidates must carry
+        // the extension or the game-FS resolver returns no candidate at all.
+        let with_ext = |name: &str| {
+            let name = name.trim();
+            if name.is_empty() {
+                return name.to_string();
+            }
+            if Path::new(name).extension().is_some() {
+                name.to_string()
+            } else {
+                format!("{name}.tga")
+            }
+        };
+
         let mut candidates = Vec::new();
         if let Some(registry) = ini_terrain::get_terrain_types() {
             let guard = registry.read();
@@ -736,12 +771,12 @@ impl TerrainVisualImpl {
             if let Some(terrain) = guard.find_terrain(&key) {
                 let texture = terrain.texture_name.as_str().trim();
                 if !texture.is_empty() {
-                    candidates.push(format!("{TERRAIN_TGA_DIR_PATH}{texture}"));
-                    candidates.push(texture.to_string());
+                    candidates.push(format!("{TERRAIN_TGA_DIR_PATH}{}", with_ext(texture)));
+                    candidates.push(with_ext(texture));
                 }
             }
         }
-        candidates.push(class_name.to_string());
+        candidates.push(with_ext(class_name));
 
         for candidate in candidates {
             let path = Path::new(&candidate);

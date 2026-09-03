@@ -2,7 +2,7 @@
 //!
 //! Matches C++ SpawnPointProductionExitUpdate.cpp/.h.
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
@@ -216,7 +216,7 @@ impl SpawnPointProductionExitBehavior {
             guard.set_disabled(DisabledType::Held);
         }
 
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.add_object_to_map(

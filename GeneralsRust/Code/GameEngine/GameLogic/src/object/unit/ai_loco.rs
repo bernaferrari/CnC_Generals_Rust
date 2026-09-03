@@ -94,7 +94,7 @@ impl UnitAIUpdate {
             adjusted.position.z =
                 terrain.get_ground_height(adjusted.position.x, adjusted.position.y, None);
             if next_id.is_none() {
-                adjusted.position = THE_AI
+                adjusted.position = the_ai()
                     .read()
                     .ok()
                     .and_then(|ai| ai.pathfinder())
@@ -444,7 +444,7 @@ impl UnitAIUpdate {
         };
         if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
             if layer == crate::common::PathfindLayerEnum::Wall {
-                adjusted.z = crate::ai::THE_AI
+                adjusted.z = crate::ai::the_ai()
                     .read()
                     .ok()
                     .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))
@@ -509,7 +509,7 @@ impl UnitAIUpdate {
             })
             .unwrap_or(false);
 
-        if let Ok(ai_lock) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
             if let Some(pathfinder) = ai_lock.pathfinder() {
                 if let Ok(mut pf_guard) = pathfinder.write() {
                     if !is_ground_movement && !is_unmanned_heli {
@@ -559,7 +559,7 @@ impl UnitAIUpdate {
         let Some(base) = base_arc.read().ok() else {
             return false;
         };
-        let Some(pathfinder_arc) = THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = the_ai();let Some(pathfinder_arc) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
         let Some(pathfinder) = pathfinder_arc.read().ok() else {
@@ -1160,7 +1160,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return false;
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1360,7 +1360,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return false;
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1379,7 +1379,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let Some(ai) = THE_AI.read().ok() else {
+        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
             return false;
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1911,7 +1911,7 @@ impl UnitAIUpdate {
             }
         }
 
-        let Ok(ai) = THE_AI.read() else {
+        let ai_store = the_ai();let Ok(ai) = ai_store.read() else {
             return INVALID_ID;
         };
         let ai_data = ai.get_ai_data();

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::ai::pathfind_astar::PathfindCellType;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
@@ -587,7 +587,7 @@ impl ParachuteContain {
             }
 
             let layer = rider.get_layer();
-            let cell_type = THE_AI.read().ok().and_then(|ai| {
+            let ai_store = the_ai();let cell_type = ai_store.read().ok().and_then(|ai| {
                 ai.pathfinder().and_then(|pf| {
                     pf.read().ok().and_then(|pf_guard| {
                         let astar_layer = match layer {

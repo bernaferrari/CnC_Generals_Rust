@@ -437,7 +437,7 @@ impl Locomotor {
         layer: crate::common::PathfindLayerEnum,
         pos: Coord3D,
     ) -> bool {
-        let Some(ai) = crate::ai::THE_AI.read().ok() else {
+        let ai_store = crate::ai::the_ai();let Some(ai) = ai_store.read().ok() else {
             return true;
         };
         let Some(pathfinder) = ai.pathfinder() else {

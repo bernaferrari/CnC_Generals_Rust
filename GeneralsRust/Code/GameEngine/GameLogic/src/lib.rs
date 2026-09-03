@@ -146,7 +146,7 @@ pub mod test_sync {
 // Re-export commonly used types from the AI module
 pub use ai::{
     AI, AiCommandInterface, AiCommandParams, AiCommandType, AiData, AiError, AiGroup, AttitudeType,
-    CommandSourceType, THE_AI,
+    CommandSourceType, the_ai,
 };
 
 pub use common::GeometryInfo;
@@ -240,7 +240,7 @@ pub fn initialize() -> GameLogicResult<()> {
     // Initialize AI system
     #[cfg(feature = "legacy_port")]
     {
-        THE_AI
+        the_ai()
             .write()
             .map_err(|e| GameLogicError::Threading(format!("Failed to acquire AI lock: {}", e)))?
             .init();
@@ -301,7 +301,7 @@ pub fn reset() -> GameLogicResult<()> {
     })?;
 
     // Reset AI system
-    THE_AI
+    the_ai()
         .write()
         .map_err(|e| GameLogicError::Threading(format!("Failed to acquire AI lock: {}", e)))?
         .reset();
@@ -332,7 +332,7 @@ pub fn update() -> GameLogicResult<()> {
     };
 
     // Update AI system
-    THE_AI
+    the_ai()
         .write()
         .map_err(|e| GameLogicError::Threading(format!("Failed to acquire AI lock: {}", e)))?
         .update(frame)
@@ -372,8 +372,8 @@ mod tests {
 
     #[test]
     fn test_ai_singleton() {
-        // Test that THE_AI is accessible
-        let ai = &*THE_AI;
+        // Test that the_ai() resolves to a lockable AI store
+        let ai = the_ai();
         assert!(ai.read().is_ok());
     }
 

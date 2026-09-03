@@ -88,7 +88,7 @@ impl Unit {
                     // Clone the locomotor Arc so we don't keep borrowing self
                     let locomotor_clone = locomotor.clone();
 
-                    if let Ok(ai_guard) = THE_AI.read() {
+                    let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                         if let Some(pathfinding) = ai_guard.pathfinding_system() {
                             if let Ok(mut loc_guard) = locomotor_clone.lock() {
                                 let current_frame = TheGameLogic::get_frame() as u32;

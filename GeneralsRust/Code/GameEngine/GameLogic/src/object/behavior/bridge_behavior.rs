@@ -12,7 +12,7 @@ use std::f32::consts::TAU;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::ai::{THE_AI, pathfinding_system::PathfindLayerEnum as AiPathfindLayerEnum};
+use crate::ai::{the_ai, pathfinding_system::PathfindLayerEnum as AiPathfindLayerEnum};
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, AudioEventRTS, BehaviorModuleData, Bool, Bridge, Coord3D, FXList, Int, KindOf,
@@ -715,7 +715,7 @@ impl BridgeBehavior {
             bridge_info.to_left,
         ];
 
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinding) = ai_guard.pathfinding_system() {
                 if let Ok(mut pathfinding_guard) = pathfinding.write() {
                     let layer =

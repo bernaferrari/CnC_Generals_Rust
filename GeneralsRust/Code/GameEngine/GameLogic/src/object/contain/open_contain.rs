@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, LOGICFRAMES_PER_SECOND,
@@ -2003,7 +2003,7 @@ impl OpenContain {
     }
 
     fn add_to_pathfind_map(object_id: ObjectID, pos: Coord3D) {
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.add_object_to_map(object_id, &[pos], false);
@@ -2025,7 +2025,7 @@ impl OpenContain {
 
         let owner_id = owner.get_id();
         let owner_pos = *owner.get_position();
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.remove_object_from_map(owner_id, &[owner_pos]);

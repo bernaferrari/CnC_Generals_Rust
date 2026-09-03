@@ -14,7 +14,7 @@ impl AIPlayer {
     pub fn queue_units(&mut self) -> bool {
         let _ = self.queue_supply_truck();
 
-        let max_recruit = THE_AI
+        let ai_store = the_ai();let max_recruit = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))
@@ -200,7 +200,7 @@ impl AIPlayer {
             .unwrap_or_default();
 
         let mut desired = 0;
-        if let Ok(ai_guard) = THE_AI.read() {
+        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Ok(ai_data) = ai_guard.get_ai_data().read() {
                 for info in &ai_data.side_info {
                     if info.side == side {

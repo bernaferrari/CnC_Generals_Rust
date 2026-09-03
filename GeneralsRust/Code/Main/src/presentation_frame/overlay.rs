@@ -2040,9 +2040,14 @@ impl PresentationFrame {
                 ro.owner_player_id = obj.owner_player_id;
                 dirty = true;
             }
+            let local_team = logic
+                .get_player(self.local_player_id)
+                .map(|p| p.team)
+                .unwrap_or(crate::game_logic::Team::Neutral);
             let drawable_shroud = super::build::freeze_direct_object_shroud_facts(
                 obj,
                 self.local_player_id,
+                local_team,
                 self.fow_shell_bypass,
             );
             if ro.drawable_shroud != drawable_shroud {

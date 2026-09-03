@@ -1,8 +1,10 @@
 //! Persist live Paradrop / Leaflet / SneakAttack mid-flight registries.
 //!
 //! C++ `DeliverPayloadAIUpdate::xfer` v5 writes approach / drop-delay / decal
-//! so a cargo plane still dumps remaining payloads after load. Leftover
-//! `DeliverPayloadAIUpdate` already matches that table. Live host queues the
+//! so a cargo plane still dumps remaining payloads after load. The leftover
+//! `DeliverPayloadAIUpdate` struct carries those fields but has no instance
+//! Snapshotable xfer (only its ModuleData does), so live persistence is here.
+//! Live host queues the
 //! same mid-flight work on `host_paradrops` / `host_leaflet_drops` /
 //! `host_sneak_attacks`, which `GameLogic` construct clears and snapshot
 //! never rebound — save mid-approach cancelled the drop.

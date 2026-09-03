@@ -447,7 +447,10 @@ impl DepthTarget {
             sample_count,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            // COPY_SRC: the ZPROBE diagnostic (GENERALS_ZPROBE=1) reads this
+            // depth attachment back on the CPU; cost is nil otherwise.
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 

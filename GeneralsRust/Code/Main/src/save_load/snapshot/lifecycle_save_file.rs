@@ -68,6 +68,67 @@ fn save_file_roundtrip_preserves_lifecycle_envelope() {
 }
 
 #[test]
+fn save_file_roundtrip_survives_unpaused_cooldown_and_keeps_weapon_clip() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::Weapon;
+
+    // In-match seam: an UNPAUSED running special-power cooldown plus any
+    // object (OXOB suffix always follows SPCD) used to abort the whole load —
+    // SPCD v1 inferred its optional pauses table from a non-empty tail and
+    // read the sibling magic as a ~1.1e9 table count.
+    let save_dir = tempfile::TempDir::new().expect("temp save dir");
+    let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+    manager.init().expect("init");
+
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("LifecycleCannon".to_string(), ThingTemplate::new("LifecycleCannon"));
+    let id = source
+        .create_object("LifecycleCannon", Team::USA, Vec3::new(4.0, 0.0, 6.0))
+        .expect("create");
+    {
+        let object = source.host_object_mut(id).expect("object");
+        object
+            .special_power_cooldowns
+            .insert(SpecialPowerType::ParticleCannon, 88.0);
+        object.weapon = Some(Weapon {
+            clip_size: 5,
+            clip_reload_time: 3.0,
+            splash_radius: 12.5,
+            reloading_clip: true,
+            last_bonus_rof: 1.5,
+            ..Weapon::default()
+        });
+    }
+
+    manager
+        .save_game("lifecycle_clip_rt", &source, &save_info("lifecycle_clip_rt"))
+        .expect("save");
+
+    let mut loaded = GameLogic::new();
+    loaded.templates = source.templates.clone();
+    manager
+        .load_game("lifecycle_clip_rt", &mut loaded)
+        .expect("load must not fail on unpaused cooldown");
+
+    let object = loaded.host_object(id).expect("loaded");
+    let remaining = object
+        .special_power_cooldowns
+        .get(&SpecialPowerType::ParticleCannon)
+        .copied()
+        .expect("cooldown restored");
+    assert!((remaining - 88.0).abs() < 1e-4);
+    assert!(object.special_power_paused.is_empty());
+    let weapon = object.weapon.as_ref().expect("weapon restored");
+    assert_eq!(weapon.clip_size, 5);
+    assert!((weapon.clip_reload_time - 3.0).abs() < 1e-4);
+    assert!((weapon.splash_radius - 12.5).abs() < 1e-4);
+    assert!(weapon.reloading_clip);
+    assert!((weapon.last_bonus_rof - 1.5).abs() < 1e-4);
+}
+
+#[test]
 fn save_file_absent_lifecycle_tail_loads_empty() {
     let mut snapshot = WorldSnapshot::default();
     snapshot.lifecycle_tail.clear();

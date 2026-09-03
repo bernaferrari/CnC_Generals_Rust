@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use super::{DieModule, DieModuleData, DieModuleInterface};
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::{AsciiString, Bool, ObjectStatusTypes, Real};
 use crate::damage::DamageInfo;
 use crate::helpers::TheThingFactory;
@@ -365,7 +365,7 @@ impl DieModuleInterface for RebuildHoleExposeDie {
             if let Ok(hole) = hole_arc.read() {
                 let hole_id = hole.get_id();
                 let pos = *hole.get_position();
-                if let Ok(ai_guard) = THE_AI.read() {
+                let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                     if let Some(pathfinder) = ai_guard.pathfinder() {
                         if let Ok(mut pf) = pathfinder.write() {
                             pf.add_object_to_map(hole_id, &[pos], false);

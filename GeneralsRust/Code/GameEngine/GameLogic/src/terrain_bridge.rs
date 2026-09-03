@@ -5,7 +5,7 @@
 //! on rubble, `DAMAGE_FALLING` / `DEATH_SPLATTED` for units on the layer, and
 //! a scaffold gate when leaving rubble.
 
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::Region2D;
 use crate::common::{BodyDamageType, PathfindLayerEnum as CommonLayer};
 use crate::damage::{DamageInfo, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
@@ -71,7 +71,7 @@ pub fn update_damage_state(bridge: &mut Bridge) {
 }
 
 fn change_bridge_state(layer: PathfindLayerEnum, repaired: bool) {
-    if let Ok(mut ai) = THE_AI.write() {
+    let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
         ai.change_bridge_state(layer, repaired);
     }
 }

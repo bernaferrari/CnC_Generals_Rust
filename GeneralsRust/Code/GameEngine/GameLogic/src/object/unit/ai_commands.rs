@@ -474,7 +474,7 @@ impl UnitAIUpdate {
                     let mut path_available = true;
                     if let Some(locomotor) = guard.current_locomotor.as_ref().cloned() {
                         if let Ok(loco_guard) = locomotor.lock() {
-                            if let Ok(ai_guard) = THE_AI.read() {
+                            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                                 if let Some(system) = ai_guard.pathfinding_system() {
                                     if let Ok(mut system_guard) = system.write() {
                                         let capabilities = loco_guard.to_movement_capabilities();

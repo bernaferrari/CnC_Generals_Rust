@@ -326,6 +326,21 @@ impl WgpuMainRenderer {
         Ok(())
     }
 
+    /// Install the host's archive-backed pass-texture resolver on the scene
+    /// renderer (C++ `WW3DAssetManager::Get_Texture` parity for W3D pass
+    /// textures that carry only a name).
+    pub fn set_pass_texture_provider(
+        &self,
+        provider: crate::rendering::mesh_system::MeshPassTextureProvider,
+    ) -> RendererResult<()> {
+        let mut renderer = self
+            .renderer
+            .lock()
+            .map_err(|_| RendererError::InvalidOperation("renderer mutex poisoned".into()))?;
+        renderer.set_pass_texture_provider(provider);
+        Ok(())
+    }
+
     /// Begin a new frame.
     pub fn begin_frame(&mut self) -> RendererResult<()> {
         self.frame_start = Instant::now();

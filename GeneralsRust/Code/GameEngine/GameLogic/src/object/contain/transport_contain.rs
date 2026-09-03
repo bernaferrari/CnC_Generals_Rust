@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, ObjectTemplate, OpenContain};
-use crate::ai::THE_AI;
+use crate::ai::the_ai;
 use crate::common::{
     CommandSourceType, DisabledType, GameResult, KindOf, ModelConditionState, ObjectID,
     PathfindLayerEnum, PlayerMaskType, SECONDS_PER_LOGICFRAME_REAL, WeaponSlotType,
@@ -1006,7 +1006,7 @@ impl TransportContain {
         let mut loco_set = LocomotorSet::new();
         loco_set.add_locomotor("cur".to_string(), his_loco);
         let layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
-        THE_AI
+        the_ai()
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())

@@ -12,6 +12,7 @@ pub mod detection_manager;
 pub mod detection_modifiers;
 pub mod detection_performance;
 pub mod disguise_manager;
+pub mod engine_stores;
 pub mod explored_territory;
 #[path = "game_logic_impl/mod.rs"]
 pub mod game_logic;

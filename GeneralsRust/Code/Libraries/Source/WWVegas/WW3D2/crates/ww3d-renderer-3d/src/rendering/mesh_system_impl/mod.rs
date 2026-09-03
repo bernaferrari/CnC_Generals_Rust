@@ -93,7 +93,9 @@ pub(in crate::rendering::mesh_system) use materials::*;
 pub use dx8::{
     DX8FVFCategoryContainer, DX8PolygonRendererClass, DX8TextureCategoryClass, MeshRenderTask,
 };
-pub use render_manager::{MeshRenderManager, PreparedMeshModel, RenderPassResources};
+pub use render_manager::{
+    MeshPassTextureProvider, MeshRenderManager, PreparedMeshModel, RenderPassResources,
+};
 pub use static_sort::{StaticSortEntry, StaticSortFlushGuard, StaticSortManager};
 
 /// Sort levels for static sort lists (transparency sorting)

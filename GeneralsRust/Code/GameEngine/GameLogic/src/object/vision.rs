@@ -124,7 +124,7 @@ impl Object {
     pub(super) fn add_self_to_pathfind_map(&self) {
         let pos = *self.get_position();
         let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
-        if let Ok(ai) = crate::ai::THE_AI.read() {
+        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(mut pf) = pf.write() {
                     pf.add_object_to_map(self.id, &footprint, false);

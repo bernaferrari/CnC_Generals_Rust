@@ -68,7 +68,10 @@ pub(crate) fn decode_bincode_world_snapshot(
         .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
 
     match version {
-        WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
+        // v20 → v21 carried no serde field change (the v21 addition is the
+        // direct-Xfer weapon residual tail only), so a v20 payload decodes as
+        // the exact current record and keeps its stamped version for gating.
+        20 | WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         19 => bincode_exact::<PreV20WorldSnapshot>(payload)

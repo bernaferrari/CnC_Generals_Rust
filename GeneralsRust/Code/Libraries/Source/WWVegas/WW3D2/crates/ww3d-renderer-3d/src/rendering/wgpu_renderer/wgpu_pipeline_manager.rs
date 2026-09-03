@@ -502,11 +502,17 @@ impl WgpuPipelineManager {
         };
 
         let depth_format = depth_format.unwrap_or(wgpu::TextureFormat::Depth32Float);
-        let depth_stencil = Some(create_depth_stencil_state_from_shader(
+        let mut depth_stencil = Some(create_depth_stencil_state_from_shader(
             shader,
             depth_format,
             bias_state,
         ));
+        if disc_depth_always() {
+            if let Some(ds) = depth_stencil.as_mut() {
+                ds.depth_compare = wgpu::CompareFunction::Always;
+                ds.depth_write_enabled = false;
+            }
+        }
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("WW3D Render Pipeline"),
@@ -539,6 +545,7 @@ impl WgpuPipelineManager {
                 },
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: if force_two_sided
+                    || disc_cull_none()
                     || shader.get_cull_mode()
                         != crate::rendering::shader_system::shader::CullModeType::Enable
                 {
@@ -1146,6 +1153,26 @@ fn to_compare_func(cmp: DepthCompareType) -> wgpu::CompareFunction {
         DepthCompareType::Always => wgpu::CompareFunction::Always,
         _ => wgpu::CompareFunction::LessEqual,
     }
+}
+
+/// Render discriminators (documented diagnostic env gates; defaults are C++ parity).
+///
+/// `GENERALS_DISC_DEPTH=1` forces `depth_compare=Always` + `depth_write=false` on
+/// every pipeline built here: probes whether the terrain pre-scene pass's written
+/// depth evicts mesh fragments (C++ default is `D3DCMP_LESSEQUAL` with writes,
+/// GeneralsMD dx8wrapper.cpp:3687). `GENERALS_DISC_CULL=1` forces
+/// `cull_mode=None`: probes a D3D->wgpu winding/cull mismatch (C++ default is
+/// `D3DCULL_CW`, dx8wrapper.cpp:3686). Both flags are read once per process.
+fn disc_depth_always() -> bool {
+    static DISC: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var("GENERALS_DISC_DEPTH").as_deref() == Ok("1"));
+    *DISC
+}
+
+fn disc_cull_none() -> bool {
+    static DISC: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var("GENERALS_DISC_CULL").as_deref() == Ok("1"));
+    *DISC
 }
 
 fn create_depth_stencil_state_from_shader(

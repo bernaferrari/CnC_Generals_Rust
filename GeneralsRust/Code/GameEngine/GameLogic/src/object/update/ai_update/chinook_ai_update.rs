@@ -1349,7 +1349,7 @@ impl ChinookAIUpdate {
                 if let Some(partition) = ThePartitionManager::get() {
                     if partition.find_position_around_with_options(&dest, &options, &mut tmp) {
                         dest = tmp;
-                        if let Ok(ai_guard) = crate::ai::THE_AI.read() {
+                        let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
                             if let Some(pathfinder) = ai_guard.pathfinder() {
                                 if let Ok(pf) = pathfinder.read() {
                                     pf.adjust_to_landing_destination(&*owner_guard, &mut dest);

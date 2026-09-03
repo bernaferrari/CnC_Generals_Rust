@@ -1539,13 +1539,24 @@ impl GameWorldShadow {
                     );
                     {
                         use crate::fow_rendering::FOWRenderingBridge;
+                        let local_player_id = logic.local_player_id().unwrap_or(0);
+                        // C++ PartitionManager parity: every Object has a
+                        // controlling player (Object::getControllingPlayer),
+                        // and own objects are always inside their own lookers'
+                        // radius, so local-player objects stay Clear. The
+                        // sparse host registry often leaves owner_player_id
+                        // unset; resolve it from the team exactly like
+                        // update_main_crate_vision's look pass does.
+                        let resolved_owner =
+                            obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
                         let vis = if logic.isInShellGame() {
                             crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
+                        } else if resolved_owner == Some(local_player_id) {
+                            // Always see own force (structures + builders +
+                            // army); see presentation_frame/build.rs bypass.
+                            crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                         } else {
-                            FOWRenderingBridge::get_object_visibility(
-                                logic.local_player_id().unwrap_or(0),
-                                obj.id,
-                            )
+                            FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
                         };
                         e.fow_visibility_alpha = vis.visibility_alpha;
                         e.fow_is_explored = vis.is_explored;
@@ -2106,13 +2117,20 @@ impl GameWorldShadow {
                     crate::assets::mesh_asset_resolve::mesh_scale_from_template(obj.get_template());
                 {
                     use crate::fow_rendering::FOWRenderingBridge;
+                    let local_player_id = logic.local_player_id().unwrap_or(0);
+                    // Same controlling-player resolution as the update site:
+                    // team fallback mirrors update_main_crate_vision's look
+                    // pass (C++ Object::getControllingPlayer parity).
+                    let resolved_owner =
+                        obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
                     let vis = if logic.isInShellGame() {
                         crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
+                    } else if resolved_owner == Some(local_player_id) {
+                        // Own force stays Clear (C++ PartitionManager parity;
+                        // see presentation_frame/build.rs own-force bypass).
+                        crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                     } else {
-                        FOWRenderingBridge::get_object_visibility(
-                            logic.local_player_id().unwrap_or(0),
-                            obj.id,
-                        )
+                        FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
                     };
                     e.fow_visibility_alpha = vis.visibility_alpha;
                     e.fow_is_explored = vis.is_explored;

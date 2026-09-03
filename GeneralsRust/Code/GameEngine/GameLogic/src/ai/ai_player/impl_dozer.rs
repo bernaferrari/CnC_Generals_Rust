@@ -193,7 +193,7 @@ impl AIPlayer {
 
         let mut path_ok = false;
         if let Some(ref loco_set) = loco_set {
-            if let Ok(ai_guard) = THE_AI.read() {
+            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pf_arc) = ai_guard.pathfinder() {
                     if let Ok(pf) = pf_arc.read() {
                         path_ok = pf.client_safe_quick_does_path_exist(loco_set, &dpos, &pos);
@@ -1111,7 +1111,7 @@ impl AIPlayer {
             (origin, tid)
         };
 
-        let max_recruit = THE_AI
+        let ai_store = the_ai();let max_recruit = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))

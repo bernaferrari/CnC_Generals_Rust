@@ -1,7 +1,7 @@
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::states::{AIEnterState, AttackExitConditionsInterface, AttackStateMachine};
 use crate::ai::vision_factors;
-use crate::ai::{THE_AI, object_registry::get_legacy_object};
+use crate::ai::{the_ai, object_registry::get_legacy_object};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
@@ -26,7 +26,7 @@ const CLOSE_ENOUGH: f32 = 25.0;
 const CRATE_PICKUP_RANGE_SQR: f32 = 100.0;
 
 fn get_guard_enemy_scan_rate() -> u32 {
-    let Ok(ai_guard) = THE_AI.read() else {
+    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
         return 30;
     };
     let data = ai_guard.get_ai_data();
@@ -37,7 +37,7 @@ fn get_guard_enemy_scan_rate() -> u32 {
 }
 
 fn get_guard_chase_unit_frames() -> u32 {
-    let Ok(ai_guard) = THE_AI.read() else {
+    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
         return 0;
     };
     let data = ai_guard.get_ai_data();
@@ -48,7 +48,7 @@ fn get_guard_chase_unit_frames() -> u32 {
 }
 
 fn get_guard_enemy_return_scan_rate() -> u32 {
-    let Ok(ai_guard) = THE_AI.read() else {
+    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
         return 60;
     };
     let data = ai_guard.get_ai_data();
@@ -588,7 +588,7 @@ impl AIGuardRetaliateMachine {
     }
 
     pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
-        let ai = THE_AI.read().ok();
+        let ai_store = the_ai();let ai = ai_store.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
                 obj_id,
@@ -1011,7 +1011,7 @@ impl StateImplementation for AIGuardRetaliateOuterState {
             let owner_id = owner_guard.get_id();
             drop(owner_guard);
 
-            let Ok(ai) = THE_AI.read() else {
+            let ai_store = the_ai();let Ok(ai) = ai_store.read() else {
                 return StateReturnType::Failure;
             };
             ai.get_adjusted_vision_range_for_object(
@@ -1370,7 +1370,7 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
             let owner_id = owner_guard.get_id();
             drop(owner_guard);
 
-            let Ok(ai) = THE_AI.read() else {
+            let ai_store = the_ai();let Ok(ai) = ai_store.read() else {
                 return StateReturnType::Failure;
             };
             ai.get_adjusted_vision_range_for_object(
