@@ -106,17 +106,29 @@ impl GameWorldShadow {
                 player.power_consumed = pd.power_consumed;
                 dirty = true;
             }
-            if player.radar_count != pd.radar_count {
+            // C++ radar state is owned by the player whose objects grant it
+            // (Player.cpp:3132 addRadar / Player.h:326). A GW slot may only
+            // write radar/alive residuals onto the host player whose faction
+            // it actually mirrors — a stale or observer slot (team None)
+            // must never zero a live faction player's flag.
+            let slot_owning_faction = match player.team {
+                Team::USA => Some(0u8),
+                Team::China => Some(1),
+                Team::GLA => Some(2),
+                Team::Neutral => None,
+            };
+            let slot_owns_player_state = pd.team == slot_owning_faction;
+            if slot_owns_player_state && player.radar_count != pd.radar_count {
                 player.radar_count = pd.radar_count;
                 dirty = true;
                 radar_changed = true;
             }
-            if player.radar_disabled != pd.radar_disabled {
+            if slot_owns_player_state && player.radar_disabled != pd.radar_disabled {
                 player.radar_disabled = pd.radar_disabled;
                 dirty = true;
                 radar_changed = true;
             }
-            if player.is_alive != pd.is_alive {
+            if slot_owns_player_state && player.is_alive != pd.is_alive {
                 player.is_alive = pd.is_alive;
                 dirty = true;
                 alive_changed = true;

@@ -29,38 +29,49 @@ pub(crate) fn is_none_callback_name(name: &str) -> bool {
 }
 
 pub(crate) fn resolve_window_script_path(filename: &str) -> WindowResult<PathBuf> {
+    fn push_base_candidates(candidates: &mut Vec<PathBuf>, base: &Path, filename: &str) {
+        candidates.push(
+            base.join("windows_game/extracted_big_files_v2/WindowZH/Window")
+                .join(filename),
+        );
+        candidates.push(
+            base.join("windows_game/extracted_big_files_v2/WindowZH/Window/Menus")
+                .join(filename),
+        );
+        candidates.push(
+            base.join("windows_game/extracted_big_files/WindowZH/Window")
+                .join(filename),
+        );
+        candidates.push(
+            base.join("windows_game/extracted_big_files/WindowZH/Window/Menus")
+                .join(filename),
+        );
+        if let Some(bare) = filename.rsplit(['/', '\\']).next() {
+            if bare != filename {
+                candidates.push(
+                    base.join("windows_game/extracted_big_files_v2/WindowZH/Window/Menus")
+                        .join(bare),
+                );
+                candidates.push(
+                    base.join("windows_game/extracted_big_files/WindowZH/Window/Menus")
+                        .join(bare),
+                );
+            }
+        }
+    }
     let mut candidates = Vec::new();
     if let Ok(current_dir) = std::env::current_dir() {
         for base in current_dir.ancestors() {
-            candidates.push(
-                base.join("windows_game/extracted_big_files_v2/WindowZH/Window")
-                    .join(filename),
-            );
-            candidates.push(
-                base.join("windows_game/extracted_big_files_v2/WindowZH/Window/Menus")
-                    .join(filename),
-            );
-            candidates.push(
-                base.join("windows_game/extracted_big_files/WindowZH/Window")
-                    .join(filename),
-            );
-            candidates.push(
-                base.join("windows_game/extracted_big_files/WindowZH/Window/Menus")
-                    .join(filename),
-            );
-            if let Some(bare) = filename.rsplit(['/', '\\']).next() {
-                if bare != filename {
-                    candidates.push(
-                        base.join("windows_game/extracted_big_files_v2/WindowZH/Window/Menus")
-                            .join(bare),
-                    );
-                    candidates.push(
-                        base.join("windows_game/extracted_big_files/WindowZH/Window/Menus")
-                            .join(bare),
-                    );
-                }
-            }
+            push_base_candidates(&mut candidates, base, filename);
         }
+    }
+    // C++ TheFileSystem resolves "Menus/*.wnd" through engine-fixed search
+    // paths (FileSystem.cpp:164-178: LocalFileSystem then ArchiveFileSystem),
+    // anchored at the install dir, never the transient process CWD. The
+    // compile-time manifest root is this port's install anchor, so windowed
+    // drives launched from a temp CWD still resolve Menus/MainMenu.wnd.
+    for base in PathBuf::from(env!("CARGO_MANIFEST_DIR")).ancestors() {
+        push_base_candidates(&mut candidates, base, filename);
     }
     candidates
         .push(Path::new("windows_game/extracted_big_files_v2/WindowZH/Window").join(filename));

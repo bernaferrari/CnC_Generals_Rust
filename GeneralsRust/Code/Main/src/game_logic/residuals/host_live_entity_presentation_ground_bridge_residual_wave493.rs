@@ -144,8 +144,9 @@ pub fn simulate_entity_presentation_ground_bridge_entity_source() -> bool {
 
 pub fn simulate_entity_presentation_ground_bridge_command_set() -> bool {
     let pf = pf_source();
-    let ok = pf.contains("Wave 493: effective command set name falls back to override residual")
-        && pf.contains("command_set_name: ent.command_set_override.clone()");
+    let ok = pf.contains("Wave 493: override residual, template-authored fallback")
+        && pf.contains("resolve_command_set_name(")
+        && pf.contains("&ent.template.name,");
     residual_action_store(ResidualEntityPresentationGroundBridgeAction::CommandSet);
     ok
 }

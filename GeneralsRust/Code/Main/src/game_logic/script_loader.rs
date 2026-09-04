@@ -100,6 +100,10 @@ fn locate_map_file(map_name: &str) -> Option<PathBuf> {
     // Retail ZH maps live under windows_game/extracted_big_files{,_v2}/MapsZH.
     // C++ virtual FS roots Maps/ at MapsZH.big; join INI "Maps/..." against
     // those extract trees so ShellMapMD resolves from cwd=GeneralsRust/.
+    // NOTE: no bare "/Maps" suffixes here — the VFS local backend treats any
+    // existing path (directories included) as a hit, so a Maps-suffixed root
+    // makes bare names resolve to the map DIRECTORY, which then fails chunky
+    // decode. Bare names resolve file-exact via resolve_retail_map_path below.
     let extract_suffixes = [
         "windows_game/extracted_big_files/MapsZH",
         "windows_game/extracted_big_files_v2/MapsZH",
