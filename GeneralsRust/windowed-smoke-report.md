@@ -2895,3 +2895,238 @@ GameClient (shadow_pass.rs, particle_renderer.rs, terrain impl_gpu.rs, overlay_g
 tests/blend_state_tests.rs. No git writes; no formatters. New drive script
 `/tmp/wsmoke/sweepdrive1.sh`; evidence `/tmp/wsmoke/sweep_sweep1_{ingame.png,stderr.log,log}`,
 `/tmp/wsmoke/combat_guard_post_sweep.log`, `/tmp/wsmoke/combat_guard_run2.log`.
+
+## G1Minimap — radar draw path proven end-to-end live; radar terrain paint moved to C++ no-art fallback; radar-gate flip (has_radar true→false mid-match) pinned as the remaining black-minimap seam (2026-09-04 04:50-05:55)
+
+### Scope
+Close VisualGap2 G1 (minimap/radar fully black in-match). Method: env-gated live
+probes (GENERALS_RADARPROBE) at `host_update_the_radar` (Main
+run_loop.rs, C++ GameEngine.cpp:732 `TheRadar->UPDATE()`) and
+`w3d_left_hud_draw` (GameClient w3d_gadget_draw/hud.rs, C++
+W3DControlBar.cpp:41-70 `W3DLeftHUDDraw`), three windowed skirmish drives
+(control-command only), pixel decode of the LeftHUD region. Probes removed
+after use; run_loop.rs and hud.rs byte-restored to pre-task tags (#03F9 /
+#94D2). No git writes; no formatters.
+
+### Probe findings (drives 05:03 + 05:32, /tmp/wsmoke/g1_*.png/log)
+- `w3d_left_hud_draw` IS wired and called every InGame frame in the windowed
+  host (`ensure_control_bar_wnd_draw_callbacks` per flush), and on a healthy
+  drive takes the RADAR branch (not the fallback) from first frame.
+- Radar state at draw time is fully hydrated: `terrain_len=65536
+  nonblack=16384/16384`, `map_extent=true`, shroud `clear=503-553 / 16384`
+  after the match-start look union — matching C++ W3DRadar.cpp:977-993
+  (newMap builds the terrain texture immediately).
+- Pixel proof (g1_initial/g1_blob_zoom8.png): the radar DOES draw — yellow
+  view-box trapezoid (W3DRadar.cpp:260 drawViewBox parity), CC blip, and a
+  small revealed-terrain patch inside a correctly letterboxed quad
+  (radar_draw_positions ↔ C++ findDrawPositions). The "fully black" crop in
+  VisualGap2 was the 97%-shrouded remainder plus the misidentified crop rect
+  (real LeftHUD window ≈ (32..138, 382..476), not (10..175, 385..470)).
+
+### Defect 1 — FIXED: radar terrain painted from stand-in hash tiles
+MinimapTerrain's hydration fill (impl_core.rs load_source_tiles_for_class)
+synthesizes `stand_in_tile_bgra` flat HASH-COLOR tiles when Art/Terrain TGAs
+do not resolve, and the radar paint source sampled them as terrain colors →
+the revealed patch rendered as a purple/yellow noise mosaic instead of
+terrain. C++ oracle: `W3DRadar::buildTerrainTexture` →
+`TheTerrainVisual->getTerrainColorAt` → `WorldHeightMap::getTerrainColorAt`
+(WorldHeightMap.cpp:2331-2357) samples REAL tile art only; a null
+`getSourceTile` leaves the color unset (black), and interpolateColorForHeight
+(W3DRadar.cpp:1177) shades it.
+
+Fix (3 files):
+- `GameClient/src/terrain/terrain_visual/visual_struct.rs` + `impl_core.rs`:
+  new `stand_in_source_tiles: Vec<bool>` parallel to `source_tiles`; the
+  stand-in branch flags every synthesized tile.
+- `GameClient/src/terrain/height_map.rs`: `tile_ndx_at_world` (same
+  floor/clamp/border unpack as get_terrain_color_at_world,
+  WorldHeightMap.cpp:2333-2345).
+- `GameClient/src/terrain/terrain_visual/impl_world.rs`:
+  `radar_terrain_color_at` → None for stand-in tiles (real art still samples
+  true colors). `api.rs leftover_radar_terrain_color_at` routes through it,
+  so `Radar::build_terrain_texture_cpp` falls back to its C++-shaped base
+  color + height shading (the Sep-2 verified look) until real art mounts.
+
+### Defect 2 — DIAGNOSED, NOT FIXED (owner: simulation lane): the radar gate
+flips OFF mid-match on the newest tree. Drive 2 (05:02 binary): `has_radar=true
+forced=false shown=true` steady through frame 1168 → radar lane healthy. Drive
+3 (05:31 binary, which also includes G3's skirmish-enemy GameLogic edits):
+`has_radar=true forced=true` at frame 0 → **`has_radar=false` by frame 275**
+→ `branch=fallback` → FALLBACK_HUD_FILL slab = the black minimap. This flip
+reproduces the original VisualGap2 "prior fix not observed" confusion: the
+MinimapProbe Wave-818 drain relocation works, but something zeroes
+`Player::has_radar` (radar_count→0) shortly after match start on the current
+tree — prime suspects: the GW Wave-818 radar recompute/writeback slot
+alignment when G3's enemy spawn mutates the player set, or
+evaluate_victory/kill_player touching the local player's structures
+(MinimapSeam's documented hazard, VictoryConditions.cpp:196 killPlayer).
+One-line next step: re-add the one-shot RADARPROBE in
+`host_update_the_radar` (documented above) + SEAMPROBE on the Wave-818
+recompute in `gameworld_shadow` status_timers_post.rs on a drive with G3's
+enemy fix enabled, and diff `host_player_to_gw`/`pd.team`/`radar_count`
+around frame 275. Do NOT work around with radar.force_on (C++
+ControlBarCallback.cpp:51 gate parity).
+
+### Guards / evidence
+- cargo check -p game-client-rust: 0 errors; cargo check -p generals_main
+  --bin generals: 0 errors (probe-free tree).
+- game-client terrain_visual `leftover_radar_paint_source_samples_terrain_visual_tile_color`
+  PASS (debug_set_source_tile path unaffected by the stand-in gate).
+- Evidence: /tmp/wsmoke/g1_{initial,selected,moved,late}.png,
+  g1_blob_zoom8.png, g1_mm_zoom*.png, g1.log, drive stderr under
+  $(cat /tmp/wsmoke/g1_dir) (drive-3 RADARPROBE n=300/600 lines carry the
+  has_radar flip). Probe re-add snippets: see this section's "Probe findings".
+- Changed files: terrain_visual/{visual_struct,impl_core,impl_world,api}.rs,
+  height_map.rs. run_loop.rs + w3d_gadget_draw/hud.rs byte-restored (probes
+  removed). No git writes; no formatters; caffeinate serial drives.
+
+## G3EnemyHunt — skirmish enemy spawn is C++-PARITY PRESENT (VisualGap2 G3 misdiagnosed); attack chain blocked upstream by dozer-construct (2026-09-04 05:00-06:00)
+
+### Method
+Release binary + env-gated diagnostics added this window (GameLogic lane):
+`GameLogic::debug_dump_match_roster(tag)` (world_tick/production.rs) — dumps
+every player (pid/team/alive/local/startpos/PlayerTemplate identity) + alive
+per-player structure/mobile counts and object positions; called at
+`spawn_skirmish_starting_units` entry/exit and via new windowed control command
+`roster_probe` (runtime_host/mod.rs dispatch + gameplay_select.rs handler).
+Gated by `GENERALS_ROSTER_PROBE=1`, off by default, never writes evidence keys.
+Drives: /tmp/wsmoke/g3drive.sh (windowed 640x480, control-command only), logs
+/tmp/wsmoke/g3.log, captures /tmp/wsmoke/g3_*.png, child stderr under
+$(cat /tmp/wsmoke/g3_dir). 4 boots total. NOTE: the binary must live in the
+repo (target/release/...): a /tmp copy cannot resolve map data roots — "Map
+'Defcon6' not found on disk" → start aborts to Menu. G2 also hit the menu-reveal
+marker regression ("unattended runtime-host run — revealing main menu" absent;
+named menu clicks miss); `winit_menu_nav` soft reveal + start_game fallback
+(golden 2-slot config) is the reliable bypass.
+
+### Finding 1 — enemy player + base + units SPAWN on the real windowed path (parity verified live)
+Full roster at match start (Defcon6, WND skirmish-menu path; random roll gave
+USA local vs GLA enemy — one control_probe triple per match, repeated across
+3 independent boots):
+
+    ROSTER[control_probe] pid=0 team=USA alive=true local=true startpos=0
+      tpl=FactionAmerica structures=1 mobile=1
+      [AmericaCommandCenter@(3068,2241), AmericaVehicleDozer@(3108,2201)]
+    ROSTER[control_probe] pid=1 team=GLA alive=true local=false startpos=1
+      tpl=FactionGLA structures=1 mobile=1
+      [GLACommandCenter@(3082,783), GLAInfantryWorker@(3122,743)]
+    ROSTER[control_probe] pid=2 team=Neutral (FactionObserver, replay observer)
+
+Chain (already implemented before this window; verified, not modified):
+`apply_skirmish_config` (skirmish_config.rs) resolves GameInfo slots
+(human + MedAI — C++ SkirmishGameOptionsMenu.cpp:1306-1325 seeds slot0 human +
+slot1 battle-honors AI), creates slot players, binds the exact PlayerTemplate,
+registers `add_ai_opponent`; `load_map_with_progress` preserves host players;
+`spawn_skirmish_starting_units` (world_tick/production.rs, Wave 831/832) is the
+C++ `GameLogic::startNewGame` parity of `placeNetworkBuildingsForPlayer`
+(GameLogic.cpp:524-597): StartingBuilding at `Player_%d_Start`
+(GameLogic.cpp:1946-1988 occupied-slot loop incl. AI slots) +
+StartingUnit0..MAX_MP_STARTING_UNITS (PlayerTemplate.h:38 = 10; retail
+PlayerTemplate.ini:108209-108278 authors exactly ONE StartingUnit0 per faction
+— dozer/worker — so local "CC + dozer only, select_all=0 combat units" IS
+retail parity, not a spawn gap). Enemy spawned at its OWN start spot
+(z=783 vs local 2241), separate base, alive at every probe.
+
+### Finding 2 — VisualGap2 G3 root cause: fail-closed attack filter + zero scouts, not missing enemies
+`attack_nearest_enemy` (runtime_host/gameplay.rs) resolves targets via
+`PresentationFrame::first_enemy_attack_command_id` → `first_enemy_attackable_id`
+`or_else` `first_enemy_force_attack_id` (presentation_frame/queries.rs:1370-1427):
+BOTH fail closed on `fow_visibility.visibility_alpha >= 0.95`
+(Wave 1103/1105 residual — correct parity: an unscouted enemy is not a legal
+target) plus `presentation_is_attackable` (unit_control.rs:358: alive, not
+sold/masked/unattackable, KindOf::Attackable). With no scouting and no local
+combat unit (retail start = CC + dozer), `attack_fail_no_enemy` at 03:44:10 was
+the CORRECT fail-closed outcome against an enemy the roster now proves was
+present the whole time. Remaining true gap blocking the attack_ok acceptance:
+the honest reach chain is build→produce→march→attack, and
+`construct|template=AmericaBarracks|auto_target=1` repeatedly returned
+`construct_fail_no_building` on the real map (builder dozer was selectable,
+`select_ok:465`): the pre-existing map-path DozerConstruct gap SimSystemsFix
+documented as system 5 ("dozer DozerConstruct on Lone Eagle — next hunt
+target"), confirmed identical on Defcon6. Combat itself is live: the 04:30
+drive window left a match unsupervised ~8 min and status recorded
+`match_kills=24 local_mobile_units=20` (GLA Medium AI produced, engaged;
+auto-acquire war on the real path). Direct-order attack_ok needs the construct
+gap closed (G2's command-grid lane touches the same dozer flow).
+
+### Guards / evidence
+- Scoped `cargo test -p generals_main --lib starting_units` → 3 passed /
+  0 failed (spawn_skirmish_starting_units missing-builder + rally + residual
+  trio). cargo check -p generals_main --lib green after the probe edits.
+- Evidence: /tmp/wsmoke/g3.log, g3_ingame_initial.png, g3_*.txt status
+  snapshots, child stderr under $(cat /tmp/wsmoke/g3_dir) (control_probe
+  triples above are pasted verbatim from it); construct-fail trail in g3.log
+  05:39:36-05:40:11.
+- Changed files: Code/Main/src/game_logic/world_tick/production.rs
+  (env-gated `debug_dump_match_roster` + 2 call sites; repaired an
+  unclosed-delimiter from the probe insert — no behavior change to the spawn
+  walk), Code/Main/src/cnc_game_engine/runtime_host/{mod.rs,gameplay_select.rs}
+  (`roster_probe` control command, same env gate). Probe removal: delete
+  `debug_dump_match_roster`, its 2 call sites, and the `roster_probe`
+  dispatch + handler after the attack_ok re-verify drive — they are the live
+  evidence tool for it. No git writes; no formatters; caffeinate drives.
+
+## G2GridFix — real-map dozer command grid: root-cause chain MEASURED + 2 staged fixes; end-to-end drive still blocked by shared-tree menu/map regressions (2026-09-04 04:40-06:30)
+
+Method: GENERALS_CBGRID2 env-gated warn probes (deduped per key) at
+`add_object_commands` (GameClient control_bar_impl/impl_buttons.rs) and
+`find_command_set_for_object` (Main ui/construction_panel.rs). 8 windowed
+640x480 control-driven drives (/tmp/wsmoke/g2drive1.sh, g2drive2.sh →
+/tmp/wsmoke/g2b_*.png|txt, g2drive*.log, child stderr under $(cat
+/tmp/wsmoke/g2x_dir)) against release binaries from the shared tree.
+
+### Measured verdicts (probe-driven)
+1. Engine INI parse + factory are HEALTHY on this tree: live boot has 2
+   residual "Skipping object" lines (was 606), no "catalog unavailable";
+   freeze-time resolution logs `AmericaVehicleDozer → AmericaDozerCommandSet`,
+   `AmericaCommandCenter → AmericaCommandCenterCommandSet`,
+   `ChinaVehicleDozer → ChinaDozerCommandSet` etc. (130 templates resolved).
+   CmdSetFix root causes 1+2 verified working at the template layer.
+2. The selected real-map dozer (id=465) is NOT resolvable through
+   `OBJECT_REGISTRY.get_object` from the ControlBar (neither factory store nor
+   engine GameLogic fallback) → falls to presentation residual.
+3. `presentation_primary_command_set` is EMPTY at grid-build time even though
+   the presentation freeze entries carry the correct command set: the
+   portrait lane (`sync_selection_display_from_presentation`) fills
+   portrait/health/queue but never captured `command_set_name`; the
+   freeze-entry lane in `update_portrait_for_object` does, but the dozer's
+   grid goes through the selection-sync lane instead.
+4. Net: `add_object_commands` got an empty name → early-out → zero slots →
+   `winit_click_named ControlBar.wnd:ButtonCommand03` MISSED (all drives).
+
+### Fixes staged (compile-clean `cargo check -p game-client-rust --lib` + `-p generals_main --lib`, 0 errors)
+1. impl_portrait.rs `sync_selection_display_from_presentation`: capture the
+   selected object's authored command set from its template
+   (C++ ControlBar.cpp:3594 + Object.cpp:6084 parity
+   `Object::getCommandSetString → template friend_getCommandSetString`).
+2. impl_buttons.rs registry-miss branch: resolve the command set from the
+   selected object's presentation translator catalog entry
+   (`translator_catalog_entry(first_id).command_set_name`) before falling back
+   to the frozen residual — use-time resolution, immune to residual
+   set/clear ordering.
+NOT yet verified end-to-end: the final verdict drives still show
+ButtonCommand03 miss (last: 06:19:26). Next closer step: check whether
+`translator_catalog_entry(465)` returns an entry at selection time — if None,
+the translator catalog is keyed/stamped differently for host-spawned objects
+and the residual needs the host selection snapshot to carry template_name.
+
+### Shared-tree blockers hit (NOT this lane, flag for Main)
+- Menu first-run reveal regression: "revealing main menu" never logs on any
+  boot since 05:09 (4+ boots, HEAD 60f743b88 + env-gated probes); menu stays
+  hidden; all named menu clicks miss. Worked on 98bb6b20f (vg2.log 03:42) and
+  on G1's 05:02 binary boots (04:52/05:03). Workaround used: direct
+  `start_game` (skirmish) from Menu.
+- Bare map name resolution regression: `start_game|...|map=Defcon6` fails
+  "Map 'Defcon6' not found on disk" (VFS); explicit relative path
+  `windows_game/extracted_big_files/MapsZH/Maps/Defcon6/Defcon6.map` works.
+- Heavy concurrent `cargo build --release` contention (3+ sibling lanes)
+  stretched build cycles to 10-20 min.
+
+### Probe status — NOT removed (env-gated, inert without GENERALS_CBGRID2)
+- GameClient control_bar_impl/impl_buttons.rs: CBGRID2 registry-hit/miss/lookup
+  probes (deduped).
+- Main ui/construction_panel.rs `find_command_set_for_object`: CBGRID2
+  freeze-resolve probe (per-template-name dedupe, parking_lot Mutex).
+Remove after the closer lands the verification drive.
+Artifacts: /tmp/wsmoke/g2drive1.sh g2drive2.sh g2b_*.png g2b_*.txt
+g2drive*.log g2x_dir, verdict stderr under $(cat /tmp/wsmoke/g2x_dir)/child_stderr.txt.

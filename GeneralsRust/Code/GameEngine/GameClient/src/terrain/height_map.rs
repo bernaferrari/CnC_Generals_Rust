@@ -931,6 +931,30 @@ impl HeightMap {
         ]
     }
 
+    /// Source-tile index under a world position, mirroring the
+    /// floor/clamp/border unpack in `get_terrain_color_at_world`
+    /// (C++ `WorldHeightMap::getTerrainColorAt` ndx/tileNdx math,
+    /// WorldHeightMap.cpp:2333-2345). `None` outside the map or where no
+    /// tile is assigned.
+    pub fn tile_ndx_at_world(&self, world_x: f32, world_y: f32) -> Option<usize> {
+        if self.width == 0 || self.height == 0 || self.scale.abs() <= f32::EPSILON {
+            return None;
+        }
+        let max_x = self.width.saturating_sub(1) as i32;
+        let max_y = self.height.saturating_sub(1) as i32;
+        let x_index = ((world_x / self.scale).floor() as i32 + self.border_size).clamp(0, max_x);
+        let y_index = ((world_y / self.scale).floor() as i32 + self.border_size).clamp(0, max_y);
+        let ndx = y_index * self.width as i32 + x_index;
+        if ndx < 0 || (ndx as usize) >= self.heights.len() {
+            return None;
+        }
+        let tile_ndx = self.tile_ndxes.get(ndx as usize).copied().unwrap_or(0) >> 2;
+        if tile_ndx < 0 {
+            return None;
+        }
+        Some(tile_ndx as usize)
+    }
+
     pub fn get_blend_tile_index(&self, x_index: i32, y_index: i32) -> i16 {
         let ndx = y_index * (self.width as i32) + x_index;
         if ndx >= 0 && (ndx as usize) < self.blend_tile_ndxes.len() {

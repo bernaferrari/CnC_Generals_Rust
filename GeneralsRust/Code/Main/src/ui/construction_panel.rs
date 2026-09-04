@@ -908,11 +908,34 @@ fn resolve_build_info(object_name: &str, fallback_cost: i32) -> (i32, f32, Strin
 // ---------------------------------------------------------------------------
 
 fn find_command_set_for_object(object_name: &str) -> Option<String> {
-    if let Some(template) = gamelogic::helpers::TheThingFactory::find_template_initialized(object_name) {
-        let cs = template.get_command_set_string();
-        if !cs.is_empty() {
-            return Some(cs.to_string());
+    let cbgrid2 = std::env::var("GENERALS_CBGRID2").as_deref() == Ok("1");
+    let Some(template) = gamelogic::helpers::TheThingFactory::find_template_initialized(object_name)
+    else {
+        if cbgrid2 {
+            use std::collections::HashSet;
+            use parking_lot::Mutex;
+            static SEEN2: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+            let mut guard = SEEN2.lock();
+            let seen = guard.get_or_insert_with(HashSet::new);
+            if seen.insert(object_name.to_ascii_uppercase()) {
+                log::warn!("CBGRID2: freeze resolve tmpl={object_name} NO TEMPLATE");
+            }
         }
+        return None;
+    };
+    let cs = template.get_command_set_string();
+    if cbgrid2 {
+        use std::collections::HashSet;
+        use parking_lot::Mutex;
+        static SEEN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+        let mut guard = SEEN.lock();
+        let seen = guard.get_or_insert_with(HashSet::new);
+        if seen.insert(object_name.to_ascii_uppercase()) {
+            log::warn!("CBGRID2: freeze resolve tmpl={object_name} cs={cs:?}");
+        }
+    }
+    if !cs.is_empty() {
+        return Some(cs.to_string());
     }
     None
 }
