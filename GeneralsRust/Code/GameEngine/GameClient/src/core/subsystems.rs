@@ -1962,8 +1962,92 @@ impl SubsystemInterface for InGameUISubsystem {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_money_and_power_windows();
         self.update_radar_movie_playback();
+        // C++ InGameUI::update runs every registered window layout's update
+        // func (InGameUI.cpp:1825-1829); the live Diplomacy layout's update
+        // func ticks its WIN_ANIMATION_SLIDE_TOP (Diplomacy.cpp:124-133,
+        // 197, 246).
+        crate::gui::callbacks::diplomacy::tick_diplomacy_animation();
         Ok(())
+    }
+}
+
+impl InGameUISubsystem {
+    /// C++ `InGameUI::update` money/power window refresh (InGameUI.cpp:1776-1815):
+    /// the money player (observer look-at when the observer control bar is on,
+    /// else ThePlayerList local player) drives
+    /// `GadgetStaticTextSetText(moneyWin, buffer.format(TheGameText->fetch("GUI:ControlBarMoneyDisplay"), currentMoney))`
+    /// whenever the amount changed, and both `ControlBar.wnd:MoneyDisplay` /
+    /// `ControlBar.wnd:PowerWindow` are `winHide(FALSE)` while a money player
+    /// exists (`winHide(TRUE)` when NULL). The WND-authored label is
+    /// `GUI:$$$` → "$$$" (ControlBar.wnd:4352), which retail overwrites on the
+    /// first update; the control_bar_impl residual holds the same logic but no
+    /// live frame loop ticks it, so the live host runs it from this bridge.
+    fn update_money_and_power_windows(&self) {
+        use std::sync::atomic::{AtomicI32, Ordering};
+        static LAST_MONEY: AtomicI32 = AtomicI32::new(-1);
+
+        let money_player = if let Some(index) =
+            crate::helpers::TheControlBar::get_observer_look_at_player_index()
+        {
+            gamelogic::player::player_list()
+                .read()
+                .ok()
+                .and_then(|list| {
+                    list.get_player(index as gamelogic::player::PlayerIndex)
+                        .cloned()
+                })
+        } else {
+            gamelogic::player::player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())
+        };
+        let current_money = money_player
+            .as_ref()
+            .and_then(|player| player.read().ok())
+            .map(|player| player.get_money().count_money() as i32);
+
+        let money_window_id = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            "ControlBar.wnd:MoneyDisplay",
+        ) as i32;
+        let power_window_id = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            "ControlBar.wnd:PowerWindow",
+        ) as i32;
+        crate::gui::window_manager::with_window_manager(|manager| {
+            let money_window = manager.get_window_by_id(money_window_id);
+            let power_window = manager.get_window_by_id(power_window_id);
+            match current_money {
+                Some(money) => {
+                    // C++ 1799-1807: rewrite the text only when the amount changed.
+                    if LAST_MONEY.load(Ordering::Relaxed) != money {
+                        let text = crate::gui::control_bar::ControlBar::
+                            format_control_bar_money_display(money);
+                        if let Some(window) = money_window.as_ref() {
+                            let _ = window.borrow_mut().set_text(&text);
+                        }
+                        LAST_MONEY.store(money, Ordering::Relaxed);
+                    }
+                    // C++ 1808-1809: winHide(FALSE) whenever a money player exists.
+                    if let Some(window) = money_window.as_ref() {
+                        let _ = window.borrow_mut().hide(false);
+                    }
+                    if let Some(window) = power_window.as_ref() {
+                        let _ = window.borrow_mut().hide(false);
+                    }
+                }
+                // C++ 1811-1815: moneyPlayer == NULL hides both windows.
+                None => {
+                    if let Some(window) = money_window.as_ref() {
+                        let _ = window.borrow_mut().hide(true);
+                    }
+                    if let Some(window) = power_window.as_ref() {
+                        let _ = window.borrow_mut().hide(true);
+                    }
+                }
+            }
+        });
     }
 }
 

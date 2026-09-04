@@ -1043,7 +1043,7 @@ impl SpawnBehavior {
         // Process each spawn
         for &spawn_id in &self.spawn_ids {
             if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                let spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
+                let mut spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
 
                 // Count self-tasking spawns
                 for behavior in spawn_guard.get_behavior_modules() {
@@ -1065,27 +1065,24 @@ impl SpawnBehavior {
                     .map_err(|_| "Failed to read object")?;
 
                 if spawn_vet_level > obj_vet_level {
+                    // C++ SpawnBehavior.cpp:889-892: setVeterancyLevel(spawnVetLevel)
+                    // on the producer (ExperienceTracker.h:30 default provideFeedback
+                    // TRUE); the C++ tracker fires Object::onVeterancyLevelChanged
+                    // itself (ExperienceTracker.cpp:82-95).
                     let _ = self.with_object_mut(|obj_guard| {
-                        if let Some(exp_tracker) = obj_guard.get_experience_tracker() {
-                            if let Ok(mut tracker_guard) = exp_tracker.lock() {
-                                tracker_guard.set_veterancy_level_with_requirements(
-                                    spawn_vet_level,
-                                    &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                                );
-                            }
-                        }
+                        obj_guard.set_veterancy_level_with_side_effects(spawn_vet_level, true);
                     });
                 } else if spawn_vet_level < obj_vet_level {
-                    if let Some(spawn_exp_tracker) = spawn_guard.get_experience_tracker() {
-                        let mut spawn_tracker_guard = spawn_exp_tracker
-                            .lock()
-                            .map_err(|_| "Failed to lock spawn experience tracker")?;
-                        spawn_tracker_guard.set_veterancy_level_with_requirements(
-                            obj_vet_level,
-                            &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                        );
-                        drop(spawn_tracker_guard);
+                    // C++ SpawnBehavior.cpp:893-896: setVeterancyLevel(vetLevel) on the
+                    // spawn instead — same side-effect fan-out, feedback TRUE.
+                    drop(spawn_guard);
+                    if let Some(spawn_arc) = TheGameLogic::find_object_by_id(spawn_id) {
+                        if let Ok(mut spawn_write_guard) = spawn_arc.write() {
+                            spawn_write_guard
+                                .set_veterancy_level_with_side_effects(obj_vet_level, true);
+                        }
                     }
+                    spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
                 }
 
                 // Aggregate position and health

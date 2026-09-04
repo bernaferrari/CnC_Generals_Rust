@@ -2166,9 +2166,11 @@ impl TheInGameUI {
             hint_type: HintType::Attack,
             start: gamelogic::common::Coord3D::new(start.x, start.y, start.z),
             end: gamelogic::common::Coord3D::new(end.x, end.y, end.z),
-            creation_frame: 0,
+            // C++ InGameUI.cpp:2163 — hints stamp TheGameClient->getFrame();
+            // frame 0 would expire before mid-match attacks ever render.
+            creation_frame: TheGameLogic::get_frame(),
             source_id,
-            lifetime_frames: 60,
+            lifetime_frames: 41,
         };
         let state = hint_state();
         let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());

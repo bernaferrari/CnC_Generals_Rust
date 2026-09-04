@@ -281,8 +281,11 @@ pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowIns
     }
 
     let _ = with_ui_renderer_mut(|renderer| {
-        let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
-        let text_height = font_size.round() as i32;
+        let (point_size, font_name, bold) = match inst_data.font.as_ref() {
+            Some(font) => (font.size as f32, font.name.as_str(), font.bold),
+            None => (12.0, "Arial", false),
+        };
+        let text_height = crate::gui::font::font_pixel_size(point_size as i32);
         let text_y = origin_y + (height / 2) - (text_height / 2);
         let scissor = UIRect::new(
             clip_region.x as f32,
@@ -290,18 +293,22 @@ pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowIns
             clip_region.width as f32,
             clip_region.height as f32,
         );
-        let _ = renderer.draw_text_simple_with_scissor(
+        let _ = renderer.draw_text_simple_named_with_scissor(
             &text,
             glam::Vec2::new((origin_x + 1) as f32, (text_y + 1) as f32),
-            font_size,
+            point_size,
             crate::gui::game_window::color_to_rgba(inst_data.disabled_text.border_color),
+            font_name,
+            bold,
             scissor,
         );
-        let _ = renderer.draw_text_simple_with_scissor(
+        let _ = renderer.draw_text_simple_named_with_scissor(
             &text,
             glam::Vec2::new(origin_x as f32, text_y as f32),
-            font_size,
+            point_size,
             crate::gui::game_window::color_to_rgba(inst_data.disabled_text.color),
+            font_name,
+            bold,
             scissor,
         );
     });

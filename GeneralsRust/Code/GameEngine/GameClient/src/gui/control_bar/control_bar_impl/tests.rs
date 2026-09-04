@@ -208,7 +208,10 @@ mod tests {
     }
 
     #[test]
-    fn control_bar_background_draw_queues_shipped_commands() {
+    fn control_bar_background_draw_ships_nothing_without_scheme() {
+        // C++ W3DControlBar.cpp:615-623 + ControlBarScheme.cpp:794-799: with no
+        // scheme manager (or a missing scheme image) the background draw paints
+        // NOTHING — the old black HUD-strip fallback was non-C++ and removed.
         crate::gui::w3d_gadget_draw::reset_shipped_ui_draw_command_count();
         let mut window = GameWindow::new();
         window.set_name("ControlBar.wnd:BackgroundMarker");
@@ -218,9 +221,10 @@ mod tests {
             &window,
             window.instance_data(),
         );
-        assert!(
-            crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count() > 0,
-            "ControlBar HUD fallback must queue draw commands without scheme art"
+        assert_eq!(
+            crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count(),
+            0,
+            "manager-less background draw must stay silent, never paint a fallback strip"
         );
     }
 

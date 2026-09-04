@@ -1743,56 +1743,6 @@ impl GameLogic {
         n
     }
 
-    /// G3EnemyHunt temp diagnostic: env-gated (GENERALS_ROSTER_PROBE=1) roster
-    /// + per-player unit counts at match start. Removed after the windowed
-    /// skirmish enemy hunt drive. Never writes evidence keys.
-    pub(crate) fn debug_dump_match_roster(&self, tag: &str) {
-        if std::env::var("GENERALS_ROSTER_PROBE").as_deref() != Ok("1") {
-            return;
-        }
-        let mut pids: Vec<u32> = self.players.keys().copied().collect();
-        pids.sort_unstable();
-        for pid in pids {
-            let Some(player) = self.players.get(&pid) else {
-                continue;
-            };
-            let mut structures = 0usize;
-            let mut mobile = 0usize;
-            let mut names: Vec<String> = Vec::new();
-            for obj in self.objects.values() {
-                if obj.owner_player_id != Some(pid) || !obj.is_alive() {
-                    continue;
-                }
-                if obj.is_mobile() {
-                    mobile += 1;
-                } else {
-                    structures += 1;
-                }
-                if names.len() < 10 {
-                    names.push(format!(
-                        "{}@({:.0},{:.0})",
-                        obj.template_name,
-                        obj.get_position().x,
-                        obj.get_position().z
-                    ));
-                }
-            }
-            log::warn!(
-                "ROSTER[{}] pid={} team={:?} alive={} local={} startpos={} tpl={:?} structures={} mobile={} [{}]",
-                tag,
-                pid,
-                player.team,
-                player.is_alive,
-                player.is_local,
-                player.start_position,
-                self.player_template_identity(pid).cloned(),
-                structures,
-                mobile,
-                names.join(", ")
-            );
-        }
-    }
-    /// C++ GameLogic starting-unit residual (PlayerTemplate StartingUnit0..N).
     /// Spawns each active skirmish/SP player's starting construction unit near their
     /// base if they do not already own a matching mobile builder.
     pub(crate) fn spawn_skirmish_starting_units(&mut self) {
@@ -1800,7 +1750,6 @@ impl GameLogic {
             find_player_template_by_side, find_player_template_residual,
         };
 
-        self.debug_dump_match_roster("pre_spawn_starting_units");
         let mut player_ids: Vec<u32> = self.players.keys().copied().collect();
         player_ids.sort_unstable();
 
@@ -2033,7 +1982,6 @@ impl GameLogic {
                 }
             }
         }
-        self.debug_dump_match_roster("post_spawn_starting_units");
     }
 }
 

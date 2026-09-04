@@ -30,19 +30,25 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         orientation: f32,
     ) -> CommandResult {
+        
         if !self.validate_build_location(location) {
             return CommandResult::InvalidLocation;
         }
 
         let (base_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
             Some(t) => (t.build_cost, t.is_kind_of(KindOf::Structure)),
-            None => return CommandResult::InvalidCommand,
+            None => {
+                
+                return CommandResult::InvalidCommand;
+            }
         };
         let build_cost = self.calc_cost_to_build(template_name, base_cost);
 
-        if !is_structure {
-            return CommandResult::InvalidCommand;
-        }
+            if !is_structure {
+                
+                return CommandResult::InvalidCommand;
+            }
+            
 
         for &unit_id in units {
             let team = match self.game_logic.host_object(unit_id) {
@@ -52,8 +58,14 @@ impl<'a> CommandExecutor<'a> {
                 {
                     unit.team
                 }
-                Some(_) => continue,
-                None => continue,
+                Some(unit) => {
+                    
+                    continue;
+                }
+                None => {
+                    
+                    continue;
+                }
             };
 
             // C++ BuildAssistant CLEAR_PATH residual before charging resources.
@@ -63,6 +75,7 @@ impl<'a> CommandExecutor<'a> {
                 template_name,
                 Some(unit_id),
             ) {
+                
                 return CommandResult::InvalidLocation;
             }
 
@@ -78,15 +91,18 @@ impl<'a> CommandExecutor<'a> {
                 .move_objects_for_construction(location, place_r, Some(unit_id))
                 && self.game_logic.player_is_human(self.current_player_id)
             {
+                
                 return CommandResult::InvalidLocation;
             }
 
             {
                 let Some(player) = self.game_logic.get_player_mut(self.current_player_id) else {
+                    
                     continue;
                 };
 
                 if !player.spend_resources(&build_cost) {
+                    
                     return CommandResult::InvalidCommand;
                 }
             }
@@ -96,6 +112,7 @@ impl<'a> CommandExecutor<'a> {
                 self.current_player_id,
                 location,
             );
+            
             let Some(building_id) = building_id else {
                 // Refund on failed placement.
                 if let Some(player) = self.game_logic.get_player_mut(self.current_player_id) {
@@ -104,6 +121,7 @@ impl<'a> CommandExecutor<'a> {
                         .supplies
                         .saturating_add(build_cost.supplies);
                 }
+                
                 return CommandResult::InvalidCommand;
             };
             if orientation.abs() > f32::EPSILON {
@@ -172,6 +190,7 @@ impl<'a> CommandExecutor<'a> {
             );
             return CommandResult::Success;
         }
+        
         CommandResult::InvalidCommand
     }
 

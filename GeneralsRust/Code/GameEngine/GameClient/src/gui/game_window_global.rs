@@ -564,7 +564,12 @@ impl WindowManager {
 
     /// Return the font height in pixels.
     pub fn win_font_height(&self, font: &GameFont) -> i32 {
-        font.size
+        // C++ winFontHeight returns GameFont::height — the glyph atlas cell
+        // (Get_Char_Height, W3DGameFont.cpp:71), not the point size.
+        super::font::get_font_library()
+            .get_font(&font.to_font_desc())
+            .map(|resolved| resolved.height)
+            .unwrap_or_else(|_| super::font::font_pixel_size(font.size))
     }
 
     /// Check whether character is digit.

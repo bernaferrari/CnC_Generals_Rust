@@ -218,6 +218,10 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
 
     let mut frame_cleanup = UiFrameCleanup::new(renderer_arc.clone());
 
+    // C++ W3DInGameUI::draw (W3DInGameUI.cpp:379-415) renders move/attack
+    // hint markers after the scene and before TheWindowManager->winRepaint.
+    #[cfg(feature = "game_client")]
+    game_client::display::view::draw_live_command_markers();
     let root_count = game_client::gui::window_manager::with_window_manager(|wm| {
         unhide_control_bar_parent_while_ingame(wm);
         let roots = wm.root_window_count();

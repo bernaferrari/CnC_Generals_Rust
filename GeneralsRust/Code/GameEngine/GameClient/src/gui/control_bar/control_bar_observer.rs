@@ -112,6 +112,24 @@ pub fn observer_look_at_player_index() -> Option<i32> {
     (index >= 0).then_some(index)
 }
 
+/// C++ ControlBar.cpp switchToContext hide matrix (2135-2137, 2186-2188,
+/// 2229-2231, 2250-2252, 2272-2274): every non-observer context keeps both
+/// observer context parents hidden, so the StaticTextObs "Units / Buildings /
+/// Units Lost" observer labels never show during normal play.
+pub fn hide_observer_context_windows() {
+    hide_named("ControlBar.wnd:ObserverPlayerInfoWindow", true);
+    hide_named("ControlBar.wnd:ObserverPlayerListWindow", true);
+}
+
+/// Same as `hide_observer_context_windows` plus the OCL timer window
+/// (C++ ControlBar.cpp:2135, 2186, 2229, 2250, 2272 — CB_CONTEXT_NONE through
+/// CB_CONTEXT_MULTI_SELECT all hide CP_OCL_TIMER as well). Used by contexts
+/// that do not own the OCL timer display.
+pub fn hide_observer_and_ocl_context_windows() {
+    hide_observer_context_windows();
+    hide_named("ControlBar.wnd:OCLTimerWindow", true);
+}
+
 fn hide_named(name: &str, hidden: bool) {
     with_window_manager(|manager| {
         if let Some(win) = manager.find_window_by_name(name) {

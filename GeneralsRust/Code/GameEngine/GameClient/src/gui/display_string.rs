@@ -264,13 +264,18 @@ impl DisplayString {
             }
 
             let y_line = y + (line_idx as i32 * line_height);
+            let font_name = font.desc.name.clone();
+            let bold = font.desc.bold;
+            let point_size = font.desc.size;
             if drop_color != 0 {
                 draw_text_with_scissor(
                     renderer,
                     line,
                     x_line + x_drop,
                     y_line + y_drop,
-                    font.desc.size,
+                    point_size,
+                    &font_name,
+                    bold,
                     drop_color,
                     scissor,
                 );
@@ -281,7 +286,9 @@ impl DisplayString {
                 line,
                 x_line,
                 y_line,
-                font.desc.size,
+                point_size,
+                &font_name,
+                bold,
                 color,
                 scissor,
             );
@@ -293,14 +300,16 @@ impl DisplayString {
                     let local_idx = hotkey_idx - line_start;
                     let prefix: String = line.chars().take(local_idx).collect();
                     let ch = line.chars().nth(local_idx).unwrap_or(' ');
-                    let offset_x = font.measure_text(&prefix);
                     let hotkey_text = ch.to_string();
+                    let offset_x = font.measure_text(&prefix);
                     draw_text_with_scissor(
                         renderer,
                         &hotkey_text,
                         x_line + offset_x,
                         y_line,
                         font.desc.size,
+                        &font.desc.name,
+                        font.desc.bold,
                         self.hotkey_color,
                         scissor,
                     );
@@ -433,16 +442,27 @@ fn draw_text_with_scissor(
     text: &str,
     x: i32,
     y: i32,
-    font_size: i32,
+    point_size: i32,
+    font_name: &str,
+    bold: bool,
     color: u32,
     scissor: Option<UIRect>,
 ) {
     let color = color_to_rgba(color);
     let pos = Vec2::new(x as f32, y as f32);
     if let Some(scissor) = scissor {
-        let _ = renderer.draw_text_simple_with_scissor(text, pos, font_size as f32, color, scissor);
+        let _ = renderer.draw_text_simple_named_with_scissor(
+            text,
+            pos,
+            point_size as f32,
+            color,
+            font_name,
+            bold,
+            scissor,
+        );
     } else {
-        let _ = renderer.draw_text_simple(text, pos, font_size as f32, color);
+        let _ =
+            renderer.draw_text_simple_named(text, pos, point_size as f32, color, font_name, bold);
     }
 }
 

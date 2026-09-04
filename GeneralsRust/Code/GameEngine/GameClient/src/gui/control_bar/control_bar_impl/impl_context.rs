@@ -45,6 +45,15 @@ impl ControlBar {
         if new_state == ControlBarState::Observer {
             super::control_bar_observer::init_observer_controls();
             super::control_bar_observer::reveal_observer_list_window();
+        } else if new_state == ControlBarState::OclTimer {
+            // C++ ControlBar.cpp:2293-2295 CB_CONTEXT_OCL_TIMER hides both
+            // observer parents and lets the OCL lane own CP_OCL_TIMER.
+            super::control_bar_observer::hide_observer_context_windows();
+        } else {
+            // C++ ControlBar.cpp:2135-2137, 2186-2188, 2229-2231, 2250-2252,
+            // 2272-2274: every other context hides CP_OCL_TIMER plus both
+            // observer context parents.
+            super::control_bar_observer::hide_observer_and_ocl_context_windows();
         }
         if new_state == ControlBarState::StructureInventory {
             reveal_ingame_command_window();

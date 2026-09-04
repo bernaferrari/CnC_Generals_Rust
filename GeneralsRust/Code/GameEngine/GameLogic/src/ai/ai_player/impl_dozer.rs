@@ -925,12 +925,11 @@ impl AIPlayer {
             return Ok(false);
         }
 
-        // C++ GameLogicRandomValue(0, count-1)
-        let which = if hi.len() == 1 {
-            0
-        } else {
-            game_logic_random_value(0, (hi.len() as u32) - 1) as usize
-        };
+        // C++ AIPlayer.cpp:1694 draws `GameLogicRandomValue(0, count-1)`
+        // UNCONDITIONALLY — even for a single candidate the draw is consumed
+        // from the network-sync-critical GameLogic RNG stream. Skipping it
+        // desyncs every downstream shared-RNG roll.
+        let which = game_logic_random_value(0, (hi.len() as u32) - 1) as usize;
         let team_name = &hi[which.min(hi.len() - 1)];
 
         // C++ buildSpecificAITeam(teamProto, false) — auto pick is low priority.

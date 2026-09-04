@@ -3215,3 +3215,1396 @@ Changed files: GameClient wnd_parse.rs, Main game_logic/
 host_start_game_loading_residual_wave169.rs, Main game_logic/script_loader.rs
 (comment only). No git writes. Artifacts: /tmp/wsmoke/hrfdrive1.sh,
 hrfdrive1.log, hrf1_ingame.png, hrf_dir (child stderr).
+
+## CombatCharFix — hq-vs6me seven Main combat characterization failures RE-VERIFIED GREEN in post-split tree; zero new code changes (2026-09-04)
+
+### Scope
+Lane was: run the bead-named failing set, diagnose vs C++ oracle, fix port or
+test. Finding on arrival: bead hq-vs6me was already CLOSED green (2026-08-28)
+and every fix named in its notes is present in the current working tree, so
+this lane was pure re-verification — no edits, no windowed drive (cargo only,
+no floor time taken).
+
+### Verification (exactly the bead acceptance command, twice)
+`cargo test --locked -p generals_main --lib game_logic::combat::tests`
+=> `test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 10297
+filtered out` (9.76s then 9.70s, default parallel harness; module serializes
+on COMBAT_TEST_LOCK, tests.rs:24, RNG_TEST_LOCK precedent). All seven
+originally-failing tests individually `ok`:
+fire_at_projectileless_weapon_skips_dummy_projectile;
+missile_ai_ignition_fx_plays_on_delay_zero_and_after_delay;
+radius_damage_affects_skips_allies_by_default;
+retail_dumb_projectile_expiry_detonates_through_pending_host_path;
+retail_missile_fuel_detonation_and_target_loss_use_distinct_authored_paths;
+splash_primary_victim_skips_radius_damage_affects;
+splash_uses_from_bounding_sphere_3d.
+
+### Per-case classification (from bead fixes, citations re-checked in GeneralsMD sources this session)
+- retail_missile_fuel_detonation_and_target_loss... + missile_ai_ignition_fx...: PORT WRONG —
+  weapon_bootstrap/projectile_lifecycle.rs fallback seed INI lacked the
+  object-closing `End` on RangerFlashBangGrenade, so the parser swallowed
+  `Object DragonTankFlameProjectile` and its MissileAIUpdate (FuelLifetime
+  350ms -> 11 frames, DetonateOnNoFuel) never materialized. Oracle:
+  MissileAIUpdate.cpp:45/69/77 (m_fuelLifetime, FuelLifetime, DetonateOnNoFuel),
+  :482-485 fuel expiry -> detonate(), :364 detonate(), :58 KillSelfDelay=3
+  ("just long enough for the contrail to catch up") => KILL_SELF removes at
+  frame 14; ignition LAUNCH->Attack phase per :46 m_ignitionDelay.
+- fire_at_projectileless_weapon_skips_dummy_projectile + projectileless
+  leftover delay: PORT WRONG — queue_leftover_projectileless_flight_damage
+  (object/attack.rs:797-800) divided travel by weapon_speed.max(min_weapon_speed);
+  C++ uses getWeaponSpeed() alone (Weapon.h:392 `inline Real getWeaponSpeed()
+  const { return m_weaponSpeed; }`, Weapon.cpp:1006
+  `Real delayInFrames = (v.length() / getWeaponSpeed());`); MinWeaponSpeed is
+  a ScaleWeaponSpeed clamp. Test-side: shooter position + prev_victim_pos set
+  at fire time mirroring C++ victimPos invariant (Weapon.cpp:998-1003) —
+  fixture aligned to C++, not weakened.
+- splash_primary_victim_skips_radius_damage_affects +
+  radius_damage_affects_skips_allies_by_default + splash_uses_from_bounding_sphere_3d:
+  PORT WRONG — fire_projectile_ex hardcoded projectile DamageType::Bullet;
+  C++ WeaponTemplate ctor defaults m_damageType=DAMAGE_EXPLOSION
+  (Weapon.cpp:249); combat/resolution.rs:111 now DamageType::Explosive
+  (SMALL_ARMS-vs-StructureArmor 50% discrepancy gone).
+
+### Status
+Bead hq-vs6me notes appended via `bd update --append-notes` (no reopen/close).
+No git writes, no formatters/linters, no files outside the combat lane touched.
+
+## RadarFlipFix — mid-match has_radar flip root-caused as re-init slot realignment; 3 coupled-lane ownership fixes landed; radar verified stable 5190 frames + minimap draws through the old flip window (2026-09-04 06:30-07:40)
+
+### Method
+Probe drive (GENERALS_RADARSEAM=1, temp warn probes at host_update_the_radar
+RADARPROBE / GW Wave-818 SEAM / Wave-816 W816 / writeback WB / peel PEEL /
+pending-kill VICT / GameLogic::reset GLRESET / sync_players SYNCMAP; all
+removed after) on a windowed skirmish (soft reveal + direct
+`start_game|mode=skirmish|faction=USA|map=windows_game/extracted_big_files/MapsZH/Maps/Defcon6/Defcon6.map`),
+then a probe-free fix-verification drive with pixel decode of the LeftHUD crop.
+
+### Probe findings (drive 1, /tmp/wsmoke/rseam1_*)
+1. The plain start chain is HEALTHY on the current tree: SYNCMAP 0->0/1->1/2->2,
+   SEAM frame=1 gw=0 count=1 providers=[(0,1)], one PEEL grant
+   (ev_player=0 count 0->1), has_radar=true steady to frame 5190 with zero WB
+   radar writes, zero VICT kills, zero mid-match GLRESETs.
+2. The historical "flip" signature (forced=true + shroud 16384/16384 full
+   reveal at frame 0, then forced=false + has_radar=false + shroud 503) is a
+   MATCH-BOUNDARY artifact: the probe sampled across the boot auto-match ->
+   Shell reset -> WND re-start sequence (GLRESET mode=None -> mode=Shell with
+   the player set mutating China->Observer in gw slot 2). The stale-state
+   window between re-init and first Wave-818 re-grant is where radar read
+   false — not a mid-match zeroing of a healthy flag.
+3. Latent slot-alignment defects confirmed in exactly the suspected
+   recompute/writeback lane (C++ Player.cpp:3132 addRadar / Player.h:326-330:
+   radar is owned by the player whose objects grant it; nothing else may write
+   another player's count):
+   a. Wave-818 event recording fabricated a host pid from the DENSE gw slot
+      index when unmapped (`unwrap_or(u32::from(pid.get()))`) — a stale slot's
+      count=0 transition could be peeled onto the local player.
+   b. `copy_host_player_residual` never refreshed `pd.team` — a reused GW slot
+      kept the PREVIOUS match's faction after a player-set mutation, keying the
+      radar recompute to a stale faction.
+   c. `writeback_economy_to_host` wrote radar_count/radar_disabled/is_alive
+      from a slot regardless of faction ownership.
+
+### Fixes landed (3 files, probe-free, cargo check green)
+- `gameworld_shadow/tick/status_timers_post.rs` (Wave 818): record a radar
+  transition ONLY when the GW slot has a host mapping — no fabricated host pid.
+- `gameworld_shadow/construct.rs`: `copy_host_player_residual` realigns
+  `pd.team` from the host player's faction (USA=0/China=1/GLA=2/Neutral=None)
+  on every copy, so a reused slot always mirrors its own player.
+- `gameworld_shadow/writeback_core.rs`: `writeback_economy_to_host` writes
+  radar/alive state only when `pd.team` equals the host player's faction
+  ordinal — a stale/observer slot can never zero a live faction player's flag.
+  Observer slots (None<->Neutral) still write, preserving Wave-816 semantics.
+
+### Verification (drive 2, /tmp/wsmoke/rseam2_*.png/txt, probe-free 07:11 binary)
+Captures at frames 416 / 688 / 1212 (post `click_skirmish_start` re-start
+exercise) / 1851; LeftHUD crop (30,380)-(140,478) pixel decode: 4/4
+`RADAR DRAWN` (nonblack=24%, colored=7%, avgRGB 23,24,24 — letterboxed radar
+quad with terrain/shroud, never the flat fallback slab), i.e. the
+W3DControlBar.cpp:41-70 gate (`isRadarForced() || (!isRadarHidden() &&
+player->hasRadar())`) held through the old flip window (frame 275+) and across
+a re-start exercise.
+
+### Guards / evidence
+- radar_coupled 2/2 (fresh-shadow + shell-to-skirmish keep-local-radar) PASS;
+  `sync_players_copies_radar_residual` PASS; combat_status writeback trio PASS
+  (guarded channel preserved); scoped lib run: 329 passed with the only failures
+  in OTHER lanes (victory_conditions_update Draw regression — pure GameLogic,
+  no shadow in its call graph, present before my fixes; radar_live/stealth/
+  snapshot cases flake only under full-parallel interference and pass solo) —
+  flagged for Main, not the radar lane.
+- run_loop.rs byte-identical to pre-task tag #03F9; all RADARSEAM probes
+  removed (host_radar_seam_probe.rs deleted). No git writes; no formatters;
+  caffeinate serial drives announced on hub before each boot.
+
+
+## G2GridCloser — dozer command grid: data layer CLOSED (root cause found + fixed + drive-verified); WND click verdict still open at bar-level visibility gate (2026-09-04 06:30-08:00)
+
+### Root causes found (beyond the staged fixes)
+1. **Data layer (FIXED, drive-verified):** windowed host builds PresentationFrame objects via
+   `presentation_frame/overlay.rs::renderable_from_gameworld_entity`, which filled
+   `command_set_name = ent.command_set_override.clone()` ONLY (Wave 493 fail-closed
+   placeholder) — empty for a plain dozer. Consequences, all measured: `selected_command_set_name()`
+   → None → `sync_command_set_from_presentation(None)` clears
+   `presentation_primary_command_set` (apply.rs:1296) BEFORE `update_for_selection`
+   grid rebuild (1306); staged fix 1 filled pres only at 1312, after the rebuild;
+   staged fix 2's translator catalog inherited the same empty cs
+   (camera_drain.rs:2655). Fix: overlay.rs now resolves authored command set via
+   `resolve_command_set_name(&ent.template.name, override)` — same resolve as
+   build_from_logic, C++ parity Object.cpp:6084 → template friend_getCommandSetString.
+   Wave 493 residual source pin updated accordingly.
+2. **WND layer (fixed on the shared tree by HostRegFix, verified here):** ControlBar.wnd
+   materialisation failed (`assets_unavailable`) when the drive binary ran from
+   /tmp — main.rs:475 `set_working_directory_to_executable` chdirs to the exe dir,
+   so gameplay_layout.rs candidates/ancestor-walk missed the repo asset tree.
+   From `target/release/generals` the load succeeds: `ready ... loaded=true windows=102`.
+   Never copy drive binaries to /tmp; boot `target/release/generals`.
+
+### Drive-verified state (probe binary 07:43, child 48721, dir g2y_dir/1788518870)
+- `CBGRID2: id=465 NOT in OBJECT_REGISTRY pres=AmericaDozerCommandSet` — pres
+  non-empty at grid build (was empty in all prior drives); ZERO
+  `CBGRID2: lookup miss` lines → `find_command_set_by_name` hit and slots
+  populated in `available_commands`.
+- `ensure_gameplay_layouts: control_bar status=ready ... windows=102`; authored
+  ButtonCommand03 = slot 3 = Command_ConstructAmericaBarracks (CommandSet.ini:8416);
+  CREATIONRESOLUTION 800x600 scales 0.8 → center (242,412) inside 640x480, and the
+  Barracks cameo visibly renders there (g2d_grid_miss.png).
+- **OPEN:** `winit_click_named ControlBar.wnd:ButtonCommand03/01/02/04` all MISS
+  although the windows are loaded and the grid data is bound → bar-level gate
+  (CommandWindow/ControlBarParent visibility or WM under-cursor hit layer on the
+  runtime-host InGame path), NOT slot data. This is the exact handoff for
+  CtrlBarBgFix/OverlayGapFix or a G2 follow-up: probe
+  `named_gadget_center_if_hittable` gates for a ControlBar child while selected
+  (window found? parent hidden? hit window name at center?).
+
+### Probe status — ALL REMOVED from source
+- GameClient control_bar_impl/impl_buttons.rs: CBGRID2 hit/miss/lookup probes deleted;
+  `Host/presentation residual — no OBJECT_REGISTRY modules` comment + catalog-entry
+  resolution retained (pinned by dual_tick_registry.rs:1090).
+- Main ui/construction_panel.rs find_command_set_for_object: CBGRID2 freeze probes
+  deleted, function restored to plain template resolve.
+- Main cnc_game_engine/input.rs: my temporary CBGRID2 hittability diagnostic removed
+  (was in the 07:43 binary only, env-gated, deduped per name).
+- Note: game-client-rust had transient sibling-lane reds during the wave (diplomacy.rs,
+  terrain_visual/impl_world.rs); my lanes' removals are syntax-clean by inspection —
+  run scoped `cargo check -p game-client-rust --lib && -p generals_main --lib` once
+  the wave lands.
+
+### Drive tooling notes (floor-wide)
+- g2drive3.sh lost `CHILD_PID=$!` in an edit → phantom CHILD DIED; fixed checks but
+  prefer the manual driver pattern. Detached drivers: macOS has no setsid; harness
+  process-group cleanup kills caffeinate+driver children — use
+  `nohup /bin/bash driver.sh & disown` (survives) or drive inline.
+- Direct control-file driving works: printf into `$TMPD/control.txt` (create it —
+  the game does not), read `$TMPD/status.txt`.
+- Artifacts: /tmp/wsmoke/g2drive3.sh g2manual.sh g2drive3.log g2c_* g2d_*.png|txt,
+  child stderr dirs under $(cat /tmp/wsmoke/g2y_dir) (old) and
+  .../generals_exec_smoke_manual_1788518870 (final child 48721, still up at report
+  time — kill before next window). No git writes; no formatters; serial windowed
+  drives announced on hub before each boot.
+
+## SkyboxFix — TSMorning* skybox WARNs + in-match sky rendering (2026-09-04 08:1x-)
+
+### Diagnosis (code + asset comparison, C++ cited)
+1. **WARN source**: every map load logs 5-10
+   `WARN game_client_rust::terrain::terrain_visual — Skybox face N 'TSMorningX.tga'
+   failed to load … not found` (observed 10-20 per drive in 90+ stderr logs under
+   /tmp/wsmoke, e.g. ctb_ctb2_stderr.log). Two load passes per map load:
+   `load_heightmap_from_hint` → `replace_skybox_textures` (pipeline_minimap.rs:194/315)
+   then `refresh_skybox_background_binding` → `ensure_water_ini_skybox_faces_loaded`
+   (impl_world.rs) retries the same five names.
+2. **Assets genuinely absent — not a mount-path bug**. Direct .big TOC scan:
+   TexturesZH.big = 3546 entries, 0 tsmorning*; W3DZH.big = 4432 entries, 0
+   tsmorning*, 0 new_skybox*; PatchZH/TerrainZH/WindowZH/INIZH = 0. Raw byte scan of
+   every archive for "new_skybox": exactly ONE hit — inside W3DZH.big's embedded
+   original-retail TOC manifest (lowercase `\r\n`-separated list at ~102.6 MB,
+   `…nbwarfact_s.w3d\r\nnew_skybox.w3d\r\nniambsdr_dta.w3d…`), i.e. the GitHub
+   repack DROPPED `new_skybox.w3d` and TSMorning* from the archives it ships.
+   TexturesZH.big does carry the weather sky sets tsblizzard/tsmoonsky/tsrain/
+   tsavalanch (DDS) — the repack kept those but not the morning set.
+   Mounting itself works (GameData.ini resolves out of INIZH.big).
+3. **C++ behavior on this data**: the sky dome is the `new_skybox` W3D mesh —
+   `WaterRenderObjClass::init`, W3DWater.cpp:1071
+   `Create_Render_Obj("new_skybox", TheGlobalData->m_skyBoxScale, 0)`, textured by
+   the WaterTransparency defaults `TSMorning{N,E,S,W,T}.tga` (Water.h:85-89; retail
+   INIZH Water.ini leaves them commented → defaults apply). Draw gate:
+   W3DWater.cpp:1702-1708 `if (TheGlobalData && TheGlobalData->m_drawSkyBox)` →
+   center at camera (Z=`SkyBoxPositionZ` = -100, `SkyBoxScale` = 8.4, `DrawSkyBox`
+   = Yes in retail GameData.ini; C++ ctor default FALSE GlobalData.cpp:656).
+   Missing textures in C++ become the SHARED missing-texture placeholder, cached
+   per name (dx8wrapper.cpp:2870-2878, missingtexture.h:19) — no per-frame reopens.
+   Sky/cloud plane draws with depth-compare ALWAYS + depth-write DISABLE
+   (W3DWater.cpp:2053-2056); frame clear is BLACK (W3DDisplay.cpp:1859).
+
+### Fixes (terrain_visual lane only; no probes added)
+- **Missing-face cache** (`failed_skybox_texture_names`, visual_struct.rs +
+  load_skybox_replacement_textures in impl_world.rs): each face name attempted
+  once per session; failures log ONE `info!` (C++ MissingTexture parity citation)
+  and are skipped afterwards. TSMorning WARN spam → 0 (5 info lines, first pass).
+- **Horizon-gradient early-out** (impl_world.rs
+  `ensure_skybox_horizon_gradient_texture`): was re-creating + re-uploading the
+  64x128 gradient texture every frame via `update_tree_meshes` → rebind; now
+  reused when already bound.
+- **Device-scoped skybox reset** (impl_gpu.rs `init_gpu_resources`): skybox face
+  textures/bind/view dropped on GPU re-init so a stale-device texture is never
+  bound cross-device.
+- **C++ draw gate** (impl_gpu.rs `record_skybox_background_draw`): background now
+  draws only while `global_data.draw_sky_box` stands (W3DWater.cpp:1702 parity;
+  retail GameData.ini `DrawSkyBox = Yes` keeps it on; script
+  DRAW_SKYBOX_BEGIN/END → doSkyBoxSet now actually gates the render, matching
+  ScriptActions.cpp:3788-3798).
+- Draw order/depth unchanged: skybox background drawn FIRST in the terrain pass
+  with depth-write off + compare always (impl_pipelines.rs), = C++ renderSky
+  depth semantics; cleared-black background per W3DDisplay.cpp:1859.
+
+### Verification
+(see below — appended after the windowed drive)
+
+## HudTextFix — game-string literals + money display (2026-09-04, lane: game text/string-manager + WND text resolution)
+
+### Root causes (C++-cited)
+
+1. **Money shows `$$$`**: retail `ControlBar.wnd:4352` authors MoneyDisplay's text as the LABEL
+   `GUI:$$$` (CSF value literally `$$$`), and retail's `InGameUI::update`
+   (InGameUI.cpp:1776-1815) overwrites it every frame with
+   `buffer.format(TheGameText->fetch("GUI:ControlBarMoneyDisplay"), currentMoney)`
+   (CSF `GUI:ControlBarMoneyDisplay` = `$ %d`; both labels verified by parsing the
+   retail `generals.csf`: 6422 labels). The port's equivalent residual
+   (`control_bar_impl/impl_lifecycle.rs::update_money_and_power_windows`) is never
+   ticked by any live frame loop — only its unit test calls it — so the WND-parse
+   text `$$$` stayed on screen forever.
+2. **`HUD` literal bottom-left**: port-only debug fallback
+   `draw_control_bar_hud_fallback` → `draw_visible_label(x, y, "HUD", FALLBACK_LABEL)`
+   in `w3d_gadget_draw/command_bar.rs`; C++ W3DControlBar.cpp:615-623 +
+   ControlBarScheme.cpp:794-799 draw scheme art or nothing — no fallback text exists.
+   Removed by CtrlBarBgFix (whole fallback deleted, tests rewritten); no references remain.
+3. **`Static Text` / `Entry` literals**: GUIEdit defaults authored in the shipped WNDs
+   (e.g. ControlBar.wnd:443 `TEXT = "Entry"` on EditBeaconText; SkirmishGameOptionsMenu.wnd
+   TextEntryMapDisplay `TEXT = "Static Text"`, TextEntryPlayerName `TEXT = "Entry"`).
+   C++ populates them at menu init: SkirmishGameOptionsMenu.cpp:1101
+   (`GadgetTextEntrySetText(textEntryPlayerName, fetch("GUI:Player"))`), :1179
+   (slot-0 name), :1228-1240 (`GadgetStaticTextSetText(textEntryMapDisplay, m_displayName)`
+   + translated-path fallback), :1345-1352 (init writes map display directly) and :1354
+   (init → skirmishPositionStartSpots → updateSkirmishGameOptions). The Rust init
+   skipped all of these: `skirmish_update_slot_list` early-returns while
+   `skirmish_is_initing() || !skirmish_slot_updates_enabled()`, and init never called
+   `update_skirmish_game_options` at all.
+
+### Fixes landed (all in-game text lane; no control_bar_impl edits)
+
+- `core/subsystems.rs` — `InGameUISubsystem::update` (the live per-frame bridge ticked
+  by `GameClient::update_post_draw_ui`, the port's InGameUI::update slot) now calls
+  `update_money_and_power_windows()`: C++ InGameUI.cpp:1776-1815 parity — money player =
+  observer look-at (`TheControlBar::get_observer_look_at_player_index`) else
+  `player_list().get_local_player()`; on change writes
+  `ControlBar::format_control_bar_money_display(money)` (CSF `$ %d` template) to
+  `ControlBar.wnd:MoneyDisplay`; both MoneyDisplay/PowerWindow `hide(false)` while a
+  money player exists, `hide(true)` when NULL. `static LAST_MONEY` mirrors C++ `lastMoney`.
+- `gui/callbacks/skirmish_game_options_menu.rs` — (a) `update_skirmish_game_options`
+  now writes the map display name (C++ 1228-1240 parity, `map_display_name`); (b) init
+  populates TextEntryPlayerName from slot-0 name with `GUI:Player` fallback (C++
+  1101/1179 parity) and calls `update_skirmish_game_options(state)` after
+  `sync_map_to_game_info` (C++ 1354 parity).
+
+### Compile proof
+
+- `cargo check --release -p game-client-rust --lib` → Finished, EXIT 0 (with all
+  in-tree lane fixes); `cargo build --release --bin generals` → Finished EXIT 0
+  (08:36 all-lanes binary, 43,579,760 bytes).
+
+### Verification (handed to floor per Main)
+
+- `/tmp/wsmoke/htxdrive1.sh` (boot → SP flyout → skirmish options capture → start_game
+  USA → InGame capture → exit, ~4-5 min windowed 640x480) +
+  `/tmp/wsmoke/htx_decode.py` (pixel verdicts vs baselines `vg2_crop_money.png` /
+  `vg2_ingame_initial.png` / `vg2_skirmish_options.png`): money crop must differ >25%
+  with different glyph extent (`$ <amount>` not `$$$`); bottom-left HUD label glyph
+  cluster gone; skirmish map-display/player-name entry crops must differ >15%
+  (literals replaced). Last driver (ClickGateFix) runs both and posts results.
+
+## RightHudFix — right-HUD parity: fallback-slab artifacts REMOVED (C++ draws nothing), queue parent name bug FIXED, live move/attack command markers LANDED; structure verified live, queue-slot + on-screen-marker verdicts handed to ClickGateFix's final drive (2026-09-04 08:05-08:55)
+
+### Root causes (C++ citations)
+1. **Grey bars / queue-grid outline on the empty right side** — Rust
+   `w3d_right_hud_draw` (GameClient gui/w3d_gadget_draw/hud.rs) painted a
+   `draw_visible_fill(FALLBACK_HUD_FILL, FALLBACK_BORDER)` slab when the
+   window had no image. C++ `W3DRightHUDDraw` (GeneralsMD
+   GameEngineDevice/.../GUICallbacks/W3DControlBar.cpp:74-81) draws the
+   default art ONLY under WIN_STATUS_IMAGE and NOTHING otherwise — and
+   ControlBar.wnd authors RightHUD/ProductionQueueWindow WITHOUT the IMAGE
+   flag. Retail right-side chrome = scheme background art only.
+2. **Power/GenExp meter slabs** — Rust `w3d_power_draw`/`w3d_power_draw_a`
+   (power.rs) and `w3d_command_bar_gen_exp_draw` (command_bar.rs) painted
+   fallback meters on every early-out. C++ `W3DPowerDraw`
+   (W3DControlBar.cpp:94-259) returns on missing images (:155-156) AND when
+   production+consumption log-ranges are <=0 (:241-242 — a zero-energy player
+   draws NO power bar; there is NO faction gate — GLA's 0/0 energy is what
+   suppresses it, "China only" is not what the code does);
+   `W3DCommandBarGenExpDraw` (:468-495) returns when the player is inactive,
+   progress<=0, or meter images are missing.
+3. **Queue grid always visible / never hiding** — Rust
+   `update_context_command` (control_bar_impl/impl_command_context.rs:89,113)
+   showed/hid a window named "ControlBar.wnd:BuildQueue" — a name that exists
+   in NO WND. C++ CP_BUILD_QUEUE parent is "ControlBar.wnd:ProductionQueueWindow"
+   (ControlBar.cpp:1076-1077), hidden unless the SELECTED producer has
+   production (ControlBarCommand.cpp:713-743). The queue buttons themselves
+   are IMAGE-status push buttons (draw nothing without cameo —
+   W3DPushButton image-draw parity, already correct in push_button.rs).
+4. **Move/attack order markers absent** — hint storage + `create_live_move_hint`
+   (Main command_executor/mod.rs, HintSpy.cpp:91-96 parity) existed, but the
+   draw path spawned `DrawableType::Model("SCMoveHint")` into a DrawableManager
+   that NOTHING renders (consumers: pick + occlusion overlays only), and the
+   GameEngineDevice W3DInGameUI draw-list has no production consumer. C++
+   renders `MoveHintName` (=SCMoveHint, GameData.ini) as a terrain-aligned W3D
+   render object for 40 client frames (W3DInGameUI.cpp:444-561, elapsed<=40).
+
+### Fixes landed (all compile-clean `cargo check -p game-client-rust --lib` + `-p generals_main --lib`)
+1. hud.rs `w3d_right_hud_draw`: default-if-IMAGE, nothing otherwise (C++ parity).
+2. power.rs: all fallback meter calls -> plain returns; zero-energy gate
+   `power_range<=0 && needle<=0 -> return` (W3DControlBar.cpp:241-242 parity);
+   removed `draw_power_meter_fallback`, `power_fallback_color`,
+   `draw_vertical_meter_fallback`, and the now-unused FALLBACK_POWER_* consts.
+   command_bar.rs `w3d_command_bar_gen_exp_draw`: early-outs return without
+   painting; draw_vertical_meter missing-images -> return (W3DControlBar.cpp:494-495).
+   NOTE: BackgroundMarker/ForegroundMarker HUD fallback ("HUD" label slab)
+   belongs to CtrlBarBgFix/HudTextFix lanes — untouched.
+3. impl_command_context.rs: parent name -> "ControlBar.wnd:ProductionQueueWindow"
+   in both the show and hide branches (queue grid now hides when the selected
+   producer has no production; ButtonQueue01 inverse clock per
+   ControlBarCommand.cpp:771-780 unchanged, C++ default clock color 0,0,0,100).
+4. view.rs `draw_live_command_markers()` (pub, GameClient display/view.rs):
+   projects live Move/Attack hints (elapsed<=40) via the tactical view and
+   draws an animated contracting ring + center dot through the UI queue
+   (green=move, red=attack) — stand-in for the missing SCMoveHint W3D art.
+   Called from Main graphics/ui_render_pass.rs `flush_ui_to_frame` before
+   `draw_all` (C++ draw order: hints after scene, before winRepaint,
+   W3DInGameUI.cpp:379-415).
+5. helpers.rs `create_attack_hint`: creation_frame stamped from
+   TheGameLogic::get_frame() (was 0 -> expired before mid-match attacks could
+   ever render) and lifetime 41 (=C++ 40-frame draw window). Main
+   command_executor `create_live_attack_hint` feeds it on CommandType::Attack
+   (HintSpy.cpp:99-100 hook point; C++ body intentionally empty
+   InGameUI.cpp:2176-2179 — the red attack ring is a DOCUMENTED host
+   adaptation for issued-order feedback, same class as the runtime-host WND
+   auto-reveal adaptation).
+
+### Verified live (windowed drive /tmp/wsmoke/rhd1.sh, 08:36 all-lanes release binary, artifacts /tmp/wsmoke/rhd/, probes GENERALS_RIGHTHUD_PROBE=1)
+- `[RHUDPROBE] w3d_right_hud_draw pos=(497,386) size=(111,88) image_status=false`
+  — RightHUD sits exactly where the 0.8-scaled WND rect predicts and takes the
+  no-image path.
+- `rhd_ingame_initial.png` pixel decode (right half 460,370-640,480):
+  slate=0.00%, midgrey=0.00%, fallback-border=0.00%, mean (20,18,14) — the
+  grey bars + empty queue outline are GONE vs the pre-fix baseline
+  (g3_ingame_initial: 1.3% outline-grey in the queue crop).
+- move order applied (`move_ok:n=1:x=60:y=0:z=60`); destination was OFF-CAMERA
+  so the projected marker correctly drew nothing on-screen (rhd1 evidence
+  confounded by the selection ring — see handoff). 36 bright-green px in the
+  marker caps = SelectFxFix's selection ring, not the marker.
+- attack marker: `attack_fail_no_enemy` on this map state — not exercisable
+  live (LoopE2E lane owns enemy spawn).
+- queue-slot caps: construct Barracks failed all retries
+  (`construct_fail_no_building:AmericaBarracks` — the shared dozer-construct
+  gate, LoopE2E/ClickGateFix lane), so the producing-state queue display could
+  not be exercised this run.
+
+### HANDOFF (per Main's final-batch directive) — /tmp/wsmoke/rhd2.sh (staged, ~6 min)
+Same chain but issues the move via `winit_gameplay_order|move` (RMB inject at
+screen center -> ON-SCREEN destination -> marker ring must appear at screen
+center in rhd2_marker_a/b/c fastcaps, green, shrinking, ~40 frames), then
+construct -> enqueue_production Ranger -> select_structures ->
+rhd2_queue_a/b caps (queue slots = cameo slates + inverse clock on slot 1;
+probe lines in rhd2_probes.log: `command marker type=Move screen=(x,y)`).
+Pixel decode: /tmp/wsmoke/rhd_decode.py (also flags slate%/midgrey%).
+Verdicts to post on channel + append here.
+
+### Probe status — NOT removed (env-gated, inert without GENERALS_RIGHTHUD_PROBE; REMOVE after rhd2 verdict)
+- hud.rs w3d_right_hud_draw ONCE eprintln
+- power.rs w3d_power_draw ONCE eprintln (after the zero-energy gate)
+- view.rs draw_live_command_markers per-hint ONCE eprintln
+Removal = delete the three `if std::env::var_os("GENERALS_RIGHTHUD_PROBE")`
+blocks (grep RHUDPROBE), then re-run scoped checks. No git writes. No
+formatters/linters run.
+
+---
+
+## ShellMapFix — shell-menu visual lane: slider thumb FIXED+verified, map-preview partially improved (art still absent), shell-map main-menu background STILL OPEN + inventory corrections (2026-09-04 08:45-09:00)
+
+### Drive
+`/tmp/wsmoke/smfdrive1.sh` (serial, control-command only, caffeinate -dis) on the
+08:36 all-lanes release binary (contains this lane's 3 fixes; verified in-tree by
+HudTextFix's `cargo check --release -p game-client-rust --lib` EXIT:0 which
+explicitly covered slider.rs/map_util.rs/skirmish_game_options_menu.rs). Captures
+`/tmp/wsmoke/smf1_{menu_a,menu_b,skirmish_a,skirmish_b}.png`; log
+`/tmp/wsmoke/smfdrive1.log`; child dir `$(cat /tmp/wsmoke/smf1_dir)`. Additional
+cross-evidence: OverlayGapFix's `og1_skirmish_options.png` (same binary/state)
+pixel-identical to `smf1_skirmish_a.png`.
+
+### Fixes landed (3, compile-clean)
+1. **Slider thumb invisible (Skirmish-2 / G7)** — root cause: WND
+   `parse_draw_data` (window_script.rs:773-813) stores name-only image stubs
+   `Image { name, width: 0, height: 0 }`, and every slider image-draw variant
+   derived geometry from those zero dims (`slider.rs` image_draw line ~180
+   `box_width = filled.width * x_multi` → 1px specks; C++ parity
+   `W3DHorizontalSlider.cpp:132 fillSquare->getImageWidth() * xMulti` uses the
+   MappedImage's real dims). Fix: new `mapped_image_dims()` helper in
+   `w3d_gadget_draw/slider.rs` resolves real dims from
+   `TheMappedImageCollection` by name at draw time (read guard dropped before
+   draws — DriveRunner discipline); wired into image_draw, image_draw_a,
+   image_draw_b, vertical_image_draw.
+2. **Map-preview path lookup (Skirmish-3, part 1)** —
+   `map_util.rs get_map_preview_image` now canonicalizes `\` → `/` before
+   `file_exists`: C++ `TheFileSystem->doesFileExist("Maps\\Defcon6\\Defcon6.tga")`
+   (MapUtil.cpp:1162) accepts both separators on Win32; the POSIX
+   LocalFileSystem treats `\` as a filename byte, so the pre-fix lookup ALWAYS
+   returned false and the preview image was never created.
+3. **UnknownMap fallback (Skirmish-3, part 2)** — skirmish options
+   `update_map_preview` now mirrors C++ positionStartSpots
+   (SkirmishGameOptionsMenu.cpp:702-713, 738-750): when no preview image
+   resolves, MapWindow gets `WIN_STATUS_IMAGE` + the `UnknownMap` mapped image
+   (SCSmShellUserInterface512.INI:1685) instead of a blank window.
+
+### VERIFIED (pixel evidence)
+- **Slider thumb**: slider rect (retail 176,344-266,371 ×0.8 = 141,275-213,297)
+  pre-fix: uniform slate (18,18,18) + 8 saturated px (vg2v_skirmish_options.png).
+  Post-fix (smf1_skirmish_a.png): 597 saturated px with the scheme box art
+  colors — (44,29,0) gold/brown 363 px + (37,52,255) blue 234 px =
+  hilightedbox/dehilightedbox/linebox atlas art rendering (SCSmShellUserInterface512.INI:253-315).
+- Start-spot cyan markers + borders render in MapWindow (pre-fix black).
+
+### STILL OPEN (fresh evidence, this binary)
+- **Skirmish map preview art (Skirmish-3, residual)**: Defcon6.tga is
+  olive/tan (dominant (146,151,106), (70,63,53)); MapWindow pixels show
+  slate + cyan/blue markers + ZERO olive/tan → neither the preview NOR the
+  UnknownMap fallback art paints; the slate is `win_draw_image_ex`'s
+  honest missing-art fill. Next probes: (a) does `file_exists("maps/defcon6/defcon6.tga")`
+  actually succeed (i.e. does `extracted_asset_roots()` register the
+  `.../extracted_big_files/MapsZH` root at runtime — world_load uses its OWN
+  resolver, so the FS search-path reach is unproven); (b) if yes, does the
+  copied preview TGA load + hydrate (check `Image::load_from_file` on the
+  UserData preview path).
+- **Shell-map main-menu background (G9 / MainMenu-1)**: smf1_menu_a/b plain
+  Menu interior (20,60-380,430) is 95.8% black on the newest binary. BUT the
+  same 06:39 boot logged `state=Menu ... render_world_scene=true
+  render_items=89 terrain=~6ms` at the vg2v skirmish capture — the world pass
+  RUNS in Menu and paints behind the SKIRMISH panel, while the PLAIN
+  MainMenu frame is black. Pointer: the difference is the MainMenu reveal/first-run
+  path (WindowTransitions MainMenuDefaultMenuLogoFade / MainMenuFade backdrop?)
+  or a Menu-state world gate that flips once the flyout opens; next driver
+  should capture plain-Menu BEFORE `revealing main menu`, after, and during
+  flyout, correlating each with RenderPipeline breakdown lines.
+- **"CHALLENGE" label (SPFlyout-2)**: unresolved string source. WND authors
+  `TEXT = "GUI:Generals_Challenge"` (MainMenu.wnd:1269); the ZH CSF value for
+  that key is a 9-glyph legacy-encoded CJK string (EnglishZH.big
+  `\English\generals.csf` — NOT "Generals Challenge" and NOT "CHALLENGE").
+  The port rendering literal "CHALLENGE" matches neither; decode/fallback path
+  needs the localization lane (evidence + offsets in this section).
+
+### Inventory corrections (UiGapInventory MainMenu items that are C++-parity
+CORRECT, not gaps)
+- **MainMenu-2 GreenDot/Clock**: both authored `STATUS = ...+HIDDEN`
+  (MainMenu.wnd:1742/1789); zero unhide references in all of GeneralsMD
+  (`GreenDot` appears nowhere in C++ sources; `W3DClockDraw` exists at
+  W3DMainMenu.cpp:328 but is never reached — its window stays hidden). Retail
+  ZH main menu does not show them offline.
+- **MainMenu-3 posters**: `initialHide()` (MainMenu.cpp:360-425) explicitly
+  hides WinFactionTraining/Small/Medium + all faction poster windows at init;
+  they only appear inside faction-flyout transition groups.
+- **MainMenu-4 ButtonUSARecentSave**: conditional on an existing USA save
+  (showSelectiveButtons, MainMenu.cpp:218-225); hidden on a fresh profile is
+  parity.
+- **SPFlyout-1 "EarthMap art"**: EarthMap1-4 are authored invisible —
+  `ENABLEDDRAWDATA = IMAGE: BlackSquare, COLOR: 0 0 0 0` (alpha 0; MainMenu.wnd
+  :147/:484/:724/:1406 regions). Retail paints nothing for them; the flyout
+  interior is transparent over the shell map.
+
+### Changed files (this lane)
+- `Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/slider.rs` (+30: helper +
+  dims resolution at 6 sites)
+- `Code/GameEngine/GameClient/src/map_util.rs` (get_map_preview_image separator
+  normalization + parity comment)
+- `Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs`
+  (+const UNKNOWN_MAP_PREVIEW_IMAGE; update_map_preview fallback, regions 20-58/268-280 only)
+
+No probes added; no git writes; no formatters/linters. Drive artifacts in
+/tmp/wsmoke (smfdrive1.sh, smf1_decode.py, smf1_*.png, smfdrive1.log).
+
+## §OverlayGapFix — P2 diplomacy table paint + G4 pause routing (this wave)
+
+### 1. Diplomacy: root cause + fix (C++ citations)
+- **Root cause (paint):** `DiplomacySystem::show_layout` called
+  `WindowManager::create_layout("Diplomacy.wnd")` — which only allocates an
+  EMPTY `WindowLayout` handle (layout_load.rs:38-43), never parses the WND or
+  creates windows. Every window lookup (`get_first_window`, `get_window_by_id`)
+  came back None, so nothing existed to draw; `flush_ui_to_frame` →
+  `wm.draw_all()` (ui_render_pass.rs:221-226) had no diplomacy root to paint.
+  C++ `winCreateLayout` LOADS the script: `winCreateLayout("Diplomacy.wnd")` →
+  `layout->load` → `winCreateFromScript` creates every window
+  (GameWindowManagerScript.cpp:2620-2639); a bare filename is prefixed with
+  `Window\` so the file is `Window/Diplomacy.wnd` (GameWindowManagerScript.cpp:2700-2703) —
+  the Rust resolver's `Window/` candidates handle the bare name (wnd_parse.rs:34-48);
+  do NOT pass `Menus/Diplomacy.wnd` (that path does not exist in the retail tree).
+  **Fix:** `create_layout_with_windows("Diplomacy.wnd")`, fail-closed on parse
+  error exactly like C++ returning NULL (Diplomacy.cpp:195-196).
+- **Root cause (invisible even with windows):** `register_window(SlideTop,
+  needs_to_finish=true)` parks the window at `y - screen_width` (animate_window.rs:450-476)
+  and ONLY per-frame `update()` ticks bring it to rest. C++ ticks it via the
+  layout update func `theLayout->setUpdate(updateFunc)` (Diplomacy.cpp:197) run
+  by `InGameUI::update` for every registered layout (InGameUI.cpp:1825-1829;
+  registered at Diplomacy.cpp:246). The port had no in-game layout-update
+  ticker → the panel stayed parked offscreen forever. **Fix:** new free fn
+  `tick_diplomacy_animation()` (Diplomacy.cpp:124-133 updateFunc parity: tick +
+  hide-on-reverse-finish, gated on GlobalData animate_windows per
+  Diplomacy.cpp:243-244), called from the LIVE per-frame path
+  `InGameUISubsystem::update` (core/subsystems.rs; SubSystemInterface::update ←
+  GameClient::update → update_post_draw_ui, C++ GameClient.cpp:744-751). NOTE:
+  gui/ingame_ui/impl_update.rs `update()` is the example-only IntegratedUISystem
+  path — never called in the windowed binary; do not hook there.
+- **Per-show populate:** show_layout now calls `refresh_from_player_list()`
+  before updating rows — C++ repopulates on every show via
+  `PopulateInGameDiplomacyPopup` (Diplomacy.cpp:247-248).
+- **Hide parity:** immediate hide also disables the window
+  (Diplomacy.cpp:286-290 winHide(TRUE)+winEnable(FALSE)).
+- **Toggle parity:** `toggle_diplomacy` begins with `hide_quit_menu()`
+  (C++ Diplomacy.cpp:301-304 `HideQuitMenu()`).
+
+### 2. Creation deadlock found by the first verification boot (fixed)
+Drive 1 on the 08:36 binary: `open_diplomacy` froze the whole client thread.
+Final stderr lines: `Toggling diplomacy screen` →
+`create_layout_with_windows: Diplomacy.wnd parsed_windows=1` → NOTHING (no
+`done` log, no panic; status/stderr frozen until kill). Chain:
+`toggle_diplomacy` holds `DiplomacyCallbacks` RwLock write guard
+(diplomacy.rs DiplomacySystem::toggle_diplomacy) → layout creation dispatches
+the root's `WindowMessage::Create` synchronously (layout_load.rs:266) through
+the "DiplomacySystem" wrapper → `with_arc_write(&callbacks, ...)` re-locks the
+SAME RwLock on the same thread → self-deadlock. Each child also routes
+`ScriptCreate` to the root's "DiplomacyInput" wrapper → same re-lock
+(layout_load.rs:269-275; window_impl_core.rs:1840-1841 synchronous dispatch).
+The old empty-create never sent these messages — which is also why nothing
+painted. **Fix:** creation-time dispatches short-circuit lock-free in
+script_callbacks.rs ("DiplomacySystem": Create → Handled; "DiplomacyInput":
+ScriptCreate → Ignored — C++ DiplomacyInput ignores everything but GWM_CHAR,
+Diplomacy.cpp:323-357; the populate side effect lives in show_layout per
+Diplomacy.cpp:247-248). Scoped game-client + generals_main checks green.
+
+### 3. G4 pause: retail has NO pause screen (citations) — routed to QuitMenu
+- C++ GameClient has ZERO `PauseMenu`/pause-screen symbols. In-match pause is
+  ESC / `MSG_META_OPTIONS` → `ToggleQuitMenu()` (CommandXlat.cpp:3091-3094;
+  QuitMenu.cpp:260), pausing as a side effect of the live QuitMenu WND
+  (QuitNoSave in MP/replay: QuitMenu.cpp:344-356).
+- **Fix:** `CnCGameEngine::toggle_pause` (audio.rs) now routes through
+  `host_toggle_retail_quit_menu()` first (same retail projection as ESC);
+  legacy `Screen::PauseMenu` queue remains only as the damaged-install
+  fallback. `host_toggle_retail_quit_menu`'s ToggledQuitMenu arm no longer
+  clobbers `quit_menu_host_active` before the bridge tick — the tick resumes
+  exactly the pause the QuitMenu created on hide (quit_menu_bridge.rs),
+  so `toggle_pause` → `pause_ok:paused` + WND shown, second `toggle_pause` →
+  `pause_ok:resumed`, paused=false, state stays InGame.
+
+### 4. Verification status
+- First drive froze in the (pre-fix) deadlock — that boot IS the deadlock
+  evidence (§2). Retry drive ogdrive1.sh (boot→skirmish→open_diplomacy→
+  close→toggle_pause×2; captures og1_*.png, region decode og1_region.py) runs
+  on the post-deadlock-fix release binary; verdict lands in the follow-up
+  subsection below. First-run partial captures (pre-fix binary) showed 0%
+  panel darkening inside the authored root rect (4,4)-(600,401) @0.8 scale —
+  consistent with the offscreen-parked window, not with a painted panel.
+- No repo probes added (status-field + capture verification only); no git
+  writes; no formatters/linters. Drive aids: /tmp/wsmoke/ogdrive1.sh,
+  og1_region.py, ogdrive1.log, og1_*.png/txt.
+
+## DiffHunt — differential + golden-gate divergence hunt: 3 gameplay fixes landed
+(veterancy promotion contract, XP scalar defaults, AI team-select RNG desync),
+15 findings beaded; headless lane, no windowed drives (2026-09-04 07:25-09:35)
+
+### Harness runs (all fresh binaries, no window needed)
+
+- `run_cpp_rust_differential.py` equivalent run by parts: C++ trace
+  (`ParityHarness/bin/generalsmd_frame_trace` on
+  `parity_scenarios/smoke_attack.v1.json`, producer
+  `generalsmd-cpp-original-randomvalue`) vs Rust
+  `deterministic_fixture_trace`, compared with `deterministic_trace_compare`:
+  **`traces match: 3 frames` PASS** — both on the stale pre-fix tree AND
+  re-run on a fresh all-my-fixes build (isolated
+  `CARGO_TARGET_DIR=/tmp/dh_target`, release, EXIT=0).
+- `golden_skirmish_gate --frames 30` (Lone Eagle map path), fresh build with
+  every DiffHunt fix: `move=true gather=true upgrade=true retail_gather=true
+  save_load=true players_preserved=true` — IDENTICAL to the pre-fix baseline
+  in this session; `build=false produce=false` = LoopE2E's construct lane
+  (their g3drive targets exactly that), `fight=false map_combat=false` =
+  combat lane. Gate EXIT=1 unchanged by my fixes (no regression, residual is
+  owned elsewhere). `ai_skirmish_gate 300`: PASS (structures=3, 6 buildings
+  queued) before AND after the AI RNG consumption fix.
+
+### FIXED 1 — veterancy promotions never fired side effects on 6 live paths
+
+C++ oracle: the ExperienceTracker mutators fire
+`Object::onVeterancyLevelChanged` internally on every actual level change
+(ExperienceTracker.cpp:82-95 for setVeterancyLevel, :158-164 for
+addExperiencePoints; Object.h:213 `provideFeedback = TRUE` gates ONLY the
+promotion anim + UnitPromoted sound — weapon-set flags, veterancy upgrade
+grant, body notify/healthBonus/armor always run, ActiveBody.cpp:1388-1477).
+The Rust tracker is intentionally split from side effects and returns
+`Option<old_level>`; six live call sites discarded it, so promotions from
+those paths left units on Regular weapon sets / HP / armor with Elite chevrons
+(e.g. a Hacker grinding Hack Internet to Elite, a hijacker merging into a
+veteran Paladin, Combat-cycle rider transfers, drone spawn sync).
+
+Fix (all in GameLogic, helpers + per-site forwarding):
+- `object/object_combat.rs`: new `set_veterancy_level_with_side_effects`,
+  `set_experience_and_level_with_side_effects`,
+  `add_experience_points_with_side_effects` — mutator + promotion-forward to
+  `on_veterancy_level_changed` (tracker guard dropped before the callback to
+  avoid re-entrant Mutex deadlock), C++ citations inline.
+- `object/behavior/special_ability_update.rs` (was :1173-1179),
+  `object/update/ai_update/hack_internet_ai_update.rs` (was :674-678): award
+  via helper. C++: SpecialAbilityUpdate.cpp:1252-1254
+  `xpTracker->addExperiencePoints(m_awardXPForTriggering)` and
+  HackInternetAIUpdate.cpp:515 `xp->addExperiencePoints(getXpPerCashUpdate())`
+  — both rely on ExperienceTracker.h:32 default `canScaleForBonus = TRUE`
+  (ExperienceScalarUpgrade stacking, ExperienceScalarUpgrade.cpp:52-62), so
+  Rust `false` → `true` (FIX 2 below, same sites).
+- `object/behavior/hijacker_update.rs` merge (C++ HijackerUpdate.cpp:74-77,
+  feedback default TRUE): both objects set via write guards + helper; target
+  read guard now dropped before any write phase (re-entrant RwLock deadlock
+  guard).
+- `object/contain/rider_change_contain.rs` `transfer_veterancy` rewritten to
+  take object Arcs and fire side effects with feedback FALSE (C++
+  RiderChangeContain.cpp:225-231 mount, :280-286 dismount:
+  `setVeterancyLevel(level, FALSE)` + `setExperienceAndLevel(0, FALSE)`);
+  obsolete tracker-only helper removed (clean cutover).
+- `object/collide/crate_collide/convert_to_hijacked_vehicle_crate_collide.rs`
+  (C++ ConvertToHijackedVehicleCrateCollide.cpp:175-176, feedback FALSE).
+- `object/behavior/spawn_behavior.rs` spawner↔spawn sync (C++
+  SpawnBehavior.cpp:888-897, feedback default TRUE); dismount branch now
+  write-locks the spawn (read guard dropped/reacquired) so the C++ ordering
+  (sync BEFORE the health/position aggregation) is preserved.
+
+Verification: 3 new helper tests green
+(`cargo test -p gamelogic --lib veterancy_side_effect_tests` → 3 passed:
+scalar 50×2.0=100 promotes to Veteran AND sets the weapon-set flag; no-level-
+change fires nothing; demotion clears Elite flags). 2 real-path regression
+tests added (`rider_transfer_veterancy_fires_cpp_on_veterancy_level_changed`,
+`hijacker_merge_fires_cpp_on_veterancy_level_changed_side_effects`) — assert
+weapon-set flag fan-out through the actual update/contain paths; they compile
+(same test-profile build that ran the 3 green helper tests) but their
+EXECUTION was still queued behind sibling release builds at wrap-up
+(isolated-target run in flight, `CARGO_TARGET_DIR=/tmp/dh_target cargo test
+-p gamelogic --lib fires_cpp_on_veterancy_level_changed`); next agent: land
+that run — a panic there would be in test-world assumptions
+(upgrade-center/Audio globals), not the production fan-out, which the helper
+tests + the `score_the_kill` path already exercise.
+
+### FIXED 3 — AI team-select skipped the sync-critical RNG draw for single candidates
+
+C++ AIPlayer.cpp:1694: `Int which = GameLogicRandomValue(0, count-1);` —
+UNCONDITIONAL draw from the network-sync-critical GameLogic RNG stream, even
+when count==1. Rust `impl_dozer.rs select_team_to_build` returned 0 without
+consuming a draw when `hi.len() == 1`, desyncing every downstream shared-RNG
+roll vs the C++ oracle (replay/parity drift). Fix: always draw
+(`game_logic_random_value(0, len-1)`), citation comment inline. Post-fix
+`ai_skirmish_gate 300` still PASS.
+
+### BEADED (unfixed, `--deps discovered-from hq-9udt7`, all P2)
+
+- hq-907t5 FXListDie DeathFX never fires: TheFXListStore has no INI population
+  path (engine port; masked by Main host residual).
+- hq-lcbgp Live weapon FireFX drops secondary pos / speed / radius + muzzle
+  bone path (tracers never spawn; UseCallersRadius wrong; contact FX at
+  shooter).
+- hq-oegw0 Common DamageFX fallback no-ops 6 nugget kinds; FXListAtBonePos
+  skips bone walk (0, 01..40).
+- hq-k3ysu UpgradeMuxData::performUpgradeFX empty stub (upgrade flashes dead).
+- hq-3sc8u Leftover weapon_template fire path lacks SuspendFXDelay + stealth
+  suppression (latent).
+- hq-uex7f Helicopter slow-death crash particle attach is a log-only stub.
+- hq-3hl9e Particle cap semantics (threshold/eviction/field-count) + retail
+  micro-quirks; subsystem verified purely client-visual in BOTH codebases.
+- hq-h7pal Supply-Lines boost TEAM-shared instead of carrier-owner (live 2v2
+  income bug; same shape as the already-fixed WorkerShoes leak).
+- hq-o0d81 GameLogic supply module path: RESOURCE_SERVICE never populated
+  (Wanting→Failure forever), worker shoes boost ungated (+$8 from start), dock
+  delay divergences.
+- hq-bcgei Host allows allied supply-center drop-offs; C++
+  canTransferSuppliesAt requires same player (ActionManager.cpp:249-252).
+- hq-1f743 AI dozer wiggle accepts placements C++ discards (second-candidate
+  break + first-ring offset 0 vs 2 cells).
+- hq-mehhs AI queueSupplyTruck aborts pass after first truck (C++ queues per
+  understaffed center).
+- hq-nm5w0 AI fabricated truck/dozer fallback lists + invented
+  apply_expansion_ring (latent).
+- hq-t2zsn RED re-confirmed at HEAD:
+  `snapshot_restore_recovers_veterancy_from_tracker_data` (FAILED on today's
+  tree; needs re-triage against the new helper contract).
+
+### Scout coverage + boundaries respected
+
+5 read-only scouts: FXList dispatch, experience/veterancy, supply economy,
+particle systems, skirmish AI build/raid (full file:line evidence in each bead
+description). Lanes avoided per floor discipline: control_bar, overlays, HUD
+text, selection, radar, skybox, shell menus, dozer construct sim path
+(LoopE2E), combat characterization tests (CombatCharFix). No windowed drives
+taken (headless only; builds announced on hub). Changed files (all GameLogic):
+object/object_combat.rs, object/behavior/{special_ability_update,
+hijacker_update,spawn_behavior}.rs, object/update/ai_update/
+hack_internet_ai_update.rs, object/contain/rider_change_contain.rs,
+object/collide/crate_collide/convert_to_hijacked_vehicle_crate_collide.rs,
+ai/ai_player/impl_dozer.rs. No git writes; no formatters/linters; scoped
+`cargo check -p gamelogic` clean after every edit (unblock signal posted to
+CtrlBarBgFix and the other queued lanes mid-session).
+
+#### OverlayGapFix retry verdict — PASS (09:22 all-lanes binary, child dir generals_exec_smoke_manual_1788524658)
+- **Commands:** `open_diplomacy` → `diplomacy_ok_wnd`; `toggle_diplomacy` →
+  `toggle_diplomacy_ok_wnd`; `toggle_pause` → `pause_ok:paused` paused=true;
+  second `toggle_pause` → `pause_ok:resumed` paused=false; state=InGame and
+  live_frame_ok=true at every checkpoint (no Menu stranding).
+- **Diplomacy paints (C++-correct):** og1_diplomacy_open vs og1_diplomacy_closed
+  region decode — INSIDE authored root rect (4,4)-(600,401) @0.8 scale = (3,3)-(481,322):
+  mean RGB (15,14,12) vs (116,105,81), brightness delta −261 (the authored
+  backdrop COLOR 0 0 0 190, Diplomacy.wnd ENABLEDDRAWDATA), 99.5% px differ;
+  OUTSIDE bottom band delta −0, right band delta +0 (world untouched);
+  ButtonHide rect darkened −98 with bluish shift (button art over backdrop).
+  Non-MP branch shows SoloParent and hides the MP table exactly per
+  Diplomacy.cpp:229-240 (the Player/Team/Side/Status table is the MP page).
+- **Pause shows the C++-correct panel:** og1_pause_open vs og1_pause_closed
+  full-frame diff 55.2% (top-half 77.2% — centered QuitMenu overlay);
+  paused true→false across the same WND; C++ has no separate pause screen
+  (CommandXlat.cpp:3091-3094 → QuitMenu.cpp:260).
+- **Both close cleanly:** final snap state=InGame paused=false
+  selected_count=1 live_frame_ok=true. No probes added; drive child killed at
+  close. Artifacts: /tmp/wsmoke/og1_*.png og1_*.txt ogdrive1.log og1_region.py.
+
+## SelectFxFix — selection ring + health-bar parity LANDED (code + tests green; windowed drive staged for floor handoff, 2026-09-04)
+
+### Implementation (all in Main/src, compile-green `cargo check -p generals_main --lib`, 17/17 scoped selection_renderer tests pass)
+1. **Selection ring (player-color annulus)** — `graphics/selection_renderer.rs`: `SelectedUnit`
+   gained `style: SelectionCircleStyle {Filled, Ring}`; selection circles render as an 18%-thick
+   annulus in the snapshot team color (alpha ≥0.85), lifted 3×TERRAIN_Y_OFFSET to stand in for the
+   RTS3DScene selection-pass ZBias 0.0001 (W3DScene.cpp:925,997) on sloped ground. Blob shadows,
+   radius cursors and guard rings keep `Filled`. C++ citation: retail has NO persistent
+   selected-unit ground ring — the C++ selected visual is the white TintEnvelope flash
+   (`Drawable::friend_setSelected` → `onSelected` → `flashAsSelected`, Drawable.cpp:908-1001,
+   1335-1360, applied per-light in W3DScene.cpp:636-673 `getSelectionColor()`) plus the health
+   bar; the ring is the port's documented world-space selected indicator (existing
+   `selection_overlay_preserves_cpp_drag_color_and_documents_wgpu_circles` contract), now
+   ring-shaped per ticket acceptance. GAP Order-1 (white ring) addressed: near-opaque alpha +
+   snapshot team_color preference.
+2. **Health bar (C++ drawHealthBar parity)** — `pack_health_bar_quads()` in the same file, drawn
+   by the existing 2D overlay pass: gate `m_showObjectHealth` (Drawable.cpp:3834, retail
+   GameData.ini `ShowObjectHealth = Yes`), per selected object: ratio-clamped fill from
+   `game_client::drawable::drawable::health_bar_colors` (= Drawable.cpp:3871-3916 cyan
+   construction/disabled branch + red↔green lerp with REALLYDAMAGED/DAMAGED modulation), 1px
+   `drawOpenRect` outline (4 quads) + inset `drawFillRect` fill width×ratio (3930-3936), width
+   from frozen `health_box_width` (getHealthBoxDimensions #else branch, Object.cpp:3400-3414,
+   min 20), height 3px, anchor = projected unit top + lift ≈ `getHealthBoxPosition`
+   (Object.cpp:3346-3349 `pos.z += maxHeightAbovePosition + 10`); ForceAttackable skip per
+   Drawable.cpp:3846-3849. Rationale: the full C++-parity GameClient lane
+   (`BasicDrawable::draw_icon_ui` + `draw_drawable_icon_overlays`) is ORPHANED in the windowed
+   runtime host because full `GameClient::update()` stays disconnected (Wave 586 residuals pin
+   that) — the live world-overlay path is the only lane that renders, so the bar is packed there
+   from the same frozen snapshot. Projection: view_proj → tactical-viewport pixels; the
+   viewport starts at target (0,0) so pixels double for the clip conversion.
+3. **Call-site** — `cnc_game_engine/input.rs` enqueue_selection_render gained `display_size`;
+   `cnc_game_engine/start_game.rs` ground-marker literals set `Filled`.
+4. **New test** `health_bar_packs_cpp_quads_when_gate_open`: gate closed → empty; gate open →
+   exactly 5 quads (outline 4 + fill 1) = 180 floats; ratio 0.75 fill = (0.25, 1.0, 0) per the
+   C++ modulation math. All pre-existing contract tests pass (drag color, production path,
+   blob/shroud gates).
+
+### Yellow trapezoid near minimap — DIAGNOSED, handed to radar lane
+It is the radar view box (`W3DRadar::drawViewBox`, W3DRadar.cpp:260-343: yellow gradient lines
+225/225/0 → 158/158/0; port `common/system/radar/mod.rs build_view_box_lines` +
+`w3d_gadget_draw/hud.rs:385-417`), not a misrouted decal or place icon. C++ parity anchor for
+the fix: every view-box line is clipped with `ClipLine2D` against the radar draw rect before
+`TheDisplay->drawLine` (W3DRadar.cpp:310-340) — an unclipped/oversized projection paints a stray
+yellow bracket outside the radar window. Posted to RadarFlipFix (lane owner) during the run; not
+touched from this lane.
+
+### Grey fleck — root cause per static read
+No selection visual drew at all on the VisualGap2 binary: the health-bar lane was orphaned
+(above) and the world overlay only emitted a faint 0.55-alpha disc. Both lanes now produce
+visible artifacts (opaque ring + health bar). If a stray fleck remains after the drive, it is
+NOT the selection lane.
+
+### STAGED (not driven — floor never reached my slot before budget cap)
+`/tmp/wsmoke/seldrive1.sh` (~8 min: boot→Defcon6→baseline capture→`select_local_unit`→captures
+sel1_a/b/c + roster) + `/tmp/wsmoke/sel1_decode.py` (baseline-vs-selected diff boxes + color
+classes: green health-fill, player-color ring, grey/white residuals). Binary 08:36+ contains the
+fixes (binary mtime > source mtimes verified). HANDOFF per Main's final-batch pattern:
+ClickGateFix to run seldrive1.sh + sel1_decode.py with the htx/rhd batch and post verdicts.
+Acceptance to check on captures: (1) annulus ring under the selected dozer in player color;
+(2) health bar above it, green fill + dark outline; (3) changed-pixel box near the unit, not
+near the minimap; (4) any remaining yellow trapezoid near minimap = radar viewBox clipping gap
+(RadarFlipFix lane).
+
+#### OverlayGapFix retry post-decode correction (close-path)
+Pixel re-decode of the retry captures found the CLOSE leg incomplete:
+og1_diplomacy_closed inside-rect mean (15,14,12) ≡ open (15,14,12) — the
+panel stayed up 11s after `toggle_diplomacy` (world restored only later,
+og1_pause_closed ≡ ingame_base). Cause: SlideTop::init_reverse_animate_window
+only negates the residual decayed velocity (≈1px/frame) instead of re-anchoring
+the reverse journey, so the out-slide cannot complete in the in-game tick
+cadence. Fix: `animate_visibility_change` hide arm now applies the retail NET
+end state immediately — winHide(TRUE)+winEnable(FALSE), which is C++
+HideDiplomacy's own immediate branch (`immediate || !m_animateWindows`,
+Diplomacy.cpp:286-290). Compile-green; fix is in-tree for the next release
+build. OPEN leg verdict stands (verified paint + geometry above).
+
+## CtrlBarBgFix — control-bar scheme background + observer-static parity FIXED and drive-verified (2026-09-04 08:00-10:15)
+
+Ticket: bar background BLACK (scheme art never bound) + observer "Units/Buildings/Destroyed"
+statics drawn raw with corrupt glyphs in a normal match. Lane files only (control-bar
+background/tab draw + scheme manager); no impl_buttons.rs / input.rs / overlay.rs.
+
+### Asset truth (decisive re-check vs all 17 retail BIGs in Code/Main/assets, entry tables)
+- `Art\Textures\sacommandbar.tga` / `sncommandbar.tga` / `sucommandbar.tga` (each 1,048,620 B
+  = 1024x256 32-bit TGA = exactly the HandCreated INI's declared TextureWidth/Height) ARE
+  PRESENT in TexturesZH.big. RedRectsTriage's residual note ("frame art InGameUIAmericaBase
+  -> SACommandBar.tga equally asset-bound") was WRONG — only the SA/SN/SUControlBar512_001.tga
+  atlases (power dots, tray, fixed-HUD button art, SCBigButton, exp bar) are genuinely absent
+  from the retail-direct-play BIGs (0 'control' entries in TexturesZH.big; full 122-texture
+  cross-check: 78 present / 44 missing, missing list includes sacontrolbar512_001.tga,
+  sncontrolbar512_001.tga, sucontrolbar512_001.tga, cob2_*/china2_*/gla2_* variants).
+- C++ Image.cpp:208-232 loads `MappedImages\TextureSize_512` THEN `MappedImages\HandCreated`
+  with INI_LOAD_OVERWRITE, so `InGameUIAmericaBase` binds SACommandBar.tga (coords
+  0,64-799,255 of 1024x256), NOT the TextureSize_512 COB2_Background.tga. Port
+  ini_mapped_image.rs `collect_live_ini_roots` already mirrored that order.
+
+### Root causes (probe GENERALS_CBBG_PROBE, cbgdrive1/2/3/4)
+1. BLACK BAR + "HUD" literal: `draw_control_bar_hud_fallback` (FALLBACK_HUD_FILL strip +
+   `draw_visible_label(x,y,"HUD",..)`) fired every frame because the scheme background draw
+   shipped 0 commands. C++ W3DControlBar.cpp:612-633 has NO fallback: no manager/marker ->
+   silent return; ControlBarScheme.cpp:794-799 ("if we don't have an image, don't try to draw
+   it") -> missing image draws nothing. FALLBACK REMOVED (fn deleted; scheme_draw_image no
+   longer slate-fills unregistered scheme images).
+2. Scheme art never drawn: draw-time `find_window_by_name("ControlBar.wnd:BackgroundMarker")`
+   MISSES in the runtime-host draw context (probe: `CBBG: background no marker window` x1000s)
+   although the same lookup succeeds at callback-wire time — the wire and draw contexts resolve
+   different WM instances. C++ receives the marker window as the callback parameter
+   (W3DControlBar.cpp:612-633); the by-name re-lookup is a same-window idiom. FIX: both draws
+   read the marker screen position from the callback `window` itself.
+3. Art drew 27px low (cbgdrive2, offset=(0,27)): marker base was captured on the FIRST draw,
+   which precedes the final stage placement. C++ captures the base at ControlBar::init
+   (ControlBar.cpp:1222-1225) when the layout is final. FIX: stability latch
+   (`ControlBarSchemeManager::note_marker_observation` — base latches after 3 identical
+   observations; clear() resets). cbgdrive3 exposed a latch starvation (foreground draw fed
+   ForegroundMarker positions, resetting the shared state every other frame) -> only the
+   background draw feeds the latch (C++ captures BOTH bases from BackgroundMarker,
+   ControlBar.cpp:1222-1225). cbgdrive4: `marker=(6,503) base=(6,503) offset=(0,0)`.
+4. Observer statics in a normal match: `switch_to_context(ControlBarState::None)` never hid
+   the observer context parents, so ControlBar.wnd's StaticTextObsUnits/Buildings/UnitsLost
+   ("tabs") stayed visible (children of ObserverPlayerInfoWindow, ControlBar.wnd:1435/1619+).
+   C++ switchToContext hides CP_OBSERVER_INFO/LIST (+ CP_OCL_TIMER) in EVERY non-observer
+   context (ControlBar.cpp:2135-2137, 2186-2188, 2229-2231, 2250-2252, 2272-2274, 2293-2295).
+   FIX: `hide_observer_context_windows` / `hide_observer_and_ocl_context_windows`
+   (control_bar_observer.rs) wired into impl_context.rs switch_to_context (OclTimer state
+   hides only the observer pair). NOTE: these "tabs" are STATICTEXT windows in retail, not
+   image buttons — retail-parity for a playing match is HIDDEN, which is what removes the
+   corrupt-glyph text from the bar; Arial-10 glyph-metric corruption in the shared font atlas
+   remains a cross-lane item for whoever owns text rendering (evidence: cbg1 captures).
+5. Scheme multiplier never set (multiplier stayed 1.0): C++ sets m_multiplyer = display /
+   scheme ScreenCreationRes at scheme select (ControlBarScheme.cpp:1124-1125). FIX: parse
+   `ScreenCreationRes` (new field-table token, C++ field-table parity) and call
+   set_multiplier in apply_control_bar_scheme_for_side.
+
+### Verification (windowed, control-driven; /tmp/wsmoke/cbgdrive1-4.sh, captures /tmp/wsmoke/cbg{,2,3,4}/)
+- cbgdrive4 (final binary): in-match bar renders the SACommandBar scheme art full-width —
+  riveted frame, left minimap bezel, center panels, green command-grid panel; cameos + command
+  chrome paint ON the art; `CBBG: marker=(6,503) base=(6,503) offset=(0,0)`. Pixel decode
+  (cbg_decode.py, BAR=(0,326)-(640,479)): pure-black fraction 47.5% -> 6.5% (residual = dark
+  art shadows + not-yet-fixed lanes' regions); row-420 samples all art colors (e.g.
+  (10,20,5) grid green, (22,22,22) frame shadow), zero (0,0,0) samples in the strip interior.
+- Observer labels: GONE in both states (cbgdrive1 onward); "HUD" literal: GONE (fallback
+  deleted). Screenshots: cbg4_ingame_initial.png / cbg4_ingame_selected.png (also cbg1_* for
+  the pre-fix state).
+- Residual (asset-side, unchanged): SA/SN/SUControlBar512_001.tga + SCBigButton absent from
+  retail BIGs -> left-stack options/worker/chat buttons, tray, power dots, queue-slot art
+  render as the honest unbound/slate fills (RedRectsTriage/CtrlBarTexFix documentation
+  stands); they light up on re-extraction with zero further code.
+- Stale tests defending the old black fallback were rewritten to the C++ contract:
+  `w3d_command_bar_background_draw_ships_nothing_without_scheme`,
+  `w3d_command_bar_foreground_draw_ships_nothing_without_scheme` (w3d_gadget_draw/tests.rs),
+  `control_bar_background_draw_ships_nothing_without_scheme` (control_bar_impl/tests.rs)
+  (C++ W3DControlBar.cpp:615-623 + ControlBarScheme.cpp:794-799: manager-less draw ships 0).
+  NOTE: lib test harness collects 0 tests (pre-existing quirk) — contract enforced by the
+  drive verdicts above.
+- Probe hygiene: GENERALS_CBBG_PROBE / cbbg_probe REMOVED (grep CBBG over Code/ = 0);
+  `cargo check -p game_engine --lib` + `-p game-client-rust --lib` clean; final probe-free
+  release build landed post-verdict (log-only removal — rendering path identical to the
+  drive-verified cbgdrive4 binary).
+- No git writes; no formatters; serial windowed drives announced on the floor (cbgdrive1-4).
+
+### SkyboxFix verification (skydrive1, 10:40-10:43, MY release build w/ all lane fixes)
+- **Sky renders in-match.** At the default interior camera the frame is terrain
+  (same framing as retail); with `camera_zoom|z=4.0` + `camera_look_at` clamped
+  at the Defcon6 map edge the horizon opens:
+  - `sky1_b_north_edge.png`: 36.2% blue sky + 3.8% haze above the horizon,
+    4.1% black (HUD only) — verdict SKY VISIBLE.
+  - `sky1_c_east_edge.png`: 36.5% blue + 4.0% haze — SKY VISIBLE.
+  - Zenith band avg (48,99,200) = the synthetic gradient zenith
+    (0.18,0.38,0.78)×255 — the missing-asset fallback paints exactly as coded.
+  - Decoder: /tmp/wsmoke/skydecode.py (rows 0..44 of 96x54 downscale; B+H vs K).
+- **TSMorning WARNs gone.** Child stderr: 0 `WARN …TSMorning` lines (every prior
+  drive logged 10-20). Exactly 5 `INFO …not in mounted assets; C++
+  MissingTexture parity keeps gradient fallback (dx8wrapper.cpp:2870)` lines at
+  the FIRST map load only — the process-wide cache (static `MISSING_SKYBOX_TEXTURES`,
+  impl_world.rs) survives `init_terrain_visual` singleton resets, so the second
+  map load logs zero texture attempts. Empty-name attempts (`face 0 ''`) eliminated
+  by the empty-name skip.
+- Residual `terrain_visual` WARNs in the same stderr: `EXScorch01 missing …
+  burn-atlas fallback` ×2 — scorch-decal asset fallback, pre-existing, not
+  skybox scope. Other stderr WARN sources (ini, release_candidate,
+  pipeline_collect, hot_key, command_router) are untouched sibling/pre-existing
+  lanes.
+- Probes: this lane added none (grep of terrain/ for GENERALS_* probes = clean
+  before and after). Drive child exited cleanly (no orphans).
+- Artifacts: /tmp/wsmoke/skydrive1.sh, skydrive1.log, sky1_a_default.png,
+  sky1_b_north_edge.png, sky1_c_east_edge.png (+ .txt), sky1_child_stderr.txt.
+  Floor order honored: booted only after LoopE2E's close post; close posted.
+
+## AssetRecover — ControlBar512 atlases RECOVERED from base Generals install + drive-verified (2026-09-04 11:06-11:15)
+
+### Where the atlases actually were
+- The three grey-placeholder atlas textures ship in the **original Generals**
+  (base-install) media, NOT in any of the 17 ZH BIGs: `Textures.big`
+  (blaze69 retail, `.../Command and Conquer Generals + Zero Hour/Command and
+  Conquer Generals/Textures.big`) holds `Art\Textures\sacontrolbar512_001.tga`,
+  `sncontrolbar512_001.tga`, `sucontrolbar512_001.tga` (512x512x32 TGA,
+  1,048,620 B each) plus `cob2_background.dds`, `china2_background.dds`,
+  `gla2_background.dds` (1024x256 DXT5, 349,712 B each). ZH's
+  `TexturesZH.big` holds `cob2_frame.dds` (InGameUIAmericaTop frame) —
+  consistent with C++ ZH resolving shared UI art from the base install.
+- Method: direct BIGF entry-table scan (entries = `offset(4BE) size(4BE)
+  name\0`, table bounded by header bytes 12-15; note: Generals BIGs have NO
+  4-byte id field) of all 66 BIG files on disk — blaze69 ZH (17) + blaze69
+  Generals (16), CnC_Generals_Main/assets (17), GeneralsRust/Code/Main/assets
+  (17) — case-insensitive targets `controlbar512|bigbutton|cob2_|china2_|gla2_|scbig`.
+  An earlier BIG-parser pass that assumed an id field desynced and produced
+  garbage matches; corrected parser is the one used for extraction.
+
+### Extraction (asset mount untouched — resolver already reads this tree)
+- 7 files extracted + payload-verified to
+  `windows_game/extracted_big_files/TexturesZH/Art/Textures/` (repo root;
+  gitignored `/windows_game/`). Hydration path: `candidate_texture_resource_names`
+  PROVEN_DIRS prefix `../windows_game/extracted_big_files/TexturesZH/Art/Textures`
+  + LocalFileSystem `search_path.join(filename)` with `.` = cwd (drives run
+  from GeneralsRust) — no code change, no new mount.
+- Zero git writes, zero formatters. Extraction is data-only; verified against
+  the existing 10:13 release binary (no rebuild needed for this lane).
+
+### Drive verification (ardrive1, 11:08-11:11, cbgdrive4 chain clone)
+- Menu → SP → Skirmish → `start_game|mode=skirmish|faction=USA` → InGame cap;
+  child exited cleanly, no orphans, no control-bar/texture WARNs in child
+  stderr (only the pre-existing Amb_TemperateForestTreesLoop flood).
+- Pixel-decode compare vs `/tmp/wsmoke/cbg4/cbg4_ingame_initial.png`
+  (640x480): cb_strip changed 10.0% (SAD/px 18.3), tray+dots 9.0%, right HUD
+  19.0% (SALogo/MinMax/General/power-bar art), left-stack 2.6%; whole-frame
+  deltas are different random map + camera scroll (world region 49% — noise).
+- Visual (decisive): baseline grey left-stack rectangles → real
+  SAControlBar512_001.tga icons (SAOptions orange glyph, SAWorker dark X,
+  SAChat yellow bubble; SABeacon empty-black slot unchanged); baseline grey
+  MinMax/General rects at bar top-right → gold plates (arrow / rank stars);
+  SAPowerBar strip renders. Top-right "grey boxes" in the new frame are world
+  geometry (building at different scroll, green selection borders), not UI.
+- Evidence: /tmp/wsmoke/ardrive1.sh, ar1/drive1.log, ar1_ingame_initial.png,
+  bar_base_vs_new.png (top=baseline/bottom=new), zoom_leftstack.png,
+  zoom_righthud.png, zoom_tray_queue.png, zoom_topright.png.
+
+### Documented absences (no substitute art invented)
+- `SCBigButton` (QueueButtonImage): NO MappedImage definition and NO texture
+  file anywhere in retail media on this machine — only the
+  `QueueButtonImage SCBigButton` references in ControlBarScheme.ini (retail
+  C++ parity quirk; queue-cameo grid itself renders fine).
+- `China2_Frame.tga`, `GLA2_Frame.tga`, and all `*_SM` background/frame
+  variants: absent from all 66 scanned BIGs (only cob2_* exist). These topbar
+  variants are not part of the grey-placeholder set.
+- `GeneralsPowerWindow_*` / `GeneralsPowerMenu_*`: absent from all scanned
+  media (power-purchase surface, separate lane, untouched).
+
+---
+
+## LoopE2E — sim-side DozerConstruct root-cause chain MEASURED + C++-parity fixes landed; end-to-end re-drive pending (2026-09-04 07:00-11:40)
+
+### Probe verdict (GENERALS_CONSTRUCT_PROBE=1, [CP] warns, g3drive.sh on 08:36 all-lanes snapshot, /tmp/wsmoke/g3.log + $(cat /tmp/wsmoke/g3_dir)/child_stderr.txt)
+Chain state on Defcon6 (USA local vs GLA AI): selection OK (`[CP] place selection ids=[ObjectId(465)] dozers=[ObjectId(465)]`), template resolves (`resolved=AmericaBarracks`), can_make gate SKIPPED because `registry_resolved=false` (the known G2 OBJECT_REGISTRY gap — gate not the blocker), then the kill:
+`[CP] place lbc=3 builder_id=Some(ObjectId(465))` — **LBC_OBJECTS_IN_THE_WAY** at the initial loc (CC+40,0), at every pad-scan candidate, and at the force target (3188, 2321) = loc+(80,80). `construct_result_after_place` then never sees an under-construction host object → `construct_fail_no_building:AmericaBarracks` (drive log 10:11:26-10:14:34, retries, phase-3 exit 14).
+
+### Headless blocker census (temp world_tests/construct_probe_tmp.rs, REMOVED after diagnosis; Defcon6 load via Wave-170 `resolve_retail_map_path` + `load_map` + `spawn_skirmish_starting_units`)
+- Blocker set around the base: AmericaCommandCenter id452 (dist 40 from initial loc), SupplyDock id451 (dist 44.6 from force target), CivilianBunker01, TechOilDerrick 8/9, SupplyPileSmall 415-433 — all `struct=true immob=false dis=false rel=Neutral|Allies`.
+- `builder_has_clear_path_to` = TRUE at both construct sites — pathfinding/CLEAR_PATH is NOT the scan killer.
+- Template truth on the live host store: `AmericaBarracks authored=false major=1.0 place_r=20` (residual default), and for CC/SupplyDock/TechOilDerrick/CivilianBunker01 `immob=false struct=true authored=false` — despite retail `CivilianBuilding.ini` authoring `KindOf = STRUCTURE SELECTABLE IMMOBILE CAPTURABLE TECH_BUILDING CONSERVATIVE_BUILDING` (TechOilDerrick block at CivilianBuilding.ini:24882+, KindOf row 215; Geometry BOX major 23 / minor 21 rows 268-272).
+
+### Root-cause chain (C++ oracles cited)
+1. **Port blocker classes diverge from C++**: `legal_build_code_at_for_builder_ex` (GameLogic/world_scripts/ui_production.rs) rejected `is_kind_of(Structure) || Immobile || disabled || Enemies`. C++ `BuildAssistant::isLocationClearOfObjects` (GeneralsMD/Code/GameEngine/Source/Common/System/BuildAssistant.cpp:642-744) rejects exactly KINDOF_IMMOBILE (line 705, relationship-agnostic), isDisabled() (line 719), ENEMIES (line 734), allied-busy (line 683-689); header comment BuildAssistant.h:94 `NO_OBJECT_OVERLAP = "Can't overlap enemy objects, or locally controled objects that can't move out of the way"`. With the class fix alone the live world under-blocks (see 2), with 2 it is exact C++.
+2. **Authored IMMOBILE token never carried into synthesized host templates**: `build_template_from_object_definition` (GameLogic/world_objects/spawn_templates/definition.rs) maps `structure|immobile` → only `KindOf::Structure` (old line 308) and `apply_authored_semantic_kind_bits` covers a subset without IMMOBILE. C++ `ThingTemplate` parseKindOf carries every authored token into the mask. Consequence: `record_kind_of_bits_from_template` objects had no IMMOBILE bit, and the port had compensated with the too-wide `Structure` class — which ringed real-map bases with neutral tech/civilian structures and failed every pad (golden fixture passes: its desert pocket has no neutral structures near the pads).
+3. Known-remaining (documented, NOT the construct blocker): live templates still carry `geometry_info.authored=false` (`apply_authored_geometry` at definition.rs:244 does not land the rows for these definitions) so `place_r` uses the 20.0 residual default and blocker radii the 25.0 selection default instead of authored footprint sizes; and `TheGameLogic::find_object_by_id` still cannot resolve the real-map dozer (G2 finding — can_make gate silently skipped, fail-open).
+
+### Fixes landed (this lane, sim-side only; `cargo check -p generals_main --lib` 0 errors)
+- `ui_production.rs` blocker classes → C++ exact: `Immobile || disabled || Enemies` (+ the existing allied-busy distance gate), with citation comment.
+- `spawn_templates/definition.rs` → `has_kind("immobile")` now adds `KindOf::Immobile` to synthesized templates (C++ parseKindOf parity, citation comment).
+- [CP] probes (GENERALS_CONSTRUCT_PROBE=1 gated, `construct_probe_enabled()` in command_executor/mod.rs; sites in ui_commands.rs place_structure_from_ui, command_executor/{construct,validate}.rs, world_objects/create_destroy_die.rs) left in-tree env-gated for the verification drive, REMOVE WITH ROSTER_PROBE after it passes (same removal pass).
+
+### Next driver (exact recipe — Main or any sibling)
+1. Build release; `cp target/release/generals target/release/g3generals`.
+2. `/tmp/wsmoke/g3drive.sh` (child env already carries GENERALS_CONSTRUCT_PROBE=1 + GENERALS_ROSTER_PROBE=1). Expect: construct_fail gone → `construct_ok:AmericaBarracks@…` → phase 3 `under_construction 1→0` → phases 4-8 Ranger→march→attack_ok + g3_*.png captures.
+3. After attack_ok: remove GENERALS_ROSTER_PROBE (production.rs `debug_dump_match_roster` fn + pre/post_spawn call sites, runtime_host/mod.rs:478 dispatch, gameplay_select.rs handler) AND the [CP] probe (mod.rs helper + the warn sites listed above) in one pass; re-check `cargo check -p generals_main --bin generals`.
+4. If a pad is still rejected, `[CP] place lbc=N` now names N per attempt (1=terrain 2=flat 3=objects 4=path 5=shroud 6=supplies); the geometry carry-over (root cause 3) is the documented follow-up.
+
+### Guards
+Not re-run this window (serial-cargo contention + shared-tree churn); scoped `cargo check -p generals_main --lib` green. The class fix touches the LBC contract — `structure_placement_rejects_stacking`-family tests should be re-run with the re-verify (own CC now blocks via authored IMMOBILE, not via the Structure class).
+
+### AiRaidFix verification (bd hq-2ihdo, AI second-raid activity scheduling)
+- Bead was already CLOSED (2026-08-28, "second_attack_starts_after_first_raid_finishes passes;
+  guard-idle accounting restored per AIGuard.cpp"). Claim attempt correctly failed
+  (`issue already claimed by Bernardo Ferrari`); this session = regression verification, no edits
+  made or needed in ai/ (teams.rs/combat.rs fix already landed: activate_ready_team setActive →
+  activity_count += 1 at teams.rs:597; guard-idle states Idle|GuardingArea|GuardingObject count as
+  idle for checkReadyTeams readiness, teams.rs:491-505; evaluate_attack_opportunities only clears
+  finished attacks, no invented raid latch — combat.rs:82-91).
+- C++ oracle re-checked: AIPlayer::checkReadyTeams (AIPlayer.cpp:2729-2803) — timeExpired 60s
+  (2737), anyIdle+executeActions+productionCondition-with-action shortcut (2755-2761),
+  reinforcement joinTeam (2782-2786), setActive + skirmish clearTeamFlags (2788-2792).
+  Guard readiness parity: AIGuard.cpp:164 AI_GUARD_IDLE ("wait till something shows up").
+- Gates (shared tree, siblings landing concurrently; one transient `skirmish_ai_skillset_randomizes_like_cpp`
+  failure during a mid-flight sibling edit window — isolated re-run + full re-run both green):
+  1. `cargo test --locked -p generals_main --lib second_attack_starts_after_first_raid_finishes`
+     → ok. 1 passed (finished 5.45s).
+  2. Full AI suite `cargo test --locked -p generals_main --lib ai::` → ok. 76 passed; 0 failed
+     (169-203s runs; includes second_attack_starts_after_first_raid_finishes ok).
+  3. `ai_skirmish_gate 300` (release) → PASS: status=success, structures=3, 6 buildings queued
+     (identical to pre-existing evidence; activity path unchanged).
+  4. `cargo check --locked -p generals_main --tests` → Finished dev profile, exit 0.
+- No git writes; no formatters/linters; no probes added (grep GENERALS_* over my lane: none).
+
+## ShellBgFix — G9 plain main-menu background 95.8% black (shell-map world gate)
+
+- Symptom: windowed plain Menu frame luma=7.783 (95.8%+ black, only MainMenu UI chrome visible,
+  ~13% non-black pixels) even while Render breakdown showed world collection active
+  (state=Menu, render_items=89..135, presentation_frame_ok=true).
+- Root cause: `RenderPipeline::execute` blitted the ScriptEngine camera-fade overlay every frame,
+  including the shell menu. `ScriptEngine::newMap` arms the retail start fade
+  (`fade=Multiply, intensity 0.0, diffuse 0` — probe-verified each Menu frame). A Multiply quad
+  with src=ZERO/dst=SRCCOLOR and color 0 blacks out the whole 3D scene; UI drawn after stays
+  bright — exactly the 95.8%-black menu.
+- C++ oracle: GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DStatusCircle.cpp:284-287 —
+  `if (!TheGameLogic->isInGame() || TheGameLogic->getGameMode() == GAME_SHELL) return;` the fade
+  overlay never renders during the shell menu. Multiply blend ZERO/SRCCOLOR at 353-358 confirms
+  the black-out mechanism.
+- Fix (ported against the above):
+  1. Code/Main/src/graphics/render_pipeline/pipeline_execute.rs — when the presentation frame is a
+     shell scene (`fow_shell_bypass`, == GAME_SHELL), the per-frame camera-fade is forced to
+     default (fade 0 → `record_camera_fade` no-ops); non-shell (InGame/Paused) path unchanged.
+  2. Code/Main/src/cnc_game_engine/input.rs `queue_live_letterbox_and_cinematic_overlays` — do not
+     `queue_live_camera_fade` when `pres.fow_shell_bypass`, so the queued-live-fade side channel
+     cannot bypass the gate.
+- Probe (added then removed): env GENERALS_SHELL_BG_PROBE warned at both gates; live run confirmed
+  armed fade `PresentationCameraFade { fade: 4, intensity: 0.0, diffuse: 4278190080 }` suppressed
+  in shell scene every frame. Probes removed from tree after verification.
+- Verification (windowed, 800x600, fixed debug build):
+  - Plain Menu after Startup complete: frame luma 7.783 → 202.968; non-black pixel fraction
+    0.131 → 0.999; ASCII pixel map shows sky/terrain structure + MainMenu buttons over the world.
+    Render breakdown: state=Menu render_items=135.
+  - Guards: `cargo test -p generals_main --lib camera_fade` → 4 passed 0 failed, including new
+    `shell_scene_never_queues_camera_fade` (asserts the shell gate) and pre-existing
+    `execute_composites_leftover_view_filters_and_camera_fade`,
+    `apply_to_ui_state_copies_scripted_camera_fade`, `live_letterbox_overlay_queues_scripted_camera_fade`.
+  - Shell-map capture: /tmp/shellbg/fixed_plain.png (pre-fix black: /tmp/shellbg/plain_menu.png).
+- No git writes; no formatters/linters; no changes outside the shell-menu world-render lane.
+
+---
+
+## AudioTokenFix — in-match audio gap #2 closed: authored per-weapon FireSound dispatch + UnitHeal per-frame spam removed (in-tree, 2026-09-04)
+
+### Root causes (corrects §4's emitter guess: the heal spam was NOT in crate_tick.rs)
+- **WeaponFire ×2,929**: two generic-token emitters. (a) `world_tick/combat.rs`
+  fire residual resolved the weapon store but fell back to the invented
+  `"WeaponFire"` token whenever the weapon had no authored FireSound
+  (TestTank-style fixtures, most residual templates); (b) worse,
+  `presentation_frame/apply.rs collect_audio_events` mapped EVERY
+  `AttackTargeted` order to `("WeaponFire")`. No `AudioEvent WeaponFire`
+  exists in retail data (grep Patch104pZH INIs = 0 hits), so every one
+  dead-ended as THE_AUDIO ERR(no-info).
+- **UnitHeal ×26,264 at ~150/s**: `apply.rs` mapped every `HealApplied`
+  presentation event (fed per-frame by `host_heal_log` — construction
+  build_hp writes each frame in `world_tick/production.rs`, base regen,
+  battle-drone repairs) to the invented `"UnitHeal"` token. No `UnitHeal`
+  event exists anywhere in retail data (grep = 0 hits).
+
+### C++ oracles cited
+- FireSound: `FiringTracker::shotFired` plays `weaponFired->getFireSound()`
+  per shot; looping variant re-adds while not playing
+  (FiringTracker.cpp:138-156); `WeaponTemplate` parses `FireSound` via
+  `INI::parseAudioEventRTS` (Weapon.cpp:171); `Weapon::getFireSound` →
+  `m_template->getFireSound()` (Weapon.h:678). `AudioManager::addAudioEvent`
+  returns AHSV_NoSound for empty/`NoSound` names (GameAudio.cpp:384-386) —
+  an unauthored weapon is SILENT, never a generic token.
+- Heal: retail heal sound is `CrateHeal` ONLY (Patch104pZH SoundEffects.ini:4282,
+  `Limit = 3` duplicate-suppression), played by `HealCrateCollide`
+  (HealCrateCollide.cpp:36-38) via `MiscAudio::m_crateHeal` (MiscAudio.h:41) —
+  once per pickup, not per frame. C++ plays NO SFX on attack orders
+  (pickAndPlayUnitVoiceResponse voices only) and none per heal/damage HP
+  write. The port already dispatches `CrateHeal` on real heal-crate pickups
+  (`world_objects/crates_radar_power.rs` C++ HealCrateCollide residual path);
+  `AudioManager::does_violate_limit` (MilesAudioManager.cpp:1802-1882 parity,
+  game_audio.rs) provides the Limit window.
+
+### Fixes (all in-tree, no probes added)
+1. `world_tick/combat.rs` fire residual: queue only the resolved authored
+   FireSound; empty → queue nothing (AHSV_NoSound parity).
+2. `world_combat/strategy_center.rs` base-defense audio pick: known-kind
+   retail constants kept; generic arm now resolves the structure's own
+   weapon FireSound and queues nothing when empty.
+3. `presentation_frame/apply.rs`: `AttackTargeted` → None, `HealApplied` →
+   None (with C++ citations), removing both invented per-frame tokens.
+4. `weapon_bootstrap/projectile_sound.rs`: `host_fire_sound_for_unit_slot`
+   and `seed_fire_sound_for` return empty instead of `"WeaponFire"`
+   (store seeding guard already skips empty).
+
+### Verification
+- Scoped `cargo test -p generals_main --lib` (filters combat_fire /
+  combat_kill / fire_sound / heal_and_attack / firesound / capture_audio /
+  radar_eva / eva_pulse / particle_spawn_audio): **49 passed, 0 failed**,
+  including:
+  - new `combat_fire_queues_authored_fire_sound_audio_event` — named weapon
+    queues the authored store FireSound token with object/position/priority;
+  - new `combat_fire_without_authored_fire_sound_queues_no_audio_token` —
+    unauthored weapon queues zero events (AHSV_NoSound parity);
+  - updated `combat_kill_does_not_queue_invented_unit_die` — kill path
+    queues no WeaponFire/UnitHeal tokens;
+  - `fire_sound_for_seeded_weapons_residual` — unit-slot/generic fallbacks
+    now empty, not invented tokens;
+  - new heal-spam guard `heal_and_attack_writes_never_invent_heal_or_fire_sfx`
+    (HealApplied ×2 + DamageApplied + AttackTargeted → zero invented SFX);
+  - Wave 527/528/529/530/533/535 presentation-audio residual guards all green.
+- Transient sibling-lane failures observed mid-run (audio-neutral): 
+  `overlord_bunker_enter_sets_rider_experience_sink_to_tank` and
+  `anthrax_bomb_host_path_queues_damage_after_delay_and_toxin` re-verified
+  green after the XP/damage lanes landed;
+  `path_to_goal_with_state_used_by_guard_scatter_gather` (command_executor
+  source-marker guard) still red at verify time — this lane's diff touches
+  no command_executor source; owner: command_executor lane.
+- No git writes; no formatters/linters; no windowed drive used (emitter-level
+  fix proven by scoped tests + retail-data greps).
+
+## KillXpFix — Wave-621 kill-XP drain FIXED: damage-authority destroys now credit the killer (C++ scoreTheKill parity) (2026-09-04)
+
+### Root cause
+- C++ awards unit XP at the lethal-damage site, NOT in
+  `GameLogic::processDestroyList` (GameLogic.cpp:2445-2511 is pure teardown):
+  `ActiveBody::attemptDamage` resolves
+  `damager = TheGameLogic->findObjectByID(damageInfo->in.m_sourceID)`
+  (ActiveBody.cpp:341) and on the lethal transition calls
+  `damager->scoreTheKill(obj)` before `obj->onDie(damageInfo)`
+  (ActiveBody.cpp:640-650). `Object::scoreTheKill` (Object.cpp:2890-2942)
+  gates playable-side / KINDOF_IGNORED_IN_GUI / ENEMIES / own-controller,
+  then pays ScoreKeeper + `addSkillPointsForKill` + `doBountyForKill` +
+  `ExperienceTracker::addExperiencePoints(victim ExperienceValue)`.
+- The Rust Wave-621 damage-authority channel mirrors the write, not the
+  score: `writeback_health_to_host` records lethal IDs into
+  `host_destroy_ready_log` (writeback_core.rs:45-51) and
+  `process_destroy_list`'s ready-log drain marked them with
+  `killer: None` and never called `award_score_the_kill_experience` —
+  so every kill that reached destruction through the drain (the live-match
+  damage-authority path) awarded ZERO unit XP. The direct-fire instant-hit
+  branch (world_tick/combat.rs:2189-2206 → `continue_or_stop_after_kill`)
+  already awarded, which is why headless instant-fire probes looked correct
+  while live matches never promoted.
+- Corroborating: `continue_or_stop_after_kill`'s own comment
+  (world_tick/shock.rs:1008-1011) says "mark_object_for_destruction awards
+  from last_damage_source" — the destroy path never did.
+
+### Fix (one hunk, `world_objects/destroy_list_bounty.rs` `process_destroy_list` ready-log drain)
+- Resolve the killing blow's source from the victim's `last_damage_source`
+  residual (stamped by `stamp_last_damage_cpp`, the C++
+  `m_lastDamageInfo`/sourceID parity at ActiveBody.cpp:593-598), call
+  `award_score_the_kill_experience(killer, victim)` before marking, and pass
+  the killer's team into `mark_object_for_destruction` (was `None`) so
+  `record_destruction`'s score-keeper/bounty path matches direct-fire kills.
+- No double award: `award_score_the_kill_experience` is once-only via
+  `kill_experience_awarded`; drain skips objects already queued by direct fire.
+
+### Fixture
+- New `damage_authority_destroy_drain_awards_kill_experience`
+  (destroy_list_bounty tests): damage-authority-live couple, unit A kills
+  unit B through the health channel, asserts victim destroyed by the drain,
+  killer's ExperienceValue routed into `host_experience_log` (the GameWorld
+  SetExperience authority channel — gain_experience defers the host write
+  under authority-live, update.rs:858-864), score-keeper Destroyed/Lost,
+  and SkillPointValue. Green before/after semantics: pre-fix the drain
+  called no award, so the XP assertion is the regression guard.
+
+### Verification (scoped only; no formatters/linters; no git writes)
+- `game_logic::combat::tests`: **33/33 passed**.
+- New kill-XP fixture: **passed** (re-verified after sibling landings).
+- Wave-621 residual honesty pack: **6/6 passed** (source markers intact).
+- `gameworld_shadow` authority_writeback suite: **45/45 passed**
+  (XP-defer-until-writeback + SetExperience channel unaffected).
+- Observed, NOT this lane: `destroy_list_bounty` `tunnel_on_die_*`
+  remap tests fail with rider-not-remapped; failure set shifted (4→3)
+  across sibling landings while this lane's hunks stayed byte-identical,
+  and the drain branch they could touch is authority-live-gated (dead in
+  those host-only tests). Surface is tunnel-network remap / death-start —
+  owner: Main validation to arbitrate; not caused by the XP drain fix.
+- Pre-existing note for Main (out of scope here): direct-fire kills credit
+  skill points twice (`award_score_the_kill_experience` AND
+  `record_destruction` both pay `SkillPointValue`); C++ pays once in
+  scoreTheKill. Now identical for drained kills (consistency), but the
+  duplication itself predates this fix.
+
+## ClickGateFix — bar-level WND hit-test gate: VERIFIED OPEN on 10:13 all-lanes binary, regression-indicted to empty command-set bind; instrumented for the closer (2026-09-04 10:47-12:40)
+
+### Drive evidence (probe GENERALS_HITGATE in Main cnc_game_engine/input.rs, `named_gadget_center_if_hittable` gates dump)
+- **hgdrive1 (10:13 all-lanes binary, dir generals_exec_smoke_manual_1788529672): the G2 gate is CLEAR.** Post-selection state: `ButtonCommand03[hidden=false ena=true pos=(222,422)] hit=Some(ButtonCommand03) hit_ok=true` — chain `ButtonCommand03 > CommandWindow[hid=false] > CenterBackground > ControlBarParent[0,360]`; the old fullscreen `MultiplayerLoadScreen.wnd:ParentMultiplayerLoadScreen` root that stole pre-reveal hits to `StaticTextPlayerName/NumberOfUnits` is gone by click time. `winit_click_named` ButtonCommand01/03/04 → **OK** (Button02 → enabled=false by the availability eval — C++ empty-slot semantics, ControlBarCommand.cpp:788-881; C++ populateCommand would winHide rather than winEnable — minor residual).
+- **hgdrive2 (11:15 probe-free build) + hgdrive3 (12:01 all-lanes build): REGRESSION.** ButtonCommand01-04 ALL miss. HITGATE timeline (hg3): gate open at selection (hit_ok=true), then slots re-hidden (`ButtonCommand03[hidden=true] bits 0x2040488→0x2040498`) with CommandWindow itself still visible; post-selection reveal never sticks. Cause class: `bind_command_windows` (impl_execute.rs:619-622) hides slots whose bound command is empty/hidden — i.e. `add_object_commands` bound an EMPTY command set: both `translator_catalog_entry(first_id).command_set_name` and `presentation_primary_command_set` empty at bind (impl_buttons.rs:46-56 residual branch), which cascades from `apply.rs` sync when `primary`/`controllable`/`selected_command_set_name` (usable filter: `!o.disabled && !o.masked`, queries.rs:770-771) fails for the selected dozer.
+- NOT the culprit (verified): WM hit-test itself (gate open with identical geometry both eras), CtrlBarBgFix context hides (else-branch only touches Observer/OCL windows), GridCloser's CBGRID2 probe removal (logic intact by diff), FontFix/AudioTokenFix/apply.rs audio-mapping diffs, capture/grab/modal (None in every dump), layout geometry (pos/size identical 10:13 vs 12:01).
+- Suspects left standing (landed between 10:13 and 12:01 builds): LoopE2E's LBC/kindof template synthesis wave (GameLogic), KillXpFix destroy_list_bounty/DiffHunt rider-transfer waves touching object status bits the presentation `usable` filter reads, or RightHudFix's input.rs marker-draw hooks. Next driver: boot with `GENERALS_HITGATE=1 GENERALS_CBGRID3=1` — CBGRID3 (apply.rs:1163 sync decision + impl_buttons.rs:52 catalog entry) names the failing leg in one drive; HITGATE confirms the window state at click time.
+
+### Probe status — IN TREE, env-gated, off by default (budget ended before removal+fix cycle)
+- `Main/src/cnc_game_engine/input.rs`: HITGATE probes in `named_gadget_center_if_hittable` + `hitgate_probe_enabled`/`hitgate_should_log` helpers (GENERALS_HITGATE=1; function verified byte-equivalent fail-closed semantics vs HEAD; probe-off behavior identical).
+- `Main/src/presentation_frame/apply.rs` (sync decision, ~1163) + `GameClient gui/control_bar/control_bar_impl/impl_buttons.rs` (residual bind branch, ~52): CBGRID3 probes (GENERALS_CBGRID3=1), deduped one-line state dumps.
+- Both: `cargo check -p game-client-rust --lib && -p generals_main --lib` EXIT:0 at wrap (12:40). Removal = delete the `if std::env::var(...)` blocks + the two hitgate helpers + restore the two probe-free decision lines; zero probes affect behavior when env unset.
+- Artifacts: /tmp/wsmoke/hgdrive{1,2,3}.log, hg1_/hg2_/hg3_*.png|txt, hg1_gates.txt, child stderr dirs generals_exec_smoke_manual_{1788529672,1788531475,1788534102}. C++ citations: GameWindowManager.cpp:3579-3663 (getWindowUnderCursor), GameWindow.cpp:1360-1408 (winPointInChild), ControlBar.cpp:2131/2177-2188 (context hides/shows), ControlBarCommand.cpp:317/788-881 (populateCommand + availability). No git writes; serial windowed drives announced per floor discipline.
+## AiSupplyFix — bd hq-mik7s verification: AI supply return routing + base-radius geometry, all gates GREEN (2026-09-04)
+
+Bead was closed 2026-08-28 with both fixes in tree but flagged "NOT yet test-verified" mid-notes; this session re-verified end to end against the C++ oracles and the full gate chain. No code edits required — the landed fixes match parity; failure below was test-infra, not product.
+
+### Fix sites verified in code (vs C++)
+- Collector return leg: `Main/src/game_logic/world_objects/ai_authority.rs` `AIState::ReturningResources` (~322) resolves the depot via `preferred_supply_center_or_nearest` (`world_objects/object_queries.rs:286`: persisted `preferred_dock_id` wins while it is a live, constructed, friendly SupplyCenter; else nearest fallback) then `path_approach_with_state` to the EXACT center position — mirroring `ResourceGatheringManager::findBestSupplyCenter` (GeneralsMD GameEngine/Source/Common/RTS/ResourceGatheringManager.cpp:176-216, `getPreferredDockID()` wins when `computeRelativeCost != FLT_MAX`) and `SupplyTruckWantsToPickUpOrDeliverBoxesState::update` (SupplyTruckAIUpdate.cpp:487-530). Preference origin matches `SupplyTruckAIUpdate::privateDock` (CMD_FROM_PLAYER persists `m_preferredDock`, SupplyTruckAIUpdate.cpp:190-198).
+- Base radius: `Main/src/ai/player_core.rs` `compute_center_and_radius_of_base` (587-612) always feeds `template.geometry_info.bounding_circle_radius()` (no authored-gate zero fallback) into `leftover_compute_center_and_radius_of_base` (GameLogic/src/ai/ai_player/types.rs:242-264) — exact mirror of `AIPlayer::computeCenterAndRadiusOfBase` (AIPlayer.cpp:3096-3105): centroid of build-list XY, per-axis `|d| + bounding*0.4`, hypot, max, sqrt.
+
+### Acceptance arithmetic
+- `compute_center_and_radius_pads_geom_point_four`: CCs at x=0/100, bounding 50 → dx=50+20=70, dy=0+20=20, radius=sqrt(70²+20²)=sqrt(5300)≈72.8011. The bead description's "expected 70" was arithmetically wrong (hypot(70,20), not |70|); the test asserts the exact C++ value at 0.01 f32 tolerance — nothing hidden. Bead close_reason "radius matches C++ hypot(70,20)" is the correct statement.
+
+### Gates (all serial where suite convention requires it; shared-crate waits on FontFix's game-client cutover)
+1. Named pair, exact filter: `cargo test -p generals_main --lib -- ai::cpp_parity_tests::collector_returns_to_assigned_supply_center_over_nearer_center ai::cpp_parity_tests::compute_center_and_radius_pads_geom_point_four --exact` → 2 passed.
+2. `ai::cpp_parity_tests --test-threads=1` → **73/73**.
+3. Full AI suite `ai:: --test-threads=1` → **76/76**. (One parallel-mode FAIL observed: `skirmish_ai_skillset_randomizes_like_cpp` — mechanism: `install_leftover_computer_player` (cpp_parity_tests.rs:72-87) clears the PROCESS-GLOBAL `player::player_list()` that `leftover_is_skirmish_ai` (teams.rs:313-320) reads; the non-skirmish sibling test racing the same global flips it mid-assert. Test-infra race under `--test-threads=N`, passes serially; not a product regression, no edit made.)
+4. Economy suite (`-- economy --test-threads=1`) → **129/129**.
+5. `ai_skirmish_gate` (release) → **PASS**: status=success, structures=3, 6 buildings queued (identical to pre-existing evidence).
+6. `cargo check --locked -p generals_main --tests` → Finished, exit 0 (only pre-existing block-v0.1.6 future-incompat note).
+- No git writes; no formatters/linters; no source edits this session (verification + documentation only). Bead hq-mik7s remains closed; verification appended to its notes.
+
+---
+
+## MapPreviewFix — skirmish map preview art FIXED+verified end-to-end: Defcon6.tga renders in the MapWindow (olive/brown pixel verdict), 3 root causes chain-fixed (preview copy dest, C++ NULL parity, map-cache key separator asymmetry) (2026-09-04 10:00-13:00)
+
+Resumes ShellMapFix's open residual: "Skirmish map preview art — Defcon6.tga is
+olive/tan; MapWindow pixels show slate + markers + ZERO olive/tan". Their next-probe
+list (a) file_exists at runtime and (b) Image::load_from_file hydration — both
+executed via an env-gated probe (GENERALS_MAP_PREVIEW_PROBE=1, REMOVED from tree
+after the verdict) + 9 serial windowed drives (mpfdrive1-9.sh, /tmp/wsmoke).
+
+### Probe (a) — file_exists VERDICT: PASSES (was never the blocker)
+`MAP_PREVIEW_PROBE: map='maps/defcon6/defcon6.map' tga lookup HIT
+'maps/defcon6/defcon6.tga'` on the all-lanes binary. `extracted_asset_roots()`
+DOES reach `windows_game/extracted_big_files/MapsZH` (cwd=target/release →
+ancestors scanned to the repo root; scan_from depth 3 covers
+`windows_game/extracted_big_files` at depth 2 with MapsZH/EnglishZH/WindowZH
+children) — the search-path walk resolves `maps/<Map>/<Map>.tga` (lowercase,
+forward-slash) via resolve_existing_path_case_insensitive. BigArchiveBackend is a
+second route (MapsZH.big mounted from `GeneralsRust/Code/Main/assets`, index keys
+separator/case-normalized). An isolated repro test also confirmed
+`tga_defcon6=true`.
+
+### Root cause 1 — the preview COPY could never create its destination file
+`MapUtil.cpp:1166` runs `TheFileSystem->createDirectory(mapPreviewDir)` before
+`copyFromBigToDir` (MapUtil.cpp:1072-1113 opens the dest with WRITE|CREATE on the
+real local disk). The port's `copy_from_file_system` wrote the dest through the FS
+backend, whose `find_file_path` resolves EXISTING files only — a fresh
+`MapPreviews/<name>.tga` can never resolve, so open_file(WRITE|CREATE) always
+returned None and the copy silently failed (`let _`), leaving
+`UserData(±~/.cnc_generals)/MapPreviews/` non-existent (verified on disk pre-fix).
+FIX (map_util.rs `copy_from_file_system`): create parent dirs +
+`std::fs::write` for the dest (source still resolved via TheFileSystem, BIG-resident
+sources included). Probe verdict post-fix: `copy 'maps/defcon6/defcon6.tga' ->
+'/Users/bernardoferrari/.cnc_generals/MapPreviews/maps_defcon6_defcon6.tga': ok`
+(user_data_dir is `~/.cnc_generals` — absolute; create_dir_all handles both).
+
+### Root cause 2 — Some(bogus) instead of C++ NULL (killed the UnknownMap fallback)
+On copy/decode failure the port still returned `Some(portable_name)` — C++
+MapUtil.cpp:1196-1205 leaves the image NULL and returns NULL, so the caller
+(SkirmishGameOptionsMenu.cpp positionStartSpots parity) paints the UnknownMap
+mapped image. The port's Some-with-no-image is EXACTLY the observed slate: the
+window got WIN_STATUS_IMAGE + a name that resolves to nothing → win_draw_image_ex
+honest missing-art fill. FIX (map_util.rs `get_map_preview_image`): decode/copy
+failure → `None` (caller's `unwrap_or_else(UnknownMap)` then engages).
+
+### Root cause 3 — map-cache key/separator asymmetry (blocked Defcon6 selection AND every prefs-driven preview)
+The shipping `Maps/MapCache.ini` (inside MapsZH.big) decodes to BACKSLASH keys
+(`maps\defcon6\defcon6.map`, isMultiplayer=yes, players=6 — verified via strings),
+while `MapCache::add_map` (scan path) inserts forward-slash keys, and
+`is_valid_map` normalizes its query to forward (`normalize_path`) — but
+`MapCache::find_map`/`has_map` only lowercased. Net: backslash-keyed entries were
+UNREACHABLE through the normalized query, so `SkirmishPreferences::get_preferred_map`
+(`is_valid_map` gate) always fell back to `get_default_map(true)` → alpine assault,
+and NO seed format could ever select Defcon6 (4 control drives with
+backslash/forward/lone-eagle/UserData-vs-cwd seeds all chose alpine — this plus a
+cache-dump probe test pinned the asymmetry). FIX: queries normalize
+(`find_map`/`has_map` now `normalize_path` the input — map_util.rs) and INI
+insert normalizes (`parse_map_cache_definition` stores
+`decoded.to_lowercase().replace('\\', "/")` — ini_map_cache.rs), unifying both
+key spaces with the scan path and with C++ Win32 case/separator-insensitive
+semantics. Chain then works end-to-end: Skirmish.ini `Map=maps/defcon6/defcon6.map`
+→ skirmish init → `state.selected_map=defcon6` → preview HIT+copy+decode.
+
+### VERIFIED (pixel evidence, MapWindow rect 466,92-598,201 logical = retail 583,115-747,251 ×0.8)
+- Pre-fix (smf1_skirmish_a, 08:36 binary): slate (18,18,18) 13,598 px, olive 0, brown 0.
+- Post-fix WITH probe (mpf7, 12:38 binary): olive(146,151,106)±14 = 4,576 px,
+  brown(70,63,53)±14 = 1,226 px, slate 2 px; exact anchor colors in top counts
+  ((146,151,106)×72, (70,63,53)×81); cyan start-spot markers + blue slot borders
+  still overlay (positionStartSpots parity). Stable across 3 captures.
+- Post-fix PROBE-FREE rebuild (mpf9, 12:44 binary): olive=4,576, brown=1,226,
+  slate=2 — identical verdict without GENERALS_MAP_PREVIEW_PROBE (0 probe lines in
+  child stderr). Alpine Assault preview also verified as intermediate evidence
+  (mpf1: dark-olive (49,58,19) palette replacing slate) — proves the whole chain,
+  not just one map's art.
+
+### Drive/verification notes
+- Drives: /tmp/wsmoke/mpfdrive{1..9}.sh (smfdrive1.sh derivative: window_move →
+  reveal → winit_click_named ButtonSinglePlayer/ButtonSkirmish → request_capture ×3),
+  captures /tmp/wsmoke/mpf{1..9}_skirmish_{a,b,c}.png, logs mpfdrive{1..9}.log.
+- Selection for the acceptance shot used the retail-persistent SkirmishPreferences
+  (Skirmish.ini `Map=` key, C++ SkirmishPreferences parity); runtime reads it from
+  the ini-global user_data_dir which is EMPTY in windowed runs → CWD
+  `target/release/Skirmish.ini`. Seeds + mpf_generals snapshot removed after
+  verdicts (no repo-tree impact; target/ is gitignored).
+- Probe test (tests/map_preview_probe_test.rs) deleted; grep for
+  MAP_PREVIEW_PROBE/map_preview_probe/GENERALS_MAP_PREVIEW_PROBE over Code/ = 0 hits.
+
+### Changed files (this lane)
+- `Code/GameEngine/GameClient/src/map_util.rs` — copy_from_file_system local-disk
+  dest + parent-dir creation (C++ MapUtil.cpp:1166/1107 parity);
+  get_map_preview_image None-on-failure (C++ NULL parity); find_map/has_map
+  normalize_path query (separator-agnostic like C++ Win32).
+- `Code/GameEngine/Common/src/common/ini/ini_map_cache.rs` — insert-side key
+  normalization (one key space with the scan path; +3 lines).
+
+No git writes; no formatters/linters; probes env-gated and removed. Scoped proof:
+`cargo check -p game-client-rust --lib` exit 0 (full-project validation remains
+Main's). Evidence artifacts in /tmp/wsmoke (mpfdrive*.log, mpf*.png, child stderr
+under generals_exec_smoke_manual_*).
+
+## FinalCloser — G2 regression verdict + construct-chain C++ parity fixes + probe sweep (2026-09-04 12:20-14:25)
+
+### G2 command-grid REGRESSION: NOT REPRODUCED on current tree (hgdrive4, 12:21-12:23 all-lanes release binary)
+- One instrumented drive named BOTH legs HEALTHY: `CBGRID3 sync: panel_primary=Some(465) primary_found=true owned_local=true controlled_by_local=true sel_count=1 cs=Some("AmericaDozerCommandSet")` (apply.rs sync decision) AND `CBGRID3 bind: id=465 catalog_cs="AmericaDozerCommandSet" … pres="AmericaDozerCommandSet"` (impl_buttons.rs catalog-entry leg — both sources non-empty at bind). Clicks: ButtonCommand01/03/04 `winit_click_named_ok`, Button02 miss = documented C++ empty-slot availability residual (ControlBarCommand.cpp:788-881), identical to the good 10:13 era. Artifacts /tmp/wsmoke/hg4_*.png|txt, hg4_gates/hg4_cbgrid3 via generals_exec_smoke_manual_1788535271.
+- Conclusion: the 12:01 binary (hgdrive2/hgdrive3 all-miss) was built from a mid-edit sibling working-tree state that has since completed; no code change was needed or made for G2. Both eras' probe evidence archived above.
+
+### Construct-chain fixes LANDED (g3drive phase-3 root causes, all C++-cited)
+1. **Exact collision math replaces radius-sum** (GameLogic/world_scripts/ui_production.rs `legal_build_code_at_for_builder_ex`): blocker collection now tests shape overlap with the C++ `PartitionFilterWouldCollide::allow` procs (PartitionManager.cpp:5149-5172) — `rectToFourPoints` (:787-810), `testRotatedPointsAgainstRect` corner core (:741-769), `xy_collideTest_Circle_Circle` (:884), `Rect_Circle` circles-squared (:817-824), `Rect_Rect` (:930-955) — using the template footprint (`structure_place_footprint`) at the placement angle (`leftover_placement_view_angle`) per BuildAssistant.cpp:648-651 `iteratePotentialCollisions(worldPos, build->getTemplateGeometryInfo(), angle)`. Unauthored objects keep the radius residual as a circle shape. The old place_r+radius sum massively over-blocked (CC bounding circle 92 vs box overlap).
+2. **isRemovableForConstruction parity — the actual g3 killer** (BuildAssistant.cpp:685-692): retail trees/bushes author `KindOf = SHRUBBERY IMMOBILE …` (NatureProp.ini:456984 ff) and are bulldozed at construction, never blocking. Port now skips `Shrubbery`/`ClearedByBuild`/`Inert` objects in the blocker loop. Before this, the pad scan died on TreePine/TreeSpruce05/TreeSpruce2/Bush02 (authored Cylinder 3/1, immob=true) at every candidate.
+3. **Starter-template IMMOBILE carry** (spawn_templates/seeding.rs update path): LoopE2E's fix landed only in the fresh-template path; curated starters (CommandCenter/PatriotBattery/…) updated in place never gained IMMOBILE. Added the same authored-token carry (parseKindOf parity, BuildAssistant.cpp:705). Authored geometry already landed via the committed seed-update `apply_authored_geometry` (verified live: `auth=true geom=Cylinder/3/1` on trees, `Box/23/21` on TechOilDerrick — LoopE2E's census predates this landing in the live host).
+4. Temp diagnostics (probe-gated, ALL REMOVED — see sweep below): `[CP] lbc3` shape dump + `[CP] construct scan census` rejection-code tally in runtime_host construct pad scan.
+
+### g3drive acceptance status: construct_ok NOT reached — residual wall is pad-finding geometry, NOT the LBC class bug
+- Census on the final fix binary (1352 candidates, ±480 grid): `{1 terrain:78, 2 flat:76, 3 objects:490, 4 path:367, 5 shroud:341, OK:0}` — trees eliminated from blockers (lbc3 now names only AmericaCommandCenter 464, SupplyDock 463, TechOilDerrick 8/9, CivilianBunker01 23, RockClusterLarge01 248 — all legitimate IMMOBILE with now-correct authored geometry).
+- Interpretation: the skirmish-seeded bases + map structures fill the visible pocket, and CLEAR_PATH/SHROUD legs reject the outskirts. Documented next steps (not started): (a) drive can pass explicit `construct|x=…|z=…` (handler supports it) once a clear pad is identified; (b) audit `builder_has_clear_path_to` → `client_safe_quick_does_path_exist` semantics now that trees carry IMMOBILE (C++ AIPlayer.cpp:595-602 clientSafeQuickDoesPathExist structure-aware residual; trees as pathfinding walls would explain the 367 path rejects); (c) C++ AIPlayer.cpp:512 uses NO_ENEMY_OBJECT_OVERLAP for its own base placement — a candidate parity question for AI-side seeds, not the human path.
+- Runs: g3drive exits 14 at phase 3 on runs 2-5 (12:25, 13:04, 13:31, 13:55 binaries); every run's captures/[CP] artifacts preserved under generals_exec_smoke_manual_178853{5548,7873,…}.
+
+### Probe sweep (post-verdict, grep-verified 0 refs in Code/, binary strings clean)
+- REMOVED: GENERALS_CONSTRUCT_PROBE (helper static+fn in command_executor/mod.rs, 31 `if construct_probe_enabled()` sites via ast-grep across construct.rs/validate.rs/ui_commands.rs/create_destroy_die.rs/gameplay_select.rs, validate.rs `!ok &&` variant, lbc3 dump in ui_production.rs, scan census in gameplay_select.rs); GENERALS_ROSTER_PROBE (debug_dump_match_roster fn + pre/post_spawn call sites, runtime_host/mod.rs dispatch, gameplay_select handler); GENERALS_HITGATE (both helpers + probe var + dump block; the two decision lines restored to probe-free `if !geometric_gate`/direct `get_window_under_cursor` — byte-equivalent fail-closed semantics per ClickGateFix's diff); GENERALS_CBGRID3 (apply.rs sync block, impl_buttons.rs bind block).
+- INTENTIONALLY KEPT: GENERALS_SLUI_PROBE (SaveLoadUiHunt lane's mid-match save/load verification), GENERALS_RIGHTHUD_PROBE ×3 (RightHudFix lane, report-staged for removal after an rhd2 verdict — rhd2 not driven this window). GENERALS_MAP_PREVIEW_PROBE already removed by MapPreviewFix.
+
+### Verification (scoped; no formatters/linters; no git writes)
+- `cargo check -p generals_main --lib` + `-p game-client-rust --lib` exit 0 post-sweep.
+- `structure_placement` family 14/14 (incl. `structure_placement_rejects_objects_in_the_way_residual`); `spawn_templates` family 41 passed / 3 failed — all 3 PRE-EXISTING by A/B (hunk disabled, same failures): burton_charge_unpacks_then_plants_then_flees + retail_superweapon_modules… fail on the unmodified tree (sibling lanes' uncommitted GameLogic edits), object_fow_uses_coi_mix fails only in parallel family runs and passes solo ×3 (order-dependent, matches the placement test's documented process-global caveat). Flagged for their owners.
+- Probe-free sanity drive (hgsanity.sh, 14:19-14:20): boot→Defcon6→select dozer→ButtonCommand01/03/04 click OK (Button02 = C++ empty-slot availability residual), captures /tmp/wsmoke/hgS_{dozer_selected,grid_state}.png; grid crop confirms bound command-set cameos; HITGATE/CBGRID3 dumps 0 lines (probe-free). target/release/generals == g3generals == this binary.
+- Staged handoff batch (htxdrive1 money/labels, rhd2 marker/queue, seldrive1 selection ring, ogdrive1 diplomacy) NOT driven — floor went to the construct chain; recipes intact for the next window.

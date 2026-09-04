@@ -94,17 +94,25 @@ pub(super) fn draw_static_text(
         valign,
     );
     let _ = with_ui_renderer_mut(|renderer| {
-        let _ = renderer.draw_text_simple(
+        let (point_size, font_name, bold) = match inst_data.font.as_ref() {
+            Some(font) => (font.size as f32, font.name.as_str(), font.bold),
+            None => (12.0, "Arial", false),
+        };
+        let _ = renderer.draw_text_simple_named(
             &text,
             glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
-            font_size,
+            point_size,
             crate::gui::game_window::color_to_rgba(drop),
+            font_name,
+            bold,
         );
-        let _ = renderer.draw_text_simple(
+        let _ = renderer.draw_text_simple_named(
             &text,
             glam::Vec2::new(text_x as f32, text_y as f32),
-            font_size,
+            point_size,
             crate::gui::game_window::color_to_rgba(text_color),
+            font_name,
+            bold,
         );
     });
     note_shipped_ui_draw_commands(1);

@@ -234,11 +234,28 @@ fn rmb_scroll_anchor_screen_vertices(anchor: &RmbScrollAnchorOverlay) -> Vec<f32
 }
 
 /// Per-selected-unit data for circle rendering.
+///
+/// `style` mirrors the two C++ ground-marker families this overlay stands in
+/// for: `Filled` = terrain decal blobs (shadow/crate/horde decal discs,
+/// `W3DModelDraw::setTerrainDecal`), `Ring` = the selected-unit marker
+/// (`Drawable::friend_setSelected` flash + health bar are the C++ overlays;
+/// the ring is the port's world-space selected indicator, Main ticket lane).
 #[derive(Debug, Clone)]
 pub struct SelectedUnit {
     pub position: Vec3,
     pub radius: f32,
     pub team_color: [f32; 4],
+    pub style: SelectionCircleStyle,
+}
+
+/// Ground-marker draw style for `SelectedUnit` (see struct doc).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SelectionCircleStyle {
+    /// Solid disc (blob-shadow / placement-marker family).
+    #[default]
+    Filled,
+    /// Annulus outline in player color (selected-unit family).
+    Ring,
 }
 
 // ---------------------------------------------------------------------------
@@ -559,32 +576,68 @@ impl SelectionRenderer {
     fn draw_selection_circle(&self, render_pass: &mut wgpu::RenderPass<'_>, unit: &SelectedUnit) {
         let radius = unit.radius.max(1.0);
         let center = unit.position;
-        let y = center.y + TERRAIN_Y_OFFSET;
         let color = unit.team_color;
-
-        // Triangle fan: center vertex + N outer ring vertices.
+        // Selected rings sit a little higher than blob discs: the RTS3DScene
+        // selection-marker pass shrinks the camera Z range by ZBias 0.0001
+        // (W3DScene.cpp:925,997) to keep markers off the terrain surface; the
+        // extra lift stands in for that bias on sloped ground.
+        let y = center.y
+            + match unit.style {
+                SelectionCircleStyle::Filled => TERRAIN_Y_OFFSET,
+                SelectionCircleStyle::Ring => TERRAIN_Y_OFFSET * 3.0,
+            };
         // Vertex format: [x, y, z, r, g, b, a] = 7 floats.
-        let vertex_count = CIRCLE_SEGMENTS as usize + 2;
-        let mut vertices = Vec::with_capacity(vertex_count * 7);
+        let mut push_vertex = |vertices: &mut Vec<f32>, x: f32, z: f32| {
+            vertices.extend_from_slice(&[x, y, z, color[0], color[1], color[2], color[3]]);
+        };
 
-        vertices.extend_from_slice(&[
-            center.x, y, center.z, color[0], color[1], color[2], color[3],
-        ]);
-
-        for i in 0..=CIRCLE_SEGMENTS {
-            let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
-            let px = center.x + radius * angle.cos();
-            let pz = center.z + radius * angle.sin();
-            vertices.extend_from_slice(&[px, y, pz, color[0], color[1], color[2], color[3]]);
-        }
-
-        let triangle_count = CIRCLE_SEGMENTS as usize;
-        let mut indices: Vec<u32> = Vec::with_capacity(triangle_count * 3);
-        for i in 1..=(CIRCLE_SEGMENTS as u32) {
-            indices.push(0);
-            indices.push(i);
-            indices.push(i + 1);
-        }
+        // Build vertices + index list for the unit's marker style.
+        let (vertices, triangle_count, indices) = match unit.style {
+            SelectionCircleStyle::Filled => {
+                // Triangle fan: center vertex + N outer ring vertices.
+                let mut vertices = Vec::with_capacity((CIRCLE_SEGMENTS as usize + 2) * 7);
+                push_vertex(&mut vertices, center.x, center.z);
+                for i in 0..=CIRCLE_SEGMENTS {
+                    let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
+                    push_vertex(
+                        &mut vertices,
+                        center.x + radius * angle.cos(),
+                        center.z + radius * angle.sin(),
+                    );
+                }
+                let mut indices: Vec<u32> = Vec::with_capacity(CIRCLE_SEGMENTS as usize * 3);
+                for i in 1..=(CIRCLE_SEGMENTS as u32) {
+                    indices.push(0);
+                    indices.push(i);
+                    indices.push(i + 1);
+                }
+                (vertices, CIRCLE_SEGMENTS as usize, indices)
+            }
+            SelectionCircleStyle::Ring => {
+                // Annulus strip: outer + inner rings wound as quads. C++ has no
+                // persistent selected-unit ring (see struct doc); thickness of
+                // 18% of the radius keeps the marker legible at skirmish zoom.
+                const RING_THICKNESS: f32 = 0.82;
+                let inner = radius * RING_THICKNESS;
+                let mut vertices = Vec::with_capacity((CIRCLE_SEGMENTS as usize + 1) * 2 * 7);
+                for i in 0..=CIRCLE_SEGMENTS {
+                    let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
+                    let (sin, cos) = angle.sin_cos();
+                    push_vertex(&mut vertices, center.x + radius * cos, center.z + radius * sin);
+                    push_vertex(&mut vertices, center.x + inner * cos, center.z + inner * sin);
+                }
+                let triangle_count = CIRCLE_SEGMENTS as usize * 2;
+                let mut indices: Vec<u32> = Vec::with_capacity(triangle_count * 3);
+                for i in 0..(CIRCLE_SEGMENTS as u32) {
+                    let out0 = i * 2;
+                    let in0 = out0 + 1;
+                    let out1 = out0 + 2;
+                    let in1 = out0 + 3;
+                    indices.extend_from_slice(&[out0, in0, out1, out1, in0, in1]);
+                }
+                (vertices, triangle_count, indices)
+            }
+        };
 
         let vertex_buffer = self
             .device
@@ -750,6 +803,7 @@ pub fn collect_blob_shadows_from_presentation(
                 ),
                 radius,
                 team_color: [0.0, 0.0, 0.0, 0.4],
+                style: SelectionCircleStyle::Filled,
             }
         })
         .collect()
@@ -769,13 +823,16 @@ pub fn collect_selected_units_from_presentation(
             crate::game_logic::Team::GLA => 4,
             crate::game_logic::Team::Neutral => 7,
         };
-        // Prefer snapshot team_color when set; else player palette.
+        // Prefer snapshot team_color when set; else player palette. Ring body
+        // reads near-opaque: C++ has no persistent selected ring to copy, but a
+        // washed-out marker defeated the point (VisualGap2 G5, UiGap Order-1).
+        let ring_alpha = CIRCLE_ALPHA.max(0.85);
         let team_color = if object.team_color[3] > 0.0 {
             [
                 object.team_color[0],
                 object.team_color[1],
                 object.team_color[2],
-                CIRCLE_ALPHA,
+                ring_alpha,
             ]
         } else {
             let c = crate::ui::color_for_player(player_index);
@@ -783,7 +840,7 @@ pub fn collect_selected_units_from_presentation(
                 c.r as f32 / 255.0,
                 c.g as f32 / 255.0,
                 c.b as f32 / 255.0,
-                CIRCLE_ALPHA,
+                ring_alpha,
             ]
         };
         let radius = object
@@ -793,6 +850,7 @@ pub fn collect_selected_units_from_presentation(
             position: object.position,
             radius,
             team_color,
+            style: SelectionCircleStyle::Ring,
         });
     }
     units
@@ -821,6 +879,164 @@ fn pack_rally_point_lines(_frame: &crate::presentation_frame::PresentationFrame)
     Vec::new()
 }
 
+/// C++ `Drawable::drawIconUI` health bar (`Drawable.cpp:2738-2754` via
+/// `computeHealthRegion` `:2661-2704` + `drawHealthBar` `:3825-3937`): a
+/// screen-space bar above each selected drawable — cyan construction/disabled
+/// branch else red↔green with REALLYDAMAGED/DAMAGED modulation, 1px open-rect
+/// outline + inset fill, width from `getHealthBoxDimensions`
+/// (Object.cpp:3364-3417, min 20 px), height 3 px, anchored at the projected
+/// `getHealthBoxPosition` (`pos.z += maxHeightAbovePosition + 10`,
+/// Object.cpp:3346-3349; the port approximates that lift from the frozen
+/// health-box width because presentation does not carry the model height).
+///
+/// The GameClient parity lane (`BasicDrawable` overlay +
+/// `GameClient::draw_drawable_icon_overlays`) is orphaned in the windowed
+/// runtime host because full `GameClient::update()` stays disconnected
+/// (Wave 586), so the live world-overlay path packs the identical bar here
+/// from the frozen presentation snapshot. C++ `zoom` scaling of the bar width
+/// (`widthScale = 1.0f / zoom`) is folded into the projection: the bar width
+/// already lands in tactical-viewport pixels at the current camera.
+pub fn pack_health_bar_quads(
+    frame: &crate::presentation_frame::PresentationFrame,
+    view_matrix: &Mat4,
+    projection_matrix: &Mat4,
+    tactical_viewport: (f32, f32),
+    display_size: (f32, f32),
+) -> Vec<f32> {
+    use crate::game_logic::host_enum_table_residual::{
+        host_model_condition_has, MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED,
+    };
+
+    // C++ gate: TheGlobalData->m_showObjectHealth (`Drawable.cpp:3834`).
+    let show_object_health = game_engine::common::ini::get_global_data()
+        .map(|data| data.read().show_object_health)
+        .unwrap_or(false);
+    if !show_object_health || display_size.0 <= 0.0 || display_size.1 <= 0.0 {
+        return Vec::new();
+    }
+
+    let viewport = Vec2::new(display_size.0.max(1.0), display_size.1.max(1.0));
+    let view_proj = *projection_matrix * *view_matrix;
+    let (vp_w, vp_h) = (tactical_viewport.0.max(1.0), tactical_viewport.1.max(1.0));
+    let mut vertices: Vec<f32> = Vec::new();
+
+    for object in frame.objects.iter().filter(|o| o.selected && !o.destroyed) {
+        // C++ bails when maxHealth == 0 or health == 0 (`Drawable.cpp:3860`).
+        if object.health_max <= 0.0 || object.health_current <= 0.0 {
+            continue;
+        }
+        // C++ skips force-attackable props that would otherwise flash a bar
+        // on force-attack (`Drawable.cpp:3846-3849`).
+        if object
+            .kind_of
+            .iter()
+            .any(|k| matches!(k, crate::game_logic::KindOf::ForceAttackable))
+        {
+            continue;
+        }
+        let ratio = (object.health_current / object.health_max).clamp(0.0, 1.0);
+        let really_damaged =
+            host_model_condition_has(object.model_condition_bits, MC_BIT_REALLYDAMAGED);
+        let damaged = host_model_condition_has(object.model_condition_bits, MC_BIT_DAMAGED);
+        // C++ `isDisabled() && !isDisabledByType(DISABLED_HELD)` (`:3872`);
+        // DISABLED_FREEFALL is the presentation's held-class residual.
+        let disabled_not_held = object.disabled && !object.disabled_freefall;
+        let (fill, outline) = game_client::drawable::drawable::health_bar_colors(
+            ratio,
+            object.under_construction || disabled_not_held,
+            really_damaged,
+            damaged,
+        );
+
+        // Project the bar anchor (unit top + lift) into tactical-viewport
+        // pixels; the viewport starts at target pixel (0,0) so the coordinates
+        // double as full-target pixels for the clip conversion below.
+        let anchor = Vec3::new(
+            object.position.x,
+            object.position.y + (object.health_box_width.max(20.0) * 0.5).max(10.0) + 10.0,
+            object.position.z,
+        );
+        let clip = view_proj * anchor.extend(1.0);
+        if clip.w <= 0.0 {
+            continue;
+        }
+        let ndc = clip.truncate() / clip.w;
+        let cx = (ndc.x * 0.5 + 0.5) * vp_w;
+        let cy = (1.0 - (ndc.y * 0.5 + 0.5)) * vp_h;
+        if !cx.is_finite() || !cy.is_finite() {
+            continue;
+        }
+
+        // getHealthBoxDimensions #else branch: width = MAX(20, MIN(150,
+        // major+minor) * 2) frozen into `health_box_width`; height 3 px.
+        let bar_w = if object.health_box_width > 0.0 {
+            object.health_box_width
+        } else {
+            20.0
+        };
+        let bar_h = 3.0;
+        // computeHealthRegion: lo = center − (width*0.45, height*0.5).
+        let bar_x = cx - bar_w * 0.45;
+        let bar_y = cy - bar_h * 0.5;
+        let fill_color = [fill[0], fill[1], fill[2], fill[3]];
+        let outline_color = [outline[0], outline[1], outline[2], outline[3]];
+        // drawOpenRect outline (1 px) as four thin quads …
+        push_open_rect(
+            &mut vertices,
+            Vec2::new(bar_x, bar_y),
+            Vec2::new(bar_w, bar_h),
+            1.0,
+            viewport,
+            outline_color,
+        );
+        // … then the drawFillRect inset fill, width × healthRatio.
+        append_screen_fill_rect_vertices(
+            &mut vertices,
+            Vec2::new(bar_x + 1.0, bar_y + 1.0),
+            Vec2::new(((bar_w - 2.0) * ratio).max(0.0), bar_h - 2.0),
+            viewport,
+            fill_color,
+        );
+    }
+    vertices
+}
+
+/// Four thin quads forming a C++ `drawOpenRect` 1-px outline.
+fn push_open_rect(
+    vertices: &mut Vec<f32>,
+    origin: Vec2,
+    size: Vec2,
+    thickness: f32,
+    viewport: Vec2,
+    color: [f32; 4],
+) {
+    let (x, y) = (origin.x, origin.y);
+    let (w, h) = (size.x, size.y);
+    let t = thickness.max(1.0);
+    append_screen_fill_rect_vertices(vertices, Vec2::new(x, y), Vec2::new(w, t), viewport, color);
+    append_screen_fill_rect_vertices(
+        vertices,
+        Vec2::new(x, y + h - t),
+        Vec2::new(w, t),
+        viewport,
+        color,
+    );
+    append_screen_fill_rect_vertices(
+        vertices,
+        Vec2::new(x, y + t),
+        Vec2::new(t, (h - 2.0 * t).max(0.0)),
+        viewport,
+        color,
+    );
+    append_screen_fill_rect_vertices(
+        vertices,
+        Vec2::new(x + w - t, y + t),
+        Vec2::new(t, (h - 2.0 * t).max(0.0)),
+        viewport,
+        color,
+    );
+}
+
 pub fn enqueue_selection_render(
     pipeline: &mut crate::graphics::render_pipeline::RenderPipeline,
     view_matrix: &Mat4,
@@ -832,6 +1048,8 @@ pub fn enqueue_selection_render(
     ground_markers: Vec<SelectedUnit>,
     show_move_lines: bool,
     show_attack_lines: bool,
+    // Full window pixel size, for screen-space health-bar clip conversion.
+    display_size: (f32, f32),
 ) {
     let renderer = match SelectionRenderer::new() {
         Some(r) => Arc::new(r),
@@ -847,6 +1065,21 @@ pub fn enqueue_selection_render(
         selected_units.splice(0..0, collect_blob_shadows_from_presentation(frame));
     }
     selected_units.extend(ground_markers);
+
+    // C++ Drawable::drawIconUI health bars for the selected set (Drawable.cpp
+    // 2738-2754 / 3825-3937), packed for the 2D overlay pass.
+    let health_bar_vertices = presentation
+        .map(|frame| {
+            let tactical_viewport = pipeline.tactical_viewport_pixel_size();
+            pack_health_bar_quads(
+                frame,
+                view_matrix,
+                projection_matrix,
+                (tactical_viewport.0.max(1.0), tactical_viewport.1.max(1.0)),
+                display_size,
+            )
+        })
+        .unwrap_or_default();
 
     // Move/attack order line residual from presentation snapshot.
     let mut order_line_vertices: Vec<f32> = Vec::new();
@@ -878,6 +1111,7 @@ pub fn enqueue_selection_render(
         && rmb_scroll_anchor.is_none()
         && selected_units.is_empty()
         && order_line_vertices.is_empty()
+        && health_bar_vertices.is_empty()
     {
         return;
     }
@@ -938,7 +1172,7 @@ pub fn enqueue_selection_render(
         });
     }
 
-    if drag_rect.is_some() || rmb_scroll_anchor.is_some() {
+    if drag_rect.is_some() || rmb_scroll_anchor.is_some() || !health_bar_vertices.is_empty() {
         // C++ draws this in W3DInGameUI's 2D pass, after the scene and before
         // window repaint. Queue it before Main queues its UI flush, so HUD
         // widgets still render over both the marquee and RMB anchor exactly as
@@ -967,6 +1201,13 @@ pub fn enqueue_selection_render(
             }
             if let Some(rmb_scroll_anchor) = rmb_scroll_anchor.as_ref() {
                 drag_renderer.draw_rmb_scroll_anchor(&mut render_pass, rmb_scroll_anchor);
+            }
+            if !health_bar_vertices.is_empty() {
+                drag_renderer.draw_screen_overlay_vertices(
+                    &mut render_pass,
+                    &health_bar_vertices,
+                    "selection_health_bar_verts",
+                );
             }
             drop(render_pass);
             Ok(())
@@ -1296,6 +1537,67 @@ mod presentation_selection_tests {
                 && src.contains("pack_rally_point_lines(frame)"),
             "selection overlay must pack selected structure rally lines"
         );
+    }
+    #[test]
+    fn health_bar_packs_cpp_quads_when_gate_open() {
+        // C++ Drawable::drawHealthBar (`Drawable.cpp:3825-3937`): one open-rect
+        // outline + inset fill per selected drawable, gated on
+        // TheGlobalData->m_showObjectHealth (`:3834`).
+        use crate::game_logic::{KindOf, ThingTemplate};
+        game_engine::common::ini::ini_game_data::init_global_data();
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("SelHpUnit");
+        t.set_health(80.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("SelHpUnit".into(), t);
+        let id = logic
+            .create_object("SelHpUnit", Team::USA, Vec3::new(12.0, 4.0, -7.0))
+            .expect("unit");
+        if let Some(o) = logic.host_object_mut(id) {
+            o.selected = true;
+            o.status.selected = true;
+            o.selection_radius = 6.0;
+            o.health.current = 60.0;
+            o.health.maximum = 80.0;
+        }
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+
+        let view = Mat4::look_at_rh(
+            Vec3::new(12.0, 30.0, 40.0),
+            Vec3::new(12.0, 4.0, -7.0),
+            Vec3::Y,
+        );
+        let proj = Mat4::perspective_rh(1.0, 640.0 / 384.0, 1.0, 800.0);
+
+        // Gate closed (C++ GlobalData.cpp:795 default): no bars.
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().show_object_health = false;
+        }
+        assert!(pack_health_bar_quads(&snap, &view, &proj, (640.0, 384.0), (640.0, 480.0)).is_empty());
+
+        // Gate open: outline (4 quads) + fill (1 quad) = 5 quads of 6 verts
+        // x 6 floats = 180 floats.
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().show_object_health = true;
+        }
+        let verts = pack_health_bar_quads(&snap, &view, &proj, (640.0, 384.0), (640.0, 480.0));
+        assert_eq!(
+            verts.len(),
+            180,
+            "outline 4 + fill 1 quads, 6 verts x 6 floats each"
+        );
+
+        // ratio 0.75 → red = 1−((0.75−0.5)/0.5) = 0.5, green = 1; the
+        // not-DAMAGED modulation (`Drawable.cpp:3908-3912`) halves red and
+        // averages green → fill (0.25, 1.0, 0).
+        let fill = &verts[verts.len() - 36..];
+        assert!((fill[2] - 0.25).abs() < 0.01, "fill red {}", fill[2]);
+        assert!((fill[3] - 1.0).abs() < 0.01, "fill green {}", fill[3]);
+        assert!(fill[4].abs() < 0.01, "health bars carry no blue");
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().show_object_health = false;
+        }
     }
 }
 

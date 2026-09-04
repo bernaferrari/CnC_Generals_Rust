@@ -169,7 +169,10 @@ impl UpdateModuleInterface for HijackerUpdate {
                     let target_level = target_guard.get_veterancy_level();
                     self.was_target_airborne = target_guard.is_significantly_above_terrain();
                     self.eject_pos = target_pos;
-
+                    // Release the target read guard before any write phase below:
+                    // the veterancy merge takes `target_arc.write()`, and re-entrant
+                    // locking on the same RwLock would deadlock.
+                    drop(target_guard);
                     if let Some(hijacker_arc) = (if self.object_id == crate::common::INVALID_ID {
                         None
                     } else {
@@ -183,20 +186,35 @@ impl UpdateModuleInterface for HijackerUpdate {
                             let _ = hijacker_guard.set_position(&target_pos);
                             drop(hijacker_guard);
 
-                            if let (Some(target_tracker), Some(hijacker_tracker)) =
+                            if let (Some(_target_tracker), Some(_hijacker_tracker)) =
                                 (target_tracker, hijacker_tracker)
                             {
                                 let highest_level = target_level.max(hijacker_level);
-                                if Arc::ptr_eq(&target_tracker, &hijacker_tracker) {
-                                    if let Ok(mut tracker_guard) = target_tracker.lock() {
-                                        let _ = tracker_guard.set_veterancy_level(highest_level);
+                                // C++ HijackerUpdate.cpp:74-77 sets BOTH trackers to the
+                                // highest level via `setVeterancyLevel(highestLevel)`
+                                // (ExperienceTracker.h:30 default `provideFeedback = TRUE`),
+                                // and the C++ tracker fires Object::onVeterancyLevelChanged
+                                // itself (ExperienceTracker.cpp:82-95) — weapon-set swap,
+                                // body notify, promotion anim + sound included.
+                                if Arc::ptr_eq(&target_arc, &hijacker_arc) {
+                                    if let Ok(mut target_guard) = target_arc.write() {
+                                        target_guard.set_veterancy_level_with_side_effects(
+                                            highest_level,
+                                            true,
+                                        );
                                     }
                                 } else {
-                                    if let Ok(mut tracker_guard) = hijacker_tracker.lock() {
-                                        let _ = tracker_guard.set_veterancy_level(highest_level);
+                                    if let Ok(mut hijacker_guard) = hijacker_arc.write() {
+                                        hijacker_guard.set_veterancy_level_with_side_effects(
+                                            highest_level,
+                                            true,
+                                        );
                                     }
-                                    if let Ok(mut tracker_guard) = target_tracker.lock() {
-                                        let _ = tracker_guard.set_veterancy_level(highest_level);
+                                    if let Ok(mut target_guard) = target_arc.write() {
+                                        target_guard.set_veterancy_level_with_side_effects(
+                                            highest_level,
+                                            true,
+                                        );
                                     }
                                 }
                             }
@@ -332,6 +350,7 @@ mod tests {
     use crate::experience::ExperienceTracker;
     use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::Mutex;
+    use crate::weapon::WeaponSetType;
 
     fn module_data() -> Arc<dyn ModuleData> {
         Arc::new(HijackerUpdateModuleData::default())
@@ -406,6 +425,42 @@ mod tests {
 
         OBJECT_REGISTRY.unregister_object(9304);
         OBJECT_REGISTRY.unregister_object(9305);
+    }
+
+    #[test]
+    fn hijacker_merge_fires_cpp_on_veterancy_level_changed_side_effects() {
+        // C++ HijackerUpdate.cpp:74-77 setVeterancyLevel(highestLevel) fires
+        // Object::onVeterancyLevelChanged from inside the tracker
+        // (ExperienceTracker.cpp:82-95) — the Elite weapon-set flag must land
+        // on BOTH hijacker and vehicle, not just the tracker level.
+        let hijacker = Arc::new(RwLock::new(GameObject::new_test(9309, 100.0)));
+        let target = Arc::new(RwLock::new(GameObject::new_test(9310, 100.0)));
+        let hijacker_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9309)));
+        let target_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9310)));
+        target_tracker
+            .lock()
+            .unwrap()
+            .set_veterancy_level(VeterancyLevel::Elite);
+        hijacker.write().unwrap().experience_tracker = Some(Arc::clone(&hijacker_tracker));
+        target.write().unwrap().experience_tracker = Some(Arc::clone(&target_tracker));
+        OBJECT_REGISTRY.register_object(9309, &hijacker);
+        OBJECT_REGISTRY.register_object(9310, &target);
+
+        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        update.configure_hijacked_vehicle(9310);
+        assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+
+        assert!(
+            hijacker.read().unwrap().test_weapon_set_flag(WeaponSetType::Elite),
+            "hijacker weapon set must follow the merged Elite level"
+        );
+        assert!(
+            target.read().unwrap().test_weapon_set_flag(WeaponSetType::Elite),
+            "vehicle weapon set must follow the merged Elite level"
+        );
+
+        OBJECT_REGISTRY.unregister_object(9309);
+        OBJECT_REGISTRY.unregister_object(9310);
     }
 
     #[test]

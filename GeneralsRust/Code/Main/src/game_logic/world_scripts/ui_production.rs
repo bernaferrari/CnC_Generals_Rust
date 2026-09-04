@@ -632,6 +632,23 @@ impl GameLogic {
             && !is_legal_build_distance_from_map_edge(edge_dist);
         let (_, extra_bib) = leftover_factory_exit_widths(template_name);
         let place_r = self.structure_place_radius_for_template(template_name) + extra_bib.max(0.0);
+        // C++ BuildAssistant::isLocationClearOfObjects queries
+        // iteratePotentialCollisions with the template geometry at the
+        // placement angle (BuildAssistant.cpp:648-651), so the overlap test
+        // below uses the authored footprint shape, not a center-distance sum.
+        let (query_major, query_minor, query_is_box) = self.structure_place_footprint(template_name);
+        let query_shape = PlacementShape {
+            x: position.x,
+            z: position.z,
+            angle: leftover_placement_view_angle(template_name),
+            geom_type: if query_is_box {
+                crate::game_logic::HostGeometryType::Box
+            } else {
+                crate::game_logic::HostGeometryType::Cylinder
+            },
+            major: query_major,
+            minor: query_minor,
+        };
         let builder = builder_id.and_then(|id| self.objects.get(&id));
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
         let mut blocker_ids: Vec<ObjectId> = Vec::new();
@@ -643,6 +660,20 @@ impl GameLogic {
                 continue;
             }
             if obj.is_kind_of(KindOf::Mine) {
+                continue;
+            }
+            // C++ BuildAssistant.cpp:685-692 isRemovableForConstruction:
+            // SHRUBBERY (retail trees/bushes author `KindOf = SHRUBBERY
+            // IMMOBILE …`, NatureProp.ini) and CLEARED_BY_BUILD objects are
+            // bulldozed at construction — they never block placement even
+            // though they carry IMMOBILE. (Effectively-dead objects were
+            // already skipped by the is_alive gate above.)
+            if obj.is_kind_of(KindOf::Shrubbery) || obj.is_kind_of(KindOf::ClearedByBuild) {
+                continue;
+            }
+            // C++ BuildAssistant.cpp:689-691: inert things (radiation
+            // fields, pings, projectile streams) never block either.
+            if obj.is_kind_of(KindOf::Inert) {
                 continue;
             }
             let p = obj.get_position();
@@ -688,13 +719,50 @@ impl GameLogic {
                     continue;
                 }
             }
-            let blocks = obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Immobile)
+            // C++ BuildAssistant.cpp:704-742 isLocationClearOfObjects rejects
+            // exactly KINDOF_IMMOBILE (any relationship — they cannot move out
+            // of the way), isDisabled() objects, and ENEMIES. Mobile
+            // allied/neutral objects (dozer standing on the pad, neutral
+            // crews) are NOT hard blockers here: BuildAssistant
+            // moveObjectsForConstruction shoves them at place time. The old
+            // `is_kind_of(Structure)` class ringed every real-map base with
+            // immovable-looking neutral tech/civilian structures and failed
+            // every pad with LBC_OBJECTS_IN_THE_WAY (construct_fail_no_building).
+            let blocks = obj.is_kind_of(KindOf::Immobile)
                 || obj.is_disabled()
                 || rel == gamelogic::common::Relationship::Enemies;
             if blocks {
-                blockers.push((p.x, p.z, r));
-                blocker_ids.push(obj.id);
+                // C++ PartitionFilterWouldCollide::allow
+                // (PartitionManager.cpp:5149-5172): an object only blocks when
+                // its shape actually overlaps the template geometry at the
+                // placement angle (xy_collideTest_Circle_Circle / Rect_Rect /
+                // Rect_Circle), not on a center-distance radius sum. Objects
+                // without authored geometry keep the port's radius residual
+                // as a circle shape.
+                let obj_shape = if obj.thing.template.geometry_info.authored {
+                    let geometry = &obj.thing.template.geometry_info;
+                    PlacementShape {
+                        x: p.x,
+                        z: p.z,
+                        angle: obj.get_orientation(),
+                        geom_type: geometry.geom_type,
+                        major: geometry.major_radius.max(1.0),
+                        minor: geometry.minor_radius.max(1.0),
+                    }
+                } else {
+                    PlacementShape {
+                        x: p.x,
+                        z: p.z,
+                        angle: obj.get_orientation(),
+                        geom_type: crate::game_logic::HostGeometryType::Cylinder,
+                        major: r,
+                        minor: r,
+                    }
+                };
+                if xy_shapes_collide(&query_shape, &obj_shape) {
+                    blockers.push((p.x, p.z, r));
+                    blocker_ids.push(obj.id);
+                }
             }
             // C++ BuildAssistant.cpp:759-870 factory exit-width bibs.
             if let Some((ex, ez, er)) =
@@ -2269,6 +2337,112 @@ fn object_matches_prereq_template(obj: &Object, required: &str) -> bool {
         return false;
     };
     owned.is_equivalent_to(wanted.as_ref())
+}
+
+/// One 2-D placement shape for the C++ collision-test math
+/// (`PartitionFilterWouldCollide::allow`, PartitionManager.cpp:5149-5172).
+struct PlacementShape {
+    x: f32,
+    z: f32,
+    angle: f32,
+    geom_type: crate::game_logic::HostGeometryType,
+    major: f32,
+    minor: f32,
+}
+
+impl PlacementShape {
+    /// C++ `GeometryInfo::getBoundingSphereRadius` coarse bound: the
+    /// partition iteration only visits shapes whose bounding circles can
+    /// touch; the exact per-shape test decides below.
+    fn bounding_radius(&self) -> f32 {
+        if self.geom_type == crate::game_logic::HostGeometryType::Box {
+            (self.major * self.major + self.minor * self.minor).sqrt()
+        } else {
+            self.major
+        }
+    }
+
+    /// C++ `rectToFourPoints` (PartitionManager.cpp:787-810): the four
+    /// corners of the oriented box (y-axis of the C++ code is the port z).
+    fn to_four_points(&self) -> [(f32, f32); 4] {
+        let c = self.angle.cos();
+        let s = self.angle.sin();
+        let exc = self.major * c;
+        let eyc = self.minor * c;
+        let exs = self.major * s;
+        let eys = self.minor * s;
+        [
+            (self.x - exc - eys, self.z + eyc - exs),
+            (self.x + exc - eys, self.z + eyc + exs),
+            (self.x - exc + eys, self.z - eyc - exs),
+            (self.x + exc + eys, self.z - eyc + exs),
+        ]
+    }
+
+    /// C++ `testRotatedPointsAgainstRect` point core (PartitionManager.cpp
+    /// :741-769): inverse-rotate the point into the box frame and compare
+    /// against (major, minor); spheres use major for both extents.
+    fn contains_rotated_point(&self, x: f32, z: f32) -> bool {
+        let minor = if self.geom_type == crate::game_logic::HostGeometryType::Sphere {
+            self.major
+        } else {
+            self.minor
+        };
+        let c = (-self.angle).cos();
+        let s = (-self.angle).sin();
+        let px = x - self.x;
+        let pz = z - self.z;
+        let nx = (px * c - pz * s).abs();
+        let nz = (px * s + pz * c).abs();
+        nx <= self.major && nz <= minor
+    }
+}
+
+/// C++ `xy_collideTest_Rect_Rect` (PartitionManager.cpp:930-955): rotated
+/// boxes collide when any corner of one lies inside the other.
+fn xy_rect_rect_collide(a: &PlacementShape, b: &PlacementShape) -> bool {
+    a.to_four_points()
+        .iter()
+        .any(|&(x, z)| b.contains_rotated_point(x, z))
+        || b
+            .to_four_points()
+            .iter()
+            .any(|&(x, z)| a.contains_rotated_point(x, z))
+}
+
+/// C++ `xy_collideTest_Circle_Rect` (PartitionManager.cpp:817-824) squares
+/// the round shape (minor := major) and falls through to the rect test.
+fn circle_as_square(shape: &PlacementShape) -> PlacementShape {
+    PlacementShape {
+        x: shape.x,
+        z: shape.z,
+        angle: shape.angle,
+        geom_type: crate::game_logic::HostGeometryType::Box,
+        major: shape.major,
+        minor: shape.major,
+    }
+}
+
+/// C++ shape-pair dispatch (`theCollideTestProcs`, PartitionManager.cpp:928
+/// ff): circle-circle uses the major radii; any round-vs-box squares the
+/// round shape; box-vs-box is the corner test. The z gate in
+/// `PartitionFilterWouldCollide::allow` passes for shapes resting on the
+/// same terrain, which is the only case structure placement sees.
+fn xy_shapes_collide(a: &PlacementShape, b: &PlacementShape) -> bool {
+    let dx = b.x - a.x;
+    let dz = b.z - a.z;
+    let bound = a.bounding_radius() + b.bounding_radius();
+    if dx * dx + dz * dz > bound * bound {
+        return false;
+    }
+    match (a.geom_type, b.geom_type) {
+        (crate::game_logic::HostGeometryType::Box, crate::game_logic::HostGeometryType::Box) => {
+            xy_rect_rect_collide(a, b)
+        }
+        (crate::game_logic::HostGeometryType::Box, _) => xy_rect_rect_collide(a, &circle_as_square(b)),
+        (_, crate::game_logic::HostGeometryType::Box) => xy_rect_rect_collide(&circle_as_square(a), b),
+        _ => dx * dx + dz * dz <= (a.major + b.major) * (a.major + b.major),
+    }
 }
 
 fn leftover_structure_place_footprint(name: &str) -> Option<(f32, f32, bool)> {

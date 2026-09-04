@@ -26,9 +26,6 @@ pub(super) const FALLBACK_MENU_FILL: u32 = 0xCC2A2218;
 pub(super) const FALLBACK_HUD_FILL: u32 = 0xE01A1E24;
 pub(super) const FALLBACK_BUTTON_FILL: u32 = 0xFF4A5A3A;
 pub(super) const FALLBACK_METAL_FILL: u32 = 0xFF5A646E;
-pub(super) const FALLBACK_POWER_GREEN: u32 = 0xD92E7D32;
-pub(super) const FALLBACK_POWER_YELLOW: u32 = 0xD9C9A227;
-pub(super) const FALLBACK_POWER_RED: u32 = 0xD9B71C1C;
 pub(super) const FALLBACK_LABEL: u32 = 0xFFE8EEF4;
 pub(super) const FALLBACK_PULSE: u32 = 0x66D4B06A;
 
@@ -198,7 +195,9 @@ pub(super) fn draw_window_image_or_fallback(
 
 /// Draw callback for control bar scheme images.
 /// Resolves image name via the window manager and draws the image.
-/// Missing art → honest filled rect so HUD chrome is never blank.
+/// C++ ControlBarScheme::drawBackground skips scheme images with no image
+/// (ControlBarScheme.cpp:794-799 "if we don't have an image, don't try to
+/// draw it") — an unregistered scheme image draws nothing, never a fill.
 pub(super) fn scheme_draw_image(
     image_name: &str,
     start_x: i32,
@@ -206,8 +205,6 @@ pub(super) fn scheme_draw_image(
     end_x: i32,
     end_y: i32,
 ) {
-    let width = end_x - start_x;
-    let height = end_y - start_y;
     let found = with_window_manager_ref(|manager| {
         if let Some(image) = manager.win_find_image(image_name) {
             manager.win_draw_image(&image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
@@ -218,15 +215,6 @@ pub(super) fn scheme_draw_image(
     });
     if found {
         note_shipped_ui_draw_commands(1);
-    } else {
-        draw_visible_fill(
-            start_x,
-            start_y,
-            width,
-            height,
-            FALLBACK_HUD_FILL,
-            Some(FALLBACK_BORDER),
-        );
     }
 }
 
@@ -406,25 +394,32 @@ pub(super) fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceDa
         display.set_text(text.clone());
         display.draw(text_x, text_y, text_color, border_color);
     } else {
-        let _ = with_ui_renderer_mut(|renderer| {
-            let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
-            if let Err(err) = renderer.draw_text_simple(
-                &text,
-                glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
-                font_size,
-                crate::gui::game_window::color_to_rgba(border_color),
-            ) {
-                log::warn!("W3DGadgetDraw text shadow render failed: {err}");
-            }
-            if let Err(err) = renderer.draw_text_simple(
-                &text,
-                glam::Vec2::new(text_x as f32, text_y as f32),
-                font_size,
-                crate::gui::game_window::color_to_rgba(text_color),
-            ) {
-                log::warn!("W3DGadgetDraw text render failed: {err}");
-            }
-        });
+    let _ = with_ui_renderer_mut(|renderer| {
+        let (point_size, font_name, bold) = match inst_data.font.as_ref() {
+            Some(font) => (font.size as f32, font.name.as_str(), font.bold),
+            None => (12.0, "Arial", false),
+        };
+        if let Err(err) = renderer.draw_text_simple_named(
+            &text,
+            glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
+            point_size,
+            crate::gui::game_window::color_to_rgba(border_color),
+            font_name,
+            bold,
+        ) {
+            log::warn!("W3DGadgetDraw text shadow render failed: {err}");
+        }
+        if let Err(err) = renderer.draw_text_simple_named(
+            &text,
+            glam::Vec2::new(text_x as f32, text_y as f32),
+            point_size,
+            crate::gui::game_window::color_to_rgba(text_color),
+            font_name,
+            bold,
+        ) {
+            log::warn!("W3DGadgetDraw text render failed: {err}");
+        }
+    });
     }
     note_shipped_ui_draw_commands(1);
 }
@@ -478,22 +473,29 @@ pub(super) fn draw_main_menu_button_drop_shadow_text(
     }
 
     let _ = with_ui_renderer_mut(|renderer| {
-        let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
-        let text_width = (text.chars().count() as f32 * font_size * 0.6).round() as i32;
-        let text_height = font_size.round() as i32;
+        let (point_size, font_name, bold) = match inst_data.font.as_ref() {
+            Some(font) => (font.size as f32, font.name.as_str(), font.bold),
+            None => (12.0, "Arial", false),
+        };
+        let text_width = (text.chars().count() as f32 * point_size * 0.6).round() as i32;
+        let text_height = point_size.round() as i32;
         let text_x = origin_x + (width / 2) - (text_width / 2);
         let text_y = origin_y + (height / 2) - (text_height / 2);
-        let _ = renderer.draw_text_simple(
+        let _ = renderer.draw_text_simple_named(
             &text,
             glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
-            font_size,
+            point_size,
             crate::gui::game_window::color_to_rgba(drop_color),
+            font_name,
+            bold,
         );
-        let _ = renderer.draw_text_simple(
+        let _ = renderer.draw_text_simple_named(
             &text,
             glam::Vec2::new(text_x as f32, text_y as f32),
-            font_size,
+            point_size,
             crate::gui::game_window::color_to_rgba(text_color),
+            font_name,
+            bold,
         );
     });
 }

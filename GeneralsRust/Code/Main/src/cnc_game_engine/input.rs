@@ -670,6 +670,7 @@ impl CnCGameEngine {
     /// Returns `None` when the gadget is missing, hidden, disabled, zero-sized,
     /// or `get_window_under_cursor` does not hit the named window (or a
     /// descendant). Geometry-only residual is **not** enough.
+
     #[cfg(feature = "game_client")]
     pub(super) fn named_gadget_center_if_hittable(&self, name: &str) -> Option<(i32, i32)> {
         use game_client::gui::window_manager::with_window_manager_ref;
@@ -677,27 +678,26 @@ impl CnCGameEngine {
 
         with_window_manager_ref(|manager| {
             let window = manager.find_window_by_name(name)?;
-            let (sx, sy, w, h) = {
+            let (hidden, enabled, sx, sy, w, h) = {
                 let guard = window.try_borrow().ok()?;
-                if guard.is_hidden() || !guard.is_enabled() {
-                    return None;
-                }
                 let (sx, sy) = guard.get_screen_position();
                 let (w, h) = guard.get_size();
-                if w <= 0 || h <= 0 {
-                    return None;
-                }
-                (sx, sy, w, h)
+                (guard.is_hidden(), guard.is_enabled(), sx, sy, w, h)
             };
+            let sized = w > 0 && h > 0;
             let x = sx + w / 2;
             let y = sy + h / 2;
-            let hit = manager.get_window_under_cursor(x, y, false)?;
+            let geometric_gate = !hidden && enabled && sized;
+            if !geometric_gate {
+                return None;
+            }
+            let hit = manager.get_window_under_cursor(x, y, false);
             // Named gadget or a descendant under its own center (C++ hit residual).
-            let is_named_or_desc = {
-                if Rc::ptr_eq(&window, &hit) {
+            let is_named_or_desc = hit.as_ref().is_some_and(|hit| {
+                if Rc::ptr_eq(&window, hit) {
                     true
                 } else {
-                    let mut current = hit.try_borrow().ok()?.get_parent();
+                    let mut current = hit.try_borrow().ok().and_then(|g| g.get_parent());
                     let mut found = false;
                     while let Some(parent) = current {
                         if Rc::ptr_eq(&parent, &window) {
@@ -708,8 +708,8 @@ impl CnCGameEngine {
                     }
                     found
                 }
-            };
-            if !is_named_or_desc {
+            });
+            if !geometric_gate || !is_named_or_desc {
                 return None;
             }
             Some((x, y))
@@ -1715,6 +1715,7 @@ impl CnCGameEngine {
                 ground_markers,
                 self.show_move_lines,
                 self.show_attack_lines,
+                (size.width as f32, size.height as f32),
             );
             #[cfg(feature = "game_client")]
             {
@@ -1888,11 +1889,16 @@ impl CnCGameEngine {
                 );
             }
             if let Some(pres) = self.last_presentation_frame.as_ref() {
-                game_client::display::status_circle::queue_live_camera_fade(
-                    pres.camera_fade.fade,
-                    pres.camera_fade.intensity,
-                    pres.camera_fade.diffuse,
-                );
+                // C++ W3DStatusCircle.cpp:284-287 renders the fade only for a
+                // live (non-GAME_SHELL) game; never queue it for the shell menu
+                // or it blacks out the shell-map world behind the main menu.
+                if !pres.fow_shell_bypass {
+                    game_client::display::status_circle::queue_live_camera_fade(
+                        pres.camera_fade.fade,
+                        pres.camera_fade.intensity,
+                        pres.camera_fade.diffuse,
+                    );
+                }
             }
             if let Some((text, font, _frames)) = self.game_client.cinematic_overlay() {
                 let font_size = Self::cinematic_font_size(font);

@@ -9,6 +9,14 @@ impl TerrainVisualImpl {
     ) -> TerrainResult<()> {
         self.device = Some(Arc::clone(&device));
         self.queue = Some(Arc::clone(&queue));
+        // Skybox face textures (incl. the synthetic horizon gradient) and
+        // their bind group belong to the previous device after a re-init;
+        // drop them so the next refresh rebuilds against this device instead
+        // of binding stale textures (wgpu cross-device bind is invalid).
+        self.skybox_textures = [None, None, None, None, None];
+        self.skybox_background_bind_group = None;
+        self.skybox_background_view = None;
+        self.last_skybox_face_bind = None;
 
         // Create terrain render pipeline
         self.create_terrain_pipeline(device.as_ref())?;
@@ -913,6 +921,13 @@ impl TerrainVisualImpl {
     }
 
     fn record_skybox_background_draw<'pass>(&self, pass: &mut RenderPass<'pass>) {
+        // C++ WaterRenderObjClass::draw (W3DWater.cpp:1702-1708) renders the
+        // skybox only while TheGlobalData->m_drawSkyBox stands (GameData.ini
+        // `DrawSkyBox`; script DRAW_SKYBOX_BEGIN/END -> doSkyBoxSet,
+        // W3DWater.cpp:150-154).
+        if !game_engine::common::global_data::read().draw_sky_box {
+            return;
+        }
         let (Some(pipeline), Some(bind_group)) = (
             self.skybox_background_pipeline.as_ref(),
             self.skybox_background_bind_group.as_ref(),

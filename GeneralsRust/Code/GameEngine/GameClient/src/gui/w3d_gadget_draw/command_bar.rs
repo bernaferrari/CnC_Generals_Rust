@@ -25,117 +25,81 @@ pub fn ensure_control_bar_wnd_draw_callbacks() {
     });
 }
 
-/// C++ BackgroundMarker is 5×5; HUD chrome lives on ControlBarParent (~183px).
-pub(super) fn control_bar_hud_strip_rect(window: &GameWindow) -> (i32, i32, i32, i32) {
-    let (x, y) = window.get_screen_position();
-    let (width, height) = window.get_size();
-    if width >= 64 && height >= 32 {
-        return (x, y, width, height);
-    }
 
-    let parent = with_window_manager_ref(|wm| {
-        wm.find_window_by_name("ControlBar.wnd:ControlBarParent")
-            .map(|win| {
-                let win = win.borrow();
-                let (px, py) = win.get_screen_position();
-                let (pw, ph) = win.get_size();
-                (px, py, pw, ph)
-            })
-    });
-    if let Some((px, py, pw, ph)) = parent {
-        if pw >= 64 && ph >= 32 {
-            return (px, py, pw, ph);
-        }
-    }
-
-    let screen_h = ui_screen_height().max(600);
-    let screen_w = with_ui_renderer_mut(|renderer| renderer.screen_size().0 as i32).unwrap_or(800);
-    let strip_h = ((screen_h as f32) * 0.23).round() as i32;
-    (0, screen_h - strip_h, screen_w.max(800), strip_h.max(96))
+/// Feed the draw-time marker position into the scheme manager's stability
+/// latch (C++ ControlBar.cpp:1222-1225 captures the marker base at init;
+/// the port latches on the first stable observation window instead).
+fn capture_marker_base_once(
+    manager: &mut game_engine::common::ini::ControlBarSchemeManager,
+    pos_x: i32,
+    pos_y: i32,
+) {
+    manager.note_marker_observation(pos_x, pos_y);
 }
 
-pub(super) fn draw_control_bar_hud_fallback(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let (x, y, width, height) = control_bar_hud_strip_rect(window);
-    let color = visible_enabled_color(window, inst_data, FALLBACK_HUD_FILL);
-    draw_visible_fill(x, y, width, height, color, Some(FALLBACK_BORDER));
-    draw_visible_label(x, y, "HUD", FALLBACK_LABEL);
+pub fn w3d_command_bar_background_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+    ensure_scheme_draw_registered();
+
+    let Some(manager_handle) = get_control_bar_scheme_manager() else {
+        return;
+    };
+
+    // C++ W3DControlBar.cpp:612-633: the callback IS assigned on
+    // ControlBar.wnd:BackgroundMarker, so read the marker screen position
+    // from the callback window itself (the by-name re-lookup C++ performs is
+    // a same-window idiom; in the port's runtime-host draw context the
+    // current WM instance can differ from the wire-time one, where the
+    // by-name lookup misses).
+    let (pos_x, pos_y) = window.get_screen_position();
+    {
+        let mut manager = manager_handle.write();
+        capture_marker_base_once(&mut manager, pos_x, pos_y);
+    }
+
+    let manager = manager_handle.read();
+    let base_pos = manager.get_background_marker_pos();
+    let offset = ICoord2D {
+        x: pos_x - base_pos.x,
+        y: pos_y - base_pos.y,
+    };
+
+    manager.draw_background(offset);
+}
+pub fn w3d_command_bar_foreground_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
+    ensure_scheme_draw_registered();
+
+    // C++ W3DControlBar.cpp:639-641: no scheme manager -> silent return.
+    let Some(manager_handle) = get_control_bar_scheme_manager() else {
+        return;
+    };
+    // C++ captures BOTH marker base positions from the BackgroundMarker
+    // window at init (ControlBar.cpp:1222-1225), so only the background draw
+    // feeds the latch; the foreground just reads its latched base. (This
+    // callback's window is ForegroundMarker, whose position must not reset
+    // the shared observation state.)
+    let (pos_x, pos_y) = window.get_screen_position();
+
+    let manager = manager_handle.read();
+    let base_pos = manager.get_foreground_marker_pos();
+    let offset = ICoord2D {
+        x: pos_x - base_pos.x,
+        y: pos_y - base_pos.y,
+    };
+    manager.draw_foreground(offset);
 }
 
 pub fn w3d_command_bar_top_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
     // C++ callback is effectively no-op in W3DControlBar.cpp.
 }
 
-pub fn w3d_command_bar_background_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    ensure_scheme_draw_registered();
-
-    let manager_handle = get_control_bar_scheme_manager();
-    let Some(manager_handle) = manager_handle else {
-        draw_control_bar_hud_fallback(window, inst_data);
-        return;
-    };
-
-    let manager = manager_handle.read();
-
-    let base_pos = manager.get_background_marker_pos();
-    let win_name = "ControlBar.wnd:BackgroundMarker";
-    let marker_window = with_window_manager_ref(|wm| wm.find_window_by_name(win_name));
-    let Some(marker_window) = marker_window else {
-        draw_control_bar_hud_fallback(window, inst_data);
-        return;
-    };
-
-    let (pos_x, pos_y) = marker_window.borrow().get_screen_position();
-    let offset = ICoord2D {
-        x: pos_x - base_pos.x,
-        y: pos_y - base_pos.y,
-    };
-
-    let before = shipped_ui_draw_command_count();
-    manager.draw_background(offset);
-    if shipped_ui_draw_command_count() == before {
-        draw_control_bar_hud_fallback(window, inst_data);
-    }
-}
-
-pub fn w3d_command_bar_foreground_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    ensure_scheme_draw_registered();
-
-    let manager_handle = get_control_bar_scheme_manager();
-    let Some(manager_handle) = manager_handle else {
-        draw_control_bar_hud_fallback(window, inst_data);
-        return;
-    };
-
-    let manager = manager_handle.read();
-
-    let base_pos = manager.get_foreground_marker_pos();
-    let win_name = "ControlBar.wnd:BackgroundMarker";
-    let marker_window = with_window_manager_ref(|wm| wm.find_window_by_name(win_name));
-    let Some(marker_window) = marker_window else {
-        draw_control_bar_hud_fallback(window, inst_data);
-        return;
-    };
-
-    let (pos_x, pos_y) = marker_window.borrow().get_screen_position();
-    let offset = ICoord2D {
-        x: pos_x - base_pos.x,
-        y: pos_y - base_pos.y,
-    };
-
-    let before = shipped_ui_draw_command_count();
-    manager.draw_foreground(offset);
-    if shipped_ui_draw_command_count() == before {
-        draw_control_bar_hud_fallback(window, inst_data);
-    }
-}
-
 pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    // C++ W3DCommandBarGridDraw (W3DControlBar.cpp:442-466): image windows use
+    // the default draw; otherwise the border color grids the command table.
     if window.get_status().contains(WindowStatus::IMAGE) {
         crate::gui::game_window::default_draw_callback(window, inst_data);
         return;
     }
 
-    crate::gui::game_window::default_draw_callback(window, inst_data);
     let (x, y) = window.get_screen_position();
     let (width, height) = window.get_size();
     let color = window
@@ -183,30 +147,26 @@ pub fn w3d_command_bar_grid_draw(window: &GameWindow, inst_data: &WindowInstance
 
 pub fn w3d_command_bar_gen_exp_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let _ = inst_data;
+    // C++ W3DCommandBarGenExpDraw (W3DControlBar.cpp:468-495): every early-out
+    // returns without painting — no fallback meter track.
     let Ok(list) = ThePlayerList().read() else {
-        draw_vertical_meter_fallback(window, 0);
         return;
     };
     let Some(player_arc) = list.get_local_player().cloned() else {
-        draw_vertical_meter_fallback(window, 0);
         return;
     };
     let Ok(player) = player_arc.read() else {
-        draw_vertical_meter_fallback(window, 0);
         return;
     };
     if !player.is_player_active() {
-        draw_vertical_meter_fallback(window, 0);
         return;
     }
     let Some(rank_progress) = RankProgressInfo::from_player(&player) else {
-        draw_vertical_meter_fallback(window, 0);
         return;
     };
     let mut progress = (rank_progress.progress_percentage * 100.0).round() as i32;
     progress = progress.clamp(0, 100);
     if progress <= 0 {
-        draw_vertical_meter_fallback(window, 0);
         return;
     }
 

@@ -429,18 +429,15 @@ impl Gadget for EnhancedPushButton {
         if !self.text.is_empty() {
             let text_layout = TextLayout {
                 text: self.text.clone(),
-                font_size: 14.0,
+                font_size: super::font::font_pixel_size(14) as f32,
                 color: self.text_color,
                 bounds: scaled_bounds,
                 alignment: TextAlignment::Center,
-                vertical_alignment: VerticalAlignment::Middle,
                 word_wrap: false,
                 single_line: true,
             };
-            
-            renderer.draw_text(&text_layout, 0.2)?;
+            renderer.draw_text_with_font(&text_layout, "Arial", false, 0.2)?;
         }
-        
         Ok(())
     }
     
@@ -804,18 +801,15 @@ impl Gadget for EnhancedTextEntry {
         
         let text_layout = TextLayout {
             text: display_text.to_string(),
-            font_size: 14.0,
+            font_size: super::font::font_pixel_size(14) as f32,
             color: text_color,
             bounds: text_bounds,
             alignment: TextAlignment::Left,
-            vertical_alignment: VerticalAlignment::Middle,
             word_wrap: false,
             single_line: true,
         };
-        
-        renderer.draw_text(&text_layout, 0.2)?;
-        
-        // Render selection
+        renderer.draw_text_with_font(&text_layout, "Arial", false, 0.2)?;
+
         if self.has_selection() {
             // Would render selection highlight here
         }

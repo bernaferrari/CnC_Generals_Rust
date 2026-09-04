@@ -844,7 +844,7 @@ impl TerrainVisualImpl {
     }
 
     fn load_skybox_replacement_textures(
-        &self,
+        &mut self,
         replacements: &[(usize, String)],
     ) -> Vec<(usize, Texture)> {
         let Some(device) = self.device.as_ref().cloned() else {
@@ -853,6 +853,18 @@ impl TerrainVisualImpl {
 
         let mut loaded = Vec::new();
         for (i, texture_path) in replacements {
+            // C++ WW3D swaps an unavailable texture file for the shared
+            // missing-texture placeholder and caches that per name for the
+            // whole process (dx8wrapper.cpp:2870-2878,
+            // MissingTexture::_Get_Missing_Texture missingtexture.h:19) —
+            // later frames and later map loads reuse it instead of reopening
+            // the file. TSMorning{N,E,S,W,T}.tga (plus .dds twins) are
+            // genuinely absent from the mounted ZH archives, so each face is
+            // attempted once per process, then the synthetic horizon
+            // gradient stays bound. Empty names never reach the loader.
+            if texture_path.is_empty() || skybox_texture_known_missing(texture_path) {
+                continue;
+            }
             match self.load_texture_from_path(device.as_ref(), texture_path) {
                 Ok(texture) => {
                     info!(
@@ -862,8 +874,9 @@ impl TerrainVisualImpl {
                     loaded.push((*i, texture));
                 }
                 Err(err) => {
-                    warn!(
-                        "Skybox face {} '{}' failed to load; keeping remaining faces: {}",
+                    remember_missing_skybox_texture(texture_path);
+                    info!(
+                        "Skybox face {} '{}' not in mounted assets; C++ MissingTexture parity keeps gradient fallback (dx8wrapper.cpp:2870): {}",
                         i, texture_path, err
                     );
                 }
@@ -1066,10 +1079,17 @@ impl TerrainVisualImpl {
         }
         self.install_loaded_skybox_faces(loaded);
     }
-
     fn ensure_skybox_horizon_gradient_texture(&mut self, device: &wgpu::Device) -> bool {
         if (0..5).any(|i| self.is_loaded_skybox_face(i)) {
             return false;
+        }
+        // Already uploaded this session. `rebind_skybox_background_for_camera`
+        // refreshes every frame, so rebuilding the 64x128 texture here would
+        // re-create and re-upload it each frame for the same pixels.
+        if self.skybox_textures[0].is_some()
+            && self.last_skybox_face_bind.as_deref() == Some(HORIZON_GRADIENT_BIND)
+        {
+            return true;
         }
         let Some(queue) = self.queue.as_ref() else {
             return false;
@@ -1363,6 +1383,29 @@ const FOG_FALLBACK_BIND: &str = "fog-fallback";
 
 fn is_synthetic_skybox_bind(name: &str) -> bool {
     name.eq_ignore_ascii_case(HORIZON_GRADIENT_BIND) || name.eq_ignore_ascii_case(FOG_FALLBACK_BIND)
+}
+
+/// Process-wide record of skybox face names whose asset load already failed.
+/// C++ WW3D registers the shared MissingTexture placeholder per texture name
+/// in manager-level tables (dx8wrapper.cpp:2870-2878, missingtexture.h:19),
+/// so a missing file is opened once per process — not once per map load or
+/// per frame (`init_terrain_visual` re-creates the singleton per match, so
+/// this must not live on the instance).
+static MISSING_SKYBOX_TEXTURES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn skybox_texture_known_missing(name: &str) -> bool {
+    MISSING_SKYBOX_TEXTURES
+        .lock()
+        .map(|names| names.iter().any(|n| n.eq_ignore_ascii_case(name)))
+        .unwrap_or(false)
+}
+
+fn remember_missing_skybox_texture(name: &str) {
+    if let Ok(mut names) = MISSING_SKYBOX_TEXTURES.lock() {
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            names.push(name.to_string());
+        }
+    }
 }
 
 fn water_ini_or_default_skybox_names() -> [String; 5] {

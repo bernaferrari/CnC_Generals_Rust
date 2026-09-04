@@ -28,19 +28,26 @@ pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     );
 
     let _ = with_ui_renderer_mut(|renderer| {
-        let font_size = font.as_ref().map(|font| font.desc.size).unwrap_or(16) as f32;
-        let _ = renderer.draw_text_simple_with_scissor(
+        let (point_size, font_name) = match font.as_ref() {
+            Some(font) => (font.desc.size as f32, font.desc.name.as_str()),
+            None => (16.0, "Arial"),
+        };
+        let _ = renderer.draw_text_simple_named_with_scissor(
             &datestr,
             glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
-            font_size,
+            point_size,
             [0.0, 0.0, 0.0, 1.0],
+            font_name,
+            false,
             scissor,
         );
-        let _ = renderer.draw_text_simple_with_scissor(
+        let _ = renderer.draw_text_simple_named_with_scissor(
             &datestr,
             glam::Vec2::new(text_x as f32, text_y as f32),
-            font_size,
+            point_size,
             [1.0, 1.0, 1.0, 1.0],
+            font_name,
+            false,
             scissor,
         );
     });
@@ -437,27 +444,25 @@ pub(super) fn rgba_int_to_rgba(color: RGBAColorInt) -> [f32; 4] {
 }
 
 pub fn w3d_right_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    // C++ W3DRightHUDDraw (GeneralsMD W3DControlBar.cpp:74-81): draw the
+    // default window art only when WIN_STATUS_IMAGE is set, and paint NOTHING
+    // otherwise. The right-HUD frame is scheme background art (ControlBarScheme
+    // RightHUDImage), not a window fill; an imageless RightHUD window
+    // (ControlBar.wnd authors it without the IMAGE status flag) must stay
+    // invisible. The previous fallback slab painted a grey rectangle where
+    // retail paints nothing.
     if window.get_status().contains(WindowStatus::IMAGE) {
         crate::gui::game_window::default_draw_callback(window, inst_data);
     }
-    let (x, y) = window.get_screen_position();
-    let (width, height) = window.get_size();
-    if width > 0 && height > 0 {
-        let has_visible_draw_data = window.get_enabled_draw_data(0).is_some_and(|entry| {
-            entry.image.is_some()
-                || (entry.color != WIN_COLOR_UNDEFINED && color_alpha(entry.color) > 16)
-        });
-        if !has_visible_draw_data || !window.get_status().contains(WindowStatus::IMAGE) {
-            draw_visible_fill(
-                x,
-                y,
-                width,
-                height,
-                visible_enabled_color(window, inst_data, FALLBACK_HUD_FILL),
-                Some(FALLBACK_BORDER),
+    if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
+        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            let (x, y) = window.get_screen_position();
+            let (w, h) = window.get_size();
+            eprintln!(
+                "[RHUDPROBE] w3d_right_hud_draw pos=({x},{y}) size=({w},{h}) image_status={}",
+                window.get_status().contains(WindowStatus::IMAGE),
             );
-        } else {
-            note_shipped_ui_draw_commands(1);
         }
     }
 }

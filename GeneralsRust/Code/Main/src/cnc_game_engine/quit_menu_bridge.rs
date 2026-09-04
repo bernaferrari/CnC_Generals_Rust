@@ -32,7 +32,12 @@ impl CnCGameEngine {
             // C++ actually attempted, but failed to materialise, its WND.
             game_client::gui::callbacks::QuitMenuToggleResult::LayoutUnavailable => false,
             game_client::gui::callbacks::QuitMenuToggleResult::ToggledQuitMenu => {
-                self.quit_menu_host_active = game_client::gui::callbacks::is_quit_menu_visible();
+                // Do NOT re-derive quit_menu_host_active from WND visibility
+                // here: on a host toggle that HIDES the menu it would clear
+                // ownership before host_tick_quit_menu_bridge can resume the
+                // pause this QuitMenu created (same contract as ButtonReturn /
+                // Escape hiding the WND). The tick below adopts on show and
+                // resumes on hide.
                 self.host_tick_quit_menu_bridge();
                 true
             }

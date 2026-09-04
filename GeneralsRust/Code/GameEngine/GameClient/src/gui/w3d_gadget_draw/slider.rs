@@ -28,6 +28,30 @@ pub(super) fn slider_percent(
     0.0
 }
 
+/// C++ gadget draw-data images are pointers into `TheMappedImageCollection`
+/// carrying real dims (`W3DHorizontalSlider.cpp:132`
+/// `fillSquare->getImageWidth() * xMulti`). The WND parser stores name-only
+/// stubs (`window_script.rs parse_draw_data`: `Image { name, width: 0,
+/// height: 0 }`), so every slider image draw must resolve the real size by
+/// name at draw time or every box degenerates to a 1px speck. Guard is
+/// dropped before any draw call (DriveRunner read→write discipline).
+pub(super) fn mapped_image_dims(image: &crate::gui::game_window::Image) -> (i32, i32) {
+    let (width, height) = if image.width > 0 && image.height > 0 {
+        (image.width, image.height)
+    } else {
+        let collection = get_mapped_image_collection();
+        let collection = collection.read();
+        collection
+            .find_image_by_name(&image.name)
+            .map(|mapped| {
+                let size = mapped.get_image_size();
+                (size.x, size.y)
+            })
+            .unwrap_or((0, 0))
+    };
+    (width.max(1), height.max(1))
+}
+
 pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
@@ -153,9 +177,9 @@ pub fn w3d_gadget_horizontal_slider_image_draw(
     let (size_x, size_y) = window.get_size();
     let slider_data = None;
     let selected_percent = slider_percent(window, slider_data);
-
     let x_multi = with_window_manager_ref(|manager| manager.screen_size().0 as f32 / 800.0);
-    let box_width = ((filled.width as f32 * x_multi) as i32).max(1);
+    let (filled_w, _) = mapped_image_dims(filled);
+    let box_width = ((filled_w as f32 * x_multi) as i32).max(1);
     let box_padding = 2;
     let (num_boxes, num_selected, origin_offset) =
         horizontal_slider_box_counts(box_width, size_x, selected_percent);
@@ -263,9 +287,10 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
     let x_offset = inst_data.image_offset.x;
     let y_offset = inst_data.image_offset.y;
 
-    let left_size_x = left_image_left.width;
-    let left_size_y = left_image_left.height;
-    let right_size_x = right_image_left.width;
+    let (left_size_x, left_size_y) = mapped_image_dims(left_image_left);
+    let (right_size_x, _) = mapped_image_dims(right_image_left);
+    let (center_w, _) = mapped_image_dims(center_image_left);
+    let (small_center_w, _) = mapped_image_dims(small_center_image_left);
 
     let left_end_x = origin_x + left_size_x + x_offset;
     let left_end_y = origin_y + size_y + y_offset;
@@ -287,13 +312,13 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
 
     // Draw center pieces
     let center_width = right_start_x - left_end_x;
-    let pieces = center_width / center_image_left.width.max(1);
+    let pieces = center_width / center_w.max(1);
     let mut start_x = left_end_x;
     let start_y = origin_y + size_y - left_size_y + y_offset;
     let end_y = origin_y + size_y + y_offset;
 
     for _ in 0..pieces {
-        let end_x = start_x + center_image_left.width;
+        let end_x = start_x + center_w;
         draw_window_image_clipped(
             center_image_left,
             start_x,
@@ -310,14 +335,14 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
             end_y,
             &clip_right,
         );
-        start_x += center_image_left.width;
+        start_x += center_w;
     }
 
     // Draw small center pieces in the gap
     let center_width = right_start_x - start_x;
-    let pieces = center_width / small_center_image_left.width.max(1) + 1;
+    let pieces = center_width / small_center_w.max(1) + 1;
     for _ in 0..pieces {
-        let end_x = start_x + small_center_image_left.width;
+        let end_x = start_x + small_center_w;
         draw_window_image_clipped(
             small_center_image_left,
             start_x,
@@ -334,7 +359,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
             end_y,
             &clip_right,
         );
-        start_x += small_center_image_left.width;
+        start_x += small_center_w;
     }
 
     // Draw left end
@@ -431,8 +456,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
         let Some(highlight_square) = highlight_square else {
             return;
         };
-        let hw = highlight_square.width.max(1);
-        let hh = highlight_square.height.max(1);
+        let (hw, hh) = mapped_image_dims(highlight_square);
         let mut background_start_x = origin_x - ((hw as f32 * x_multi) / 2.0) as i32;
         let background_start_y = origin_y + ((hh as f32 * y_multi) / 3.0) as i32;
         let background_end_y = background_start_y + (hh as f32 * y_multi) as i32;
@@ -475,9 +499,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
         ));
     }
 
-    // Draw filled squares up to position
-    let fw = fill_square.width.max(1);
-    let fh = fill_square.height.max(1);
+    let (fw, fh) = mapped_image_dims(fill_square);
     let mut start_x = origin_x;
     let start_y = origin_y;
     let end_y = start_y + (fh as f32 * y_multi) as i32;
@@ -504,8 +526,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
         end_x = start_x + (fw as f32 * x_multi) as i32;
     }
 
-    // Draw blank squares for the rest
-    let bw = blank_square.width.max(1);
+    let (bw, _) = mapped_image_dims(blank_square);
     end_x = start_x + (bw as f32 * x_multi) as i32;
 
     while end_x < origin_x + size_x {
@@ -560,10 +581,10 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
     let x_offset = inst_data.image_offset.x;
     let y_offset = inst_data.image_offset.y;
 
-    let top_width = top_image.width;
-    let top_height = top_image.height;
-    let bottom_width = bottom_image.width;
-    let bottom_height = bottom_image.height;
+    let (top_width, top_height) = mapped_image_dims(top_image);
+    let (bottom_width, bottom_height) = mapped_image_dims(bottom_image);
+    let (center_w, center_h) = mapped_image_dims(center_image);
+    let (small_center_w, small_center_h) = mapped_image_dims(small_center_image);
 
     if top_height + bottom_height >= size_y {
         // top and bottom images overlap or fill the whole window
@@ -606,13 +627,13 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
 
         // draw the center repeating bar
         let center_height = bottom_start_y - top_end_y;
-        let pieces = center_height / center_image.height.max(1);
+        let pieces = center_height / center_h;
 
         let start_x = origin_x + x_offset;
         let mut start_y = top_end_y;
-        let end_x = start_x + center_image.width;
+        let end_x = start_x + center_w;
         for _ in 0..pieces {
-            let end_y = start_y + center_image.height;
+            let end_y = start_y + center_h;
             with_window_manager_ref(|manager| {
                 manager.win_draw_image(
                     center_image,
@@ -623,15 +644,15 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                     WIN_COLOR_UNDEFINED,
                 );
             });
-            start_y += center_image.height;
+            start_y += center_h;
         }
 
         // fill remaining gap with small center pieces, overlapping underneath the bottom end
         let center_height = bottom_start_y - start_y;
-        let pieces = center_height / small_center_image.height.max(1) + 1;
-        let end_x = start_x + small_center_image.width;
+        let pieces = center_height / small_center_h + 1;
+        let end_x = start_x + small_center_w;
         for _ in 0..pieces {
-            let end_y = start_y + small_center_image.height;
+            let end_y = start_y + small_center_h;
             with_window_manager_ref(|manager| {
                 manager.win_draw_image(
                     small_center_image,
@@ -642,7 +663,7 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
                     WIN_COLOR_UNDEFINED,
                 );
             });
-            start_y += small_center_image.height;
+            start_y += small_center_h;
         }
 
         // draw top end

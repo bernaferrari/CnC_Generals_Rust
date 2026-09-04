@@ -111,7 +111,11 @@ impl MapCache {
     }
 
     pub fn find_map(&self, map_name: &str) -> Option<MapMetaData> {
-        let map_name = map_name.to_lowercase();
+        // Cache keys are stored normalized (lowercase, forward slashes — the
+        // shipping MapCache.ini decodes to backslash paths, the scan path
+        // inserts forward-slash), so queries must normalize too. C++ Win32
+        // lookups accept both separators case-insensitively.
+        let map_name = normalize_path(map_name);
         get_map_cache()
             .as_ref()
             .and_then(|cache| cache.get(&map_name))
@@ -394,7 +398,7 @@ impl MapCache {
     }
 
     pub fn has_map(&self, map_name: &str) -> bool {
-        let map_name = map_name.to_lowercase();
+        let map_name = normalize_path(map_name);
         get_map_cache()
             .as_ref()
             .is_some_and(|cache| cache.get(&map_name).is_some())
@@ -676,24 +680,30 @@ pub fn is_official_map(map_name: &str) -> bool {
 }
 
 pub fn get_map_preview_image(map_name: &str) -> Option<String> {
-    let map_name = map_name.trim();
+    let map_name = map_name.trim().replace('\\', "/");
     if map_name.is_empty() {
         return None;
     }
 
-    let tga_path = replace_extension(map_name, "tga");
+    // C++ getMapPreviewImage (MapUtil.cpp:1121-1163) queries
+    // `TheFileSystem->doesFileExist(tgaName)` on the map name with the .map
+    // extension swapped for .tga; Win32 accepts '\' and '/' interchangeably.
+    // The POSIX LocalFileSystem treats '\' as a plain filename byte, so the
+    // canonical forward-slash form is required for the search-path walk
+    // (extracted roots register `.../MapsZH`, i.e. `Maps/<Map>/<Map>.tga`).
+    let tga_path = replace_extension(&map_name, "tga");
     if !file_exists(&tga_path) {
         return None;
     }
 
-    let portable_name = sanitize_preview_name(map_name);
+    let portable_name = sanitize_preview_name(&map_name);
     let preview_filename = format!("{}.tga", portable_name);
     let preview_dir = build_map_preview_dir();
     let preview_path = PathBuf::from(&preview_dir).join(&preview_filename);
 
     let preview_file_path = preview_path.to_string_lossy();
     if !file_exists(&preview_file_path) {
-        let _ = copy_from_file_system(&tga_path, preview_file_path.as_ref());
+        copy_from_file_system(&tga_path, preview_file_path.as_ref()).ok()?;
     }
 
     let collection = get_mapped_image_collection();
@@ -702,9 +712,11 @@ pub fn get_map_preview_image(map_name: &str) -> Option<String> {
         .find_image_by_name(&portable_name)
         .is_none()
     {
-        if let Ok(image) = Image::load_from_file(&preview_path, Some(portable_name.clone())) {
-            collection_guard.add_image(image);
-        }
+        // C++ MapUtil.cpp:1196-1205 leaves the image NULL when the copy fails;
+        // returning Some here would hand the caller a named but never-hydrated
+        // image (the slate missing-art fill) instead of the UnknownMap fallback.
+        let image = Image::load_from_file(&preview_path, Some(portable_name.clone())).ok()?;
+        collection_guard.add_image(image);
     }
 
     Some(portable_name)
@@ -935,23 +947,17 @@ fn read_file_bytes(filename: &str) -> Result<Vec<u8>, std::io::Error> {
 
 fn copy_from_file_system(source: &str, dest: &str) -> Result<(), std::io::Error> {
     let data = read_file_bytes(source)?;
-    let file_system_ref = get_file_system();
-    let mut file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(mut file) = file_system.open_file(
-        dest,
-        FileAccess::WRITE
-            .combine(FileAccess::CREATE)
-            .combine(FileAccess::TRUNCATE)
-            .combine(FileAccess::BINARY),
-    ) {
-        let _ = file.write(&data)?;
-        file.close();
-        return Ok(());
+    // C++ copyFromBigToDir (MapUtil.cpp:1107-1113) opens the destination with
+    // WRITE|CREATE on the real local disk, after createDirectory made the
+    // preview dir (MapUtil.cpp:1166). The FileSystem open path here resolves
+    // EXISTING files only, so a not-yet-existing preview could never be
+    // created through it — create the parent dir and write locally.
+    if let Some(parent) = std::path::Path::new(dest).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
     }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        "destination file system backend unavailable",
-    ))
+    std::fs::write(dest, data)
 }
 
 fn file_exists(path: &str) -> bool {

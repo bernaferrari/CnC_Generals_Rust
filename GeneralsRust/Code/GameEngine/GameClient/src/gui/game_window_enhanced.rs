@@ -1628,8 +1628,14 @@ impl EnhancedGameWindow {
         
         // Draw text
         let raw_text = self.get_text();
-        if !raw_text.is_empty() {
-            let font_size = self.get_font_size() as f32;
+        // C++ gadget text renders at the GDI pixel em of the window's point
+        // size (MulDiv(point, 96, 72), render2dsentence.cpp:1492).
+        let point_size = self.get_font_size().max(1);
+        let font_size = super::font::font_pixel_size(point_size) as f32;
+        let mut font_name = self.get_font_name();
+        if font_name.is_empty() {
+            font_name = "Arial".to_string();
+        }
             
             let alignment = if status.contains(WindowStatus::WRAP_CENTERED) {
                 TextAlignment::Center
@@ -1655,7 +1661,7 @@ impl EnhancedGameWindow {
                     word_wrap: !status.contains(WindowStatus::ONE_LINE),
                     single_line: status.contains(WindowStatus::ONE_LINE),
                 };
-                renderer.draw_text(&outline_layout, z_order + 0.01)?;
+                renderer.draw_text_with_font(&outline_layout, &font_name, false, z_order + 0.01)?;
             }
 
             let text_layout = TextLayout {
@@ -1669,7 +1675,7 @@ impl EnhancedGameWindow {
                 single_line: status.contains(WindowStatus::ONE_LINE),
             };
 
-            renderer.draw_text(&text_layout, z_order + 0.02)?;
+            renderer.draw_text_with_font(&text_layout, &font_name, false, z_order + 0.02)?;
 
             if let Some(hotkey_idx) = hotkey_index {
                 let single_line = status.contains(WindowStatus::ONE_LINE);
@@ -1685,7 +1691,7 @@ impl EnhancedGameWindow {
                     if let Some(ch) = text_layout.text.chars().nth(hotkey_idx) {
                         let hotkey_color = self.text_colors.read().unwrap_or_else(|e| e.into_inner()).hilited;
                         let pos = Vec2::new(base_x + (hotkey_idx as f32 * char_width), base_y);
-                        renderer.draw_text_simple(&ch.to_string(), pos, font_size, hotkey_color)?;
+                        renderer.draw_text_simple(&ch.to_string(), pos, point_size as f32, hotkey_color)?;
                     }
                 }
             }

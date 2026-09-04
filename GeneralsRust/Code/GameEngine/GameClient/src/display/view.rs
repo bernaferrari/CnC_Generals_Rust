@@ -2193,6 +2193,90 @@ fn draw_move_hint_and_locater_models(view: &View) {
         });
     }
 }
+
+/// Live move/attack command markers (right-HUD lane: issued-order feedback).
+///
+/// C++ parity: `HintSpyTranslator` (HintSpy.cpp:91-100) turns MSG_DO_MOVETO /
+/// MSG_DO_ATTACKMOVETO / MSG_DO_FORCEMOVETO / MSG_ADD_WAYPOINT into
+/// `InGameUI::createMoveHint` (InGameUI.cpp:2141-2171), and
+/// `W3DInGameUI::drawMoveHints` (W3DInGameUI.cpp:444-561) renders each hint at
+/// its world position for 40 client frames (`elapsed <= 40`), terrain-aligned,
+/// playing the `MoveHintName` (GameData.ini: `SCMoveHint`) animation once.
+/// The retail marker is a W3D render object from the Art BIGs, which this
+/// host's extracts do not carry, so the marker is drawn as a projected
+/// screen-space ring in the UI layer (same layer the radar events and window
+/// chrome draw through). Attack hints are fed the same hook the C++ code
+/// reserves (`HintSpy.cpp:99-100` → `InGameUI::createAttackHint`); the C++
+/// body is intentionally empty (InGameUI.cpp:2176-2179), so the red attack
+/// ring is a documented host adaptation requested for order feedback.
+pub fn draw_live_command_markers() {
+    let frame = TheGameLogic::get_frame();
+    let hints: Vec<(IPoint2, HintType, u32)> = TheInGameUI::get_hints()
+        .into_iter()
+        .filter(|hint| matches!(hint.hint_type, HintType::Move | HintType::Attack))
+        .filter_map(|hint| {
+            let elapsed = frame.saturating_sub(hint.creation_frame);
+            if elapsed > 40 {
+                return None;
+            }
+            let world = Point3::new(hint.end.x, hint.end.y, hint.end.z);
+            with_tactical_view_ref(|view| {
+                view.world_to_screen(&world).map(|screen| (screen, hint.hint_type, elapsed))
+            })
+        })
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
+        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            for (screen, kind, elapsed) in &hints {
+                eprintln!(
+                    "[RHUDPROBE] command marker type={kind:?} screen=({},{}) elapsed={elapsed}",
+                    screen.x, screen.y
+                );
+            }
+        }
+    }
+    let segments = 16;
+    let tau = std::f32::consts::TAU;
+    crate::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+        for (screen, kind, elapsed) in hints {
+            let t = (elapsed.min(40) as f32) / 40.0;
+            let (rgb, base_radius) = match kind {
+                HintType::Attack => ([1.0_f32, 0.25, 0.2], 15.0),
+                _ => ([0.2_f32, 1.0, 0.2], 19.0),
+            };
+            let alpha = 0.15 + 0.75 * (1.0 - t);
+            let radius = 3.0 + base_radius * (1.0 - 0.6 * t);
+            let color = [rgb[0], rgb[1], rgb[2], alpha];
+            let center = glam::Vec2::new(screen.x as f32, screen.y as f32);
+            for i in 0..segments {
+                let a0 = (i as f32) * tau / segments as f32;
+                let a1 = ((i + 1) as f32) * tau / segments as f32;
+                renderer.draw_line(
+                    glam::Vec2::new(
+                        center.x + radius * a0.cos(),
+                        center.y + radius * a0.sin(),
+                    ),
+                    glam::Vec2::new(
+                        center.x + radius * a1.cos(),
+                        center.y + radius * a1.sin(),
+                    ),
+                    2.0,
+                    color,
+                    0.0,
+                );
+            }
+            renderer.draw_rect(
+                crate::gui::ui_renderer::UIRect::new(center.x - 1.5, center.y - 1.5, 3.0, 3.0),
+                color,
+                0.0,
+            );
+        }
+    });
+}
 thread_local! {
     static THE_TACTICAL_VIEW: RefCell<View> = {
         let mut view = View::new();

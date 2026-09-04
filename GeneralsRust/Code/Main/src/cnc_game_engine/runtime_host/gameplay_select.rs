@@ -569,13 +569,6 @@ impl CnCGameEngine {
     }
 
     /// G3EnemyHunt temp diagnostic: on-demand env-gated roster dump for the
-    /// windowed enemy hunt drive (proves enemy survival at probe time, not
-    /// just spawn). Removed with the probe. Never writes evidence keys.
-    pub(super) fn runtime_host_cmd_roster_probe(&mut self, _args: &HashMap<String, String>) {
-        self.game_logic.debug_dump_match_roster("control_probe");
-        self.runtime_host_last_gameplay_cmd = "roster_probe_ok".into();
-    }
-    /// `construct_ok` only if a local under-construction structure exists after
     /// DozerConstruct — the previous residual reported ok on a queued command
     /// that never created a building.
     fn construct_result_after_place(&self, template: &str, p: glam::Vec3, force: bool) -> String {
@@ -803,9 +796,8 @@ impl CnCGameEngine {
             let lbc =
                 self.host_legal_build_code_at_for_builder(team, loc, &template, Some(builder));
             if lbc != 0 {
-                // Scan nearby pads (same residual as golden FOW recovery).
                 let mut found = None;
-                // Wave 834: widen LBC recovery (Lone Eagle yards are tight).
+                // Scan nearby pads (same residual as golden FOW recovery).
                 'scan: for step in [15.0_f32, 25.0, 40.0] {
                     let extent = if step <= 15.0 {
                         8
@@ -820,18 +812,23 @@ impl CnCGameEngine {
                                 continue;
                             }
                             let p = loc + glam::Vec3::new(dx as f32 * step, 0.0, dz as f32 * step);
-                            if self.host_is_location_legal_to_build_for_builder(
+                            let code = self.host_legal_build_code_at_for_builder(
                                 team,
                                 p,
                                 &template,
                                 Some(builder),
-                            ) {
+                            );
+                            
+                            if code
+                                == crate::game_logic::host_production_buildable_command_residual::LBC_OK
+                            {
                                 found = Some(p);
                                 break 'scan;
                             }
                         }
                     }
                 }
+                
                 if let Some(p) = found {
                     self.place_structure_from_ui(&template, p);
                     self.runtime_host_last_gameplay_cmd =

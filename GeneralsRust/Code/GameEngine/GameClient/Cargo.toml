@@ -88,6 +88,7 @@ num_cpus = "1.17"
 # UI and text rendering
 fontdue = "0.8"
 cosmic-text = "0.10"
+fontdb = "0.15"
 
 # Input handling
 gilrs = "0.10"
