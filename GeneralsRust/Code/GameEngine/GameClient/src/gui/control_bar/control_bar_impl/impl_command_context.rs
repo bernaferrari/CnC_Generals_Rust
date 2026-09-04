@@ -86,7 +86,13 @@ impl ControlBar {
         if queue_visible {
             self.set_portrait_by_object_id(None);
             with_window_manager(|wm| {
-                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:BuildQueue") {
+                // C++ ControlBar.cpp:1076-1077 — CP_BUILD_QUEUE parent is
+                // "ControlBar.wnd:ProductionQueueWindow"; ControlBarCommand.cpp
+                // :713-743 shows/hides it around the producer's queue. The
+                // previous "ControlBar.wnd:BuildQueue" name never matched, so
+                // the queue grid stayed painted while empty.
+                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow")
+                {
                     let _ = win.borrow_mut().hide(false);
                 }
                 if let Some(percent) = first_progress {
@@ -110,7 +116,8 @@ impl ControlBar {
             });
         } else {
             with_window_manager(|wm| {
-                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:BuildQueue") {
+                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow")
+                {
                     let _ = win.borrow_mut().hide(true);
                 }
             });

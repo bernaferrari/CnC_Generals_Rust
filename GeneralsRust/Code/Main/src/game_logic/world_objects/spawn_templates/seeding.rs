@@ -79,6 +79,22 @@ impl GameLogic {
             if let Some(template) = self.templates.get_mut(name) {
                 if let Some(kind_of) = Self::object_definition_attr(&definition, "kindof") {
                     Self::apply_authored_semantic_kind_bits(template, &kind_of);
+                    // C++ ThingTemplate::parseKindOf carries EVERY authored token
+                    // into the kindof mask, so a starter template updated in place
+                    // must gain IMMOBILE exactly like a freshly synthesized one
+                    // (BuildAssistant.cpp:705 isLocationClearOfObjects rejects
+                    // KINDOF_IMMOBILE objects regardless of relationship — they
+                    // cannot move out of the way). The semantic subset above never
+                    // mapped IMMOBILE, so updated starters (CommandCenter,
+                    // PatriotBattery, …) silently stayed movable-class.
+                    if kind_of
+                        .split(|character: char| {
+                            character.is_ascii_whitespace() || matches!(character, ',' | '|')
+                        })
+                        .any(|candidate| candidate.eq_ignore_ascii_case("immobile"))
+                    {
+                        template.add_kind_of(KindOf::Immobile);
+                    }
                     Self::apply_authored_capture_metadata(template, &kind_of, &definition);
                 }
                 let rider_change_normal_locomotors =

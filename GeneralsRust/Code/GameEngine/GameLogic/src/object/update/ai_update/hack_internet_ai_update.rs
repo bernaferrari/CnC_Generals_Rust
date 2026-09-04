@@ -669,15 +669,20 @@ impl HackInternetAIUpdate {
             .get_score_keeper_mut()
             .add_money_earned(amount as u32);
 
-        if let Some(tracker) = owner_guard.get_experience_tracker() {
-            if let Ok(mut tracker_guard) = tracker.lock() {
-                let _ = tracker_guard.add_experience_points(
-                    self.data.xp_per_cash_update as i32,
-                    false,
-                    &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                );
-            }
-        }
+        // C++ HackInternetAIUpdate.cpp:515 calls
+        // `xp->addExperiencePoints(ai->getXpPerCashUpdate())` with the
+        // ExperienceTracker.h:32 default `canScaleForBonus = TRUE`, and the C++
+        // tracker fires Object::onVeterancyLevelChanged itself on promotion
+        // (ExperienceTracker.cpp:158-164).
+        drop(owner_guard);
+        let mut owner_guard = match owner.write() {
+            Ok(guard) => guard,
+            Err(_) => return Ok(()),
+        };
+        owner_guard.add_experience_points_with_side_effects(
+            self.data.xp_per_cash_update as i32,
+            true,
+        );
 
         let mut display_money = true;
         if owner_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {

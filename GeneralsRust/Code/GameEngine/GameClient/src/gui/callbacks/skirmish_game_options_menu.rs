@@ -55,6 +55,7 @@ const DIFFICULTY_NORMAL: i32 = 1;
 const MAX_FPS_SLIDER_VALUE: i32 = 60;
 const NO_FPS_LIMIT_SLIDER_VALUE: i32 = 61;
 const GREATER_NO_FPS_LIMIT: i32 = 1000;
+const UNKNOWN_MAP_PREVIEW_IMAGE: &str = "UnknownMap";
 
 /// Window state stored in thread-local RefCell (single-threaded GUI)
 #[derive(Default)]
@@ -269,7 +270,13 @@ fn update_map_preview(state: &mut SkirmishGameOptionsState) {
     let Some(map_name) = state.selected_map.clone() else {
         return;
     };
-    let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
+    // C++ positionStartSpots (SkirmishGameOptionsMenu.cpp:702-713, 738-750):
+    // when the map has no preview .tga (or the map is unknown) the MapWindow
+    // still paints WIN_STATUS_IMAGE with the "UnknownMap" mapped image
+    // (SCSmShellUserInterface512.INI:1685) instead of staying blank.
+    let preview_name = get_map_preview_image(&map_name)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| UNKNOWN_MAP_PREVIEW_IMAGE.to_string());
     set_window_image(&state.map_window, &preview_name);
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -711,10 +718,19 @@ fn update_skirmish_game_options(state: &SkirmishGameOptionsState) {
     });
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    let is_skirmish = cache_guard
-        .find_map(&map_name)
-        .map(|meta| meta.is_multiplayer)
-        .unwrap_or(true);
+    let meta = cache_guard.find_map(&map_name);
+    let is_skirmish = meta.as_ref().map(|meta| meta.is_multiplayer).unwrap_or(true);
+
+    // C++ SkirmishGameOptionsMenu.cpp:1228-1240 (updateSkirmishGameOptions):
+    // GadgetStaticTextSetText(textEntryMapDisplay, md->m_displayName), falling
+    // back to the translated map path when the cache has no metadata. Without
+    // this the authored WND literal "Static Text" stays visible on screen.
+    if let Some(text_entry) = state.text_entry_map_display.as_ref() {
+        let label = map_display_name(&map_name, meta.as_ref());
+        if let Some(widget) = text_entry.borrow_mut().static_text_mut() {
+            widget.set_text(label);
+        }
+    }
 
     if is_skirmish {
         set_gadget_visible("TextEntryPlayerName", true);
@@ -1497,7 +1513,32 @@ pub fn skirmish_game_options_menu_init(
         populate_slot_controls(state);
         populate_global_controls();
         choose_default_map(state);
+        // C++ SkirmishGameOptionsMenu.cpp:1101 (init) + 1179 (skirmishUpdateSlotList):
+        // the player-name entry is populated at init — GUI:Player fallback, then
+        // slot 0's name. The Rust skirmish_update_slot_list gate skips its copy
+        // while initing, so without this the authored WND literal "Entry" stays.
+        if let Some(text_entry) = state.text_entry_player_name.as_ref() {
+            let slot_name = get_skirmish_setup()
+                .game_info()
+                .game_info()
+                .get_slot(0)
+                .map(|slot| slot.get_name().to_string())
+                .filter(|name| !name.is_empty());
+            let label = slot_name.unwrap_or_else(|| GameText::fetch("GUI:Player"));
+            if let Some(entry) = text_entry.borrow_mut().text_entry_mut() {
+                entry.set_text(label);
+            }
+        }
+
         sync_map_to_game_info(state);
+
+        // C++ SkirmishGameOptionsMenu.cpp:1354 (SkirmishGameOptionsMenuInit) runs
+        // skirmishPositionStartSpots → updateSkirmishGameOptions (1188-1193 →
+        // 1225-1240), which writes the map display name and syncs gadget
+        // visibility during init. The Rust slot-list refresh is gated while
+        // initing, so run the update here or the authored WND literals
+        // ("Static Text") and default visibility persist on first open.
+        update_skirmish_game_options(state);
         update_map_preview(state);
         skirmish_update_slot_list(state);
         populate_skirmish_battle_honors(state);

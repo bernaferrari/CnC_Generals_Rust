@@ -1790,6 +1790,7 @@ impl CnCGameEngine {
         if template.is_empty() || !location.x.is_finite() || !location.z.is_finite() {
             return;
         }
+        
 
         // Prefer presentation local player/team freeze; selected from engine selection residual.
         let player_id = self.local_player_id_for_ui();
@@ -1803,6 +1804,7 @@ impl CnCGameEngine {
             .copied()
             .filter(|&id| is_dozer(id))
             .collect();
+        
         if !dozers.is_empty() {
             selected = dozers;
         }
@@ -1813,7 +1815,9 @@ impl CnCGameEngine {
                 self.host_set_selection(player_id, selected.clone());
             }
         }
+        
         if selected.is_empty() {
+            
             log::debug!("PlaceStructureAt ignored — no dozer/worker selection");
             // Keep placement armed so player can select a dozer and retry.
             self.pending_structure_placement = Some(template_name.to_string());
@@ -1875,6 +1879,7 @@ impl CnCGameEngine {
                             pending.as_ref(),
                         );
                         if cmt != game_engine::common::system::build_assistant::CanMakeType::Ok {
+                            
                             game_client::message_stream::play_can_make_failure(cmt);
                             if matches!(
                                 cmt,
@@ -1893,8 +1898,10 @@ impl CnCGameEngine {
                 }
             }
         }
+        
 
         let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
+        
         if lbc != LBC_OK {
             self.pending_structure_placement = Some(template_name.to_string());
             self.game_hud
@@ -1936,6 +1943,7 @@ impl CnCGameEngine {
             .clear_structure_placement();
         self.play_sound_effect(SoundType::Command);
 
+        
         self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DozerConstruct {
                 template_name: template,

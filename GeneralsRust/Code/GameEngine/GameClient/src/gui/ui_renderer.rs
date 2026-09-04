@@ -138,6 +138,7 @@ impl UIRect {
 #[derive(Debug, Clone)]
 pub struct TextLayout {
     pub text: String,
+    /// Pixel em height (C++ GDI: MulDiv(point, 96, 72)).
     pub font_size: f32,
     pub color: [f32; 4],
     pub bounds: UIRect,
@@ -146,6 +147,7 @@ pub struct TextLayout {
     pub word_wrap: bool,
     pub single_line: bool,
 }
+
 
 /// Per-frame CPU-side UI command state.
 ///
@@ -256,7 +258,9 @@ pub struct UIRenderer {
     font_cache: HashMap<String, Font>,
     /// C++ DisplayString retains rasterized glyphs. Re-shaping every label
     /// every frame created a wgpu texture per button and froze Menu.
-    text_texture_cache: HashMap<u64, Arc<TextureView>>,
+    /// Value carries the placed quad — the atlas canvas may exceed the
+    /// layout bounds so real glyph extents are never clipped.
+    text_texture_cache: HashMap<u64, (Arc<TextureView>, UIRect)>,
 
     // Textures and samplers
     default_texture: Arc<TextureView>,
@@ -299,6 +303,21 @@ impl UIRenderer {
     /// Create a new UI renderer
     pub fn new(device: Arc<Device>, queue: Arc<Queue>, format: TextureFormat) -> Result<Self> {
         let mut font_system = FontSystem::new();
+        // C++ GDI resolved font families by name (render2dsentence.cpp:1477
+        // `Create_GDI_Font(font_name)`). cosmic-text defaults `Family::SansSerif`
+        // to "Fira Sans" (cosmic-text-0.10.0/src/font/system.rs:64), which is not
+        // installed on typical systems — glyphs then come from an arbitrary
+        // fallback face with wrong advances (the Arial-10 glyph corruption).
+        // Register the game's font files so `Family::Name("Arial")` resolves to
+        // real Arial (the same files the measuring side prefers).
+        for path in super::font::font_atlas_files() {
+            if let Ok(bytes) = std::fs::read(&path) {
+                let source: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(bytes);
+                font_system
+                    .db_mut()
+                    .load_font_source(fontdb::Source::Binary(source));
+            }
+        }
         let text_buffer = TextBuffer::new(&mut font_system, Metrics::new(14.0, 16.0));
 
         // Create shader modules
@@ -693,13 +712,6 @@ impl UIRenderer {
             text_shader,
             uniform_bind_group_layout,
             texture_bind_group_layout,
-            vertex_buffer,
-            index_buffer,
-            instance_buffer,
-            uniform_buffer,
-            vertex_capacity: 65536,
-            index_capacity: 98304,
-            uniform_bind_group,
             font_runtime: Mutex::new(FontRuntime {
                 font_system,
                 swash_cache: SwashCache::new(),
@@ -707,6 +719,13 @@ impl UIRenderer {
             }),
             font_cache: HashMap::new(),
             text_texture_cache: HashMap::new(),
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
+            uniform_buffer,
+            vertex_capacity: 65536,
+            index_capacity: 98304,
+            uniform_bind_group,
             default_texture: default_texture_view,
             default_texture_bind_group,
             linear_sampler,
@@ -1214,21 +1233,24 @@ impl UIRenderer {
                 color,
             },
         ];
-        let indices = vec![0, 1, 2];
+        let indices = vec![0u32, 1, 2];
+
         self.push_draw_command(UIDrawCommand {
             vertices,
             indices,
-            texture: Some(self.default_texture.clone()),
+            texture: None,
             blend_mode: UIBlendMode::Alpha,
             scissor_rect: None,
             z_order,
         });
     }
 
-    fn text_layout_cache_key(layout: &TextLayout) -> u64 {
+    fn text_layout_cache_key(layout: &TextLayout, font_name: &str, bold: bool) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         layout.text.hash(&mut hasher);
+        font_name.hash(&mut hasher);
+        bold.hash(&mut hasher);
         layout.font_size.to_bits().hash(&mut hasher);
         for channel in layout.color {
             channel.to_bits().hash(&mut hasher);
@@ -1241,15 +1263,27 @@ impl UIRenderer {
         layout.single_line.hash(&mut hasher);
         hasher.finish()
     }
-
-    /// Add a text draw command
+    /// Add a text draw command (default game font: Arial regular — the C++
+    /// fallback family, render2dsentence.cpp:1481).
     pub fn draw_text(&mut self, layout: &TextLayout, z_order: f32) -> Result<()> {
+        self.draw_text_with_font(layout, "Arial", false, z_order)
+    }
+
+    /// Add a text draw command with an explicit game font (C++ renders gadget
+    /// text with the window's GameFont family and weight).
+    pub fn draw_text_with_font(
+        &mut self,
+        layout: &TextLayout,
+        font_name: &str,
+        bold: bool,
+        z_order: f32,
+    ) -> Result<()> {
         if layout.text.is_empty() || layout.bounds.width <= 0.0 || layout.bounds.height <= 0.0 {
             return Ok(());
         }
-        let cache_key = Self::text_layout_cache_key(layout);
-        if let Some(texture) = self.text_texture_cache.get(&cache_key).cloned() {
-            self.draw_textured_rect(layout.bounds, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
+        let cache_key = Self::text_layout_cache_key(layout, font_name, bold);
+        if let Some((texture, quad)) = self.text_texture_cache.get(&cache_key).cloned() {
+            self.draw_textured_rect(quad, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
             return Ok(());
         }
 
@@ -1269,9 +1303,20 @@ impl UIRenderer {
             layout.text.clone()
         };
 
+        // C++ renders gadget text with the window's GameFont family and weight
+        // (Create_GDI_Font: `CreateFont(..., bold ? FW_BOLD : FW_NORMAL, ...,
+        // font_name)`, render2dsentence.cpp:1507-1512).
         let attrs = Attrs::new()
-            .family(Family::SansSerif)
-            .weight(Weight::NORMAL)
+            .family(if font_name.is_empty() {
+                Family::SansSerif
+            } else {
+                Family::Name(font_name)
+            })
+            .weight(if bold {
+                Weight::BOLD
+            } else {
+                Weight::NORMAL
+            })
             .stretch(Stretch::Normal)
             .style(Style::Normal);
         let text_color = TextColor::rgba(
@@ -1321,23 +1366,52 @@ impl UIRenderer {
 
         let text_width = (max_x - min_x + 1).max(1);
         let text_height = (max_y - min_y + 1).max(1);
-        let max_x_offset = (canvas_width as i32 - text_width).max(0);
-        let max_y_offset = (canvas_height as i32 - text_height).max(0);
+
+        // Alignment is computed against the authored bounds (C++
+        // `text_x += (width / 2) - (text_width / 2)`), so overflowing text
+        // spills out of the rect instead of being squeezed or clipped.
+        let bounds_width = layout.bounds.width.ceil() as i32;
+        let bounds_height = layout.bounds.height.ceil() as i32;
         let x_offset = match layout.alignment {
             TextAlignment::Left => 0,
-            TextAlignment::Center => max_x_offset / 2,
-            TextAlignment::Right => max_x_offset,
+            TextAlignment::Center => (bounds_width - text_width) / 2,
+            TextAlignment::Right => bounds_width - text_width,
             TextAlignment::Justify => 0,
         };
         let y_offset = match layout.vertical_alignment {
             VerticalAlignment::Top => 0,
-            VerticalAlignment::Middle => max_y_offset / 2,
-            VerticalAlignment::Bottom => max_y_offset,
+            VerticalAlignment::Middle => (bounds_height - text_height) / 2,
+            VerticalAlignment::Bottom => bounds_height - text_height,
         };
 
+        // The atlas canvas covers bounds ∪ placed-glyph-extent, like C++
+        // Store_GDI_Char which measures each glyph's real bitmap
+        // (GetTextExtentPoint32W) instead of guessing an advance. Wrapped
+        // layouts stay bounds-fitted — wrapping is their contract.
+        let (canvas_origin_x, canvas_origin_y, quad_width, quad_height) = if wrap_mode == Wrap::Word
+        {
+            (0, 0, canvas_width, canvas_height)
+        } else {
+            let left = x_offset.min(0);
+            let top = y_offset.min(0);
+            let right = (x_offset + text_width).max(canvas_width as i32);
+            let bottom = (y_offset + text_height).max(canvas_height as i32);
+            let width = (right - left).clamp(1, 2048);
+            let height = (bottom - top).clamp(1, 512);
+            (
+                left,
+                top,
+                width as u32,
+                height as u32,
+            )
+        };
+        let canvas_width = quad_width;
+        let canvas_height = quad_height;
+        let mut canvas = vec![0u8; canvas_width as usize * canvas_height as usize * 4];
+
         for (x, y, src) in pixels {
-            let dst_x = x - min_x + x_offset;
-            let dst_y = y - min_y + y_offset;
+            let dst_x = x - min_x + x_offset - canvas_origin_x;
+            let dst_y = y - min_y + y_offset - canvas_origin_y;
             if dst_x < 0
                 || dst_y < 0
                 || dst_x >= canvas_width as i32
@@ -1364,11 +1438,18 @@ impl UIRenderer {
         }
 
         let texture = self.create_texture_from_rgba(canvas_width, canvas_height, &canvas);
+        let quad = UIRect::new(
+            layout.bounds.x + canvas_origin_x as f32,
+            layout.bounds.y + canvas_origin_y as f32,
+            canvas_width as f32,
+            canvas_height as f32,
+        );
         if self.text_texture_cache.len() >= 256 {
             self.text_texture_cache.clear();
         }
-        self.text_texture_cache.insert(cache_key, texture.clone());
-        self.draw_textured_rect(layout.bounds, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
+        self.text_texture_cache
+            .insert(cache_key, (texture.clone(), quad));
+        self.draw_textured_rect(quad, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
         Ok(())
     }
 
@@ -1614,7 +1695,8 @@ impl UIRenderer {
         Ok(())
     }
 
-    /// Draw text at a position (convenience wrapper)
+    /// Draw text at a position (convenience wrapper). Default game font
+    /// (Arial regular — the C++ fallback family, render2dsentence.cpp:1481).
     pub fn draw_text_simple(
         &mut self,
         text: &str,
@@ -1622,22 +1704,37 @@ impl UIRenderer {
         font_size: f32,
         color: [f32; 4],
     ) -> Result<()> {
-        // Create a simple text layout
-        let char_width = font_size * 0.6;
+        self.draw_text_simple_named(text, position, font_size, color, "Arial", false)
+    }
+
+    /// Draw text with an explicit game font. `font_size` is the POINT size;
+    /// it is converted to the GDI pixel em here (MulDiv(point, 96, 72),
+    /// render2dsentence.cpp:1492) so measure and raster agree.
+    pub fn draw_text_simple_named(
+        &mut self,
+        text: &str,
+        position: Vec2,
+        point_size: f32,
+        color: [f32; 4],
+        font_name: &str,
+        bold: bool,
+    ) -> Result<()> {
+        let px = super::font::font_pixel_size(point_size.max(1.0) as i32) as f32;
+        let char_width = px * 0.6;
         let text_width = text.len() as f32 * char_width;
 
         let layout = TextLayout {
             text: text.to_string(),
-            font_size,
+            font_size: px,
             color,
-            bounds: UIRect::new(position.x, position.y, text_width, font_size * 1.2),
+            bounds: UIRect::new(position.x, position.y, text_width, (px * 1.2).ceil()),
             alignment: TextAlignment::Left,
             vertical_alignment: VerticalAlignment::Top,
             word_wrap: false,
             single_line: true,
         };
 
-        self.draw_text(&layout, 0.0)
+        self.draw_text_with_font(&layout, font_name, bold, 0.0)
     }
 
     /// Draw text at a position with scissor support.
@@ -1650,6 +1747,24 @@ impl UIRenderer {
         scissor: UIRect,
     ) -> Result<()> {
         self.draw_text_simple(text, position, font_size, color)?;
+        if let Some(cmd) = self.frame_buffers.draw_commands.last_mut() {
+            cmd.scissor_rect = Some(scissor);
+        }
+        Ok(())
+    }
+
+    /// Draw text with an explicit game font and scissor support.
+    pub fn draw_text_simple_named_with_scissor(
+        &mut self,
+        text: &str,
+        position: Vec2,
+        point_size: f32,
+        color: [f32; 4],
+        font_name: &str,
+        bold: bool,
+        scissor: UIRect,
+    ) -> Result<()> {
+        self.draw_text_simple_named(text, position, point_size, color, font_name, bold)?;
         if let Some(cmd) = self.frame_buffers.draw_commands.last_mut() {
             cmd.scissor_rect = Some(scissor);
         }

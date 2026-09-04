@@ -845,7 +845,10 @@ pub fn parse_map_cache_definition(ini: &mut INI) -> Result<(), String> {
     // Add to global cache if available and display name is not empty
     if let Some(mut map_cache) = get_map_cache_mut() {
         if !metadata.display_name.is_empty() {
-            let lower_name = decoded_name.to_lowercase();
+            // Store keys lowercase with forward slashes — the same normalized
+            // form the map-scan path (MapCache::add_map) inserts, so both
+            // sources share one key space and separator-agnostic queries hit.
+            let lower_name = decoded_name.to_lowercase().replace('\\', "/");
             metadata.file_name = lower_name.clone();
             map_cache.insert(lower_name, metadata);
         }

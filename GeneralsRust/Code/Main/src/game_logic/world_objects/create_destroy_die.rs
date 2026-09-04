@@ -2463,8 +2463,12 @@ impl GameLogic {
         owner_player_id: u32,
         position: Vec3,
     ) -> Option<ObjectId> {
-        let team = self.players.get(&owner_player_id)?.team;
+        let Some(team) = self.players.get(&owner_player_id).map(|p| p.team) else {
+            
+            return None;
+        };
         if team == Team::Neutral {
+            
             return None;
         }
         self.create_object_under_construction_with_owner(
@@ -2485,10 +2489,12 @@ impl GameLogic {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
         }) {
+            
             return None;
         }
         // C++ BuildAssistant isLocationLegalToBuild residual (objects-in-way / bounds).
         if !self.is_location_legal_to_build(team, position, template_name) {
+            
             log::debug!(
                 "Blocked construction {} at {:?} (LegalBuildCode residual)",
                 template_name,
@@ -2501,6 +2507,7 @@ impl GameLogic {
             .map(|player_id| self.player_satisfies_build_prerequisites(player_id, template_name))
             .unwrap_or_else(|| self.team_satisfies_build_prerequisites(team, template_name));
         if !prerequisites_ok {
+            
             log::debug!(
                 "Blocked construction {} for team {:?} (Prerequisites residual)",
                 template_name,
@@ -2515,6 +2522,7 @@ impl GameLogic {
             })
             .unwrap_or_else(|| self.can_start_superweapon_building(team, template_name));
         if !superweapon_ok {
+            
             log::debug!(
                 "Blocked superweapon construction {} for team {:?} (MaxSimultaneous residual)",
                 template_name,
@@ -2525,6 +2533,7 @@ impl GameLogic {
         // C++ Player::canBuildMoreOfType — numeric INI MaxSimultaneousOfType
         // (unique buildings / heroes) plus link-key rebuild holes.
         if !self.can_build_more_of_type(owner_player_id, team, template_name) {
+            
             log::debug!(
                 "Blocked construction {} for team {:?} (MaxSimultaneousOfType)",
                 template_name,

@@ -550,6 +550,22 @@ fn live_letterbox_overlay_queues_scripted_camera_fade() {
     );
 }
 
+#[test]
+fn shell_scene_never_queues_camera_fade() {
+    // C++ W3DStatusCircle.cpp:284-287: the fade overlay renders only for a
+    // live non-GAME_SHELL game. Queuing it on the shell menu blits the
+    // ScriptEngine's startup Multiply fade (black) over the shell-map world.
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let i = src
+        .find("fn queue_live_letterbox_and_cinematic_overlays")
+        .expect("letterbox overlay helper");
+    let body = &src[i..src.len().min(i + 1800)];
+    assert!(
+        body.contains("!pres.fow_shell_bypass"),
+        "camera fade queue must be gated off in shell (GAME_SHELL) scenes"
+    );
+}
+
 use super::{
     CnCGameEngine, GameMode, GameState, StartupNewGameDispatch, should_exit_for_smoke_test,
     should_keep_logic_running_while_iconic,

@@ -524,6 +524,88 @@ impl Object {
         VeterancyLevel::Regular
     }
 
+    /// C++ ExperienceTracker mutators fire `Object::onVeterancyLevelChanged`
+    /// internally on every actual level change (ExperienceTracker.cpp:82-95 and
+    /// :158-164; Object.h:213 `provideFeedback = TRUE` gates only the promotion
+    /// anim + UnitPromoted sound — weapon-set flags, veterancy upgrade, body
+    /// notify/healthBonus/armor always run, ActiveBody.cpp:1388-1477). The Rust
+    /// tracker is split from side effects, so explicit level-set call sites must
+    /// forward the promotion to keep the C++ fan-out.
+    ///
+    /// C++ parity for `ExperienceTracker::setVeterancyLevel` (explicit setting;
+    /// ignores IsTrainable). Returns true when the level actually changed.
+    pub fn set_veterancy_level_with_side_effects(
+        &mut self,
+        new_level: VeterancyLevel,
+        provide_feedback: bool,
+    ) -> bool {
+        let Some(tracker) = &self.experience_tracker else {
+            return false;
+        };
+        let old_level = match tracker.lock() {
+            Ok(mut tracker_guard) => tracker_guard.set_veterancy_level(new_level),
+            Err(_) => return false,
+        };
+        let Some(old_level) = old_level else {
+            return false;
+        };
+        let current_level = self.get_veterancy_level();
+        self.on_veterancy_level_changed(old_level, current_level, provide_feedback);
+        true
+    }
+
+    /// C++ parity for `ExperienceTracker::setExperienceAndLevel` — demoting to
+    /// Regular still fires `onVeterancyLevelChanged` (ExperienceTracker.cpp:169-207).
+    pub fn set_experience_and_level_with_side_effects(
+        &mut self,
+        experience: i32,
+        provide_feedback: bool,
+    ) -> bool {
+        let Some(tracker) = &self.experience_tracker else {
+            return false;
+        };
+        let old_level = match tracker.lock() {
+            Ok(mut tracker_guard) => tracker_guard.set_experience_and_level(
+                experience,
+                &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+            ),
+            Err(_) => return false,
+        };
+        let Some(old_level) = old_level else {
+            return false;
+        };
+        let current_level = self.get_veterancy_level();
+        self.on_veterancy_level_changed(old_level, current_level, provide_feedback);
+        true
+    }
+
+    /// C++ parity for `ExperienceTracker::addExperiencePoints`:
+    /// `canScaleForBonus` defaults TRUE (ExperienceTracker.h:32) and promotion
+    /// fires `onVeterancyLevelChanged` (ExperienceTracker.cpp:158-164).
+    pub fn add_experience_points_with_side_effects(
+        &mut self,
+        experience_gain: i32,
+        can_scale_for_bonus: bool,
+    ) -> bool {
+        let Some(tracker) = &self.experience_tracker else {
+            return false;
+        };
+        let old_level = match tracker.lock() {
+            Ok(mut tracker_guard) => tracker_guard.add_experience_points(
+                experience_gain,
+                can_scale_for_bonus,
+                &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+            ),
+            Err(_) => return false,
+        };
+        let Some(old_level) = old_level else {
+            return false;
+        };
+        let current_level = self.get_veterancy_level();
+        self.on_veterancy_level_changed(old_level, current_level, true);
+        true
+    }
+
     // Weapon management
     pub fn get_weapon_in_weapon_slot(&self, slot: WeaponSlotType) -> Option<&Weapon> {
         self.weapon_set.get_weapon_in_weapon_slot(slot)
@@ -1892,5 +1974,61 @@ impl Object {
             .and_then(|t| t.lock().ok())
             .map(|t| t.get_num_consecutive_shots_at_victim(victim_id))
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod veterancy_side_effect_tests {
+    use super::*;
+    use crate::experience::ExperienceTracker;
+
+    fn tracked_object(id: ObjectID) -> Object {
+        let mut obj = Object::new_test(id, 100.0);
+        let tracker = Arc::new(Mutex::new(ExperienceTracker::new(id)));
+        tracker.lock().expect("tracker").set_trainable_override(true);
+        obj.experience_tracker = Some(tracker);
+        obj
+    }
+
+    #[test]
+    fn add_experience_applies_cpp_default_scalar_and_side_effects() {
+        // C++ addExperiencePoints defaults canScaleForBonus = TRUE
+        // (ExperienceTracker.h:32) and fires Object::onVeterancyLevelChanged on
+        // promotion (ExperienceTracker.cpp:158-164): 50 XP × scalar 2.0 = 100,
+        // the DEFAULT_EXPERIENCE_REQUIRED Veteran threshold.
+        let mut obj = tracked_object(4242);
+        if let Some(tracker) = &obj.experience_tracker {
+            tracker.lock().expect("tracker").set_experience_scalar(2.0);
+        }
+
+        assert!(obj.add_experience_points_with_side_effects(50, true));
+        assert_eq!(obj.get_veterancy_level(), VeterancyLevel::Veteran);
+        assert!(
+            obj.test_weapon_set_flag(WeaponSetType::Veteran),
+            "promotion must swap the weapon set, not just the tracker level"
+        );
+    }
+
+    #[test]
+    fn add_experience_without_level_change_fires_no_side_effects() {
+        let mut obj = tracked_object(4243);
+
+        assert!(!obj.add_experience_points_with_side_effects(10, true));
+        assert_eq!(obj.get_veterancy_level(), VeterancyLevel::Regular);
+        assert!(!obj.test_weapon_set_flag(WeaponSetType::Veteran));
+    }
+
+    #[test]
+    fn set_veterancy_level_side_effects_forward_feedback_flag() {
+        // Demotion path: C++ setVeterancyLevel fires onVeterancyLevelChanged
+        // whenever the level differs (ExperienceTracker.cpp:87-95) and the fan-out
+        // clears the previous level's weapon-set flags (Object.cpp:3064-3160).
+        let mut obj = tracked_object(4244);
+        assert!(obj.set_veterancy_level_with_side_effects(VeterancyLevel::Elite, false));
+        assert!(obj.test_weapon_set_flag(WeaponSetType::Elite));
+        assert!(obj.set_veterancy_level_with_side_effects(VeterancyLevel::Regular, false));
+        assert!(!obj.test_weapon_set_flag(WeaponSetType::Elite));
+        // Same-level set is a no-op in C++ (level equality short-circuit).
+        assert!(!obj.set_veterancy_level_with_side_effects(VeterancyLevel::Regular, false));
     }
 }

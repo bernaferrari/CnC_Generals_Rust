@@ -136,8 +136,17 @@ fn victory_conditions_update_inside_each_logic_frame() {
     let mut logic = GameLogic::new();
     logic.start_new_game(GameMode::Skirmish);
     ensure_test_infantry_template(&mut logic);
+    ensure_test_structure_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_player_for_team(&mut logic, Team::GLA);
+    // C++ VictoryConditions.cpp:250-280 hasSinglePlayerBeenDefeated: under
+    // skirmish VICTORY_NOBUILDINGS a player survives only while it holds a
+    // KINDOF_STRUCTURE + KINDOF_MP_COUNT_FOR_VICTORY building (Team.cpp
+    // hasAnyBuildings(mask)). Without one, BOTH players fall on the same
+    // frame and C++ yields a draw, so give USA a victory-counting CC.
+    let _usa_cc = logic
+        .create_object("TestBuilding", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+        .expect("usa cc");
     let _usa = logic
         .create_object("TestInfantry", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("usa");

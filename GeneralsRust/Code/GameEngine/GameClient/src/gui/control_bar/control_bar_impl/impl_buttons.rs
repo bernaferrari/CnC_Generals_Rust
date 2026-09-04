@@ -38,21 +38,6 @@ impl ControlBar {
                 return Ok(());
             };
             let name = obj_guard.get_command_set_string().to_string();
-            if std::env::var("GENERALS_CBGRID2").as_deref() == Ok("1") {
-                use std::collections::HashSet;
-                use parking_lot::Mutex;
-                static CBGRID2_SEEN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
-                let key = format!(
-                    "id={first_id} tmpl={} cs={name:?} pres={}",
-                    obj_guard.get_template_name(),
-                    self.presentation_primary_command_set
-                );
-                let mut seen = CBGRID2_SEEN.lock();
-                let seen = seen.get_or_insert_with(HashSet::new);
-                if seen.insert(key.clone()) {
-                    log::warn!("CBGRID2: {key}");
-                }
-            }
             if name.is_empty() {
                 self.presentation_primary_command_set.clone()
             } else {
@@ -60,24 +45,17 @@ impl ControlBar {
             }
         } else {
             // Host/presentation residual — no OBJECT_REGISTRY modules.
-            if std::env::var("GENERALS_CBGRID2").as_deref() == Ok("1") {
-                static CBGRID2_MISS: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !CBGRID2_MISS.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    log::warn!(
-                        "CBGRID2: id={first_id} NOT in OBJECT_REGISTRY pres={}",
-                        self.presentation_primary_command_set
-                    );
-                }
-            }
             // C++ ControlBar.cpp:3594 binds slots from Object::getCommandSetString
             // (Object.cpp:6084 → template friend_getCommandSetString). Host map
             // objects have no OBJECT_REGISTRY module, so resolve the selected
             // object's authored command set from its presentation catalog entry.
-            crate::presentation_translator_residual::translator_catalog_entry(first_id)
-                .map(|entry| entry.command_set_name)
+            let catalog_cs = crate::presentation_translator_residual::translator_catalog_entry(first_id)
+                .map(|entry| {
+                    entry.command_set_name
+                })
                 .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| self.presentation_primary_command_set.clone())
+                .unwrap_or_else(|| self.presentation_primary_command_set.clone());
+            catalog_cs
         };
         if command_set_name.is_empty() {
             return Ok(());
@@ -87,11 +65,7 @@ impl ControlBar {
             .or_else(|| {
                 control_bar.find_command_set_by_name(&command_set_name.to_ascii_uppercase())
             });
-
         let Some(command_set) = command_set else {
-            if std::env::var("GENERALS_CBGRID2").as_deref() == Ok("1") {
-                log::warn!("CBGRID2: lookup miss cs={command_set_name:?}");
-            }
             return Ok(());
         };
         const WND_SLOTS: usize = 14;

@@ -319,6 +319,18 @@ impl GameLogic {
                 .add_kind_of(KindOf::Harvestable);
         }
         Self::apply_authored_semantic_kind_bits(&mut template, &kind_of);
+        // C++ ThingTemplate::parseKindOf carries EVERY authored token into the
+        // kindof mask, including IMMOBILE (BuildAssistant.cpp:705
+        // isLocationClearOfObjects rejects KINDOF_IMMOBILE objects regardless
+        // of relationship — they cannot move out of the way).  The semantic
+        // subset above never mapped IMMOBILE, so every synthesized real-map
+        // structure (CommandCenter / SupplyDock / TechOilDerrick /
+        // CivilianBunker — retail CivilianBuilding.ini authors
+        // `KindOf = STRUCTURE SELECTABLE IMMOBILE ...`) lost the bit and the
+        // placement scan lost its C++ blocker class.
+        if has_kind("immobile") {
+            template.add_kind_of(KindOf::Immobile);
+        }
         if is_structure {
             template
                 .add_kind_of(KindOf::Structure)

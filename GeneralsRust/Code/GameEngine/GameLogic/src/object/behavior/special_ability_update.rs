@@ -1167,17 +1167,17 @@ impl SpecialAbilityUpdate {
             None => return,
         };
 
-        let _ = self.with_object(|obj_guard| {
+        let _ = self.with_object_mut(|obj_guard| {
             if self.module_data.award_xp_for_triggering > 0 {
-                if let Some(tracker) = obj_guard.get_experience_tracker() {
-                    let _ = tracker.lock().map(|mut t| {
-                        t.add_experience_points(
-                            self.module_data.award_xp_for_triggering,
-                            false,
-                            &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                        );
-                    });
-                }
+                // C++ SpecialAbilityUpdate.cpp:1252-1254 calls
+                // `xpTracker->addExperiencePoints(data->m_awardXPForTriggering)`
+                // with the ExperienceTracker.h:32 default `canScaleForBonus = TRUE`,
+                // and the C++ tracker fires Object::onVeterancyLevelChanged itself
+                // on promotion (ExperienceTracker.cpp:158-164).
+                obj_guard.add_experience_points_with_side_effects(
+                    self.module_data.award_xp_for_triggering,
+                    true,
+                );
             }
             let skill_points = if self.module_data.skill_points_for_triggering != -1 {
                 self.module_data.skill_points_for_triggering

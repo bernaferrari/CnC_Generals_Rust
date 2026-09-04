@@ -747,27 +747,43 @@ impl GameLogic {
             crate::game_logic::host_tunnel_network::is_tunnel_network_template(&template_name);
         let is_laser_patriot =
             crate::game_logic::host_base_defense::is_laser_patriot_template(&template_name);
-        let audio = if is_gattling {
-            GATTLING_BUILDING_FIRE_AUDIO
+        // C++ base defenses fire their WeaponTemplate's authored FireSound
+        // (FiringTracker.cpp:152-155, Weapon.h:678). Known residual kinds keep
+        // their authored retail event names; the generic arm resolves the
+        // structure's own weapon FireSound and queues nothing when the weapon
+        // has none (AHSV_NoSound, GameAudio.cpp:384-386) — never the invented
+        // "WeaponFire" token (no such retail AudioEvent).
+        let audio: Option<String> = if is_gattling {
+            Some(GATTLING_BUILDING_FIRE_AUDIO.to_string())
         } else if is_stinger {
-            STINGER_FIRE_AUDIO
+            Some(STINGER_FIRE_AUDIO.to_string())
         } else if is_patriot && is_laser_patriot {
-            crate::game_logic::host_base_defense::LAZR_PATRIOT_FIRE_AUDIO
+            Some(
+                crate::game_logic::host_base_defense::LAZR_PATRIOT_FIRE_AUDIO.to_string(),
+            )
         } else if is_patriot {
-            PATRIOT_FIRE_AUDIO
+            Some(PATRIOT_FIRE_AUDIO.to_string())
         } else if is_fire_base {
-            crate::game_logic::host_fire_base::FIRE_BASE_FIRE_AUDIO
+            Some(crate::game_logic::host_fire_base::FIRE_BASE_FIRE_AUDIO.to_string())
         } else if is_tunnel {
-            crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_AUDIO
+            Some(
+                crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_AUDIO.to_string(),
+            )
         } else {
-            "WeaponFire"
+            self.objects
+                .get(&defense_id)
+                .and_then(|defense| defense.weapon_name_for_slot(slot))
+                .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
+                .filter(|sound| !sound.is_empty())
         };
-        self.queue_audio_event(
-            AudioEventRequest::new(audio)
-                .with_object(defense_id)
-                .with_position(muzzle_pos)
-                .with_priority(160),
-        );
+        if let Some(audio) = audio {
+            self.queue_audio_event(
+                AudioEventRequest::new(audio.as_str())
+                    .with_object(defense_id)
+                    .with_position(muzzle_pos)
+                    .with_priority(160),
+            );
+        }
 
         self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
 

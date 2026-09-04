@@ -37,17 +37,41 @@ fn load_fontdue_font(desc: &FontDesc) -> Option<fontdue::Font> {
     None
 }
 
-fn candidate_font_paths(name: &str) -> Vec<std::path::PathBuf> {
-    let mut paths = Vec::new();
-    let file_stem = name.replace(' ', "");
+/// Win32 `MulDiv(point, 96, 72)` — point size to pixel em height at 96 dpi.
+///
+/// C++ parity: `FontCharsClass::Create_GDI_Font` sizes the GDI font with
+/// `-MulDiv(PointSize, 96, 72)` (GeneralsMD/Code/Libraries/Source/WWVegas/
+/// WW3D2/render2dsentence.cpp:1491-1492, `const int dotsPerInch = 96; // always use 96.`).
+/// Arial-10 is a 13 px em, Arial-12 a 16 px em — never the bare point size.
+pub fn font_pixel_size(point_size: i32) -> i32 {
+    (point_size * 96 + 36) / 72
+}
+
+/// Concrete font files registered into the renderer's glyph atlas font
+/// database (C++ GDI resolved the family by name; these are the same files
+/// the measuring side prefers, so measure and raster share one face).
+pub fn font_atlas_files() -> Vec<std::path::PathBuf> {
     let names = [
-        format!("{}.ttf", name),
-        format!("{}.otf", name),
-        format!("{}.ttf", file_stem),
-        format!("{}.TTF", name),
-        format!("{} Bold.ttf", name),
+        "Arial.ttf",
+        "Arial Bold.ttf",
+        "arial.ttf",
+        "LiberationSans-Regular.ttf",
+        "LiberationSans-Bold.ttf",
+        "DejaVuSans.ttf",
+        "DejaVuSans-Bold.ttf",
     ];
-    let dirs = [
+    let dirs = candidate_font_dirs();
+    let mut files = Vec::new();
+    for dir in dirs {
+        for name in names {
+            files.push(dir.join(name));
+        }
+    }
+    files
+}
+
+fn candidate_font_dirs() -> Vec<std::path::PathBuf> {
+    [
         std::path::PathBuf::from("Data/English/Fonts"),
         std::path::PathBuf::from("Data/Fonts"),
         std::path::PathBuf::from("/System/Library/Fonts/Supplemental"),
@@ -56,18 +80,33 @@ fn candidate_font_paths(name: &str) -> Vec<std::path::PathBuf> {
         std::path::PathBuf::from("C:/Windows/Fonts"),
         std::path::PathBuf::from("/usr/share/fonts/truetype"),
         std::path::PathBuf::from("/usr/share/fonts"),
-    ];
-    for dir in dirs {
-        for file in &names {
-            paths.push(dir.join(file));
-        }
-        paths.push(dir.join("Arial.ttf"));
-        paths.push(dir.join("arial.ttf"));
-        paths.push(dir.join("LiberationSans-Regular.ttf"));
-        paths.push(dir.join("DejaVuSans.ttf"));
-    }
-    paths
+    ]
+    .into_iter()
+    .collect()
 }
+ 
+ fn candidate_font_paths(name: &str) -> Vec<std::path::PathBuf> {
+     let mut paths = Vec::new();
+     let file_stem = name.replace(' ', "");
+     let names = [
+         format!("{}.ttf", name),
+         format!("{}.otf", name),
+         format!("{}.ttf", file_stem),
+         format!("{}.TTF", name),
+         format!("{} Bold.ttf", name),
+     ];
+    let dirs = candidate_font_dirs();
+     for dir in dirs {
+         for file in &names {
+             paths.push(dir.join(file));
+         }
+         paths.push(dir.join("Arial.ttf"));
+         paths.push(dir.join("arial.ttf"));
+         paths.push(dir.join("LiberationSans-Regular.ttf"));
+         paths.push(dir.join("DejaVuSans.ttf"));
+     }
+     paths
+ }
 
 /// Font management errors
 #[derive(Error, Debug)]
@@ -174,27 +213,35 @@ pub struct DefaultFontData {
 impl DefaultFontData {
     pub fn new(desc: FontDesc) -> Self {
         let font = load_fontdue_font(&desc);
+        // C++ GDI renders point sizes at MulDiv(point, 96, 72) pixel em
+        // (render2dsentence.cpp:1492); every metric below is a pixel metric
+        // of that em, matching GetTextExtentPoint32/tmHeight behavior.
+        let px = font_pixel_size(desc.size) as f32;
         let mut metrics = FontMetrics::default();
-        metrics.height = desc.size;
         if let Some(loaded) = font.as_ref() {
-            if let Some(line) = loaded.horizontal_line_metrics(desc.size as f32) {
+            if let Some(line) = loaded.horizontal_line_metrics(px) {
                 metrics.ascent = line.ascent.round() as i32;
                 metrics.descent = line.descent.round() as i32;
                 metrics.line_gap = line.line_gap.round() as i32;
             }
-            let metrics_x = loaded.metrics('x', desc.size as f32);
+            let metrics_x = loaded.metrics('x', px);
             metrics.average_width = metrics_x.advance_width.round().max(1.0) as i32;
-            let metrics_m = loaded.metrics('M', desc.size as f32);
+            let metrics_m = loaded.metrics('M', px);
             metrics.max_width = metrics_m
                 .advance_width
                 .round()
                 .max(metrics.average_width as f32) as i32;
         } else {
-            metrics.ascent = (desc.size as f32 * 0.8) as i32;
-            metrics.descent = -(desc.size as f32 * 0.2) as i32;
-            metrics.average_width = (desc.size as f32 * 0.6) as i32;
-            metrics.max_width = desc.size;
+            metrics.ascent = (px * 0.9) as i32;
+            metrics.descent = -(px * 0.21) as i32;
+            metrics.average_width = (px * 0.6) as i32;
+            metrics.max_width = px as i32;
         }
+        // C++ `font->height = fontChar->Get_Char_Height()` = GDI tmHeight —
+        // the full ascent+descent cell (W3DGameFont.cpp:71,
+        // render2dsentence.cpp:1564). Line stacking also walks this cell
+        // (render2dsentence.cpp:1115, 574).
+        metrics.height = (metrics.ascent - metrics.descent).max(px as i32);
 
         Self {
             metrics,
@@ -203,7 +250,6 @@ impl DefaultFontData {
         }
     }
 }
-
 impl FontData for DefaultFontData {
     fn get_metrics(&self) -> FontMetrics {
         self.metrics.clone()
@@ -211,7 +257,7 @@ impl FontData for DefaultFontData {
 
     fn measure_text(&self, text: &str) -> i32 {
         if let Some(font) = self.font.as_ref() {
-            let px = self.desc.size as f32;
+            let px = font_pixel_size(self.desc.size) as f32;
             let width = text
                 .chars()
                 .map(|ch| font.metrics(ch, px).advance_width)
@@ -222,7 +268,9 @@ impl FontData for DefaultFontData {
     }
 
     fn get_line_height(&self) -> i32 {
-        self.metrics.height + self.metrics.line_gap
+        // C++ wrapped-line pitch is CharHeight (tmHeight) — render2dsentence
+        // advances rows by the cell, not by an external-leading-augmented pitch.
+        self.metrics.height
     }
 
     fn supports_char(&self, ch: char) -> bool {
@@ -237,7 +285,8 @@ impl FontData for DefaultFontData {
 pub struct GameFont {
     /// Font description
     pub desc: FontDesc,
-    /// Pixel height of the font (derived from point size)
+    /// Pixel height of the font (C++ `GameFont::height` = the glyph atlas'
+    /// `Get_Char_Height()` cell, W3DGameFont.cpp:71)
     pub height: i32,
     /// Platform-specific font data
     pub font_data: Box<dyn FontData>,
@@ -247,7 +296,9 @@ impl GameFont {
     /// Create a new GameFont with the specified description
     pub fn new(desc: FontDesc) -> Result<Self, FontError> {
         let font_data = Box::new(DefaultFontData::new(desc.clone()));
-        let height = desc.size;
+        // C++: `font->height = fontChar->Get_Char_Height()` (W3DGameFont.cpp:71)
+        // — the pixel cell height, not the point size.
+        let height = font_data.get_metrics().height;
 
         Ok(Self {
             desc,
@@ -527,13 +578,12 @@ impl FontLibrary {
 }
 
 /// Global font library instance
-static FONT_LIBRARY: std::sync::OnceLock<std::sync::Mutex<FontLibrary>> =
-    std::sync::OnceLock::new();
+static FONT_LIBRARY: std::sync::LazyLock<std::sync::Mutex<FontLibrary>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(FontLibrary::new()));
 
-/// Get the global font library instance
+
 pub fn get_font_library() -> std::sync::MutexGuard<'static, FontLibrary> {
-    let lock = FONT_LIBRARY.get_or_init(|| std::sync::Mutex::new(FontLibrary::new()));
-    lock.lock().unwrap_or_else(|e| e.into_inner())
+    FONT_LIBRARY.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]
@@ -561,7 +611,10 @@ mod tests {
         let desc = FontDesc::new("Times New Roman", 14, true);
         let font = GameFont::new(desc.clone()).unwrap();
         assert_eq!(font.desc, desc);
-        assert_eq!(font.height, 14);
+        // C++ GameFont::height = Get_Char_Height() pixel cell (W3DGameFont.cpp:71),
+        // always >= the MulDiv(point, 96, 72) pixel em.
+        assert_eq!(font.height, font.get_metrics().height);
+        assert!(font.height >= font_pixel_size(14));
     }
 
     #[test]
@@ -622,7 +675,7 @@ mod tests {
         let font = GameFont::new(desc).unwrap();
         let metrics = font.get_metrics();
 
-        assert_eq!(metrics.height, 16);
+        assert!(metrics.height >= font_pixel_size(16));
         assert!(metrics.ascent > 0);
         assert!(metrics.descent <= 0);
         assert!(metrics.average_width > 0);

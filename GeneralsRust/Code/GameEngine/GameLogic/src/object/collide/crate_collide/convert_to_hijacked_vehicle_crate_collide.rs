@@ -418,11 +418,15 @@ impl ConvertToHijackedVehicleCrateCollide {
                     .get_veterancy_level();
                 let highest_level = target_level.max(hijacker_level);
 
-                if let Ok(mut target_tracker_guard) = target_tracker.lock() {
-                    target_tracker_guard.set_veterancy_level(highest_level);
+                // C++ ConvertToHijackedVehicleCrateCollide.cpp:175-176 sets BOTH
+                // trackers via `setVeterancyLevel(highestLevel, FALSE)` — feedback
+                // off skips only anim+sound; the C++ tracker still fires
+                // Object::onVeterancyLevelChanged (ExperienceTracker.cpp:82-95).
+                if let Ok(mut hijacker_guard) = hijacker.write() {
+                    hijacker_guard.set_veterancy_level_with_side_effects(highest_level, false);
                 }
-                if let Ok(mut hijacker_tracker_guard) = hijacker_tracker.lock() {
-                    hijacker_tracker_guard.set_veterancy_level(highest_level);
+                if let Ok(mut target_guard) = other.write() {
+                    target_guard.set_veterancy_level_with_side_effects(highest_level, false);
                 }
             }
         }

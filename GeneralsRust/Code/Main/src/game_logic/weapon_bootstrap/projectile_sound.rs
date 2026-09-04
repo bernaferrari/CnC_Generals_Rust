@@ -177,6 +177,11 @@ pub fn host_allow_attack_garrisoned_for_weapon_name(name: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// C++ Weapon.h:678 `getFireSound()` resolves the WeaponTemplate's authored
+/// AudioEventRTS; an unknown/unauthored weapon has no FireSound, and
+/// AudioManager::addAudioEvent returns AHSV_NoSound for the empty name
+/// (GameAudio.cpp:384-386). So the no-weapon result is empty — never an
+/// invented generic token ("WeaponFire" is not a retail AudioEvent).
 pub fn host_fire_sound_for_unit_slot(
     template_name: &str,
     primary_weapon_name: Option<&str>,
@@ -191,13 +196,8 @@ pub fn host_fire_sound_for_unit_slot(
     } else {
         primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
     };
-    if let Some(n) = wname {
-        let s = host_fire_sound_for_weapon_name(n);
-        if !s.is_empty() {
-            return s;
-        }
-    }
-    "WeaponFire".to_string()
+    wname.map(host_fire_sound_for_weapon_name)
+        .unwrap_or_default()
 }
 
 pub(super) fn seed_fire_sound_for(name: &str) -> String {
@@ -252,6 +252,8 @@ pub(super) fn seed_fire_sound_for(name: &str) -> String {
     if n.contains("aurora") || n.contains("bomb") {
         return "BombDrop".into();
     }
-    // Generic residual — still better than empty for store seed.
-    "WeaponFire".into()
+    // No authored FireSound peel — C++ plays nothing (AHSV_NoSound,
+    // GameAudio.cpp:384-386); inventing a generic token only dead-ends as
+    // THE_AUDIO ERR(no-info).
+    String::new()
 }

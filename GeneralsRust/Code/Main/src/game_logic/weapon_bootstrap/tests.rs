@@ -741,8 +741,15 @@ fn fire_sound_for_seeded_weapons_residual() {
         0,
     );
     assert_eq!(unit, store);
+    // C++ Weapon.h:678 getFireSound resolves the template's authored
+    // AudioEventRTS; no weapon → no FireSound → AHSV_NoSound
+    // (GameAudio.cpp:384-386). Never an invented generic token.
     let fallback = host_fire_sound_for_unit_slot("UnknownUnitXYZ", None, None, 0);
-    assert_eq!(fallback, "WeaponFire");
+    assert!(fallback.is_empty(), "no-weapon must be silent, got {fallback}");
+    assert!(
+        host_fire_sound_for_weapon_name("UnknownWeaponXYZ").is_empty(),
+        "unknown store weapon must not invent a FireSound token"
+    );
 }
 
 #[test]

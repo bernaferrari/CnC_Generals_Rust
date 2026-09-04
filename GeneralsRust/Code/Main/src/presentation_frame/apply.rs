@@ -686,11 +686,18 @@ impl PresentationFrame {
                 PresentationEvent::ConstructionComplete { .. }
                 | PresentationEvent::UpgradeComplete { .. }
                 | PresentationEvent::ProductionComplete { .. } => None,
-                PresentationEvent::AttackTargeted { attacker, .. } => {
-                    Some(("WeaponFire", Some(*attacker)))
-                }
+                // C++ plays no SFX on an attack order (voice response only via
+                // pickAndPlayUnitVoiceResponse) and none per heal/damage HP
+                // write. Per-shot audio is the weapon's authored FireSound via
+                // FiringTracker::shotFired (FiringTracker.cpp:144-155); the
+                // only retail heal sound is CrateHeal via HealCrateCollide
+                // (HealCrateCollide.cpp:36-38, MiscAudio::m_crateHeal,
+                // SoundEffects.ini Limit=3). No "WeaponFire"/"UnitHeal"
+                // AudioEvent exists in retail data — mapping them here only
+                // dead-ended per frame as THE_AUDIO ERR(no-info) spam.
+                PresentationEvent::AttackTargeted { .. } => None,
                 PresentationEvent::DamageApplied { .. } => None,
-                PresentationEvent::HealApplied { target, .. } => Some(("UnitHeal", Some(*target))),
+                PresentationEvent::HealApplied { .. } => None,
                 // C++ Money::withdraw/deposit play MiscAudio; EconomyChanged is HUD only.
                 PresentationEvent::EconomyChanged { .. } => None,
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),

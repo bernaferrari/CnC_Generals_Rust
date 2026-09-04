@@ -27,6 +27,7 @@ impl<'a> CommandExecutor<'a> {
 
     pub(super) fn validate_build_location(&self, location: Vec3) -> bool {
         if !location.x.is_finite() || !location.z.is_finite() {
+            
             return false;
         }
         // Use loaded map world bounds when available (Lone Eagle bases can sit
@@ -38,7 +39,11 @@ impl<'a> CommandExecutor<'a> {
         let max_x = max.x.max(1000.0) + pad;
         let min_z = min.z.min(-1000.0) - pad;
         let max_z = max.z.max(1000.0) + pad;
-        location.x >= min_x && location.x <= max_x && location.z >= min_z && location.z <= max_z
+        let ok = location.x >= min_x
+            && location.x <= max_x
+            && location.z >= min_z
+            && location.z <= max_z;
+        ok
     }
 
     /// C++ `canEnterObject` legality mirror.  Dock uses the distinct

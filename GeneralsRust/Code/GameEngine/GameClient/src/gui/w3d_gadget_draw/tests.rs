@@ -656,24 +656,27 @@ fn w3d_main_menu_four_and_metal_bar_queue_commands_without_art() {
 }
 
 #[test]
-fn w3d_command_bar_background_draw_queues_hud_fallback() {
+fn w3d_command_bar_background_draw_ships_nothing_without_scheme() {
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(0, 460, 800, 140);
     super::w3d_command_bar_background_draw(&window, window.instance_data());
-    assert!(
-        super::shipped_ui_draw_command_count() > 0,
-        "control bar background must draw a HUD strip when scheme/art is missing"
+    assert_eq!(
+        super::shipped_ui_draw_command_count(),
+        0,
+        "C++ W3DControlBar.cpp:615-623 + ControlBarScheme.cpp:794-799: no scheme manager/marker \
+         or missing scheme image draws NOTHING — the bar must never paint a fallback strip"
     );
 }
 
 #[test]
-fn w3d_command_bar_foreground_draw_queues_hud_fallback() {
+fn w3d_command_bar_foreground_draw_ships_nothing_without_scheme() {
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(8, 595, 5, 5);
     super::w3d_command_bar_foreground_draw(&window, window.instance_data());
-    assert!(
-        super::shipped_ui_draw_command_count() > 0,
-        "tiny BackgroundMarker-sized window must still expand into a visible HUD strip"
+    assert_eq!(
+        super::shipped_ui_draw_command_count(),
+        0,
+        "C++ W3DControlBar.cpp:639-650: foreground scheme draw is silent without manager/marker"
     );
 }
 

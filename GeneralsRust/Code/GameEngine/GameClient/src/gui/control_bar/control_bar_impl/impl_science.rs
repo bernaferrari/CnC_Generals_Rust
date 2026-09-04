@@ -840,7 +840,21 @@ impl ControlBar {
             let _ = manager.load_scheme(side);
         }
         if let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() {
-            let _ = manager.write().set_active_scheme_for_side(side);
+            let mut manager = manager.write();
+            let _ = manager.set_active_scheme_for_side(side);
+            // C++ ControlBarScheme.cpp:1124-1125: m_multiplyer is
+            // display_size / scheme ScreenCreationRes, set at scheme select.
+            let (creation_w, creation_h) = manager
+                .get_active_scheme()
+                .map(|scheme| (scheme.screen_creation_res.x, scheme.screen_creation_res.y))
+                .unwrap_or((800, 600));
+            if creation_w > 0 && creation_h > 0 {
+                let (screen_w, screen_h) = leftover_display_size();
+                manager.set_multiplier(
+                    screen_w as f32 / creation_w as f32,
+                    screen_h as f32 / creation_h as f32,
+                );
+            }
         }
         self.apply_scheme_button_art();
     }

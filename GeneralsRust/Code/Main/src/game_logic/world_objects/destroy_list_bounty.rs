@@ -197,7 +197,30 @@ impl GameLogic {
                     .map(|o| o.status.destroyed || o.health.current <= 0.0)
                     .unwrap_or(false);
                 if lethal {
-                    self.mark_object_for_destruction(ev.object, None);
+                    // C++ ActiveBody::attemptDamage scores the kill when the
+                    // lethal health write lands: damager = findObjectByID(
+                    // damageInfo->in.m_sourceID) (ActiveBody.cpp:341), then
+                    // `damager->scoreTheKill(obj)` before `obj->onDie`
+                    // (ActiveBody.cpp:640-650). processDestroyList itself only
+                    // tears down (GameLogic.cpp:2445-2511) — unit XP must be
+                    // credited here, or damage-authority kills never promote.
+                    // The Wave-621 ready log carries no killer, so resolve the
+                    // killing blow's source from the victim's lastDamageInfo
+                    // residual (stamp_last_damage_cpp mirrors ActiveBody.cpp
+                    // :593-598). award_score_the_kill_experience is once-only
+                    // (kill_experience_awarded), so direct-fire kills that
+                    // already scored never double-award.
+                    let killer_id = self
+                        .objects
+                        .get(&ev.object)
+                        .and_then(|o| o.last_damage_source);
+                    let killer_team = killer_id
+                        .and_then(|kid| self.objects.get(&kid))
+                        .map(|k| k.team);
+                    if let Some(kid) = killer_id {
+                        self.award_score_the_kill_experience(kid, ev.object);
+                    }
+                    self.mark_object_for_destruction(ev.object, killer_team);
                 }
             }
         }
@@ -1833,5 +1856,92 @@ mod tests {
         logic.process_destroy_list();
         assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
         assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
+    }
+
+    /// Wave-621 kill-XP drain fixture: unit A kills unit B through the
+    /// damage-authority health channel. The lethal writeback enqueues
+    /// destruction with no killer attached, so process_destroy_list's
+    /// ready-log drain must resolve the killing blow's source from the
+    /// victim's lastDamageInfo residual and credit A (C++ scores in
+    /// ActiveBody::attemptDamage, ActiveBody.cpp:640-650, before onDie;
+    /// GameLogic::processDestroyList, GameLogic.cpp:2445-2511, only tears
+    /// down). Under authority-live, gain_experience routes the award into
+    /// host_experience_log (the GameWorld SetExperience channel).
+    #[test]
+    fn damage_authority_destroy_drain_awards_kill_experience() {
+        let mut logic = GameLogic::new();
+        logic.set_damage_authority(true);
+        assert!(crate::gameworld_shadow::gameworld_damage_authority_enabled());
+        let _couple = crate::gameworld_shadow::ShadowCoupleGuard::enter();
+        assert!(crate::gameworld_shadow::gameworld_damage_authority_live());
+
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        usa.alliance_team = 1;
+        logic.add_player(usa);
+        let mut gla = Player::new(2, Team::GLA, "GLA", true);
+        gla.alliance_team = 2;
+        logic.add_player(gla);
+
+        let mut tank = ThingTemplate::new("DrainXpTank");
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Score)
+            .set_health(10.0);
+        tank.build_cost.supplies = 500;
+        tank.experience_value = 25.0;
+        tank.experience_values = [25.0, 25.0, 25.0, 25.0];
+        tank.skill_point_values = [25, 25, 25, 25];
+        tank.is_trainable = true;
+        logic.templates.insert("DrainXpTank".into(), tank);
+
+        let killer = logic
+            .create_object("DrainXpTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("killer");
+        let victim = logic
+            .create_object("DrainXpTank", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("victim");
+
+        // Killing blow: host take_damage stamps last_damage_source and drives
+        // HP lethal; it never enqueues destruction — the ready-log channel owns
+        // that under damage authority.
+        let destroyed = {
+            let v = logic.host_object_mut(victim).expect("victim");
+            v.take_damage_from(1.0e9, Some(killer))
+        };
+        assert!(destroyed, "lethal blow must destroy the victim");
+        assert_eq!(
+            logic.host_object(victim).map(|o| o.last_damage_source),
+            Some(Some(killer)),
+            "killing blow source must be stamped for killer credit"
+        );
+
+        // GameWorld health writeback channel: lethal last-write records the
+        // destroy-ready event (writeback_health_to_host Wave-621 residual).
+        crate::game_logic::host_destroy_ready_log::clear();
+        crate::game_logic::host_experience_log::clear();
+        crate::game_logic::host_destroy_ready_log::record(victim, 0.0);
+
+        logic.process_destroy_list();
+
+        assert!(
+            logic.host_object(victim).is_none(),
+            "drained lethal writeback must destroy the victim"
+        );
+        let xp_events = crate::game_logic::host_experience_log::drain();
+        assert!(
+            xp_events
+                .iter()
+                .any(|e| e.object == killer && (e.points - 25.0).abs() < 1e-3),
+            "kill must award the victim's ExperienceValue through the drain, got {xp_events:?}"
+        );
+        assert_eq!(
+            logic.get_player(0).unwrap().statistics.units_destroyed,
+            1,
+            "drained kill must credit the killer team's score keeper"
+        );
+        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
+        assert!(
+            logic.get_player(0).unwrap().skill_points > 0,
+            "C++ scoreTheKill adds SkillPointValue for the killer's owner"
+        );
     }
 }

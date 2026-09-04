@@ -1740,6 +1740,45 @@ fn complete_events_do_not_invent_unit_ready_upgrade_building_sfx() {
         "invented complete SFX: {names:?}"
     );
 }
+#[test]
+fn heal_and_attack_writes_never_invent_heal_or_fire_sfx() {
+    // C++ plays no SFX per heal/damage HP write and none on an attack order:
+    // the only retail heal sound is CrateHeal via HealCrateCollide
+    // (HealCrateCollide.cpp:36-38, MiscAudio::m_crateHeal, dispatched by the
+    // crate pickup path), and per-shot audio is the weapon's authored
+    // FireSound via FiringTracker::shotFired (FiringTracker.cpp:144-155).
+    // Per-frame "UnitHeal" mapping used to queue x26k dead ERR(no-info)
+    // tokens in the windowed drive.
+    let mut snap = PresentationFrame::build_from_logic(&GameLogic::new(), 0);
+    snap.events.push(PresentationEvent::HealApplied {
+        target: ObjectId(1),
+        health: 50.0,
+    });
+    snap.events.push(PresentationEvent::HealApplied {
+        target: ObjectId(1),
+        health: 55.0,
+    });
+    snap.events.push(PresentationEvent::DamageApplied {
+        target: ObjectId(2),
+        amount: 5.0,
+        source: Some(ObjectId(1)),
+        destroyed: false,
+    });
+    snap.events.push(PresentationEvent::AttackTargeted {
+        attacker: ObjectId(1),
+        target: Some(ObjectId(2)),
+    });
+    let names: Vec<String> = snap
+        .collect_audio_events()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    assert!(
+        names.iter().all(|n| n != "UnitHeal" && n != "WeaponFire"),
+        "invented heal/fire SFX: {names:?}"
+    );
+}
+
 
 #[test]
 fn capture_building_button_uses_ready_and_in_use() {

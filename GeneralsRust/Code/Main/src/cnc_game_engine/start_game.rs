@@ -1622,6 +1622,7 @@ impl CnCGameEngine {
                     position: glam::Vec3::new(ov.centre.0, 0.0, ov.centre.1),
                     radius: ov.radius.max(1.0),
                     team_color: color,
+                    style: crate::graphics::selection_renderer::SelectionCircleStyle::Filled,
                 });
             }
         }
@@ -1640,6 +1641,7 @@ impl CnCGameEngine {
                     position: glam::Vec3::new(gp.x, 0.0, gp.z),
                     radius: GUARD_AREA_RADIUS,
                     team_color: [0.35, 0.75, 1.0, 0.35],
+                    style: crate::graphics::selection_renderer::SelectionCircleStyle::Filled,
                 });
             }
         }

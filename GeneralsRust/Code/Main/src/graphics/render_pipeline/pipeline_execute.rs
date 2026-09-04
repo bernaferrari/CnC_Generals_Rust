@@ -352,11 +352,19 @@ impl RenderPipeline {
                 });
                 game_client::display::view::with_tactical_view_ref(|view| view.filter_composite())
             };
-            let camera_fade = self
-                .presentation_frame
-                .as_ref()
-                .map(|frame| frame.camera_fade)
-                .unwrap_or_default();
+            // C++ W3DStatusCircle.cpp:284-287: the camera-fade overlay renders
+            // only when `isInGame() && getGameMode() != GAME_SHELL`. The shell
+            // menu must never blit the ScriptEngine's startup Multiply fade —
+            // ScriptEngine::newMap arms it (black) and it would black out the
+            // live shell-map world behind the main menu.
+            let camera_fade = if shell_scene {
+                crate::presentation_frame::PresentationCameraFade::default()
+            } else {
+                self.presentation_frame
+                    .as_ref()
+                    .map(|frame| frame.camera_fade)
+                    .unwrap_or_default()
+            };
             self.enqueue_post_frame_callback(move |gpu_frame| {
                 let dest = gpu_frame.color_view_arc();
                 let format = gpu_frame.color_format();

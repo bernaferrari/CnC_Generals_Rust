@@ -2064,7 +2064,95 @@ fn combat_fire_without_kill_still_spawns_muzzle_particle() {
 }
 
 #[test]
-fn combat_fire_queues_weapon_fire_audio_event() {
+fn combat_fire_queues_authored_fire_sound_audio_event() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    // C++ FiringTracker::shotFired plays the WeaponTemplate's authored
+    // FireSound (FiringTracker.cpp:144-155, Weapon.h:678). Bind a retail
+    // weapon name so the store resolves the authored event; the generic
+    // arm (no weapon name) must stay silent (AHSV_NoSound,
+    // GameAudio.cpp:384-386).
+    game_logic
+        .templates
+        .get_mut("TestTank")
+        .expect("TestTank template")
+        .set_primary_weapon_name(
+            crate::game_logic::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON,
+        );
+
+    let attacker_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let target_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("target");
+
+    {
+        let attacker = game_logic
+            .host_object_mut(attacker_id)
+            .expect("attacker exists");
+        attacker.attack_target(target_id);
+        attacker.weapon = Some(Weapon {
+            damage: 1.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: 0.0,
+            ..Weapon::default()
+        });
+    }
+
+    game_logic.frame = 30;
+    game_logic.queued_audio_events.clear();
+    game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
+
+    let expected_authored =
+        crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name(
+            crate::game_logic::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON,
+        );
+    assert!(
+        !expected_authored.is_empty(),
+        "TankHunter store must resolve an authored FireSound"
+    );
+    let fire_events: Vec<_> = game_logic
+        .queued_audio_events
+        .iter()
+        .filter(|e| e.event_type == expected_authored)
+        .collect();
+    assert!(
+        !fire_events.is_empty(),
+        "weapon fire must queue the authored FireSound {expected_authored:?}, got {:?}",
+        game_logic
+            .queued_audio_events
+            .iter()
+            .map(|e| e.event_type.as_str())
+            .collect::<Vec<_>>()
+    );
+    let fire = fire_events[0];
+    assert_eq!(fire.object_id, Some(attacker_id));
+    assert!(
+        fire.position.is_some(),
+        "weapon fire audio must be positional"
+    );
+    assert!(
+        fire.priority > 0,
+        "weapon fire audio priority must be non-zero"
+    );
+    assert!(
+        game_logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != "WeaponFire" && e.event_type != "UnitHeal"),
+        "invented generic tokens must never be queued, got {:?}",
+        game_logic
+            .queued_audio_events
+            .iter()
+            .map(|e| e.event_type.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn combat_fire_without_authored_fire_sound_queues_no_audio_token() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
 
@@ -2093,29 +2181,16 @@ fn combat_fire_queues_weapon_fire_audio_event() {
     game_logic.queued_audio_events.clear();
     game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
 
-    let fire_events: Vec<_> = game_logic
-        .queued_audio_events
-        .iter()
-        .filter(|e| e.event_type == "WeaponFire")
-        .collect();
+    // No weapon template name → no authored FireSound → C++ AHSV_NoSound
+    // (GameAudio.cpp:384-386): the shot must not queue any audio token.
     assert!(
-        !fire_events.is_empty(),
-        "weapon fire must queue WeaponFire audio request, got {:?}",
+        game_logic.queued_audio_events.is_empty(),
+        "unauthored weapon fire must be silent, got {:?}",
         game_logic
             .queued_audio_events
             .iter()
             .map(|e| e.event_type.as_str())
             .collect::<Vec<_>>()
-    );
-    let fire = fire_events[0];
-    assert_eq!(fire.object_id, Some(attacker_id));
-    assert!(
-        fire.position.is_some(),
-        "weapon fire audio must be positional"
-    );
-    assert!(
-        fire.priority > 0,
-        "weapon fire audio priority must be non-zero"
     );
 }
 
@@ -2226,12 +2301,19 @@ fn combat_kill_does_not_queue_invented_unit_die() {
     game_logic.queued_audio_events.clear();
     game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
 
+    // Kill path: fire audio (if the weapon resolves an authored FireSound)
+    // must use the authored token; invented generic tokens are forbidden.
     assert!(
         game_logic
             .queued_audio_events
             .iter()
-            .any(|e| e.event_type == "WeaponFire"),
-        "kill path still fires WeaponFire first"
+            .all(|e| e.event_type != "WeaponFire" && e.event_type != "UnitHeal"),
+        "kill path must not queue invented WeaponFire/UnitHeal tokens, got {:?}",
+        game_logic
+            .queued_audio_events
+            .iter()
+            .map(|e| e.event_type.as_str())
+            .collect::<Vec<_>>()
     );
 
     game_logic.process_destroy_list();

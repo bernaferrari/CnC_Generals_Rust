@@ -661,6 +661,19 @@ impl WindowManager {
                 }
                 "DiplomacySystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
+                        // GWM_CREATE is dispatched synchronously by
+                        // create_window_from_definition (layout_load.rs:266)
+                        // while DiplomacySystem::toggle_diplomacy still holds
+                        // the DiplomacyCallbacks write guard; re-acquiring it
+                        // here self-deadlocks the whole client thread. The
+                        // Create side effect (slot-table populate) runs in
+                        // show_layout on every show — C++ populates in
+                        // ShowDiplomacy via PopulateInGameDiplomacyPopup
+                        // (Diplomacy.cpp:247-248) — so Create only needs to
+                        // report handled.
+                        if msg == WindowMessage::Create {
+                            return WindowMsgHandled::Handled;
+                        }
                         let system = get_diplomacy_system();
                         let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_callbacks();
@@ -1101,6 +1114,17 @@ impl WindowManager {
                 }
                 "DiplomacyInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
+                        // ScriptCreate is routed synchronously to the root's
+                        // input callback while each child is created
+                        // (layout_load.rs:269-275) — i.e. while
+                        // DiplomacySystem::toggle_diplomacy still holds the
+                        // DiplomacyCallbacks write guard; re-acquiring it here
+                        // self-deadlocks. C++ DiplomacyInput ignores everything
+                        // except GWM_CHAR (Diplomacy.cpp:323-357), so creation
+                        // traffic falls straight through to widget handling.
+                        if msg == WindowMessage::ScriptCreate {
+                            return WindowMsgHandled::Ignored;
+                        }
                         let system = get_diplomacy_system();
                         let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_callbacks();

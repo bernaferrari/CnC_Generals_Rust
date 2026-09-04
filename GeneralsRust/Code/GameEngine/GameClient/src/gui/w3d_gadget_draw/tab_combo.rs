@@ -218,6 +218,12 @@ pub(super) fn draw_combobox_title(
     if let Some(title) = inst_data.display_text.as_ref() {
         let mut title = title.borrow_mut();
         title.set_text(text.to_string());
+        // C++ combo titles never wrap: W3DGadgetComboBoxDraw draws the title
+        // with a plain `title->draw(x + 1, y, ...)` (W3DComboBox.cpp:98) and
+        // nothing ever calls setWordWrap on the combo title display string.
+        // The shared display string must not inherit a wrap width from other
+        // gadget draws.
+        title.set_word_wrap(0);
         if let Some(font) = inst_data.font.as_ref() {
             title.set_font(font);
         }

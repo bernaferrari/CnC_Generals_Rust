@@ -324,32 +324,31 @@ fn rider_info_matches_template(
     false
 }
 
+/// C++ RiderChangeContain.cpp:225-231 (mount, bike ← rider) and :280-286
+/// (dismount, rider ← bike): `toTracker->setVeterancyLevel(level, FALSE)` then
+/// `fromTracker->setExperienceAndLevel(0, FALSE)`. `provideFeedback = FALSE`
+/// skips only the promotion anim + UnitPromoted sound — the C++ tracker still
+/// fires `Object::onVeterancyLevelChanged` internally (ExperienceTracker.cpp:82-95),
+/// so weapon-set flags, veterancy upgrade, body healthBonus/armor rescale run.
 fn transfer_veterancy(
-    from_tracker: Option<Arc<Mutex<crate::common::ExperienceTracker>>>,
-    to_tracker: Option<Arc<Mutex<crate::common::ExperienceTracker>>>,
+    from: &Arc<RwLock<Object>>,
+    to: &Arc<RwLock<Object>>,
 ) {
-    let (Some(from_tracker), Some(to_tracker)) = (from_tracker, to_tracker) else {
-        return;
-    };
-
-    let Some(level) = from_tracker
-        .lock()
+    let Some(level) = from
+        .read()
         .ok()
-        .map(|tracker| tracker.get_veterancy_level())
+        .map(|from_guard| from_guard.get_veterancy_level())
     else {
         return;
     };
 
-    if let Ok(mut to_guard) = to_tracker.lock() {
-        to_guard.set_veterancy_level(level);
+    if let Ok(mut to_guard) = to.write() {
+        to_guard.set_veterancy_level_with_side_effects(level, false);
     }
 
-    if let Ok(mut from_guard) = from_tracker.lock() {
-        let _ = from_guard.set_experience_and_level(
-            0,
-            &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-        );
-    };
+    if let Ok(mut from_guard) = from.write() {
+        from_guard.set_experience_and_level_with_side_effects(0, false);
+    }
 }
 
 #[cfg(test)]
@@ -997,6 +996,55 @@ mod tests {
 
         cleanup_objects(&[97008]);
     }
+    #[test]
+    fn rider_transfer_veterancy_fires_cpp_on_veterancy_level_changed() {
+        // C++ RiderChangeContain.cpp:225-231/:280-286 call
+        // setVeterancyLevel/setExperienceAndLevel on the trackers; the C++
+        // tracker fires Object::onVeterancyLevelChanged internally
+        // (ExperienceTracker.cpp:82-95), so the weapon-set flag follows the
+        // level even with provideFeedback=FALSE.
+        let _lock = crate::test_sync::lock();
+
+        let rider = owned_object("BikeRiderVet", 97021, 0);
+        let bike = owned_object("CombatBikeVet", 97022, 0);
+        let rider_tracker = Arc::new(std::sync::Mutex::new(
+            crate::common::ExperienceTracker::new(97021),
+        ));
+        let bike_tracker = Arc::new(std::sync::Mutex::new(
+            crate::common::ExperienceTracker::new(97022),
+        ));
+        rider_tracker
+            .lock()
+            .expect("rider tracker")
+            .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
+        rider.write().expect("rider write").experience_tracker =
+            Some(Arc::clone(&rider_tracker));
+        bike.write().expect("bike write").experience_tracker = Some(Arc::clone(&bike_tracker));
+
+        transfer_veterancy(&rider, &bike);
+
+        // Bike took the rider's level — weapon-set flag follows (side effect).
+        assert!(
+            bike.read().expect("bike read").test_weapon_set_flag(WeaponSetType::Veteran),
+            "C++ fires onVeterancyLevelChanged on mount: bike weapon set becomes Veteran"
+        );
+        assert_eq!(
+            bike_tracker.lock().expect("bike tracker").get_veterancy_level(),
+            crate::common::VeterancyLevel::Veteran
+        );
+        // Rider resets to Regular via setExperienceAndLevel(0, FALSE) — side
+        // effects clear the Veteran weapon-set flag on demotion too.
+        assert_eq!(
+            rider_tracker.lock().expect("rider tracker").get_veterancy_level(),
+            crate::common::VeterancyLevel::Regular
+        );
+        assert!(
+            !rider.read().expect("rider read").test_weapon_set_flag(WeaponSetType::Veteran),
+            "C++ setExperienceAndLevel fires onVeterancyLevelChanged on demotion"
+        );
+
+        cleanup_objects(&[97021, 97022]);
+    }
 }
 
 /// Rider change contain module - can transform contained units
@@ -1216,26 +1264,14 @@ impl RiderChangeContain {
             .get_template()
             .clone();
 
-        let rider_tracker = rider_guard_experience(&rider);
-        let owner_tracker = (if self.object_id == crate::common::INVALID_ID {
+        let owner_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|owner| {
-            owner
-                .read()
-                .ok()
-                .and_then(|owner_guard| owner_guard.get_experience_tracker())
         });
 
-        if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
+        if let Some(owner) = owner_arc.as_ref() {
             if let Ok(mut owner_guard) = owner.write() {
                 for rider_info in &self.module_data.riders {
                     if rider_info_matches_template(rider_info, rider_template.as_ref()) {
@@ -1265,13 +1301,16 @@ impl RiderChangeContain {
             }
         }
 
-        transfer_veterancy(rider_tracker, owner_tracker);
+        // C++ RiderChangeContain.cpp:228-230 — rider mounts: bike takes the
+        // rider's veterancy (feedback off), rider resets to Regular.
+        if let Some(owner_arc) = owner_arc.as_ref() {
+            transfer_veterancy(&rider, owner_arc);
+        }
         self.base
             .on_containing(rider.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
         self.containing = false;
         Ok(())
     }
-
     fn evacuate_existing_payload_via_owner_ai(&self) {
         // Wave 277: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
@@ -1490,18 +1529,11 @@ impl RiderChangeContain {
             .map_err(|_| "Rider lock poisoned")?
             .get_template()
             .clone();
-        let rider_tracker = rider_guard_experience(&rider);
-        let owner_tracker = (if self.object_id == crate::common::INVALID_ID {
+        let owner_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|owner| {
-            owner
-                .read()
-                .ok()
-                .and_then(|owner_guard| owner_guard.get_experience_tracker())
         });
         let mut transfer_to_rider = false;
 
@@ -1563,7 +1595,11 @@ impl RiderChangeContain {
             .unwrap_or(false);
 
         if transfer_to_rider && rider_has_controlling_player {
-            transfer_veterancy(owner_tracker, rider_tracker);
+            if let Some(owner_arc) = owner_arc.as_ref() {
+                // C++ RiderChangeContain.cpp:283-286 — rider dismounts: the rider
+                // takes the bike's veterancy (feedback off), bike resets to Regular.
+                transfer_veterancy(owner_arc, &rider);
+            }
         }
 
         Ok(())
@@ -1807,9 +1843,3 @@ impl ContainerInterface for RiderChangeContain {
     }
 }
 
-fn rider_guard_experience(
-    rider: &Arc<RwLock<Object>>,
-) -> Option<Arc<Mutex<crate::common::ExperienceTracker>>> {
-    let guard = rider.read().ok()?;
-    guard.get_experience_tracker()
-}

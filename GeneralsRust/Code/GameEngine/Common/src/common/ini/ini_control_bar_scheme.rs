@@ -747,7 +747,13 @@ pub struct ControlBarSchemeManager {
     active_scheme: Option<String>,
     background_marker_pos: ICoord2D,
     foreground_marker_pos: ICoord2D,
-    /// Multiplier for scheme image positions (screen_size / creation_res)
+    /// True once the init-time marker base position has been captured.
+    /// C++ ControlBar.cpp:1222-1225 captures at ControlBar::init when the
+    /// layout is final; the port's first draw can precede the final stage
+    /// placement, so the base latches after the marker position is stable.
+    marker_base_captured: bool,
+    last_marker_pos: ICoord2D,
+    marker_stable_count: u32,
     multiplier_x: f32,
     multiplier_y: f32,
 }
@@ -760,6 +766,9 @@ impl ControlBarSchemeManager {
             scheme_order: Vec::new(),
             active_scheme: None,
             background_marker_pos: ICoord2D { x: 0, y: 0 },
+            marker_base_captured: false,
+            last_marker_pos: ICoord2D { x: 0, y: 0 },
+            marker_stable_count: 0,
             foreground_marker_pos: ICoord2D { x: 0, y: 0 },
             multiplier_x: 1.0,
             multiplier_y: 1.0,
@@ -784,6 +793,40 @@ impl ControlBarSchemeManager {
     /// Get the foreground marker base position
     pub fn get_foreground_marker_pos(&self) -> ICoord2D {
         self.foreground_marker_pos
+    }
+
+    /// True once the init-time marker base position has been captured.
+    pub fn marker_base_captured(&self) -> bool {
+        self.marker_base_captured
+    }
+
+    /// Mark the init-time marker base position as captured.
+    pub fn mark_marker_base_captured(&mut self) {
+        self.marker_base_captured = true;
+    }
+
+    /// Observe one draw-time marker position and latch the scheme marker
+    /// base once the position is stable. C++ captures the marker screen
+    /// position once at ControlBar::init (ControlBar.cpp:1222-1225), when
+    /// the layout is final; the port's first draws can precede the final
+    /// stage placement, so the base latches on the first stable observation
+    /// window instead. The draw-time offset (currentScreenPos - base) keeps
+    /// working for genuine moves after the latch.
+    pub fn note_marker_observation(&mut self, x: i32, y: i32) {
+        if self.marker_base_captured {
+            return;
+        }
+        if self.last_marker_pos == (ICoord2D { x, y }) {
+            self.marker_stable_count += 1;
+            if self.marker_stable_count >= 3 {
+                self.background_marker_pos = ICoord2D { x, y };
+                self.foreground_marker_pos = ICoord2D { x, y };
+                self.marker_base_captured = true;
+            }
+        } else {
+            self.last_marker_pos = ICoord2D { x, y };
+            self.marker_stable_count = 0;
+        }
     }
 
     /// Draw the background layers at the given offset
@@ -972,6 +1015,9 @@ impl ControlBarSchemeManager {
         self.schemes.clear();
         self.scheme_order.clear();
         self.active_scheme = None;
+        self.marker_base_captured = false;
+        self.last_marker_pos = ICoord2D { x: 0, y: 0 };
+        self.marker_stable_count = 0;
     }
 
     /// Find the best scheme for a given resolution
@@ -1248,7 +1294,24 @@ fn parse_highlight_color(
     Ok(())
 }
 
+/// C++ ControlBarScheme `ScreenCreationRes` (ControlBarScheme.cpp field table):
+/// the resolution the scheme authored its coordinates at; the scheme-manager
+/// multiplier is screen_size / creation_res (ControlBarScheme.cpp:1124-1125).
+fn parse_screen_creation_res(
+    _ini: &mut INI,
+    scheme: &mut ControlBarScheme,
+    args: &[&str],
+) -> INIResult<()> {
+    let (x, y) = parse_icoord2d(args)?;
+    scheme.screen_creation_res = ICoord2D { x, y };
+    Ok(())
+}
+
 const CONTROL_BAR_SCHEME_FIELDS: &[FieldParse<ControlBarScheme>] = &[
+    FieldParse {
+        token: "ScreenCreationRes",
+        parse: parse_screen_creation_res,
+    },
     FieldParse {
         token: "ScreenWidth",
         parse: parse_screen_width,

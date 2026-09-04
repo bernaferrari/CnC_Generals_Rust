@@ -3021,21 +3021,28 @@ impl GameLogic {
                 }
 
                 // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest.
-                // Prefer Weapon.ini FireSound via store name; fallback "WeaponFire".
-                let fire_sound = {
-                    self.objects
-                        .get(&attacker_id)
-                        .and_then(|attacker| attacker.weapon_name_for_slot(slot))
-                        .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
-                        .filter(|sound| !sound.is_empty())
-                        .unwrap_or_else(|| "WeaponFire".to_string())
-                };
-                self.queue_audio_event(
-                    AudioEventRequest::new(fire_sound.as_str())
-                        .with_object(attacker_id)
-                        .with_position(muzzle_pos)
-                        .with_priority(160),
-                );
+                // C++ FiringTracker::shotFired plays `weaponFired->getFireSound()`
+                // (FiringTracker.cpp:144-155) — the WeaponTemplate's authored
+                // AudioEventRTS parsed from `FireSound` (Weapon.cpp:171,
+                // Weapon.h:678). AudioManager::addAudioEvent returns AHSV_NoSound
+                // for an empty event name (GameAudio.cpp:384-386): a weapon with
+                // no authored FireSound is silent. Never queue an invented
+                // generic token — no "WeaponFire" AudioEvent exists in retail
+                // SoundEffects.ini, so it can only dead-end as ERR(no-info).
+                let fire_sound = self
+                    .objects
+                    .get(&attacker_id)
+                    .and_then(|attacker| attacker.weapon_name_for_slot(slot))
+                    .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
+                    .filter(|sound| !sound.is_empty());
+                if let Some(fire_sound) = fire_sound {
+                    self.queue_audio_event(
+                        AudioEventRequest::new(fire_sound.as_str())
+                            .with_object(attacker_id)
+                            .with_position(muzzle_pos)
+                            .with_priority(160),
+                    );
+                }
 
                 // Capture weapon name before mut borrow for RETURN_TO_BASE peels.
                 let fire_wname = self

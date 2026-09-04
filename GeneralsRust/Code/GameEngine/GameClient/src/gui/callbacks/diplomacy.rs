@@ -10,6 +10,7 @@ use crate::gui::{
     WindowMsgData, WindowMsgHandled, WindowWidget, get_disconnect_menu, with_window_manager,
 };
 use crate::helpers::TheInGameUI;
+use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::with_recorder;
 use gamelogic::helpers::TheGameLogic;
@@ -151,9 +152,12 @@ impl DiplomacyCallbacks {
         }
     }
 
-    /// Toggle diplomacy screen visibility
+    /// Toggle diplomacy screen visibility. C++ ToggleDiplomacy begins with
+    /// HideQuitMenu() — bringing diplomacy up retires the quit menu first
+    /// (Diplomacy.cpp:301-304).
     pub fn toggle_diplomacy(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
         info!("Toggling diplomacy screen (immediate: {})", immediate);
+        super::quit_menu::hide_quit_menu();
         self.active = !self.active;
 
         if immediate {
@@ -399,7 +403,7 @@ impl DiplomacyCallbacks {
         Ok(())
     }
 
-    fn apply_visibility_change(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    fn apply_visibility_change(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
         if self.active {
             self.show_layout(immediate);
         } else {
@@ -410,19 +414,22 @@ impl DiplomacyCallbacks {
 
     /// Non-immediate show/hide. C++ ShowDiplomacy registers WIN_ANIMATION_SLIDE_TOP;
     /// HideDiplomacy reverses that animation once the last show has finished.
-    fn animate_visibility_change(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn animate_visibility_change(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.active {
             self.show_layout(false);
         } else {
-            let state_handle = diplomacy_ui_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            if state.animate_manager.is_finished() {
-                state.animate_manager.reverse_animate_window();
-            }
+            // C++ HideDiplomacy takes its immediate branch when
+            // `immediate || !TheGlobalData->m_animateWindows`
+            // (Diplomacy.cpp:286-290): winHide(TRUE) + winEnable(FALSE) now.
+            // The port's in-game AnimateWindowManager has no per-frame driver
+            // outside this tick, so a reverse slide cannot be guaranteed to
+            // complete — the retail NET end state (window hidden + disabled)
+            // is applied immediately on every hide.
+            self.hide_layout();
         }
         Ok(())
     }
-    fn show_layout(&self, immediate: bool) {
+    fn show_layout(&mut self, immediate: bool) {
         if !TheGameLogic::is_input_enabled()
             || TheGameLogic::is_intro_movie_playing()
             || TheGameLogic::is_loading_map()
@@ -443,8 +450,20 @@ impl DiplomacyCallbacks {
         let state_handle = diplomacy_ui_state();
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if state.layout.is_none() {
-            let layout =
-                with_window_manager(|manager| manager.create_layout("Diplomacy.wnd".to_string()));
+            // C++ ShowDiplomacy: TheWindowManager->winCreateLayout(
+            // "Diplomacy.wnd") parses Window/Diplomacy.wnd and creates every
+            // window in the live WM (Diplomacy.cpp:195-196, GameWindowManager-
+            // Script.cpp:2700-2703 prefixes a bare filename with "Window\\").
+            // winCreateLayout returns NULL on parse failure; fail closed the
+            // same way instead of caching an empty layout.
+            let Some(layout) = with_window_manager(|manager| {
+                manager
+                    .create_layout_with_windows("Diplomacy.wnd")
+                    .ok()
+                    .map(|(layout, _)| layout)
+            }) else {
+                return;
+            };
             state.window = layout.borrow().get_first_window();
             state.layout = Some(layout);
         }
@@ -496,7 +515,13 @@ impl DiplomacyCallbacks {
             self.replay_briefing_into_listbox();
         }
 
-        if !immediate {
+        // C++ ShowDiplomacy registers the WIN_ANIMATION_SLIDE_TOP only when
+        // TheGlobalData->m_animateWindows (Diplomacy.cpp:243-244); the tick
+        // comes from the layout update func (see tick_diplomacy_animation).
+        let animate_windows = get_global_data()
+            .map(|data| data.read().animate_windows)
+            .unwrap_or(true);
+        if !immediate && animate_windows {
             if let Some(window) = window {
                 state.animate_manager.reset();
                 state.animate_manager.register_window(
@@ -509,18 +534,26 @@ impl DiplomacyCallbacks {
             }
         }
 
+        // C++ ShowDiplomacy repopulates the slot table on every show
+        // (PopulateInGameDiplomacyPopup, Diplomacy.cpp:247-248).
+        self.refresh_from_player_list();
         for player_id in self.players.keys() {
             self.update_player_row(*player_id);
         }
     }
 
+
     fn hide_layout(&self) {
         let state_handle = diplomacy_ui_state();
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(window) = &state.window {
+            // C++ HideDiplomacy immediate: winHide(TRUE) + winEnable(FALSE)
+            // (Diplomacy.cpp:286-290).
             let _ = window.borrow_mut().hide(true);
+            let _ = window.borrow_mut().enable(false);
         }
     }
+
 
     fn refresh_from_player_list(&mut self) {
         let Ok(list) = ThePlayerList().read() else {
@@ -630,6 +663,34 @@ impl DiplomacyCallbacks {
         false
     }
 }
+    /// Per-frame tick of the live Diplomacy layout animation. C++ registers
+    /// this as the layout update func (`theLayout->setUpdate(updateFunc)`,
+    /// Diplomacy.cpp:197) and InGameUI::update runs it for every registered
+    /// window layout (InGameUI.cpp:1825-1829): advance the slide animation,
+    /// and once a reverse (hide) animation finishes, hide the window for real.
+    pub fn tick_diplomacy_animation() {
+        let animate_windows = get_global_data()
+            .map(|data| data.read().animate_windows)
+            .unwrap_or(true);
+        if !animate_windows {
+            return;
+        }
+        let state_handle = diplomacy_ui_state();
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        if state.window.is_none() {
+            return;
+        }
+        let was_finished = state.animate_manager.is_finished();
+        state.animate_manager.update();
+        if state.animate_manager.is_finished()
+            && !was_finished
+            && state.animate_manager.is_reversed()
+        {
+            if let Some(window) = &state.window {
+                let _ = window.borrow_mut().hide(true);
+            }
+        }
+    }
 
 impl Default for DiplomacyCallbacks {
     fn default() -> Self {

@@ -26,6 +26,7 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
+
 /// Command executor that processes game commands.
 ///
 /// Wave 955: host_object/host_objects authority dual-read seal (no presentation dual-read).
@@ -502,7 +503,12 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// C++ HintSpy.cpp:91-96 / InGameUI::createMoveHint (InGameUI.cpp:2141).
+    /// Attacks route to the attack-marker hook below (HintSpy.cpp:99-100).
     fn create_live_move_hint(&self, command: &GameCommand) {
+        if let CommandType::Attack { target_id } = &command.command_type {
+            self.create_live_attack_hint(*target_id, command);
+            return;
+        }
         let destination = match &command.command_type {
             CommandType::Move { destination }
             | CommandType::MoveTo { destination, .. }
@@ -530,6 +536,32 @@ impl<'a> CommandExecutor<'a> {
             game_client::helpers::TheInGameUI::create_move_hint(pos.clone(), pos, source_id);
         }
         let _ = destination;
+    }
+
+    /// Attack-order marker hook. C++ HintSpy.cpp:99-100 dispatches
+    /// MSG_DO_ATTACK_OBJECT to `InGameUI::createAttackHint`
+    /// (InGameUI.cpp:2176-2179); the retail body is intentionally empty —
+    /// ZH ships no attack marker — so storing a red hint here is a documented
+    /// host adaptation for issued-order feedback (right-HUD lane).
+    fn create_live_attack_hint(&self, target_id: ObjectId, command: &GameCommand) {
+        #[cfg(feature = "game_client")]
+        {
+            let Some(target) = self.game_logic.host_object(target_id) else {
+                return;
+            };
+            let position = target.get_position();
+            let source_id = command.selected_units.first().map(|id| id.0).unwrap_or(0);
+            let pos = game_client::message_stream::Coord3D::new(
+                position.x,
+                position.y,
+                position.z,
+            );
+            game_client::helpers::TheInGameUI::create_attack_hint(pos.clone(), pos, source_id);
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = (target_id, command);
+        }
     }
 
     /// C++ `DozerAIUpdate::aiDoCommand` / `WorkerAIUpdate::aiDoCommand`.

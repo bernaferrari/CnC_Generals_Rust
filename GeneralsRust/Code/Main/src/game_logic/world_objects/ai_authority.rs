@@ -572,7 +572,9 @@ impl GameLogic {
         use crate::game_logic::combat::{self, DamageType, PendingProjectile};
         use crate::game_logic::host_usa_pilot::HostDeathType;
 
-        // Presentation AttackTargeted residual (WeaponFire audio / dual-tick observe).
+        // Presentation AttackTargeted residual (HUD observe only — C++ plays no
+        // SFX on an attack order; per-shot audio is the authored FireSound via
+        // FiringTracker::shotFired).
         crate::game_logic::host_attack_log::record(attacker_id, Some(target_id));
 
         // Fire *decision* residual: under AI_DECISION_AUTHORITY, emit AttackTarget so
