@@ -104,32 +104,93 @@ impl WgpuPipelineManager {
         // Load WGSL based on shader flags and vertex format
         let device = self.gpu_device.wgpu_device();
 
-        let shader_source = match vertex_format {
-            VertexFormat::Line => include_str!("../shader_system/line.wgsl"),
-            VertexFormat::Skinned => include_str!("../shader_system/skinned.wgsl"),
+        let shader_source: std::borrow::Cow<'static, str> = match vertex_format {
+            VertexFormat::Line => include_str!("../shader_system/line.wgsl").into(),
+            VertexFormat::Skinned => include_str!("../shader_system/skinned.wgsl").into(),
             VertexFormat::ProjectedShroudSkinned => {
-                include_str!("../shader_system/projected_shroud_skinned.wgsl")
+                include_str!("../shader_system/projected_shroud_skinned.wgsl").into()
             }
             VertexFormat::Basic => {
                 if shader.get_src_blend_func() == SrcBlendFuncType::SrcAlpha
                     && shader.get_dst_blend_func() == DstBlendFuncType::InvSrcAlpha
                 {
-                    include_str!("../shader_system/alpha.wgsl")
+                    include_str!("../shader_system/alpha.wgsl").into()
                 } else if shader.get_src_blend_func() == SrcBlendFuncType::One
                     && shader.get_dst_blend_func() == DstBlendFuncType::One
                 {
-                    include_str!("../shader_system/additive.wgsl")
+                    include_str!("../shader_system/additive.wgsl").into()
                 } else if shader.get_depth_compare() == DepthCompareType::Always
                     && shader.get_depth_mask() == DepthMaskType::Disable
                 {
-                    include_str!("../shader_system/decal.wgsl")
+                    include_str!("../shader_system/decal.wgsl").into()
                 } else {
-                    include_str!("../shader_system/opaque.wgsl")
+                    include_str!("../shader_system/opaque.wgsl").into()
                 }
             }
             VertexFormat::ProjectedShroudBasic => {
-                include_str!("../shader_system/projected_shroud_basic.wgsl")
+                include_str!("../shader_system/projected_shroud_basic.wgsl").into()
             }
+        };
+        // UTBNOALPHATEST (documented diagnostic, GENERALS_UTBNOALPHATEST=1):
+        // zero the alpha-test reference in every shader module so the
+        // `final_alpha < alpha_threshold` discard in alpha.wgsl can never
+        // fire. Bodies appearing with this set indict the alpha-test path
+        // (C++ W3D only applies alpha test when shader bit20 is set).
+        let shader_source = if std::env::var("GENERALS_UTBNOALPHATEST").as_deref() == Ok("1") {
+            std::borrow::Cow::Owned(shader_source.replacen("96.0 / 255.0", "0.0", 1))
+        } else {
+            shader_source
+        };
+        // UTBCLIP (documented diagnostic, GENERALS_UTBCLIP=1): instrument
+        // vs_main to dump every vertex's fetched position and computed clip
+        // position into the group-7 illumination storage buffer, flipped to
+        // read/write for the probe. Entries are guarded by arrayLength so
+        // draws bound with the normal (short) color buffers never write.
+        // Read back by UTBCLIP's drain in render_manager; inert without env.
+        let shader_source = if utb_clip() {
+            let flipped = shader_source.replace(
+                "var<storage, read> vertex_illumination_colors: array<vec4<f32>>;",
+                "var<storage, read_write> vertex_illumination_colors: array<vec4<f32>>;",
+            );
+            // Inject the dump only where vs_main names its parameter `vertex`
+            // (rigid Basic shaders). The skinned shader's vs_main is
+            // `input`/`output` and must stay untouched.
+            let instrumented = if flipped.contains("vertex.position") {
+                flipped.replacen(
+                    "    let diffuse_color = read_diffuse_color(vertex_index);",
+                    concat!(
+                        "    let utb_dump_base = vertex_index * 2u;\n",
+                        "    let utb_dump_len = arrayLength(&vertex_illumination_colors);\n",
+                        "    if utb_dump_base + 1u < utb_dump_len {\n",
+                        "        let utb_world = model.model * vec4<f32>(vertex.position, 1.0);\n",
+                        "        let utb_clip_pos = camera.view_proj * utb_world;\n",
+                        "        vertex_illumination_colors[utb_dump_base] = vec4<f32>(vertex.position, 0.0);\n",
+                        "        vertex_illumination_colors[utb_dump_base + 1u] = utb_clip_pos;\n",
+                        "    }\n",
+                        "    let diffuse_color = read_diffuse_color(vertex_index);",
+                    ),
+                    1,
+                )
+            } else {
+                flipped
+            };
+            std::borrow::Cow::Owned(instrumented)
+        } else {
+            shader_source
+        };
+        // UTBFSMAG (documented diagnostic, GENERALS_UTBFSMAG=1): force every
+        // opaque/alpha-lane fragment to return solid magenta with alpha 1.0,
+        // bypassing the whole color/alpha computation. Magenta at body
+        // locations indicts the fragment color/alpha math; no magenta at all
+        // indicts rasterization state (cull/depth/blend/scissor).
+        let shader_source = if std::env::var("GENERALS_UTBFSMAG").as_deref() == Ok("1") {
+            std::borrow::Cow::Owned(shader_source.replacen(
+                "    // Apply fog-of-war visibility effects",
+                "    return vec4<f32>(1.0, 0.0, 1.0, 1.0);\n    // Apply fog-of-war visibility effects",
+                1,
+            ))
+        } else {
+            shader_source
         };
 
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -347,7 +408,11 @@ impl WgpuPipelineManager {
                             binding: 1,
                             visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                // UTBCLIP (GENERALS_UTBCLIP=1): the instrumented
+                                // vs_main writes the clip dump through this slot.
+                                ty: wgpu::BufferBindingType::Storage {
+                                    read_only: !utb_clip(),
+                                },
                                 has_dynamic_offset: false,
                                 min_binding_size: None,
                             },
@@ -1084,8 +1149,6 @@ fn create_blend_state_from_shader(shader: &ShaderClass) -> wgpu::BlendState {
     let src = match src_func {
         SrcBlendFuncType::Zero => wgpu::BlendFactor::Zero,
         SrcBlendFuncType::One => wgpu::BlendFactor::One,
-        SrcBlendFuncType::SrcColor => wgpu::BlendFactor::Src,
-        SrcBlendFuncType::InvSrcColor => wgpu::BlendFactor::OneMinusSrc,
         SrcBlendFuncType::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
         SrcBlendFuncType::InvSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
         _ => {
@@ -1103,10 +1166,6 @@ fn create_blend_state_from_shader(shader: &ShaderClass) -> wgpu::BlendState {
         DstBlendFuncType::InvSrcColor => wgpu::BlendFactor::OneMinusSrc,
         DstBlendFuncType::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
         DstBlendFuncType::InvSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
-        DstBlendFuncType::DstAlpha => wgpu::BlendFactor::DstAlpha,
-        DstBlendFuncType::InvDstAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
-        DstBlendFuncType::DstColor => wgpu::BlendFactor::Dst,
-        DstBlendFuncType::InvDstColor => wgpu::BlendFactor::OneMinusDst,
         _ => {
             // Fallback for invalid values
             log::warn!("Invalid destination blend function, defaulting to Zero");
@@ -1117,7 +1176,11 @@ fn create_blend_state_from_shader(shader: &ShaderClass) -> wgpu::BlendState {
     // Check if blending should be enabled
     // Reference: shader.cpp lines 455-463
     // "if(sf != D3DBLEND_ONE || df != D3DBLEND_ZERO) { blendOn = TRUE; }"
-    let blend_enabled = src != wgpu::BlendFactor::One || dst != wgpu::BlendFactor::Zero;
+    // UTBNOBLEND (documented diagnostic, GENERALS_UTBNOBLEND=1): treat every
+    // shader as opaque (REPLACE) so blending can never zero out or pass
+    // through the destination. Bodies appearing indict the blend factors.
+    let blend_enabled = (src != wgpu::BlendFactor::One || dst != wgpu::BlendFactor::Zero)
+        && std::env::var("GENERALS_UTBNOBLEND").as_deref() != Ok("1");
 
     if !blend_enabled {
         // Opaque rendering: use REPLACE blend mode
@@ -1173,6 +1236,15 @@ fn disc_cull_none() -> bool {
     static DISC: std::sync::LazyLock<bool> =
         std::sync::LazyLock::new(|| std::env::var("GENERALS_DISC_CULL").as_deref() == Ok("1"));
     *DISC
+}
+
+/// UTBCLIP (documented diagnostic, GENERALS_UTBCLIP=1): read once per
+/// process. Gates the vs_main clip-position dump instrumentation and the
+/// read/write group-7 illumination slot it writes through.
+fn utb_clip() -> bool {
+    static UTB: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var("GENERALS_UTBCLIP").as_deref() == Ok("1"));
+    *UTB
 }
 
 fn create_depth_stencil_state_from_shader(

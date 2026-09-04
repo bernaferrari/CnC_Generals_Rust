@@ -37,19 +37,17 @@ fn test_opaque_blend_state() {
 /// - SRCBLEND_SRC_ALPHA = 2
 /// - SRCBLEND_ONE_MINUS_SRC_ALPHA = 3
 ///
-/// The Rust SrcBlendFuncType enum incorrectly has 6 values, but only the first 4 are valid.
-/// Values 4 (SrcAlpha) and 5 (InvSrcAlpha) will be truncated to 0 (Zero) and 1 (One).
+/// C++ GeneralsMD shader.h: SRCBLEND_ZERO=0, ONE=1, SRC_ALPHA=2, ONE_MINUS_SRC_ALPHA=3
+/// (2-bit field). Alpha blend is authored as (SRC_ALPHA, ONE_MINUS_SRC_ALPHA).
 #[test]
 fn test_alpha_blend_state() {
     let mut shader = ShaderClass::new();
 
-    // Test the valid 2-bit source blend values
-    // In the C++ code: SRCBLEND_SRC_ALPHA = 2
-    shader.set_src_blend_func(SrcBlendFuncType::SrcColor); // This maps to index 2
+    shader.set_src_blend_func(SrcBlendFuncType::SrcAlpha);
     shader.set_dst_blend_func(DstBlendFuncType::InvSrcAlpha);
 
     // Verify round-trip
-    assert_eq!(shader.get_src_blend_func(), SrcBlendFuncType::SrcColor);
+    assert_eq!(shader.get_src_blend_func(), SrcBlendFuncType::SrcAlpha);
     assert_eq!(shader.get_dst_blend_func(), DstBlendFuncType::InvSrcAlpha);
 }
 
@@ -107,14 +105,11 @@ fn test_screen_blend_state() {
 #[test]
 fn test_all_src_blend_functions() {
     let test_cases = vec![
-        (SrcBlendFuncType::One, "One"),
         (SrcBlendFuncType::Zero, "Zero"),
-        (SrcBlendFuncType::SrcColor, "SrcColor"),
-        (SrcBlendFuncType::InvSrcColor, "InvSrcColor"),
+        (SrcBlendFuncType::One, "One"),
         (SrcBlendFuncType::SrcAlpha, "SrcAlpha"),
         (SrcBlendFuncType::InvSrcAlpha, "InvSrcAlpha"),
     ];
-
     for (src_blend, name) in test_cases {
         let mut shader = ShaderClass::new();
         shader.set_src_blend_func(src_blend);
@@ -138,10 +133,6 @@ fn test_all_dst_blend_functions() {
         DstBlendFuncType::InvSrcColor,
         DstBlendFuncType::SrcAlpha,
         DstBlendFuncType::InvSrcAlpha,
-        DstBlendFuncType::DstAlpha,
-        DstBlendFuncType::InvDstAlpha,
-        DstBlendFuncType::DstColor,
-        DstBlendFuncType::InvDstColor,
     ];
 
     for dst_blend in test_cases {

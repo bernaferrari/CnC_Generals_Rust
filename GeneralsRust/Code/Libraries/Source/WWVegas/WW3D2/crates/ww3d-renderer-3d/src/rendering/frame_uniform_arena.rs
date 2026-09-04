@@ -61,7 +61,11 @@ impl FrameUniformArena {
             size: capacity,
             usage: wgpu::BufferUsages::UNIFORM
                 | wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_DST,
+                | wgpu::BufferUsages::COPY_DST
+                // COPY_SRC: the UTBARENAREAD diagnostic (GENERALS_UTBARENAREAD=1)
+                // copies executed uniform slices back to the CPU; cost is nil
+                // otherwise.
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         }));
         FrameUniformPage {

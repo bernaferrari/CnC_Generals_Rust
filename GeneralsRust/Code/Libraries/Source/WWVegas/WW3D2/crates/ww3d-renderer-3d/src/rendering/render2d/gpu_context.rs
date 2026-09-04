@@ -418,8 +418,6 @@ fn map_src_factor(src: u8) -> wgpu::BlendFactor {
     match src {
         x if x == SrcBlendFuncType::One as u8 => wgpu::BlendFactor::One,
         x if x == SrcBlendFuncType::Zero as u8 => wgpu::BlendFactor::Zero,
-        x if x == SrcBlendFuncType::SrcColor as u8 => wgpu::BlendFactor::Src,
-        x if x == SrcBlendFuncType::InvSrcColor as u8 => wgpu::BlendFactor::OneMinusSrc,
         x if x == SrcBlendFuncType::SrcAlpha as u8 => wgpu::BlendFactor::SrcAlpha,
         x if x == SrcBlendFuncType::InvSrcAlpha as u8 => wgpu::BlendFactor::OneMinusSrcAlpha,
         _ => wgpu::BlendFactor::One,
@@ -434,10 +432,6 @@ fn map_dst_factor(dst: u8) -> wgpu::BlendFactor {
         x if x == DstBlendFuncType::InvSrcColor as u8 => wgpu::BlendFactor::OneMinusSrc,
         x if x == DstBlendFuncType::SrcAlpha as u8 => wgpu::BlendFactor::SrcAlpha,
         x if x == DstBlendFuncType::InvSrcAlpha as u8 => wgpu::BlendFactor::OneMinusSrcAlpha,
-        x if x == DstBlendFuncType::DstAlpha as u8 => wgpu::BlendFactor::DstAlpha,
-        x if x == DstBlendFuncType::InvDstAlpha as u8 => wgpu::BlendFactor::OneMinusDstAlpha,
-        x if x == DstBlendFuncType::DstColor as u8 => wgpu::BlendFactor::Dst,
-        x if x == DstBlendFuncType::InvDstColor as u8 => wgpu::BlendFactor::OneMinusDst,
         _ => wgpu::BlendFactor::Zero,
     }
 }

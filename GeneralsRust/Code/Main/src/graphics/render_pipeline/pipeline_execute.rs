@@ -505,6 +505,105 @@ impl RenderPipeline {
                     Ok(())
                 });
             }
+            // UTBPIX (documented diagnostic, GENERALS_UTBPIX=1, one-shot):
+            // read the PREVIOUS frame's final COLOR attachment (plus depth)
+            // at the projected unit/body pixels — CC interior around (320,300),
+            // dozer blob around (260,272), a visible light-glow shard at
+            // (165,100) as calibration — to split "fragments never rasterize"
+            // from "fragments rasterize but blend to nothing". Pixel mapping
+            // identical to ZPROBE: px=(ndc.x*0.5+0.5)*W, py=(0.5-ndc.y*0.5)*H.
+            static UTBPIX_DONE: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            static UTBPIX_ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+                std::env::var("GENERALS_UTBPIX").as_deref() == Ok("1")
+            });
+            if *UTBPIX_ENABLED
+                && render_world_scene
+                && !shell_scene
+                && !self.render_items.is_empty()
+                && !UTBPIX_DONE.swap(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                self.enqueue_post_frame_callback(move |gpu_frame| {
+                    let color_texture = gpu_frame.color_texture_arc();
+                    let size = color_texture.size();
+                    let (w, h) = (size.width, size.height);
+                    let bytes_per_row = (w * 4).div_ceil(256) * 256;
+                    let device = gpu_frame.device_arc();
+                    let queue = gpu_frame.queue_arc();
+                    let color_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("UTBPIX color readback"),
+                        size: bytes_per_row as u64 * h as u64,
+                        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                        mapped_at_creation: false,
+                    });
+                    let mut encoder = device.create_command_encoder(
+                        &wgpu::CommandEncoderDescriptor { label: Some("UTBPIX copy") },
+                    );
+                    encoder.copy_texture_to_buffer(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &color_texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyBufferInfo {
+                            buffer: &color_buffer,
+                            layout: wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(bytes_per_row),
+                                rows_per_image: Some(h),
+                            },
+                        },
+                        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                    );
+                    queue.submit(Some(encoder.finish()));
+                    let slice = color_buffer.slice(..);
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    slice.map_async(wgpu::MapMode::Read, move |result| {
+                        let _ = tx.send(result);
+                    });
+                    let _ = device.poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: None,
+                    });
+                    if rx.recv_timeout(std::time::Duration::from_secs(5)).is_err() {
+                        warn!("UTBPIX color map timed out");
+                        return Ok(());
+                    }
+                    let data = slice.get_mapped_range();
+                    let read = |px: i32, py: i32| -> [u8; 4] {
+                        let px = px.clamp(0, w as i32 - 1) as usize;
+                        let py = py.clamp(0, h as i32 - 1) as usize;
+                        let off = py * bytes_per_row as usize + px * 4;
+                        [data[off], data[off + 1], data[off + 2], data[off + 3]]
+                    };
+                    let mut line = String::from("UTBPIX color readback (previous frame):");
+                    for (px, py, tag) in [
+                        (320, 300, "cc-interior"),
+                        (320, 360, "cc-lower"),
+                        (280, 330, "cc-left"),
+                        (350, 280, "cc-upper"),
+                        (260, 272, "dozer"),
+                        (165, 100, "shard-calibration"),
+                        (5, 5, "corner-tl"),
+                    ] {
+                        let c = read(px, py);
+                        line.push_str(&format!(
+                            "\n  {} ({},{}) rgba={:02x}{:02x}{:02x}{:02x}",
+                            tag, px, py, c[0], c[1], c[2], c[3]
+                        ));
+                    }
+                    line.push_str("\n  row300 profile:");
+                    for px in (240..400).step_by(16) {
+                        let c = read(px, 300);
+                        line.push_str(&format!(" {:02x}{:02x}{:02x}", c[0], c[1], c[2]));
+                    }
+                    drop(data);
+                    color_buffer.unmap();
+                    warn!("{}", line);
+                    Ok(())
+                });
+            }
         }
         #[cfg(feature = "game_client")]
         {

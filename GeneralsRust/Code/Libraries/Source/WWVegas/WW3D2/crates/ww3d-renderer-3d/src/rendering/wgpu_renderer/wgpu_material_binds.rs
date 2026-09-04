@@ -15,6 +15,9 @@ use ww3d_gpu::device::GpuDevice;
 pub struct CameraBinds {
     pub buffer: Arc<wgpu::Buffer>,
     pub bind_group: Arc<wgpu::BindGroup>,
+    /// UTBARENAREAD diagnostic: the arena slice this bind group targets.
+    pub offset: u64,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +25,9 @@ pub struct ModelBinds {
     pub model_buffer: Arc<wgpu::Buffer>,
     pub lighting_buffer: Arc<wgpu::Buffer>,
     pub bind_group: Arc<wgpu::BindGroup>,
+    /// UTBARENAREAD diagnostic: the model-uniform arena slice.
+    pub model_offset: u64,
+    pub model_size: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +172,8 @@ impl WgpuMaterialBinds {
         Ok(CameraBinds {
             buffer: Arc::clone(&slice.buffer),
             bind_group: Arc::new(bind_group),
+            offset: slice.offset,
+            size: slice.size,
         })
     }
 
@@ -272,6 +280,8 @@ impl WgpuMaterialBinds {
             model_buffer: Arc::clone(&model_slice.buffer),
             lighting_buffer: Arc::clone(&lighting_slice.buffer),
             bind_group: Arc::new(bind_group),
+            model_offset: model_slice.offset,
+            model_size: model_slice.size,
         })
     }
 

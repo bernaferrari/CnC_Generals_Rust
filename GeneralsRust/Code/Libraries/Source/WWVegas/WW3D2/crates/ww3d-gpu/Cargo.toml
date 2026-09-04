@@ -7,6 +7,10 @@ description = "WW3D GPU Abstraction Layer - Cross-platform graphics API wrapper"
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }
 wgpu = { workspace = true }
+# UTBTRACE diagnostic (GENERALS_UTBTRACE=<dir>): pulls the `trace` feature
+# into the unified wgpu-core build, which unlocks `wgpu::Trace::Directory`
+# so the live frame's API stream can be recorded. No cost without the env.
+wgpu-core = { workspace = true }
 winit = { version = "0.30", optional = true }
 raw-window-handle = "0.6"
 bytemuck = { version = "1.24", features = ["derive"] }
