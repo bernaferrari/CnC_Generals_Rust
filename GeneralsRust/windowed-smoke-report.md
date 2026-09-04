@@ -2649,7 +2649,7 @@ Artifacts: /tmp/wsmoke/utbbisect_{clipdump2,clipdump3,fsmag1,cullnone1,allkill1,
 
 ---
 
-## VisualGap2 — fresh full-state visual gap inventory on the blend-fix binary + 3 fixes landed (2026-09-04 03:30-05:00)
+## VisualGap2 — fresh full-state visual gap inventory on the blend-fix binary + 4 fixes landed (2026-09-04 03:30-05:00)
 
 ### Method
 HEAD 98bb6b20f release binary (built 03:27). Single windowed drive
@@ -2753,8 +2753,43 @@ REGRESSED/CONTRADICTED claim:
    (static text, main menu, push button, power, progress, hud, command bar)
    render their honest slate fallback instead of the sentinel red.
 
-Verification drive for 1+2: `/tmp/wsmoke/vg2verify.sh` (results appended below
-once driven).
+**Verification (2 drives on rebuilt release binaries, `/tmp/wsmoke/vg2verify.sh`,
+log `/tmp/wsmoke/vg2verify.log`, captures `vg2v_*.png`)**:
+
+4. **QuitMenu hide no-op (found on drive 1)**: ButtonReturn resumed the world
+   (`paused=false`, `winit_click_named_ok:QuitMenu.wnd:ButtonReturn` — children
+   now HIT-TESTABLE, was `miss`) but the panel STAYED PAINTED: the hide branch
+   only runs `transition_reverse("QuitFullBack")` and this host has no such
+   WindowTransitions group, so reverse was a no-op. Fix: `quit_menu.rs` hide
+   branch now forces the net retail end state with
+   `layout.borrow().hide(true)` after the reverse. Drive 2 VERIFIED:
+   `vg2v_esc_after_return.png` shows the menu gone, world + control bar clean.
+
+Drive-2 verification results (all fresh captures):
+- `vg2v_esc_quitmenu.png`: full retail QuitMenu over the live world
+  (SAVE/LOAD, OPTIONS, RESTART MISSION, EXIT MISSION, RETURN TO GAME; C++
+  QuitMenu.wnd button set parity), paused=true while open.
+- `vg2v_esc_after_return.png`: menu fully hidden, match resumed (paused=false).
+- `vg2v_skirmish_options.png`: Starting-Cash label NO LONGER RED — honest slate
+  label + black combo (fix 3 verified visually; rest of the screen unchanged,
+  medals/rows/SELECT MAP render).
+- `vg2v_diplomacy.png` + log: `open_diplomacy` mid-match now reports
+  `diplomacy_ok_wnd` and state STAYS `InGame` (no shell strand; save/quickload
+  drain `save_ok:quicksave` afterward — the save/load leg of the chain is
+  reachable again). REMAINING GAP (downgraded P1→P2): the Diplomacy TABLE
+  itself still does not paint. Traced: `DiplomacySystem::toggle_diplomacy`
+  → `show_layout` creates `Diplomacy.wnd` (exists at
+  `WindowZH/Window/Diplomacy.wnd`), unhides the root + SoloParent (non-MP
+  branch), but nothing reaches the frame — next wave: verify the layout-create
+  actually binds windows in the live WM (root/child authored-HIDDEN flags vs
+  the unhide set) and whether `create_layout("Diplomacy.wnd")` resolution
+  matches the Menus/-prefixed resolver convention used elsewhere.
+
+Net this pass: ESC menu (show+hide) FIXED and verified; diplomacy match-stranding
+FIXED and verified; placeholder-red fills FIXED and verified; diplomacy table
+paint = documented P2 for the next wave. Guards: residual test pins re-checked
+by grep (`source_scan_tests` "open_diplomacy"/"diplomacy_ok";
+`host_quit_menu_residual_wave123` cmd names) — unchanged and satisfied.
 
 ### Fresh gap inventory (severity-tagged; coordinates 640x480 actual)
 
@@ -2769,7 +2804,7 @@ once driven).
 | G7 | P2 | skirmish map preview absent; "Static Text"/"Entry" literals; slider thumb invisible | vg2_skirmish_options.png |
 | G8 | P2 | skybox assets missing (TSMorning* WARNs) | child stderr |
 | G9 | P2 | shell-map menu background absent | vg2_menu.png, vg2_sp_flyout.png |
-| G10 | P2 | red placeholder fills (Starting-Cash label) | FIXED this pass; re-verify |
+| G10 | P2 | red placeholder fills (Starting-Cash label) | FIXED + verified (`vg2v_skirmish_options.png`: slate label, no red) |
 | G11 | P3 | "HUD" literal bottom-left; faint terrain tile lattice; two unidentified slate rects above bar right (~515-575, 345-370); ProductionQueue empty cells dark-maroon; menu minors (GreenDot/Clock/posters/EarthMap/CHALLENGE label) | vg2_crop_*.png |
 
 Escaped P1s (ESC menu + diplomacy) have fixes 1+2 above; G4 (pause) is the
