@@ -633,7 +633,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let emissive_scale = overrides.z;
     let alpha_scale = clamp(alpha_override * pass_alpha_override, 0.0, 1.0);
     let alpha_threshold = BASE_ALPHA_REF * alpha_override;
-    let mut final_alpha = clamp(layers.alpha * alpha_scale, 0.0, 1.0);
+    let final_alpha = clamp(layers.alpha * alpha_scale, 0.0, 1.0);
 
     // Alpha testing for decals - discard transparent pixels
     if final_alpha < alpha_threshold {

@@ -670,6 +670,11 @@ impl RenderFrame {
         Arc::clone(&self.color_view)
     }
 
+    /// Clone the copy-src color target for CPU readback (UTBPIX diagnostic).
+    pub fn color_texture_arc(&self) -> Arc<wgpu::Texture> {
+        Arc::new(self.color_texture.clone())
+    }
+
     /// Fetch the depth view when depth is enabled.
     pub fn depth_view(&self) -> Option<&wgpu::TextureView> {
         self.depth_view.as_deref()

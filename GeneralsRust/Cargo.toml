@@ -127,6 +127,7 @@ egui-winit = "0.33.2"
 eframe = "0.33.2"
 winit = "0.29"
 wgpu = "27.0.1"
+wgpu-core = { version = "27.0.3", features = ["trace"] }
 bytemuck = { version = "1.24", features = ["derive"] }
 three-d = "0.16"
 image = "0.24"

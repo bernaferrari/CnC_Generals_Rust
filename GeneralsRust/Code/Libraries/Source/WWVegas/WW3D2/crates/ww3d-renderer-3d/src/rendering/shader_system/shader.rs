@@ -77,28 +77,28 @@ pub const SORT_LEVEL_BIN3: u32 = 10;
 pub const SHIFT_DEPTHCOMPARE: u32 = 0; // 3 bits
 pub const SHIFT_DEPTHMASK: u32 = 3; // 1 bit
 pub const SHIFT_COLORMASK: u32 = 4; // 1 bit
-pub const SHIFT_DSTBLEND: u32 = 5; // 4 bits
-pub const SHIFT_FOG: u32 = 9; // 2 bits
-pub const SHIFT_PRIGRADIENT: u32 = 11; // 2 bits
-pub const SHIFT_SECGRADIENT: u32 = 13; // 2 bits
-pub const SHIFT_SRCBLEND: u32 = 15; // 3 bits
-pub const SHIFT_TEXTURING: u32 = 18; // 1 bit
-pub const SHIFT_NPATCHENABLE: u32 = 19; // 1 bit (reserved; not yet used by shade_const)
-pub const SHIFT_ALPHATEST: u32 = 20; // 1 bit
-pub const SHIFT_CULLMODE: u32 = 21; // 1 bit
-pub const SHIFT_POSTDETAILCOLORFUNC: u32 = 22; // 4 bits
-pub const SHIFT_POSTDETAILALPHAFUNC: u32 = 26; // 2 bits
+pub const SHIFT_DSTBLEND: u32 = 5; // 3 bits
+pub const SHIFT_FOG: u32 = 8; // 2 bits
+pub const SHIFT_PRIGRADIENT: u32 = 10; // 3 bits
+pub const SHIFT_SECGRADIENT: u32 = 13; // 1 bit
+pub const SHIFT_SRCBLEND: u32 = 14; // 2 bits
+pub const SHIFT_TEXTURING: u32 = 16; // 1 bit
+pub const SHIFT_NPATCHENABLE: u32 = 17; // 1 bit
+pub const SHIFT_ALPHATEST: u32 = 18; // 1 bit
+pub const SHIFT_CULLMODE: u32 = 19; // 1 bit
+pub const SHIFT_POSTDETAILCOLORFUNC: u32 = 20; // 4 bits
+pub const SHIFT_POSTDETAILALPHAFUNC: u32 = 24; // 3 bits
 
 // Bit masks for shader state categories (from C++ shader.cpp)
 // These allow differential state application - only update changed categories
 pub const MASK_DEPTHCOMPARE: u32 = ((1 << 3) - 1) << SHIFT_DEPTHCOMPARE;
 pub const MASK_DEPTHMASK: u32 = ((1 << 1) - 1) << SHIFT_DEPTHMASK;
 pub const MASK_COLORMASK: u32 = ((1 << 1) - 1) << SHIFT_COLORMASK;
-pub const MASK_DSTBLEND: u32 = ((1 << 4) - 1) << SHIFT_DSTBLEND;
+pub const MASK_DSTBLEND: u32 = ((1 << 3) - 1) << SHIFT_DSTBLEND;
 pub const MASK_FOG: u32 = ((1 << 2) - 1) << SHIFT_FOG;
-pub const MASK_PRIGRADIENT: u32 = ((1 << 2) - 1) << SHIFT_PRIGRADIENT;
-pub const MASK_SECGRADIENT: u32 = ((1 << 2) - 1) << SHIFT_SECGRADIENT;
-pub const MASK_SRCBLEND: u32 = ((1 << 3) - 1) << SHIFT_SRCBLEND;
+pub const MASK_PRIGRADIENT: u32 = ((1 << 3) - 1) << SHIFT_PRIGRADIENT;
+pub const MASK_SECGRADIENT: u32 = ((1 << 1) - 1) << SHIFT_SECGRADIENT;
+pub const MASK_SRCBLEND: u32 = ((1 << 2) - 1) << SHIFT_SRCBLEND;
 pub const MASK_TEXTURING: u32 = ((1 << 1) - 1) << SHIFT_TEXTURING;
 pub const MASK_NPATCHENABLE: u32 = ((1 << 1) - 1) << SHIFT_NPATCHENABLE;
 pub const MASK_ALPHATEST: u32 = ((1 << 1) - 1) << SHIFT_ALPHATEST;
@@ -387,29 +387,24 @@ pub enum DetailColorFuncType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SrcBlendFuncType {
-    One = 0,     // source pixel (default)
-    Zero,        // zero
-    SrcColor,    // source color
-    InvSrcColor, // inverse source color
-    SrcAlpha,    // source alpha
-    InvSrcAlpha, // inverse source alpha
-    Max,         // end of enumeration
+    Zero = 0,        // SRCBLEND_ZERO: fragment not added to color buffer
+    One = 1,         // SRCBLEND_ONE: fragment added unmodified (default)
+    SrcAlpha = 2,    // SRCBLEND_SRC_ALPHA: fragment RGB multiplied by fragment A
+    InvSrcAlpha = 3, // SRCBLEND_ONE_MINUS_SRC_ALPHA: fragment RGB multiplied by inverse A
+    Max,             // end of enumeration
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DstBlendFuncType {
-    One = 0,     // source pixel (default)
-    Zero,        // zero
-    SrcColor,    // source color
-    InvSrcColor, // inverse source color
-    SrcAlpha,    // source alpha
-    InvSrcAlpha, // inverse source alpha
-    DstAlpha,    // destination alpha
-    InvDstAlpha, // inverse destination alpha
-    DstColor,    // destination color
-    InvDstColor, // inverse destination color
-    Max,         // end of enumeration
+    Zero = 0,        // DSTBLEND_ZERO: destination pixel doesn't affect blending (default)
+    One = 1,         // DSTBLEND_ONE: destination pixel added unmodified
+    SrcColor = 2,    // DSTBLEND_SRC_COLOR: destination multiplied by fragment RGB
+    InvSrcColor = 3, // DSTBLEND_ONE_MINUS_SRC_COLOR: destination multiplied by inverse fragment RGB
+    SrcAlpha = 4,    // DSTBLEND_SRC_ALPHA: destination multiplied by fragment alpha
+    InvSrcAlpha = 5, // DSTBLEND_ONE_MINUS_SRC_ALPHA: destination multiplied by inverse fragment alpha
+    Max,             // end of enumeration
 }
+
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CullModeType {
@@ -420,17 +415,19 @@ pub enum CullModeType {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PriGradientType {
-    Disable = 0, // disable primary gradient
-    Modulate,    // modulate primary gradient
-    Add,         // add primary gradient
-    Max,         // end of enumeration
+    Disable = 0,            // GRADIENT_DISABLE
+    Modulate = 1,           // GRADIENT_MODULATE (default)
+    Add = 2,                // GRADIENT_ADD
+    BumpEnvMap = 3,         // GRADIENT_BUMPENVMAP
+    BumpEnvMapLuminance = 4, // GRADIENT_BUMPENVMAPLUMINANCE
+    Modulate2x = 5,         // GRADIENT_MODULATE2X
+    Max,                    // end of enumeration
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SecGradientType {
-    Disable = 0, // disable secondary gradient
-    Modulate,    // modulate secondary gradient
-    Add,         // add secondary gradient
+    Disable = 0, // SECONDARY_GRADIENT_DISABLE (default)
+    Enable = 1,  // SECONDARY_GRADIENT_ENABLE
     Max,         // end of enumeration
 }
 
@@ -653,11 +650,10 @@ impl ShaderClass {
             (SrcBlendFuncType::SrcAlpha, DstBlendFuncType::One)
             | (SrcBlendFuncType::One, DstBlendFuncType::One) => MaterialBlendMode::Additive,
             (SrcBlendFuncType::One, DstBlendFuncType::InvSrcAlpha) => MaterialBlendMode::Decal,
-            // Multiply blend: Src * Dst (darken effect) - SrcColor * DstColor
-            (SrcBlendFuncType::SrcColor, DstBlendFuncType::Zero) => MaterialBlendMode::Multiply,
-            // Screen blend: 1 - (1-Src) * (1-Dst) (lighten effect) - One, InvSrcColor or InvDstColor
-            (SrcBlendFuncType::One, DstBlendFuncType::InvSrcColor)
-            | (SrcBlendFuncType::InvSrcColor, DstBlendFuncType::One) => MaterialBlendMode::Screen,
+            // Multiply blend: fragment * destination (darken effect)
+            (SrcBlendFuncType::Zero, DstBlendFuncType::SrcColor) => MaterialBlendMode::Multiply,
+            // Screen blend: 1 - (1-Src) * (1-Dst) (lighten effect)
+            (SrcBlendFuncType::One, DstBlendFuncType::InvSrcColor) => MaterialBlendMode::Screen,
             _ => MaterialBlendMode::Opaque,
         }
     }
@@ -1200,8 +1196,6 @@ impl ShaderClass {
         match self.get_src_blend_func() {
             SrcBlendFuncType::Zero => wgpu::BlendFactor::Zero,
             SrcBlendFuncType::One => wgpu::BlendFactor::One,
-            SrcBlendFuncType::SrcColor => wgpu::BlendFactor::Src,
-            SrcBlendFuncType::InvSrcColor => wgpu::BlendFactor::OneMinusSrc,
             SrcBlendFuncType::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
             SrcBlendFuncType::InvSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
             _ => wgpu::BlendFactor::One,
@@ -1217,10 +1211,6 @@ impl ShaderClass {
             DstBlendFuncType::InvSrcColor => wgpu::BlendFactor::OneMinusSrc,
             DstBlendFuncType::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
             DstBlendFuncType::InvSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
-            DstBlendFuncType::DstAlpha => wgpu::BlendFactor::DstAlpha,
-            DstBlendFuncType::InvDstAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
-            DstBlendFuncType::DstColor => wgpu::BlendFactor::Dst,
-            DstBlendFuncType::InvDstColor => wgpu::BlendFactor::OneMinusDst,
             _ => wgpu::BlendFactor::Zero,
         }
     }
@@ -1294,47 +1284,40 @@ impl ShaderClass {
         self.bits = (self.bits & mask) | ((value as u32) << SHIFT_COLORMASK);
     }
 
-    /// Get destination blend setting
     pub fn get_dst_blend_func(&self) -> DstBlendFuncType {
-        let value = (self.bits >> SHIFT_DSTBLEND) & ((1 << 4) - 1);
+        let value = (self.bits >> SHIFT_DSTBLEND) & ((1 << 3) - 1);
         match value {
-            0 => DstBlendFuncType::One,
-            1 => DstBlendFuncType::Zero,
+            0 => DstBlendFuncType::Zero,
+            1 => DstBlendFuncType::One,
             2 => DstBlendFuncType::SrcColor,
             3 => DstBlendFuncType::InvSrcColor,
             4 => DstBlendFuncType::SrcAlpha,
             5 => DstBlendFuncType::InvSrcAlpha,
-            6 => DstBlendFuncType::DstAlpha,
-            7 => DstBlendFuncType::InvDstAlpha,
-            8 => DstBlendFuncType::DstColor,
-            9 => DstBlendFuncType::InvDstColor,
-            _ => DstBlendFuncType::Max,
+            _ => DstBlendFuncType::Zero,
         }
     }
 
     /// Set destination blend setting
     pub fn set_dst_blend_func(&mut self, value: DstBlendFuncType) {
-        let mask = !(((1 << 4) - 1) << SHIFT_DSTBLEND);
+        let mask = !(((1 << 3) - 1) << SHIFT_DSTBLEND);
         self.bits = (self.bits & mask) | ((value as u32) << SHIFT_DSTBLEND);
     }
 
     /// Get source blend setting
     pub fn get_src_blend_func(&self) -> SrcBlendFuncType {
-        let value = (self.bits >> SHIFT_SRCBLEND) & ((1 << 3) - 1); // 3 bits for 6 values
+        let value = (self.bits >> SHIFT_SRCBLEND) & ((1 << 2) - 1);
         match value {
-            0 => SrcBlendFuncType::One,
-            1 => SrcBlendFuncType::Zero,
-            2 => SrcBlendFuncType::SrcColor,
-            3 => SrcBlendFuncType::InvSrcColor,
-            4 => SrcBlendFuncType::SrcAlpha,
-            5 => SrcBlendFuncType::InvSrcAlpha,
-            _ => SrcBlendFuncType::Max,
+            0 => SrcBlendFuncType::Zero,
+            1 => SrcBlendFuncType::One,
+            2 => SrcBlendFuncType::SrcAlpha,
+            3 => SrcBlendFuncType::InvSrcAlpha,
+            _ => SrcBlendFuncType::One,
         }
     }
 
     /// Set source blend setting
     pub fn set_src_blend_func(&mut self, value: SrcBlendFuncType) {
-        let mask = !(((1 << 3) - 1) << SHIFT_SRCBLEND); // 3 bits for 6 values
+        let mask = !(((1 << 2) - 1) << SHIFT_SRCBLEND);
         self.bits = (self.bits & mask) | ((value as u32) << SHIFT_SRCBLEND);
     }
 
@@ -1358,35 +1341,36 @@ impl ShaderClass {
 
     /// Get primary gradient setting
     pub fn get_pri_gradient(&self) -> PriGradientType {
-        let value = (self.bits >> SHIFT_PRIGRADIENT) & ((1 << 2) - 1);
+        let value = (self.bits >> SHIFT_PRIGRADIENT) & ((1 << 3) - 1);
         match value {
             0 => PriGradientType::Disable,
             1 => PriGradientType::Modulate,
             2 => PriGradientType::Add,
-            _ => PriGradientType::Max,
+            3 => PriGradientType::BumpEnvMap,
+            4 => PriGradientType::BumpEnvMapLuminance,
+            5 => PriGradientType::Modulate2x,
+            _ => PriGradientType::Modulate,
         }
     }
 
     /// Set primary gradient setting
     pub fn set_pri_gradient(&mut self, value: PriGradientType) {
-        let mask = !(((1 << 2) - 1) << SHIFT_PRIGRADIENT);
+        let mask = !(((1 << 3) - 1) << SHIFT_PRIGRADIENT);
         self.bits = (self.bits & mask) | ((value as u32) << SHIFT_PRIGRADIENT);
     }
 
     /// Get secondary gradient setting
     pub fn get_sec_gradient(&self) -> SecGradientType {
-        let value = (self.bits >> SHIFT_SECGRADIENT) & ((1 << 2) - 1);
+        let value = (self.bits >> SHIFT_SECGRADIENT) & ((1 << 1) - 1);
         match value {
             0 => SecGradientType::Disable,
-            1 => SecGradientType::Modulate,
-            2 => SecGradientType::Add,
-            _ => SecGradientType::Max,
+            _ => SecGradientType::Enable,
         }
     }
 
     /// Set secondary gradient setting
     pub fn set_sec_gradient(&mut self, value: SecGradientType) {
-        let mask = !(((1 << 2) - 1) << SHIFT_SECGRADIENT);
+        let mask = !(((1 << 1) - 1) << SHIFT_SECGRADIENT);
         self.bits = (self.bits & mask) | ((value as u32) << SHIFT_SECGRADIENT);
     }
 
@@ -1550,12 +1534,10 @@ impl ShaderClass {
 
     // Convenience methods for render2d compatibility
     pub fn set_src_blend(&mut self, blend_value: u32) {
-        // Convert DirectX8 blend constants to our enum types
+        // Convert DirectX8 blend constants to our enum types (D3DBLEND values)
         let blend_func = match blend_value {
             1 => SrcBlendFuncType::Zero,
             2 => SrcBlendFuncType::One,
-            3 => SrcBlendFuncType::SrcColor,
-            4 => SrcBlendFuncType::InvSrcColor,
             5 => SrcBlendFuncType::SrcAlpha,
             6 => SrcBlendFuncType::InvSrcAlpha,
             _ => SrcBlendFuncType::One,
@@ -1564,7 +1546,7 @@ impl ShaderClass {
     }
 
     pub fn set_dest_blend(&mut self, blend_value: u32) {
-        // Convert DirectX8 blend constants to our enum types
+        // Convert DirectX8 blend constants to our enum types (D3DBLEND values)
         let blend_func = match blend_value {
             1 => DstBlendFuncType::Zero,
             2 => DstBlendFuncType::One,
@@ -1572,10 +1554,6 @@ impl ShaderClass {
             4 => DstBlendFuncType::InvSrcColor,
             5 => DstBlendFuncType::SrcAlpha,
             6 => DstBlendFuncType::InvSrcAlpha,
-            7 => DstBlendFuncType::DstAlpha,
-            8 => DstBlendFuncType::InvDstAlpha,
-            9 => DstBlendFuncType::DstColor,
-            10 => DstBlendFuncType::InvDstColor,
             _ => DstBlendFuncType::Zero,
         };
         self.set_dst_blend_func(blend_func);
@@ -1638,12 +1616,9 @@ impl ShaderClass {
         }
 
         // Screen (lighten blend)
-        if (self.get_src_blend_func() == SrcBlendFuncType::One
-            && self.get_dst_blend_func() == DstBlendFuncType::InvDstColor)
-            || (self.get_src_blend_func() == SrcBlendFuncType::One
-                && self.get_dst_blend_func() == DstBlendFuncType::InvSrcColor)
-            || (self.get_src_blend_func() == SrcBlendFuncType::InvSrcColor
-                && self.get_dst_blend_func() == DstBlendFuncType::One)
+        if self.get_src_blend_func() == SrcBlendFuncType::One
+            && (self.get_dst_blend_func() == DstBlendFuncType::InvSrcColor
+                || self.get_dst_blend_func() == DstBlendFuncType::InvSrcAlpha)
         {
             return StaticSortCategoryType::Screen;
         }
@@ -2538,7 +2513,7 @@ mod tests {
         shader.set_depth_compare(DepthCompareType::Always);
         shader.set_depth_mask(DepthMaskType::Disable);
         shader.set_cull_mode(CullModeType::Disable);
-        shader.set_sec_gradient(SecGradientType::Add);
+        shader.set_sec_gradient(SecGradientType::Enable);
         shader.set_npatch_enable(NPatchType::Enable);
 
         assert!(shader.apply_differential());

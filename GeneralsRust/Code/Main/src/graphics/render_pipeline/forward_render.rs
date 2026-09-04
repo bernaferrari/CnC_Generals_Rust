@@ -655,6 +655,36 @@ impl ForwardPass {
             self.camera
                 .set_viewport(glam::Vec2::new(0.0, 0.0), glam::Vec2::new(1.0, frac));
             renderer.set_camera(self.camera.clone());
+            // UTBTERRVP (GENERALS_UTBVP=1, once): dump the terrain-lane
+            // view/projection next to the just-installed ww3d camera's cached
+            // view-projection; the two must agree numerically or the mesh lane
+            // is drawing through a different transform than the terrain.
+            static UTBTERRVP_DONE: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if std::env::var("GENERALS_UTBVP").as_deref() == Ok("1")
+                && !UTBTERRVP_DONE.swap(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                let tv = view_matrix.to_cols_array();
+                let tp = projection_matrix.to_cols_array();
+                let cvp = self.camera.get_cached_view_projection_matrix().to_cols_array();
+                let terr_vp = (*projection_matrix * *view_matrix).to_cols_array();
+                log::warn!(
+                    "UTBTERRVP view=[{:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4}]",
+                    tv[0], tv[1], tv[2], tv[3], tv[4], tv[5], tv[6], tv[7],
+                    tv[8], tv[9], tv[10], tv[11], tv[12], tv[13], tv[14], tv[15],
+                );
+                log::warn!(
+                    "UTBTERRVP proj=[{:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4}]",
+                    tp[0], tp[1], tp[2], tp[3], tp[4], tp[5], tp[6], tp[7],
+                    tp[8], tp[9], tp[10], tp[11], tp[12], tp[13], tp[14], tp[15],
+                );
+                log::warn!(
+                    "UTBTERRVP terr_vp0=({:.4},{:.4},{:.4},{:.4}) cam_vp0=({:.4},{:.4},{:.4},{:.4}) vp_row3=({:.4},{:.4},{:.4},{:.4})",
+                    terr_vp[0], terr_vp[1], terr_vp[2], terr_vp[3],
+                    cvp[0], cvp[1], cvp[2], cvp[3],
+                    cvp[12], cvp[13], cvp[14], cvp[15],
+                );
+            }
             renderer.set_light_environment(Self::build_light_environment(lighting));
             renderer.set_projected_shroud(projected_shroud_binding);
             Self::log_visibility_probe(

@@ -2549,3 +2549,100 @@ Remaining candidate space (narrow, next driver): (a) mesh-lane camera view-proje
 render_manager.rs (ww3d-renderer-3d): UTBMESHNULL, UTBPASSTINT+UTBRANGE, UTBDRAWLOG/UTBDRAWSKIP(+deep dump; also feeds «shroud» caller marker), UTBVERTS, UTBMESHVIS, UTBNODEPTH. particle_renderer.rs (game-client-rust): UTBDECALTAG. terrain_visual/impl_gpu.rs: UTBEXTRABLENDNULL. Prior lanes' UTBLIGHT/UTBUVCENTER/UTBMAT/UTBOVERLAYTAG/UTBSHADOWTAG also still in-tree. `cargo check -p ww3d-renderer-3d --lib` and `-p game-client-rust --lib` clean after each edit; guard strings (frozen_fow_* tests, ww3d tests.rs draw_material_pass contract) untouched.
 NOTE for drivers: `target/release/generals` (19:4x) is MINE and carries ALL probes; Main-pipeline lanes (CmdSetFix) must rebuild for their own verification. Guards at hand-off (EngineStores2, independent): combat 965/966 (chinook residual, pre-existing), gameworld_shadow 304/304, world_tests 8/8.
 Artifacts: /tmp/wsmoke/utbdrive5-13.sh, utb5..utb13_* captures + stderr logs; key captures: utb5_utbdisc1 (shards present), utb6_utbmeshnull1 (shards gone), utb9_utbworld1 (shards gone + world dump), utb12_utbtwosided1 (units still gone).
+
+---
+
+## UnitBodyFix — 3-suspect discrimination COMPLETE: VP/indices/viewport/frame-target ALL EXONERATED; failure isolated to GPU-side execution of body draws; headless lane repro PASSES (2026-09-03 20:00-24:00)
+
+Method: 7 windowed 640x480 drives (utbdrive14-19 + reruns → /tmp/wsmoke/utb14..utb19_*_{dozer.png,stderr.log}) against release binaries carrying NEW env-gated probes: UTBVP (project mesh world pos through the exact uploaded VP at bind time + transform basis + transformed-bbox NDC extents), UTBIDX (index-buffer CONTENT stats), UTBVPVPORT (mesh-pass viewport/scissor, change-latched), UTBTERRVP (terrain-lane VP rows at install), UTBPIX (frame color-texture readback — proved wrong target, all-zero), UTBMAT re-keyed per texture (mesh.name is empty live, old key latched after one draw), UTBNONIDX (bodies drawn non-indexed), UTBVREAD (buffer usage flags staged for GPU buffer readback, readback call NOT yet wired).
+
+### Verdicts on the 3 handed-down suspects (all measured, none indicted)
+- (a) VP CONTENT: EXONERATED. UTBVP: CC body (ATHQSlab, world 3068,0,2241.3) ndc=(0.000,-0.584,0.984) clipw=582; dozer parts ndc≈(-0.24..-0.09,-0.23..-0.06) — on-screen. VP rows identical to the terrain lane's (UTBTERRVP terr_vp0==cam_vp0=-2.1445...). Visible shards render at their exact projected pixels (PNG sample (110,70)=white matches Lightbeam bbox px153-176/rows75-125 cluster).
+- (b) INDEX BUFFER CONTENT: EXONERATED (CPU side). UTBIDX: CC 1422 indices min=0 max=893(=verts-1) zeros=2 first=[1,0,2, 0,3,2...] — real triangles; all 123 dumped models in-range. GPU-side content still unverified (UTBVREAD staged, readback call pending).
+- (c) FRAME-GRAIN COLOR TARGET: EXONERATED in its handed-down form. UTBVPVPORT in-match: viewport=(0,0,640,384) scissor=(0,0,640,384) on the SAME attachment the terrain pre-scene pass and UI use (one ww3d frame: terrain pre-scene → WW3D Main Render Pass meshes → post-frame UI). The dozer (rows 254-295) is INSIDE that rect.
+
+### NEW measured facts (whoever picks this up, start here)
+1. Presented-frame pixels are pure terrain at every projected body location (offline PNG decode of utb14_utbvp1_dozer.png: CC interior (320,300)/(320,340)/(330,260)/(280,330) ≈ (117,106,81) tan = terrain; dozer (260,272) same; shard calibration (110,70)=(255,255,255)). With UTBNODEPTH (no depth test) bodies stayed invisible ⇒ body fragments NEVER REACH THE COLOR TARGET — this is not blend/alpha/depth-fail.
+2. Transform content clean: UTBVP basis=(1.000,1.000,1.000), skinned=false, CC transformed bbox covers NDC x -0.21..0.22 y -0.91..-0.11 (≈275x220 px on-screen at px 253..390 rows 218..437; rows>384 are viewport-clipped, rows 218..384 are NOT).
+3. UTBMAT (re-keyed by texture): EVERY pass incl. CC slab + dozer: mat_diff=(1,1,1,1), overrides=(1,1,1,0), stage_mask=01, textures Rgba8 with px alpha=ff (ATHQSlab px0=[ff,fb,ef,ff]). CC sub-mesh shaders: 0x0024881b (main slab; IDENTICAL to the visible shard shader → same pipeline cache key), 0x0034881b (alphatest bit set), 0x0020881b (untextured). One CC 128x128 sub-texture has alpha=00 at px0 (shadow-like pass).
+4. UTBNONIDX: drawing bodies NON-INDEXED (draw(0..894), same vertex buffer, same pipeline) STILL paints nothing ⇒ the failure is upstream of index fetch — vertex data as seen by the GPU or the draw execution itself.
+5. GENERALS_DISC_NOTERRAIN=1: world area fully BLACK incl. shards ⇒ the terrain pre-scene pass owns the depth (and effectively color) clears; without it all meshes fail depth on garbage. Consistent with, but not explanatory of, the body invisibility.
+6. HEADLESS ISOLATION TEST PASSES: ww3d-renderer-3d `utb_headless_body_mesh_paints_pixels` (render_manager.rs tests, 894-vert body, default opaque pass, live-equivalent camera/pipeline code path, offscreen readback) paints — the lane's core draw machinery is sound. The defect lives in the live frame's per-draw inputs or assembly order, NOT in the pipeline/shader/ABI.
+7. Shader semantics note for the eventual fix pass: alpha.wgsl:630-637 discards UNCONDITIONALLY (final_alpha < 96/255*alpha_override) while C++ W3D applies alpha test only when ShaderClass bit20 (SHIFT_ALPHATEST) is set (render_state.rs:140 parity). CC main pass routes to opaque.wgsl (no discard) so this is NOT today's blocker, but every SRCALPHA:INVSRCALPHA mesh in the game is one bad uniform away from a full-discard; alpha-test gating belongs in the fix pass.
+
+### Probe inventory added this pass (env-gated, inert without env; REMOVE AFTER fix like the others)
+render_manager.rs: UTBVP, UTBIDX, UTBNONIDX, UTBVREAD usage flags, UTBMAT re-key. lib.rs (ww3d-renderer-3d): UTBVPVPORT. forward_render.rs (Main): UTBTERRVP. pipeline_execute.rs (Main): UTBPIX (+ww3d-engine `color_texture_arc()` accessor; note the frame's internal color texture is NOT the presented target — all-zero readback; the real capture path is `ww3d_engine::make_screenshot` → surface texture). Plus test `utb_headless_body_mesh_paints_pixels` (KEEP until fix lands, then keep or convert — it is a real regression harness).
+
+### Exact next steps for the closer (in order, each ~1 drive)
+1. Wire the UTBVREAD readback in `preparemodel` (queue IS available there via gpu_device.queue()): copy the first ~132 floats of the CC's vertex_buffer + first 16 indices from the GPU and log them next to the CPU values (the ZPROBE synchronous pattern). This is the ONLY unverified GPU-side input left; UTBNONIDX failing points squarely at it.
+2. If GPU vertex data == CPU: the draw executes with correct data but no fragments — then diff the LIVE draw against the passing headless test by bisection inside draw_material_pass (lighting env Some→None, texture binds → fallback white, one-mesh-only frame via skipping all other queue_mesh calls) — one env flag per run.
+3. If GPU vertex data != CPU: the upload path (create_buffer_init) or a buffer lifecycle bug (arena/cache) is indicted; check `PreparedMeshModel` pointer-keyed caches (`Arc::as_ptr` key, revision starts at 0 for every fresh model — collision-prone) and whether the CC's prepared entry was rebuilt after its model Arc was re-created.
+4. Then fix, rebuild, drive, screenshot CC+dozer textured, and remove ALL UTB* probes (prior lanes' + this pass's).
+
+Guards at hand-off: ww3d-renderer-3d --lib 357/357 (356 prior + new headless test); `cargo check -p ww3d-renderer-3d --lib --tests` and `-p generals_main --bin generals` clean. No git writes; no formatters. NOTE: target/release/generals (21:48) carries this pass's probes too.
+Artifacts: /tmp/wsmoke/utbdrive14-19.sh, utb14..utb19 captures+stderr logs, utb14_utbvp1_dozer.png (pixel-decoded evidence), utb19_noterrain1_dozer.png (black world with no terrain), drive logs utb14_utbvport2 (in-match viewport 384).
+
+---
+
+## UnitGpuBisect — UTBVREAD wired + 8-drive live bisection COMPLETE: every per-draw input EXONERATED, body draws EXECUTE (magenta proof), fragments still absent; defect isolated between vertex-fetch+vertex-shader and fragment output; NOT fixed (2026-09-04 00:00-04:10)
+
+Method: wired the staged UTBVREAD readback in `preparemodel` (render_manager.rs, staging MAP_READ buffer, copy_buffer_to_buffer of first 132 floats + 16 indices, synchronous poll+map — the ZPROBE pattern) and drove 640x480 in-match windows (utbdrive20.sh, utbbisect.sh, utbtrace.sh → /tmp/wsmoke/utb20_*, utbbisect_*, utbtrace_*).
+
+### 1. UTBVREAD verdict (step 1 of hand-down plan)
+GPU vertex/index buffer HEADS == CPU source on **all 460 prepared models** (0 `match_pos=false`), including the CC body `ABBtCmdHQ::7` (894 verts, 1422 idx, pos3/idx15 byte-identical). The buffer-lifecycle/pointer-cache theory (plan step 3) is DEAD: no GPU-side content mismatch exists.
+
+### 2. Live bisection matrix (one env per drive, all pixel-decoded against the tan terrain reference)
+- `GENERALS_UTBNOFOW=1` (FOW visibility forced 1/0/1): invisible.
+- `GENERALS_UTBNOTEX=1` (stage masks zeroed, fallback-white route): invisible; NO wgpu validation errors (draws stayed valid).
+- `GENERALS_UTBNOLIGHT=1` (lighting+fog env stripped, unlit pipeline variant): invisible.
+- `GENERALS_UTBONLYBODY=1` (skip all meshes <256 verts; bright-shard pixels dropped 514→204, gate proven active): invisible.
+- `GENERALS_DISC_DEPTH=1` (the EXISTING disc_depth_always probe — never driven before): invisible ⇒ depth rejection is NOT the mechanism. (The prior pass's UTBNODEPTH was a NO-OP: `depth_format.unwrap_or(Depth32Float)` at wgpu_pipeline_manager.rs:504 turned `None` back into Depth32Float, so it never changed any pipeline.)
+- `GENERALS_UTBFORCEDRAW=1` (new: fullscreen magenta triangle from `vertex_index` only, drawn in every ≥256-vert body draw slot through RenderPassResources::set_pipeline): **SOLID MAGENTA FRAME** ⇒ body draw slots EXECUTE, the pass rasterizes, and the attachment reaches the screen. The defect is strictly inside the real pipeline's vertex-fetch/vertex-shader→fragment path.
+- `GENERALS_UTBNOALPHATEST=1` (new: BASE_ALPHA_REF 96/255→0.0 via shader-source replace, kill the unconditional alpha.wgsl discard): invisible ⇒ alpha-test discard is NOT the whole mechanism either.
+- `GENERALS_UTBARENAREAD=1` (new: stash first ≥256-vert draw's arena slice coords in CameraBinds/ModelBinds (new `offset/size` fields), then copy+map the EXECUTED arena bytes next frame in update_and_fill_live_cascade): 233 dumps incl. in-match CC `ATHQSlab.tga` frames: `vp_match=true mdl_match=true` byte-for-byte (gpu_vp3/exp, gpu_mdl translation (3067.989,0.000,2241.339,1.000)) ⇒ the camera VP and model matrix the GPU reads are EXACTLY the CPU values at draw time.
+
+### 3. wgpu API trace attempt (GENERALS_UTBTRACE)
+Added `wgpu-core` trace-feature wiring (workspace Cargo.toml + ww3d-gpu/Cargo.toml; `ww3d_gpu::device_authority::diagnostic_trace()` forced into every `request_device`). wgpu-core 27 traces record creations/writes/submits but **NOT render-pass commands** — dead end; trace dir deleted (was 1.8 GB).
+
+### 4. State of the elimination (for the closer)
+EXONERATED with in-match measurements: VP/viewport/frame-target (prior pass), GPU buffer content, uniform content at execution time, depth test, culling, alpha-test discard, textures, lighting, FOW, cross-draw interference, draw execution itself. PROVEN working: draw encode+execute, rasterizer, pass assembly, present.
+THE ONLY UNMEASURED LINK LEFT: the vertex shader's computed clip positions for body draws (alpha.wgsl/opaque.wgsl `vs_main` output). Suggested next probe: write gl_Position/clip coords of a body draw to a small storage buffer from `vs_main` (one u32 flag in the model uniform selects the debug branch) and read back — this directly measures what NDC the body vertices land at, splitting "vertex fetch/stide mismatch at draw time" from "vertex math".
+
+### New probe inventory added this pass (ALL env-gated, REMOVE AFTER fix)
+render_manager.rs: UTBVREAD (readback), UTBONLYBODY, UTBNOLIGHT (render_mesh), UTBFORCEDRAW (+`debug_draw_pipeline`/`utb_debug_draw_pipeline`), UTBNOTEX, UTBNOFOW (draw_material_pass), UTBARENAREAD (+`UtbArenaProbe` struct, `utb_arena_probe` field, drain in update_and_fill_live_cascade). wgpu_material_binds.rs: CameraBinds/ModelBinds gained `offset/size` fields (inert). frame_uniform_arena.rs: pages granted COPY_SRC (inert otherwise). wgpu_pipeline_manager.rs: UTBNOALPHATEST shader-source replace. Cargo.toml (workspace + ww3d-gpu): wgpu-core trace feature + `diagnostic_trace()` (inert without GENERALS_UTBTRACE). wgpu/Cargo.toml briefly had `features=["trace"]` on the facade — reverted (feature does not exist in wgpu 27).
+Drive scripts: /tmp/wsmoke/utbdrive20.sh, utbbisect.sh (generic TAG ENV), utbtrace.sh; captures utb20_vread1_*, utbbisect_{nofow1,notex1,nolight1,onlybody1,forcedraw1,depthalways1,arenaread1,arenaread2,noalphatest1}_dozer.png + stderr logs.
+
+Guards at hand-off: `cargo check -p ww3d-renderer-3d --lib --tests` clean; `cargo test -p ww3d-renderer-3d --lib` **357/357** (headless `utb_headless_body_mesh_paints_pixels` still green); `cargo check -p ww3d-gpu --lib` + `-p generals_main --bin generals` clean. No git writes. target/release/generals (04:05) carries ALL probes above.
+
+---
+
+## VsClipDump — UTBCLIP wired + vertex-stage output MEASURED CORRECT + ROOT-CAUSED & FIXED: shader-state bit decode divergence from C++ (blend enums inverted + shift-table drift) made opaque materials decode as (Zero,One) write-dst = invisible-while-fully-drawn; CC + dozer now VISIBLE TEXTURED in-match (2026-09-04 02:00-03:40)
+
+### 1. UTBCLIP probe (GENERALS_UTBCLIP=1): the last unmeasured link is now measured
+Instrumented alpha/opaque/decal/additive `vs_main` (env-gated source replace in wgpu_pipeline_manager.rs, gated on `vertex.position` so skinned.wgsl is untouched) to write per-vertex fetched position + computed clip into the group-7 illumination slot, flipped read/write under env; dedicated dump buffer bound in draw_material_pass for the first ≥256-vert pass-0 body draw (8→64 dumps/frame budget), drained next frame in `update_and_fill_live_cascade` (UTBARENAREAD pattern). Required `Features::VERTEX_WRITABLE_STORAGE` env-gated in ww3d-gpu device_authority.
+VERDICT (8 menu dumps + 56 in-match dumps incl. `ATHQSlab.tga` verts=894 dumped=894 untouched=0): **gpu clip == CPU projection EXACTLY, full-mesh NDC bbox identical** (`x -0.211..0.217 y -0.908..-0.112` = on-screen). Vertex fetch + vs_main math EXONERATED on the GPU.
+
+### 2. Elimination drives with the probe binary
+- `GENERALS_UTBFSMAG=1` (fs returns solid magenta α=1): ONLY the known shard quads turned magenta — body primitives die between VS and FS.
+- `GENERALS_DISC_CULL=1`: shards turned BLACK (probe live on every pipeline) — bodies still gone ⇒ cull exonerated on current binary.
+- `GENERALS_UTBFSMAG=1 GENERALS_DISC_CULL=1 GENERALS_DISC_DEPTH=1` (all rasterizer rejection removed): bodies STILL paint nothing ⇒ defect is NOT vertex math, NOT cull, NOT depth, NOT fragment math.
+- UTBDRAW (clipdump3): CC slab draws `start=0 count=1422` at (3068,0,2241.3) in-match — full-range draw executes.
+
+### 3. ROOT CAUSE (C++ parity bug in ww3d-renderer-3d shader.rs)
+`W3dShaderStruct` carries C++-numbered fields; `from_w3d_shader` re-encodes them at the RUST shift table, and getters decode raw values with INVERTED blend enums. C++ GeneralsMD shader.h truth: `SRCBLEND_ZERO=0, ONE=1, SRC_ALPHA=2, ONE_MINUS_SRC_ALPHA=3` (2 bits @14), `DSTBLEND_ZERO=0, ONE=1, SRC_COLOR=2, INV=3, SRC_ALPHA=4, INV=5` (3 bits @5), FOG@8(2), PRI@10(3), SEC@13(1), TEXTURING@16, NPATCH@17, ALPHATEST@18, CULL@19, POSTDETAILCOLOR@20(4), POSTDETAILALPHA@24. Rust had SHIFT_SRCBLEND=15, FOG=9, PRI=11(2b), SEC(2b), TEXTURING=18, NPATCH=19, ALPHATEST=20, CULL=21, POSTDETAIL 22/26 AND enums `One=0, Zero=1, ...`. Net: the CC slab's authored (SRC_ALPHA, ZERO) cutout decoded as (Zero, One) → `create_blend_state_from_shader` produced wgpu (Zero, One) → `out = dst` — every opaque/world mesh fragment wrote the destination unchanged (invisible while fully drawn, all probes upstream dead). Explains: bodies+buildings+dozer invisible, white shard quads visible (their passes decode differently), UTBNOTEX/FOW/depth/cull/magenta all inconclusive.
+
+### 4. FIX (ww3d-renderer-3d only; assets/gpu crates were already C++-correct)
+- `shader_system/shader.rs`: shift+mask table → C++ layout; `SrcBlendFuncType{Zero=0,One=1,SrcAlpha=2,InvSrcAlpha=3}`; `DstBlendFuncType{Zero=0,One=1,SrcColor=2,InvSrcColor=3,SrcAlpha=4,InvSrcAlpha=5}`; `SecGradientType{Disable,Enable}`; `PriGradientType` + BumpEnvMap/BumpEnvMapLuminance/Modulate2x; all getter/setter tables + widths; `blend_mode()` Multiply=(Zero,SrcColor), Screen=(One,InvSrcColor); `set_src_blend/set_dest_blend` DX8 maps; internal wgpu converters.
+- `render2d/gpu_context.rs` map_src/dst_factor: removed-variant arms.
+- `wgpu_pipeline_manager.rs` create_blend_state_from_shader: same arms; UTBNOBLEND probe (kept, env-gated).
+- **alpha.wgsl:632 / decal.wgsl:636**: `let mut final_alpha` — invalid WGSL that had NEVER compiled (no material routed to alpha/decal under the broken decode); `mut` removed. First-ever compile now clean.
+- Side effect of correct decode: (SrcAlpha,InvSrcAlpha) materials NOW route to alpha.wgsl for the first time; its unconditional `discard` (BASE_ALPHA_REF) is gated on materials that author ALPHATEST — parity note from UnitBodyFix §7 still stands for a follow-up pass.
+
+### 5. VERIFICATION
+- `utbbisect_blendfix2` in-match 640x480, camera at CC (3068,0,2241.3): **CC fully visible textured + construction dozer textured; white shard blobs GONE** (`/tmp/wsmoke/utbbisect_blendfix2_dozer.png`). No wgpu validation errors.
+- Guards: `cargo test -p ww3d-renderer-3d --lib` **357/357**; `--tests` suites green except `headless_smoke::headless_wrapper_supports_basic_lifecycle` which is a PRE-EXISTING wgpu device-singleton contention between sibling tests (passes alone: `--test headless_smoke headless_wrapper_supports_basic_lifecycle` ok).
+- Guards NOT re-run this pass (worker scope): combat filter 966/0, world_tests catalog, gameworld_shadow 302/302 — decode change is confined to ww3d-renderer-3d material-pass state; main-agent project-wide validation should re-run them.
+
+### 6. PROBE STATUS — NOT YET REMOVED (env-gated, inert without env)
+All UTB*/DISC_* probes remain in-tree (this pass added UTBCLIP + UTBFSMAG + UTBNOBLEND; UTBNOALPHATEST/UTBARENAREAD/UTBVREAD/UTBFORCEDRAW/etc. from prior passes; DISC_DEPTH/DISC_CULL pre-existing; UTBCLIP's group-7 read_write flip is env-gated; wgpu-core trace feature + diagnostic_trace() from UnitGpuBisect still in Cargo.tomls/device_authority). Removal = mechanical sweep across render_manager.rs, wgpu_pipeline_manager.rs, wgpu_material_binds.rs (offset/size fields inert), frame_uniform_arena.rs, device_authority.rs, particle_renderer.rs, terrain_visual/impl_gpu.rs, forward_render.rs, pipeline_execute.rs, Cargo.toml trace features + blend_state_tests adjustments — recommended as its own pass with a fresh release build + the same utbbisect drives as regression check.
+Artifacts: /tmp/wsmoke/utbbisect_{clipdump2,clipdump3,fsmag1,cullnone1,allkill1,blendfix1,blendfix2}_{dozer.png,stderr.log}; blendfix1 stderr shows the alpha.wgsl `mut` parse error that exposed the dead-shader lane. No git writes. target/release/generals (03:2x) carries fix + all probes.
