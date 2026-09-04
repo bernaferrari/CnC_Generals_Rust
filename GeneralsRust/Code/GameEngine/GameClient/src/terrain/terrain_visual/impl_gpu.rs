@@ -931,12 +931,6 @@ impl TerrainVisualImpl {
     }
 
     pub fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        // UTBWATERNULL (documented diagnostic, GENERALS_UTBWATERNULL=1):
-        // skip every water draw to prove whether unexplained screen
-        // artifacts originate in the water lane.
-        if std::env::var("GENERALS_UTBWATERNULL").as_deref() == Ok("1") {
-            return;
-        }
         let pipeline = if self.water_additive_blend {
             self.water_additive_pipeline
                 .as_ref()
@@ -981,12 +975,6 @@ impl TerrainVisualImpl {
     }
 
     fn record_road_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        // UTBROADNULL (documented diagnostic, GENERALS_UTBROADNULL=1):
-        // skip road/bridge/scorch draws to prove whether unexplained
-        // screen artifacts originate in the road decal lane.
-        if std::env::var("GENERALS_UTBROADNULL").as_deref() == Ok("1") {
-            return;
-        }
         let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -1709,12 +1697,6 @@ impl TerrainVisualImpl {
 
 
     fn record_tree_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        // UTBTREENULL (documented diagnostic, GENERALS_UTBTREENULL=1):
-        // skip tree billboard draws to prove whether unexplained screen
-        // artifacts originate in the tree lane.
-        if std::env::var("GENERALS_UTBTREENULL").as_deref() == Ok("1") {
-            return;
-        }
         let (Some(tree_pipeline), Some(camera_bg), Some(atlas_bg)) = (
             self.tree_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -1753,33 +1735,6 @@ impl TerrainVisualImpl {
 
     /// C++ `W3DTreeBuffer::drawTrees` VB fill + wgpu upload. Called every update/draw.
     pub fn update_tree_meshes(&mut self) {
-        // UTBTREEDUMP (documented diagnostic, GENERALS_UTBTREEDUMP=1):
-        // one-shot dump (first frame with a synced atlas) of tree atlas
-        // state to reveal what texels the tree lane actually binds.
-        if std::env::var("GENERALS_UTBTREEDUMP").as_deref() == Ok("1")
-            && !self.tree_buffer.atlas_upload_levels().is_empty()
-            && !utb_tree_dump_latch()
-        {
-            let names: Vec<String> = self
-                .tree_buffer
-                .tree_types()
-                .iter()
-                .map(|t| t.data.texture_name.clone())
-                .collect();
-            let levels = self.tree_buffer.atlas_upload_levels();
-            let mid = levels.first().map(|lv| {
-                let px = lv.len() / 4 / 2 * 4;
-                (lv[px], lv[px + 1], lv[px + 2], lv[px + 3])
-            });
-            let tile0 = self
-                .tree_buffer
-                .source_tile_bgra(0)
-                .map(|t| (t[0], t[1], t[2], t[3]));
-            warn!(
-                "UTBTREEDUMP types={names:?} atlas_levels={} atlas_mid={mid:?} tile0_bgra={tile0:?}",
-                levels.len(),
-            );
-        }
         self.rebind_skybox_background_for_camera();
         self.tree_buffer.tick_cpu(false, |_| TreeShroudStatus::Clear);
         if self.tree_buffer.take_any_push_changed() {
@@ -2268,12 +2223,6 @@ impl TerrainVisualImpl {
 
     /// Second extra-blend pass over the base terrain (alpha overlay, no Z write).
     pub fn record_extra_blend_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        // UTBEXTRABLENDNULL (documented diagnostic, GENERALS_UTBEXTRABLENDNULL=1):
-        // skip the whole second extra-blend pass; if the unexplained white
-        // blobs vanish with this set, this pass is their painter.
-        if std::env::var("GENERALS_UTBEXTRABLENDNULL").as_deref() == Ok("1") {
-            return;
-        }
         if !self.extra_blend_draw() {
             return;
         }
@@ -2631,15 +2580,3 @@ mod splat_texture_class_tests {
 }
 
 
-/// UTBTREEDUMP one-shot latch (documented diagnostic): first call returns
-/// false exactly once, every later call returns true.
-fn utb_tree_dump_latch() -> bool {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static DONE: AtomicBool = AtomicBool::new(false);
-    if DONE.load(Ordering::Relaxed) {
-        true
-    } else {
-        DONE.store(true, Ordering::Relaxed);
-        false
-    }
-}

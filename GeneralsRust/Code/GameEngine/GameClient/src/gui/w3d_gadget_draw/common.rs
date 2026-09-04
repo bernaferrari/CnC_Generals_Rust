@@ -41,13 +41,24 @@ pub(super) fn color_alpha(color: u32) -> u32 {
 }
 
 /// Prefer enabled draw-data color when it is defined and actually visible.
+///
+/// Retail WNDs author `COLOR: 255 0 0 255` in NoImage draw-data slots as a
+/// placeholder sentinel (packed here as 0xFFFF0000). C++ gadget image draws
+/// paint no back fill at all when the image is absent
+/// (GeneralsMD W3DStaticText.cpp `W3DGadgetStaticTextImageDraw`), so the
+/// sentinel must never reach the screen as a solid red rectangle.
+pub(super) const PLACEHOLDER_RED: u32 = 0xFFFF_0000;
+
 pub(super) fn visible_enabled_color(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
     fallback: u32,
 ) -> u32 {
     let pick = |color: u32| {
-        if color != WIN_COLOR_UNDEFINED && color_alpha(color) > 16 {
+        if color != WIN_COLOR_UNDEFINED
+            && color != PLACEHOLDER_RED
+            && color_alpha(color) > 16
+        {
             Some(color)
         } else {
             None

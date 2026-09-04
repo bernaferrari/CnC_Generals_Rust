@@ -16,20 +16,6 @@ use super::*;
 /// uploads the returned pixels through the same first-bind path as CPU-only
 /// pass textures.
 
-static UTBVIEW_ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-    std::env::var("GENERALS_UTBVIEW").as_deref() == Ok("1")
-});
-static UTBVIEW_SEEN: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashSet<(String, &'static str)>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-
-// UTBMAT (documented diagnostic, GENERALS_UTBMAT=1): once per model, log the
-// material uniforms and stage masks that compose the mesh fragment color.
-static UTBMAT_ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-    std::env::var("GENERALS_UTBMAT").as_deref() == Ok("1")
-});
-static UTBMAT_SEEN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 pub type MeshPassTextureProvider =
     Arc<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
 
@@ -85,15 +71,7 @@ impl PreparedMeshModel {
             }
 
             for channel in 0..MAX_VERTEX_UV_SETS {
-                // UTBUVCENTER (documented diagnostic, GENERALS_UTBUVCENTER=1):
-                // pin every UV to the texture center. If units render textured
-                // under this env while authored UVs render flat texel0-white,
-                // the UV delivery path (vertex attribute -> sampler) is broken.
-                let [u, v] = if std::env::var("GENERALS_UTBUVCENTER").as_deref() == Ok("1") {
-                    [0.5, 0.5]
-                } else {
-                    model.uv_channel_coords(channel, index)
-                };
+                let [u, v] = model.uv_channel_coords(channel, index);
                 vertex_data.push(u);
                 vertex_data.push(v);
             }
@@ -108,14 +86,6 @@ impl PreparedMeshModel {
         }
 
 
-        // UTBVREAD (documented diagnostic, GENERALS_UTBVREAD=1): grant the
-        // mesh buffers COPY_SRC|COPY_DST so preparemodel can read the GPU
-        // copies back; cost is nil otherwise.
-        let utb_vread_extra = if std::env::var("GENERALS_UTBVREAD").as_deref() == Ok("1") {
-            wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST
-        } else {
-            wgpu::BufferUsages::empty()
-        };
         let vertex_buffer = if vertex_data.is_empty() {
             Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Empty Mesh Vertex Buffer"),
@@ -128,7 +98,7 @@ impl PreparedMeshModel {
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Mesh Vertex Buffer"),
                     contents: bytemuck::cast_slice(&vertex_data),
-                    usage: wgpu::BufferUsages::VERTEX | utb_vread_extra,
+                    usage: wgpu::BufferUsages::VERTEX,
                 }),
             )
         };
@@ -146,42 +116,10 @@ impl PreparedMeshModel {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Mesh Index Buffer"),
                 contents: bytemuck::cast_slice(&index_data),
-                usage: wgpu::BufferUsages::INDEX | utb_vread_extra,
+                usage: wgpu::BufferUsages::INDEX,
             });
             (Some(Arc::new(buffer)), index_data.len() as u32)
         };
-        // UTBIDX (documented diagnostic, GENERALS_UTBIDX=1, once per model):
-        // dump index-buffer CONTENT stats — an all-zero (degenerate) index
-        // array passes every range/count check yet rasterizes nothing.
-        if std::env::var("GENERALS_UTBIDX").as_deref() == Ok("1") && !index_data.is_empty() {
-            static UTBIDX_SEEN: std::sync::LazyLock<
-                std::sync::Mutex<std::collections::HashSet<String>>,
-            > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-            let idx_min = index_data.iter().copied().min().unwrap_or(0);
-            let idx_max = index_data.iter().copied().max().unwrap_or(0);
-            let idx_zeros = index_data.iter().filter(|&&i| i == 0).count();
-            let key = model.name.clone();
-            let unseen = UTBIDX_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(key))
-                .unwrap_or(false);
-            if unseen {
-                let first: Vec<u32> = index_data.iter().take(9).copied().collect();
-                let last: Vec<u32> = index_data.iter().rev().take(3).rev().copied().collect();
-                log::warn!(
-                    "UTBIDX model='{}' indices={} verts={} min={} max={} zeros={} first={:?} last={:?}",
-                    model.name,
-                    index_data.len(),
-                    model.vertices.len(),
-                    idx_min,
-                    idx_max,
-                    idx_zeros,
-                    first,
-                    last,
-                );
-            }
-        }
-
         let material_passes = if model.material_passes.is_empty() {
             vec![MaterialPassClass::new()]
         } else {
@@ -192,42 +130,6 @@ impl PreparedMeshModel {
         // This ensures we only draw geometry belonging to each pass
         let pass_index_ranges = compute_pass_index_ranges(model, &index_data);
 
-        // UTBVERTS (documented diagnostic, GENERALS_UTBVERTS=1, once per
-        // model): dump the packed geometry's extent so a collapsed/NaN vertex
-        // array (invisible meshes) is visible CPU-side without GPU readback.
-        if std::env::var("GENERALS_UTBVERTS").as_deref() == Ok("1")
-            && !model.vertices.is_empty()
-        {
-            static UTBVERTS_SEEN: std::sync::LazyLock<
-                std::sync::Mutex<std::collections::HashSet<String>>,
-            > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-            let mut min = [f32::MAX; 3];
-            let mut max = [f32::MIN; 3];
-            for vertex in &model.vertices {
-                min[0] = min[0].min(vertex.x);
-                min[1] = min[1].min(vertex.y);
-                min[2] = min[2].min(vertex.z);
-                max[0] = max[0].max(vertex.x);
-                max[1] = max[1].max(vertex.y);
-                max[2] = max[2].max(vertex.z);
-            }
-            let key = format!(
-                "model='{}' verts={} tris={} bbox=({:.2}..{:.2}, {:.2}..{:.2}, {:.2}..{:.2}) v0=({:.2},{:.2},{:.2}) ranges={:?}",
-                model.name,
-                model.vertices.len(),
-                model.triangles.len(),
-                min[0], max[0], min[1], max[1], min[2], max[2],
-                model.vertices[0].x, model.vertices[0].y, model.vertices[0].z,
-                pass_index_ranges,
-            );
-            let unseen = UTBVERTS_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(key.clone()))
-                .unwrap_or(false);
-            if unseen {
-                log::warn!("UTBVERTS {}", key);
-            }
-        }
 
         Ok(Self {
             vertex_buffer,
@@ -342,34 +244,6 @@ impl RenderPassResources {
     }
 }
 
-/// UTBARENAREAD diagnostic (GENERALS_UTBARENAREAD=1): coordinates of the
-/// first large-mesh draw's camera/model uniform arena slices, stashed at draw
-/// time and read back after GPU execution to compare uploaded bytes with the
-/// CPU-side source values.
-struct UtbArenaProbe {
-    page: Arc<wgpu::Buffer>,
-    camera_offset: u64,
-    camera_size: u64,
-    model_offset: u64,
-    model_size: u64,
-    expected_vp: [f32; 16],
-    expected_model: [f32; 16],
-    mesh_name: String,
-}
-
-/// UTBCLIP diagnostic (GENERALS_UTBCLIP=1): the dump buffer the instrumented
-/// vs_main filled for one body draw (per-vertex fetched position + computed
-/// clip position), CPU expectations for the first drawn indices, and the
-/// CPU-projected NDC extents of the whole model. Drained (GPU readback +
-/// log) by `update_and_fill_live_cascade` on the following frame.
-struct UtbClipProbe {
-    dump_buffer: Arc<wgpu::Buffer>,
-    vertex_count: u32,
-    samples: Vec<(u32, [f32; 3], [f32; 4])>,
-    expected_ndc_min: [f32; 3],
-    expected_ndc_max: [f32; 3],
-    mesh_name: String,
-}
 
 pub struct MeshRenderManager {
     gpu_device: Arc<GpuDevice>,
@@ -389,10 +263,6 @@ pub struct MeshRenderManager {
     fallback_textures: MeshFallbackTextures,
     default_sampler: Arc<wgpu::Sampler>,
     empty_vertex_color_buffer: Arc<wgpu::Buffer>,
-    /// UTBCLIP (GENERALS_UTBCLIP=1): the group-7 illumination slot is
-    /// read/write under the probe, so its fallback buffer must be distinct
-    /// from the read-only diffuse fallback — one buffer holding both roles
-    /// in one bind group is a wgpu usage conflict.
     empty_illumination_buffer: Arc<wgpu::Buffer>,
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
@@ -410,21 +280,6 @@ pub struct MeshRenderManager {
     /// simulation query or scalar substitute.
     projected_shroud: Option<crate::rendering::projected_shroud::FrozenProjectedShroudTexture>,
 
-    /// UTBFORCEDRAW diagnostic (GENERALS_UTBFORCEDRAW=1): lazily built
-    /// pipeline that rasterizes a fullscreen magenta triangle from
-    /// `vertex_index` only — no vertex fetch, no uniforms. Drawing it in a
-    /// body's draw slot proves whether that draw executes at all.
-    debug_draw_pipeline: Option<Arc<wgpu::RenderPipeline>>,
-
-    /// UTBARENAREAD diagnostic state: the stashed slice coordinates of the
-    /// first large-mesh draw, drained (GPU readback + log) by
-    /// `update_and_fill_live_cascade` on the following frame.
-    utb_arena_probe: Option<UtbArenaProbe>,
-
-    /// UTBCLIP diagnostic state: the pending clip dump (read back next frame
-    /// by `update_and_fill_live_cascade`) and how many more dumps to take.
-    utb_clip_probe: Option<UtbClipProbe>,
-    utb_clip_dumps_left: u32,
 }
 
 impl MeshRenderManager {
@@ -451,8 +306,6 @@ impl MeshRenderManager {
                 usage: wgpu::BufferUsages::STORAGE,
             },
         ));
-        // UTBCLIP (GENERALS_UTBCLIP=1): distinct fallback for the
-        // read/write illumination slot — see the field comment.
         let empty_illumination_buffer = Arc::new(device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("MeshManager Empty Illumination Buffer"),
@@ -486,16 +339,8 @@ impl MeshRenderManager {
             cascade_light_bgl: None,
             cascade_model_bgl: None,
             last_cascade_casters_drawn: 0,
-            utb_arena_probe: None,
-            utb_clip_probe: None,
-            utb_clip_dumps_left: if std::env::var("GENERALS_UTBCLIP").as_deref() == Ok("1") {
-                64
-            } else {
-                0
-            },
 
             projected_shroud: None,
-            debug_draw_pipeline: None,
         }
     }
 
@@ -672,118 +517,6 @@ impl MeshRenderManager {
             .get(&key)
             .expect("prepared model must exist")
             .clone();
-        // UTBVREAD (documented diagnostic, GENERALS_UTBVREAD=1, once per
-        // model): copy the head of the GPU vertex/index buffers back and log
-        // them next to the CPU source values. UTBNONIDX showed non-indexed
-        // draws also paint nothing, so the GPU-visible vertex bytes are the
-        // one unverified draw input left. Requires the COPY_SRC usage granted
-        // under the same env flag in PreparedMeshModel::frommodel.
-        if std::env::var("GENERALS_UTBVREAD").as_deref() == Ok("1") && prepared.vertex_count > 0 {
-            static UTBVREAD_SEEN: std::sync::LazyLock<
-                std::sync::Mutex<std::collections::HashSet<String>>,
-            > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-            let unseen = UTBVREAD_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(model.name.clone()))
-                .unwrap_or(false);
-            if unseen {
-                let stride: usize = if model.is_skinned() { 22 } else { 14 };
-                let vert_floats = 132usize.min(prepared.vertex_count as usize * stride);
-                let vert_bytes = vert_floats * 4;
-                let idx_count = 16usize.min(prepared.index_count as usize);
-                let idx_bytes = idx_count * 4;
-                let device = self.gpu_device.wgpu_device();
-                let staging = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("UTBVREAD staging"),
-                    size: (vert_bytes + idx_bytes) as u64,
-                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                let mut encoder =
-                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("UTBVREAD copy"),
-                    });
-                encoder.copy_buffer_to_buffer(
-                    &prepared.vertex_buffer,
-                    0,
-                    &staging,
-                    0,
-                    vert_bytes as u64,
-                );
-                if idx_bytes > 0 {
-                    if let Some(ib) = prepared.index_buffer.as_ref() {
-                        encoder.copy_buffer_to_buffer(
-                            ib,
-                            0,
-                            &staging,
-                            vert_bytes as u64,
-                            idx_bytes as u64,
-                        );
-                    }
-                }
-                self.gpu_device.queue().submit(Some(encoder.finish()));
-                let slice = staging.slice(..);
-                let (tx, rx) = std::sync::mpsc::channel();
-                slice.map_async(wgpu::MapMode::Read, move |result| {
-                    let _ = tx.send(result);
-                });
-                let _ = device.poll(wgpu::PollType::wait_indefinitely());
-                match rx.recv() {
-                    Ok(Ok(())) => {
-                        let data = slice.get_mapped_range();
-                        let floats: Vec<f32> =
-                            bytemuck::cast_slice(&data[..vert_bytes]).to_vec();
-                        let gpu_idx: Vec<u32> = if idx_bytes > 0 {
-                            bytemuck::cast_slice(&data[vert_bytes..vert_bytes + idx_bytes])
-                                .to_vec()
-                        } else {
-                            Vec::new()
-                        };
-                        drop(data);
-                        staging.unmap();
-                        let mut gpu_pos = Vec::new();
-                        for v in 0..3usize.min(prepared.vertex_count as usize) {
-                            let o = v * stride;
-                            gpu_pos.push([
-                                floats[o],
-                                floats[o + 1],
-                                floats[o + 2],
-                            ]);
-                        }
-                        let cpu_pos: Vec<[f32; 3]> = model
-                            .vertices
-                            .iter()
-                            .take(3)
-                            .map(|v| [v.x, v.y, v.z])
-                            .collect();
-                        let cpu_idx: Vec<u32> = model
-                            .triangles
-                            .iter()
-                            .take(5)
-                            .flat_map(|t| t.vindex)
-                            .collect();
-                        log::warn!(
-                            "UTBVREAD model='{}' verts={} idx={} stride={} \
-                             gpu_pos3={:?} cpu_pos3={:?} gpu_idx15={:?} cpu_idx15={:?} \
-                             match_pos={} match_idx={}",
-                            model.name,
-                            prepared.vertex_count,
-                            prepared.index_count,
-                            stride,
-                            gpu_pos,
-                            cpu_pos,
-                            gpu_idx,
-                            cpu_idx,
-                            gpu_pos == cpu_pos,
-                            gpu_idx == cpu_idx,
-                        );
-                    }
-                    other => {
-                        log::warn!("UTBVREAD model='{}' map failed: {:?}", model.name, other);
-                    }
-                }
-            }
-        }
         Ok(prepared)
     }
 
@@ -814,181 +547,6 @@ impl MeshRenderManager {
         render_info: &RenderInfoClass,
         casters: &[Arc<MeshClass>],
     ) {
-        // UTBARENAREAD (documented diagnostic, GENERALS_UTBARENAREAD=1):
-        // drain the probe stashed by last frame's body draw. The previous
-        // frame's GPU work is complete after the wait-poll, so a plain
-        // buffer-to-buffer copy + map observes the uniform bytes exactly as
-        // they were when the body draw executed.
-        if let Some(probe) = self.utb_arena_probe.take() {
-            let device = self.gpu_device.wgpu_device();
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            let staging_size = probe
-                .camera_size
-                .max(probe.model_size)
-                .next_multiple_of(256);
-            let staging = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("UTBARENAREAD staging"),
-                size: staging_size * 2,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            let mut copy = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("UTBARENAREAD copy"),
-            });
-            copy.copy_buffer_to_buffer(
-                &probe.page,
-                probe.camera_offset,
-                &staging,
-                0,
-                probe.camera_size,
-            );
-            copy.copy_buffer_to_buffer(
-                &probe.page,
-                probe.model_offset,
-                &staging,
-                staging_size,
-                probe.model_size,
-            );
-            self.gpu_device.queue().submit(Some(copy.finish()));
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            let slice = staging.slice(..);
-            let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |result| {
-                let _ = tx.send(result);
-            });
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            match rx.recv() {
-                Ok(Ok(())) => {
-                    let data = slice.get_mapped_range();
-                    let floats: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-                    drop(data);
-                    staging.unmap();
-                    let half = (staging_size / 4) as usize;
-                    let gpu_vp: Vec<f32> = floats[..16.min(half)].to_vec();
-                    let gpu_model: Vec<f32> =
-                        floats[half..half + 16.min(floats.len() - half)].to_vec();
-                    let vp_ok = gpu_vp == probe.expected_vp.to_vec();
-                    let model_ok = gpu_model == probe.expected_model.to_vec();
-                    log::warn!(
-                        "UTBARENAREAD model='{}' cam_off={} cam_size={} mdl_off={} mdl_size={} \
-                         vp_match={} mdl_match={} \
-                         gpu_vp0=({:.3},{:.3},{:.3},{:.3}) exp_vp0=({:.3},{:.3},{:.3},{:.3}) \
-                         gpu_vp3=({:.3},{:.3},{:.3},{:.3}) exp_vp3=({:.3},{:.3},{:.3},{:.3}) \
-                         gpu_mdl0=({:.3},{:.3},{:.3},{:.3}) exp_mdl0=({:.3},{:.3},{:.3},{:.3}) \
-                         gpu_mdl3=({:.3},{:.3},{:.3},{:.3}) exp_mdl3=({:.3},{:.3},{:.3},{:.3})",
-                        probe.mesh_name,
-                        probe.camera_offset,
-                        probe.camera_size,
-                        probe.model_offset,
-                        probe.model_size,
-                        vp_ok,
-                        model_ok,
-                        gpu_vp[0], gpu_vp[1], gpu_vp[2], gpu_vp[3],
-                        probe.expected_vp[0], probe.expected_vp[1], probe.expected_vp[2], probe.expected_vp[3],
-                        gpu_vp[12], gpu_vp[13], gpu_vp[14], gpu_vp[15],
-                        probe.expected_vp[12], probe.expected_vp[13], probe.expected_vp[14], probe.expected_vp[15],
-                        gpu_model[0], gpu_model[1], gpu_model[2], gpu_model[3],
-                        probe.expected_model[0], probe.expected_model[1], probe.expected_model[2], probe.expected_model[3],
-                        gpu_model[12], gpu_model[13], gpu_model[14], gpu_model[15],
-                        probe.expected_model[12], probe.expected_model[13], probe.expected_model[14], probe.expected_model[15],
-                    );
-                }
-                other => log::warn!("UTBARENAREAD map failed: {:?}", other),
-            }
-        }
-        // UTBCLIP (documented diagnostic, GENERALS_UTBCLIP=1): drain the clip
-        // dump stashed by last frame's body draw — the same wait-poll/readback
-        // pattern as UTBARENAREAD, so the bytes observed are exactly what the
-        // instrumented vs_main wrote when the draw executed.
-        if let Some(probe) = self.utb_clip_probe.take() {
-            let device = self.gpu_device.wgpu_device();
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            let dump_bytes = (probe.vertex_count as u64) * 2 * 16;
-            let staging = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("UTBCLIP staging"),
-                size: dump_bytes,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            let mut copy = device.create_command_encoder(
-                &wgpu::CommandEncoderDescriptor {
-                    label: Some("UTBCLIP copy"),
-                },
-            );
-            copy.copy_buffer_to_buffer(&probe.dump_buffer, 0, &staging, 0, dump_bytes);
-            self.gpu_device.queue().submit(Some(copy.finish()));
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            let slice = staging.slice(..);
-            let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |result| {
-                let _ = tx.send(result);
-            });
-            let _ = device.poll(wgpu::PollType::wait_indefinitely());
-            match rx.recv() {
-                Ok(Ok(())) => {
-                    let data = slice.get_mapped_range();
-                    let floats: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-                    drop(data);
-                    staging.unmap();
-                    let entries = probe.vertex_count as usize;
-                    let mut gpu_min = [f32::MAX; 3];
-                    let mut gpu_max = [f32::MIN; 3];
-                    let mut dumped = 0usize;
-                    for entry in 0..entries {
-                        let base = entry * 8;
-                        if base + 8 > floats.len() {
-                            break;
-                        }
-                        let w = floats[base + 7];
-                        if w != 0.0 && w.is_finite() {
-                            dumped += 1;
-                            let inv = 1.0 / w;
-                            for axis in 0..3 {
-                                let value = floats[base + 4 + axis] * inv;
-                                gpu_min[axis] = gpu_min[axis].min(value);
-                                gpu_max[axis] = gpu_max[axis].max(value);
-                            }
-                        }
-                    }
-                    let mut report = String::new();
-                    for (index, pos, clip) in &probe.samples {
-                        let base = (*index as usize) * 8;
-                        if base + 8 <= floats.len() {
-                            let g = &floats[base..base + 8];
-                            report.push_str(&format!(
-                                " idx={} gpu_pos=({:.3},{:.3},{:.3}) exp_pos=({:.3},{:.3},{:.3}) \
-                                 gpu_clip=({:.3},{:.3},{:.3},{:.3}) exp_clip=({:.3},{:.3},{:.3},{:.3}) \
-                                 gpu_ndc=({:.3},{:.3},{:.3}) exp_ndc=({:.3},{:.3},{:.3})",
-                                index,
-                                g[0], g[1], g[2],
-                                pos[0], pos[1], pos[2],
-                                g[4], g[5], g[6], g[7],
-                                clip[0], clip[1], clip[2], clip[3],
-                                g[4] / g[7], g[5] / g[7], g[6] / g[7],
-                                clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3],
-                            ));
-                        }
-                    }
-                    log::warn!(
-                        "UTBCLIP model='{}' verts={} dumped={} untouched={} \
-                         gpu_ndc=(x {:.3}..{:.3} y {:.3}..{:.3} z {:.3}..{:.3}) \
-                         exp_ndc=(x {:.3}..{:.3} y {:.3}..{:.3} z {:.3}..{:.3}){}",
-                        probe.mesh_name,
-                        probe.vertex_count,
-                        dumped,
-                        entries - dumped,
-                        gpu_min[0], gpu_max[0],
-                        gpu_min[1], gpu_max[1],
-                        gpu_min[2], gpu_max[2],
-                        probe.expected_ndc_min[0], probe.expected_ndc_max[0],
-                        probe.expected_ndc_min[1], probe.expected_ndc_max[1],
-                        probe.expected_ndc_min[2], probe.expected_ndc_max[2],
-                        report,
-                    );
-                }
-                other => log::warn!("UTBCLIP map failed: {:?}", other),
-            }
-        }
         self.last_cascade_casters_drawn = 0;
         self.ensure_cascade_depth_pipeline();
         let light_direction = live_cascade_light_direction(render_info);
@@ -1284,23 +842,7 @@ impl MeshRenderManager {
             let model = mesh.model.as_ref().unwrap();
             self.preparemodel(model)?
         };
-        // UTBONLYBODY (documented diagnostic, GENERALS_UTBONLYBODY=1): skip
-        // every small (non-body) mesh so only large bodies draw — removes
-        // cross-draw interference from the surrounding scene.
-        if std::env::var("GENERALS_UTBONLYBODY").as_deref() == Ok("1")
-            && prepared.vertex_count < 256
-        {
-            return Ok(());
-        }
         let mut mesh_render_info = Self::render_info_for_mesh(mesh, render_info);
-        // UTBNOLIGHT (documented diagnostic, GENERALS_UTBNOLIGHT=1): strip
-        // the lighting/fog environments for every mesh draw — recompiles the
-        // unlit pipeline variant and uploads default lighting uniforms. If
-        // bodies appear, the lit pipeline/uniform path is the culprit.
-        if std::env::var("GENERALS_UTBNOLIGHT").as_deref() == Ok("1") {
-            mesh_render_info.lighting = None;
-            mesh_render_info.fog = None;
-        }
         let render_info = &mesh_render_info;
 
         resources.set_vertex_buffer(render_pass, 0, Arc::clone(&prepared.vertex_buffer));
@@ -1484,7 +1026,7 @@ impl MeshRenderManager {
         // while retaining each range's index selection and avoiding a second
         // draw of any geometry that the source model does not own.
         for pass in &prepared.material_passes {
-            self.issue_draw_call(prepared, pass, render_pass, "«shroud»", [0.0; 3]);
+            self.issue_draw_call(prepared, pass, render_pass, "«shroud»");
         }
         self.stats.material_passes += prepared.material_passes.len() as u32;
         self.stats.shader_switches += 1;
@@ -1562,68 +1104,10 @@ impl MeshRenderManager {
         arena: &mut FrameUniformArena,
         resources: &mut RenderPassResources,
     ) -> W3dResult<()> {
-        // UTBMESHNULL (documented diagnostic, GENERALS_UTBMESHNULL=1):
-        // skip every ww3d mesh-lane material draw. If the unexplained white
-        // shards vanish with this set, they are mesh-lane pixels and the
-        // UTBMAGENTA tag demonstrably did not reach the pipeline that draws
-        // them; if they persist, a non-mesh pass paints them.
-        if std::env::var("GENERALS_UTBMESHNULL").as_deref() == Ok("1") {
-            return Ok(());
-        }
-        // UTBLIGHT (documented diagnostic, GENERALS_UTBLIGHT=1, once per model):
-        // dump the mesh-lane lighting environment at draw time to discriminate
-        // lighting-uniform-scale blowout (ambient/light colors far above 1.0
-        // clamp every fragment to flat white) from an upload/sampler white sample.
-        static UTBLIGHT_SEEN: std::sync::LazyLock<
-            std::sync::Mutex<std::collections::HashSet<String>>,
-        > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-        let utblight_first = std::env::var("GENERALS_UTBLIGHT").as_deref() == Ok("1")
-            && UTBLIGHT_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(mesh.name.clone()))
-                .unwrap_or(false);
-        if utblight_first {
-            match render_info.lighting.as_ref() {
-                Some(env) => {
-                    let mut desc = format!(
-                        "ambient=({:.4},{:.4},{:.4})",
-                        env.ambient.x, env.ambient.y, env.ambient.z
-                    );
-                    for (i, light) in env.lights.iter().enumerate() {
-                        if let Ok(light) = light.lock() {
-                            desc.push_str(&format!(
-                                " | l{} type={:?} dir=({:.3},{:.3},{:.3}) col=({:.4},{:.4},{:.4}) int={:.3} amb=({:.4},{:.4},{:.4}) enabled={}",
-                                i, light.light_type,
-                                light.direction.x, light.direction.y, light.direction.z,
-                                light.color.x, light.color.y, light.color.z,
-                                light.intensity,
-                                light.ambient.x, light.ambient.y, light.ambient.z,
-                                light.enabled,
-                            ));
-                        }
-                    }
-                    log::warn!("UTBLIGHT model='{}' {}", mesh.name, desc);
-                }
-                None => log::warn!("UTBLIGHT model='{}' lighting=NONE", mesh.name),
-            }
-        }
         let uv_override_pass = mesh
             .uv_offset_override()
             .map(|offset| Self::material_pass_with_uv_offset(pass, offset));
-        // texture stage mask so draws take the untextured fallback-white
-        // route. Bodies appearing untextured indicts the per-draw texture
-        // binds of the textured pipeline, not geometry.
-        let stage_masks = if std::env::var("GENERALS_UTBNOTEX").as_deref() == Ok("1") {
-            StageMasks {
-                mask: 0,
-                cube_mask: 0,
-                hints: 0,
-                alpha_mask: 0,
-                uv_channels: 0,
-            }
-        } else {
-            compute_stage_masks(pass)
-        };
+        let stage_masks = compute_stage_masks(pass);
         let pass = uv_override_pass.as_ref().unwrap_or(pass);
 
         let vertex_format = if prepared.is_skinned {
@@ -1647,12 +1131,6 @@ impl MeshRenderManager {
             pipeline_shader.set_alpha_blend_enable(true);
         }
 
-        // UTBNODEPTH (documented diagnostic, GENERALS_UTBNODEPTH=1):
-        // create mesh pipelines with no depth attachment testing; if invisible
-        // units pop into view with this set they were depth-occluded (draw
-        // order/depth-state bug), if they stay hidden the geometry itself is
-        // degenerate or off-screen.
-        let utb_nodepth = std::env::var("GENERALS_UTBNODEPTH").as_deref() == Ok("1");
         let pipeline = self.pipeline_mgr.get_or_create(
             &pipeline_shader,
             stage_masks.mask,
@@ -1662,7 +1140,7 @@ impl MeshRenderManager {
             wgpu::PrimitiveTopology::TriangleList,
             vertex_format,
             self.color_format,
-            if utb_nodepth { None } else { self.depth_format },
+            self.depth_format,
             0,
             force_two_sided,
         );
@@ -1674,70 +1152,6 @@ impl MeshRenderManager {
             arena,
             render_info,
         )?;
-        // UTBVP (documented diagnostic, GENERALS_UTBVP=1, once per
-        // model+place): project the mesh's world position through the exact
-        // view-projection this draw uploads, so an invisible body is
-        // attributed to VP content (NDC outside [-1,1]) versus degenerate
-        // index content (see UTBIDX).
-        if std::env::var("GENERALS_UTBVP").as_deref() == Ok("1") {
-            static UTBVP_SEEN: std::sync::LazyLock<
-                std::sync::Mutex<std::collections::HashSet<String>>,
-            > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-            let utb_vp = render_info.camera.get_cached_view_projection_matrix();
-            let utb_w = mesh.transform.w_axis;
-            let utb_clip = utb_vp * glam::Vec4::new(utb_w.x, utb_w.y, utb_w.z, 1.0);
-            let utb_ndc = if utb_clip.w.abs() > 1.0e-6 {
-                utb_clip.truncate() / utb_clip.w
-            } else {
-                utb_clip.truncate()
-            };
-            let utb_key = format!(
-                "{}|({:.0},{:.0},{:.0})",
-                pass.get_texture(0)
-                    .map(|texture| texture.get_name())
-                    .unwrap_or_default(),
-                utb_w.x, utb_w.y, utb_w.z,
-            );
-            let unseen = UTBVP_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(utb_key))
-                .unwrap_or(false);
-            if unseen {
-                let r = utb_vp.to_cols_array();
-                let bx = mesh.transform.x_axis.truncate().length();
-                let by = mesh.transform.y_axis.truncate().length();
-                let bz = mesh.transform.z_axis.truncate().length();
-                let mut bmin = glam::Vec3::MAX;
-                let mut bmax = glam::Vec3::MIN;
-                if let Some(model) = mesh.model.as_ref() {
-                    for vertex in &model.vertices {
-                        let world = mesh.transform * glam::Vec4::new(vertex.x, vertex.y, vertex.z, 1.0);
-                        let clip = utb_vp * world;
-                        if clip.w.abs() > 1.0e-6 {
-                            let ndc = clip.truncate() / clip.w;
-                            bmin = bmin.min(ndc);
-                            bmax = bmax.max(ndc);
-                        }
-                    }
-                }
-                log::warn!(
-                    "UTBVP tex0='{}' world=({:.1},{:.1},{:.1}) ndc=({:.3},{:.3},{:.3}) clipw={:.3} basis=({:.3},{:.3},{:.3}) skinned={} bbox_ndc=({:.2}..{:.2}, {:.2}..{:.2}, {:.2}..{:.2}) vp=[{:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4} / {:.4},{:.4},{:.4},{:.4}]",
-                    pass.get_texture(0)
-                        .map(|texture| texture.get_name())
-                        .unwrap_or_default(),
-                    utb_w.x, utb_w.y, utb_w.z,
-                    utb_ndc.x, utb_ndc.y, utb_ndc.z,
-                    utb_clip.w,
-                    bx, by, bz,
-                    prepared.is_skinned,
-                    bmin.x, bmax.x, bmin.y, bmax.y, bmin.z, bmax.z,
-                    r[0], r[1], r[2], r[3],
-                    r[4], r[5], r[6], r[7],
-                    r[8], r[9], r[10], r[11],
-                    r[12], r[13], r[14], r[15],
-                );
-            }
-        }
 
         let (mut material_diffuse, material_specular, material_emissive) =
             material_properties(pass.get_vertex_material());
@@ -1748,132 +1162,8 @@ impl MeshRenderManager {
             0.0,
         ];
         let (visibility_alpha, visibility_falloff, is_explored) =
-            // UTBNOFOW (documented diagnostic, GENERALS_UTBNOFOW=1): force
-            // neutral fog-of-war visibility (fully visible). If bodies appear,
-            // a frozen FOW uniform (alpha=0 / unexplored) was discarding or
-            // zeroing their fragments.
-            if std::env::var("GENERALS_UTBNOFOW").as_deref() == Ok("1") {
-                (1.0, 0.0, 1.0)
-            } else {
-                mesh.frozen_fow_visibility().model_uniform_values()
-            };
+            mesh.frozen_fow_visibility().model_uniform_values();
 
-        // UTBMAT (documented diagnostic, GENERALS_UTBMAT=1, once per
-        // model+texture): dump the per-model material uniforms that multiply
-        // the sampled albedo. Keyed by texture name because live mesh names
-        // are empty and a name-only key would log just the first draw.
-        if *UTBMAT_ENABLED {
-            let key = format!(
-                "{}|{}",
-                mesh.name,
-                pass.get_texture(0)
-                    .map(|texture| texture.get_name())
-                    .unwrap_or_default()
-            );
-            let unseen = UTBMAT_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(key))
-                .unwrap_or(false);
-            if unseen {
-                let tex0 = pass
-                    .get_texture(0)
-                    .map(|texture| {
-                        format!(
-                            "'{}' {}x{} fmt={:?} px={}",
-                            texture.get_name(),
-                            texture.width,
-                            texture.height,
-                            texture.format,
-                            texture.raw_pixels().len()
-                        )
-                    })
-                    .unwrap_or_else(|| "none".to_string());
-                log::warn!(
-                    "UTBMAT model='{}' mat_diff=({:.3},{:.3},{:.3},{:.3}) mat_spec=({:.3},{:.3},{:.3},{:.3}) mat_emis=({:.3},{:.3},{:.3}) overrides=({:.3},{:.3},{:.3},{:.3}) stage_mask={:02x} cube_mask={:08x} hints={:08x} tex0={}",
-                    mesh.name,
-                    material_diffuse[0], material_diffuse[1], material_diffuse[2], material_diffuse[3],
-                    material_specular[0], material_specular[1], material_specular[2], material_specular[3],
-                    material_emissive[0], material_emissive[1], material_emissive[2],
-                    material_overrides[0], material_overrides[1], material_overrides[2], material_overrides[3],
-                    stage_masks.mask, stage_masks.cube_mask, stage_masks.hints,
-                    tex0,
-                );
-            }
-        }
-        // UTBMESHVIS (documented diagnostic, GENERALS_UTBMESHVIS=1, once per
-        // model): dump per-model visibility (FOW alpha/falloff/explored,
-        // alpha_override) and the mesh-lane camera eye, to attribute invisible
-        // units to an alpha discard vs a stale camera.
-        if std::env::var("GENERALS_UTBMESHVIS").as_deref() == Ok("1") {
-            static UTBMESHVIS_SEEN: std::sync::LazyLock<
-                std::sync::Mutex<std::collections::HashSet<String>>,
-            > = std::sync::LazyLock::new(|| {
-                std::sync::Mutex::new(std::collections::HashSet::new())
-            });
-            let utb_vis_key = format!(
-                "{}|{}|{}",
-                mesh.name,
-                mesh.alpha_override,
-                (visibility_alpha, visibility_falloff, is_explored).0
-            );
-            let unseen = UTBMESHVIS_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(utb_vis_key))
-                .unwrap_or(false);
-            if unseen {
-                let utb_cam = render_info.camera.get_position();
-                log::warn!(
-                    "UTBMESHVIS model='{}' alpha_override={:.3} pres_opacity={:.3} fow=(a={:.3} f={:.3} exp={:.3}) cam=({:.1},{:.1},{:.1}) world=({:.1},{:.1},{:.1})",
-                    mesh.name,
-                    mesh.alpha_override,
-                    mesh.presentation_opacity(),
-                    visibility_alpha,
-                    visibility_falloff,
-                    is_explored,
-                    utb_cam.x,
-                    utb_cam.y,
-                    utb_cam.z,
-                    mesh.transform.w_axis.x,
-                    mesh.transform.w_axis.y,
-                    mesh.transform.w_axis.z,
-                );
-            }
-        }
-        // UTBPASSTINT (documented diagnostic, GENERALS_UTBPASSTINT=1):
-        // per-pass material_diffuse override — pass0 red, pass1 green, pass2
-        // blue, pass3+ yellow — to identify which material pass paints the
-        // white shards and whether the shader honors material_diffuse.
-        // UTBRANGE (same env): once per model+pass, dump the authored draw
-        // range so an invisible base pass (start,0) is visible in logs.
-        if std::env::var("GENERALS_UTBPASSTINT").as_deref() == Ok("1") {
-            material_diffuse = match pass.get_pass_index() {
-                0 => [1.0, 0.0, 0.0, 1.0],
-                1 => [0.0, 1.0, 0.0, 1.0],
-                2 => [0.0, 0.0, 1.0, 1.0],
-                _ => [1.0, 1.0, 0.0, 1.0],
-            };
-            static UTBRANGE_SEEN: std::sync::LazyLock<
-                std::sync::Mutex<std::collections::HashSet<String>>,
-            > = std::sync::LazyLock::new(|| {
-                std::sync::Mutex::new(std::collections::HashSet::new())
-            });
-            let utb_pi = pass.get_pass_index();
-            let utb_key = format!("{}|{}", mesh.name, utb_pi);
-            let unseen = UTBRANGE_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(utb_key))
-                .unwrap_or(false);
-            if unseen {
-                log::warn!(
-                    "UTBRANGE model='{}' pass={} range={:?} all={:?} idx_buf={}",
-                    mesh.name,
-                    utb_pi,
-                    prepared.pass_index_ranges.get(utb_pi).copied(),
-                    prepared.pass_index_ranges,
-                    prepared.index_buffer.is_some(),
-                );
-            }
-        }
         let model_binds = WgpuMaterialBinds::model(
             self.gpu_device.as_ref(),
             pipeline.as_ref(),
@@ -1896,32 +1186,6 @@ impl MeshRenderManager {
             Some(&self.live_csm),
         )?;
 
-        // UTBARENAREAD (documented diagnostic, GENERALS_UTBARENAREAD=1, once):
-        // stash the arena slice coordinates of the first large (body) draw so
-        // update_and_fill_live_cascade can read the EXECUTED uniform bytes
-        // back next frame and compare them with the CPU-side expectations.
-        if std::env::var("GENERALS_UTBARENAREAD").as_deref() == Ok("1")
-            && prepared.vertex_count >= 256
-            && pass.get_pass_index() == 0
-            && self.utb_arena_probe.is_none()
-        {
-            self.utb_arena_probe = Some(UtbArenaProbe {
-                page: Arc::clone(&camera_binds.buffer),
-                camera_offset: camera_binds.offset,
-                camera_size: camera_binds.size,
-                model_offset: model_binds.model_offset,
-                model_size: model_binds.model_size,
-                expected_vp: render_info
-                    .camera
-                    .get_cached_view_projection_matrix()
-                    .to_cols_array(),
-                expected_model: mesh.transform.to_cols_array(),
-                mesh_name: pass
-                    .get_texture(0)
-                    .map(|texture| texture.get_name().to_string())
-                    .unwrap_or_else(|| mesh.name.clone()),
-            });
-        }
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
 
         resources.retain_buffer(Arc::clone(&camera_binds.buffer));
@@ -1984,89 +1248,6 @@ impl MeshRenderManager {
             color_group_index,
             Arc::clone(&vertex_color.bind_group),
         );
-        // UTBCLIP (documented diagnostic, GENERALS_UTBCLIP=1): rebind this
-        // body draw's group-7 illumination slot to a dedicated dump buffer so
-        // the instrumented vs_main records every vertex's fetched position
-        // and computed clip position. update_and_fill_live_cascade reads the
-        // dump back next frame and compares the GPU NDC extents with the CPU
-        // projection of the same vertices.
-        if std::env::var("GENERALS_UTBCLIP").as_deref() == Ok("1")
-            && !prepared.is_skinned
-            && prepared.vertex_count >= 256
-            && pass.get_pass_index() == 0
-            && self.utb_clip_dumps_left > 0
-            && self.utb_clip_probe.is_none()
-        {
-            self.utb_clip_dumps_left -= 1;
-            let utb_device = self.gpu_device.wgpu_device();
-            let dump_buffer = Arc::new(utb_device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("UTBCLIP dump"),
-                size: (prepared.vertex_count as u64) * 2 * 16,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            }));
-            let bind_group = utb_device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("UTBCLIP dump bind group"),
-                layout: &pipeline.get_bind_group_layout(color_group_index),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: vertex_color.diffuse_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: dump_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-            let utb_vp = render_info.camera.get_cached_view_projection_matrix();
-            let mut samples = Vec::new();
-            let mut expected_ndc_min = [f32::MAX; 3];
-            let mut expected_ndc_max = [f32::MIN; 3];
-            if let Some(model) = mesh.model.as_ref() {
-                for triangle in model.triangles.iter().take(3) {
-                    for &vi in &triangle.vindex {
-                        if let Some(vertex) = model.vertices.get(vi as usize) {
-                            let world =
-                                mesh.transform * glam::Vec4::new(vertex.x, vertex.y, vertex.z, 1.0);
-                            let clip = utb_vp * world;
-                            samples.push((
-                                vi,
-                                [vertex.x, vertex.y, vertex.z],
-                                [clip.x, clip.y, clip.z, clip.w],
-                            ));
-                        }
-                    }
-                }
-                for vertex in &model.vertices {
-                    let world =
-                        mesh.transform * glam::Vec4::new(vertex.x, vertex.y, vertex.z, 1.0);
-                    let clip = utb_vp * world;
-                    if clip.w.abs() > 1.0e-6 {
-                        let ndc = clip.truncate() / clip.w;
-                        expected_ndc_min[0] = expected_ndc_min[0].min(ndc.x);
-                        expected_ndc_min[1] = expected_ndc_min[1].min(ndc.y);
-                        expected_ndc_min[2] = expected_ndc_min[2].min(ndc.z);
-                        expected_ndc_max[0] = expected_ndc_max[0].max(ndc.x);
-                        expected_ndc_max[1] = expected_ndc_max[1].max(ndc.y);
-                        expected_ndc_max[2] = expected_ndc_max[2].max(ndc.z);
-                    }
-                }
-            }
-            resources.retain_buffer(Arc::clone(&dump_buffer));
-            resources.set_bind_group(render_pass, color_group_index, Arc::new(bind_group));
-            self.utb_clip_probe = Some(UtbClipProbe {
-                dump_buffer,
-                vertex_count: prepared.vertex_count,
-                samples,
-                expected_ndc_min,
-                expected_ndc_max,
-                mesh_name: pass
-                    .get_texture(0)
-                    .map(|texture| texture.get_name().to_string())
-                    .unwrap_or_else(|| mesh.name.clone()),
-            });
-        }
 
         if pass
             .diffuse_vertex_colors
@@ -2082,30 +1263,8 @@ impl MeshRenderManager {
             self.stats.vertex_color_passes += 1;
         }
 
-        let utb_t = mesh.transform.w_axis;
-        let utb_translation = [utb_t.x, utb_t.y, utb_t.z];
-        self.issue_draw_call(
-            prepared,
-            pass,
-            render_pass,
-            &mesh.name,
-            utb_translation,
-        );
+        self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
 
-        // UTBFORCEDRAW (documented diagnostic, GENERALS_UTBFORCEDRAW=1): in
-        // every large (body) mesh's draw slot, also rasterize a fullscreen
-        // magenta triangle generated from `vertex_index` only — no vertex
-        // fetch, no uniforms. Magenta in the captured frame proves the body
-        // draw slot executes and reaches the rasterizer; no magenta indicts
-        // draw execution itself, not the vertex data.
-        if std::env::var("GENERALS_UTBFORCEDRAW").as_deref() == Ok("1")
-            && prepared.vertex_count >= 256
-        {
-            if let Some(debug_pipeline) = self.utb_debug_draw_pipeline() {
-                resources.set_pipeline(render_pass, debug_pipeline);
-                render_pass.draw(0..3, 0..1);
-            }
-        }
 
         self.stats.material_passes += 1;
         self.stats.shader_switches += 1;
@@ -2115,81 +1274,6 @@ impl MeshRenderManager {
 
 
         Ok(())
-    }
-    /// UTBFORCEDRAW (GENERALS_UTBFORCEDRAW=1): lazily build the fullscreen
-    /// magenta-triangle pipeline. Vertex-index-generated positions, no
-    /// bindings, no depth write; matches the live frame's target formats.
-    fn utb_debug_draw_pipeline(&mut self) -> Option<Arc<wgpu::RenderPipeline>> {
-        if let Some(existing) = self.debug_draw_pipeline.as_ref() {
-            return Some(Arc::clone(existing));
-        }
-        let device = self.gpu_device.wgpu_device();
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("UTBFORCEDRAW shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                r#"
-struct VsOut {
-    @builtin(position) pos: vec4<f32>,
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) i: u32) -> VsOut {
-    var positions = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -3.0),
-        vec2<f32>(-3.0,  3.0),
-        vec2<f32>( 3.0,  3.0),
-    );
-    var out: VsOut;
-    out.pos = vec4<f32>(positions[i], 0.0, 1.0);
-    return out;
-}
-
-@fragment
-fn fs_main() -> @location(0) vec4<f32> {
-    return vec4<f32>(1.0, 0.0, 1.0, 1.0);
-}
-"#
-                .into(),
-            ),
-        });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("UTBFORCEDRAW layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("UTBFORCEDRAW pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: self.color_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: self.depth_format.map(|format| wgpu::DepthStencilState {
-                format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
-        self.debug_draw_pipeline = Some(Arc::new(pipeline));
-        self.debug_draw_pipeline.as_ref().map(Arc::clone)
     }
 
     // helper slots intentionally minimal; temporary bindings are stored in local vectors to ensure
@@ -2201,7 +1285,6 @@ fn fs_main() -> @location(0) vec4<f32> {
         pass: &MaterialPassClass,
         render_pass: &mut wgpu::RenderPass<'_>,
         mesh_name: &str,
-        mesh_translation: [f32; 3],
     ) {
         // Get the pass index for filtering
         let pass_index = pass.get_pass_index();
@@ -2217,83 +1300,7 @@ fn fs_main() -> @location(0) vec4<f32> {
         } else {
             (0, 0)
         };
-        // UTBDRAW (documented diagnostic, GENERALS_UTBDRAWLOG=1 or
-        // GENERALS_UTBDRAWSKIP="start:count,..."): log every distinct
-        // material-pass draw; optionally skip exact (start,count) matches to
-        // identify which draw produces the unexplained white shards.
-        static UTBDRAW_SEEN: std::sync::LazyLock<
-            std::sync::Mutex<std::collections::HashSet<String>>,
-        > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-        let utb_skip_spec = std::env::var("GENERALS_UTBDRAWSKIP").ok();
-        let utb_skip = utb_skip_spec.as_deref().map(|spec| {
-            spec.split(',')
-                .filter_map(|entry| {
-                    let mut parts = entry.trim().split(':');
-                    let start = parts.next()?.trim().parse::<u32>().ok()?;
-                    let count = parts.next()?.trim().parse::<u32>().ok()?;
-                    Some((start, count))
-                })
-                .any(|(start, count)| start == start_index && count == count)
-        })
-        .unwrap_or(false);
-        let utb_key = format!(
-            "model='{}' pass={} start={} count={} verts={} indexed={} tex0='{}' world=({:.1},{:.1},{:.1})",
-            mesh_name,
-            pass_index,
-            start_index,
-            count,
-            prepared.vertex_count,
-            prepared.index_buffer.is_some(),
-            pass.get_texture(0)
-                .map(|texture| texture.get_name())
-                .unwrap_or_default(),
-            mesh_translation[0],
-            mesh_translation[1],
-            mesh_translation[2],
-        );
-        let unseen = UTBDRAW_SEEN
-            .lock()
-            .map(|mut seen| seen.insert(utb_key.clone()))
-            .unwrap_or(false);
-        let utb_log = std::env::var("GENERALS_UTBDRAWLOG").as_deref() == Ok("1");
-        if utb_log && unseen {
-            log::warn!("UTBDRAW {}", utb_key);
-        }
-        if utb_skip {
-            if unseen {
-                let tex = pass.get_texture(0);
-                let px = tex.as_ref().map(|t| t.raw_pixels()).unwrap_or_default();
-                let fmt = tex
-                    .as_ref()
-                    .map(|t| format!("{:?}", t.format))
-                    .unwrap_or_default();
-                let (tw, th) = tex.as_ref().map(|t| (t.width, t.height)).unwrap_or((0, 0));
-                let vdc = pass.diffuse_vertex_colors.as_ref();
-                log::warn!(
-                    "UTBDRAWSKIP model='{}' tex=({}x{} fmt={} pxlen={} px0={:02x?}) diffvc={} v0={:?} shaderbits={:08x} world=({:.1},{:.1},{:.1})",
-                    mesh_name,
-                    tw,
-                    th,
-                    fmt,
-                    px.len(),
-                    &px[..px.len().min(16)],
-                    vdc.map(|colors| colors.len()).unwrap_or(0),
-                    vdc.and_then(|colors| colors.first()).copied(),
-                    pass.shader.get_bits(),
-                    mesh_translation[0],
-                    mesh_translation[1],
-                    mesh_translation[2],
-                );
-            }
-            return;
-        }
-        // UTBNONIDX (documented diagnostic, GENERALS_UTBNONIDX=1): draw large
-        // (body) meshes NON-INDEXED from the same vertex buffer and pipeline.
-        // A garbage-but-visible blob indicts the index buffer; continued
-        // invisibility indicts the vertex buffer/fetch for these models.
-        let utb_nonidx =
-            std::env::var("GENERALS_UTBNONIDX").as_deref() == Ok("1") && count > 256;
-        if prepared.index_buffer.is_some() && count > 0 && !utb_nonidx {
+        if prepared.index_buffer.is_some() && count > 0 {
             // Draw only the indices for this specific pass
             render_pass.draw_indexed(start_index..start_index + count, 0, 0..1);
             self.stats.draw_calls += 1;
@@ -2350,9 +1357,6 @@ fn fs_main() -> @location(0) vec4<f32> {
 
         let diffuse_buffer =
             diffuse_buffer.unwrap_or_else(|| self.empty_vertex_color_buffer.clone());
-        // UTBCLIP (GENERALS_UTBCLIP=1): never share the read-only diffuse
-        // fallback with the (probe read/write) illumination slot — one buffer
-        // in both roles of one bind group is a wgpu usage conflict.
         let illumination_buffer =
             illumination_buffer.unwrap_or_else(|| self.empty_illumination_buffer.clone());
 
@@ -2434,30 +1438,23 @@ fn fs_main() -> @location(0) vec4<f32> {
 
     fn stage_resources_for(&self, pass: &MaterialPassClass, stage: usize) -> StageResources {
         let texture_opt = pass.get_texture(stage);
-        let utbview_enabled = *UTBVIEW_ENABLED;
-        let (resources, branch) = if let Some(texture) = texture_opt {
+        let resources = if let Some(texture) = texture_opt {
             if let Some(view) = texture.get_texture_view() {
                 let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
                 let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
-                (
-                    StageResources {
-                        view_2d: Arc::new(view),
-                        view_cube: self.fallback_textures.view_cube.clone(),
-                        sampler,
-                    },
-                    "preassigned-view",
-                )
+                StageResources {
+                    view_2d: Arc::new(view),
+                    view_cube: self.fallback_textures.view_cube.clone(),
+                    sampler,
+                }
             } else if let Some(view) = self.ensure_gpu_texture_view(texture) {
                 let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
                 let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
-                (
-                    StageResources {
-                        view_2d: view,
-                        view_cube: self.fallback_textures.view_cube.clone(),
-                        sampler,
-                    },
-                    "uploaded-cpu",
-                )
+                StageResources {
+                    view_2d: view,
+                    view_cube: self.fallback_textures.view_cube.clone(),
+                    sampler,
+                }
             } else {
                 // W3D placeholder pass texture (name only, no pixels/view):
                 // resolve it through the host-installed archive-backed provider
@@ -2475,54 +1472,21 @@ fn fs_main() -> @location(0) vec4<f32> {
                             let sampler = Arc::new(
                                 self.gpu_device.wgpu_device().create_sampler(&sampler_desc),
                             );
-                            (
-                                StageResources {
-                                    view_2d: view,
-                                    view_cube: self.fallback_textures.view_cube.clone(),
-                                    sampler,
-                                },
-                                "provider-hydrated",
-                            )
+                            StageResources {
+                                view_2d: view,
+                                view_cube: self.fallback_textures.view_cube.clone(),
+                                sampler,
+                            }
                         } else {
-                            (self.fallback_stage_resources(), "provider-upload-failed")
+                            self.fallback_stage_resources()
                         }
                     }
-                    None => (self.fallback_stage_resources(), "provider-miss"),
+                    None => self.fallback_stage_resources(),
                 }
             }
         } else {
-            (self.fallback_stage_resources(), "no-texture")
+            self.fallback_stage_resources()
         };
-
-        if utbview_enabled {
-            let name = texture_opt
-                .map(|texture| texture.get_name().to_string())
-                .unwrap_or_default();
-            let texel_mid = texture_opt.and_then(|texture| {
-                let pixels = texture.raw_pixels();
-                let (w, h) = (texture.width as usize, texture.height as usize);
-                if w > 0 && h > 0 && pixels.len() >= w * h * 4 {
-                    let mid = ((h / 2) * w + w / 2) * 4;
-                    Some([pixels[mid], pixels[mid + 1], pixels[mid + 2], pixels[mid + 3]])
-                } else {
-                    None
-                }
-            });
-            let key = (name.clone(), branch);
-            let unseen = UTBVIEW_SEEN
-                .lock()
-                .map(|mut seen| seen.insert(key))
-                .unwrap_or(false);
-            if unseen {
-                log::warn!(
-                    "UTBVIEW stage={} name='{}' branch={} texel_mid={:?}",
-                    stage,
-                    name,
-                    branch,
-                    texel_mid,
-                );
-            }
-        }
         resources
     }
 

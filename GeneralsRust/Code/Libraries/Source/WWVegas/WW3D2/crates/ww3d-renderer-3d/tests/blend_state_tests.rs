@@ -474,3 +474,80 @@ fn test_complete_shader_creation() {
     assert_eq!(shader.get_pri_gradient(), PriGradientType::Modulate);
     assert_eq!(shader.get_texturing(), TexturingType::Enable);
 }
+
+/// Test that the WGSL alpha-test discard is gated on the authored
+/// ShaderClass ALPHATEST bit.
+///
+/// C++ parity: `ShaderClass::Apply` enables `D3DRS_ALPHATESTENABLE` only when
+/// `Get_Alpha_Test() != ALPHATEST_DISABLE` (GeneralsMD shader.cpp:998) with a
+/// 0x60 reference (shader.cpp:427); the default device state is
+/// ALPHATESTENABLE=FALSE / ALPHAREF=0 (dx8wrapper.cpp:3682/3688). The port
+/// gates the alpha.wgsl/decal.wgsl discard per pipeline: materials without
+/// the bit compile with a 0.0 threshold (no fragment can be discarded);
+/// materials with the bit keep the 96/255 reference.
+#[test]
+fn test_alpha_test_discard_gated_on_shader_bit() {
+    use std::borrow::Cow;
+
+    const WGSL_SNIPPET: &str = "const BASE_ALPHA_REF: f32 = 96.0 / 255.0;\n\
+                               let alpha_threshold = BASE_ALPHA_REF * alpha_override;\n\
+                               if final_alpha < alpha_threshold {\n    discard;\n}\n";
+    let source = Cow::Borrowed(WGSL_SNIPPET);
+    let gated = |shader: &ShaderClass| {
+        ww3d_renderer_3d::rendering::wgpu_renderer::wgpu_pipeline_manager::gate_alpha_test_discard(
+            shader,
+            source.clone(),
+        )
+    };
+
+    // Default material: ALPHATEST bit unset. The (SrcAlpha, InvSrcAlpha)
+    // blend routes to alpha.wgsl, but without the bit the discard threshold
+    // must compile to 0.0 — `final_alpha < 0.0` can never fire.
+    let mut shader = ShaderClass::new();
+    shader.set_src_blend_func(SrcBlendFuncType::SrcAlpha);
+    shader.set_dst_blend_func(DstBlendFuncType::InvSrcAlpha);
+    assert_eq!(shader.get_alpha_test(), AlphaTestType::Disable);
+    let without_bit = gated(&shader);
+    assert!(!without_bit.contains("96.0 / 255.0"), "{without_bit}");
+
+    // Material with the ALPHATEST bit authored keeps the authored 96/255
+    // reference (C++ D3DRS_ALPHAREF = 0x60, shader.cpp:427).
+    shader.set_alpha_test(AlphaTestType::Enable);
+    let with_bit = gated(&shader);
+    assert_eq!(with_bit, source);
+
+    // The decode path must drive the gate: a raw W3DShaderStruct with the
+    // C++ ALPHATEST bit (shift 18) set keeps the reference; unset zeroes it.
+    let raw = |alpha_test: u8| ww3d_core::W3dShaderStruct {
+        depth_compare: DepthCompareType::Lequal as u8,
+        depth_mask: DepthMaskType::Enable as u8,
+        color_mask: ColorMaskType::Enable as u8,
+        src_blend: SrcBlendFuncType::SrcAlpha as u8,
+        dest_blend: DstBlendFuncType::InvSrcAlpha as u8,
+        fog_func: FogFuncType::Disable as u8,
+        pri_gradient: PriGradientType::Disable as u8,
+        sec_gradient: SecGradientType::Disable as u8,
+        texturing: TexturingType::Enable as u8,
+        detail_color_func: DetailColorFuncType::Disable as u8,
+        detail_alpha_func: DetailAlphaFuncType::Disable as u8,
+        shader_preset: 0,
+        alpha_test,
+        post_detail_color_func: DetailColorFuncType::Disable as u8,
+        post_detail_alpha_func: DetailAlphaFuncType::Disable as u8,
+    };
+    let enabled = ShaderClass::from_w3d_shader(&raw(AlphaTestType::Enable as u8));
+    assert_eq!(gated(&enabled), source);
+    let disabled = ShaderClass::from_w3d_shader(&raw(AlphaTestType::Disable as u8));
+    assert!(!gated(&disabled).contains("96.0 / 255.0"));
+
+    // Sources that never carry the constant (opaque/additive routes) pass
+    // through unchanged regardless of the bit.
+    let plain = Cow::<str>::Borrowed("fn fs_main() -> @location(0) vec4<f32> { return out; }\n");
+    assert_eq!(
+        ww3d_renderer_3d::rendering::wgpu_renderer::wgpu_pipeline_manager::gate_alpha_test_discard(
+            &shader,
+            plain.clone(),
+        ),
+        plain
+    );
+}
