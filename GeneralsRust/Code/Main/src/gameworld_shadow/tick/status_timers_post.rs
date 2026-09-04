@@ -275,21 +275,24 @@ impl GameWorldShadow {
                 pd.radar_count = count;
                 let has_now = pd.radar_count > 0 && !pd.radar_disabled;
                 if prev != count || had != has_now {
-                    let host_pid = self
-                        .host_player_to_gw
-                        .iter()
-                        .find(|(_, gw)| **gw == pid)
-                        .map(|(h, _)| *h)
-                        .unwrap_or(u32::from(pid.get()));
-                    crate::game_logic::host_player_radar_log::record(
-                        crate::game_logic::host_player_radar_log::PlayerRadarEvent {
-                            player_id: host_pid,
-                            radar_count: pd.radar_count,
-                            had_radar: had,
-                            has_radar: has_now,
-                        },
-                    );
-                    n = n.saturating_add(1);
+                    // C++ Player::addRadar/removeRadar fire only on the player
+                    // that owns the provider object (RadarUpgrade.cpp:111).
+                    // A GW slot without a host mapping has no owning player —
+                    // never fabricate one from the dense slot index or the
+                    // event can zero a foreign player's radar.
+                    if let Some((&host_pid, _)) =
+                        self.host_player_to_gw.iter().find(|(_, gw)| **gw == pid)
+                    {
+                        crate::game_logic::host_player_radar_log::record(
+                            crate::game_logic::host_player_radar_log::PlayerRadarEvent {
+                                player_id: host_pid,
+                                radar_count: pd.radar_count,
+                                had_radar: had,
+                                has_radar: has_now,
+                            },
+                        );
+                        n = n.saturating_add(1);
+                    }
                 }
             }
         }

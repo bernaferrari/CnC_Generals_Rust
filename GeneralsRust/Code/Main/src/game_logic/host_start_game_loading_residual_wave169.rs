@@ -143,6 +143,15 @@ pub fn resolve_retail_map_path(map_name: &str) -> Option<PathBuf> {
         }
     }
 
+    // Compile-time install anchors (repo root via Code/Main manifest): C++
+    // resolves map names through TheFileSystem's engine-fixed search paths
+    // (FileSystem.cpp:164-178), never the transient process CWD — bare names
+    // must resolve the same way from any launch directory.
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    bases.push(manifest);
+    for ancestor in PathBuf::from(env!("CARGO_MANIFEST_DIR")).ancestors().skip(1) {
+        bases.push(ancestor.to_path_buf());
+    }
     for base in bases {
         for root in MAP_ROOT_CANDIDATES_WAVE169 {
             let root_path = if Path::new(root).is_absolute() {

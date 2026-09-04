@@ -3130,3 +3130,88 @@ and the residual needs the host selection snapshot to carry template_name.
 Remove after the closer lands the verification drive.
 Artifacts: /tmp/wsmoke/g2drive1.sh g2drive2.sh g2b_*.png g2b_*.txt
 g2drive*.log g2x_dir, verdict stderr under $(cat /tmp/wsmoke/g2x_dir)/child_stderr.txt.
+
+## HostRegFix — menu first-run reveal + bare map-name regressions ROOT-CAUSED and FIXED: one shared root cause (cwd-anchored asset resolution vs /tmp-cwd drive pattern); live windowed drive PASS end-to-end (2026-09-04 06:30-07:30)
+
+### Method
+git diff 98bb6b20f..d470fd740 over the suspect runtime_host files (found them
+INNOCENT), then evidence mining in the surviving G2/G3 child stderr logs under
+$(cat /tmp/wsmoke/g2x_dir) + the 05:14 boot dir. Three windowed 640x480 drives
+from a NON-repo cwd (/tmp/hrf_child_cwd) against target/release/generals
+(hrfdrive1.sh, /tmp/wsmoke/hrfdrive1.log, hrf1_ingame.png). Guard re-runs post-fix.
+
+### Root cause — NOT a code regression between 98bb6b20f and d470fd740
+The runtime_host edits named as suspects (VisualGap2's toggle_quit_menu rewrite,
+open_diplomacy InGame/Paused branch, G3's roster_probe) are exonerated by
+timeline: they were committed in 7b87b4abd (04:25) and G1's 04:52/05:03 boots —
+which already contained them — still revealed the menu. What changed between the
+last good boots (05:03-05:33) and the failing boots (05:09+ G2/G3 manual drives)
+was the DRIVE PATTERN: children launched with cwd OUTSIDE the repo
+(cwd="/private/tmp/wsmoke", per wnd_parse warn lines in both failing boots) plus
+/tmp binary copies. Two resolvers were silently cwd-anchored:
+1. Menu reveal (Regression 1): `resolve_window_script_path`
+   (GameClient gui/window_manager/wnd_parse.rs) walked ONLY
+   `current_dir.ancestors()`. From /private/tmp/wsmoke no ancestor contains
+   windows_game/, so `Menus/MainMenu.wnd` failed ->
+   `Failed to init or activate Shell before MainMenu push:
+   LayoutError("Menus/MainMenu.wnd: InvalidParameter")` (child_stderr 05:14 and
+   06:17 boots) -> MainMenu layout never pushed -> MainMenuUpdate never ran ->
+   the env-gated reveal in main_menu.rs:960-966 could never fire, and every
+   named menu click missed. The reveal gate itself is C++ parity: MainMenu.cpp
+   hides the menu first-run and reveals on >20px mouse move or GWM_CHAR
+   (GeneralsMD MainMenu.cpp:977-1005); the GENERALS_RUNTIME_HOST_WND auto-reveal
+   is the documented unattended-host adaptation, kept unchanged.
+2. Bare map name (Regression 2): `resolve_retail_map_path`
+   (game_logic/host_start_game_loading_residual_wave169.rs:126) built bases from
+   cwd + 6 parents only, and locate_map_file's extract roots
+   (`windows_game/extracted_big_files/MapsZH`) lack the final `/Maps` segment
+   under which `Maps/Defcon6/Defcon6.map` lives — so from a /tmp cwd nothing
+   anchored the retail tree. Explicit relative paths worked only because
+   locate_map_file's compile-time `env!("CARGO_MANIFEST_DIR")` roots joined the
+   full typed path (verified: both failing boots resolved the EXPLICIT path to
+   `Code/Main/../../../windows_game/...` while the bare name failed).
+   C++ parity: TheFileSystem::doesFileExist/openFile consult engine-fixed
+   search paths + BIG mounts (FileSystem.cpp:142-178), anchored at the install
+   dir — retail never depends on the transient process CWD.
+
+### Fix (3 seams, additive, existence-gated)
+- wnd_parse.rs `resolve_window_script_path`: candidate construction factored
+  into `push_base_candidates`; cwd ancestors first (unchanged), then ALL
+  `env!("CARGO_MANIFEST_DIR")` ancestors (compile-time install anchor).
+- host_start_game_loading_residual_wave169.rs `resolve_retail_map_path`: bases
+  += manifest + its ancestors, so bare `Defcon6` / `Lone Eagle` resolve
+  file-exact (`.../MapsZH/Maps/<name>/<name>.map`) from any launch dir.
+- script_loader.rs: comment-only guard note (a tried "/Maps" extract-suffix
+  variant was REVERTED after drive 1 proved the VFS local backend treats any
+  existing path — directories included — as a hit, making bare names resolve
+  to the map DIRECTORY then fail chunky decode; kept as a comment so nobody
+  reintroduces it).
+
+### Verified live (windowed drive 3, cwd=/tmp/hrf_child_cwd, 06:47 binary + fix)
+- `MainMenuUpdate: unattended runtime-host run — revealing main menu` PRESENT
+  after 57s boot (was absent on every 05:09+ boot).
+- `winit_click_named|name=MainMenu.wnd:ButtonSinglePlayer` ->
+  `winit_click_named_ok:MainMenu.wnd:ButtonSinglePlayer` (attempt 1; note
+  menu_click=false is correct — the Physical-origin latch is documented as
+  inject-exempt, input.rs:381-385). Drive note: the gadget only becomes
+  under-cursor hittable after the C++ MainMenuFade/MainMenuDefaultMenu
+  transition groups finish; drives must retry across that window (drive 2
+  fired 6s post-reveal and missed; hardened script retries).
+- `start_game|mode=skirmish|faction=USA|map=Defcon6` (BARE name) ->
+  `Resolved map 'Defcon6' to .../windows_game/extracted_big_files/MapsZH/Maps/
+  Defcon6/Defcon6.map` (file-exact, manifest-anchored: `GeneralsRust/target/
+  ../../windows_game/...`), `map load done (requested='Defcon6',
+  loaded='Defcon6')`, state=InGame, frame captured (hrf1_ingame.png: Defcon6
+  terrain + USA CC + dozer + bound control bar). ControlBar.wnd also resolved
+  from the repo-root extract (102 windows).
+- Guards green on the final tree: diplomacy_and_control_group_modifiers_residual,
+  runtime_host_pause_cancel_diplomacy_residual (source_scan open_diplomacy/
+  diplomacy_ok), wave123_composite_pack (host_quit_menu_residual_wave123),
+  find_map_file_resolves_shellmapmd_from_generals_ini_name,
+  locate_map_file_searches_parent_workspace_roots — 5 passed / 0 failed.
+
+### Probe status — none added; all changes permanent and env-free
+Changed files: GameClient wnd_parse.rs, Main game_logic/
+host_start_game_loading_residual_wave169.rs, Main game_logic/script_loader.rs
+(comment only). No git writes. Artifacts: /tmp/wsmoke/hrfdrive1.sh,
+hrfdrive1.log, hrf1_ingame.png, hrf_dir (child stderr).

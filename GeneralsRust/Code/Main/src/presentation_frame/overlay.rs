@@ -1811,8 +1811,17 @@ impl PresentationFrame {
             turret_holding: ent.turret_holding,
             last_damage_source_host: ent.last_damage_source_host,
             command_set_override: ent.command_set_override.clone(),
-            // Wave 493: effective command set name falls back to override residual.
-            command_set_name: ent.command_set_override.clone(),
+            // Wave 493: override residual, template-authored fallback. C++ ControlBar
+            // binds slots from Object::getCommandSetString (Object.cpp:6084 →
+            // template friend_getCommandSetString), so a GameWorld entity without an
+            // override must still expose its template CommandSet (same resolve as
+            // build_from_logic) or the host ControlBar grid and translator catalog
+            // carry an empty name and the command grid builds zero slots.
+            command_set_name: crate::ui::construction_panel::resolve_command_set_name(
+                &ent.template.name,
+                Some(ent.command_set_override.as_str()),
+            )
+            .unwrap_or_default(),
             is_detector: ent.is_detector,
             active_weapon_slot: ent.active_weapon_slot,
             weapon_fire_status: ent.weapon_fire_status,

@@ -2592,6 +2592,17 @@ impl GameWorldShadow {
         pd: &mut gamelogic::world::PlayerData,
         p: &crate::game_logic::Player,
     ) {
+        // C++ Player::init binds the faction team at player creation
+        // (Player.cpp:287 radar state is per-owning-player). A reused GW slot
+        // must track ITS OWN host player's faction, or a player-set mutation
+        // (skirmish enemy/observer spawn) leaves the slot keyed to a stale
+        // faction and the radar recompute/writeback zero the wrong player.
+        pd.team = match p.team {
+            Team::USA => Some(0),
+            Team::China => Some(1),
+            Team::GLA => Some(2),
+            Team::Neutral => None,
+        };
         pd.supplies = p.resources.supplies;
         pd.power_available = p.power_available;
         pd.power_produced = p.power_produced;
@@ -2748,7 +2759,6 @@ impl GameWorldShadow {
                 }
             }
         }
-        self.sync_horde_player_rel(logic);
     }
 
     /// Reverse map GameWorld owner → host Team (for TransferOwner writeback).
