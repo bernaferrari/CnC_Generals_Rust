@@ -1,6 +1,7 @@
 //! WGPU pipeline manager bridging WW3D shader/material state to wgpu::RenderPipeline
 use crate::rendering::shader_system::shader::{
-    DepthCompareType, DepthMaskType, DstBlendFuncType, ShaderClass, SrcBlendFuncType,
+    AlphaTestType, DepthCompareType, DepthMaskType, DstBlendFuncType, ShaderClass,
+    SrcBlendFuncType,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -131,67 +132,16 @@ impl WgpuPipelineManager {
                 include_str!("../shader_system/projected_shroud_basic.wgsl").into()
             }
         };
-        // UTBNOALPHATEST (documented diagnostic, GENERALS_UTBNOALPHATEST=1):
-        // zero the alpha-test reference in every shader module so the
-        // `final_alpha < alpha_threshold` discard in alpha.wgsl can never
-        // fire. Bodies appearing with this set indict the alpha-test path
-        // (C++ W3D only applies alpha test when shader bit20 is set).
-        let shader_source = if std::env::var("GENERALS_UTBNOALPHATEST").as_deref() == Ok("1") {
-            std::borrow::Cow::Owned(shader_source.replacen("96.0 / 255.0", "0.0", 1))
-        } else {
-            shader_source
-        };
-        // UTBCLIP (documented diagnostic, GENERALS_UTBCLIP=1): instrument
-        // vs_main to dump every vertex's fetched position and computed clip
-        // position into the group-7 illumination storage buffer, flipped to
-        // read/write for the probe. Entries are guarded by arrayLength so
-        // draws bound with the normal (short) color buffers never write.
-        // Read back by UTBCLIP's drain in render_manager; inert without env.
-        let shader_source = if utb_clip() {
-            let flipped = shader_source.replace(
-                "var<storage, read> vertex_illumination_colors: array<vec4<f32>>;",
-                "var<storage, read_write> vertex_illumination_colors: array<vec4<f32>>;",
-            );
-            // Inject the dump only where vs_main names its parameter `vertex`
-            // (rigid Basic shaders). The skinned shader's vs_main is
-            // `input`/`output` and must stay untouched.
-            let instrumented = if flipped.contains("vertex.position") {
-                flipped.replacen(
-                    "    let diffuse_color = read_diffuse_color(vertex_index);",
-                    concat!(
-                        "    let utb_dump_base = vertex_index * 2u;\n",
-                        "    let utb_dump_len = arrayLength(&vertex_illumination_colors);\n",
-                        "    if utb_dump_base + 1u < utb_dump_len {\n",
-                        "        let utb_world = model.model * vec4<f32>(vertex.position, 1.0);\n",
-                        "        let utb_clip_pos = camera.view_proj * utb_world;\n",
-                        "        vertex_illumination_colors[utb_dump_base] = vec4<f32>(vertex.position, 0.0);\n",
-                        "        vertex_illumination_colors[utb_dump_base + 1u] = utb_clip_pos;\n",
-                        "    }\n",
-                        "    let diffuse_color = read_diffuse_color(vertex_index);",
-                    ),
-                    1,
-                )
-            } else {
-                flipped
-            };
-            std::borrow::Cow::Owned(instrumented)
-        } else {
-            shader_source
-        };
-        // UTBFSMAG (documented diagnostic, GENERALS_UTBFSMAG=1): force every
-        // opaque/alpha-lane fragment to return solid magenta with alpha 1.0,
-        // bypassing the whole color/alpha computation. Magenta at body
-        // locations indicts the fragment color/alpha math; no magenta at all
-        // indicts rasterization state (cull/depth/blend/scissor).
-        let shader_source = if std::env::var("GENERALS_UTBFSMAG").as_deref() == Ok("1") {
-            std::borrow::Cow::Owned(shader_source.replacen(
-                "    // Apply fog-of-war visibility effects",
-                "    return vec4<f32>(1.0, 0.0, 1.0, 1.0);\n    // Apply fog-of-war visibility effects",
-                1,
-            ))
-        } else {
-            shader_source
-        };
+        // C++ parity: W3D applies the alpha test only when the ShaderClass
+        // ALPHATEST bit is authored — ShaderClass::Apply drives
+        // D3DRS_ALPHATESTENABLE from BOOL(Get_Alpha_Test()) (shader.cpp:998)
+        // with a 0x60 reference (shader.cpp:427), and the default device state
+        // is ALPHATESTENABLE=FALSE with ALPHAREF=0 (dx8wrapper.cpp:3682/3688).
+        // Gate the alpha.wgsl/decal.wgsl discard on that authored bit:
+        // materials without it compile with a 0.0 threshold, which
+        // `final_alpha < alpha_threshold` can never fire on (default
+        // no-discard); materials with the bit keep the 96/255 reference.
+        let shader_source = gate_alpha_test_discard(&shader, shader_source);
 
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("WW3D Shader Module"),
@@ -408,11 +358,7 @@ impl WgpuPipelineManager {
                             binding: 1,
                             visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Buffer {
-                                // UTBCLIP (GENERALS_UTBCLIP=1): the instrumented
-                                // vs_main writes the clip dump through this slot.
-                                ty: wgpu::BufferBindingType::Storage {
-                                    read_only: !utb_clip(),
-                                },
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
                                 has_dynamic_offset: false,
                                 min_binding_size: None,
                             },
@@ -572,12 +518,6 @@ impl WgpuPipelineManager {
             depth_format,
             bias_state,
         ));
-        if disc_depth_always() {
-            if let Some(ds) = depth_stencil.as_mut() {
-                ds.depth_compare = wgpu::CompareFunction::Always;
-                ds.depth_write_enabled = false;
-            }
-        }
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("WW3D Render Pipeline"),
@@ -610,7 +550,6 @@ impl WgpuPipelineManager {
                 },
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: if force_two_sided
-                    || disc_cull_none()
                     || shader.get_cull_mode()
                         != crate::rendering::shader_system::shader::CullModeType::Enable
                 {
@@ -1176,11 +1115,7 @@ fn create_blend_state_from_shader(shader: &ShaderClass) -> wgpu::BlendState {
     // Check if blending should be enabled
     // Reference: shader.cpp lines 455-463
     // "if(sf != D3DBLEND_ONE || df != D3DBLEND_ZERO) { blendOn = TRUE; }"
-    // UTBNOBLEND (documented diagnostic, GENERALS_UTBNOBLEND=1): treat every
-    // shader as opaque (REPLACE) so blending can never zero out or pass
-    // through the destination. Bodies appearing indict the blend factors.
-    let blend_enabled = (src != wgpu::BlendFactor::One || dst != wgpu::BlendFactor::Zero)
-        && std::env::var("GENERALS_UTBNOBLEND").as_deref() != Ok("1");
+    let blend_enabled = src != wgpu::BlendFactor::One || dst != wgpu::BlendFactor::Zero;
 
     if !blend_enabled {
         // Opaque rendering: use REPLACE blend mode
@@ -1204,6 +1139,29 @@ fn create_blend_state_from_shader(shader: &ShaderClass) -> wgpu::BlendState {
     }
 }
 
+/// Gates the WGSL alpha-test discard on the authored ShaderClass ALPHATEST bit.
+///
+/// C++ parity: `ShaderClass::Apply` enables `D3DRS_ALPHATESTENABLE` only when
+/// `Get_Alpha_Test() != ALPHATEST_DISABLE` (GeneralsMD shader.cpp:998) with a
+/// 0x60 reference (shader.cpp:427); the default device state is
+/// ALPHATESTENABLE=FALSE / ALPHAREF=0 (dx8wrapper.cpp:3682/3688). Materials
+/// without the bit compile with a 0.0 threshold so the
+/// `final_alpha < alpha_threshold` discard in alpha.wgsl/decal.wgsl can never
+/// fire (default no-discard); materials with the bit keep the 96/255 reference.
+pub fn gate_alpha_test_discard(
+    shader: &ShaderClass,
+    source: std::borrow::Cow<'static, str>,
+) -> std::borrow::Cow<'static, str> {
+    if shader.get_alpha_test() == AlphaTestType::Enable {
+        return source;
+    }
+    if source.contains("96.0 / 255.0") {
+        std::borrow::Cow::Owned(source.replacen("96.0 / 255.0", "0.0", 1))
+    } else {
+        source
+    }
+}
+
 fn to_compare_func(cmp: DepthCompareType) -> wgpu::CompareFunction {
     match cmp {
         DepthCompareType::Never => wgpu::CompareFunction::Never,
@@ -1218,34 +1176,6 @@ fn to_compare_func(cmp: DepthCompareType) -> wgpu::CompareFunction {
     }
 }
 
-/// Render discriminators (documented diagnostic env gates; defaults are C++ parity).
-///
-/// `GENERALS_DISC_DEPTH=1` forces `depth_compare=Always` + `depth_write=false` on
-/// every pipeline built here: probes whether the terrain pre-scene pass's written
-/// depth evicts mesh fragments (C++ default is `D3DCMP_LESSEQUAL` with writes,
-/// GeneralsMD dx8wrapper.cpp:3687). `GENERALS_DISC_CULL=1` forces
-/// `cull_mode=None`: probes a D3D->wgpu winding/cull mismatch (C++ default is
-/// `D3DCULL_CW`, dx8wrapper.cpp:3686). Both flags are read once per process.
-fn disc_depth_always() -> bool {
-    static DISC: std::sync::LazyLock<bool> =
-        std::sync::LazyLock::new(|| std::env::var("GENERALS_DISC_DEPTH").as_deref() == Ok("1"));
-    *DISC
-}
-
-fn disc_cull_none() -> bool {
-    static DISC: std::sync::LazyLock<bool> =
-        std::sync::LazyLock::new(|| std::env::var("GENERALS_DISC_CULL").as_deref() == Ok("1"));
-    *DISC
-}
-
-/// UTBCLIP (documented diagnostic, GENERALS_UTBCLIP=1): read once per
-/// process. Gates the vs_main clip-position dump instrumentation and the
-/// read/write group-7 illumination slot it writes through.
-fn utb_clip() -> bool {
-    static UTB: std::sync::LazyLock<bool> =
-        std::sync::LazyLock::new(|| std::env::var("GENERALS_UTBCLIP").as_deref() == Ok("1"));
-    *UTB
-}
 
 fn create_depth_stencil_state_from_shader(
     shader: &ShaderClass,

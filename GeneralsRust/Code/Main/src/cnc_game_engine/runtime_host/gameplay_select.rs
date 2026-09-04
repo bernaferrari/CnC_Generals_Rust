@@ -517,9 +517,27 @@ impl CnCGameEngine {
     }
 
     pub(super) fn runtime_host_cmd_open_diplomacy(&mut self, _args: &HashMap<String, String>) {
-        // Shell residual — open diplomacy overlay when available.
-        self.enter_shell_menu_from_runtime_host(Some("Diplomacy"));
-        self.runtime_host_last_gameplay_cmd = "diplomacy_ok".into();
+        // C++ in-match diplomacy is the Diplomacy.wnd overlay (Diplomacy.cpp
+        // TheDiplomacy toggle), NOT a shell screen. Only Menu-state drives use
+        // the shell push; mid-match must not strand the shell stack over the
+        // live world (the old enter_shell_menu call wedged state=Menu).
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            #[cfg(feature = "game_client")]
+            {
+                let shown = game_client::gui::callbacks::toggle_diplomacy(false).is_ok();
+                self.runtime_host_last_gameplay_cmd = if shown {
+                    "diplomacy_ok_wnd".into()
+                } else {
+                    "diplomacy_fail_wnd".into()
+                };
+                return;
+            }
+        }
+        #[allow(unreachable_code)]
+        {
+            self.enter_shell_menu_from_runtime_host(Some("Diplomacy"));
+            self.runtime_host_last_gameplay_cmd = "diplomacy_ok".into();
+        }
     }
 
     pub(super) fn runtime_host_cmd_auto_attack(&mut self, args: &HashMap<String, String>) {

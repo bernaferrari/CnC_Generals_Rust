@@ -977,16 +977,6 @@ pub fn record_shadow_and_occlusion_passes(
             }
         }
 
-        // UTBSHADOWTAG (documented diagnostic, GENERALS_UTBSHADOWTAG=1):
-        // paint every shadow-pass overlay billboard pure blue to prove
-        // whether unexplained screen artifacts originate in this pass.
-        let utb_shadow_tag =
-            std::env::var("GENERALS_UTBSHADOWTAG").as_deref() == Ok("1");
-        if utb_shadow_tag {
-            for overlay in overlays.iter_mut() {
-                overlay.color = [0.0, 0.0, 1.0, 1.0];
-            }
-        }
         if overlays.is_empty() {
             return;
         }

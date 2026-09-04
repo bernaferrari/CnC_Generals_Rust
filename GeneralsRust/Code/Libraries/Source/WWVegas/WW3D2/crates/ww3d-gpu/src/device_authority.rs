@@ -84,19 +84,7 @@ pub async fn request_device(
     descriptor: &wgpu::DeviceDescriptor<'_>,
 ) -> Result<(wgpu::Device, wgpu::Queue), GpuError> {
     begin_exclusive_request()?;
-    // UTBTRACE: force the diagnostic trace (GENERALS_UTBTRACE=<dir>) into
-    // every device this process creates, whatever descriptor the caller
-    // built. Inert without the env var.
-    let mut descriptor = descriptor.clone();
-    descriptor.trace = diagnostic_trace();
-    // UTBCLIP (documented diagnostic, GENERALS_UTBCLIP=1): the clip-position
-    // dump writes a storage buffer from the vertex stage, which requires
-    // wgpu's vertex-writable-storage feature. Requested only under the env;
-    // inert otherwise.
-    if std::env::var("GENERALS_UTBCLIP").as_deref() == Ok("1") {
-        descriptor.required_features |= wgpu::Features::VERTEX_WRITABLE_STORAGE;
-    }
-    match adapter.request_device(&descriptor).await {
+    match adapter.request_device(descriptor).await {
         Ok((device, queue)) => {
             complete_exclusive_request(SharedGpuDevice {
                 device: device.clone(),
@@ -130,17 +118,6 @@ pub async fn acquire_device(
             .map(|shared| (shared.device, shared.queue))
             .ok_or(GpuError::AlreadyInitialised),
         Err(error) => Err(error),
-    }
-}
-
-/// UTBTRACE diagnostic (`GENERALS_UTBTRACE=<dir>`): the `wgpu::Trace` value
-/// every device descriptor in the process should carry, so the live frame's
-/// full API stream (buffers, bind groups, pipelines, draws) is recorded to
-/// `<dir>`. Inert without the env var.
-pub fn diagnostic_trace() -> wgpu::Trace {
-    match std::env::var("GENERALS_UTBTRACE") {
-        Ok(dir) if !dir.is_empty() => wgpu::Trace::Directory(dir.into()),
-        _ => wgpu::Trace::Off,
     }
 }
 

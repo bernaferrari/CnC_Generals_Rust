@@ -447,10 +447,7 @@ impl DepthTarget {
             sample_count,
             dimension: wgpu::TextureDimension::D2,
             format,
-            // COPY_SRC: the ZPROBE diagnostic (GENERALS_ZPROBE=1) reads this
-            // depth attachment back on the CPU; cost is nil otherwise.
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
 
@@ -668,11 +665,6 @@ impl RenderFrame {
     /// Clone the render target view handle for situations that need owned access.
     pub fn color_view_arc(&self) -> Arc<wgpu::TextureView> {
         Arc::clone(&self.color_view)
-    }
-
-    /// Clone the copy-src color target for CPU readback (UTBPIX diagnostic).
-    pub fn color_texture_arc(&self) -> Arc<wgpu::Texture> {
-        Arc::new(self.color_texture.clone())
     }
 
     /// Fetch the depth view when depth is enabled.

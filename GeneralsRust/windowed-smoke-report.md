@@ -2646,3 +2646,217 @@ VERDICT (8 menu dumps + 56 in-match dumps incl. `ATHQSlab.tga` verts=894 dumped=
 ### 6. PROBE STATUS — NOT YET REMOVED (env-gated, inert without env)
 All UTB*/DISC_* probes remain in-tree (this pass added UTBCLIP + UTBFSMAG + UTBNOBLEND; UTBNOALPHATEST/UTBARENAREAD/UTBVREAD/UTBFORCEDRAW/etc. from prior passes; DISC_DEPTH/DISC_CULL pre-existing; UTBCLIP's group-7 read_write flip is env-gated; wgpu-core trace feature + diagnostic_trace() from UnitGpuBisect still in Cargo.tomls/device_authority). Removal = mechanical sweep across render_manager.rs, wgpu_pipeline_manager.rs, wgpu_material_binds.rs (offset/size fields inert), frame_uniform_arena.rs, device_authority.rs, particle_renderer.rs, terrain_visual/impl_gpu.rs, forward_render.rs, pipeline_execute.rs, Cargo.toml trace features + blend_state_tests adjustments — recommended as its own pass with a fresh release build + the same utbbisect drives as regression check.
 Artifacts: /tmp/wsmoke/utbbisect_{clipdump2,clipdump3,fsmag1,cullnone1,allkill1,blendfix1,blendfix2}_{dozer.png,stderr.log}; blendfix1 stderr shows the alpha.wgsl `mut` parse error that exposed the dead-shader lane. No git writes. target/release/generals (03:2x) carries fix + all probes.
+
+---
+
+## VisualGap2 — fresh full-state visual gap inventory on the blend-fix binary + 3 fixes landed (2026-09-04 03:30-05:00)
+
+### Method
+HEAD 98bb6b20f release binary (built 03:27). Single windowed drive
+`/tmp/wsmoke/vg2drive.sh` (control-command only; OS synthetic clicks still dead),
+log `/tmp/wsmoke/vg2.log`, captures `/tmp/wsmoke/vg2_*.png` (+`.txt` status
+snapshots), child stderr under `$(cat /tmp/wsmoke/vg2_dir)`. Pixel decode via
+`/tmp/wsmoke/vg2_decode.py` + PIL crops (`vg2_crop_*.png`). Chain: Menu → SP
+flyout → Skirmish options → InGame initial → selection → move order → build
+attempt (ButtonCommand03) → placement → combat attempt → ESC QuitMenu → pause →
+diplomacy → options → save/load. Every prior UiGapInventory item re-assessed
+against THIS binary.
+
+### Re-assessment of prior items (fixed / still-open)
+
+FIXED this drive:
+- Unit/building invisibility (UnitLightFix/VsClipDump lane): CONFIRMED FIXED —
+  CC complex + dozer render fully textured (`vg2_ingame_initial.png`,
+  `vg2_esc_quitmenu.png`); no white blobs, no red command grid, no giant caption
+  band (GiantTextFix/CtrlBarTexFix/RedRectsTriage residuals gone from the bar).
+
+STILL OPEN (with fresh evidence):
+- **Minimap/radar black** (`vg2_crop_mm.png`): 640x480 (10..175, 385..470) is a
+  pure-black bordered rect. Prior "fixed on HEAD" claim NOT observed on this
+  drive. Retail start shows live radar terrain around the start position
+  (C++ RadarActor/W3DRadar draws from first frame). P1-class: orientation +
+  radar-dependent commands unusable.
+- **MoneyDisplay amount missing** (`vg2_crop_money.png`): "$$$" glyphs at the
+  money slot; retail "$" + live amount (C++ ControlBar updateMoney). Prior
+  InGame-2 confirmed. P2.
+- **Selection visuals** (`vg2_crop_unit_sel.png`): only a small grey fleck left
+  of the unit; no player-color ring, no health pips (C++ InGameUI draw
+  selection + InGameUI.cpp health grid). Prior Select-1 confirmed. P1-class for
+  play feel, P2 render-wise.
+- **Command grid empty with selection** — NEW precision on prior Select-2: the
+  no-selection grid shows cameos + observer-stat labels (Units/Buildings/
+  Destroyed/Lost); on select_local_unit the cameos CLEAR and the grid renders
+  EMPTY (9,255 px change in the bar band between initial/selected). The map
+  dozer's command set never binds → `winit_click_named` on
+  `ControlBar.wnd:ButtonCommand03` MISSED and the build chain aborted
+  (`vg2.log` 03:42:29, `vg2_uc_failed.png`). Note: cbdrive2's acceptance ran the
+  golden-fixture dozer (command-set override stamped by SimSystemsFix); the REAL
+  map-spawned dozer has no bound set. Retail: dozer selection shows its build
+  shortcut grid (C++ ControlBar::setCommandSet from
+  `Object::getCommandSetString`). P1: build gameplay impossible from the real map.
+- **Combat impossible in skirmish**: `attack_nearest_enemy` →
+  `attack_fail_no_enemy`; `match_kills=0` throughout — the skirmish map spawns
+  NO enemy player/units (retail Defcon6 skirmish spawns an AI opponent).
+  Gameplay-population gap, not purely visual. P1 for combat visuals (nothing to
+  fight, no projectiles/death visuals reachable).
+- **Shell map absent** (MainMenu interior black behind the dropdown,
+  `vg2_sp_flyout.png`). Prior MainMenu-1 confirmed. P2.
+- **Skirmish options** (`vg2_skirmish_options.png`): map preview absent +
+  unnumbered start dots (Skirmish-3), `TextEntryMapDisplay` shows literal
+  "Static Text" (Skirmish-4), `TextEntryPlayerName` shows "Entry" (Skirmish-5),
+  slider thumb invisible (Skirmish-2). All confirmed on HEAD. P2/P3.
+- **Skybox faces still fail**: 12 WARNs each for
+  TSMorning{E,S,W,N,T}.tga in child stderr — sky still missing in-match
+  (asset-extraction class). P2.
+- **"HUD" literal** bottom-left + faint tile lattice on terrain zoom
+  (`vg2_crop_order.png`). P3.
+- Menu/SP flyout minors from prior inventory unchanged (GreenDot/Clock/posters/
+  RecentSave absent; EarthMap art; "CHALLENGE" label). P3.
+
+REGRESSED/CONTRADICTED claim:
+- RedRectsTriage's "0 red rects can leak" does NOT hold on the shell path:
+  `vg2_crop_cash.png` — the anonymous Starting-Cash STATICTEXT
+  (`SkirmishGameOptionsMenu.wnd:` rect 360,334-453,358) paints PURE
+  `255,0,0,255` fill (pixel samples (300,270)=(255,0,0,255) etc.). ROOT CAUSE
+  (this pass): `draw_window_image_or_fallback` no-image branch fills
+  `visible_enabled_color()` which accepts the authored draw-data color — and
+  retail WNDs author `255 0 0 255` as the NoImage placeholder sentinel. C++
+  paints NO back fill when the image is absent
+  (GeneralsMD W3DStaticText.cpp `W3DGadgetStaticTextImageDraw`: image-if-present
+  + text only). **FIXED this pass** (below).
+
+### Fixes landed this pass (all compile-clean `cargo check -p generals_main --bin generals`)
+
+1. **ESC/QuitMenu paints nothing (prior PauseMenu-1 P1)** — root cause: the
+   runtime-host command called ONLY the residual latch
+   `simulate_quit_menu_toggle_show()` (flips an atomic; never loads the WND),
+   while the real C++-parity toggle
+   `game_client::gui::callbacks::toggle_quit_menu_with_result()` +
+   Main's `host_toggle_retail_quit_menu()` bridge existed unused on that path.
+   Fix: `runtime_host` `campaign_menus.rs` `runtime_host_cmd_toggle_quit_menu`
+   now runs `host_toggle_retail_quit_menu()` first (C++ MSG_META_OPTIONS →
+   ToggleQuitMenu parity), residual latch only as fallback.
+2. **open_diplomacy stranded the match in the shell (NEW P1, worse than prior
+   Diplomacy-1)**: mid-match `open_diplomacy` called
+   `enter_shell_menu_from_runtime_host(Some("Diplomacy"))` → pushed the shell
+   MainMenu over the live world AND flipped `state=Menu` (vg2.log 03:45:30 →
+   `state=Menu ui_screen=Some(Diplomacy)` forever; save/quickload/options
+   silently drained no-ops afterward — the save/load leg of the chain was
+   unreachable). Fix: `gameplay_select.rs` `runtime_host_cmd_open_diplomacy`
+   now toggles the live in-match `DiplomacySystem`
+   (`game_client::gui::callbacks::toggle_diplomacy(false)` — creates/shows
+   Diplomacy.wnd per C++ Diplomacy.cpp) when InGame/Paused; shell push retained
+   for Menu state only.
+3. **Placeholder-red sentinel fills** (contradicted claim above): `common.rs`
+   `visible_enabled_color` now treats packed `0xFFFF_0000`
+   (authored `255 0 0 255`) as undefined → all 8 fallback-fill call sites
+   (static text, main menu, push button, power, progress, hud, command bar)
+   render their honest slate fallback instead of the sentinel red.
+
+Verification drive for 1+2: `/tmp/wsmoke/vg2verify.sh` (results appended below
+once driven).
+
+### Fresh gap inventory (severity-tagged; coordinates 640x480 actual)
+
+| id | severity | item | evidence |
+|---|---|---|---|
+| G1 | P1 | minimap/radar fully black in-match | vg2_crop_mm.png |
+| G2 | P1 | dozer command grid empty on selection → build impossible from real map (ButtonCommand03 miss) | vg2.log 03:42:29, vg2_uc_failed.png |
+| G3 | P1 | no enemy in skirmish → no combat visuals reachable (attack_fail_no_enemy) | vg2.log 03:44:10, vg2_combat_attempt.png |
+| G4 | P1 | pause screen renders nothing (paused=true, no dim/panel) | vg2_pause_screen.png (ui_screen stays GameHUD; legacy PauseMenu never paints in windowed host) |
+| G5 | P2 | no selection ring/health pips (grey fleck only) | vg2_crop_unit_sel.png |
+| G6 | P2 | money amount never rendered ("$$$" only) | vg2_crop_money.png |
+| G7 | P2 | skirmish map preview absent; "Static Text"/"Entry" literals; slider thumb invisible | vg2_skirmish_options.png |
+| G8 | P2 | skybox assets missing (TSMorning* WARNs) | child stderr |
+| G9 | P2 | shell-map menu background absent | vg2_menu.png, vg2_sp_flyout.png |
+| G10 | P2 | red placeholder fills (Starting-Cash label) | FIXED this pass; re-verify |
+| G11 | P3 | "HUD" literal bottom-left; faint terrain tile lattice; two unidentified slate rects above bar right (~515-575, 345-370); ProductionQueue empty cells dark-maroon; menu minors (GreenDot/Clock/posters/EarthMap/CHALLENGE label) | vg2_crop_*.png |
+
+Escaped P1s (ESC menu + diplomacy) have fixes 1+2 above; G4 (pause) is the
+remaining unpainted overlay: `toggle_pause` keeps `ui_screen=GameHUD` — the
+legacy Rust PauseMenu screen is never entered in the windowed host path
+(`input.rs:1142` enters it on GameState::Paused transitions; the host pause path
+does not). Next driver: route host pause through the same screen projection or
+adopt the C++ pattern (retail ESC = QuitMenu; the separate pause screen is only
+the fall-back surface).
+
+Artifacts: `/tmp/wsmoke/vg2_*.png|txt`, `/tmp/wsmoke/vg2.log`,
+`/tmp/wsmoke/vg2_dir`, `/tmp/wsmoke/vg2decode.py` → `vg2_decode.py`,
+`/tmp/wsmoke/vg2drive.sh`, `/tmp/wsmoke/vg2verify.sh`. Serial run, caffeinate
+-dis, no git writes, no formatters. Guards untouched (runtime-host command
+lanes + one draw-color helper; residual test pins
+(`source_scan_tests` "open_diplomacy"/"diplomacy_ok",
+`host_quit_menu_residual_wave123` cmd names) verified still satisfied by grep.
+
+---
+
+## ProbeSweep — ALL UTB/DISC/ZPROBE render probes removed + alpha-test gated on the authored ShaderClass ALPHATEST bit; guards green; units still textured in-match (2026-09-04 04:00-04:35)
+
+### 1. Probe sweep (Task A) — tree clean, acceptance grep 0 hits
+Removed every env-gated render probe from the UnitTexBind/UnitLightFix/UnitLightFix2/
+UnitBodyFix/UnitGpuBisect/VsClipDump inventories: render_manager.rs (UTBVIEW/UTBMAT/
+UTBUVCENTER/UTBVREAD/UTBIDX/UTBVERTS statics+blocks, UtbArenaProbe/UtbClipProbe structs
++ fields + drains, UTBFORCEDRAW + `utb_debug_draw_pipeline`, UTBONLYBODY/UTBNOLIGHT/
+UTBMESHNULL/UTBLIGHT/UTBNOTEX/UTBNODEPTH/UTBVP/UTBNOFOW/UTBMESHVIS/UTBPASSTINT+UTBRANGE/
+UTBARENAREAD stash/UTBCLIP rebind, UTBDRAWLOG/UTBDRAWSKIP/UTBNONIDX incl. the now-unused
+`issue_draw_call` mesh_translation param, UTBVIEW in stage_resources_for incl. the
+branch-tuple plumbing); lib.rs UTBVPVPORT; wgpu_material_binds.rs UTBMAGENTA + the inert
+CameraBinds/ModelBinds offset/size fields; frame_uniform_arena.rs COPY_SRC; ww3d-gpu
+device_authority.rs UTBTRACE (`diagnostic_trace`) + UTBCLIP VERTEX_WRITABLE_STORAGE gate;
+wgpu-core trace feature out of workspace Cargo.toml + ww3d-gpu/Cargo.toml; ww3d-engine
+`color_texture_arc()` (UTBPIX) + the ZPROBE COPY_SRC depth usage; Main occlusion_bridge
+UTBOVERLAYTAG, forward_render UTBTERRVP, pipeline_collect UTBWATERNULL, pipeline_execute
+ZPROBE + UTBPIX (whole blocks), pipeline_prewarm DISC_NOTERRAIN; GameClient shadow_pass
+UTBSHADOWTAG, particle_renderer UTBDECALTAG (incl. the tinted-decal clone branch),
+terrain impl_gpu UTBWATERNULL/UTBROADNULL/UTBTREENULL/UTBTREEDUMP + `utb_tree_dump_latch`
+/UTBEXTRABLENDNULL, overlay_gpu UTBROADNULL/UTBWATERNULL. `GENERALS_CBGRID_PROBE`
+verified already 0 hits. KEPT: headless regression test
+`utb_headless_body_mesh_paints_pixels` (still green inside the 357). /tmp/wsmoke drive
+scripts untouched (outside repo). Acceptance: `grep -rE "GENERALS_UTB|GENERALS_DISC|
+GENERALS_CBGRID" --include=*.rs --include=*.toml Code` → **0 hits**; `strings
+target/release/generals | grep -cE "GENERALS_UTB|GENERALS_DISC|GENERALS_ZPROBE"` → **0**.
+
+### 2. AlphaTest parity (Task B) — discard gated on the authored bit
+`alpha.wgsl`/`decal.wgsl` discarded unconditionally when `BASE_ALPHA_REF>0`; C++ W3D
+applies alpha test only when the ShaderClass ALPHATEST bit is authored: `ShaderClass::
+Apply` drives `D3DRS_ALPHATESTENABLE` from `BOOL(Get_Alpha_Test())` (GeneralsMD
+shader.cpp:998) with alphareference 0x60 (shader.cpp:427); the default device state is
+`ALPHATESTENABLE=FALSE` / `ALPHAREF=0` (dx8wrapper.cpp:3682/3688). Fix:
+`wgpu_pipeline_manager::gate_alpha_test_discard(&shader, source)` (pub, unit-testable) —
+materials WITHOUT the bit compile the `96.0 / 255.0` threshold to `0.0` so
+`final_alpha < alpha_threshold` can never fire (default no-discard); materials WITH the
+bit keep 96/255. Wired at the single shader-module creation site in `get_or_create`,
+alongside blend state (per-material, `PipelineKey` already carries shader_bits so
+enabled/disabled variants cache separately; skinned/line sources carry no constant and
+pass through unchanged). Focused test
+`blend_state_tests::test_alpha_test_discard_gated_on_shader_bit` (blend_state_tests.rs
+pattern): default (SrcAlpha,InvSrcAlpha) material zeroes the threshold; authored bit
+keeps 96/255; raw `W3dShaderStruct` decode (C++ shift 18) drives the gate both ways;
+non-carrying sources pass through. **20/20 blend_state_tests green.**
+
+### 3. Guards (serial cargo, idle machine)
+ww3d-renderer-3d `--lib` **357/357** (incl. the kept headless test);
+`--tests` suites green except the documented pre-existing `headless_smoke`
+device-singleton contention (each test passes alone; same as VsClipDump reported);
+`--test blend_state_tests` **20/20**; combat filter **966/0** (one contended run showed
+963-965 with a VARYING failure set — overlord_bunker/chinook flakes that all pass in
+isolation; idle rerun 966/0); world_tests catalog **8/8**; gameworld_shadow **304/304**
+(suite grew from the 302 hand-off).
+
+### 4. Windowed drive verification (sweepdrive1.sh, utbdrive20 pattern, env-FREE launch)
+Release binary (04:15, probe-free by strings scan): Menu → `start_game
+mode=skirmish faction=USA` → InGame → `camera_look_at 3108,120,2201.3` → request_capture.
+EXIT=0, no wgpu validation errors, **zero UTB/ZPROBE/DISC log lines** in child stderr.
+Pixel census of `/tmp/wsmoke/sweep_sweep1_ingame.png` vs the VsClipDump known-good
+`utbbisect_blendfix2_dozer.png`: white 0.2% vs 0.2%, tan 77.4% vs 77.2%, world-area
+white 79 px vs 77 px (defect-era utb14: 409 px), top color buckets identical — CC +
+dozer render TEXTURED, no white shards, HUD intact (visually confirmed).
+
+Changed files: ww3d-renderer-3d (render_manager.rs, lib.rs, wgpu_material_binds.rs,
+frame_uniform_arena.rs, wgpu_pipeline_manager.rs), ww3d-gpu (device_authority.rs,
+Cargo.toml), workspace Cargo.toml, ww3d-engine/src/lib.rs, Main graphics
+(occlusion_bridge/forward_render/pipeline_collect/pipeline_execute/pipeline_prewarm),
+GameClient (shadow_pass.rs, particle_renderer.rs, terrain impl_gpu.rs, overlay_gpu.rs),
+tests/blend_state_tests.rs. No git writes; no formatters. New drive script
+`/tmp/wsmoke/sweepdrive1.sh`; evidence `/tmp/wsmoke/sweep_sweep1_{ingame.png,stderr.log,log}`,
+`/tmp/wsmoke/combat_guard_post_sweep.log`, `/tmp/wsmoke/combat_guard_run2.log`.

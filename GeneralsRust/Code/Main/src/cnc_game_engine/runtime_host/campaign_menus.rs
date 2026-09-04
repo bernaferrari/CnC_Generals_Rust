@@ -248,11 +248,16 @@ impl CnCGameEngine {
     }
 
     pub(super) fn runtime_host_cmd_toggle_quit_menu(&mut self, _args: &HashMap<String, String>) {
-        // Retail QuitMenu show residual (ESC path without live layout).
-        let mut wnd_ok = false;
-        #[cfg(feature = "game_client")]
-        {
-            wnd_ok = game_client::gui::callbacks::simulate_quit_menu_toggle_show();
+        // C++ ESC: MSG_META_OPTIONS -> ToggleQuitMenu() — the live QuitMenu.wnd
+        // callback (creates the layout, owns pause/resume via Main's bridge).
+        // The residual latch below is only the fallback for hosts without the
+        // offline WND bridge (headless / non-offline states).
+        let mut wnd_ok = self.host_toggle_retail_quit_menu();
+        if !wnd_ok {
+            #[cfg(feature = "game_client")]
+            {
+                wnd_ok = game_client::gui::callbacks::simulate_quit_menu_toggle_show();
+            }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             "toggle_quit_menu_ok_wnd".into()

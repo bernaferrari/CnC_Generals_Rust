@@ -483,14 +483,6 @@ pub fn enqueue_occluded_player_color_pass(
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        // UTBOVERLAYTAG (documented diagnostic, GENERALS_UTBOVERLAYTAG=1):
-        // paint every occlusion overlay billboard pure green to prove whether
-        // unexplained screen artifacts originate in this pass.
-        if std::env::var("GENERALS_UTBOVERLAYTAG").as_deref() == Ok("1") {
-            for overlay in &mut overlays {
-                overlay.color = [0.0, 1.0, 0.0, 1.0];
-            }
-        }
         renderer.draw(&mut render_pass, &view_proj, camera_position, &overlays);
         drop(render_pass);
         Ok(())

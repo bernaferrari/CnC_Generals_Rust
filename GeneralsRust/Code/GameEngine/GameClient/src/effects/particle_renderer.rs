@@ -1708,23 +1708,7 @@ impl ParticleRenderer {
 
         // C++ flushDecals batches by texture + ShadowType. Group the same way.
         let mut groups: Vec<(String, u32, Vec<DecalVertex>)> = Vec::new();
-        let utb_decal_tag = std::env::var("GENERALS_UTBDECALTAG").as_deref() == Ok("1");
         for decal in decals {
-            // UTBDECALTAG (documented diagnostic, GENERALS_UTBDECALTAG=1):
-            // tint every decal-lane draw pure red to prove whether the
-            // unexplained white blobs are painted by this pass (terrain lanes
-            // and overlay/shadow billboards are already exonerated).
-            let utb_item;
-            let decal = if utb_decal_tag {
-                utb_item = {
-                    let mut tinted = decal.clone();
-                    tinted.color = [1.0, 0.0, 0.0, 1.0];
-                    tinted
-                };
-                &utb_item
-            } else {
-                decal
-            };
             let verts = drape_decal_vertices(decal);
             if verts.is_empty() {
                 continue;
@@ -1749,29 +1733,6 @@ impl ParticleRenderer {
 
         let start_time = std::time::Instant::now();
         for (texture_name, shadow_type, vertices) in groups {
-            // UTBDECALTAG (documented diagnostic): once per group, dump what
-            // this decal draw binds — attributes a white-out to the default
-            // white 1x1 texture vs a resolved texture per pipeline branch.
-            if utb_decal_tag {
-                static UTBDECAL_SEEN: std::sync::LazyLock<
-                    std::sync::Mutex<std::collections::HashSet<String>>,
-                > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-                let default_tex = !self.texture_bind_groups.contains_key(&texture_name);
-                let key = format!(
-                    "tex='{}' stype={:#x} default_tex={} verts={}",
-                    texture_name,
-                    shadow_type,
-                    default_tex,
-                    vertices.len()
-                );
-                let logged = UTBDECAL_SEEN
-                    .lock()
-                    .map(|mut seen| seen.insert(key.clone()))
-                    .unwrap_or(false);
-                if logged {
-                    log::warn!("UTBDECAL {}", key);
-                }
-            }
             let vertex_buffer = self
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {

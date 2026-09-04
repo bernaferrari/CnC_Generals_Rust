@@ -437,6 +437,13 @@ pub fn toggle_quit_menu_with_result() -> QuitMenuToggleResult {
                 "QuitFullBack"
             };
             with_window_manager(|manager| manager.transition_reverse(group));
+            // C++ plays the WindowTransitions Quit{Full,NoSave}Back reverse
+            // animation, which ends with the layout windows HIDDEN. This host
+            // has no such transition group data, so reverse alone left the
+            // menu painted over the resumed match (ButtonReturn resumed the
+            // world while the panel stayed on screen). Force the net retail
+            // end state: every layout window hidden immediately.
+            layout.borrow().hide(true);
         }
     } else {
         TheInGameUI::set_cursor_arrow();

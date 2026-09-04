@@ -653,33 +653,6 @@ impl Renderer {
                     let sw = (vw as u32).clamp(1, aw - sx);
                     let sh = (vh as u32).clamp(1, ah - sy);
                     render_pass.set_scissor_rect(sx, sy, sw, sh);
-                    // UTBVPVPORT (GENERALS_UTBVP=1, on change): dump the pixel
-                    // rect the mesh pass rasterizes into; a wrong sub-rect
-                    // hides bodies below/beside it while the terrain lane
-                    // (own viewport) stays visible. Latched on CHANGE so the
-                    // in-match viewport (set per frame by the forward pass)
-                    // is captured, not just the first menu frame.
-                    static UTBVPVPORT_LAST: std::sync::Mutex<(u32, [f32; 4], u32)> =
-                        std::sync::Mutex::new((0, [f32::NAN; 4], 0));
-                    if std::env::var("GENERALS_UTBVP").as_deref() == Ok("1") {
-                        let rect = [x0, y0, vw, vh];
-                        let mut last = UTBVPVPORT_LAST.lock().expect("vport latch");
-                        let seq = last.0;
-                        let changed = last.1[0].to_bits() != rect[0].to_bits()
-                            || last.1[1].to_bits() != rect[1].to_bits()
-                            || last.1[2].to_bits() != rect[2].to_bits()
-                            || last.1[3].to_bits() != rect[3].to_bits();
-                        if changed && seq < 40 {
-                            log::warn!(
-                                "UTBVPVPORT #{} attachment=({aw}x{ah}) viewport=({x0:.1},{y0:.1},{vw:.1},{vh:.1}) scissor=({sx},{sy},{sw},{sh})",
-                                seq, aw = aw, ah = ah, x0 = x0, y0 = y0, vw = vw, vh = vh,
-                                sx = sx, sy = sy, sw = sw, sh = sh,
-                            );
-                        }
-                        if changed {
-                            *last = (seq + 1, rect, 0);
-                        }
-                    }
                 }
             }
 
