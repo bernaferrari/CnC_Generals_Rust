@@ -229,6 +229,30 @@ impl TerrainVisualImpl {
         self.texture_system.sample_color_at(x, y)
     }
 
+    /// `TheTerrainVisual->getTerrainColorAt` restricted to REAL tile art
+    /// (C++ `W3DRadar::buildTerrainTexture` → `WorldHeightMap::
+    /// getTerrainColorAt`, WorldHeightMap.cpp:2347-2356: a null
+    /// `getSourceTile` leaves the color unset). Stand-in (missing-art)
+    /// tiles report `None` so the radar software path shades its fallback
+    /// base color instead of sampling the hash placeholder as terrain.
+    pub fn radar_terrain_color_at(&self, x: f32, y: f32) -> Option<[f32; 3]> {
+        let height_map = self.height_map.as_ref()?;
+        let tile_ndx = height_map.tile_ndx_at_world(x, y)?;
+        if self.stand_in_source_tiles.get(tile_ndx).copied().unwrap_or(true) {
+            return None;
+        }
+        let tile = self.source_tiles.get(tile_ndx)?.as_ref()?;
+        let pixel = tile.get_rgb_data_for_width(1);
+        if pixel.len() < 3 {
+            return None;
+        }
+        Some([
+            pixel[2] as f32 / 255.0,
+            pixel[1] as f32 / 255.0,
+            pixel[0] as f32 / 255.0,
+        ])
+    }
+
     /// Get terrain tile type at position
     pub fn get_terrain_tile(&self, x: f32, y: f32) -> Result<u32, TerrainError> {
         if let Some(height_map) = self.height_map.as_ref() {

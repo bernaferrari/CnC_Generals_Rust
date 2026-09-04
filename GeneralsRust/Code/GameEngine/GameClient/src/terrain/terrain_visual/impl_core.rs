@@ -13,6 +13,7 @@ impl TerrainVisualImpl {
             chunk_manager: ChunkManager::new(),
             texture_system: TerrainTextures::new(),
             source_tiles: vec![None; NUM_SOURCE_TILES],
+            stand_in_source_tiles: vec![false; NUM_SOURCE_TILES],
             source_tile_classes: Vec::new(),
 
             water_system: WaterSystem::new(),
@@ -696,6 +697,10 @@ impl TerrainVisualImpl {
         }
 
         let mut count = 0usize;
+        if self.stand_in_source_tiles.len() < self.source_tiles.len() {
+            self.stand_in_source_tiles
+                .resize(self.source_tiles.len(), false);
+        }
         for tile_row in 0..rows {
             for tile_col in 0..rows {
                 let mut tile = TileData::new();
@@ -714,12 +719,16 @@ impl TerrainVisualImpl {
                     }
                 } else {
                     // Same generator the 3D tree buffer uses for missing
-                    // textures, so the radar band matches the world view.
+                    // textures, so the world view keeps its placeholder art.
+                    // Flagged so the radar paint source reports "no art"
+                    // (C++ getSourceTile null path) instead of sampling the
+                    // hash placeholder as a terrain color.
                     let stand_in = crate::terrain::tree_buffer::stand_in_tile_bgra(
                         &class.name,
                         count,
                     );
                     tile.data.copy_from_slice(&stand_in);
+                    self.stand_in_source_tiles[first_tile + count] = true;
                 }
                 tile.tile_location_in_texture = ((tile_col * 64) as i32, (tile_row * 64) as i32);
                 tile.update_mips();

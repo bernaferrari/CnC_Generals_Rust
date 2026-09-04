@@ -458,7 +458,25 @@ impl ControlBar {
                     )
                     .collect();
                 self.mark_ui_dirty();
+                // C++ ControlBar::setCommandSet uses Object::getCommandSetString()
+                // (Object.cpp:6084 → template friend_getCommandSetString). The
+                // host-residual lane has no OBJECT_REGISTRY module, so resolve
+                // the selected object's authored command set from its template.
+                if let Some(command_set) = primary_template_name
+                    .and_then(|name| gamelogic::helpers::TheThingFactory::find_template_initialized(name))
+                    .map(|template| template.get_command_set_string().to_string())
+                    .filter(|command_set| !command_set.is_empty())
+                {
+                    self.presentation_primary_command_set = command_set.clone();
+                    if !self
+                        .presentation_command_set_names
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(&command_set))
+                    {
+                        self.presentation_command_set_names.push(command_set);
+                }
             }
+                }
             _ => {
                 self.portrait_state = PortraitDisplayState::default();
                 if let Ok(mut context) = self.context.write() {

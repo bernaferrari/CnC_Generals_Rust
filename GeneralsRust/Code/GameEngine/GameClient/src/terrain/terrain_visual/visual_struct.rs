@@ -46,6 +46,12 @@ pub struct TerrainVisualImpl {
     source_tiles: Vec<Option<TileData>>,
     /// C++ `m_textureClasses` — firstTile/numTiles/name for getTextureClassFromNdx.
     source_tile_classes: Vec<TerrainSourceTileClass>,
+    /// Parallel to `source_tiles`: `true` where the tile was synthesized by
+    /// `stand_in_tile_bgra` because the real `Art/Terrain` TGA did not
+    /// resolve. C++ `WorldHeightMap::getTerrainColorAt` samples real tile
+    /// art only (WorldHeightMap.cpp:2347-2356); the radar paint source uses
+    /// this to report missing art instead of sampling hash placeholders.
+    stand_in_source_tiles: Vec<bool>,
 
 
     /// Water rendering system

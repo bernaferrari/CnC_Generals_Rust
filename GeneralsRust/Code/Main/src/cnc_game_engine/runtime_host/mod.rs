@@ -475,6 +475,7 @@ impl CnCGameEngine {
             "open_diplomacy" | "diplomacy" => self.runtime_host_cmd_open_diplomacy(&args),
             "auto_attack" | "sticky_auto_attack" | "toggle_auto_attack" => self.runtime_host_cmd_auto_attack(&args),
             "request_capture" | "screenshot" => self.runtime_host_cmd_request_capture(&args),
+            "roster_probe" => self.runtime_host_cmd_roster_probe(&args),
             "construct" | "dozer_construct" | "place_structure" => self.runtime_host_cmd_construct(&args),
             // Windowed sit-through inject: shared WM path, Injected origin
             // (does not latch playable_claim evidence).

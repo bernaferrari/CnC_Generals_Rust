@@ -211,14 +211,15 @@ impl game_engine::common::system::radar::RadarTerrainPaintSource for ClientRadar
 pub fn leftover_radar_terrain_color_at(world_x: f32, world_y: f32) -> Option<[f32; 3]> {
     let guard = get_terrain_visual().ok()?;
     let visual = guard.as_ref()?;
-    // Pre-hydration the heightmap exists but tile pixels do not; sampling
-    // would yield a black pixel (C++ never reaches this state — tiles are
-    // resident before TheRadar->newMap). Report None so the radar software
-    // path uses its fallback base color instead of painting black.
+    // Tiles hydrated with stand-in placeholders (real Art/Terrain TGAs did
+    // not resolve) or not hydrated at all report None: C++ samples real tile
+    // art only (WorldHeightMap.cpp:2347-2356 null getSourceTile leaves the
+    // color unset), so the radar software path shades its fallback base
+    // color instead of painting black or hash-placeholder noise.
     if !visual.has_terrain_source_tiles() {
         return None;
     }
-    visual.get_terrain_color_at(world_x, world_y).ok()
+    visual.radar_terrain_color_at(world_x, world_y)
 }
 
 /// Intact working-bridge radar sample: object body != RUBBLE, Roads.ini color, deck-Z average.

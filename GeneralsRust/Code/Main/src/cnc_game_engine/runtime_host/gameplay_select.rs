@@ -568,6 +568,13 @@ impl CnCGameEngine {
         self.runtime_host_last_gameplay_cmd = "request_capture_ok".into();
     }
 
+    /// G3EnemyHunt temp diagnostic: on-demand env-gated roster dump for the
+    /// windowed enemy hunt drive (proves enemy survival at probe time, not
+    /// just spawn). Removed with the probe. Never writes evidence keys.
+    pub(super) fn runtime_host_cmd_roster_probe(&mut self, _args: &HashMap<String, String>) {
+        self.game_logic.debug_dump_match_roster("control_probe");
+        self.runtime_host_last_gameplay_cmd = "roster_probe_ok".into();
+    }
     /// `construct_ok` only if a local under-construction structure exists after
     /// DozerConstruct — the previous residual reported ok on a queued command
     /// that never created a building.
