@@ -1313,25 +1313,25 @@ impl AIPlayer {
 /// is a stub that defers to it), so both are parsed through the game file
 /// system in retail order: Default base first, stub override second.
 pub(super) fn ensure_aidata_loaded_from_game_fs() {
-    static LOADED: std::sync::LazyLock<()> = std::sync::LazyLock::new(|| {
-        if game_engine::common::ini::get_ai_data_store()
-            .read()
-            .map(|store| store.get_active().is_some())
-            .unwrap_or(false)
-        {
-            return;
+    // Initialization belongs to the current store. A process-wide once flag
+    // would strand a later empty store (or permanently cache missing archives).
+    if game_engine::common::ini::get_ai_data_store()
+        .read()
+        .map(|store| store.get_active().is_some())
+        .unwrap_or(false)
+    {
+        return;
+    }
+    // GameEngine.cpp:480 initializes the AI subsystem in this order.
+    for virtual_path in ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"] {
+        let Some(text) = read_ini_text_from_game_fs(virtual_path) else {
+            continue;
+        };
+        let mut ini = game_engine::common::ini::INI::new();
+        if let Err(err) = ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
+            log::warn!("Failed parsing archived '{virtual_path}': {err}");
         }
-        for virtual_path in ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"] {
-            let Some(text) = read_ini_text_from_game_fs(virtual_path) else {
-                continue;
-            };
-            let mut ini = game_engine::common::ini::INI::new();
-            if let Err(err) = ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
-                log::warn!("Failed parsing archived '{virtual_path}': {err}");
-            }
-        }
-    });
-    std::sync::LazyLock::force(&LOADED);
+    }
 }
 
 fn read_ini_text_from_game_fs(virtual_path: &str) -> Option<String> {
@@ -1348,11 +1348,38 @@ fn read_ini_text_from_game_fs(virtual_path: &str) -> Option<String> {
 #[cfg(test)]
 mod aidata_archive_tests {
     use super::*;
+    use game_engine::common::ini::ini_ai_data;
     use game_engine::common::system::big_file_system::BigArchiveBackend;
     use game_engine::common::system::file_system::FileSystemBackend as _;
     use game_engine::common::system::file_system::get_file_system;
     use game_engine::common::system::local_file_system::LocalFileSystem;
     use game_engine::common::system::subsystem_interface::SubsystemInterface as CommonSubsystemInterface;
+    use std::sync::{Arc, RwLock};
+
+    // Existing parser adapter, scoped synchronously to this test operation.
+    // Restore the previous store even if an assertion panics.
+    struct ScopedAiData {
+        store: Arc<RwLock<ini_ai_data::AIDataStore>>,
+        previous: Option<Arc<RwLock<ini_ai_data::AIDataStore>>>,
+    }
+
+    impl ScopedAiData {
+        fn install() -> Self {
+            let store = Arc::new(RwLock::new(ini_ai_data::AIDataStore::default()));
+            let previous = ini_ai_data::install_ai_data_store(Arc::clone(&store));
+            Self { store, previous }
+        }
+    }
+
+    impl Drop for ScopedAiData {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.take() {
+                ini_ai_data::install_ai_data_store(previous);
+            } else {
+                ini_ai_data::uninstall_ai_data_store_if_current(&self.store);
+            }
+        }
+    }
 
     fn assets_root() -> Option<std::path::PathBuf> {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
@@ -1380,19 +1407,22 @@ mod aidata_archive_tests {
             let _ = CommonSubsystemInterface::init(&mut *guard);
         }
 
-        ensure_aidata_loaded_from_game_fs();
-
-        let store = game_engine::common::ini::get_ai_data_store();
-        let guard = store.read().expect("AI data store read lock");
-        let data = guard.get_active().expect("AIData store populated");
-        let america = data
-            .side_build_lists
-            .iter()
-            .find(|list| list.side.eq_ignore_ascii_case("America"))
-            .expect("retail SkirmishBuildList America");
-        assert!(
-            !america.entries.is_empty(),
-            "America build list must carry structure entries"
-        );
+        // Each independently owned store must initialize, regardless of earlier
+        // synthetic data or a previous successful bootstrap in this process.
+        for _ in 0..2 {
+            let scoped = ScopedAiData::install();
+            ensure_aidata_loaded_from_game_fs();
+            let guard = scoped.store.read().expect("AI data store read lock");
+            let data = guard.get_active().expect("AIData store populated");
+            let america = data
+                .side_build_lists
+                .iter()
+                .find(|list| list.side.eq_ignore_ascii_case("America"))
+                .expect("retail SkirmishBuildList America");
+            assert!(
+                !america.entries.is_empty(),
+                "America build list must carry structure entries"
+            );
+        }
     }
 }

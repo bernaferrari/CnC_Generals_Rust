@@ -439,5 +439,7 @@ mod teams;
 
 #[cfg(test)]
 mod cpp_parity_tests;
+#[cfg(test)]
+mod construction_parity_tests;
 
 pub use manager::AIManager;

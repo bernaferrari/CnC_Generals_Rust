@@ -1691,9 +1691,10 @@ fn build_by_supplies_places_named_template_near_warehouse() {
 
 #[test]
 fn skirmish_new_map_uses_aidata_side_build_list() {
-    {
+    let original_ai_data = {
         let store = game_engine::common::ini::get_ai_data_store();
         let mut store = store.write().expect("AI data store write lock");
+        let original = store.clone();
         store.ensure_base();
         if let Some(data) = store.get_active_mut() {
             data.rotate_skirmish_bases = false;
@@ -1722,7 +1723,8 @@ fn skirmish_new_map_uses_aidata_side_build_list() {
             });
             data.side_build_lists.push(list);
         }
-    }
+        original
+    };
 
     {
         let mut logic = crate::game_logic::GameLogic::new();
@@ -1780,11 +1782,7 @@ fn skirmish_new_map_uses_aidata_side_build_list() {
     }
     {
         let store = game_engine::common::ini::get_ai_data_store();
-        let mut store = store.write().expect("AI data store write lock");
-        if let Some(data) = store.get_active_mut() {
-            data.side_build_lists
-                .retain(|l| !l.side.eq_ignore_ascii_case("America"));
-        }
+        *store.write().expect("AI data store write lock") = original_ai_data;
     }
 }
 
@@ -2913,12 +2911,12 @@ fn second_attack_starts_after_first_raid_finishes() {
 #[test]
 fn wiggle_spiral_walks_rings_in_skirmish_order() {
     // C++ AIPlayer.cpp:530-583 skirmish wiggle: expanding square, two-cell
-    // ring/edge steps, first legal candidate wins.
+    // ring/edge steps; a legal top-row candidate stops the search immediately.
     let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
     let seed = Vec3::new(100.0, 2.0, 100.0);
-    // Legal only at ring 5's top row, second column (x-3c, z-5c): the walk
+    // Legal only at ring 5's top row, second column (x-2c, z-5c): the walk
     // must pass ring 1 and ring 3 first and keep the seed height.
-    let target = Vec3::new(seed.x - 3.0 * cell, seed.y, seed.z - 5.0 * cell);
+    let target = Vec3::new(seed.x - 2.0 * cell, seed.y, seed.z - 5.0 * cell);
     assert_eq!(
         AIPlayer::wiggle_find_legal_build_position(seed, |c| c == target),
         Some(target)
@@ -2934,8 +2932,8 @@ fn wiggle_spiral_walks_rings_in_skirmish_order() {
 fn wiggle_spiral_respects_skirmish_limit() {
     let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
     let seed = Vec3::ZERO;
-    // Ring 59 is the last ring under the 120-cell skirmish limit.
-    let in_range = Vec3::new(seed.x + 59.0 * cell, seed.y, seed.z - 59.0 * cell);
+    // Ring 59 is last; the pre-query bump samples one cell beyond its edge.
+    let in_range = Vec3::new(seed.x + 60.0 * cell, seed.y, seed.z - 59.0 * cell);
     assert_eq!(
         AIPlayer::wiggle_find_legal_build_position(seed, |c| c == in_range),
         Some(in_range)
@@ -2992,9 +2990,8 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
     let blocker = logic
         .create_object("WiggleBlocker", Team::Neutral, pad)
         .expect("neutral blocker on the pad");
-    // Structure place radius residual is 20 and the blocker radius 30, so the
-    // pad and every ring-1/ring-3 spiral spot (max 30*sqrt(2) ≈ 42.4 < 50)
-    // stay blocked; ring 5's first corner becomes the first legal spot.
+    // The blocked pad forces a search. The original skewed ring-3 top
+    // sample (x+40, z-30) is the first candidate this footprint permits.
     if let Some(o) = logic.host_object_mut(blocker) {
         o.selection_radius = 30.0;
     }
@@ -3007,7 +3004,7 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
     let structure_id = ai.building_queue[0]
         .object_id
         .expect("obstructed pad must still start via the wiggle");
-    let adjusted = Vec3::new(100.0, 0.0, 100.0);
+    let adjusted = Vec3::new(190.0, 0.0, 120.0);
     assert_eq!(
         ai.building_queue[0].position, adjusted,
         "first legal spiral spot is stored into the pad"
