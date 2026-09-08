@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from generate_port_provenance import extract_cpp_symbols
+from cpp_definition_inventory import PARSER_ID, extract_cpp_definition_inventory
 
 
 SCHEMA_VERSION = 1
@@ -50,12 +50,15 @@ def review_units(manifest: dict[str, Any]) -> list[dict[str, Any]]:
 def unit_record(repo: Path, entry: dict[str, Any]) -> dict[str, Any]:
     source = entry["source"]
     source_path = repo / source["path"]
+    inventory = extract_cpp_definition_inventory(source_path)
     return {
         "entry_id": entry["id"],
         "source": {
             "path": source["path"],
             "sha256": source["sha256"],
-            "symbols": extract_cpp_symbols(source_path) if source_path.is_file() else [],
+            "symbols": inventory.symbols,
+            "symbol_extraction_status": "parsed_with_diagnostics" if inventory.diagnostics else "parsed",
+            "symbol_extraction_diagnostics": inventory.diagnostics,
         },
         "candidate_destinations": [
             {
@@ -136,6 +139,7 @@ def build_queue(
         "schema_version": SCHEMA_VERSION,
         "generator": "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
         "provenance_input_digest": manifest["input_digest"],
+        "cpp_definition_parser": PARSER_ID,
         "packet_size": packet_size,
         "summary": {
             "packets": len(packets),

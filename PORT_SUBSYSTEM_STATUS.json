@@ -1,5 +1,5 @@
 {
-  "input_digest": "06c84e38b49554ff15213aac65a86dab4f91bb68b9bbfaefd42561756cd73653",
+  "input_digest": "de228fd4140f9d493868861c6ae2af42063d0bfa876c52e54aae7dc3b2cac186",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -49,9 +49,10 @@
       "duplicate_implementation_destination": 46,
       "missing_mapping": 15,
       "no_reachable_implementation": 663,
+      "ownership_symbol": 7,
       "unreviewed_mapping": 1381,
       "unreviewed_source_range_ownership": 4,
-      "unreviewed_symbol_ownership": 1386
+      "unreviewed_symbol_ownership": 1389
     },
     "by_scope": {
       "game_engine": {
@@ -62,7 +63,7 @@
         "required": 539,
         "reviewed_path_implementations": 8,
         "source_range_ownership_reviewed": 3,
-        "symbol_ownership_reviewed": 3,
+        "symbol_ownership_reviewed": 0,
         "translation_units": 586
       },
       "game_engine_device": {
@@ -117,8 +118,8 @@
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 3495,
-    "symbol_ownership_reviewed": 3,
+    "strict_blockers": 3505,
+    "symbol_ownership_reviewed": 0,
     "translation_units": 1436
   }
 }

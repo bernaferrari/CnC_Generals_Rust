@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from cpp_definition_inventory import PARSER_ID, extract_cpp_definition_inventory
+
 from behavior_evidence import (
     EVIDENCE_FILE,
     DestinationState,
@@ -311,10 +313,6 @@ RUST_SYMBOL_RE = re.compile(
     r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?"
     r"(fn|struct|enum|trait|type|const|static)\s+([A-Za-z_][A-Za-z0-9_]*)"
 )
-CPP_QUALIFIED_SYMBOL_RE = re.compile(
-    r"(?m)^\s*[^#/{;\n][^;\n]*?\b"
-    r"([A-Za-z_~][A-Za-z0-9_~]*(?:::[A-Za-z_~][A-Za-z0-9_~]*)+)\s*\("
-)
 
 
 def normalize_name(value: str) -> str:
@@ -335,18 +333,7 @@ def line_count(path: Path) -> int:
 
 
 def extract_cpp_symbols(path: Path) -> list[dict[str, object]]:
-    content = path.read_text(encoding="utf-8", errors="ignore")
-    symbols: list[dict[str, object]] = []
-    seen: set[tuple[str, int]] = set()
-    for match in CPP_QUALIFIED_SYMBOL_RE.finditer(content):
-        name = match.group(1)
-        start_line = content.count("\n", 0, match.start()) + 1
-        key = (name, start_line)
-        if key in seen:
-            continue
-        seen.add(key)
-        symbols.append({"name": name, "line": start_line})
-    return symbols
+    return extract_cpp_definition_inventory(path).symbols
 
 
 def relative_posix(path: Path, root: Path) -> str:
@@ -857,12 +844,14 @@ def build_manifest(
                 for member in expand_split_root(destination, by_absolute)
             }
             source_lines = line_count(source)
-            cpp_symbols = (
-                extract_cpp_symbols(source)
+            cpp_inventory = (
+                extract_cpp_definition_inventory(source)
                 if unit_kind == "translation_unit"
                 and (ownership_record is not None or review_state == "reviewed")
-                else []
+                else None
             )
+            cpp_symbols = cpp_inventory.symbols if cpp_inventory else []
+            cpp_diagnostics = cpp_inventory.diagnostics if cpp_inventory else []
             if required and unit_kind == "translation_unit":
                 symbol_evaluation = evaluate_symbol_ownership(
                     ownership_record,
@@ -885,6 +874,15 @@ def build_manifest(
                     "unreviewed", [], set(), {}
                 )
                 range_evaluation = RangeOwnershipEvaluation("not_required", [], {})
+            # An assignment cannot establish complete symbol coverage when
+            # the parser could not account for source syntax.
+            if cpp_diagnostics and required and unit_kind == "translation_unit":
+                symbol_evaluation = SymbolOwnershipEvaluation(
+                    "invalid",
+                    [*symbol_evaluation.diagnostics, "ownership_symbol:unresolved_cpp_syntax"],
+                    set(),
+                    {},
+                )
             ownership_diagnostics = list(symbol_evaluation.diagnostics)
             ownership_diagnostics.extend(range_evaluation.diagnostics)
 
@@ -941,6 +939,12 @@ def build_manifest(
                         "sha256": source_sha256,
                         "file_range": {"start_line": 1, "end_line": source_lines},
                         "symbols": cpp_symbols,
+                        "symbol_extraction_status": (
+                            "not_requested"
+                            if cpp_inventory is None
+                            else "parsed_with_diagnostics" if cpp_diagnostics else "parsed"
+                        ),
+                        "symbol_extraction_diagnostics": cpp_diagnostics,
                     },
                     "mapping": {
                         "mode": mode,
@@ -1066,6 +1070,7 @@ def build_manifest(
         for source, record in sorted(reviewed_ownership.items())
         for owned in record.source_ranges
     )
+    digest_rows.append(f"cpp-definition-parser:{PARSER_ID}")
     digest_rows.extend(evidence_digest_rows(evidence_units))
     input_digest = hashlib.sha256("\n".join(digest_rows).encode("utf-8")).hexdigest()
     reviewed_rust_paths = {
@@ -1141,6 +1146,7 @@ def build_manifest(
         "schema_version": SCHEMA_VERSION,
         "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
         "input_digest": input_digest,
+        "cpp_definition_parser": PARSER_ID,
         "reviewed_mapping_input": {
             "path": REVIEWED_MAPPINGS_FILE,
             "mapping_count": len(reviewed_mappings),

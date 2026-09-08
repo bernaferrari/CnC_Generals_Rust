@@ -76,6 +76,14 @@ jobs:
       - name: Enforce unsafe-code safety contract ratchet
         run: python3 Code/Main/scripts/check_unsafe_contracts.py
 
+      - name: Set up Python for parity tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install C++ definition parser for parity tooling
+        run: python3 -m pip install -r Code/Main/scripts/requirements-provenance.txt
+
       - name: Test migration and parity tooling contracts
         run: python3 -m unittest discover -s Code/Main/scripts -p 'test_*.py'
 

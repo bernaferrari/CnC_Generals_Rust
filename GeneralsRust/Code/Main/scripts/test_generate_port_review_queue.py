@@ -64,6 +64,19 @@ class PortReviewQueueTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown provenance packet"):
             queue.select_packet(result, "missing")
 
+    def test_packet_retains_parse_diagnostics_and_rejects_missing_source(self) -> None:
+        root, manifest = self.fixture(1)
+        path = root / manifest["entries"][0]["source"]["path"]
+        path.write_text("void recovered() { @; }\n")
+        result = queue.build_queue(root, manifest)
+        source = result["packets"][0]["units"][0]["source"]
+        self.assertEqual(source["symbols"], [{"name": "recovered", "line": 1}])
+        self.assertEqual(source["symbol_extraction_status"], "parsed_with_diagnostics")
+        self.assertTrue(source["symbol_extraction_diagnostics"])
+        path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            queue.build_queue(root, manifest)
+
     def test_rerun_is_deterministic_and_rejects_oversized_packet_setting(self) -> None:
         root, manifest = self.fixture(4)
         self.assertEqual(

@@ -87,3 +87,6 @@ daemon/*.log
 .beads-credential-key
 .beads/interactions.jsonl
 .beads/*.pid.lock
+
+# Isolated dependencies for C++ parity tooling
+/.venv-parity/

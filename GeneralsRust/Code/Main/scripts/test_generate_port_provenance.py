@@ -319,6 +319,34 @@ class ReviewedOwnershipSchemaTests(unittest.TestCase):
             ranges,
         )
 
+    def test_cpp_parse_error_blocks_otherwise_complete_symbol_assignment(self) -> None:
+        temporary, fixture = self.build_fixture()
+        self.addCleanup(temporary.cleanup)
+        fixture.write(self.QUX_CPP, "void Qux::update(int) { @; }\n")
+        ownership = self.ownership(
+            fixture,
+            self.QUX_CPP,
+            (
+                symbol_record(
+                    "Qux::update",
+                    1,
+                    self.QUX_RS,
+                    file_sha(fixture.root, self.QUX_RS),
+                    ("update_int",),
+                ),
+            ),
+        )
+        manifest = provenance.build_manifest(
+            fixture.root,
+            {self.QUX_CPP: (self.QUX_RS,)},
+            reviewed_ownership={self.QUX_CPP: ownership},
+        )
+        entry = self.entry(manifest, "Qux.cpp")
+        self.assertTrue(entry["source"]["symbol_extraction_diagnostics"])
+        self.assertEqual(entry["mapping"]["symbol_validation"], "invalid")
+        self.assertIn("ownership_symbol:unresolved_cpp_syntax", entry["blockers"])
+        self.assertIn("unreviewed_symbol_ownership", entry["blockers"])
+
     def test_complete_valid_record_clears_both_ownership_blockers(self) -> None:
         temporary, fixture = self.build_fixture()
         self.addCleanup(temporary.cleanup)
