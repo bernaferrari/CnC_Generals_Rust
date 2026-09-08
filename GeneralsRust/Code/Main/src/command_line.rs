@@ -574,12 +574,11 @@ impl CommandLineArgs {
 
     /// Get display resolution from command line or defaults
     pub fn get_resolution(&self) -> (u32, u32) {
-        let default_width = if self.fullscreen { 1920 } else { 1280 };
-        let default_height = if self.fullscreen { 1080 } else { 800 };
-
         (
-            self.width.unwrap_or(default_width),
-            self.height.unwrap_or(default_height),
+            // C++ GlobalData::reset (GlobalData.cpp:586-588) initializes
+            // XResolution/YResolution to 800x600 regardless of window mode.
+            self.width.unwrap_or(800),
+            self.height.unwrap_or(600),
         )
     }
 
@@ -826,8 +825,8 @@ mod tests {
     fn test_resolution_defaults() {
         let args = CommandLineArgs::default();
         let (width, height) = args.get_resolution();
-        assert_eq!(width, 1280);
-        assert_eq!(height, 800);
+        assert_eq!(width, 800);
+        assert_eq!(height, 600);
     }
 
     #[test]

@@ -706,6 +706,8 @@ impl HostStartRequest {
 pub(super) struct PendingMatchStart {
     pub(super) request: HostStartRequest,
     pub(super) interactive_start_from_menu: bool,
+    /// Earliest next decoder/min-spec step; winit keeps servicing events while waiting.
+    pub(super) prelude_retry_at: std::time::Instant,
 }
 
 /// Main extraction of the generation-matched GameClient campaign descriptor.

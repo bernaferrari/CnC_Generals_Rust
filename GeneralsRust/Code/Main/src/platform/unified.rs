@@ -123,6 +123,10 @@ impl WindowMessageHandler for GameMessageHandler {
         self.window = Some(Arc::downgrade(&window));
     }
 
+    fn set_fullscreen_mode(&mut self, fullscreen: bool) {
+        GameMessageHandler::set_fullscreen_mode(self, fullscreen);
+    }
+
     fn handle_focus_change(&mut self, state: ApplicationFocusState, active: bool) -> Result<()> {
         // WM_ACTIVATEAPP equivalent.
         // C++: TheGameEngine->setIsActive(isWinMainActive) + Reset_D3D_Device(active).

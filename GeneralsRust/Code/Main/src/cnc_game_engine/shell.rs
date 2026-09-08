@@ -324,19 +324,39 @@ impl CnCGameEngine {
         }
     }
 
-    /// C++ campaign and Challenge load screens finish their movie/min-spec
-    /// prelude before map initialization.  This delegates only to GameClient's
-    /// safe WindowManager/display/FP pump; it must not dispatch the host
-    /// platform event loop while `host_start_game_from_ui` is synchronous.
+    /// Advance the pre-map movie once, then return control to winit. C++ pumps
+    /// OS events between decoder steps; re-entering winit from a blocking
+    /// callback cannot preserve that lifecycle on macOS.
     #[cfg(feature = "game_client")]
-    pub(super) fn run_cpp_load_screen_prelude(&mut self) {
+    pub(super) fn advance_cpp_load_screen_prelude(&mut self, pending: &mut PendingMatchStart) -> bool {
+        use game_client::gui::load_screen::{
+            advance_load_screen_prelude, pump_load_screen_prelude_presentation,
+            LoadScreenPreludeStepResult,
+        };
         if !self.loading_overlay_active {
-            return;
+            return true;
         }
         let Some(kind) = self.active_load_screen else {
-            return;
+            return true;
         };
-        let _ = game_client::gui::load_screen::run_load_screen_prelude(kind);
+        let now = std::time::Instant::now();
+        if now < pending.prelude_retry_at {
+            return false;
+        }
+        let step = advance_load_screen_prelude(kind, self.message_processor.is_active());
+        let (finished, presentation_needed) = match step {
+            LoadScreenPreludeStepResult::Pending { retry_after, presentation_needed } => {
+                pending.prelude_retry_at = now + retry_after;
+                (false, presentation_needed)
+            }
+            LoadScreenPreludeStepResult::Finished { presentation_needed, .. } => {
+                (true, presentation_needed)
+            }
+        };
+        if presentation_needed {
+            pump_load_screen_prelude_presentation(kind);
+        }
+        finished
     }
 
     pub(super) fn hide_shell_loading_overlay(&mut self) {

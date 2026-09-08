@@ -577,10 +577,9 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
 
 #[test]
 fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
-    // Loading + authored prelude happen on host_start_game_from_ui; map work
-    // is parked for the next Loading tick (complete_parked_match_start) so
-    // runtime-host can publish state=Loading. C++ startNewGame still enters
-    // the load screen before loadMap.
+    // Loading is published before the movie is advanced. Map work remains
+    // parked until the prelude finishes across event-loop ticks, preserving
+    // C++ serviceWindowsOS between movie frames without re-entering winit.
     let start_game = include_str!("start_game.rs");
     let start = start_game
         .find("pub(super) fn host_start_game_from_ui")
@@ -594,13 +593,17 @@ fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
     let loading = park_body
         .find("transition_to_state(GameState::Loading)")
         .expect("Loading transition");
-    let prelude = park_body
-        .find("self.run_cpp_load_screen_prelude()")
-        .expect("campaign prelude pump");
-    assert!(
-        loading < prelude && park_body.contains("pending_match_start"),
-        "UI start must consume the prelude then park before session/map work"
-    );
+    let parked = park_body.find("self.pending_match_start = Some(").expect("park start");
+    assert!(loading < parked);
+    assert!(!park_body.contains("run_cpp_load_screen_prelude"));
+    let loading_tick = include_str!("camera_drain.rs");
+    let pending = loading_tick.find("self.pending_match_start.take()").expect("parked start tick");
+    let tick_body = &loading_tick[pending..];
+    let prelude = tick_body.find("self.advance_cpp_load_screen_prelude(&mut pending)").expect("one prelude step");
+    let repark = tick_body.find("self.pending_match_start = Some(pending)").expect("retain pending start");
+    let complete = tick_body.find("self.complete_parked_match_start(pending)").expect("map start after prelude");
+    assert!(prelude < repark && repark < complete);
+    assert!(tick_body[repark..complete].contains("return Ok(())"));
 
     let finish = start_game
         .find("pub(super) fn complete_parked_match_start")
@@ -624,7 +627,7 @@ fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
 
     let shell = include_str!("shell.rs");
     let shell_start = shell
-        .find("pub(super) fn run_cpp_load_screen_prelude")
+        .find("pub(super) fn advance_cpp_load_screen_prelude")
         .expect("safe Main prelude wrapper");
     let shell_after_start = &shell[shell_start..];
     let shell_end = shell_after_start[1..]
@@ -633,14 +636,17 @@ fn campaign_prelude_precedes_ui_map_work_and_logic_initializer() {
         .unwrap_or(shell_after_start.len());
     let shell_body = &shell_after_start[..shell_end];
     assert!(
-        shell_body.contains("game_client::gui::load_screen::run_load_screen_prelude(kind)"),
-        "Main must delegate to the shared render-pump-only prelude driver"
+        shell_body.contains("advance_load_screen_prelude(kind, self.message_processor.is_active())")
+            && shell_body.contains("if presentation_needed"),
+        "Main must pass current owner focus to one nonblocking step and only pump actual presentation work"
     );
     assert!(
         !shell_body.contains("service_windows_os")
             && !shell_body.contains("serviceWindowsOS")
-            && !shell_body.contains("dispatch_event"),
-        "the synchronous wrapper must not re-enter the platform event loop"
+            && !shell_body.contains("dispatch_event")
+            && !shell_body.contains("thread::sleep")
+            && !shell_body.contains("run_load_screen_prelude"),
+        "a Loading tick must not block or re-enter the platform event loop"
     );
 
     // GameLogic's independent initialization path calls the same hook before

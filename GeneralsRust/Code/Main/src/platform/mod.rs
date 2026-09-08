@@ -39,6 +39,9 @@ pub trait WindowMessageHandler {
     /// Provide access to the native window so the handler can toggle cursor state, etc.
     fn attach_window(&mut self, _window: Arc<winit::window::Window>) {}
 
+    /// Keep handler policy in sync with the owned window's display mode.
+    fn set_fullscreen_mode(&mut self, _fullscreen: bool) {}
+
     /// Handle application focus changes (WM_ACTIVATEAPP, WM_ACTIVATE equivalent)
     fn handle_focus_change(&mut self, state: ApplicationFocusState, active: bool) -> Result<()>;
 
@@ -114,6 +117,7 @@ pub struct WindowMessageProcessor {
     is_active: bool,
     focus_state: ApplicationFocusState,
     pending_session_ending: bool,
+    owned_window_id: Option<winit::window::WindowId>,
 }
 
 impl WindowMessageProcessor {
@@ -124,6 +128,7 @@ impl WindowMessageProcessor {
             is_active: false,
             focus_state: ApplicationFocusState::Inactive,
             pending_session_ending: false,
+            owned_window_id: None,
         }
     }
 
@@ -138,7 +143,15 @@ impl WindowMessageProcessor {
     /// - `WindowEvent::Destroyed`      -> WM_DESTROY
     pub fn process_event(&mut self, event: &Event<()>) -> Result<bool> {
         match event {
-            Event::WindowEvent { event, .. } => self.process_window_event(event),
+            Event::WindowEvent { window_id, event } => {
+                // WndProc is invoked only for its owning HWND. Keep that
+                // invariant at the processor boundary so every caller gets
+                // the same focus/audio/cursor isolation as the run loop.
+                if !self.accepts_window(*window_id) {
+                    return Ok(false);
+                }
+                self.process_window_event(event)
+            }
             Event::Suspended => {
                 self.handler.handle_power_event(PowerEvent::QuerySuspend)?;
                 Ok(false)
@@ -158,6 +171,10 @@ impl WindowMessageProcessor {
             }
             _ => Ok(false),
         }
+    }
+
+    fn accepts_window(&self, window_id: winit::window::WindowId) -> bool {
+        self.owned_window_id.is_none_or(|owned| owned == window_id)
     }
 
     /// Request that the next AboutToWait tick delivers a session-ending message.
@@ -216,6 +233,7 @@ impl WindowMessageProcessor {
 
     pub fn set_fullscreen(&mut self, fullscreen: bool) {
         self.is_fullscreen = fullscreen;
+        self.handler.set_fullscreen_mode(fullscreen);
     }
 
     pub fn is_fullscreen(&self) -> bool {
@@ -231,6 +249,7 @@ impl WindowMessageProcessor {
     }
 
     pub fn attach_window(&mut self, window: Arc<winit::window::Window>) {
+        self.owned_window_id = Some(window.id());
         self.handler.attach_window(window);
     }
 
@@ -253,10 +272,12 @@ impl WindowMessageProcessor {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplicationFocusState, SystemCommand, WindowMessageProcessor,
+        ApplicationFocusState, PowerEvent, SystemCommand, WindowMessageHandler, WindowMessageProcessor,
         create_platform_message_handler, startup_windowed_mode,
     };
     use crate::command_line;
+    use anyhow::Result;
+    use winit::event::Event;
 
     #[test]
     fn window_message_processor_starts_inactive_until_focus_is_received() {
@@ -299,6 +320,85 @@ mod tests {
         .unwrap();
         assert!(startup_windowed_mode(&windowed));
     }
+
+    #[test]
+    fn processor_rejects_foreign_window_events_after_owner_attachment() {
+        use anyhow::Result;
+        use std::sync::{Arc, Mutex};
+        use winit::dpi::PhysicalSize;
+        use winit::event::WindowEvent;
+        let owner = winit::window::WindowId::from(11);
+        let foreign = winit::window::WindowId::from(22);
+
+        #[derive(Clone, Default)]
+        struct Record(Arc<Mutex<Vec<String>>>);
+        impl WindowMessageHandler for Record {
+            fn handle_focus_change(&mut self, _: ApplicationFocusState, active: bool) -> Result<()> {
+                self.0.lock().unwrap().push(format!("focus:{active}"));
+                Ok(())
+            }
+            fn handle_power_event(&mut self, _: PowerEvent) -> Result<bool> { Ok(false) }
+            fn handle_system_command(&mut self, _: SystemCommand, _: bool) -> Result<bool> {
+                Ok(false)
+            }
+            fn handle_close_request(&mut self, _: bool) -> Result<bool> {
+                self.0.lock().unwrap().push("close".into());
+                Ok(false)
+            }
+            fn handle_resize(&mut self, _: PhysicalSize<u32>) -> Result<()> { Ok(()) }
+            fn handle_cursor_request(&mut self) -> Result<bool> { Ok(false) }
+            fn handle_paint_request(&mut self) -> Result<()> { Ok(()) }
+            fn handle_destroyed(&mut self) -> Result<()> {
+                self.0.lock().unwrap().push("destroyed".into());
+                Ok(())
+            }
+            fn set_fullscreen_mode(&mut self, fullscreen: bool) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("fullscreen:{fullscreen}"));
+            }
+        }
+
+        let record = Arc::new(Mutex::new(Vec::new()));
+        let mut processor = WindowMessageProcessor::new(Box::new(Record(record.clone())));
+        processor.owned_window_id = Some(owner);
+        assert!(processor.accepts_window(owner));
+        assert!(!processor.accepts_window(foreign));
+        processor.set_fullscreen(true);
+        processor.set_fullscreen(false);
+        let owner_focus = Event::WindowEvent {
+            window_id: owner,
+            event: WindowEvent::Focused(true),
+        };
+        processor.process_event(&owner_focus).unwrap();
+        assert!(processor.is_active(), "owner focus must activate owner");
+        let foreign_focus = winit::event::Event::WindowEvent {
+            window_id: foreign,
+            event: WindowEvent::Focused(false),
+        };
+        processor.process_event(&foreign_focus).unwrap();
+        for event in [
+            Event::WindowEvent {
+                window_id: foreign,
+                event: WindowEvent::CloseRequested,
+            },
+            Event::WindowEvent {
+                window_id: foreign,
+                event: WindowEvent::Destroyed,
+            },
+        ] {
+            processor.process_event(&event).unwrap();
+        }
+        assert!(
+            processor.is_active(),
+            "foreign events must not deactivate owner"
+        );
+        assert_eq!(
+            *record.lock().unwrap(),
+            vec!["fullscreen:true", "fullscreen:false", "focus:true"]
+        );
+    }
 }
 
 mod unified;
@@ -316,11 +416,17 @@ pub mod linux;
 
 /// Create a platform-specific message handler
 pub fn create_platform_message_handler() -> Box<dyn WindowMessageHandler + Send + Sync> {
-    let mut handler = GameMessageHandler::new();
     let windowed = command_line::CommandLineArgs::parse()
         .ok()
         .map(|cmd_args| startup_windowed_mode(&cmd_args))
         .unwrap_or(false);
+    create_platform_message_handler_for_mode(windowed)
+}
+
+pub fn create_platform_message_handler_for_mode(
+    windowed: bool,
+) -> Box<dyn WindowMessageHandler + Send + Sync> {
+    let mut handler = GameMessageHandler::new();
     handler.set_windowed_mode(windowed);
     Box::new(handler)
 }

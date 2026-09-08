@@ -1,0 +1,1070 @@
+{
+  "sources": [
+    "GeneralsMD/Code/GameEngine/Include/Common/CommandLine.h",
+    "GeneralsMD/Code/GameEngine/Source/Common/CommandLine.cpp"
+  ],
+  "rust_target": "GeneralsRust/Code/Main/src/command_line.rs",
+  "records": [
+    {
+      "option": "-noshellmap",
+      "handler": "parseNoShellMap",
+      "cpp_table_line": 1111,
+      "cpp_handler_line": 736,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/config/global_data.rs:458:                \"-noshellmap\" => {",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1175:                \"noshellmap\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:533:    /// Parse -noshellmap flag",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:590:                \"-noshellmap\" => self.parse_no_shell_map(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-win",
+      "handler": "parseWin",
+      "cpp_table_line": 1112,
+      "cpp_handler_line": 97,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/win32_game_engine.rs:458:            if arg == \"-win\" || arg == \"-windowed\" {",
+        "GeneralsRust/Code/Main/src/gameplay_layout.rs:1181:                let win = wm.create_window(None, 0, 0, 8, 8).unwrap();",
+        "GeneralsRust/Code/Main/src/gameplay_layout.rs:1182:                win.borrow_mut()",
+        "GeneralsRust/Code/Main/src/main.rs:263:        // pointers (kept for parity with win_main's unsafe entry).",
+        "GeneralsRust/Code/Main/src/main.rs:329:    let event_loop = match generals_main::win_main::create_host_event_loop(runtime_host_headless) {",
+        "GeneralsRust/Code/Main/src/main.rs:341:        generals_main::win_main::centered_startup_position(&event_loop, width, height);",
+        "GeneralsRust/Code/Main/src/main.rs:342:    let window_attributes = generals_main::win_main::startup_window_attributes(",
+        "GeneralsRust/Code/Main/src/main.rs:503:            // C++ WinMain defaults to fullscreen-style startup unless -win is supplied.",
+        "GeneralsRust/Code/Main/src/main.rs:552:            \"-win\".to_string(),",
+        "GeneralsRust/Code/Main/src/main.rs:560:            \"-win\".to_string(),",
+        "GeneralsRust/Code/Main/src/input_system_simple.rs:723:        // Poison live pose \u2014 presentation must win.",
+        "GeneralsRust/Code/Main/src/executable_smoke/tests.rs:72:            \"newest-mtime must win over a stale earlier candidate\""
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-xres",
+      "handler": "parseXRes",
+      "cpp_table_line": 1113,
+      "cpp_handler_line": 371,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/main.rs:530:        .or_else(|| parse_u32_option(cmd_args, \"xres\"));",
+        "GeneralsRust/Code/Main/src/win_main.rs:593:        .or_else(|| parse_u32_option(cmd_args, \"xres\"));",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:360:        xres: u32,",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:365:        if xres < MIN_DISPLAY_RESOLUTION_X || yres < MIN_DISPLAY_RESOLUTION_Y {",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:369:        self.width = xres;",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:380:            config.width = xres;",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:108:pub fn apply_script_display_mode(xres: u32, yres: u32, bit_depth: u32, windowed: bool) -> bool {",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:110:        with_script_display(|display| display.set_display_mode(xres, yres, bit_depth, windowed))",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:114:    if crate::display::display_fx::is_valid_device_mode(xres, yres, bit_depth) {",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:117:                xres,",
+        "GeneralsRust/Code/Main/src/command_line.rs:147:                    \"xres\" => {",
+        "GeneralsRust/Code/Main/src/command_line.rs:384:                | \"xres\""
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-yres",
+      "handler": "parseYRes",
+      "cpp_table_line": 1114,
+      "cpp_handler_line": 381,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/main.rs:533:        .or_else(|| parse_u32_option(cmd_args, \"yres\"));",
+        "GeneralsRust/Code/Main/src/win_main.rs:596:        .or_else(|| parse_u32_option(cmd_args, \"yres\"));",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:361:        yres: u32,",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:365:        if xres < MIN_DISPLAY_RESOLUTION_X || yres < MIN_DISPLAY_RESOLUTION_Y {",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:370:        self.height = yres;",
+        "GeneralsRust/Code/GameEngineDevice/src/W3DDevice/GameClient/wthree_d_display.rs:381:            config.height = yres;",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:108:pub fn apply_script_display_mode(xres: u32, yres: u32, bit_depth: u32, windowed: bool) -> bool {",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:110:        with_script_display(|display| display.set_display_mode(xres, yres, bit_depth, windowed))",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:114:    if crate::display::display_fx::is_valid_device_mode(xres, yres, bit_depth) {",
+        "GeneralsRust/Code/GameEngine/GameClient/src/core/script_action_handler.rs:118:                yres,",
+        "GeneralsRust/Code/Main/src/command_line.rs:152:                    \"yres\" => {",
+        "GeneralsRust/Code/Main/src/command_line.rs:385:                | \"yres\""
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-fullscreen",
+      "handler": "parseNoWin",
+      "cpp_table_line": 1115,
+      "cpp_handler_line": 333,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/main.rs:49:    window::{Fullscreen, Window, WindowAttributes},",
+        "GeneralsRust/Code/Main/src/main.rs:338:    let (is_windowed, is_fullscreen) = resolve_window_mode(&cmd_args);",
+        "GeneralsRust/Code/Main/src/main.rs:346:        is_fullscreen,",
+        "GeneralsRust/Code/Main/src/main.rs:503:            // C++ WinMain defaults to fullscreen-style startup unless -win is supplied.",
+        "GeneralsRust/Code/Main/src/main.rs:551:            \"-fullscreen\".to_string(),",
+        "GeneralsRust/Code/Main/src/main.rs:561:            \"-fullscreen\".to_string(),",
+        "GeneralsRust/Code/Main/src/effects/lighting_system.rs:732:        // Render fullscreen quad to apply lighting",
+        "GeneralsRust/Code/Main/src/effects/lighting_system.rs:733:        lighting_pass.draw(0..3, 0..1); // Triangle trick for fullscreen",
+        "GeneralsRust/Code/GameEngine/GameEngineDevice/src/lib.rs:95://!         .with_fullscreen(false)",
+        "GeneralsRust/Code/GameEngine/GameEngineDevice/src/lib.rs:516:    if let Some(fullscreen) = config",
+        "GeneralsRust/Code/GameEngine/GameEngineDevice/src/lib.rs:518:        .get(\"fullscreen\")",
+        "GeneralsRust/Code/GameEngine/GameEngineDevice/src/lib.rs:521:        video_config.fullscreen = fullscreen;"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-fullVersion",
+      "handler": "parseFullVersion",
+      "cpp_table_line": 1116,
+      "cpp_handler_line": 342,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:366:    /// Parse -fullVersion flag.",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:597:                \"-fullVersion\" => self.parse_full_version(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-particleEdit",
+      "handler": "parseParticleEdit",
+      "cpp_table_line": 1117,
+      "cpp_handler_line": 586,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/command_line.rs:229:                    | \"nosizzle\" | \"noshaders\" | \"particleedit\" | \"scriptdebug\" | \"noshellanim\"",
+        "GeneralsRust/Code/Main/src/command_line.rs:926:            \"-particleEdit\".to_string(),",
+        "GeneralsRust/Code/Main/src/command_line.rs:940:        assert!(parsed.has_option(\"particleedit\"));",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1626:            \"-particleEdit\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1153:                \"particleedit\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:449:    /// Parse -particleEdit flag",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:599:                \"-particleEdit\" => self.parse_particle_edit(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-scriptDebug",
+      "handler": "parseScriptDebug",
+      "cpp_table_line": 1118,
+      "cpp_handler_line": 576,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/command_line.rs:229:                    | \"nosizzle\" | \"noshaders\" | \"particleedit\" | \"scriptdebug\" | \"noshellanim\"",
+        "GeneralsRust/Code/Main/src/command_line.rs:927:            \"-scriptDebug\".to_string(),",
+        "GeneralsRust/Code/Main/src/command_line.rs:941:        assert!(parsed.has_option(\"scriptdebug\"));",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1639:            \"-scriptDebug\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1196:                \"scriptdebug\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:442:    /// Parse -scriptDebug flag",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:600:                \"-scriptDebug\" => self.parse_script_debug(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-playStats",
+      "handler": "parsePlayStats",
+      "cpp_table_line": 1119,
+      "cpp_handler_line": 909,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/command_line.rs:228:                    \"seed\" | \"netminplayers\" | \"playstats\" | \"forcebenchmark\" | \"nomusic\"",
+        "GeneralsRust/Code/Main/src/command_line.rs:401:                | \"playstats\"",
+        "GeneralsRust/Code/Main/src/command_line.rs:889:            \"-playStats=7\".to_string(),",
+        "GeneralsRust/Code/Main/src/command_line.rs:905:            parsed.get_option_value(\"playstats\").map(String::as_str),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1630:            \"-playStats\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1293:                \"playstats\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs:1715:            \"PLAYSTATS\" => data.play_stats = parse_int(&args)?,",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:377:    /// Parse -playStats flag.",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:378:    /// C++ `parsePlayStats` writes `TheWritableGlobalData->m_playStats` from",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:598:                \"-playStats\" => self.parse_play_stats(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-mod",
+      "handler": "parseMod",
+      "cpp_table_line": 1120,
+      "cpp_handler_line": 1062,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Benchmarks/src/main.rs:10:mod benchmark_runner;",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:11:mod performance_analysis;",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:12:mod reporting;",
+        "GeneralsRust/Code/Main/src/visual_dispatch_host.rs:170:mod tests {",
+        "GeneralsRust/Code/Main/src/win32_game_engine.rs:288:                // Keep preload non-fatal: template/model aliases can differ per mod/map pack.",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:260:    /// C++ ArchiveFileSystem::loadMods \u2014 overwrite only the user -mod BIG/dir.",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:261:    pub fn load_user_mods(&mut self, mod_dir: &str, mod_big: &str) -> Result<()> {",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:263:        if !mod_big.trim().is_empty() {",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:264:            let path = Path::new(mod_big);",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:267:                    .open_archive_file(mod_big)",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:271:        if !mod_dir.trim().is_empty() {",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:272:            let dir = Path::new(mod_dir);"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noshaders",
+      "handler": "parseNoShaders",
+      "cpp_table_line": 1121,
+      "cpp_handler_line": 745,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/command_line.rs:229:                    | \"nosizzle\" | \"noshaders\" | \"particleedit\" | \"scriptdebug\" | \"noshellanim\"",
+        "GeneralsRust/Code/Main/src/command_line.rs:925:            \"-noshaders\".to_string(),",
+        "GeneralsRust/Code/Main/src/command_line.rs:939:        assert!(parsed.has_option(\"noshaders\"));",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1638:            \"-noshaders\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1215:                \"noshaders\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:602:                \"-noshaders\" => {"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-quickstart",
+      "handler": "parseQuickStart",
+      "cpp_table_line": 1122,
+      "cpp_handler_line": 803,
+      "compile_gate": "retail",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/ui/mod.rs:130:        // C++ `-quickstart` suppresses the intro/title path and lands directly",
+        "GeneralsRust/Code/Main/src/ui/ui_manager.rs:250:                    \"UI: QuickStart enabled, keeping title/menu startup flow\"",
+        "GeneralsRust/Code/Main/src/config/global_data.rs:323:        info!(\"QuickStart applied: intros disabled, shell map off\");",
+        "GeneralsRust/Code/Main/src/config/global_data.rs:326:        info!(\"QuickStart applied: shell map off\");",
+        "GeneralsRust/Code/Main/src/config/global_data.rs:447:                \"-quickstart\" => {",
+        "GeneralsRust/Code/Main/src/config/global_data.rs:836:            \"-quickstart\".to_string(),",
+        "GeneralsRust/Code/Main/src/command_line.rs:225:                    \"quickstart\" => parsed.quick_start = true,",
+        "GeneralsRust/Code/Main/src/command_line.rs:663:        println!(\"    -quickstart            Skip intro videos and menus\");",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/shell.rs:2042:                warn!(\"QuickStart map load failed; falling back to menu startup\");",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:15:            info!(\"\u26a1 QuickStart enabled: skipping intro sequences (handled by SAGE runtime).\");",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1158:                \"quickstart\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:502:    /// Parse -quickstart flag"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noaudio",
+      "handler": "parseNoAudio",
+      "cpp_table_line": 1125,
+      "cpp_handler_line": 319,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/command_line.rs:215:                    \"noaudio\" => parsed.no_audio = true,",
+        "GeneralsRust/Code/Main/src/command_line.rs:660:        println!(\"    -noaudio               Disable audio system\");",
+        "GeneralsRust/Code/Main/src/command_line.rs:795:            \"-noaudio\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1607:fn command_line_noaudio_overrides_sync_to_writable_globals() {",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1609:        let args = vec![\"generals\".to_string(), \"-noaudio\".to_string()];",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/audio.rs:46:                info!(\"Background music skipped (-noaudio)\");",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/audio.rs:81:            info!(\"Background music unavailable (-noaudio)\");",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/camera_drain.rs:2808:            \"--noaudio\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:12:            info!(\"\ud83d\udd07 Audio disabled via -noaudio\");",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1024:        // Rust allows -noaudio and similar flags in all builds for cross-platform compatibility.",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1183:                \"noaudio\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:351:    /// Parse -noaudio flag"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-map",
+      "handler": "parseMapName",
+      "cpp_table_line": 1126,
+      "cpp_handler_line": 361,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/visual_dispatch_host.rs:17:/// Map C++ `Drawable::draw` early-outs onto the frozen visibility enum.",
+        "GeneralsRust/Code/Main/src/visual_dispatch_host.rs:45:/// Map a C++ `StealthLookType` (plus the non-stealth sidecar bits) to the",
+        "GeneralsRust/Code/Main/src/win32_game_engine.rs:282:                .map(str::to_string)",
+        "GeneralsRust/Code/Main/src/win32_game_engine.rs:288:                // Keep preload non-fatal: template/model aliases can differ per mod/map pack.",
+        "GeneralsRust/Code/Main/src/localization.rs:62:        match self.load_language_map(&normalized) {",
+        "GeneralsRust/Code/Main/src/localization.rs:63:            Some(map) => {",
+        "GeneralsRust/Code/Main/src/localization.rs:65:                self.translations = map;",
+        "GeneralsRust/Code/Main/src/localization.rs:101:        if let Some(map) = self.load_language_map(\"English\") {",
+        "GeneralsRust/Code/Main/src/localization.rs:102:            self.fallback_translations = map;",
+        "GeneralsRust/Code/Main/src/localization.rs:109:    fn load_language_map(&self, language: &str) -> Option<HashMap<String, String>> {",
+        "GeneralsRust/Code/Main/src/localization.rs:114:                        Ok(TranslationFile(map)) => {",
+        "GeneralsRust/Code/Main/src/localization.rs:115:                            debug!(\"Loaded {} entries from {}\", map.len(), path.display());"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-nomusic",
+      "handler": "parseNoMusic",
+      "cpp_table_line": 1127,
+      "cpp_handler_line": 108,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/assets/audio.rs:980:    /// If TheAudio is missing or Music is off (`-nomusic`), stay silent until a",
+        "GeneralsRust/Code/Main/src/command_line.rs:228:                    \"seed\" | \"netminplayers\" | \"playstats\" | \"forcebenchmark\" | \"nomusic\"",
+        "GeneralsRust/Code/Main/src/command_line.rs:923:            \"-nomusic\".to_string(),",
+        "GeneralsRust/Code/Main/src/command_line.rs:937:        assert!(parsed.has_option(\"nomusic\"));",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1637:            \"-nomusic\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1205:                \"nomusic\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:327:    /// Parse -nomusic flag",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:610:                \"-nomusic\" => self.parse_no_music(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-novideo",
+      "handler": "parseNoVideo",
+      "cpp_table_line": 1128,
+      "cpp_handler_line": 120,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/command_line.rs:216:                    \"novideo\" => parsed.no_video = true,",
+        "GeneralsRust/Code/Main/src/command_line.rs:521:            warn!(\"-novideo specified but not in server mode - video will still be initialized\");",
+        "GeneralsRust/Code/Main/src/command_line.rs:661:        println!(\"    -novideo               Disable video system (server mode only)\");",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1191:                \"novideo\" => {",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:333:    /// Parse -novideo flag",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:611:                \"-novideo\" => self.parse_no_video(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noLogOrCrash",
+      "handler": "parseNoLogOrCrash",
+      "cpp_table_line": 1129,
+      "cpp_handler_line": 87,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-FPUPreserve",
+      "handler": "parseFPUPreserve",
+      "cpp_table_line": 1130,
+      "cpp_handler_line": 131,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:339:    /// Parse -FPUPreserve flag",
+        "GeneralsRust/Code/GameEngine/Common/src/common/command_line.rs:612:                \"-FPUPreserve\" => self.parse_fpu_preserve(remaining_args),"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-benchmark",
+      "handler": "parseBenchmark",
+      "cpp_table_line": 1131,
+      "cpp_handler_line": 976,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Benchmarks/src/main.rs:1://! # C&C Generals Zero Hour - Comprehensive Benchmark Suite",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:3://! This benchmark runner provides comprehensive performance testing across all",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:10:mod benchmark_runner;",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:14:use benchmark_runner::BenchmarkRunner;",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:17:    println!(\"\ud83c\udfc6 C&C Generals Zero Hour - Ultimate Benchmark Suite\");",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:24:    // Create benchmark runner",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:48:                println!(\"Unknown benchmark suite: {}\", args[1]);",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:58:    println!(\"\ud83c\udfaf Benchmark suite completed successfully!\");",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:59:    println!(\"\ud83d\udcca Results saved to: ./benchmark_results/\");",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:94:    println!(\"\ud83d\udccb Available Benchmark Suites:\");",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:121:    println!(\"\ud83c\udfae Interactive Benchmark Mode\");",
+        "GeneralsRust/Code/Benchmarks/src/main.rs:122:    println!(\"Select benchmark suite to run:\");"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-stats",
+      "handler": "parseStats",
+      "cpp_table_line": 1133,
+      "cpp_handler_line": 989,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/assets/archive.rs:935:        let stats = archive_system.get_statistics();",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:936:        assert_eq!(stats.total_archives, 0);",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:937:        assert_eq!(stats.total_files, 0);",
+        "GeneralsRust/Code/Main/src/assets/archive.rs:938:        assert_eq!(stats.unique_files, 0);",
+        "GeneralsRust/Code/Main/src/effects/integration.rs:508:    pub fn get_performance_stats(&self) -> crate::effects::performance::PerformanceStats {",
+        "GeneralsRust/Code/Main/src/effects/integration.rs:511:            .get_performance_stats()",
+        "GeneralsRust/Code/Main/src/golden_skirmish.rs:134:    /// No slice damage floor above WeaponStore/template stats.",
+        "GeneralsRust/Code/Main/src/interpolation_test.rs:168:    let stats = interpolation_manager.get_stats();",
+        "GeneralsRust/Code/Main/src/interpolation_test.rs:169:    println!(\"   Final stats: {} objects tracked\", stats.object_count);",
+        "GeneralsRust/Code/Main/src/effects/performance.rs:438:    pub fn get_performance_stats(&self) -> PerformanceStats {",
+        "GeneralsRust/Code/Main/tests/save_load_tests.rs:440:        global_stats: GlobalCampaignStats::default(),",
+        "GeneralsRust/Code/Main/src/subsystem_manager.rs:1853:    pub fn get_stats(&self) -> SubsystemStats {"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-saveStats",
+      "handler": "parseSaveStats",
+      "cpp_table_line": 1135,
+      "cpp_handler_line": 928,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/recorder.rs:2270:        // C++ Recorder.cpp:169-172 \u2014 m_wasDesync only in DEBUG/INTERNAL + m_saveStats.",
+        "GeneralsRust/Code/GameEngine/Common/src/common/recorder.rs:2324:        // C++ Recorder.cpp:265-330 \u2014 DEBUG/INTERNAL + m_saveStats copies the",
+        "GeneralsRust/Code/GameEngine/Common/src/common/recorder.rs:3541:            \"DEBUG + m_saveStats copies the replay into m_baseStatsDir\""
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-localMOTD",
+      "handler": "parseLocalMOTD",
+      "cpp_table_line": 1136,
+      "cpp_handler_line": 953,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-UseCSF",
+      "handler": "parseUseCSF",
+      "cpp_table_line": 1137,
+      "cpp_handler_line": 143,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-NoInputDisable",
+      "handler": "parseNoInputDisable",
+      "cpp_table_line": 1138,
+      "cpp_handler_line": 151,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-DebugCRCFromFrame",
+      "handler": "parseDebugCRCFromFrame",
+      "cpp_table_line": 1139,
+      "cpp_handler_line": 184,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-DebugCRCUntilFrame",
+      "handler": "parseDebugCRCUntilFrame",
+      "cpp_table_line": 1140,
+      "cpp_handler_line": 197,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-KeepCRCSaves",
+      "handler": "parseKeepCRCSave",
+      "cpp_table_line": 1141,
+      "cpp_handler_line": 210,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-CRCLogicModuleData",
+      "handler": "parseCRCLogicModuleData",
+      "cpp_table_line": 1142,
+      "cpp_handler_line": 220,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-CRCClientModuleData",
+      "handler": "parseCRCClientModuleData",
+      "cpp_table_line": 1143,
+      "cpp_handler_line": 230,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-ClientDeepCRC",
+      "handler": "parseClientDeepCRC",
+      "cpp_table_line": 1144,
+      "cpp_handler_line": 240,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-VerifyClientCRC",
+      "handler": "parseVerifyClientCRC",
+      "cpp_table_line": 1145,
+      "cpp_handler_line": 250,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-LogObjectCRCs",
+      "handler": "parseLogObjectCRCs",
+      "cpp_table_line": 1146,
+      "cpp_handler_line": 260,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-saveAllStats",
+      "handler": "parseSaveAllStats",
+      "cpp_table_line": 1147,
+      "cpp_handler_line": 940,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-NetCRCInterval",
+      "handler": "parseNetCRCInterval",
+      "cpp_table_line": 1148,
+      "cpp_handler_line": 270,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-ReplayCRCInterval",
+      "handler": "parseReplayCRCInterval",
+      "cpp_table_line": 1149,
+      "cpp_handler_line": 283,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noDraw",
+      "handler": "parseNoDraw",
+      "cpp_table_line": 1150,
+      "cpp_handler_line": 296,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/GameEngine/GameClient/src/message_stream/meta_event_impl/dispatch.rs:57:        // C++ CommandXlat.cpp handles MSG_NO_DRAW by setting m_noDraw = 2^32 - 1.",
+        "GeneralsRust/Code/Main/src/command_line.rs:231:                    | \"nodraw\" | \"jumptoframe\" => {}",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1210:                \"nodraw\" => {",
+        "GeneralsRust/Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/main_menu.rs:348:/// `W3DGameWinDefaultDraw` call is commented out): a NoDraw window renders"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-nomilcap",
+      "handler": "parseNoMilCap",
+      "cpp_table_line": 1151,
+      "cpp_handler_line": 173,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-nofade",
+      "handler": "parseNoFade",
+      "cpp_table_line": 1152,
+      "cpp_handler_line": 162,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-nomovecamera",
+      "handler": "parseNoMoveCamera",
+      "cpp_table_line": 1153,
+      "cpp_handler_line": 704,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/Main/src/command_line.rs:230:                    | \"wincursors\" | \"constantdebug\" | \"showteamdot\" | \"nomovecamera\"",
+        "GeneralsRust/Code/Main/src/command_line.rs:929:            \"-nomovecamera\".to_string(),",
+        "GeneralsRust/Code/Main/src/command_line.rs:943:        assert!(parsed.has_option(\"nomovecamera\"));",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/tests.rs:1643:            \"-nomovecamera\".to_string(),",
+        "GeneralsRust/Code/Main/src/cnc_game_engine/boot.rs:1223:                \"nomovecamera\" => {"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-nocinematic",
+      "handler": "parseNoCinematic",
+      "cpp_table_line": 1154,
+      "cpp_handler_line": 714,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-packetloss",
+      "handler": "parsePacketLoss",
+      "cpp_table_line": 1155,
+      "cpp_handler_line": 438,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/recovery.rs:86:    PacketLoss { loss_rate: f64 },",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/recovery.rs:112:            Self::PacketLoss { loss_rate } => {",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/recovery.rs:145:            Self::PacketLoss { .. } => RecoveryStrategy::DegradedMode,",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/recovery.rs:519:                    RecoverableError::PacketLoss { loss_rate } => {",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/recovery.rs:875:        let packet_loss = RecoverableError::PacketLoss { loss_rate: 15.0 };",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/disconnect_voting.rs:61:    PacketLoss { loss_percentage: f32 },",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/disconnect_voting.rs:89:            Self::PacketLoss { .. } => 3,",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/disconnect_voting.rs:542:            DisconnectReason::PacketLoss {",
+        "GeneralsRust/Code/GameEngine/GameNetwork/src/connection/disconnect_voting.rs:867:        let reason = DisconnectReason::PacketLoss {"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-latAvg",
+      "handler": "parseLatencyAverage",
+      "cpp_table_line": 1156,
+      "cpp_handler_line": 394,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-latAmp",
+      "handler": "parseLatencyAmplitude",
+      "cpp_table_line": 1157,
+      "cpp_handler_line": 405,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-latPeriod",
+      "handler": "parseLatencyPeriod",
+      "cpp_table_line": 1158,
+      "cpp_handler_line": 416,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-latNoise",
+      "handler": "parseLatencyNoise",
+      "cpp_table_line": 1159,
+      "cpp_handler_line": 427,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noViewLimit",
+      "handler": "parseNoViewLimit",
+      "cpp_table_line": 1160,
+      "cpp_handler_line": 503,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-lowDetail",
+      "handler": "parseLowDetail",
+      "cpp_table_line": 1161,
+      "cpp_handler_line": 449,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/options_menu.rs:42:const LOWDETAIL: i32 = 2;",
+        "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/options_menu.rs:62:            LOWDETAIL => Self::Low,"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noDynamicLOD",
+      "handler": "parseNoDynamicLOD",
+      "cpp_table_line": 1162,
+      "cpp_handler_line": 460,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [
+        "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/options_menu.rs:111:    NoDynamicLod,",
+        "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/options_menu.rs:883:            OptionsCheckboxId::NoDynamicLod => {"
+      ],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noStaticLOD",
+      "handler": "parseNoStaticLOD",
+      "cpp_table_line": 1163,
+      "cpp_handler_line": 471,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-useWaveEditor",
+      "handler": "parseUseWaveEditor",
+      "cpp_table_line": 1164,
+      "cpp_handler_line": 482,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-fps",
+      "handler": "parseFPSLimit",
+      "cpp_table_line": 1165,
+      "cpp_handler_line": 493,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-wireframe",
+      "handler": "parseWireframe",
+      "cpp_table_line": 1166,
+      "cpp_handler_line": 512,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-showCollision",
+      "handler": "parseShowCollision",
+      "cpp_table_line": 1167,
+      "cpp_handler_line": 521,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noShowClientPhysics",
+      "handler": "parseNoShowClientPhysics",
+      "cpp_table_line": 1168,
+      "cpp_handler_line": 530,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-showTerrainNormals",
+      "handler": "parseShowTerrainNormals",
+      "cpp_table_line": 1169,
+      "cpp_handler_line": 539,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-stateMachineDebug",
+      "handler": "parseStateMachineDebug",
+      "cpp_table_line": 1170,
+      "cpp_handler_line": 548,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-jabber",
+      "handler": "parseJabber",
+      "cpp_table_line": 1171,
+      "cpp_handler_line": 557,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-munkee",
+      "handler": "parseMunkee",
+      "cpp_table_line": 1172,
+      "cpp_handler_line": 566,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-displayDebug",
+      "handler": "parseDisplayDebug",
+      "cpp_table_line": 1173,
+      "cpp_handler_line": 619,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-file",
+      "handler": "parseFile",
+      "cpp_table_line": 1174,
+      "cpp_handler_line": 628,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-preload",
+      "handler": "parsePreload",
+      "cpp_table_line": 1176,
+      "cpp_handler_line": 609,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-preloadEverything",
+      "handler": "parsePreloadEverything",
+      "cpp_table_line": 1178,
+      "cpp_handler_line": 639,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-logAssets",
+      "handler": "parseLogAssets",
+      "cpp_table_line": 1179,
+      "cpp_handler_line": 649,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-netMinPlayers",
+      "handler": "parseNetMinPlayers",
+      "cpp_table_line": 1180,
+      "cpp_handler_line": 900,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-DemoLoadScreen",
+      "handler": "parseDemoLoadScreen",
+      "cpp_table_line": 1181,
+      "cpp_handler_line": 918,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-cameraDebug",
+      "handler": "parseCameraDebug",
+      "cpp_table_line": 1182,
+      "cpp_handler_line": 965,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-ignoreAsserts",
+      "handler": "parseIgnoreAsserts",
+      "cpp_table_line": 1183,
+      "cpp_handler_line": 1002,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-ignoreStackTrace",
+      "handler": "parseIgnoreStackTrace",
+      "cpp_table_line": 1184,
+      "cpp_handler_line": 1013,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-logToCon",
+      "handler": "parseLogToConsole",
+      "cpp_table_line": 1185,
+      "cpp_handler_line": 309,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-vTune",
+      "handler": "parseVTune",
+      "cpp_table_line": 1186,
+      "cpp_handler_line": 662,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-selectTheUnselectable",
+      "handler": "parseSelectAll",
+      "cpp_table_line": 1187,
+      "cpp_handler_line": 860,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-RunAhead",
+      "handler": "parseRunAhead",
+      "cpp_table_line": 1188,
+      "cpp_handler_line": 869,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noshroud",
+      "handler": "parseNoShroud",
+      "cpp_table_line": 1189,
+      "cpp_handler_line": 685,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-forceBenchmark",
+      "handler": "parseForceBenchmark",
+      "cpp_table_line": 1190,
+      "cpp_handler_line": 695,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-buildmapcache",
+      "handler": "parseBuildMapCache",
+      "cpp_table_line": 1191,
+      "cpp_handler_line": 598,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noshadowvolumes",
+      "handler": "parseNoShadows",
+      "cpp_table_line": 1192,
+      "cpp_handler_line": 351,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-nofx",
+      "handler": "parseNoFX",
+      "cpp_table_line": 1193,
+      "cpp_handler_line": 675,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-ignoresync",
+      "handler": "parseSync",
+      "cpp_table_line": 1194,
+      "cpp_handler_line": 727,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-nologo",
+      "handler": "parseNoLogo",
+      "cpp_table_line": 1195,
+      "cpp_handler_line": 755,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-shellmap",
+      "handler": "parseShellMap",
+      "cpp_table_line": 1196,
+      "cpp_handler_line": 776,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noShellAnim",
+      "handler": "parseNoWindowAnimation",
+      "cpp_table_line": 1197,
+      "cpp_handler_line": 785,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-winCursors",
+      "handler": "parseWinCursors",
+      "cpp_table_line": 1198,
+      "cpp_handler_line": 794,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-constantDebug",
+      "handler": "parseConstantDebug",
+      "cpp_table_line": 1199,
+      "cpp_handler_line": 817,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-seed",
+      "handler": "parseSeed",
+      "cpp_table_line": 1200,
+      "cpp_handler_line": 882,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noagpfix",
+      "handler": "parseIncrAGPBuf",
+      "cpp_table_line": 1201,
+      "cpp_handler_line": 891,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-noFPSLimit",
+      "handler": "parseNoFPSLimit",
+      "cpp_table_line": 1202,
+      "cpp_handler_line": 1023,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-dumpAssetUsage",
+      "handler": "parseDumpAssetUsage",
+      "cpp_table_line": 1203,
+      "cpp_handler_line": 1033,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-jumpToFrame",
+      "handler": "parseJumpToFrame",
+      "cpp_table_line": 1204,
+      "cpp_handler_line": 1042,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-updateImages",
+      "handler": "parseUpdateImages",
+      "cpp_table_line": 1205,
+      "cpp_handler_line": 1053,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-showTeamDot",
+      "handler": "parseShowTeamDot",
+      "cpp_table_line": 1206,
+      "cpp_handler_line": 849,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-extraLogging",
+      "handler": "parseExtraLogging",
+      "cpp_table_line": 1207,
+      "cpp_handler_line": 827,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-allAdvice",
+      "handler": "parseAllAdvice",
+      "cpp_table_line": 1212,
+      "cpp_handler_line": 839,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    },
+    {
+      "option": "-preload",
+      "handler": "parsePreload",
+      "cpp_table_line": 1215,
+      "cpp_handler_line": 609,
+      "compile_gate": "debug/internal",
+      "unverified_search_candidates": [],
+      "evidence_status": "unverified"
+    }
+  ],
+  "evidence_status": "discovery_only_unverified",
+  "limitations": "Search candidates only. Substring hits include unrelated code and tests. No record establishes behavioral parity or runtime reachability; manual C++ versus production Rust comparison remains required."
+}

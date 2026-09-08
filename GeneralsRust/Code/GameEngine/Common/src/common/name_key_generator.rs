@@ -69,7 +69,7 @@ impl NameKeyGeneratorState {
 
     fn name_to_key(&mut self, name: &str) -> NameKeyType {
         let index = calc_hash(name, false);
-        if let Some(entry) = self.buckets[index].iter().find(|entry| entry.name == name) {
+        if let Some(entry) = self.buckets[index].iter().rev().find(|entry| entry.name == name) {
             return entry.key;
         }
 
@@ -85,6 +85,7 @@ impl NameKeyGeneratorState {
         let index = calc_hash(name, true);
         if let Some(entry) = self.buckets[index]
             .iter()
+            .rev()
             .find(|entry| entry.name.eq_ignore_ascii_case(name))
         {
             return entry.key;
@@ -269,5 +270,18 @@ mod tests {
             NameKeyGenerator::name_to_key("ControlBar"),
             NameKeyGenerator::name_to_key_lowercase("controlbar")
         );
+    }
+
+    #[test]
+    fn lowercase_lookup_prefers_newest_head_collision_like_cpp() {
+        reset();
+        let lower = "aaaaaaaaaaaaaaa";
+        let variant = "AAaAAaaAAAAAAAA";
+        assert_eq!(calc_hash(lower, false), calc_hash(variant, false));
+        assert_eq!(calc_hash(lower, true), calc_hash(variant, false));
+        let first = NameKeyGenerator::name_to_key_lowercase(lower);
+        let newest = NameKeyGenerator::name_to_key(variant);
+        assert_ne!(first, newest);
+        assert_eq!(NameKeyGenerator::name_to_key_lowercase(lower), newest);
     }
 }

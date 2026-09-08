@@ -87,6 +87,11 @@ impl CnCGameEngine {
 
     /// Process platform-specific window events through message handler
     pub fn process_platform_event(&mut self, event: &Event<()>) -> Result<bool> {
+        if let Event::WindowEvent { window_id, .. } = event {
+            if *window_id != self.window.id() {
+                return Ok(false);
+            }
+        }
         let reset_keys =
             reset_pressed_keys_for_focus_event(&mut self.keys_pressed, event, self.window.id());
         #[cfg(feature = "game_client")]
