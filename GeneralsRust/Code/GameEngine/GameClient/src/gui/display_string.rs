@@ -40,7 +40,7 @@ const LRU_STRINGS_PER_UPDATE: usize = 10;
 /// line the hotkey char falls on, its char index within that line, and the
 /// measured prefix width used as its x offset. Caches the one measurement
 /// the draw loop used to repeat every frame.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct HotkeyPlacement {
     line: usize,
     local_char: usize,
@@ -479,9 +479,7 @@ impl DisplayString {
                 // the widest formatted line, clamped at 0
                 // (render2dsentence.cpp:831-833) — not against the wrap
                 // width.
-                if self.word_wrap_centered
-                    && (self.word_wrap.is_some() || text.contains('\n'))
-                {
+                if self.word_wrap_centered && (self.word_wrap.is_some() || text.contains('\n')) {
                     ((max_width - width) / 2).max(0)
                 } else {
                     0
@@ -831,8 +829,8 @@ pub fn get_display_string_manager() -> DisplayStringManagerAccess {
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::font::{FontData, FontMetrics};
     use super::*;
+    use crate::gui::font::{FontData, FontMetrics};
 
     /// FontData stub with a fixed per-char advance and a measure counter so
     /// tests can observe exactly when measurement happens.

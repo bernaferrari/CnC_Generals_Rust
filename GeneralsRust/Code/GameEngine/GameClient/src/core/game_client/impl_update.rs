@@ -148,9 +148,24 @@ impl GameClient {
         }
     }
 
+    /// Deliver host input to the same instance-owned device updated below.
+    pub fn inject_keyboard_key(&mut self, key: crate::input::KeyCode, pressed: bool) -> bool {
+        self.subsystem_manager
+            .input_keyboard
+            .as_mut()
+            .is_some_and(|keyboard| keyboard.handle_key_simple(key, pressed))
+    }
+
+    /// WinMain WM_SETFOCUS / WM_KILLFOCUS reset keys, not the input clock.
+    pub fn reset_keyboard_keys(&mut self) {
+        if let Some(keyboard) = self.subsystem_manager.input_keyboard.as_mut() {
+            keyboard.reset_pressed_keys();
+        }
+    }
+
     pub fn update_input(&mut self) -> GameClientResult<()> {
-        if let Some(ref keyboard) = self.subsystem_manager.input_keyboard {
-            keyboard.lock().unwrap_or_else(|e| e.into_inner()).update();
+        if let Some(ref mut keyboard) = self.subsystem_manager.input_keyboard {
+            keyboard.update();
         }
 
         if let Some(ref mouse) = self.subsystem_manager.input_mouse {

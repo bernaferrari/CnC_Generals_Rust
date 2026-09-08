@@ -7,7 +7,7 @@ impl CnCGameEngine {
     /// Wave 606: via `host_inject_game_client_key`.
     #[cfg(feature = "game_client")]
     pub(in crate::cnc_game_engine) fn inject_game_client_key(
-        &self,
+        &mut self,
         physical_key: &winit::keyboard::PhysicalKey,
         pressed: bool,
     ) {
@@ -18,15 +18,13 @@ impl CnCGameEngine {
     /// Wave 606: host OS→GameClient key inject residual.
     #[cfg(feature = "game_client")]
     pub(in crate::cnc_game_engine) fn host_inject_game_client_key(
-        &self,
+        &mut self,
         physical_key: &winit::keyboard::PhysicalKey,
         pressed: bool,
     ) {
         // Wave 606: host OS key inject residual.
         if let Some(code) = Self::to_game_client_key_code(physical_key) {
-            game_client::input::keyboard::with_keyboard(|kb| {
-                let _ = kb.handle_key_simple(code, pressed);
-            });
+            let _ = self.game_client.inject_keyboard_key(code, pressed);
         }
     }
 

@@ -563,7 +563,7 @@ mod tests {
 
     #[test]
     fn wheel_falls_through_to_stop_scrolling() {
-        TheInGameUI::set_mouse_cursor(MouseCursor::Select);
+        TheInGameUI::set_mouse_cursor(MouseCursor::Selecting);
         let mut translator = LookAtTranslator::new();
         translator.set_scrolling(ScrollType::Rmb);
         let _ =

@@ -197,23 +197,23 @@ fn game_client_keyboard_inject_source() {
     );
     let kb = std::fs::read_to_string(path).expect("keyboard.rs");
     assert!(
-        kb.contains("fn the_keyboard")
-            && kb.contains("fn with_keyboard")
-            && kb.contains("fn handle_key_simple"),
-        "GameClient keyboard must expose the_keyboard/with_keyboard/handle_key_simple"
+        kb.contains("fn handle_key_simple")
+            && !kb.contains("static THE_KEYBOARD")
+            && eng.contains("self.game_client.inject_keyboard_key(code, pressed)"),
+        "Main must inject into its GameClient's owned keyboard"
     );
 }
 
 #[test]
-fn game_client_shared_input_devices_source() {
+fn game_client_input_devices_have_one_injection_and_update_owner() {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../GameEngine/GameClient/src/core/subsystems.rs"
     );
     let sub = std::fs::read_to_string(path).expect("subsystems.rs");
     assert!(
-        sub.contains("the_keyboard().clone()") && sub.contains("the_mouse().clone()"),
-        "create_keyboard/mouse must share THE_* singletons with Main inject"
+        sub.contains("crate::input::Keyboard::new()") && sub.contains("the_mouse().clone()"),
+        "keyboard must be instance-owned; mouse still uses the existing shared device"
     );
     let gc_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -221,7 +221,11 @@ fn game_client_shared_input_devices_source() {
     );
     let gc = std::fs::read_to_string(gc_path).expect("game_client.rs");
     let body = rust_fn_body(&gc, "update_presentation_shell").expect("presentation shell");
-    // Main injects THE_MOUSE/THE_KEYBOARD; shell must not dual-tick update_input.
+    // Host injection and input updates must target the same owned keyboard.
+    let inject = rust_fn_body(&gc, "inject_keyboard_key").expect("owned keyboard injection");
+    let update = rust_fn_body(&gc, "update_input").expect("owned keyboard update");
+    assert!(inject.contains("input_keyboard") && update.contains("input_keyboard"));
+    // Shell presentation must not introduce a second input tick.
     assert!(
         body.contains("no shell") && body.contains("update_input")
             || !body.contains("self.update_input()"),

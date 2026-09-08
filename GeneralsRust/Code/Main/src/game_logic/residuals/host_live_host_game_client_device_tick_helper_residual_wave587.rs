@@ -139,7 +139,7 @@ pub fn honesty_host_game_client_device_tick_helper_source_markers_residual_wave5
         && eng.contains("fn host_inject_game_client_key")
         && eng.contains("fn inject_game_client_mouse_move")
         && eng.contains("fn inject_game_client_mouse_button")
-        && eng.contains("with_keyboard")
+        && eng.contains("self.game_client.inject_keyboard_key(code, pressed)")
         && eng.contains("with_mouse");
     // Menu path (Wave 588) peels through host_tick_game_client_menu_shell; device
     // bookkeeping comment may live on InGame helper and/or Menu helper.

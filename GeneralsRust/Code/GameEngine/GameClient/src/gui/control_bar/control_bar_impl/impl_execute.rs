@@ -595,15 +595,12 @@ impl ControlBar {
             }
         }
         if !cmd.text_label.is_empty() {
-            let hot_key =
-                with_hot_key_manager(|manager| manager.search_hot_key(&cmd.text_label));
+            let hot_key = with_hot_key_manager(|manager| manager.search_hot_key(&cmd.text_label));
             if !hot_key.is_empty() {
                 with_hot_key_manager(|manager| manager.add_hot_key(win.clone(), &hot_key));
             }
         }
     }
-
-
 
     /// C++ ControlBar.cpp:1086 / setControlCommand :2403-2480 — bind
     /// ButtonCommand01..14, tooltip, border, command identity, and hotkeys.
@@ -678,7 +675,6 @@ fn leftover_command_button_tooltip(
     let _ = crate::gui::gui_callbacks::control_bar_popup_description::show_build_tooltip_layout(rc);
 }
 
-
 #[cfg(test)]
 mod host_bridge_execution_tests {
     use super::*;
@@ -722,11 +718,12 @@ mod host_bridge_execution_tests {
         // Parse the actual retail CommandButton.ini block, rather than hand
         // constructing equivalent fields.  The host path must be driven by
         // the loaded button data, not by a MiG-specific bridge rule.
-        const RETAIL_COMMAND_BUTTONS: &str = include_str!(
-            "../../../../../../../../windows_game/extracted_big_files_v2/INI/CommandButton.ini"
-        );
+        let retail_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../windows_game/extracted_big_files_v2/INI/CommandButton.ini");
+        let retail_command_buttons = std::fs::read_to_string(&retail_path)
+            .expect("retail CommandButton.ini is required for this asset-backed test");
         let header = format!("CommandButton {RETAIL_MIG_BUTTON}");
-        let tail = &RETAIL_COMMAND_BUTTONS[RETAIL_COMMAND_BUTTONS
+        let tail = &retail_command_buttons[retail_command_buttons
             .find(&header)
             .expect("retail MiG command button must be present")..];
         let end = tail

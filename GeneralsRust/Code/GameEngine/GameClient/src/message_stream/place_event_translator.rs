@@ -237,6 +237,7 @@ impl GameMessageTranslator for PlaceEventTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message_stream::failure_message_for_can_make;
 
     #[test]
     fn special_power_routes_only_for_matching_source_and_template() {
