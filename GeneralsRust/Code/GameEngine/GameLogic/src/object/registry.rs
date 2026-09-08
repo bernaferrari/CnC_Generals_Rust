@@ -90,12 +90,24 @@ impl ObjectRegistry {
             }
         }
         // C++ has no dual-world skip: GameLogic.objects is the authority.
-        crate::system::game_logic::get_game_logic()
-            .try_lock()
-            .ok()
-            .and_then(|logic| logic.find_object_by_id(id))
+        match crate::system::game_logic::get_game_logic().try_lock() {
+            Ok(logic) => logic.find_object_by_id(id),
+            // C++ findObjectByID (GameLogic.h:386-397) is a plain array
+            // index: lock contention NEVER means the object is missing. The
+            // global GameLogic mutex is held across the entire update
+            // (game_logic_impl/globals.rs update_game_logic), so this arm is
+            // "store miss + update in flight". Surface it instead of a
+            // silent None; callers that can borrow GameLogic directly
+            // (e.g. GameLogic::resolve_damage_and_physics) should use
+            // find_object_by_id.
+            Err(_) => {
+                log::warn!(
+                    "OBJECT_REGISTRY::get_object({id}): GameLogic lock held; reporting None on store miss — lock-held is not missing (C++ GameLogic.h:386-397)"
+                );
+                None
+            }
+        }
     }
-
     /// True when `id` is currently registered (no Arc clone).
     pub fn contains(&self, id: ObjectID) -> bool {
         // Wave 247: host path (empty registry) skips RwLock entirely.
@@ -108,11 +120,19 @@ impl ObjectRegistry {
             }
         }
         // C++ GameLogic.objects is the authority when the factory registry is empty.
-        crate::system::game_logic::get_game_logic()
-            .try_lock()
-            .ok()
-            .and_then(|logic| logic.find_object_by_id(id))
-            .is_some()
+        match crate::system::game_logic::get_game_logic().try_lock() {
+            Ok(logic) => logic.find_object_by_id(id).is_some(),
+            // Lock-held ≠ missing (C++ GameLogic.h:386-397): the global
+            // GameLogic mutex is held across the entire update, so this arm
+            // is "store miss + update in flight". Surface it instead of a
+            // silent false.
+            Err(_) => {
+                log::warn!(
+                    "OBJECT_REGISTRY::contains({id}): GameLogic lock held; reporting false on store miss — lock-held is not missing (C++ GameLogic.h:386-397)"
+                );
+                false
+            }
+        }
     }
 
     /// Borrow-first object access without keeping an Arc at the call site.
@@ -191,7 +211,17 @@ impl ObjectRegistry {
         if self.live_count.load(Ordering::Acquire) == 0 {
             return match crate::system::game_logic::get_game_logic().try_lock() {
                 Ok(logic) => logic.get_all_object_ids().to_vec(),
-                Err(_) => Vec::new(),
+                // Lock-held ≠ missing (C++ GameLogic.h:386-397): the global
+                // GameLogic mutex is held across the entire update, so an
+                // empty-looking store mid-update can still have live
+                // GameLogic objects. Surface it instead of a silent empty
+                // vec.
+                Err(_) => {
+                    log::warn!(
+                        "OBJECT_REGISTRY::get_all_object_ids: GameLogic lock held; returning empty on empty store — lock-held is not missing (C++ GameLogic.h:386-397)"
+                    );
+                    Vec::new()
+                }
             };
         }
         if let Ok(guard) = self.store.read() {

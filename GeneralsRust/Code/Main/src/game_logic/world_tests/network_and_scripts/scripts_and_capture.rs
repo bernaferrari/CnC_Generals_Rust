@@ -1,7 +1,6 @@
 //! Behavior suite extracted from `network_and_scripts`.
 use super::*;
 
-
 #[test]
 fn capturing_state_does_not_transfer_under_construction_building() {
     let mut game_logic = GameLogic::new();
@@ -1109,7 +1108,6 @@ fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
     );
     assert!(game_logic.honesty_heal_pad_ok());
     assert!(game_logic.honesty_heal_ok());
-
 }
 
 #[test]
@@ -2373,10 +2371,12 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
         "generic infantry husk takeover stays available (retail any-infantry steal)"
     );
     assert!(
-        game_logic.host_object(foreign_tank_id).unwrap().is_unmanned(),
+        game_logic
+            .host_object(foreign_tank_id)
+            .unwrap()
+            .is_unmanned(),
         "precondition: unmanned vehicle, no order installed"
     );
-
 
     // The name-only impostor has no parsed IsPilot authority, so the PILOT
     // RECREW flavor refuses it even for a same-controller target

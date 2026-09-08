@@ -7,6 +7,11 @@
 //! wrappers would strand existing aliases in the old world; clearing live
 //! contents would corrupt a still-playable match when staging fails.
 //!
+//! EngineStores-backed contents (AI, shroud) swap through an explicit
+//! bundle handle captured at [`RuntimeWorldStage::begin`] — never ambient
+//! active-slot resolution — so a rollback cannot install live contents into
+//! the engine-lifetime fallback bundle.
+//!
 //! This module is deliberately a small, raw boundary rather than save schema.
 //! It does not serialize these values and does not change snapshot/Xfer v4.
 
@@ -21,6 +26,7 @@ use crate::scripting::engine::{
 };
 use crate::scripting::events::{AreaTrackerState, NamedObjectTrackerState};
 use crate::sides_list::{SidesList, get_sides_list};
+use crate::system::engine_stores::{self, EngineStores};
 use crate::system::shroud_manager::{ShroudManager, get_shroud_manager};
 use crate::team::{
     TeamFactory, TeamFactoryDeferredEffects, TeamScriptEventQueue, get_team_factory,
@@ -29,7 +35,7 @@ use crate::team::{
 };
 use crate::terrain::{TerrainLogic, get_terrain_logic};
 use std::cell::{Cell, RefCell};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 /// Singleton contents are process-global, so staging cannot run concurrently
 /// on two threads even though the side-effect marker itself is thread-local.
@@ -179,137 +185,149 @@ impl RuntimeWorldGlobals {
     /// behind for map/bootstrap work.  Lock poisoning is recovered here rather
     /// than surfacing a fallible half-take: failure handling must always be
     /// able to restore a coherent active world.
-    fn take_from_singletons() -> Self {
+    ///
+    /// Every EngineStores-backed singleton (AI, shroud) resolves through the
+    /// explicit `bundle` handle — pinned via
+    /// [`engine_stores::with_active_stores`] for the duration of the swap —
+    /// so the transaction never depends on the global active-slot state.
+    fn take_from_singletons(bundle: &Arc<EngineStores>) -> Self {
         // Keep this order stable.  We never hold two locks at once, but a
         // deterministic order makes future extensions auditable.
-        let ai = take_global_ai_for_world_boundary();
-        let ai_integration = take_ai_integration_for_world_boundary();
-        let terrain = {
-            let mut guard = get_terrain_logic()
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, TerrainLogic::new())
-        };
-        let players = {
-            let mut guard = player_list()
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, PlayerList::new())
-        };
-        let teams = get_team_factory().replace_for_world_boundary(TeamFactory::new());
-        let sides = {
-            let sides_list = get_sides_list();
-            let mut guard = sides_list
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, SidesList::new())
-        };
-        let script_engine = {
-            let handle = get_script_engine();
-            let mut guard = handle
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::take(&mut *guard)
-        };
-        let shroud = {
-            let shroud_manager = get_shroud_manager();
-            let mut guard = shroud_manager
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, ShroudManager::new())
-        };
-        let named_objects = get_named_object_tracker().take_state_for_world_boundary();
-        let areas = get_area_tracker().take_state_for_world_boundary();
-        let pending_team_script_events = take_pending_team_script_events_for_world_boundary();
+        engine_stores::with_active_stores(bundle, || {
+            let ai = take_global_ai_for_world_boundary(bundle);
+            let ai_integration = take_ai_integration_for_world_boundary();
+            let terrain = {
+                let mut guard = get_terrain_logic()
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, TerrainLogic::new())
+            };
+            let players = {
+                let mut guard = player_list()
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, PlayerList::new())
+            };
+            let teams = get_team_factory().replace_for_world_boundary(TeamFactory::new());
+            let sides = {
+                let sides_list = get_sides_list();
+                let mut guard = sides_list
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, SidesList::new())
+            };
+            let script_engine = {
+                let handle = get_script_engine();
+                let mut guard = handle
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::take(&mut *guard)
+            };
+            let shroud = {
+                let shroud_manager = get_shroud_manager();
+                let mut guard = shroud_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, ShroudManager::new())
+            };
+            let named_objects = get_named_object_tracker().take_state_for_world_boundary();
+            let areas = get_area_tracker().take_state_for_world_boundary();
+            let pending_team_script_events = take_pending_team_script_events_for_world_boundary();
 
-        Self {
-            ai,
-            ai_integration,
-            terrain,
-            players,
-            teams,
-            sides,
-            script_engine,
-            shroud,
-            named_objects,
-            areas,
-            pending_team_script_events,
-        }
+            Self {
+                ai,
+                ai_integration,
+                terrain,
+                players,
+                teams,
+                sides,
+                script_engine,
+                shroud,
+                named_objects,
+                areas,
+                pending_team_script_events,
+            }
+        })
     }
 
     /// Install this bundle into the stable singleton wrappers and return the
     /// bundle it replaced.  No normal TeamFactory guard is created here, so no
     /// create-action callback can run while values are only half installed.
-    fn install_into_singletons(self) -> Self {
-        let Self {
-            ai,
-            ai_integration,
-            terrain,
-            players,
-            teams,
-            sides,
-            script_engine,
-            shroud,
-            named_objects,
-            areas,
-            pending_team_script_events,
-        } = self;
+    /// EngineStores-backed singletons (AI, shroud) resolve through the
+    /// explicit `bundle` handle, pinned via
+    /// [`engine_stores::with_active_stores`] for the duration of the swap.
+    fn install_into_singletons(self, bundle: &Arc<EngineStores>) -> Self {
+        engine_stores::with_active_stores(bundle, move || {
+            let Self {
+                ai,
+                ai_integration,
+                terrain,
+                players,
+                teams,
+                sides,
+                script_engine,
+                shroud,
+                named_objects,
+                areas,
+                pending_team_script_events,
+            } = self;
 
-        let old_ai = replace_global_ai_for_world_boundary(ai);
-        let old_ai_integration = replace_ai_integration_for_world_boundary(ai_integration);
-        let old_terrain = {
-            let mut guard = get_terrain_logic()
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, terrain)
-        };
-        let old_players = {
-            let mut guard = player_list()
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, players)
-        };
-        let old_teams = get_team_factory().replace_for_world_boundary(teams);
-        let old_sides = {
-            let sides_list = get_sides_list();
-            let mut guard = sides_list
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, sides)
-        };
-        let old_script_engine = {
-            let handle = get_script_engine();
-            let mut guard = handle
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, script_engine)
-        };
-        let old_shroud = {
-            let shroud_manager = get_shroud_manager();
-            let mut guard = shroud_manager
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            std::mem::replace(&mut *guard, shroud)
-        };
-        let old_named_objects =
-            get_named_object_tracker().replace_state_for_world_boundary(named_objects);
-        let old_areas = get_area_tracker().replace_state_for_world_boundary(areas);
-        let old_pending_team_script_events =
-            replace_pending_team_script_events_for_world_boundary(pending_team_script_events);
+            let old_ai = replace_global_ai_for_world_boundary(bundle, ai);
+            let old_ai_integration = replace_ai_integration_for_world_boundary(ai_integration);
+            let old_terrain = {
+                let mut guard = get_terrain_logic()
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, terrain)
+            };
+            let old_players = {
+                let mut guard = player_list()
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, players)
+            };
+            let old_teams = get_team_factory().replace_for_world_boundary(teams);
+            let old_sides = {
+                let sides_list = get_sides_list();
+                let mut guard = sides_list
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, sides)
+            };
+            let old_script_engine = {
+                let handle = get_script_engine();
+                let mut guard = handle
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, script_engine)
+            };
+            let old_shroud = {
+                let shroud_manager = get_shroud_manager();
+                let mut guard = shroud_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, shroud)
+            };
+            let old_named_objects =
+                get_named_object_tracker().replace_state_for_world_boundary(named_objects);
+            let old_areas = get_area_tracker().replace_state_for_world_boundary(areas);
+            let old_pending_team_script_events =
+                replace_pending_team_script_events_for_world_boundary(pending_team_script_events);
 
-        Self {
-            ai: old_ai,
-            ai_integration: old_ai_integration,
-            terrain: old_terrain,
-            players: old_players,
-            teams: old_teams,
-            sides: old_sides,
-            script_engine: old_script_engine,
-            shroud: old_shroud,
-            named_objects: old_named_objects,
-            areas: old_areas,
-            pending_team_script_events: old_pending_team_script_events,
-        }
+            Self {
+                ai: old_ai,
+                ai_integration: old_ai_integration,
+                terrain: old_terrain,
+                players: old_players,
+                teams: old_teams,
+                sides: old_sides,
+                script_engine: old_script_engine,
+                shroud: old_shroud,
+                named_objects: old_named_objects,
+                areas: old_areas,
+                pending_team_script_events: old_pending_team_script_events,
+            }
+        })
     }
 }
 
@@ -317,6 +335,14 @@ impl RuntimeWorldGlobals {
 /// Dropping it without `finish_and_restore_live` rolls the candidate back.
 pub struct RuntimeWorldStage {
     live: Option<RuntimeWorldGlobals>,
+    /// The live world's engine-store bundle, captured at `begin` before any
+    /// candidate exists (Main constructs worlds inertly and installs them at
+    /// explicit boundaries, so ambient resolution at `begin` *is* the live
+    /// world).  Every raw swap below routes through this explicit handle, so
+    /// rollback reinstalls the live contents into the live bundle even if the
+    /// active-slot head moved during staging — never into the engine-lifetime
+    /// fallback.
+    live_bundle: Arc<EngineStores>,
     effect_scope: Option<WorldRuntimeStageScope>,
     transaction_lock: Option<MutexGuard<'static, ()>>,
 }
@@ -335,9 +361,14 @@ impl RuntimeWorldStage {
             Err(poisoned) => poisoned.into_inner(),
         };
         let effect_scope = WorldRuntimeStageScope::enter();
-        let live = RuntimeWorldGlobals::take_from_singletons();
+        // Capture the live bundle before taking from it: with inert world
+        // construction, ambient resolution at this point is exactly the live
+        // world the candidate is staged against.
+        let live_bundle = engine_stores::active();
+        let live = RuntimeWorldGlobals::take_from_singletons(&live_bundle);
         Self {
             live: Some(live),
+            live_bundle,
             effect_scope: Some(effect_scope),
             transaction_lock: Some(transaction_lock),
         }
@@ -347,13 +378,25 @@ impl RuntimeWorldStage {
     /// singleton contents.  The caller can now validate/prepare the host
     /// commit while the active match remains completely intact.
     pub fn finish_and_restore_live(mut self) -> StagedRuntimeWorld {
-        let staged = RuntimeWorldGlobals::take_from_singletons();
+        // The staging body wrote the candidate through the ambient funnels;
+        // the candidate world installed its bundle at its `start_new_game`
+        // boundary, so ambient resolution at this seam is the candidate.
+        let candidate_bundle = engine_stores::active();
+        let staged = RuntimeWorldGlobals::take_from_singletons(&candidate_bundle);
         let live = self
             .live
             .take()
             .expect("RuntimeWorldStage missing pre-stage globals");
-        let replaced = live.install_into_singletons();
+        let replaced = live.install_into_singletons(&self.live_bundle);
         drop(replaced);
+        // Return ambient resolution to the live world before handing the
+        // opaque candidate token to Main: between this call and the host
+        // commit the still-playable match must keep resolving its own bundle.
+        // (Skipped when the candidate never installed — staging then ran
+        // against the live bundle itself and the head is already correct.)
+        if !Arc::ptr_eq(&candidate_bundle, &self.live_bundle) {
+            engine_stores::uninstall_active_if_current(&candidate_bundle);
+        }
         let team_factory_effects = self
             .effect_scope
             .take()
@@ -361,6 +404,7 @@ impl RuntimeWorldStage {
             .finish();
         StagedRuntimeWorld {
             globals: staged,
+            candidate_bundle,
             team_factory_effects,
             transaction_lock: self
                 .transaction_lock
@@ -377,11 +421,13 @@ impl Drop for RuntimeWorldStage {
         };
 
         // Discard whatever the candidate map created, then put back precisely
-        // the bundle that was active before `begin`.  The effect scope remains
-        // active during the raw swap and drops its deferred callbacks after it.
-        let staged = RuntimeWorldGlobals::take_from_singletons();
+        // the bundle that was active before `begin` — through the captured
+        // live-bundle handle, never ambient resolution (and so never the
+        // engine-lifetime fallback).  The effect scope remains active during
+        // the raw swap and drops its deferred callbacks after it.
+        let staged = RuntimeWorldGlobals::take_from_singletons(&self.live_bundle);
         drop(staged);
-        let replaced = live.install_into_singletons();
+        let replaced = live.install_into_singletons(&self.live_bundle);
         drop(replaced);
     }
 }
@@ -390,6 +436,9 @@ impl Drop for RuntimeWorldStage {
 /// It is deliberately opaque to Main; only `install_globals` can consume it.
 pub struct StagedRuntimeWorld {
     globals: RuntimeWorldGlobals,
+    /// The candidate world's engine-store bundle: the commit makes it the
+    /// ambient resolution target and lands the candidate contents in it.
+    candidate_bundle: Arc<EngineStores>,
     team_factory_effects: Vec<TeamFactoryDeferredEffects>,
     // Keep all other staging out until Main either commits this candidate or
     // drops it.  The live singleton bundle was restored before this token was
@@ -409,10 +458,17 @@ impl StagedRuntimeWorld {
     pub fn install_globals(self) -> CommittedRuntimeWorldEffects {
         let Self {
             globals,
+            candidate_bundle,
             team_factory_effects,
             transaction_lock,
         } = self;
-        let replaced = globals.install_into_singletons();
+        // Make the candidate bundle the ambient target for the commit swap;
+        // the host installs the matching GameLogic immediately after, and the
+        // old world's drop then only removes that old bundle's stack entry.
+        if !engine_stores::is_active(&candidate_bundle) {
+            engine_stores::install_active(Arc::clone(&candidate_bundle));
+        }
+        let replaced = globals.install_into_singletons(&candidate_bundle);
         drop(replaced);
         CommittedRuntimeWorldEffects {
             team_factory_effects: Some(team_factory_effects),

@@ -513,7 +513,7 @@ impl CnCGameEngine {
             last_click_time: None,
             last_click_position: None,
             last_right_click_time: None,
-            last_right_click_position: None,
+            last_right_click_screen: None,
             left_click_release_behavior: LeftMouseReleaseBehavior::Selection,
             displayed_max_selection_warning: false,
             lmb_context_started_physically: false,
@@ -949,7 +949,8 @@ impl CnCGameEngine {
             crate::game_logic::host_repulsor_gate::mark_aidata_ini_applied();
         }
         // C++ initSubsystem(TheAI) copies parsed AIData into TheAI.
-        let ai_store = gamelogic::ai::the_ai(); if let Ok(mut ai) = ai_store.write() {
+        let ai_store = gamelogic::ai::the_ai();
+        if let Ok(mut ai) = ai_store.write() {
             ai.init();
         }
         crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();
@@ -958,7 +959,8 @@ impl CnCGameEngine {
     /// After archive extract of AIData.ini (Upgrade-style path in shell.rs).
     pub(super) fn apply_startup_ai_data_enable_repulsors() {
         crate::game_logic::host_repulsor_gate::mark_aidata_ini_applied();
-        let ai_store = gamelogic::ai::the_ai(); if let Ok(mut ai) = ai_store.write() {
+        let ai_store = gamelogic::ai::the_ai();
+        if let Ok(mut ai) = ai_store.write() {
             ai.init();
         }
         let enabled = crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();

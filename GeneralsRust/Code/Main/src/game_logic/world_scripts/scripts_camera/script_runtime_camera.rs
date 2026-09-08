@@ -1053,11 +1053,7 @@ impl GameLogic {
     }
 
     pub(super) fn script_camera_orientation_duration(seconds: f32) -> f32 {
-        if seconds > 0.0 {
-            seconds
-        } else {
-            1.0 / 30.0
-        }
+        if seconds > 0.0 { seconds } else { 1.0 / 30.0 }
     }
 
     pub(in crate::game_logic::game_logic) fn is_script_camera_movement_finished_now(&self) -> bool {

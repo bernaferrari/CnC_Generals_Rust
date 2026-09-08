@@ -1271,62 +1271,6 @@ impl AISkirmishPlayer {
             .unwrap_or(false)
     }
 
-    fn apply_expansion_ring(&mut self, list: &mut BuildListInfo) {
-        let base_center = match self.base.get_base_center() {
-            Some(center) => center,
-            None => return,
-        };
-        let mut base_radius = self.base.get_base_radius();
-        if base_radius <= 0.1 {
-            base_radius = 300.0;
-        }
-
-        let ai_store = the_ai();let extra = ai_store
-            .read()
-            .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.skirmish_base_defense_extra_distance)
-            })
-            .unwrap_or(0.0);
-
-        let Some(terrain) = TheTerrainLogic::get() else {
-            return;
-        };
-
-        list.for_each_mut(|cur| {
-            if Self::is_expansion_entry(cur) {
-                let mut pos = *cur.get_location();
-                let dx = pos.x - base_center.x;
-                let dy = pos.y - base_center.y;
-                let len = (dx * dx + dy * dy).sqrt();
-                if len > 0.1 {
-                    let target_len = base_radius + extra;
-                    let scale = target_len / len;
-                    pos.x = base_center.x + dx * scale;
-                    pos.y = base_center.y + dy * scale;
-                    pos.z = terrain.get_ground_height(pos.x, pos.y, None);
-                    cur.set_location(pos);
-                }
-            }
-        });
-
-        // Expansion ring has been applied to all entries. Do NOT call
-        // self.apply_expansion_ring() again — the original C++ adjustBuildList
-        // does not apply an expansion ring, and the recursive call was a bug.
-    }
-
-    fn is_expansion_entry(info: &BuildListInfo) -> bool {
-        let name = info.get_building_name().as_str().to_ascii_uppercase();
-        if name.contains("EXPANSION") || name.contains("EXPAND") {
-            return true;
-        }
-        let script = info.get_script().as_str().to_ascii_uppercase();
-        script.contains("EXPANSION") || script.contains("EXPAND")
-    }
-
     /// Adjust build list based on skirmish conditions
     /// Matches C++ AISkirmishPlayer::adjustBuildList
     fn adjust_build_list(&mut self, list: &mut BuildListInfo) {
@@ -1483,7 +1427,6 @@ impl AISkirmishPlayer {
             cur.set_angle(cur.get_angle());
         });
 
-        self.apply_expansion_ring(list);
     }
 
     /// C++ newMap initial pass: buildStructureNow or incrementNumRebuilds.

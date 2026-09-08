@@ -222,10 +222,12 @@ impl CnCGameEngine {
             };
 
             with_tactical_view(|view| {
-                view.set_position(&target);
-                view.set_angle(angle);
-                view.set_zoom(zoom);
-                view.init_height_for_map();
+                // Raw host pose write: no player-set scripted-camera cancels,
+                // no per-frame init_height_for_map terrain rescan (ground
+                // level stays with view init / map install). Pitch is
+                // forwarded so HUD projections match the pitched render
+                // camera instead of a flat view.
+                view.sync_pose_from_host(&target, angle, self.camera_pitch_radians, zoom);
             });
         }
     }
@@ -255,8 +257,29 @@ impl CnCGameEngine {
                 game_client::eva::set_eva_host_sufficient_power(
                     player.power_available >= 0 && !sabotaged,
                 );
+                // C++ Eva.cpp:270/499 — the Eva.ini SideSounds side token is
+                // `Player::getSide()` (Player.cpp:413 copies the PlayerTemplate
+                // Side verbatim), so a host carrying a Zero Hour General
+                // identity publishes that subfaction token: FactionBossGeneral
+                // -> "Boss" keeps BuildingStolen/Sabotaged on the Ranger
+                // voices instead of the BaseSide=China RedGuard voices
+                // (Eva.ini Side = Boss). Skirmish base teams without a bound
+                // template keep the base sides.
+                let side = self
+                    .game_logic
+                    .player_template_identity(player.id)
+                    .and_then(crate::game_logic::PlayerTemplateIdentity::side_token)
+                    .filter(|side| !side.is_empty())
+                    .unwrap_or_else(|| match player.team {
+                        crate::game_logic::Team::USA => "America".to_string(),
+                        crate::game_logic::Team::China => "China".to_string(),
+                        crate::game_logic::Team::GLA => "GLA".to_string(),
+                        crate::game_logic::Team::Neutral => String::new(),
+                    });
+                game_client::eva::set_eva_host_local_player(side, player.id);
             } else {
                 game_client::eva::clear_eva_host_sufficient_power();
+                game_client::eva::clear_eva_host_local_player();
             }
             game_client::eva::update_eva_system();
         }

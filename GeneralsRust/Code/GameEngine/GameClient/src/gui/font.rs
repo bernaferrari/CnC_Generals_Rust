@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex, Weak};
 use thiserror::Error;
 
 fn load_fontdue_font(desc: &FontDesc) -> Option<fontdue::Font> {
-    for path in candidate_font_paths(&desc.name) {
+    for path in candidate_font_paths(&desc.name, desc.bold) {
         if let Ok(bytes) = std::fs::read(&path) {
             if let Ok(font) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()) {
                 return Some(font);
@@ -67,6 +67,41 @@ pub fn font_atlas_files() -> Vec<std::path::PathBuf> {
             files.push(dir.join(name));
         }
     }
+    files.extend(language_font_files());
+    files
+}
+
+/// Font files registered by the language INI (C++ `GlobalLanguage::init`
+/// calls `AddFontResource` for every `LocalFontFile` entry
+/// (GlobalLanguage.cpp:133-146) and `W3DFontLibrary::loadFontData` pairs
+/// every font with the `UnicodeFontName` alternate face
+/// (W3DGameFont.cpp:73-88)). Registering the same files in the renderer's
+/// font database is what lets localized families and missing glyphs resolve.
+fn language_font_files() -> Vec<std::path::PathBuf> {
+    let Ok(language) = crate::global_language::get_global_language_data().read() else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = language.local_fonts.clone();
+    if !language.unicode_font_name.is_empty() {
+        names.push(language.unicode_font_name.clone());
+    }
+
+    let dirs = candidate_font_dirs();
+    let mut files = Vec::new();
+    for name in names {
+        let name = name.trim().trim_matches('"');
+        if name.is_empty() {
+            continue;
+        }
+        // The authored entry first (C++ AddFontResource took the game-root
+        // relative path), then the bare file name in every candidate dir.
+        files.push(std::path::PathBuf::from(name));
+        if let Some(file_name) = std::path::Path::new(name).file_name() {
+            for dir in &dirs {
+                files.push(dir.join(file_name));
+            }
+        }
+    }
     files
 }
 
@@ -84,29 +119,39 @@ fn candidate_font_dirs() -> Vec<std::path::PathBuf> {
     .into_iter()
     .collect()
 }
- 
- fn candidate_font_paths(name: &str) -> Vec<std::path::PathBuf> {
-     let mut paths = Vec::new();
-     let file_stem = name.replace(' ', "");
-     let names = [
-         format!("{}.ttf", name),
-         format!("{}.otf", name),
-         format!("{}.ttf", file_stem),
-         format!("{}.TTF", name),
-         format!("{} Bold.ttf", name),
-     ];
+
+fn candidate_font_paths(name: &str, bold: bool) -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    let file_stem = name.replace(' ', "");
+    let mut names = vec![
+        format!("{}.ttf", name),
+        format!("{}.otf", name),
+        format!("{}.ttf", file_stem),
+        format!("{}.TTF", name),
+    ];
+    if bold {
+        // C++ sized the same family with FW_BOLD weight
+        // (render2dsentence.cpp:1507), so measured advances came from the
+        // bold face. fontdue does not synthesize weight — prefer real bold
+        // files so wrap/center math matches the rendered weight.
+        names.insert(0, format!("{}Bold.ttf", name));
+        names.insert(1, format!("{}-Bold.ttf", name));
+        names.insert(2, format!("{} Bold.ttf", name));
+    } else {
+        names.push(format!("{} Bold.ttf", name));
+    }
     let dirs = candidate_font_dirs();
-     for dir in dirs {
-         for file in &names {
-             paths.push(dir.join(file));
-         }
-         paths.push(dir.join("Arial.ttf"));
-         paths.push(dir.join("arial.ttf"));
-         paths.push(dir.join("LiberationSans-Regular.ttf"));
-         paths.push(dir.join("DejaVuSans.ttf"));
-     }
-     paths
- }
+    for dir in dirs {
+        for file in &names {
+            paths.push(dir.join(file));
+        }
+        paths.push(dir.join("Arial.ttf"));
+        paths.push(dir.join("arial.ttf"));
+        paths.push(dir.join("LiberationSans-Regular.ttf"));
+        paths.push(dir.join("DejaVuSans.ttf"));
+    }
+    paths
+}
 
 /// Font management errors
 #[derive(Error, Debug)]
@@ -258,9 +303,21 @@ impl FontData for DefaultFontData {
     fn measure_text(&self, text: &str) -> i32 {
         if let Some(font) = self.font.as_ref() {
             let px = font_pixel_size(self.desc.size) as f32;
+            let alternate = alternate_unicode_font();
             let width = text
                 .chars()
-                .map(|ch| font.metrics(ch, px).advance_width)
+                .map(|ch| {
+                    // C++ `Get_Char_Data` resolves glyphs the primary face
+                    // lacks through `AlternateUnicodeFont`
+                    // (render2dsentence.cpp:1211-1213); measure through the
+                    // same fallback so widths are non-degenerate.
+                    let face = if font.lookup_glyph_index(ch) != 0 {
+                        Some(font)
+                    } else {
+                        alternate.filter(|alt| alt.lookup_glyph_index(ch) != 0)
+                    };
+                    face.unwrap_or(font).metrics(ch, px).advance_width
+                })
                 .sum::<f32>();
             return width.round().max(0.0) as i32;
         }
@@ -275,10 +332,38 @@ impl FontData for DefaultFontData {
 
     fn supports_char(&self, ch: char) -> bool {
         if let Some(font) = self.font.as_ref() {
-            return font.lookup_glyph_index(ch) != 0;
+            return font.lookup_glyph_index(ch) != 0
+                || alternate_unicode_font()
+                    .is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
         }
         ch.is_ascii() || ch.is_ascii_graphic() || ch.is_whitespace()
     }
+}
+
+/// Alternate face for glyphs the primary font lacks — the C++
+/// `FontCharsClass::AlternateUnicodeFont` concept: loaded from the
+/// language's `UnicodeFontName` (defaulting toward broad-coverage faces),
+/// same point size as the primary (W3DGameFont.cpp:73-88).
+fn alternate_unicode_font() -> Option<&'static fontdue::Font> {
+    static FONT: std::sync::LazyLock<Option<fontdue::Font>> = std::sync::LazyLock::new(|| {
+        let mut names: Vec<String> = Vec::new();
+        if let Ok(language) = crate::global_language::get_global_language_data().read() {
+            if !language.unicode_font_name.is_empty() {
+                names.push(language.unicode_font_name.clone());
+            }
+        }
+        names.push("Arial Unicode MS".to_string());
+        names.push("DejaVuSans".to_string());
+        names.push("LiberationSans-Regular".to_string());
+        names.push("Arial".to_string());
+        for name in names {
+            if let Some(font) = load_fontdue_font(&FontDesc::new(&name, 12, false)) {
+                return Some(font);
+            }
+        }
+        None
+    });
+    FONT.as_ref()
 }
 
 /// Game font representation - device independent font object
@@ -295,6 +380,14 @@ pub struct GameFont {
 impl GameFont {
     /// Create a new GameFont with the specified description
     pub fn new(desc: FontDesc) -> Result<Self, FontError> {
+        // C++ W3DFontLibrary::loadFontData sanity cap — "anything over 100
+        // is probably wrong" (W3DGameFont.cpp:50).
+        if !(1..=100).contains(&desc.size) {
+            return Err(FontError::InvalidParameters(format!(
+                "font point size out of range: {}",
+                desc.size
+            )));
+        }
         let font_data = Box::new(DefaultFontData::new(desc.clone()));
         // C++: `font->height = fontChar->Get_Char_Height()` (W3DGameFont.cpp:71)
         // — the pixel cell height, not the point size.
@@ -580,7 +673,6 @@ impl FontLibrary {
 /// Global font library instance
 static FONT_LIBRARY: std::sync::LazyLock<std::sync::Mutex<FontLibrary>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(FontLibrary::new()));
-
 
 pub fn get_font_library() -> std::sync::MutexGuard<'static, FontLibrary> {
     FONT_LIBRARY.lock().unwrap_or_else(|e| e.into_inner())

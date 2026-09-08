@@ -21,6 +21,8 @@ impl GameWorldShadow {
                     target: eid,
                     velocity: ev.velocity,
                     max_speed: ev.max_speed,
+                    accel: ev.accel,
+                    turn_rate: ev.turn_rate,
                     path_index: ev.path_index,
                     path_len: ev.path_len,
                     path_waypoints: ev.path_waypoints.clone(),

@@ -1070,23 +1070,45 @@ fn spectre_gunship_impact_spawns_orbit_and_ticks_damage() {
     assert!(reg.toxin_fields().is_empty());
     assert!(reg.radiation_fields().is_empty());
 
-    // First orbit tick: howitzer (r25 at reticle) + gattling (nearest enemy).
-    // Enemy at field position: both residual streams hit.
-    let orbit_plans = reg.plan_due_orbit_ticks(90, &objects);
+    // First orbit tick: hits are SPLIT BY STREAM — howitzer blast (r25,
+    // ALLIES ENEMIES NEUTRALS) and gattling single-target pick (C++
+    // EXPLOSION vs GATTLING applications). Wind the strafe aim past
+    // HowitzerFollowLag (C++ :573/609-623) so the howitzer stream is hot.
+    for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
+        reg.advance_orbit_strafe(90);
+    }
+    let orbit_plans = reg.plan_due_orbit_ticks(90, &objects, &objects);
     assert_eq!(orbit_plans.len(), 1);
-    assert_eq!(orbit_plans[0].hits.len(), 1);
-    assert_eq!(orbit_plans[0].hits[0].target_id, ObjectId(2));
-    let expected_first = SPECTRE_ORBIT_DAMAGE_PER_TICK + SPECTRE_GATTLING_DAMAGE;
-    assert!(
-        (orbit_plans[0].hits[0].damage - expected_first).abs() < 0.01,
-        "first tick howitzer+gattling residual, got {}",
-        orbit_plans[0].hits[0].damage
-    );
+    let hits = &orbit_plans[0].hits;
+    let howitzer_hit = hits
+        .iter()
+        .find(|h| h.stream == HostSpectreOrbitDamageStream::Howitzer)
+        .expect("howitzer blast hit");
+    let gattling_hit = hits
+        .iter()
+        .find(|h| h.stream == HostSpectreOrbitDamageStream::Gattling)
+        .expect("gattling pick hit");
+    assert_eq!(howitzer_hit.target_id, ObjectId(2));
+    assert!((howitzer_hit.damage - SPECTRE_ORBIT_DAMAGE_PER_TICK).abs() < 0.01);
+    assert_eq!(gattling_hit.target_id, ObjectId(2));
+    assert!((gattling_hit.damage - SPECTRE_GATTLING_DAMAGE).abs() < 0.01);
+    // C++ Weapon.ini RadiusDamageAffects ALLIES ENEMIES NEUTRALS: the
+    // same-team friendly at the epicenter takes the blast too.
+    let friendly_hit = hits
+        .iter()
+        .find(|h| h.target_id == ObjectId(3))
+        .expect("blast must hit the same-team friendly");
+    assert_eq!(friendly_hit.stream, HostSpectreOrbitDamageStream::Howitzer);
 
-    reg.record_orbit_tick_complete(orbit_plans[0].field_id, expected_first, 1, 0, 90);
+    reg.record_orbit_tick_complete(
+        orbit_plans[0].field_id,
+        SPECTRE_ORBIT_DAMAGE_PER_TICK + SPECTRE_GATTLING_DAMAGE,
+        2,
+        0,
+        90,
+    );
     assert!(reg.honesty_orbit_damage_ok());
     assert!(reg.honesty_gattling_ok());
-    assert_eq!(reg.orbit_fields()[0].howitzer_ticks, 1);
     assert_eq!(reg.orbit_fields()[0].gattling_ticks, 1);
     assert_eq!(
         reg.orbit_fields()[0].next_tick_frame,
@@ -1099,10 +1121,7 @@ fn spectre_gunship_impact_spawns_orbit_and_ticks_damage() {
 
     // Gattling-only tick after 3 frames (howitzer still waiting).
     let gattling_only =
-        reg.plan_due_orbit_ticks(90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES, &objects);
-    assert_eq!(gattling_only.len(), 1);
-    assert_eq!(gattling_only[0].hits.len(), 1);
-    assert!((gattling_only[0].hits[0].damage - SPECTRE_GATTLING_DAMAGE).abs() < 0.01);
+        reg.plan_due_orbit_ticks(90 + SPECTRE_GATTLING_TICK_INTERVAL_FRAMES, &objects, &objects);
     reg.record_orbit_tick_complete(
         gattling_only[0].field_id,
         SPECTRE_GATTLING_DAMAGE,
@@ -1112,7 +1131,7 @@ fn spectre_gunship_impact_spawns_orbit_and_ticks_damage() {
     );
 
     // Howitzer residual after HowitzerFiringRate interval.
-    let later = reg.plan_due_orbit_ticks(90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, &objects);
+    let later = reg.plan_due_orbit_ticks(90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES, &objects, &objects);
     assert_eq!(later.len(), 1);
     assert!(!later[0].hits.is_empty());
 }
@@ -1129,7 +1148,7 @@ fn spectre_gattling_skips_target_under_gunship() {
         (source, Vec3::ZERO, Team::USA, true),
         (ObjectId(2), pos, Team::GLA, true),
     ];
-    let plans = reg.plan_due_orbit_ticks(90, &objects);
+    let plans = reg.plan_due_orbit_ticks(90, &objects, &objects);
     assert_eq!(plans.len(), 1);
     for hit in &plans[0].hits {
         assert!(
@@ -1154,7 +1173,7 @@ fn spectre_gattling_fail_closes_without_gunship_position() {
         (source, Vec3::ZERO, Team::USA, true),
         (ObjectId(2), pos, Team::GLA, true),
     ];
-    let plans = reg.plan_due_orbit_ticks(90, &objects);
+    let plans = reg.plan_due_orbit_ticks(90, &objects, &objects);
     assert_eq!(plans.len(), 1);
     for hit in &plans[0].hits {
         assert!(
@@ -1712,7 +1731,7 @@ fn spectre_gattling_and_howitzer_residual_honesty() {
         (ObjectId(2), Vec3::new(100.0, 0.0, 0.0), Team::GLA, true),
         (ObjectId(3), Vec3::new(10.0, 0.0, 0.0), Team::GLA, true), // near reticle
     ];
-    let plans = reg.plan_due_orbit_ticks(90, &objects);
+    let plans = reg.plan_due_orbit_ticks(90, &objects, &objects);
     assert_eq!(plans.len(), 1);
     // Near enemy: howitzer (possibly offset) and/or gattling nearest.
     // Far enemy at 100: only gattling if nearer than 3? nearest is 3 at dist 10.
@@ -1826,11 +1845,14 @@ fn spectre_continuous_fire_rof_residual_honesty() {
     assert_eq!(spectre_gattling_interval_frames(1), 3);
     assert_eq!(spectre_gattling_interval_frames(2), 1); // > ContinuousFireOne=1
     assert_eq!(spectre_gattling_interval_frames(3), 1); // > ContinuousFireTwo=2
-    // Howitzer: base 9; MEAN floor(9/1.5)=6; FAST floor(9/2)=4.
+    // Howitzer: FIXED 9f every shot — createAndFireTempWeapon builds a FRESH
+    // temp weapon per shot (:583), so the SpectreHowitzerGun ContinuousFire
+    // ROF fields never engage (no 6f/4f ramp). The MEAN/FAST constants stay
+    // honesty residuals only.
     assert_eq!(spectre_howitzer_interval_frames(0), 9);
     assert_eq!(spectre_howitzer_interval_frames(1), 9);
-    assert_eq!(spectre_howitzer_interval_frames(2), 6);
-    assert_eq!(spectre_howitzer_interval_frames(3), 4);
+    assert_eq!(spectre_howitzer_interval_frames(2), 9);
+    assert_eq!(spectre_howitzer_interval_frames(3), 9);
 
     let mut reg = HostSpecialPowerStrikeRegistry::new();
     let id = reg.queue(
@@ -1845,12 +1867,17 @@ fn spectre_continuous_fire_rof_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn = reg.orbit_fields()[0].spawn_frame;
 
-    // Tick 1: base interval scheduled after (no ROF bonus application).
+    // Tick 1 at spawn: the gattling advances, but the howitzer stream stays
+    // COLD — C++ fires it only after the gattling strafe wind settles for
+    // more than HowitzerFollowLag (12f) (.cpp:573, 609-623). A bare registry
+    // harness has no wind: consecutive/ticks stay 0 while the interval still
+    // advances.
     reg.record_orbit_tick_complete(field_id, 90.0, 1, 0, spawn);
     {
         let f = &reg.orbit_fields()[0];
         assert_eq!(f.gattling_consecutive, 1);
-        assert_eq!(f.howitzer_consecutive, 1);
+        assert_eq!(f.howitzer_consecutive, 0);
+        assert_eq!(f.howitzer_ticks, 0);
         assert_eq!(f.gattling_fire_level, 0);
         assert_eq!(f.gattling_rof_mean_applications, 0);
         assert_eq!(f.gattling_rof_fast_applications, 0);
@@ -1868,7 +1895,7 @@ fn spectre_continuous_fire_rof_residual_honesty() {
         assert_eq!(f.gattling_rof_fast_applications, 0);
         assert_eq!(f.next_gattling_tick_frame, spawn + 3 + 1);
         // Howitzer not due at +3 (next is spawn+9).
-        assert_eq!(f.howitzer_consecutive, 1);
+        assert_eq!(f.howitzer_consecutive, 0);
     }
     assert!(reg.honesty_gattling_continuous_fire_ok());
 
@@ -1890,16 +1917,33 @@ fn spectre_continuous_fire_rof_residual_honesty() {
     assert!(reg.honesty_model_condition_continuous_fire_ok());
     assert!(reg.orbit_fields()[0].model_condition_mean_sets >= 1);
     assert!(reg.orbit_fields()[0].model_condition_fast_sets >= 1);
-    assert!(honesty_gattling_weapon_bonus_rof());
-    assert!(reg.honesty_gattling_weapon_bonus_rof_ok());
-
-    // Advance howitzer to MEAN at spawn+9.
+    // Wind the strafe aim past HowitzerFollowLag (13 settled frames walk,
+    // C++ :609-623) so the howitzer may finally fire, then tick at spawn+9:
+    // consecutive/level counters advance (honesty residual) but the NEXT
+    // interval stays the FIXED 9f cadence — no ROF ramp on the orbit howitzer.
+    for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
+        reg.advance_orbit_strafe(spawn + 9);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn + 9);
     {
         let f = &reg.orbit_fields()[0];
+        assert_eq!(f.howitzer_consecutive, 1);
+        assert_eq!(f.howitzer_ticks, 1);
+        assert_eq!(f.howitzer_fire_level, 0);
+        assert_eq!(f.next_tick_frame, spawn + 9 + 9);
+    }
+    // A second settled shot crosses ContinuousFireOne (consecutive 2 > 1 →
+    // MEAN level honesty residual) — yet the interval stays FIXED 9f.
+    for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
+        reg.advance_orbit_strafe(spawn + 18);
+    }
+    reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn + 18);
+    {
+        let f = &reg.orbit_fields()[0];
         assert_eq!(f.howitzer_consecutive, 2);
+        assert_eq!(f.howitzer_ticks, 2);
         assert_eq!(f.howitzer_fire_level, 1);
-        assert_eq!(f.next_tick_frame, spawn + 9 + 6);
+        assert_eq!(f.next_tick_frame, spawn + 18 + 9);
     }
     assert!(reg.honesty_howitzer_continuous_fire_ok());
 }
@@ -1970,4 +2014,110 @@ fn spectre_continuous_fire_coast_cooldown_residual() {
         reg.orbit_fields()[0].model_condition_slow_sets >= 1,
         "coolDown must set CONTINUOUS_FIRE_SLOW residual"
     );
+}
+
+#[test]
+fn spectre_howitzer_orbit_cadence_is_fixed_nine_frames() {
+    // C++ :493 fires on `frame % HowitzerFiringRate(9f) < 1` via
+    // createAndFireTempWeapon (:583) — a fresh temp weapon per shot, so
+    // consecutive howitzer shots NEVER ramp below the 9f cadence even deep
+    // into a continuous barrage.
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let id = reg.queue(
+        HostSuperweaponKind::SpectreGunship,
+        ObjectId(1),
+        Team::USA,
+        Vec3::ZERO,
+        0,
+    );
+    reg.record_impact_complete(id, 0.0, 0, 0);
+    let field_id = reg.orbit_fields()[0].id;
+    let spawn = reg.orbit_fields()[0].spawn_frame;
+    let mut frame = spawn;
+    // C++ FollowLag 12f (SpectreGunshipUpdate.cpp:596-623): wind the aim
+    // counter past the lag so every tick in the loop fires the howitzer.
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn);
+    }
+    for expected_shot in 1..=6 {
+        reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, frame);
+        let f = &reg.orbit_fields()[0];
+        assert_eq!(f.howitzer_ticks, expected_shot, "howitzer fired this frame");
+        assert_eq!(
+            f.next_tick_frame,
+            frame + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES,
+            "shot {} must schedule +9f, not a ROF ramp",
+            expected_shot
+        );
+        frame = f.next_tick_frame;
+    }
+}
+
+#[test]
+fn spectre_solo_science_maps_to_default_450_frame_orbit() {
+    // SCIENCE_SpectreGunshipSolo (vanilla USA — no RequiredScience deployment
+    // module) carries the retail default OrbitTime 15000 ms → 450 frames
+    // (= Level2 semantics), NOT the AirF Level1 10000 ms orbit.
+    assert_eq!(
+        SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunshipSolo"),
+        Some(SpectreGunshipScienceTier::Level2)
+    );
+    assert_eq!(
+        SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunshipSolo")
+            .unwrap()
+            .orbit_duration_frames(),
+        450
+    );
+    // AirF tier names keep the 10000/15000/20000 mapping.
+    assert_eq!(
+        SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunship1"),
+        Some(SpectreGunshipScienceTier::Level1)
+    );
+    assert_eq!(
+        SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunship2"),
+        Some(SpectreGunshipScienceTier::Level2)
+    );
+    assert_eq!(
+        SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunship3"),
+        Some(SpectreGunshipScienceTier::Level3)
+    );
+    // A vanilla player with NO Spectre sciences still casts the default 450f
+    // orbit (highest_from_sciences default).
+    assert_eq!(
+        SpectreGunshipScienceTier::highest_from_sciences([] as [&str; 0]).orbit_duration_frames(),
+        450
+    );
+}
+
+#[test]
+fn spectre_ai_wide_acquire_steers_position_to_shoot_at() {
+    // C++ :530-556 — for non-human controllers, when the reticle holds no
+    // valid target the wide AttackAreaRadius search acquires one and
+    // m_positionToShootAt snaps to the acquired position so both streams
+    // track it. Human-controlled ships never wide-acquire.
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let source = ObjectId(1);
+    let pos = Vec3::new(100.0, 0.0, 100.0);
+    let _ = reg.spawn_orbit_field(source, Team::USA, pos, 90, 1);
+    reg.note_spectre_ai_controller(source);
+    let enemy_pos = Vec3::new(100.0, 0.0, 200.0); // 100 from reticle, inside 200
+    let objects = vec![
+        (source, Vec3::ZERO, Team::USA, true),
+        (ObjectId(2), enemy_pos, Team::GLA, true),
+    ];
+    let plans = reg.plan_due_orbit_ticks(90, &objects, &objects);
+    assert_eq!(plans.len(), 1);
+    let wide = plans[0]
+        .wide_acquire_position
+        .expect("AI wide acquire must steer the aim");
+    assert!((wide.x - enemy_pos.x).abs() < 0.01);
+    assert!((wide.z - enemy_pos.z).abs() < 0.01);
+
+    // Human-controlled ship: no wide acquire, no steering.
+    let mut reg2 = HostSpecialPowerStrikeRegistry::new();
+    let _ = reg2.spawn_orbit_field(ObjectId(1), Team::USA, pos, 90, 1);
+    let plans2 = reg2.plan_due_orbit_ticks(90, &objects, &objects);
+    assert_eq!(plans2.len(), 1);
+    assert!(plans2[0].wide_acquire_position.is_none());
+    assert!(plans2[0].hits.is_empty());
 }

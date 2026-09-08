@@ -772,8 +772,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         // RATIONALIZE_ATTACK_RANGE) binds retail SentryDroneGun AttackRange
         // 150 (Weapon.ini:129356+) as 147.5.
         assert!(
-            (w.range
-                - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+            (w.range - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
                 .abs()
                 < 0.1,
             "SentryDroneGun bound range 147.5, got {}",
@@ -807,8 +806,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         );
         // Retail AttackRange 150 binds as 147.5 (Weapon.cpp:437-451).
         assert!(
-            (w.range
-                - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+            (w.range - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
                 .abs()
                 < 0.1,
             "late SentryDroneGun bound range 147.5, got {}",
@@ -1115,8 +1113,7 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
         // RATIONALIZE_ATTACK_RANGE) binds retail USAPathfinderSniperRifle
         // AttackRange 300 (Weapon.ini:129674+) as 297.5.
         assert!(
-            (w.range
-                - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+            (w.range - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
                 .abs()
                 < 0.1,
             "sniper bound range 297.5, got {}",
@@ -1314,8 +1311,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
         // RATIONALIZE_ATTACK_RANGE) binds retail HellfireMissileWeapon
         // AttackRange 150 (Weapon.ini:129470+) as 147.5.
         assert!(
-            (w.range
-                - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+            (w.range - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
                 .abs()
                 < 0.1,
             "hellfire bound range 147.5, got {}",

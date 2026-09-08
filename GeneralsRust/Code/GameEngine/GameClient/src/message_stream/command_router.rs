@@ -66,6 +66,12 @@ pub fn route_commands_to_gamelogic(
 
     for message in messages {
         let message_type = message.get_type().clone();
+        // C++ CommandXlat.cpp:5151: MSG_FRAME_TICK is per-frame stream
+        // bookkeeping consumed by the translators. It never converts to a
+        // GameLogic command and must not warn every logic frame.
+        if matches!(message_type, GameMessageType::FrameTick(_)) {
+            continue;
+        }
         if let Some(command) = convert_game_message(&message) {
             pending.push((command, message_type, message.get_player_index()));
         } else {
@@ -753,6 +759,36 @@ mod tests {
                 .iter()
                 .any(|ty| matches!(ty, GameMessageType::SetReplayCamera(..))),
             "host authority must receive MSG_SET_REPLAY_CAMERA"
+        );
+        set_host_command_authority(None);
+    }
+
+    #[test]
+    fn route_commands_skips_frame_tick_without_queuing_or_warning() {
+        // C++ CommandXlat.cpp:5151 treats MSG_FRAME_TICK as expected stream
+        // bookkeeping: consumed by the translators, never a routed command.
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen_for_sink = seen.clone();
+        set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
+            seen_for_sink
+                .lock()
+                .expect("host sink mutex")
+                .extend(messages.iter().map(|m| m.get_type().clone()));
+        })));
+
+        let msg = GameMessage::with_player(GameMessageType::FrameTick(42), 0);
+        let routed = route_commands_to_gamelogic(vec![msg], 7).expect("frame tick routing");
+        assert_eq!(
+            routed, 0,
+            "FrameTick is stream bookkeeping and must not queue a command"
+        );
+
+        let types = seen.lock().expect("host sink mutex");
+        assert!(
+            types
+                .iter()
+                .any(|ty| matches!(ty, GameMessageType::FrameTick(42))),
+            "host authority must still receive FrameTick for replay parity"
         );
         set_host_command_authority(None);
     }

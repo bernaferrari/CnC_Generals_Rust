@@ -817,9 +817,19 @@ impl GameLogic {
         obj.continuous_fire_level = new_level.as_u8();
         obj.record_host_continuous_fire();
         obj.continuous_fire_consecutive = consecutive;
-        obj.continuous_fire_victim = new_victim.unwrap_or(0);
+        // C++ coolDown resets the victim together with the count
+        // (FiringTracker.cpp:319-321); consecutive == 0 marks that reset.
+        obj.continuous_fire_victim = if consecutive == 0 {
+            0
+        } else {
+            new_victim.unwrap_or(0)
+        };
+        // C++ m_frameToStartCooldown = getPossibleNextShotFrame() + coast
+        // (FiringTracker.cpp:106-110): the next-shot frame was stamped with
+        // the FIRED shot's (pre-promotion) delay (Weapon.cpp:2645-2647;
+        // speedUp runs after firing), so the deadline uses prev_level.
         obj.continuous_fire_coast_until_frame =
-            minigunner_coast_until_after_shot(frame, new_level, in_horde, nationalism);
+            minigunner_coast_until_after_shot(frame, prev_level, in_horde, nationalism);
 
         // Rebind weapons with ramped + horde reload residual.
         if let Some(w) = obj.weapon.as_mut() {

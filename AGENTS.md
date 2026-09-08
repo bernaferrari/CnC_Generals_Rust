@@ -44,7 +44,10 @@ For Rust file splits or provenance review packets, read `GeneralsRust/Code/Main/
 - Use `Snapshotable`/`Xfer` for save/load parity.
 - Preserve enum ordering and flag bit layouts.
 - Keep frame counters in logic frames (30 FPS standard).
-- Use `Arc<RwLock<...>>` for shared mutable state that mirrors C++ ownership patterns.
+- Mutable simulation state belongs to a specific game instance. Prefer explicit borrows and world-scoped handles over ambient globals, TLS, or active-slot selection. Legacy C++ globals are behavior references, not permission to add ambient mutable Rust state. Synchronization requires a real concurrency boundary. Preserve execution order, identity, initialization, RNG consumption, and serialization while changing ownership.
+- Every ownership migration must answer: What owner changed? Which ambient accesses disappeared? Which original behavior is preserved? Which executable test would detect a regression? Which evidence remains missing?
+- A scoped, private, synchronous context (publish + restore around one operation on the driving instance) is an acceptable TEMPORARY migration aid only; it is not the end-state architecture. Constructors must be inert: constructing a world never publishes global state.
+- Track progress with distinctions, not a single "ported" percentage: implemented / explicitly owned / instance-isolated / original-compared / save-load-verified / unsafe-boundary-reviewed.
 - Add thin adapters only when C++ used engine singleton globals.
 
 ## Scope Rules

@@ -46,14 +46,15 @@ fn frozen_visual_identity_for_draw_model(
     }
     let animation = match draw_model.animations.as_slice() {
         [] => None,
-        [animation] => Some(FrozenVisualAnimationIdentity {
+        // C++ selects among several clips with GameClientRandomValue.  Main
+        // has no durable random selector, so every (object, state) plays the
+        // first authored clip; the pick is deterministic, so the resulting
+        // clip identity stays save-restorable instead of freezing the state
+        // in a bind pose.
+        [animation, ..] => Some(FrozenVisualAnimationIdentity {
             hierarchy_animation: animation.name.clone(),
             mode: client_animation_mode(&draw_model.animation_mode)?,
         }),
-        // C++ selects among several clips with GameClientRandomValue.  Main
-        // intentionally has no compatible durable selector yet, so none of
-        // those in-flight states may masquerade as a save-restorable clip.
-        _ => return None,
     };
     Some(FrozenVisualDrawIdentity {
         source_template_name: source_template_name.to_string(),
@@ -593,6 +594,21 @@ impl RenderPipeline {
         }
     }
 
+    /// C++ `isAnimationComplete` (W3DModelDraw.cpp:1931-1940) returns true
+    /// whenever no clip is playing, so a selected TransitionState whose
+    /// animation is absent or whose HAnim binding/metadata is unresolved
+    /// completes immediately instead of freezing the unit mid-transition.
+    #[inline]
+    fn notify_unplayable_transition_complete(
+        object_id: crate::game_logic::ObjectId,
+        draw_module_index: u32,
+        draw_model: &crate::assets::AuthoredDrawModel,
+    ) {
+        if draw_model.is_transition {
+            crate::assets::notify_live_draw_animation_complete(object_id.0, draw_module_index);
+        }
+    }
+
     /// Advance one source-selected `W3DModelDraw` animation while owning the
     /// unified visual cache.  `pending_restore` was removed before the normal
     /// model load for this `(Object, Draw-module)`, so no unavailable asset can
@@ -615,6 +631,7 @@ impl RenderPipeline {
         let Some(identity) =
             frozen_visual_identity_for_draw_model(source_template_name, draw_model)
         else {
+            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
             return (None, 0.0, Vec::new());
         };
         retain_fire_starts_from_plans(&mut self.drawable_visual_states, visual_plans);
@@ -654,6 +671,11 @@ impl RenderPipeline {
             // entry affects no unrelated Draw module.
             let imported = match (&identity.animation, &saved.animation) {
                 (None, None) => {
+                    Self::notify_unplayable_transition_complete(
+                        object_id,
+                        draw_module_index,
+                        draw_model,
+                    );
                     let topology = model.weapon_barrel_topology_for_authored_bindings(
                         &draw_model.weapon_bone_bindings,
                     );
@@ -769,6 +791,7 @@ impl RenderPipeline {
             state.force_bind_pose = true;
             state.animation = None;
             state.recoil_slots = std::array::from_fn(|_| Vec::new());
+            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
             return (None, 0.0, Vec::new());
         }
 
@@ -793,17 +816,20 @@ impl RenderPipeline {
                 &draw_model.recoil_kinematics,
                 &discharges,
             );
+            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
             return (None, 0.0, controls);
         };
         let Some(animation_binding) =
             Self::cached_draw_animation_binding(model, expected.hierarchy_animation.as_str())
         else {
             discard_unvisualizable_discharges(state, &discharges);
+            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
             return (None, 0.0, Vec::new());
         };
         let Some((num_frames, frame_rate)) = model.animation_binding_metadata(&animation_binding)
         else {
             discard_unvisualizable_discharges(state, &discharges);
+            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
             return (None, 0.0, Vec::new());
         };
         let animation_binding_key = animation_binding.state_key();
@@ -849,21 +875,19 @@ impl RenderPipeline {
                     (animation.current_frame + delta).min(terminal)
                 }
                 crate::assets::AuthoredDrawAnimationMode::Loop => {
-                    if terminal > 0.0 {
-                        (animation.current_frame + delta) % terminal
-                    } else {
-                        0.0
-                    }
+                    // Wrap over the full clip length so the terminal frame
+                    // plays; modulo (num_frames - 1) skipped it, hitching
+                    // every loop cycle one frame early.  num_frames > 1 is
+                    // guaranteed by the enclosing guard.
+                    (animation.current_frame + delta) % animation.num_frames as f32
                 }
                 crate::assets::AuthoredDrawAnimationMode::OnceBackwards => {
                     (animation.current_frame - delta).max(0.0)
                 }
                 crate::assets::AuthoredDrawAnimationMode::LoopBackwards => {
-                    if terminal > 0.0 {
-                        (animation.current_frame - delta).rem_euclid(terminal)
-                    } else {
-                        0.0
-                    }
+                    // Mirror of the Loop wrap: cover the full clip length
+                    // including the terminal frame.
+                    (animation.current_frame - delta).rem_euclid(animation.num_frames as f32)
                 }
                 crate::assets::AuthoredDrawAnimationMode::LoopPingPong
                 | crate::assets::AuthoredDrawAnimationMode::Unsupported(_) => {

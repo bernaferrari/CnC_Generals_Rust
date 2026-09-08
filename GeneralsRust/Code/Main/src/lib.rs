@@ -53,7 +53,6 @@ pub mod win_main;
 // pub mod ui_demo; // Temporarily disabled due to import issues
 pub mod ai;
 pub mod ai_decisions;
-pub mod ai_skirmish;
 pub mod command_executor;
 pub mod command_integration;
 pub mod command_system;
@@ -178,7 +177,6 @@ pub use win_main::*;
 // pub use ui_demo::*; // Temporarily disabled
 pub use ai::*;
 pub use ai_decisions::*;
-pub use ai_skirmish::*;
 pub use config::*;
 pub use input_integration::*;
 pub use input_system::*;

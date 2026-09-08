@@ -1126,11 +1126,7 @@ fn completed_production_waits_for_open_door_before_entity_first_spawn() {
         .templates
         .insert("AmericaBarracks".to_string(), producer);
     let producer_id = logic
-        .create_object(
-            "AmericaBarracks",
-            Team::USA,
-            glam::Vec3::new(8.0, 0.0, 8.0),
-        )
+        .create_object("AmericaBarracks", Team::USA, glam::Vec3::new(8.0, 0.0, 8.0))
         .expect("producer");
     {
         let producer = logic.host_object_mut(producer_id).expect("producer object");

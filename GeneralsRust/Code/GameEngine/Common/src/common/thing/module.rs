@@ -11,6 +11,7 @@
 pub use crate::common::rts::NameKeyType;
 use crate::common::{
     ascii_string::AsciiString,
+    ini::ini_fx_list::{fx_list_obj_runtime, get_fx_list_store},
     ini::ini_upgrade::{UpgradeTemplate, get_upgrade_center},
     system::{Snapshotable, Xfer, build_assistant::ObjectID},
 };
@@ -976,9 +977,32 @@ impl UpgradeMuxData {
         }
     }
 
-    pub fn perform_upgrade_fx(&self, _obj: &dyn Object) {
-        if let Some(_fx_list) = &self.fx_list_upgrade {
-            // FXList::doFXObj(fxList, obj);
+    pub fn perform_upgrade_fx(&self, obj: &dyn Object) {
+        // C++ `UpgradeMuxData::performUpgradeFX` (Module.cpp:217-223):
+        // if (m_fxListUpgrade) FXList::doFXObj(m_fxListUpgrade, obj);
+        let Some(fx) = &self.fx_list_upgrade else {
+            return;
+        };
+        let Some(name) = fx.downcast_ref::<AsciiString>() else {
+            return;
+        };
+        if name.is_empty() || name.as_str().eq_ignore_ascii_case("None") {
+            return;
+        }
+        let primary_id = {
+            let id = obj.get_object_id();
+            if id == 0 { None } else { Some(id) }
+        };
+        // Prefer the registered GameClient FXList runner (full nugget set).
+        if let Some(runtime) = fx_list_obj_runtime() {
+            if runtime.do_fx_obj(name.as_str(), primary_id, None) {
+                return;
+            }
+        }
+        // Fallback: walk the Common INI store (C++ FXList.cpp:794-804).
+        let fx_list = get_fx_list_store().find_fx_list(name.as_str()).cloned();
+        if let Some(fx_list) = fx_list {
+            fx_list.do_fx_obj(primary_id, None);
         }
     }
 

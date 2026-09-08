@@ -23,6 +23,7 @@
 
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
+use crate::object::Object;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::drawable::TintStatus;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
@@ -202,6 +203,42 @@ impl TempWeaponBonusHelper {
     /// Get current tint status
     pub fn get_current_tint(&self) -> TintStatus {
         self.current_tint
+    }
+
+    /// Owner-explicit variant of [`ObjectHelperInterface::update`].
+    ///
+    /// `Object::update` passes itself here instead of the helper re-finding its
+    /// owner through `TheGameLogic::find_object_by_id(self.owner_id)` (the path
+    /// `clear_temp_weapon_bonus` takes), which never returns in isolated/local-instance
+    /// contexts. Logic mirrors the C++ TempWeaponBonusHelper update (Graham Smallwood,
+    /// June 2003 — see file header) and matches the trait impl minus the global lookup.
+    pub fn update_in_owner(&mut self, current_frame: u32, owner: &mut Object) -> UpdateSleepTime {
+        // We are sleep-driven, so seeing an update means our timer is ready
+        debug_assert!(
+            self.frame_to_remove <= current_frame,
+            "TempWeaponBonusHelper woke up too soon"
+        );
+
+        // Clear the weapon bonus directly on the owner (mirrors
+        // clear_temp_weapon_bonus without the global owner lookup).
+        if self.current_bonus != WeaponBonusConditionType::Invalid {
+            let cleared = self.current_bonus;
+
+            self.current_bonus = WeaponBonusConditionType::Invalid;
+            self.frame_to_remove = 0;
+            self.current_tint = TintStatus::NONE;
+            self.wake_frame = u32::MAX; // Sleep forever
+
+            owner.clear_weapon_bonus_condition(cleared);
+            if let Some(drawable) = owner.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.clear_tint_status(TintStatus::FRENZY);
+                }
+            }
+        }
+
+        // Sleep forever until next bonus is applied
+        UpdateSleepTime::Forever
     }
 }
 

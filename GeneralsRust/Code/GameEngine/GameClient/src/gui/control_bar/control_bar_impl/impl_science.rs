@@ -8,17 +8,20 @@ static PENDING_CONTROL_BAR_STAGE: std::sync::atomic::AtomicU8 =
 
 fn control_bar_stage_to_u8(stage: ControlBarStage) -> u8 {
     match stage {
+        // ControlBar.h:615-623 — DEFAULT=0, SQUISHED=1, LOW=2, HIDDEN=3.
         ControlBarStage::Default => 0,
-        ControlBarStage::Low => 1,
-        ControlBarStage::Hidden => 2,
+        ControlBarStage::Squished => 1,
+        ControlBarStage::Low => 2,
+        ControlBarStage::Hidden => 3,
     }
 }
 
 fn control_bar_stage_from_u8(value: u8) -> Option<ControlBarStage> {
     match value {
         0 => Some(ControlBarStage::Default),
-        1 => Some(ControlBarStage::Low),
-        2 => Some(ControlBarStage::Hidden),
+        1 => Some(ControlBarStage::Squished),
+        2 => Some(ControlBarStage::Low),
+        3 => Some(ControlBarStage::Hidden),
         _ => None,
     }
 }
@@ -29,12 +32,60 @@ fn take_pending_control_bar_stage() -> Option<ControlBarStage> {
     )
 }
 
+/// C++ `COMMAND_BAR_SIZE_OFFSET` (ControlBarScheme.cpp:50-52): Zero Hour
+/// authors it as 0 and adds it on EVERY scheme `winSetSize`
+/// (ControlBarScheme.cpp:447, 473, 503, 528, 550, 572, 600, 626, 650).
+pub(crate) const COMMAND_BAR_SIZE_OFFSET: i32 = 0;
+
+/// Scheme slot size at the scheme res multiplier with the C++ bar
+/// offset applied (ControlBarScheme.cpp:432-620 size expressions).
+pub(crate) fn scheme_slot_size(
+    ul_x: i32,
+    ul_y: i32,
+    lr_x: i32,
+    lr_y: i32,
+    mult_x: f32,
+    mult_y: f32,
+) -> (i32, i32) {
+    let scale = |v: i32, mult: f32| (v as f32 * mult).round() as i32;
+    (
+        scale(lr_x, mult_x) - scale(ul_x, mult_x) + COMMAND_BAR_SIZE_OFFSET,
+        scale(lr_y, mult_y) - scale(ul_y, mult_y) + COMMAND_BAR_SIZE_OFFSET,
+    )
+}
+
+/// C++ `ControlBar::updateRightHUDImage` (called from ControlBarScheme.cpp:407):
+/// `m_rightHUDWindow->winSetEnabledImage(0, image)`. C++ `winSetEnabledImage`
+/// also raises WIN_STATUS_IMAGE, which is the only state under which
+/// `W3DRightHUDDraw` paints (W3DControlBar.cpp:74-81). The port's window
+/// setter does not raise the status bit, so do both here. An empty or
+/// unresolvable image name binds nothing, leaving the retail-invisible
+/// imageless window (audit: right command panel stayed black without art).
+pub(crate) fn apply_scheme_right_hud_image(image_name: &str) {
+    if image_name.is_empty() {
+        return;
+    }
+    let Some(image) = leftover_mapped_image(image_name) else {
+        return;
+    };
+    if let Some(win) = leftover_find_window("ControlBar.wnd:RightHUD") {
+        let mut guard = win.borrow_mut();
+        let _ = guard.set_enabled_image(0, image);
+        guard.set_status(crate::gui::game_window::WindowStatus::IMAGE);
+    }
+}
+
 /// C++ `setDefaultControlBarConfig` (ControlBar.cpp:3001-3014) does
 /// `m_contextParent[CP_MASTER]->winHide(FALSE)`. CommandWindow is authored
 /// `STATUS = ENABLED+HIDDEN+SEE_THRU` (ControlBar.wnd); C++ then shows it and
 /// the 14 `ButtonCommand` children from `switchToContext(CB_CONTEXT_COMMAND)`
 /// (ControlBar.cpp:2177-2188) + `populateCommand` (ControlBarCommand.cpp:317).
 /// Live InGame DEFAULT is that dozer/command-set context, so clear the bits.
+/// CP_OBSERVER_INFO is authored visible (ControlBar.wnd has no HIDDEN flag on
+/// ObserverPlayerInfoWindow) and C++ only hides it from
+/// `switchToContext` (ControlBar.cpp:2136-2137 hide it in every non-observer
+/// context) — mirror that here so the DEFAULT stage can never leak the
+/// observer "Units / Buildings" tab labels over the command grid.
 fn reveal_ingame_command_window() {
     with_window_manager(|manager| {
         let set_hidden = |name: &str, hidden: bool| {
@@ -47,22 +98,42 @@ fn reveal_ingame_command_window() {
         set_hidden("ControlBar.wnd:UnderConstructionWindow", true);
         set_hidden("ControlBar.wnd:OCLTimerWindow", true);
         set_hidden("ControlBar.wnd:ObserverPlayerListWindow", true);
-        set_hidden("ControlBar.wnd:BeaconWindow", true);
+        set_hidden("ControlBar.wnd:ObserverPlayerInfoWindow", true);
         for i in 1..=14 {
             set_hidden(&format!("ControlBar.wnd:ButtonCommand{:02}", i), false);
         }
+
         // C++ setDefaultControlBarConfig: view 80% height, parent at default
         // WND pos. Authored 800x600 y=480 is offscreen on 640x480. Pin the
-        // parent to the bottom 20% of the live display.
+        // parent to the bottom of the live display using the authored
+        // 140px command-bar height scaled by the scheme res multiplier
+        // (ControlBarScheme.cpp:417-419).
         if let Some(parent) = manager.find_window_by_name("ControlBar.wnd:ControlBarParent") {
             let (_sw, sh) = manager.screen_size();
-            let mut win = parent.borrow_mut();
-            let (_w, h) = win.get_size();
-            let bar_h = if h >= 32 { h.min(sh / 4).max(64) } else { (sh as f32 * 0.20) as i32 };
+            let creation_h = game_engine::common::ini::get_control_bar_scheme_manager()
+                .and_then(|schemes| schemes.read().get_active_scheme().cloned())
+                .map(|scheme| scheme.screen_creation_res.y.max(1))
+                .unwrap_or(600);
+            let bar_h = ((sh as f32 / creation_h as f32) * 140.0) as i32;
             let y = (sh - bar_h).max(0);
+            let mut win = parent.borrow_mut();
             let _ = win.set_position(0, y);
         }
     });
+}
+
+/// C++ `switchToContext(CB_CONTEXT_NONE)` hide matrix (ControlBar.cpp:2128-2137):
+/// no selection means every right-side context parent is hidden, including
+/// CP_COMMAND (CommandWindow) and CP_BUILD_QUEUE (ProductionQueueWindow).
+/// Retail shows no command grid until a real context owns it.
+fn apply_none_context_hide() {
+    leftover_hide_window("ControlBar.wnd:CommandWindow", true);
+    leftover_hide_window("ControlBar.wnd:ProductionQueueWindow", true);
+    leftover_hide_window("ControlBar.wnd:BeaconWindow", true);
+    leftover_hide_window("ControlBar.wnd:UnderConstructionWindow", true);
+    leftover_hide_window("ControlBar.wnd:OCLTimerWindow", true);
+    leftover_hide_window("ControlBar.wnd:ObserverPlayerInfoWindow", true);
+    leftover_hide_window("ControlBar.wnd:ObserverPlayerListWindow", true);
 }
 
 fn leftover_find_window(name: &str) -> Option<std::rc::Rc<std::cell::RefCell<GameWindow>>> {
@@ -146,11 +217,92 @@ fn leftover_transition_group(group: &'static str) {
     }
 }
 
+/// Retail ControlBar.wnd authored screen rects for the windows C++
+/// ControlBar::init binds by name (ControlBar.cpp:1054-1225), in the 800x600
+/// creation-resolution space as `UPPERLEFT`/`BOTTOMRIGHT` pairs. Bottom-right
+/// is exclusive (WindowManager parse convention: size = LR - UL), matching
+/// window_script.rs:604-609. These are fail-closed fallbacks used only when
+/// the retail layout did not load: a table hit is created at authored
+/// geometry scaled by logical_h/600 and SHOWN, instead of the blind
+/// (0,0,200,200) hidden stub. Names retail authors HIDDEN (CommandWindow,
+/// ButtonSmall/Medium, the context parents) are deliberately absent — their
+/// visibility belongs to switchToContext, not the fallback.
+const LEFTOVER_AUTHORED_WINDOW_RECTS: &[(&str, (i32, i32, i32, i32))] = &[
+    // Command grid 7x2 (C++ MAX_COMMANDS_PER_SET ButtonCommand01..14).
+    ("ControlBar.wnd:ButtonCommand01", (223, 494, 273, 538)),
+    ("ControlBar.wnd:ButtonCommand02", (223, 545, 273, 589)),
+    ("ControlBar.wnd:ButtonCommand03", (278, 494, 328, 538)),
+    ("ControlBar.wnd:ButtonCommand04", (278, 545, 328, 589)),
+    ("ControlBar.wnd:ButtonCommand05", (333, 494, 383, 538)),
+    ("ControlBar.wnd:ButtonCommand06", (333, 545, 383, 589)),
+    ("ControlBar.wnd:ButtonCommand07", (388, 494, 438, 538)),
+    ("ControlBar.wnd:ButtonCommand08", (388, 545, 438, 589)),
+    ("ControlBar.wnd:ButtonCommand09", (443, 494, 493, 538)),
+    ("ControlBar.wnd:ButtonCommand10", (443, 545, 493, 589)),
+    ("ControlBar.wnd:ButtonCommand11", (498, 494, 548, 538)),
+    ("ControlBar.wnd:ButtonCommand12", (498, 545, 548, 589)),
+    ("ControlBar.wnd:ButtonCommand13", (553, 494, 603, 538)),
+    ("ControlBar.wnd:ButtonCommand14", (553, 545, 603, 589)),
+    // Build-queue right column (C++ MAX_BUILD_QUEUE_BUTTONS ButtonQueue01..09).
+    ("ControlBar.wnd:ButtonQueue01", (622, 484, 666, 517)),
+    ("ControlBar.wnd:ButtonQueue02", (668, 484, 713, 517)),
+    ("ControlBar.wnd:ButtonQueue03", (715, 484, 761, 517)),
+    ("ControlBar.wnd:ButtonQueue04", (622, 519, 666, 553)),
+    ("ControlBar.wnd:ButtonQueue05", (668, 519, 713, 553)),
+    ("ControlBar.wnd:ButtonQueue06", (715, 519, 761, 553)),
+    ("ControlBar.wnd:ButtonQueue07", (622, 555, 666, 591)),
+    ("ControlBar.wnd:ButtonQueue08", (668, 555, 713, 591)),
+    ("ControlBar.wnd:ButtonQueue09", (715, 555, 761, 591)),
+    // Right HUD cluster (C++ m_rightHUDWindow / unit-selected parents).
+    ("ControlBar.wnd:RightHUD", (621, 483, 760, 592)),
+    ("ControlBar.wnd:WinUnitSelected", (621, 483, 762, 592)),
+    ("ControlBar.wnd:CameoWindow", (622, 484, 713, 553)),
+    ("ControlBar.wnd:UnitUpgrade1", (715, 484, 761, 517)),
+    ("ControlBar.wnd:UnitUpgrade2", (715, 519, 761, 553)),
+    ("ControlBar.wnd:UnitUpgrade3", (715, 555, 761, 591)),
+    ("ControlBar.wnd:UnitUpgrade4", (668, 555, 713, 591)),
+    ("ControlBar.wnd:UnitUpgrade5", (622, 555, 666, 591)),
+    ("ControlBar.wnd:ProductionQueueWindow", (621, 483, 762, 592)),
+    // Master parent + HUD chrome bound in the same C++ init range.
+    ("ControlBar.wnd:ControlBarParent", (0, 416, 799, 599)),
+    ("ControlBar.wnd:LeftHUD", (7, 443, 174, 595)),
+    ("ControlBar.wnd:WinUAttack", (77, 416, 122, 461)),
+    ("ControlBar.wnd:ButtonGeneral", (736, 433, 792, 474)),
+    ("ControlBar.wnd:ButtonLarge", (666, 445, 714, 473)),
+    ("ControlBar.wnd:GeneralsExp", (769, 503, 782, 590)),
+    ("ControlBar.wnd:MoneyDisplay", (360, 437, 439, 456)),
+    ("ControlBar.wnd:PowerWindow", (261, 473, 544, 480)),
+];
+
+/// Authored 800x600 rect for `name`, or None when the window keeps the stub.
+fn leftover_authored_rect(name: &str) -> Option<(i32, i32, i32, i32)> {
+    LEFTOVER_AUTHORED_WINDOW_RECTS
+        .iter()
+        .find(|(window, _)| *window == name)
+        .map(|(_, rect)| *rect)
+}
+
 fn leftover_ensure_named_window(name: &str) {
     if leftover_find_window(name).is_some() {
         return;
     }
     with_window_manager(|manager| {
+        if let Some((left, top, right, bottom)) = leftover_authored_rect(name) {
+            // Retail authored geometry scaled from the 800x600 creation
+            // resolution to the logical display height (audit-1 quick win 3).
+            let (_sw, sh) = manager.screen_size();
+            let scale = if sh > 0 { sh as f32 / 600.0 } else { 1.0 };
+            let x = (left as f32 * scale).round() as i32;
+            let y = (top as f32 * scale).round() as i32;
+            let width = ((right - left) as f32 * scale).round().max(1.0) as i32;
+            let height = ((bottom - top) as f32 * scale).round().max(1.0) as i32;
+            if let Ok(win) = manager.create_window(None, x, y, width, height) {
+                win.borrow_mut().set_name(name);
+                // Authored-visible: positioned, sized, SHOWN (not the stub).
+                let _ = win.borrow_mut().hide(false);
+            }
+            return;
+        }
         if let Ok(win) = manager.create_window(None, 0, 0, 200, 200) {
             win.borrow_mut().set_name(name);
             let _ = win.borrow_mut().hide(true);
@@ -743,9 +895,13 @@ impl ControlBar {
     }
 
     fn leftover_set_default_control_bar_config(&mut self) {
+        // C++ captures m_defaultControlBarPosition at layout load
+        // (ControlBar.cpp:1056), before any stage moves the parent. Capture
+        // before reveal so Default/Low/Squished restore the authored spot,
+        // not the reveal-pinned bottom position.
+        self.leftover_capture_default_control_bar_position();
         self.control_bar_stage = ControlBarStage::Default;
         reveal_ingame_command_window();
-        self.leftover_capture_default_control_bar_position();
         let (_sw, sh) = leftover_display_size();
         leftover_set_tactical_view_height(((sh as f32) * 0.80) as i32);
         if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
@@ -756,6 +912,23 @@ impl ControlBar {
             let _ = parent.borrow_mut().hide(false);
         }
         self.leftover_set_up_down_images();
+    }
+
+    fn leftover_set_squished_control_bar_config(&mut self) {
+        // C++ setSquishedControlBarConfig (ControlBar.cpp:3017-3028): parent
+        // back at the default position with a full-height tactical view.
+        if self.control_bar_stage == ControlBarStage::Squished {
+            return;
+        }
+        self.control_bar_stage = ControlBarStage::Squished;
+        let (_sw, sh) = leftover_display_size();
+        leftover_set_tactical_view_height(sh);
+        self.leftover_capture_default_control_bar_position();
+        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
+            let _ = parent
+                .borrow_mut()
+                .set_position(self.default_control_bar_x, self.default_control_bar_y);
+        }
     }
 
     fn leftover_set_low_control_bar_config(&mut self) {
@@ -780,6 +953,7 @@ impl ControlBar {
         }
         match stage {
             ControlBarStage::Default => self.leftover_set_default_control_bar_config(),
+            ControlBarStage::Squished => self.leftover_set_squished_control_bar_config(),
             ControlBarStage::Low => self.leftover_set_low_control_bar_config(),
             ControlBarStage::Hidden => {
                 self.control_bar_stage = ControlBarStage::Hidden;
@@ -836,9 +1010,6 @@ impl ControlBar {
         } else {
             player_side
         };
-        if let Some(manager) = &self.scheme_manager {
-            let _ = manager.load_scheme(side);
-        }
         if let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() {
             let mut manager = manager.write();
             let _ = manager.set_active_scheme_for_side(side);
@@ -897,46 +1068,65 @@ impl ControlBar {
                 }
             };
 
+        // MoneyDisplay/PowerWindow carry no gadget art in C++ — they are only
+        // repositioned/resized from the scheme coords (ControlBarScheme.cpp
+        // 531-574); the empty image names keep bind_slot inert for them.
         let art_slots = [
             (
                 "ControlBar.wnd:ButtonOptions",
-                &scheme.options_button_enable,
-                &scheme.options_button_hightlited,
-                &scheme.options_button_pushed,
-                &scheme.options_button_disabled,
+                scheme.options_button_enable.as_str(),
+                scheme.options_button_hightlited.as_str(),
+                scheme.options_button_pushed.as_str(),
+                scheme.options_button_disabled.as_str(),
                 (scheme.options_ul, scheme.options_lr),
             ),
             (
                 "ControlBar.wnd:ButtonIdleWorker",
-                &scheme.idle_worker_button_enable,
-                &scheme.idle_worker_button_hightlited,
-                &scheme.idle_worker_button_pushed,
-                &scheme.idle_worker_button_disabled,
+                scheme.idle_worker_button_enable.as_str(),
+                scheme.idle_worker_button_hightlited.as_str(),
+                scheme.idle_worker_button_pushed.as_str(),
+                scheme.idle_worker_button_disabled.as_str(),
                 (scheme.worker_ul, scheme.worker_lr),
             ),
             (
                 "ControlBar.wnd:ButtonPlaceBeacon",
-                &scheme.beacon_button_enable,
-                &scheme.beacon_button_hightlited,
-                &scheme.beacon_button_pushed,
-                &scheme.beacon_button_disabled,
+                scheme.beacon_button_enable.as_str(),
+                scheme.beacon_button_hightlited.as_str(),
+                scheme.beacon_button_pushed.as_str(),
+                scheme.beacon_button_disabled.as_str(),
                 (scheme.beacon_ul, scheme.beacon_lr),
             ),
             (
                 "ControlBar.wnd:PopupCommunicator",
-                &scheme.buddy_button_enable,
-                &scheme.buddy_button_hightlited,
-                &scheme.buddy_button_pushed,
-                &scheme.buddy_button_disabled,
+                scheme.buddy_button_enable.as_str(),
+                scheme.buddy_button_hightlited.as_str(),
+                scheme.buddy_button_pushed.as_str(),
+                scheme.buddy_button_disabled.as_str(),
                 (scheme.chat_ul, scheme.chat_lr),
             ),
             (
                 BUTTON_GENERAL,
-                &scheme.general_button_enable,
-                &scheme.general_button_hightlited,
-                &scheme.general_button_pushed,
-                &scheme.general_button_disabled,
+                scheme.general_button_enable.as_str(),
+                scheme.general_button_hightlited.as_str(),
+                scheme.general_button_pushed.as_str(),
+                scheme.general_button_disabled.as_str(),
                 (scheme.general_ul, scheme.general_lr),
+            ),
+            (
+                "ControlBar.wnd:MoneyDisplay",
+                "",
+                "",
+                "",
+                "",
+                (scheme.money_ul, scheme.money_lr),
+            ),
+            (
+                "ControlBar.wnd:PowerWindow",
+                "",
+                "",
+                "",
+                "",
+                (scheme.power_bar_ul, scheme.power_bar_lr),
             ),
         ];
         for (window_name, enable, hilite, pushed, disabled, (ul, lr)) in art_slots {
@@ -952,15 +1142,25 @@ impl ControlBar {
                 bind_slot(&mut data.disabled_draw_data[0].image, disabled);
             }
             // C++ positions each button at scheme UL * resMultiplier minus the
-            // parent screen position, and sizes it LR-UL * resMultiplier
-            // (ControlBarScheme.cpp:432-447 and siblings).
-            let (screen_x, screen_y) = guard.get_screen_position();
-            let (rel_x, rel_y) = guard.get_position();
-            let (parent_x, parent_y) = (screen_x - rel_x, screen_y - rel_y);
-            let width = scale(lr.x, mult_x) - scale(ul.x, mult_x);
-            let height = scale(lr.y, mult_y) - scale(ul.y, mult_y);
-            let _ = guard.set_position(scale(ul.x, mult_x) - parent_x, scale(ul.y, mult_y) - parent_y);
-            let _ = guard.set_size(width.max(1), height.max(1));
+            // parent screen position, and sizes it LR-UL * resMultiplier plus
+            // COMMAND_BAR_SIZE_OFFSET (ControlBarScheme.cpp:432-447 and
+            // siblings; the offset is added on every scheme winSetSize).
+            let (width, height) = scheme_slot_size(ul.x, ul.y, lr.x, lr.y, mult_x, mult_y);
+            // A degenerate scheme slot rect (UL == LR — scheme INI never
+            // loaded) must not collapse the authored window to 1x1: C++ only
+            // runs this math from a fully parsed ControlBarScheme::init, so
+            // keep the authored ControlBar.wnd geometry instead. MoneyDisplay
+            // (authored 360,437-439,456 Arial-8) stays inside the bar this way.
+            if width > 0 && height > 0 {
+                let (screen_x, screen_y) = guard.get_screen_position();
+                let (rel_x, rel_y) = guard.get_position();
+                let (parent_x, parent_y) = (screen_x - rel_x, screen_y - rel_y);
+                let _ = guard.set_position(
+                    scale(ul.x, mult_x) - parent_x,
+                    scale(ul.y, mult_y) - parent_y,
+                );
+                let _ = guard.set_size(width.max(1), height.max(1));
+            }
         }
 
         // ExpBarForeground: C++ winSetEnabledImage(0, m_expBarForeground)
@@ -970,6 +1170,13 @@ impl ControlBar {
                 let _ = win.borrow_mut().set_enabled_image(0, image);
             }
         }
+
+        // RightHUD: C++ ControlBarScheme.cpp:407 TheControlBar->updateRightHUDImage
+        // (ControlBar.cpp updateRightHUDImage: winSetEnabledImage(0, image)).
+        // w3d_right_hud_draw only paints when WIN_STATUS_IMAGE is set
+        // (W3DControlBar.cpp:74-81), so mirror C++ winSetEnabledImage's
+        // status side effect explicitly.
+        apply_scheme_right_hud_image(&scheme.right_hud_image);
 
         // WinUAttack: enabled + disabled(=highlight) images and slot reposition
         // (ControlBarScheme.cpp:629-651).
@@ -989,10 +1196,15 @@ impl ControlBar {
                 scale(scheme.u_attack_ul.x, mult_x) - parent_x,
                 scale(scheme.u_attack_ul.y, mult_y) - parent_y,
             );
-            let _ = guard.set_size(
-                (scale(scheme.u_attack_lr.x, mult_x) - scale(scheme.u_attack_ul.x, mult_x)).max(1),
-                (scale(scheme.u_attack_lr.y, mult_y) - scale(scheme.u_attack_ul.y, mult_y)).max(1),
+            let (width, height) = scheme_slot_size(
+                scheme.u_attack_ul.x,
+                scheme.u_attack_ul.y,
+                scheme.u_attack_lr.x,
+                scheme.u_attack_lr.y,
+                mult_x,
+                mult_y,
             );
+            let _ = guard.set_size(width.max(1), height.max(1));
         }
 
         // Build queue slots: disabled image = scheme queue art
@@ -1023,10 +1235,15 @@ impl ControlBar {
                 scale(scheme.min_max_ul.x, mult_x) - parent_x,
                 scale(scheme.min_max_ul.y, mult_y) - parent_y,
             );
-            let _ = guard.set_size(
-                (scale(scheme.min_max_lr.x, mult_x) - scale(scheme.min_max_ul.x, mult_x)).max(1),
-                (scale(scheme.min_max_lr.y, mult_y) - scale(scheme.min_max_ul.y, mult_y)).max(1),
+            let (width, height) = scheme_slot_size(
+                scheme.min_max_ul.x,
+                scheme.min_max_ul.y,
+                scheme.min_max_lr.x,
+                scheme.min_max_lr.y,
+                mult_x,
+                mult_y,
             );
+            let _ = guard.set_size(width.max(1), height.max(1));
         }
         self.leftover_set_up_down_images();
     }
@@ -1470,9 +1687,17 @@ impl ControlBar {
         }
 
         let parent_name = self.leftover_shortcut_bar_parent_name();
+        // C++ populateSpecialPowerShortcut tail (ControlBar.cpp:3476-3480)
+        // calls showSpecialPowerShortcut, whose dontAnimate gate
+        // (ControlBar.cpp:3733-3735) keeps the whole GenPowersShortcutBar
+        // column hidden until the player owns a shortcut special power or a
+        // shortcut selection button — never with zero populated buttons.
+        let has_selection = self.has_any_shortcut_selection();
+        let has_power = Self::leftover_has_any_shortcut_special_power(&player);
         if leftover_find_window(CONTROL_BAR_PARENT).is_some()
             && !leftover_window_is_hidden(CONTROL_BAR_PARENT)
             && leftover_window_is_hidden(&parent_name)
+            && (has_selection || has_power)
         {
             leftover_hide_window(&parent_name, false);
             self.animate_special_power_shortcut(true);
@@ -1602,6 +1827,26 @@ impl ControlBar {
         if self.special_power_shortcut_count == 0 {
             self.init_special_power_shortcut_bar();
         }
+        // C++ showSpecialPowerShortcut (ControlBar.cpp:3719-3738): the reveal
+        // itself is gated — without an owned shortcut special power or a
+        // populated shortcut selection button the GenPowersShortcutBar column
+        // stays hidden (retail keeps the tray closed until a general's power
+        // is purchased). The old port revealed the parent unconditionally.
+        let has_power = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .map(|player_arc| {
+                player_arc
+                    .read()
+                    .ok()
+                    .map(|player| Self::leftover_has_any_shortcut_special_power(&player))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if !self.has_any_shortcut_selection() && !has_power {
+            return;
+        }
         leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), false);
         for shortcut in &mut self.special_power_shortcuts {
             if !shortcut.command_name.is_empty() {
@@ -1631,11 +1876,20 @@ impl ControlBar {
             .and_then(|ctx| ctx.observer_look_at_player)
     }
 
-    pub fn set_observer_look_at_player_index(&mut self, index: Option<i32>) {
-        super::control_bar_observer::set_observer_look_at_player(index);
-        if let Ok(mut ctx) = self.context.write() {
-            ctx.observer_look_at_player = index;
-        }
+    /// C++ `ControlBar::hasAnyShortcutSelection` (ControlBar.cpp:3485-3508):
+    /// TRUE only when a VISIBLE populated shortcut button carries
+    /// GUI_COMMAND_SELECT_ALL_UNITS_OF_TYPE. Merely-visible special-power
+    /// shortcut buttons do not count — those gate on
+    /// `Player::hasAnyShortcutSpecialPower` instead.
+    pub fn has_any_shortcut_selection(&self) -> bool {
+        self.special_power_shortcuts
+            .iter()
+            .filter(|s| !s.is_hidden && !s.command_name.is_empty())
+            .any(|s| {
+                Self::leftover_command_button_by_name(&s.command_name)
+                    .map(|button| button.command_type == CommandType::MetaSelectMatchingUnits)
+                    .unwrap_or(false)
+            })
     }
 
     pub fn get_arrow_image(&self) -> Option<crate::gui::game_window::Image> {
@@ -1644,12 +1898,6 @@ impl ControlBar {
 
     pub fn set_arrow_image(&mut self, image: Option<crate::gui::game_window::Image>) {
         super::control_bar_observer::set_gen_arrow_image(image);
-    }
-
-    pub fn has_any_shortcut_selection(&self) -> bool {
-        self.special_power_shortcuts
-            .iter()
-            .any(|s| !s.is_hidden && s.availability != CommandAvailability::Hidden)
     }
 
     /// Feed radar, queued upgrades, and ready special-power shortcuts from PresentationFrame.
@@ -1978,5 +2226,52 @@ mod science_vec_gate_tests {
         bar.on_generals_button();
         assert!(leftover_window_is_hidden(GEN_EXP_PARENT));
     }
+
+    #[test]
+    fn leftover_authored_rect_table_covers_cpp_bound_windows() {
+        // Retail ControlBar.wnd 800x600 rects for the ControlBar.cpp:1054-1225
+        // bind names; bottom-right exclusive per WindowManager parse.
+        assert_eq!(
+            leftover_authored_rect("ControlBar.wnd:MoneyDisplay"),
+            Some((360, 437, 439, 456))
+        );
+        assert_eq!(
+            leftover_authored_rect("ControlBar.wnd:ButtonCommand14"),
+            Some((553, 545, 603, 589))
+        );
+        // GeneralsExpPoints windows keep the hidden stub fallback.
+        assert_eq!(
+            leftover_authored_rect("GeneralsExpPoints.wnd:GenExpParent"),
+            None
+        );
+    }
+
+    #[test]
+    fn leftover_ensure_named_window_places_authored_windows_visible() {
+        // Table hit: authored geometry + SHOWN (audit-1 quick win 3) instead
+        // of the blind (0,0,200,200) hidden stub.
+        let name = "ControlBar.wnd:UnitUpgrade3";
+        leftover_ensure_named_window(name);
+        let win = leftover_find_window(name).expect("UnitUpgrade3 authored fallback");
+        let (shown, pos, size) = {
+            let w = win.borrow();
+            (!w.is_hidden(), w.get_position(), w.get_size())
+        };
+        assert!(shown, "authored fallback must be SHOWN");
+        assert!(size.0 > 0 && size.1 > 0, "authored fallback must be sized");
+        assert!(
+            pos.0 >= 0 && pos.1 >= 0 && pos.0 < 2000 && pos.1 < 2000,
+            "authored fallback must be positioned, got {pos:?}"
+        );
+
+        // Table miss keeps the fail-closed hidden stub.
+        leftover_ensure_named_window("ControlBar.wnd:LeftoverStubProbe");
+        let stub = leftover_find_window("ControlBar.wnd:LeftoverStubProbe")
+            .expect("stub fallback");
+        let stub = stub.borrow();
+        assert!(stub.is_hidden(), "non-table names keep the hidden stub");
+        assert_eq!(stub.get_size(), (200, 200));
+    }
+
 }
 

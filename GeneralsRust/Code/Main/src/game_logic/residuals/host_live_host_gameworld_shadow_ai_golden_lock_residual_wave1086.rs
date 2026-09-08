@@ -89,6 +89,9 @@ pub fn honesty_host_gameworld_shadow_ai_golden_lock_nav_commands_residual_wave10
 
 pub fn honesty_host_gameworld_shadow_ai_golden_lock_residual_pack_wave1086() -> bool {
     let aw = aw_source();
+    // Prod code only: the file's own tests pin the env plumbing's absence by
+    // name, so scanning the whole file would self-match.
+    let aw_prod = aw.split("#[cfg(test)]").next().unwrap_or(aw);
     let cnc = cnc_source();
     let shadow = shadow_source();
     let ai = ai_source();
@@ -101,9 +104,9 @@ pub fn honesty_host_gameworld_shadow_ai_golden_lock_residual_pack_wave1086() -> 
         && shadow.contains("pub struct GameWorldShadow")
         && shadow.contains("apply_host_writeback_op")
         && shadow.contains("shadow_session_after_host_tick")
-        && aw.contains("fn dual_tick_policy")
-        && aw.contains("DualTickPolicy::AuthorityOnly")
-        && aw.contains("GENERALS_ALLOW_DUAL_TICK")
+        && aw_prod.contains("fn dual_tick_policy")
+        && aw_prod.contains("DualTickPolicy::AuthorityOnly")
+        && !aw_prod.contains("GENERALS_ALLOW_DUAL_TICK")
         && ai.contains("pub const ATTACK_RECHECK_SECONDS: f32 = 60.0")
         && ai.contains("Wave 616: residual-locked at 60s")
         && golden.contains("no take_damage fallback")

@@ -102,13 +102,25 @@ pub fn honesty_host_presentation_pick_fow_residual_pack_wave1094() -> bool {
         }
     };
     let find = &cnc[find_i..find_i.saturating_add(900)];
+    // Re-pinned 2026-09-07: find_object_at_position now delegates to
+    // host_find_object_at_position, which owns the presentation pick call.
+    let host_i = match cnc.find("fn host_find_object_at_position") {
+        Some(i) => i,
+        None => {
+            residual_action_store(ResidualHostPresentationPickFowAction::SourceMarkers);
+            RESIDUAL_OK.store(false, Ordering::SeqCst);
+            return false;
+        }
+    };
+    let host = &cnc[host_i..host_i.saturating_add(1200)];
     let ok = world.contains("Wave 1094: non-local FOW residual fail-closed")
         && world.contains("visibility_alpha < 0.95")
         && world.contains("is_local")
         && screen.contains("Wave 1094: non-local FOW residual fail-closed")
         && screen.contains("visibility_alpha < 0.95")
-        && find.contains("pick_object_id_at_world_from_presentation")
+        && find.contains("host_find_object_at_position")
         && find.contains("presentation-only pick")
+        && host.contains("pick_object_id_at_world_from_presentation")
         && // 2026-08-15: playable_claim is the five-flag constructor, not a literal assignment.
         es.contains("self.playable_claim = Self::retail_windowed_playable_claim(")
         && es.contains("Headless smoke must keep `playable_claim == false`");

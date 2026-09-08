@@ -3,11 +3,6 @@
 impl SubsystemInterface for ControlBar {
     fn init(&mut self) -> Result<(), Box<dyn Error>> {
         log::info!("Initializing Control Bar");
-
-        if let Some(scheme_manager) = &self.scheme_manager {
-            scheme_manager.load_scheme("Default")?;
-        }
-
         self.ensure_generals_exp_layout();
         leftover_ensure_named_window(WIN_U_ATTACK);
         leftover_ensure_named_window(BUTTON_GENERAL);
@@ -51,12 +46,20 @@ impl SubsystemInterface for ControlBar {
         }
         self.rally_point_drawable_id = 0;
         self.default_control_bar_captured = false;
+        // C++ resetControlBar calls hideSpecialPowerShortcut first
+        // (ControlBar.cpp:1272) — hide with the layout name still bound so
+        // the old game's GenPowersShortcutBar column cannot leak into the
+        // next session.
+        self.hide_special_power_shortcut();
         self.special_power_shortcut_layout.clear();
+        self.special_power_shortcuts.clear();
+        self.special_power_shortcut_count = 0;
+        // C++ resetControlBar re-runs switchToContext(CB_CONTEXT_NONE)
+        // (ControlBar.cpp:1304), so re-arm the one-shot entry evaluation.
+        self.ingame_entry_context_applied = false;
         self.radar_glow_window_enabled = true;
         self.displayed_construct_percent = -1.0;
         self.displayed_ocl_timer_seconds = 0;
-        self.special_power_shortcuts.clear();
-        self.special_power_shortcut_count = 0;
 
         Ok(())
     }

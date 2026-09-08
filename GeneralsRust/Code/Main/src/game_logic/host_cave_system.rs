@@ -303,8 +303,7 @@ pub fn is_cave_template(template_name: &str) -> bool {
         let at_start = i == 0;
         let prev_is_lower = i > 0 && lower_bytes[i - 1].is_ascii_lowercase();
         // camelCase boundary: authored uppercase 'C' following a letter.
-        let camel_case =
-            i > 0 && orig_bytes[i].is_ascii_uppercase() && prev_is_lower;
+        let camel_case = i > 0 && orig_bytes[i].is_ascii_uppercase() && prev_is_lower;
         if at_start || !prev_is_lower || camel_case {
             return true;
         }

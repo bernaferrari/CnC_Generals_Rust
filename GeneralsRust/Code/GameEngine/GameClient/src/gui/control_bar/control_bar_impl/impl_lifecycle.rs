@@ -16,8 +16,6 @@ impl ControlBar {
         Self {
             context: Arc::new(RwLock::new(ControlBarContext::default())),
             window_manager: None,
-            scheme_manager: None,
-            resizer: None,
             current_window: None,
             is_animating: false,
             animation_start_time: Instant::now(),
@@ -63,6 +61,7 @@ impl ControlBar {
             displayed_ocl_timer_seconds: 0,
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
+            ingame_entry_context_applied: false,
             presentation_availability: PresentationAvailabilityResidual::default(),
 
             border_colors: CommandBarBorderColors::default(),
@@ -78,13 +77,6 @@ impl ControlBar {
         self.window_manager = Some(manager);
     }
 
-    pub fn set_scheme_manager(&mut self, manager: Arc<dyn ControlBarSchemeManager>) {
-        self.scheme_manager = Some(manager);
-    }
-
-    pub fn set_resizer(&mut self, resizer: Arc<dyn ControlBarResizer>) {
-        self.resizer = Some(resizer);
-    }
 
     // ---------------------------------------------------------------------------
     // markUIDirty / onDrawableSelected / onDrawableDeselected
@@ -138,6 +130,26 @@ impl ControlBar {
         super::control_bar_observer::init_observer_controls();
         super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
 
+        // C++ ControlBar::init ends with switchToContext(CB_CONTEXT_NONE)
+        // (ControlBar.cpp:1262) and resetControlBar re-runs it (1304), so the
+        // authored-visible ObserverPlayerInfoWindow (ControlBar.wnd:1435 has no
+        // HIDDEN flag) can never leak into normal play. The port only switched
+        // contexts on ui_dirty; force one entry evaluation once the
+        // ControlBar.wnd layout is live so parity does not depend on a host
+        // event arriving first.
+        if !self.ingame_entry_context_applied
+            && leftover_find_window(CONTROL_BAR_PARENT).is_some()
+        {
+            self.ingame_entry_context_applied = true;
+            // C++ initControlBarObserver (ControlBar.cpp:2741) puts observer
+            // bars straight into CB_CONTEXT_OBSERVER_LIST; everyone else gets
+            // the CB_CONTEXT_NONE hide matrix via evaluateContextUI.
+            if self.observer_mode {
+                self.switch_to_context(ControlBarState::Observer, None)?;
+            } else {
+                self.evaluate_context_ui()?;
+            }
+        }
         if self.is_animating {
             let elapsed = self.animation_start_time.elapsed();
             if elapsed >= self.animation_duration {
@@ -223,8 +235,22 @@ impl ControlBar {
         }
         // Host/presentation still runs command/queue/inventory updates.
         if !registry_exists {
-            if current_state == ControlBarState::Command {
-                self.update_context_command()?;
+            match current_state {
+                ControlBarState::Command => {
+                    self.update_context_command()?;
+                }
+                // C++ updateContextUnderConstruction / updateContextOCLTimer
+                // (ControlBarUnderConstruction.cpp:82-99, ControlBar.cpp:1563-1574)
+                // run off presentation residuals too: the OCL timer window
+                // must reveal and tick, and the under-construction label must
+                // update, without dual-world registry modules.
+                ControlBarState::UnderConstruction => {
+                    self.update_context_under_construction(delta_time)?;
+                }
+                ControlBarState::OclTimer => {
+                    self.update_context_ocl_timer(delta_time)?;
+                }
+                _ => {}
             }
             return Ok(());
         }
@@ -600,10 +626,11 @@ impl ControlBar {
             self.build_queue_data.clear();
             self.displayed_queue_count = 0;
             self.portrait_state = PortraitDisplayState::default();
-            // InGame DEFAULT keeps CommandWindow visible (authored HIDDEN).
-            if self.control_bar_stage == ControlBarStage::Default {
-                reveal_ingame_command_window();
-            }
+            // C++ switchToContext(CB_CONTEXT_NONE) hides CP_COMMAND plus every
+            // other context parent (ControlBar.cpp:2128-2137). Retail shows no
+            // command grid and no tab labels until a real context owns them —
+            // never a DEFAULT-stage reveal of all 14 authored slots.
+            apply_none_context_hide();
             let mut guard = self
                 .context
                 .write()

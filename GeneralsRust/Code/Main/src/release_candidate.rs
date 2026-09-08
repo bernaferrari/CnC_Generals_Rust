@@ -3,9 +3,7 @@
 
 use crate::assets::sound_effects::SoundEffectsTable;
 use crate::assets::textures::TextureManager;
-use crate::authoritative_world::{
-    AuthorityProbe, advance_authority_frames, set_verification_single_authority,
-};
+use crate::authoritative_world::{AuthorityProbe, advance_authority_frames};
 use crate::deterministic_trace::{TraceScenario, run_trace_scenario};
 use crate::effects::particle_system::{ParticleSystem, ParticleSystemTemplate};
 use crate::game_logic::GameLogic;
@@ -21,24 +19,70 @@ use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use crate::ui::hud_state::{UiColor, color_for_player};
 use crate::ui::main_menu::MainMenuState;
 use glam::Vec3;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 static MISSING_TEXTURE_NOTES: AtomicUsize = AtomicUsize::new(0);
 static MISSING_W3D_NOTES: AtomicUsize = AtomicUsize::new(0);
+static MISSING_TEXTURE_WARNED_KEYS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+static MISSING_W3D_WARNED_KEYS: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+/// Per-key count of MISSING_ASSET warnings actually emitted (warn-once observable).
+static MISSING_W3D_WARN_COUNTS: LazyLock<Mutex<HashMap<String, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Emit `MISSING_ASSET:<name>` once per session key; repeats demote to debug.
+///
+/// The per-frame render/resolve paths call these notes for every unresolvable
+/// asset on every attempt; without the once-set a single missing mesh floods
+/// stderr with thousands of identical warnings. The note counters still count
+/// every occurrence.
+fn warn_missing_asset_once(warned: &LazyLock<Mutex<HashSet<String>>>, name: &str) -> bool {
+    let dedup_key = name.to_ascii_lowercase();
+    let first_occurrence = match warned.lock() {
+        Ok(mut keys) => keys.insert(dedup_key),
+        // Poisoned lock: keep the warn rather than silently dropping it.
+        Err(_) => true,
+    };
+    if first_occurrence {
+        log::warn!("{}", diagnose_missing_asset(name));
+    } else {
+        log::debug!("(repeat) {}", diagnose_missing_asset(name));
+    }
+    first_occurrence
+}
 
 /// Called from TextureManager when a missing-texture fallback is recorded.
 pub fn note_missing_texture_fallback(texture_name: &str) {
     MISSING_TEXTURE_NOTES.fetch_add(1, Ordering::Relaxed);
-    log::warn!("{}", diagnose_missing_asset(texture_name));
+    warn_missing_asset_once(&MISSING_TEXTURE_WARNED_KEYS, texture_name);
 }
 
 /// Called from AssetManager when a W3D model load fails on the production path.
 pub fn note_missing_w3d_model(model_name: &str) {
     MISSING_W3D_NOTES.fetch_add(1, Ordering::Relaxed);
-    log::warn!("{}", diagnose_missing_asset(model_name));
+    if warn_missing_asset_once(&MISSING_W3D_WARNED_KEYS, model_name) {
+        if let Ok(mut counts) = MISSING_W3D_WARN_COUNTS.lock() {
+            *counts.entry(model_name.to_ascii_lowercase()).or_insert(0) += 1;
+        }
+    }
+}
+
+/// Number of MISSING_ASSET warnings emitted for this model key this session.
+pub fn missing_w3d_warn_count(model_name: &str) -> usize {
+    MISSING_W3D_WARN_COUNTS
+        .lock()
+        .map(|counts| {
+            counts
+                .get(&model_name.to_ascii_lowercase())
+                .copied()
+                .unwrap_or(0)
+        })
+        .unwrap_or(0)
 }
 
 pub fn missing_texture_note_count() -> usize {
@@ -347,7 +391,6 @@ pub struct ReleaseCandidateReport {
 }
 
 pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCandidateReport {
-    set_verification_single_authority(true);
     let mut soak_ok = true;
     let mut start_hashes = Vec::new();
 
@@ -430,8 +473,6 @@ pub fn run_release_candidate_package(soak_runs: u32, frames: u32) -> ReleaseCand
             soak_ok = false;
         }
     }
-
-    set_verification_single_authority(false);
 
     ReleaseCandidateReport {
         soak_runs: soak_runs.max(1),

@@ -758,17 +758,13 @@ impl GameLogic {
         } else if is_stinger {
             Some(STINGER_FIRE_AUDIO.to_string())
         } else if is_patriot && is_laser_patriot {
-            Some(
-                crate::game_logic::host_base_defense::LAZR_PATRIOT_FIRE_AUDIO.to_string(),
-            )
+            Some(crate::game_logic::host_base_defense::LAZR_PATRIOT_FIRE_AUDIO.to_string())
         } else if is_patriot {
             Some(PATRIOT_FIRE_AUDIO.to_string())
         } else if is_fire_base {
             Some(crate::game_logic::host_fire_base::FIRE_BASE_FIRE_AUDIO.to_string())
         } else if is_tunnel {
-            Some(
-                crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_AUDIO.to_string(),
-            )
+            Some(crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_AUDIO.to_string())
         } else {
             self.objects
                 .get(&defense_id)

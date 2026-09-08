@@ -303,8 +303,21 @@ impl Object {
             self.radar_data = None;
         }
 
+        // C++ Object::~Object tail calls GameLogic::sendObjectDestroyed
+        // (GameLogic.cpp:4134) as a plain virtual call — no global lock
+        // exists in C++. The Rust global GameLogic mutex is held across the
+        // ENTIRE update (game_logic_impl/globals.rs update_game_logic), so
+        // objects destroyed by destroyObject / processDestroyList mid-update
+        // can never take it here: the try_lock used to silently skip the
+        // drawable/client unbind for exactly those objects. Mirror the
+        // send_object_destroyed body directly instead — it touches only the
+        // game-client bridge, never GameLogic state, so it is safe without
+        // the lock.
         if let Ok(logic) = crate::system::game_logic::get_game_logic().try_lock() {
             logic.send_object_destroyed(self.id);
+        } else if let Some(client) = crate::helpers::TheGameClient::get() {
+            client.clear_object_model_draws(self.id);
+            log::trace!("sendObjectDestroyed: obj={}", self.id);
         }
 
         let _ = self.set_team(None);

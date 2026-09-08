@@ -352,6 +352,9 @@ pub const EVA_COUNT_RESIDUAL: usize = 53;
 pub const EVA_PRIORITY_DEFAULT_RESIDUAL: u32 = 1;
 /// EvaCheckInfo default framesBetweenChecks residual (900 = 30s @ 30fps).
 pub const EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL: u32 = 900;
+/// Eva.ini:63-66 LowPower `TimeBetweenChecksMS = 120000` → 3600 frames @ 30fps
+/// (C++ Eva::update honours the per-message EvaCheckInfo window, Eva.cpp:377-387).
+pub const EVA_LOWPOWER_FRAMES_BETWEEN_CHECKS_INI: u32 = 3600;
 /// EvaCheckInfo default framesToExpire residual (150 = 5s @ 30fps).
 pub const EVA_FRAMES_TO_EXPIRE_DEFAULT_RESIDUAL: u32 = 150;
 /// Eva enabled default residual.

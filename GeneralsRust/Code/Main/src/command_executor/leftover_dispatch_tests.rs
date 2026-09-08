@@ -1,9 +1,11 @@
-use crate::command_executor::{CommandExecutor, leftover::*};
 use crate::command_executor::validate::*;
+use crate::command_executor::{CommandExecutor, leftover::*};
+use crate::command_system::ModifierKeys;
 use crate::command_system::{
     CommandResult, CommandType, DropTarget, GameCommand, GuardTarget, PowerTarget,
     SpecialPowerType, WeaponSlot, WeaponTarget,
 };
+use crate::game_logic::Player;
 use crate::game_logic::game_logic::AudioEventRequest;
 use crate::game_logic::{
     AIState, GameLogic, KindOf, ObjectId, ObjectType, PendingSpecialAbility, Resources, Team,
@@ -18,8 +20,6 @@ use gamelogic::system::game_logic::current_frame;
 use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
-use crate::command_system::ModifierKeys;
-use crate::game_logic::Player;
 use std::time::SystemTime;
 
 fn command(player_id: u32, command_type: CommandType, selected: Vec<ObjectId>) -> GameCommand {
@@ -832,7 +832,10 @@ fn execute_build_records_build_slot_and_docks_off_center() {
         );
         assert!(dz.dozer_task_build_order_frame >= 12);
         assert_eq!(dz.target, Some(scaffold));
-        assert_eq!(dz.ai_state, AIState::Constructing);
+        // C++ DozerAIUpdate.cpp:499-507 — newTask BUILD walks to the dock
+        // (AI_MOVE) and flips to Constructing only on arrival; a dozer placed
+        // far from the pad must be Moving, not Constructing.
+        assert_eq!(dz.ai_state, AIState::Moving);
         let dest = dz
             .movement
             .target_position

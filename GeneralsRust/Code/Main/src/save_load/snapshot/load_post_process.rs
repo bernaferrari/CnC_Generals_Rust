@@ -403,6 +403,21 @@ impl Snapshot for WorldSnapshot {
             self.object_disguises.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V22_TAIL_VERSION {
+            // v22 tail: the driving instance's ADC words plus the exact
+            // next-object-ID counter. Positional record: six raw u32 words
+            // then the counter, matching the bincode field order.
+            xfer.xfer_marker_label("LogicRngSeedWords")?;
+            for word in &mut self.logic_rng_seed_words {
+                xfer.xfer_u32(word)?;
+            }
+            xfer.xfer_marker_label("NextObjectID")?;
+            xfer.xfer_u32(&mut self.next_object_id)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.logic_rng_seed_words = [0; 6];
+            self.next_object_id = 0;
+        }
+
         Ok(())
     }
 

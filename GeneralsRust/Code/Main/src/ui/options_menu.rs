@@ -1446,6 +1446,9 @@ mod tests {
             menu.control_value("video.gamma"),
             Some(&OptionValue::Integer(60))
         );
+        // toggle_option flips the control under the cursor on the active tab
+        // (OptionsMenu mouse path); music volume lives on the Audio tab.
+        menu.switch_tab(OptionsTab::Audio);
         menu.toggle_option("audio.music_volume");
         match menu.control_value("audio.music_volume") {
             Some(OptionValue::Float(v)) => assert!((*v - 0.9).abs() < 0.001),
@@ -1473,27 +1476,37 @@ mod tests {
         menu.toggle_option("controls.use_camera");
         menu.toggle_option("controls.draw_anchor");
         menu.toggle_option("controls.move_anchor");
-        assert_eq!(
-            menu.control_value("controls.save_camera"),
-            Some(&OptionValue::Boolean(false))
-        );
+        // C++ OptionsMenu.cpp:742-908 setDefaults never touches the
+        // replay-camera or RMB-scroll-anchor checkboxes. The loaded anchor
+        // defaults are not all-true (DrawRMBScrollAnchor/MoveRMBScrollAnchor
+        // come from InGameUI settings), so end each of the four opposite its
+        // hardcoded default and require restore_defaults to preserve every
+        // toggled value instead of pinning literal false.
+        let keys = [
+            "controls.save_camera",
+            "controls.use_camera",
+            "controls.draw_anchor",
+            "controls.move_anchor",
+        ];
+        let mut toggled = Vec::new();
+        for key in keys {
+            if menu.control_value(key) == menu.default_values.get(key) {
+                menu.toggle_option(key);
+            }
+            menu.toggle_option(key);
+            toggled.push((
+                key,
+                menu.control_value(key).cloned().expect("checkbox value"),
+            ));
+        }
         menu.restore_defaults();
-        assert_eq!(
-            menu.control_value("controls.save_camera"),
-            Some(&OptionValue::Boolean(false))
-        );
-        assert_eq!(
-            menu.control_value("controls.use_camera"),
-            Some(&OptionValue::Boolean(false))
-        );
-        assert_eq!(
-            menu.control_value("controls.draw_anchor"),
-            Some(&OptionValue::Boolean(false))
-        );
-        assert_eq!(
-            menu.control_value("controls.move_anchor"),
-            Some(&OptionValue::Boolean(false))
-        );
+        for (key, value) in &toggled {
+            assert_eq!(
+                menu.control_value(key),
+                Some(value),
+                "restore_defaults must not touch {key}"
+            );
+        }
     }
 
     #[test]

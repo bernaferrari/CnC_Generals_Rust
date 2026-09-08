@@ -1,0 +1,29 @@
+# Repository test-runner policy (cargo-nextest).
+#
+# Why nextest is the required runner for this workspace: the suite (10k+ tests)
+# mutates process-global engine singletons (shroud manager, pathfinding grid,
+# THE_TERRAIN_LOGIC, PlayerList, TeamFactory, FileSystem, radar, THE_EVA,
+# particle manager, authority env). Under the stock libtest harness all tests
+# share one process, so a single panicking test poisons those globals and
+# cascades hundreds of unrelated failures, and tests that legitimately hold a
+# global lock stall unrelated tests (convoy). nextest runs every test in its
+# own fresh process: global mutations cannot leak, a panic cannot poison, and
+# convoy stalls disappear — matching C++ where each test binary boots its own
+# engine (World::Cfg test rigs).
+#
+# Run: `cargo nextest run` (workspace) or `cargo nextest run -p generals_main`.
+#
+# NOTE: heavyweight golden-skirmish / gameworld_shadow e2e tests each take
+# minutes in debug builds and run concurrently under their own processes; use
+# `cargo nextest run -p generals_main -E 'not test(golden_skirmish) and not
+# test(host_construct_after_load_map) and not test(golden_campaign) and not
+# package(generals_main) and test(gameworld_shadow)'`-style filters when a
+# quick signal is needed (the filters select the lightweight set).
+
+[profile.default]
+# A hung test (lost lock, blocked world tick) fails instead of stalling the
+# whole run; 180s covers the heaviest golden-skirmish e2e loops in debug.
+slow-timeout = { period = "60s", terminate-after = 3 }
+fail-fast = false
+retries = 0
+test-threads = "num-cpus"

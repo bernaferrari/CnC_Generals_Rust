@@ -5,7 +5,7 @@
 use super::super::xfer::*;
 use super::super::xfer_load::XferLoad;
 use super::super::xfer_save::XferSave;
-use super::game_state::SaveCode;
+use super::game_state::{GameState, SaveCode};
 use super::{
     get_game_state, get_runtime_drawable_id_counter, get_runtime_object_id_counter,
     notify_begin_load, notify_end_load, notify_get_game_mode, notify_get_skirmish_payload,
@@ -378,6 +378,17 @@ impl Snapshot for GameStateMap {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        // Only safe outside the GameState save/load block loop: the loop holds
+        // THE_GAME_STATE's mutex and dispatches xfer_with_state instead.
+        let mut state = get_game_state();
+        self.xfer_with_state(xfer, &mut state)
+    }
+
+    fn xfer_with_state(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        state: &mut GameState,
+    ) -> Result<(), XferStatus> {
         let save_code_to_xfer = |code: SaveCode| match code {
             SaveCode::InvalidData => XferStatus::InvalidData,
             SaveCode::FileNotFound => XferStatus::FileNotFound,
@@ -401,7 +412,6 @@ impl Snapshot for GameStateMap {
             let mut first_save = false;
             match xfer.get_xfer_mode() {
                 XferMode::Save => {
-                    let mut state = get_game_state();
                     let global = get_global_data()
                         .map(|data| data.read().map_name.clone())
                         .unwrap_or_default();
@@ -461,7 +471,6 @@ impl Snapshot for GameStateMap {
                     xfer.xfer_ascii_string(&mut pristine_map_name)?;
 
                     {
-                        let mut state = get_game_state();
                         let real_save =
                             state.portable_map_path_to_real_map_path(&save_game_map_name);
                         let real_pristine =
@@ -494,10 +503,7 @@ impl Snapshot for GameStateMap {
                         notify_set_game_mode(game_mode);
                     }
 
-                    let save_map_path = {
-                        let state = get_game_state();
-                        state.get_save_game_info().save_game_map_name.clone()
-                    };
+                    let save_map_path = state.get_save_game_info().save_game_map_name.clone();
                     self.extract_and_save_map(&save_map_path, xfer)
                         .map_err(save_code_to_xfer)?;
                 }

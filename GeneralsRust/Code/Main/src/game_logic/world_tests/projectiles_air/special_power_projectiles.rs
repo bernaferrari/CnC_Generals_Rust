@@ -253,10 +253,23 @@ fn baikonur_launch_door_and_detonation() {
 #[test]
 fn spectre_orbit_spawns_howitzer_shell_objects() {
     use crate::game_logic::KindOf;
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
     use crate::game_logic::special_power_strikes::{
         SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES,
-        SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_OBJECT,
+        SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES,
+        SPECTRE_HOWITZER_SHELL_OBJECT,
     };
+    clear_test_template_voices();
+    // C++ SpectreGunshipUpdate.cpp:124/585-586 — per-unit
+    // getPerUnitSound("HowitzerFire"); author the slot and keep asserting the
+    // same retail event name fires.
+    set_test_per_unit_sound(
+        "AmericaCommandCenter",
+        "HowitzerFire",
+        SPECTRE_HOWITZER_FIRE_SOUND,
+    );
     let mut logic = GameLogic::new();
     ensure_test_tank_template(&mut logic);
     let mut sc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
@@ -285,7 +298,9 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
     // gattling strafe wind settles for > HowitzerFollowLag (12f); wind the aim
     // the same per-frame way world_tick does before the due tick.
     for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
-        logic.special_power_strikes.advance_orbit_strafe(logic.frame);
+        logic
+            .special_power_strikes
+            .advance_orbit_strafe(logic.frame);
     }
     logic
         .special_power_strikes
@@ -295,7 +310,15 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
         logic.queued_audio_events.iter().any(|e| {
             e.event_type == SPECTRE_HOWITZER_FIRE_SOUND && e.object_id == Some(caster) && !e.stop
         }),
-        "howitzer volley must queue HowitzerFireSound on the gunship: {:?}",
+        "howitzer volley must queue the authored HowitzerFire per-unit slot: {:?}",
+        logic.queued_audio_events
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != "HowitzerFire"),
+        "raw slot token must never be queued: {:?}",
         logic.queued_audio_events
     );
     assert!(
@@ -310,18 +333,178 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
         .find(|o| o.spectre_howitzer_shell)
         .expect("SpectreHowitzerShell");
     assert_eq!(shell.template_name, SPECTRE_HOWITZER_SHELL_OBJECT);
+    // HeightDie InitialDelay only ARMS the pad-safe ground kill
+    // (OnlyWhenMovingDown + TargetHeight); a shell still aloft survives past
+    // the old 30f hard expiry.
     let sid = shell.id;
-    logic.frame = logic
-        .frame
-        .saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 2);
+    let spawn_frame = logic.frame;
+    logic.frame = spawn_frame + SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 2;
     logic.update_spectre_howitzer_shell_objects();
     assert!(
-        logic
-            .host_object(sid)
+        logic.host_object(sid).map(|o| o.is_alive()).unwrap_or(false),
+        "shell aloft must survive HeightDie InitialDelay (no y<=1 kill while above target height)"
+    );
+    // C++ DumbProjectileBehavior DEFAULT_MAX_LIFESPAN (10 s → 300f): the
+    // shell detonates at end of life with the detonation FX + DEATH_DETONATED.
+    logic.frame = spawn_frame + SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES;
+    logic.update_spectre_howitzer_shell_objects();
+    let shell_after = logic.host_object(sid);
+    assert!(
+        shell_after
+            .as_ref()
             .map(|o| !o.is_alive() || o.status.destroyed)
-            .unwrap_or(true)
+            .unwrap_or(true),
+        "shell must detonate at MaxLifespan"
+    );
+    if let Some(o) = shell_after {
+        assert_eq!(
+            o.status.death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
+            "natural detonation dies DEATH_DETONATED, never the InstantDeath generic path"
+        );
+    }
+    assert!(
+        logic
+            .combat_particles()
+            .active_systems()
+            .any(|p| p.template_name == "FX_SpectreHowitzerExplosion"),
+        "natural detonation must queue FX_SpectreHowitzerExplosion"
+    );
+    clear_test_template_voices();
+}
+
+
+#[test]
+fn spectre_howitzer_blast_hits_allies_and_dies_typed_explosion() {
+    use crate::game_logic::KindOf;
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::special_power_strikes::SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES;
+
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let mut sc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    sc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), sc);
+    let caster = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let aim = Vec3::new(200.0, 0.0, 200.0);
+    let field_id = logic
+        .special_power_strikes
+        .spawn_orbit_field(caster, Team::USA, aim, logic.frame, 1);
+    // C++ RadiusDamageAffects ALLIES ENEMIES NEUTRALS: the friendly at the
+    // impact takes the 80 EXPLOSION too; only the acquire filters (gattling)
+    // gate on team.
+    let friendly = logic
+        .create_object("TestTank", Team::USA, aim)
+        .unwrap();
+    let enemy = logic.create_object("TestTank", Team::GLA, aim).unwrap();
+    logic.objects.get_mut(&enemy).unwrap().health.current = 1.0;
+    let friendly_hp_before = logic.objects.get(&friendly).unwrap().health.current;
+
+    // Wind the gattling strafe (C++ :609-623) past HowitzerFollowLag so the
+    // howitzer stream is follow-ready, then run the live orbit tick.
+    for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
+        logic.special_power_strikes.advance_orbit_strafe(logic.frame);
+    }
+    if let Some(f) = logic
+        .special_power_strikes
+        .orbit_fields_mut()
+        .iter_mut()
+        .find(|f| f.id == field_id)
+    {
+        f.next_tick_frame = logic.frame;
+    }
+    logic.update_spectre_orbit_fields();
+
+    let friendly_hp_after = logic.objects.get(&friendly).unwrap().health.current;
+    assert!(
+        friendly_hp_after < friendly_hp_before,
+        "howitzer blast must damage same-team friendlies at the impact (ally hp {} -> {})",
+        friendly_hp_before,
+        friendly_hp_after
+    );
+    let enemy_obj = logic.objects.get(&enemy).unwrap();
+    assert!(
+        !enemy_obj.is_alive() || enemy_obj.status.destroyed,
+        "enemy at the impact must die"
+    );
+    assert_eq!(
+        enemy_obj.status.death_type,
+        HostDeathType::Exploded,
+        "howitzer detonation kills with DeathType EXPLODED, not Unresistable/NORMAL"
     );
 }
+
+#[test]
+fn spectre_deployment_tier_drives_module_template_and_ship_orbit() {
+    use crate::game_logic::KindOf;
+    use crate::game_logic::host_spectre_gunship_deployment::SPECTRE_GUNSHIP_TEMPLATE;
+    use crate::game_logic::special_power_strikes::SpectreGunshipScienceTier;
+
+    let mut logic = GameLogic::new();
+    for name in [
+        "AmericaCommandCenter",
+        "AirF_AmericaCommandCenter",
+    ] {
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Structure).set_health(5000.0);
+        logic.templates.insert(name.to_string(), t);
+    }
+    let target = Vec3::new(200.0, 0.0, 200.0);
+
+    // AirF + SCIENCE_SpectreGunship1 → AirF_AmericaJetSpectreGunship1 with the
+    // 10000 ms (300f) orbit — the ship departs exactly when firing stops.
+    let airf = logic
+        .create_object("AirF_AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let ship = logic
+        .initiate_spectre_gunship_deployment_with_tier(
+            airf,
+            target,
+            SpectreGunshipScienceTier::Level1,
+        )
+        .expect("tiered spawn");
+    let g = logic.host_object(ship).unwrap();
+    assert_eq!(g.template_name, "AirF_AmericaJetSpectreGunship1");
+    assert_eq!(
+        g.spectre_gunship_update.as_ref().unwrap().orbit_frames,
+        300,
+        "AirF LEVEL1 OrbitTime 10000 ms"
+    );
+
+    // Vanilla USA (no RequiredScience module) keeps AmericaJetSpectreGunship
+    // at the retail default 15000 ms (450f) — even at Level2-tier resolution.
+    let vanilla = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let ship2 = logic
+        .initiate_spectre_gunship_deployment_with_tier(
+            vanilla,
+            target,
+            SpectreGunshipScienceTier::Level2,
+        )
+        .expect("vanilla spawn");
+    let g2 = logic.host_object(ship2).unwrap();
+    assert_eq!(g2.template_name, SPECTRE_GUNSHIP_TEMPLATE);
+    assert_eq!(g2.spectre_gunship_update.as_ref().unwrap().orbit_frames, 450);
+
+    // AirF Level3 → AirF_AmericaJetSpectreGunship3 with the 20000 ms (600f) orbit.
+    let airf2 = logic
+        .create_object("AirF_AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let ship3 = logic
+        .initiate_spectre_gunship_deployment_with_tier(
+            airf2,
+            target,
+            SpectreGunshipScienceTier::Level3,
+        )
+        .expect("tier3 spawn");
+    let g3 = logic.host_object(ship3).unwrap();
+    assert_eq!(g3.template_name, "AirF_AmericaJetSpectreGunship3");
+    assert_eq!(g3.spectre_gunship_update.as_ref().unwrap().orbit_frames, 600);
+}
+
 
 #[test]
 fn scud_storm_anthrax_beta_spawns_poison_field_upgraded_large() {
@@ -574,15 +757,19 @@ fn radiation_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     // clean). Pre-fix fallback was StructureArmor (HAZARD_CLEANUP 0%, FLAME 50%).
     assert_eq!(apply_residual_armor(obj, DamageType::Flame, 100.0), 0.0);
     let cleanup = apply_residual_armor(obj, DamageType::HazardCleanup, 100.0);
-    assert!((cleanup - 100.0).abs() < 0.01, "HAZARD_CLEANUP must be 100%, got {cleanup}");
+    assert!(
+        (cleanup - 100.0).abs() < 0.01,
+        "HAZARD_CLEANUP must be 100%, got {cleanup}"
+    );
     let tmpl = logic
         .templates
         .get(NUKE_RADIATION_OBJECT_NAME)
         .expect("synthesized radiation template");
-    assert!(tmpl
-        .armor_sets
-        .iter()
-        .any(|s| s.armor.as_deref() == Some("HazardousMaterialArmor")));
+    assert!(
+        tmpl.armor_sets
+            .iter()
+            .any(|s| s.armor.as_deref() == Some("HazardousMaterialArmor"))
+    );
 }
 
 #[test]
@@ -622,7 +809,10 @@ fn toxin_field_object_carries_cleanup_hazard_kindof_and_hazardous_armor() {
     // C++ HazardousMaterialArmor: flame cannot clean poison fields either.
     assert_eq!(apply_residual_armor(obj, DamageType::Flame, 100.0), 0.0);
     let cleanup = apply_residual_armor(obj, DamageType::HazardCleanup, 100.0);
-    assert!((cleanup - 100.0).abs() < 0.01, "HAZARD_CLEANUP must be 100%, got {cleanup}");
+    assert!(
+        (cleanup - 100.0).abs() < 0.01,
+        "HAZARD_CLEANUP must be 100%, got {cleanup}"
+    );
 }
 
 #[test]
@@ -2786,7 +2976,6 @@ fn pilot_find_vehicle_collide_module_would_like_residual() {
             .unwrap_or(true),
         "pilot consumed after CollideModule-gated auto-recrew residual"
     );
-
 }
 
 #[test]
@@ -2896,4 +3085,107 @@ fn eject_pilot_invulnerable_time_residual() {
         hp_after < hp_mid - 0.5,
         "post-expiry pilot must take damage"
     );
+}
+
+#[test]
+fn spectre_orbit_queues_voice_rapid_fire_once_per_fast_crossing() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_per_unit_sound,
+    };
+    use crate::game_logic::special_power_strikes::{
+        SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO, SPECTRE_VOICE_RAPID_FIRE_SLOT,
+    };
+    use crate::game_logic::KindOf;
+
+    clear_test_template_voices();
+    set_test_per_unit_sound(
+        "AmericaCommandCenter",
+        SPECTRE_VOICE_RAPID_FIRE_SLOT,
+        "SpectreOrbitVoiceRapidTest",
+    );
+
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let mut sc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    sc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), sc);
+    let caster = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let field_id = logic.special_power_strikes.spawn_orbit_field(
+        caster,
+        Team::USA,
+        Vec3::new(200.0, 0.0, 200.0),
+        logic.frame,
+        1,
+    );
+    // Park the gattling stream at MEAN with its next shot due now: the tick
+    // must cross MEAN→FAST (C++ FiringTracker::speedUp) and dispatch the
+    // per-unit VoiceRapidFire. Howitzer stays not-due this frame.
+    {
+        let f = logic
+            .special_power_strikes
+            .orbit_fields_mut()
+            .iter_mut()
+            .find(|f| f.id == field_id)
+            .unwrap();
+        f.gattling_consecutive = SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO;
+        f.gattling_fire_level = 1;
+        f.next_gattling_tick_frame = logic.frame;
+    }
+    logic.update_spectre_orbit_fields();
+
+    let rapid_count = |logic: &GameLogic| {
+        logic
+            .queued_audio_events
+            .iter()
+            .filter(|e| e.event_type == "SpectreOrbitVoiceRapidTest")
+            .count()
+    };
+    assert_eq!(
+        rapid_count(&logic),
+        1,
+        "exactly one VoiceRapidFire per MEAN→FAST crossing: {:?}",
+        logic.queued_audio_events
+    );
+    let evt = logic
+        .queued_audio_events
+        .iter()
+        .find(|e| e.event_type == "SpectreOrbitVoiceRapidTest")
+        .unwrap();
+    assert_eq!(
+        evt.object_id,
+        Some(caster),
+        "C++ soundToPlay.setObjectID(self->getID())"
+    );
+    assert!(
+        evt.position.is_some(),
+        "VoiceRapidFire must carry the firing unit position"
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != SPECTRE_VOICE_RAPID_FIRE_SLOT),
+        "raw slot token must never be queued: {:?}",
+        logic.queued_audio_events
+    );
+
+    // Holding FAST does not re-cross: the next due gattling tick stays silent.
+    let next_tick = logic
+        .special_power_strikes
+        .orbit_fields()
+        .iter()
+        .find(|f| f.id == field_id)
+        .map(|f| f.next_gattling_tick_frame)
+        .unwrap();
+    logic.frame = next_tick;
+    logic.update_spectre_orbit_fields();
+    assert_eq!(
+        rapid_count(&logic),
+        1,
+        "FAST hold must not re-trigger VoiceRapidFire: {:?}",
+        logic.queued_audio_events
+    );
+    clear_test_template_voices();
 }

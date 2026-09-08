@@ -407,7 +407,10 @@ fn physical_winit_mouse_input_drives_retail_menus_with_provenance_gates() {
     let route = input
         .find("WindowEvent::MouseInput {")
         .expect("winit MouseInput match arm");
-    let route_body = &input[route..route + 500];
+    let route_body = &input[route..input[route..]
+        .find("WindowEvent::CursorMoved")
+        .map(|i| route + i)
+        .unwrap_or(route + 1_500)];
     assert!(
         route_body.contains("MouseInputOrigin::Physical"),
         "OS WindowEvent::MouseInput must be Physical origin"
@@ -447,7 +450,10 @@ fn macos_device_event_button_is_physical_only_when_cursor_in_window() {
     let start = run
         .find("Event::DeviceEvent")
         .expect("DeviceEvent::Button residual");
-    let body = &run[start..run.len().min(start + 900)];
+    let body = &run[start..run[start + 10..]
+        .find("\n            Event::")
+        .map(|i| start + 10 + i)
+        .unwrap_or(run.len().min(start + 4_000))];
     assert!(
         body.contains("macos_cursor_client_if_in_window")
             && body.contains("MouseInputOrigin::Physical")
@@ -480,7 +486,9 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
     let input = include_str!("input.rs");
     assert!(
         input.contains("rmb_scroll_started_physically")
-            && input.contains("self.handle_right_click(origin, physical_rmb_gesture)"),
+            // Re-pinned 2026-09-07: rustfmt split the method chain across
+            // lines (`self\n    .handle_right_click(...)`); match the call.
+            && input.contains(".handle_right_click(origin, physical_rmb_gesture)"),
         "Gather proof must carry actual press+release mouse provenance into the RMB command"
     );
 
@@ -528,11 +536,18 @@ fn physical_gather_proof_requires_physical_accepted_order_and_real_dropoff() {
         "presentation-frozen and boot command classification must agree on HARVESTER"
     );
 
+    // Re-pinned 2026-09-07: HARVESTER classification moved from definition.rs
+    // into apply_authored_semantic_kind_bits (metadata.rs); definition.rs
+    // keeps only the Resource/Harvestable bridge kinds.
+    let template_semantics =
+        include_str!("../game_logic/world_objects/spawn_templates/metadata.rs");
     let template_parse = include_str!("../game_logic/world_objects/spawn_templates/definition.rs");
     assert!(
-        template_parse.contains("let is_harvester = has_kind(\"harvester\")")
+        template_semantics.contains("has_kind(\"harvester\")")
+            && template_semantics.contains("KindOf::Harvester")
             && template_parse.contains("has_kind(\"harvestable\")")
-            && !template_parse.contains("kind_of.contains(\"harvest\")"),
+            && !template_parse.contains("kind_of.contains(\"harvest\")")
+            && !template_semantics.contains("kind_of.contains(\"harvest\")"),
         "HARVESTER must not be conflated with HARVESTABLE or a Resource template"
     );
 
@@ -727,10 +742,7 @@ fn configured_skirmish_start_restamps_mode_after_map_clear_before_physical_evide
             include_str!("control_bar_bridge.rs"),
             "host_control_bar_evidence_eligible",
         ),
-        (
-            super::ENGINE_SRC,
-            "host_physical_gather_evidence_eligible",
-        ),
+        (super::ENGINE_SRC, "host_physical_gather_evidence_eligible"),
         (
             include_str!("runtime_host/gameplay.rs"),
             "host_popup_save_load_evidence_eligible",

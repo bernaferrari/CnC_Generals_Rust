@@ -15,6 +15,7 @@ impl SnapshotBuilder {
     pub(super) fn restore_all_objects(
         &self,
         objects: &HashMap<ObjectId, ObjectSnapshot>,
+        next_object_id: u32,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         game_logic.clear_all_objects();
@@ -49,7 +50,15 @@ impl SnapshotBuilder {
             game_logic.refresh_battle_bus_armed_riders_weapon_set(id);
         }
 
-        game_logic.set_next_object_id_for_restore(ObjectId(max_id.saturating_add(1)));
+        // C++ `GameStateMap::xfer` moves the object-ID counter verbatim and
+        // EARLY in the load (GameStateMap.cpp:372-383) so objects created
+        // after the load (bridges, post-load production) can never overlap
+        // an ID transferred from the save — including IDs of objects that
+        // were destroyed before the save and are absent from `objects`.
+        // The saved counter is authoritative; max-live-id + 1 remains only
+        // as the pre-v22 fallback for saves that lack the field (0).
+        let fallback_next = max_id.saturating_add(1);
+        game_logic.set_next_object_id_for_restore(ObjectId(next_object_id.max(fallback_next)));
         // Loaded objects live in the host HashMap `host_authoritative_*` reads
         // when GameWorld is not coupled.
         Ok(())
@@ -1005,6 +1014,13 @@ impl SnapshotBuilder {
                 snapshot.remnant_objects_spawned,
                 snapshot.remnant_damage_applications_total,
             );
+        // Flight-object warhead ownership (A10 / CarpetBomb / AnthraxBomb /
+        // Scud / Neutron live deliveries) is a live-only residual: the flight
+        // objects do not persist, so ownership falls back to the registry
+        // impact path after load and the persisted impact still lands.
+        game_logic
+            .special_power_strikes_mut()
+            .fail_live_delivery_ownership_back_to_registry();
         Ok(())
     }
 
@@ -1036,13 +1052,34 @@ impl SnapshotBuilder {
         exp_tracker_snapshot: &ExperienceTrackerSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        // C++ ExperienceTracker::xfer (ExperienceTracker.cpp:222-245) restores
+        // m_currentLevel / m_currentExperience verbatim and replays nothing.
+        // The object snapshots already overlay the saved XP, so replaying the
+        // tracker events on top of an intact object tail double-counts: a unit
+        // saved at 180/Elite loaded at 360/Heroic. The event stream is only a
+        // recovery fallback for tails whose object XP is missing or stale
+        // (see snapshot_restore_recovers_veterancy_from_tracker_data): an
+        // object re-gains XP only when its restored experience differs from
+        // the tracker event total.
+        let mut event_totals: HashMap<ObjectId, f32> = HashMap::new();
         for event in &exp_tracker_snapshot.experience_events {
             if event.experience_gained <= 0.0 {
                 continue;
             }
-            if let Some(object) = game_logic.host_object_mut(event.object_id) {
-                object.gain_experience(event.experience_gained.max(0.0));
+            *event_totals.entry(event.object_id).or_insert(0.0) +=
+                event.experience_gained.max(0.0);
+        }
+
+        for (object_id, total) in &event_totals {
+            let Some(object) = game_logic.host_object_mut(*object_id) else {
+                continue;
+            };
+            // Capture writes experience_gained == the object's XP at save
+            // time, so an intact restore matches exactly and must not re-gain.
+            if object.experience.current == *total {
+                continue;
             }
+            object.gain_experience(*total);
         }
 
         for (object_id, bonuses) in &exp_tracker_snapshot.veterancy_bonuses {

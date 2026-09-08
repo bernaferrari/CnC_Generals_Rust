@@ -285,8 +285,42 @@ pub fn get_game_logic() -> &'static Mutex<GameLogic> {
     game_logic_mutex()
 }
 
+/// Scoped in-update frame (migration aid, shape of the logic-RNG owner and
+/// the authority window): while a thread is inside `GameLogic::update`, the
+/// authoritative frame is the update's own `self.frame` — resolving it by
+/// locking the GAME_LOGIC singleton from WITHIN the update self-deadlocks
+/// (script engine, object helpers, and evaluators all read the frame during
+/// Phase 1/6b). Published at update entry, cleared on every exit path
+/// including unwinding.
+thread_local! {
+    static IN_UPDATE_FRAME: std::cell::Cell<Option<UnsignedInt>> =
+        const { std::cell::Cell::new(None) };
+}
+
+struct InUpdateFrameGuard;
+
+impl Drop for InUpdateFrameGuard {
+    fn drop(&mut self) {
+        IN_UPDATE_FRAME.with(|c| c.set(None));
+    }
+}
+
+/// Publish `frame` as this thread's in-update frame for the duration of the
+/// guard. Private to the update path.
+pub(crate) fn enter_update_frame(frame: UnsignedInt) -> InUpdateFrameGuard {
+    IN_UPDATE_FRAME.with(|c| c.set(Some(frame)));
+    InUpdateFrameGuard
+}
+
 /// Try to fetch the current simulation frame from the global GameLogic instance.
+///
+/// Inside an active `GameLogic::update` on this thread, returns that update's
+/// frame WITHOUT locking the singleton (the lock is held by the update
+/// itself; locking again would self-deadlock).
 pub fn try_current_frame() -> Result<UnsignedInt, String> {
+    if let Some(frame) = IN_UPDATE_FRAME.with(|c| c.get()) {
+        return Ok(frame);
+    }
     game_logic_mutex()
         .lock()
         .map(|logic| logic.get_frame())

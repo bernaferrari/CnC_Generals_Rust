@@ -50,6 +50,7 @@ impl ScriptEvaluator {
         {
             sum
         } else {
+            // Wave 343: empty dual-world → Ok(false).
             if dual_world_registry_unavailable() {
                 return Ok(false);
             }

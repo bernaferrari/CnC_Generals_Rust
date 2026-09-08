@@ -87,6 +87,24 @@ fn play_host_illegal_place_feedback(
     let _ = crate::assets::audio::play_sound_through_the_audio("NoCanDoSound");
 }
 
+/// Shared construct-builder identity predicate (audit-7 S-3): mirrors
+/// `PresentationFrame::alive_construct_builder_ids` — `KindOf::Dozer` or
+/// `KindOf::Worker`, or a template named *dozer/worker/crane/construction*.
+/// The arm pick, place confirm, and nearest fallback all share this.
+fn object_is_construct_builder(o: &crate::presentation_frame::RenderableObject) -> bool {
+    use crate::game_logic::KindOf;
+    if crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::Dozer)
+        || crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::Worker)
+    {
+        return true;
+    }
+    let name = o.template_name.to_ascii_lowercase();
+    name.contains("dozer")
+        || name.contains("worker")
+        || name.contains("crane")
+        || name.contains("construction")
+}
+
 fn resolve_voice_no_build(template_name: &str) -> Option<String> {
     let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
     let factory = guard.as_ref()?;
@@ -802,10 +820,8 @@ impl CnCGameEngine {
         // Preview: IGNORE_STEALTHED so unseen stealthed units do not redden the ghost.
         let code = self.host_legal_build_code_at_for_preview(team, loc, &template, builder_id);
         let legal = code == crate::game_logic::host_production_buildable_command_residual::LBC_OK;
-        // Dual HUD residual
-        self.game_hud
-            .construction_panel
-            .sync_structure_placement_cursor(loc.x, loc.z, legal);
+        // Single rendered GameHUD: only ui_manager.render() draws a GameHUD;
+        // engine self.game_hud is never drawn (see apply_presentation_to_huds).
         self.ui_manager
             .game_hud_mut()
             .construction_panel
@@ -817,10 +833,6 @@ impl CnCGameEngine {
             return;
         }
         self.pending_structure_placement = Some(template_name.to_string());
-        // Dual HUD residual: engine HUD + interactive UIManager HUD ghosts.
-        self.game_hud
-            .construction_panel
-            .arm_structure_placement(template_name.to_string());
         self.ui_manager
             .game_hud_mut()
             .construction_panel
@@ -846,7 +858,7 @@ impl CnCGameEngine {
         log::debug!("BeginStructurePlacement residual: {template_name}");
     }
 
-    /// Pick nearest alive friendly authored dozer for structure placement.
+    /// Pick nearest alive friendly construct builder (dozer/worker) for placement.
     pub(super) fn find_nearest_friendly_dozer(
         &self,
         player_id: u32,
@@ -864,13 +876,10 @@ impl CnCGameEngine {
             .objects
             .iter()
             .filter_map(|o| {
-                if o.destroyed || o.team != team {
+                if o.destroyed || o.sold || o.disabled || o.team != team {
                     return None;
                 }
-                if !crate::presentation_frame::PresentationFrame::object_has_kind(
-                    o,
-                    crate::game_logic::KindOf::Dozer,
-                ) {
+                if !object_is_construct_builder(o) {
                     return None;
                 }
                 if !crate::unit_control::UnitControlSystem::presentation_is_selectable(o) {
@@ -1700,17 +1709,16 @@ impl CnCGameEngine {
 
     #[inline]
     pub(super) fn ui_object_is_dozer(&self, id: crate::game_logic::ObjectId) -> bool {
-        // Presentation-only identity for InGame UI residual.
-        let Some(o) = self.presentation_ro(id) else {
-            return false;
-        };
-        if o.destroyed || o.health_current <= 0.0 {
-            return false;
-        }
-        crate::presentation_frame::PresentationFrame::object_has_kind(
-            o,
-            crate::game_logic::KindOf::Dozer,
-        )
+        // Presentation-only identity for InGame UI residual. Shares the
+        // construct-builder predicate with the placement builder pick;
+        // sold/disabled fail closed like alive_construct_builder_ids.
+        self.presentation_ro(id).is_some_and(|o| {
+            !o.destroyed
+                && !o.sold
+                && !o.disabled
+                && o.health_current > 0.0
+                && object_is_construct_builder(o)
+        })
     }
 
     #[inline]
@@ -1790,7 +1798,6 @@ impl CnCGameEngine {
         if template.is_empty() || !location.x.is_finite() || !location.z.is_finite() {
             return;
         }
-        
 
         // Prefer presentation local player/team freeze; selected from engine selection residual.
         let player_id = self.local_player_id_for_ui();
@@ -1798,40 +1805,60 @@ impl CnCGameEngine {
 
         // Wave 219: selection via presentation-first ui_selected_ids.
         let mut selected = self.ui_selected_ids(player_id);
-        let is_dozer = |id: crate::game_logic::ObjectId| self.ui_object_is_dozer(id);
-        let dozers: Vec<_> = selected
-            .iter()
-            .copied()
-            .filter(|&id| is_dozer(id))
-            .collect();
-        
-        if !dozers.is_empty() {
-            selected = dozers;
-        }
-        // C++ residual: if no builder in selection, auto-pick nearest friendly dozer/worker.
-        if selected.is_empty() || !selected.iter().any(|&id| is_dozer(id)) {
-            if let Some(auto) = self.find_nearest_friendly_dozer(player_id, location) {
-                selected = vec![auto];
-                self.host_set_selection(player_id, selected.clone());
+        // C++ PlaceEventTranslator.cpp:160-164 — the confirm builds with the
+        // armed pending place source; it never re-picks a different builder.
+        // Wave 924: structure place builder threads the armed source.
+        let armed_source = if self.pending_structure_placement.is_some() {
+            let existing =
+                game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
+            (existing != 0).then_some(crate::game_logic::ObjectId(existing))
+        } else {
+            None
+        };
+        if let Some(source) = armed_source {
+            // Thread the armed source like the sneak-attack branch below.
+            selected = vec![source];
+        } else {
+            let is_dozer = |id: crate::game_logic::ObjectId| self.ui_object_is_dozer(id);
+            let dozers: Vec<_> = selected
+                .iter()
+                .copied()
+                .filter(|&id| is_dozer(id))
+                .collect();
+
+            if !dozers.is_empty() {
+                selected = dozers;
+            }
+            // C++ residual: if no builder in selection, auto-pick nearest friendly dozer/worker.
+            if selected.is_empty() || !selected.iter().any(|&id| is_dozer(id)) {
+                if let Some(auto) = self.find_nearest_friendly_dozer(player_id, location) {
+                    selected = vec![auto];
+                    self.host_set_selection(player_id, selected.clone());
+                }
             }
         }
-        
+
         if selected.is_empty() {
-            
-            log::debug!("PlaceStructureAt ignored — no dozer/worker selection");
-            // Keep placement armed so player can select a dozer and retry.
-            self.pending_structure_placement = Some(template_name.to_string());
+            // C++ PlaceEventTranslator.cpp:70-77 — a missing builder cancels the
+            // whole placement; it is never silently re-armed for another try.
+            log::info!("PlaceStructureAt {template_name} canceled — no construct builder");
+            self.runtime_host_last_gameplay_cmd = "construct_fail_no_dozer".into();
+            self.pending_structure_placement = None;
             self.game_hud
                 .construction_panel
-                .arm_structure_placement(template_name.to_string());
+                .clear_structure_placement();
             self.ui_manager
                 .game_hud_mut()
                 .construction_panel
-                .arm_structure_placement(template_name.to_string());
+                .clear_structure_placement();
+            game_client::helpers::TheInGameUI::place_build_available(None, None);
             return;
         }
 
         let builder_id = selected.first().copied();
+        // Wave 924: structure place legal-build check rides the per-frame cache.
+        let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
+
         if let Some(id) = builder_id {
             if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
                 if pending.source_object_id == id.0 {
@@ -1879,7 +1906,6 @@ impl CnCGameEngine {
                             pending.as_ref(),
                         );
                         if cmt != game_engine::common::system::build_assistant::CanMakeType::Ok {
-                            
                             game_client::message_stream::play_can_make_failure(cmt);
                             if matches!(
                                 cmt,
@@ -1898,10 +1924,7 @@ impl CnCGameEngine {
                 }
             }
         }
-        
 
-        let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
-        
         if lbc != LBC_OK {
             self.pending_structure_placement = Some(template_name.to_string());
             self.game_hud
@@ -1943,7 +1966,6 @@ impl CnCGameEngine {
             .clear_structure_placement();
         self.play_sound_effect(SoundType::Command);
 
-        
         self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
             command_type: crate::command_system::CommandType::DozerConstruct {
                 template_name: template,

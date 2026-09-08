@@ -6,6 +6,7 @@
 //! close to the C++ layout while benefiting from Rust's safety.
 
 use crate::world::PlayerId;
+use crate::world::entity_generation::next_world_epoch;
 use nalgebra::Point3;
 use std::collections::HashMap;
 
@@ -578,6 +579,10 @@ pub struct Entity {
     pub has_secondary_weapon: bool,
     /// Host Movement::max_speed residual.
     pub move_max_speed: f32,
+    /// Host Movement::acceleration residual (template, synced).
+    pub move_accel: f32,
+    /// Host Movement::turn_rate residual (rad/sec, template, synced).
+    pub move_turn_rate: f32,
     /// Host Movement::velocity residual.
     pub velocity: [f32; 3],
     /// Host Movement::path.len residual.
@@ -1536,6 +1541,10 @@ pub struct EntityStore {
     pub(in crate::world) next_id: u32,
     pub(in crate::world) alive: HashMap<EntityId, Entity>,
     pub(in crate::world) generations: HashMap<u32, u32>,
+    /// World epoch this store was constructed under. Handles minted by
+    /// `handle_of` carry it; foreign-epoch handles fail to resolve.
+    /// Runtime safety metadata only — never serialized.
+    pub(in crate::world) world_epoch: u32,
 }
 
 impl Default for EntityStore {
@@ -1556,12 +1565,19 @@ impl EntityStore {
             next_id: EntityId::FIRST.get(),
             alive: HashMap::new(),
             generations: HashMap::new(),
+            world_epoch: next_world_epoch(),
         }
     }
 
     /// Number of living entities.
     pub fn len(&self) -> usize {
         self.alive.len()
+    }
+
+    /// World epoch this store was constructed under (`EntityStore::new`
+    /// draws a fresh one globally, so no two stores share an epoch).
+    pub fn world_epoch(&self) -> u32 {
+        self.world_epoch
     }
 
     /// Returns true if no entities are alive.
@@ -1791,8 +1807,10 @@ impl EntityStore {
             weapon_can_target_air: false,
             weapon_can_target_ground: true,
             weapon_projectile_speed: 0.0,
-            has_secondary_weapon: false,
             move_max_speed: 0.0,
+            move_accel: 0.0,
+            move_turn_rate: 0.0,
+            has_secondary_weapon: false,
             velocity: [0.0; 3],
             path_len: 0,
             path_index: 0,

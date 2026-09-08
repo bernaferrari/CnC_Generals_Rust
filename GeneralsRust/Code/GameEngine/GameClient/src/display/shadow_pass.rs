@@ -147,10 +147,26 @@ pub fn collect_volume_casters() -> Vec<UnitShadowCaster> {
 /// C++ `W3DVolumetricShadowManager::renderShadows` + `renderStencilShadows`.
 pub fn present_volumetric_shadows(depth_format: wgpu::TextureFormat) -> VolumetricPresentStatus {
     if !volumetric_stencil_supported_for(depth_format) {
+        log_volumetric_stencil_skip_once(depth_format);
         return VolumetricPresentStatus::SkippedNoStencil;
     }
     VolumetricPresentStatus::Submitted {
         volume_count: collect_volume_casters().len(),
+    }
+}
+
+/// Blob-decal routing residual: the live present target is Depth32Float (no
+/// stencil), so C++ `W3DVolumetricShadowManager` stencil volumes are
+/// structurally unavailable and every caster renders through the blob-decal
+/// disc pass instead. Debug-level and logged once to stay quiet per frame.
+fn log_volumetric_stencil_skip_once(depth_format: wgpu::TextureFormat) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LOGGED: AtomicBool = AtomicBool::new(false);
+    if !LOGGED.swap(true, Ordering::Relaxed) {
+        log::debug!(
+            "volumetric stencil shadows skipped: present depth format {depth_format:?} has no \
+             stencil; unit shadows route to blob decals"
+        );
     }
 }
 
@@ -868,12 +884,6 @@ pub fn record_shadow_and_occlusion_passes(
     // framebuffer pixels; (0, 0) keeps the full-attachment default.
     viewport_px: (f32, f32),
 ) {
-    let _ = present_volumetric_shadows(depth_format);
-    let overlays = present_occluded_player_color_silhouette();
-    let casters = collect_volume_casters();
-    if casters.is_empty() && overlays.is_empty() {
-        return;
-    }
     let apply_viewport = |pass: &mut wgpu::RenderPass<'_>| {
         let (vw, vh) = (viewport_px.0.max(1.0), viewport_px.1.max(1.0));
         pass.set_viewport(0.0, 0.0, vw, vh, 0.0, 1.0);

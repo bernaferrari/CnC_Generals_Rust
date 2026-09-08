@@ -326,7 +326,9 @@ impl PathfindingSystem {
         let radius = self
             .seeker_id
             .and_then(|id| objects.get(&id))
-            .map(|o| PathfindingGrid::radius_and_center(o.selection_radius, self.grid.grid_size()).0)
+            .map(|o| {
+                PathfindingGrid::radius_and_center(o.selection_radius, self.grid.grid_size()).0
+            })
             .unwrap_or_else(|| (self.seeker_path_diameter.max(1) / 2).max(0));
         let crusher_level = if is_crusher {
             self.seeker_crusher_level.max(1)
@@ -770,14 +772,8 @@ impl PathfindingSystem {
         // validated safe cell. No straight-line fail-open exists in C++
         // (AIUpdate findSafePath) — a direct from→goal segment would march
         // back inside both repulsor radii.
-        let path = self.find_path_via_crate(
-            start,
-            dest,
-            surfaces,
-            is_crusher,
-            start_layer,
-            dest_layer,
-        )?;
+        let path =
+            self.find_path_via_crate(start, dest, surfaces, is_crusher, start_layer, dest_layer)?;
         if path.len() < 2 {
             return None;
         }
@@ -797,15 +793,23 @@ impl PathfindingSystem {
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
-        let start = self.grid.cell_for_unit_position(from, self.seeker_center_in_cell);
-        let goal_grid = self.grid.cell_for_unit_position(goal, self.seeker_center_in_cell);
+        let start = self
+            .grid
+            .cell_for_unit_position(from, self.seeker_center_in_cell);
+        let goal_grid = self
+            .grid
+            .cell_for_unit_position(goal, self.seeker_center_in_cell);
         if !self.grid.is_valid_pos(start) || !self.grid.is_valid_pos(goal_grid) {
             return None;
         }
         if is_human && !self.grid.human_extent_allows(start, true) {
             return None;
         }
-        let crusher_level = if is_crusher { self.seeker_crusher_level.max(1) } else { 0 };
+        let crusher_level = if is_crusher {
+            self.seeker_crusher_level.max(1)
+        } else {
+            0
+        };
         let seeker_player = self.seeker_player;
         let start_layer = self.grid.layer_for_destination(from);
         let start_lid = start_layer as u8;
@@ -1046,6 +1050,7 @@ impl PathfindingSystem {
             is_crusher,
             None,
             if is_crusher { 1 } else { 0 },
+            None,
         )
     }
 
@@ -1062,6 +1067,7 @@ impl PathfindingSystem {
         is_crusher: bool,
         seeker_player: Option<u32>,
         crusher_level: u8,
+        ignore_obstacle: Option<u32>,
     ) -> Vec3 {
         if waypoints.is_empty() {
             return pos;
@@ -1120,6 +1126,7 @@ impl PathfindingSystem {
                     seeker_player,
                     crusher_level,
                     false,
+                    ignore_obstacle,
                 )
             }
             None => true,

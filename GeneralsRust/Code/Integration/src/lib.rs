@@ -43,7 +43,6 @@
 //! ```text
 //! EngineCoordinator (Master)
 //! ├── GameClient (Rendering & UI)
-//! ├── GameLogic (Game State & AI)
 //! ├── GameNetwork (Multiplayer)
 //! ├── AudioSystem (Sound & Music)
 //! └── ResourceSystem (Assets & Files)

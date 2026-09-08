@@ -42,6 +42,12 @@ impl ControlBar {
         if new_state == ControlBarState::Command {
             reveal_ingame_command_window();
         }
+        if new_state == ControlBarState::None {
+            // C++ ControlBar.cpp:2128-2137 CB_CONTEXT_NONE hides CP_COMMAND,
+            // CP_BUILD_QUEUE, CP_BEACON, CP_UNDER_CONSTRUCTION, CP_OCL_TIMER,
+            // and both observer context parents.
+            apply_none_context_hide();
+        }
         if new_state == ControlBarState::Observer {
             super::control_bar_observer::init_observer_controls();
             super::control_bar_observer::reveal_observer_list_window();

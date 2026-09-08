@@ -11,7 +11,6 @@ use crate::display::view::{
     LETTER_BOX_FADE_TIME_MS, ViewTrait, set_display_letter_boxed, vertical_fov_from_horizontal,
     with_tactical_view, with_tactical_view_ref,
 };
-use crate::drawable::drawable_manager::DrawableManager;
 use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
     ParticleRenderer as GpuParticleRenderer, ParticleUniforms, register_particle_renderer,
@@ -175,7 +174,6 @@ pub struct Display {
     letterbox_fade_level: f32,
     letterbox_enabled: bool,
     letterbox_fade_start_time: Option<Instant>,
-    drawable_manager: Arc<Mutex<DrawableManager>>,
     lighting_state: DisplayLightingState,
     last_movie_frame: Mutex<Option<(u32, u32, Vec<u8>)>>,
     pending_screenshot: Mutex<Option<std::path::PathBuf>>,
@@ -248,7 +246,6 @@ impl Display {
             letterbox_fade_level: 0.0,
             letterbox_enabled: false,
             letterbox_fade_start_time: None,
-            drawable_manager: Arc::new(Mutex::new(DrawableManager::new())),
             lighting_state: DisplayLightingState::from_current_global_data(),
             last_movie_frame: Mutex::new(None),
             pending_screenshot: Mutex::new(None),
@@ -371,10 +368,6 @@ impl Display {
         for view in &mut self.view_list {
             view.reset_view();
         }
-    }
-
-    pub fn drawable_manager(&self) -> Arc<Mutex<DrawableManager>> {
-        Arc::clone(&self.drawable_manager)
     }
 
     pub fn set_width(&mut self, width: u32) {
@@ -902,6 +895,14 @@ impl SubsystemInterface for Display {
         self.letterbox_fade_start_time = None;
         self.stop_movie();
         self.reset_views();
+        // C++ W3DDisplay::reset (W3DDisplay.cpp:841-842) clears
+        // TheWritableGlobalData->m_drawSkyBox so skybox state never leaks
+        // across maps. Both Rust stores move together (see
+        // script_set_skybox_enabled).
+        game_engine::common::global_data::write().draw_sky_box = false;
+        if let Some(global_data) = get_global_data() {
+            global_data.write().draw_sky_box = 0.0;
+        }
         #[cfg(feature = "w3d_support")]
         {
             self.particle_bridge = Mutex::new(W3DParticleSystemBridge::new());
@@ -1244,7 +1245,6 @@ impl DisplayInterface for Display {
                         .map_err(|_| "UI renderer lock poisoned")?;
                     renderer.begin_frame();
                     renderer.set_time(self.start_time.elapsed().as_secs_f32());
-                    renderer.set_screen_size(self.width.max(1), self.height.max(1));
                 }
                 // Drop the write guard before gadget draw so `with_ui_renderer_mut`
                 // can record real commands. Holding it discarded WND draws.

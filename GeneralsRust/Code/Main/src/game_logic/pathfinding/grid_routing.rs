@@ -551,7 +551,8 @@ impl PathfindingGrid {
                 self.stamp_aircraft_goal_cell(GridPos::new(i, j), obj.id.0);
             }
         }
-        let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = gamelogic::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(pf) = pf.read() {
                     let dest = gamelogic::common::Coord3D::new(goal.x, goal.z, goal.y);
@@ -1834,6 +1835,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         unpinched_cliff_passable: bool,
+        ignore_obstacle: Option<u32>,
     ) -> bool {
         if !self.is_valid_pos(cell) {
             return false;
@@ -1853,17 +1855,21 @@ impl PathfindingGrid {
         {
             return true;
         }
-        self.cell_passable_for(cell, surfaces, is_crusher)
-    }
-
-    pub(super) fn line_passable(
-        &self,
-        from: GridPos,
-        to: GridPos,
-        surfaces: u32,
-        is_crusher: bool,
-    ) -> bool {
-        self.line_passable_ex(from, to, surfaces, is_crusher, true, None, 0, false)
+        if self.cell_passable_for(cell, surfaces, is_crusher) {
+            return true;
+        }
+        // C++ AIPathfind.cpp:4837-4838 — a cell whose obstacle is the unit's
+        // ignored obstacle (ignoreObstacle(goalObject), DozerAIUpdate.cpp:210-211)
+        // stays passable for the line check, so a dozer can follow its path
+        // across the footprint cells of the very structure it is building.
+        if let Some(ignore_id) = ignore_obstacle {
+            if self.cell_type(cell) == PathfindCellType::Obstacle
+                && self.obstacle_owner(cell).map(|(id, _, _)| id) == Some(ignore_id)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     pub(super) fn line_passable_ex(
@@ -1876,6 +1882,7 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
         unpinched_cliff_passable: bool,
+        ignore_obstacle: Option<u32>,
     ) -> bool {
         if from == to {
             return true;
@@ -1899,6 +1906,7 @@ impl PathfindingGrid {
                 seeker_player,
                 crusher_level,
                 unpinched_cliff_passable,
+                ignore_obstacle,
             ) {
                 return false;
             }
@@ -2038,8 +2046,8 @@ impl PathfindingGrid {
                 // walked it" bypass only applies within one layer's corridor;
                 // a ground anchor must LOS across a deck span on `layer`,
                 // never shortcut across water via collinearity.
-                let layers_uniform = (anchor..=far)
-                    .all(|i| self.layer_for_destination(waypoints[i]) == layer);
+                let layers_uniform =
+                    (anchor..=far).all(|i| self.layer_for_destination(waypoints[i]) == layer);
                 if self.line_passable_on_layer(
                     a,
                     b,
@@ -2159,8 +2167,7 @@ impl PathfindingGrid {
         let mut err = dx + dy;
         loop {
             let cell = GridPos::new(x0, y0);
-            if self.cell_type(cell) == PathfindCellType::Obstacle && !self.is_obstacle_fence(cell)
-            {
+            if self.cell_type(cell) == PathfindCellType::Obstacle && !self.is_obstacle_fence(cell) {
                 return true;
             }
             if x0 == x1 && y0 == y1 {

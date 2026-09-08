@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use game_engine::common::system::file_system::get_file_system;
 use glam::{Mat4, Vec2, Vec3};
 
 pub const MAX_TREE_VERTEX: usize = 30_000;
@@ -1714,6 +1715,77 @@ pub struct TreeTileImageSpec {
     pub header: TreeTgaHeader,
 }
 
+/// Read a virtual-path file through the game file system: loose overrides
+/// first, then the mounted `.big` archives. Retail tree billboard art
+/// (`Art\Terrain\PT*.tga`) exists only inside `TerrainZH.big`, so a plain
+/// `std::fs::read` can never find it — this mirrors
+/// `TerrainTextures::load_image_from_game_fs_path`.
+pub(crate) fn read_game_fs_bytes(virtual_path: &str) -> Option<Vec<u8>> {
+    ensure_game_fs_backends();
+    let file_system = get_file_system();
+    let mut fs = file_system.lock().ok()?;
+    let mut file = fs.open_file(
+        virtual_path,
+        game_engine::common::system::file::FileAccess::READ
+            .combine(game_engine::common::system::file::FileAccess::BINARY),
+    )?;
+    file.read_entire_and_close().ok()
+}
+
+/// Ensure the engine file system carries the local + BIG backends with the
+/// standard runtime search roots (cwd, exe dir), mirroring the
+/// `TerrainTextures` backend bootstrap so virtual-path reads succeed before
+/// any texture lookup has run.
+pub(crate) fn add_game_fs_search_roots(roots: &[std::path::PathBuf], reload_archives: bool) {
+    use game_engine::common::system::big_file_system::BigArchiveBackend;
+    use game_engine::common::system::file_system::FileSystemBackend;
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::local_file_system::LocalFileSystem;
+    use game_engine::common::system::subsystem_interface::SubsystemInterface as CommonSubsystemInterface;
+
+    let file_system = get_file_system();
+    let Ok(mut guard) = file_system.lock() else {
+        return;
+    };
+
+    {
+        let local_backend: &mut LocalFileSystem = guard.ensure_backend(LocalFileSystem::new);
+        for path in roots {
+            local_backend.add_search_path(path);
+        }
+    }
+    {
+        let big_backend: &mut BigArchiveBackend = guard.ensure_backend(BigArchiveBackend::new);
+        for path in roots {
+            big_backend.add_search_path(path);
+        }
+        if reload_archives {
+            // Close and re-scan so archives in newly added roots are picked
+            // up even after the backend already initialized once.
+            big_backend.reset();
+        }
+    }
+
+    guard.clear_cache();
+    let _ = CommonSubsystemInterface::init(&mut *guard);
+}
+
+fn ensure_game_fs_backends() {
+    static INIT: std::sync::LazyLock<()> = std::sync::LazyLock::new(|| {
+        let mut roots = vec![std::path::PathBuf::from(".")];
+        if let Ok(cwd) = std::env::current_dir() {
+            roots.push(cwd);
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                roots.push(parent.to_path_buf());
+            }
+        }
+        add_game_fs_search_roots(&roots, false);
+    });
+    std::sync::LazyLock::force(&INIT);
+}
+
 fn tree_texture_path_candidates(texture_name: &str) -> Vec<String> {
     let name = texture_name.trim();
     if name.is_empty() {
@@ -1728,9 +1800,19 @@ fn tree_texture_path_candidates(texture_name: &str) -> Vec<String> {
     candidates
 }
 
+/// Loose file first, then the game file system (`TerrainZH.big` carries the
+/// retail `PT*.tga` tree billboards).
+fn read_tree_texture_bytes(path: &str) -> Option<Vec<u8>> {
+    if let Ok(bytes) = std::fs::read(path) {
+        return Some(bytes);
+    }
+    read_game_fs_bytes(path)
+}
+
+
 fn probe_tree_tga_header(texture_name: &str) -> Option<TreeTgaHeader> {
     for path in tree_texture_path_candidates(texture_name) {
-        let Ok(bytes) = std::fs::read(&path) else {
+        let Some(bytes) = read_tree_texture_bytes(&path) else {
             continue;
         };
         if bytes.len() < 18 {
@@ -1750,7 +1832,7 @@ fn probe_tree_tga_header(texture_name: &str) -> Option<TreeTgaHeader> {
 fn load_tree_texture_tiles(texture_name: &str, tile_width: i32) -> Option<Vec<Vec<u8>>> {
     let rows = tile_width.max(1) as usize;
     for path in tree_texture_path_candidates(texture_name) {
-        let Ok(bytes) = std::fs::read(&path) else {
+        let Some(bytes) = read_tree_texture_bytes(&path) else {
             continue;
         };
         let Ok(image) = image::load_from_memory(&bytes) else {
@@ -2558,5 +2640,40 @@ mod tests {
         assert_eq!(buffer.atlas_lod(), 2);
         assert_eq!(buffer.atlas_upload_mip_index(), 2);
         assert_eq!(buffer.atlas_upload_levels()[0], expected[2]);
+    }
+}
+
+
+#[cfg(test)]
+mod game_fs_tree_tests {
+    use super::*;
+
+    fn assets_root() -> Option<std::path::PathBuf> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Main/assets");
+        root.join("TerrainZH.big").is_file().then_some(root)
+    }
+
+    /// Retail `PT*.tga` tree billboards exist only inside TerrainZH.big;
+    /// the header probe and tile loader must go through the game FS.
+    #[test]
+    fn tree_billboard_textures_load_from_terrainzh_big() {
+        let Some(assets) = assets_root() else {
+            eprintln!("skipping: no TerrainZH.big under Main/assets");
+            return;
+        };
+        add_game_fs_search_roots(&[assets], true);
+
+        let bytes = read_game_fs_bytes("Art/Terrain/PTBlossom01.tga")
+            .expect("PTBlossom01.tga must read from TerrainZH.big");
+        assert!(bytes.len() > 18);
+
+        let header = probe_tree_tga_header("PTBlossom01")
+            .expect("tree TGA header must resolve via the game FS");
+        assert!((8..=32).contains(&header.pixel_depth));
+
+        let tiles = load_tree_texture_tiles("PTBlossom01", 2)
+            .expect("tree texture tiles must decode from TerrainZH.big");
+        assert_eq!(tiles.len(), 4);
+        assert!(tiles.iter().all(|tile| tile.len() == TREE_TILE_DATA_LEN));
     }
 }

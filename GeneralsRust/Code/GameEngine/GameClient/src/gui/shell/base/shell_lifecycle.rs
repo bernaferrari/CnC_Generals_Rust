@@ -555,12 +555,22 @@ impl Default for Shell {
     }
 }
 
+impl Shell {
+    /// C++ Shell animates with TheWindowManager's screen size; keep the
+    /// animate manager in sync (default is a hardcoded 800x600).
+    fn sync_animate_screen_size(&mut self) {
+        let (width, height) = with_window_manager_ref(|manager| manager.screen_size());
+        self.animate_window_manager.set_screen_size(width, height);
+    }
+}
+
 impl SubsystemInterface for Shell {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Initializing shell system");
 
         // Initialize the scheme manager
         self.scheme_manager.init()?;
+        self.sync_animate_screen_size();
         self.last_update = Instant::now();
 
         self.initialized = true;
@@ -613,7 +623,7 @@ impl SubsystemInterface for Shell {
                     background.destroy_windows();
                 }
             }
-
+            self.sync_animate_screen_size();
             self.animate_window_manager.update();
             self.scheme_manager.update()?;
 

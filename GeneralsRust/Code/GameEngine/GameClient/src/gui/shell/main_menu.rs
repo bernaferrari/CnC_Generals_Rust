@@ -508,9 +508,10 @@ impl MainMenu {
         }
     }
 
-    /// C++ MainMenuInit 525-530 + initialHide + SHOW_NONE + MainMenuRuler (627-629).
+    /// C++ MainMenuInit 525-530 hides dropDownWindows[1..] ONLY — MapBorder
+    /// (DROPDOWN_SINGLE) stays visible (MainMenu.cpp:520-526) — plus
+    /// initialHide + SHOW_NONE + MainMenuRuler (627-629).
     const CPP_INIT_HIDE_PACK_NAMES: &'static [&'static str] = &[
-        "MainMenu.wnd:MapBorder",
         "MainMenu.wnd:MapBorder1",
         "MainMenu.wnd:MapBorder2",
         "MainMenu.wnd:MapBorder3",
@@ -609,70 +610,16 @@ impl MainMenu {
                 let Some(name) = Self::dropdown_wnd_name(candidate) else {
                     continue;
                 };
+                if candidate != dropdown && candidate == DropdownType::Single {
+                    // Never re-hide MapBorder (DROPDOWN_SINGLE): MainMenuInit
+                    // leaves it visible (MainMenu.cpp:525-526 loops from 1) and
+                    // the GBM_SELECTED branches only winHide(FALSE) the opening
+                    // dropdown. Re-hiding it here left the SP dropdown
+                    // parent-hidden after the CHAR reveal.
+                    continue;
+                }
                 if let Some(window) = manager.find_window_by_name(name) {
                     crate::gui::hide_window_rc(&window, candidate != dropdown);
-                }
-            }
-        });
-    }
-
-    /// C++ MainMenuSinglePlayerMenu transition ends with these gadgets visible.
-    /// Rust transitions can leave the child HIDDEN bits set after MapBorder
-    /// winHide(FALSE), so EarthMap steals the Skirmish hit.
-    fn unhide_single_player_dropdown_buttons(&self) {
-        const NAMES: &[&str] = &[
-            "MainMenu.wnd:ButtonSkirmish",
-            "MainMenu.wnd:ButtonUSA",
-            "MainMenu.wnd:ButtonGLA",
-            "MainMenu.wnd:ButtonChina",
-            "MainMenu.wnd:ButtonChallenge",
-            "MainMenu.wnd:ButtonSingleBack",
-            "MainMenu.wnd:EarthMap",
-        ];
-        queue_window_manager_op(|manager| {
-            for name in NAMES {
-                if let Some(window) = manager.find_window_by_name(name) {
-                    crate::gui::hide_window_rc(&window, false);
-                }
-            }
-        });
-    }
-
-    fn ensure_first_run_nav_gadgets_hittable(&self) {
-        const NAMES: &[&str] = &[
-            "MainMenu.wnd:ButtonSinglePlayer",
-            "MainMenu.wnd:ButtonSkirmish",
-            "SkirmishGameOptionsMenu.wnd:ButtonStart",
-        ];
-        // Queue so a fail-closed with_window_manager_ref cannot skip CHAR gadgets.
-        queue_window_manager_op(|manager| {
-            let (screen_w, screen_h) = manager.screen_size();
-            for name in NAMES {
-                let Some(window) = manager.find_window_by_name(name) else {
-                    continue;
-                };
-                crate::gui::hide_window_rc(&window, false);
-                let Ok(mut guard) = window.try_borrow_mut() else {
-                    continue;
-                };
-                let _ = guard.enable(true);
-                let (mut w, mut h) = guard.get_size();
-                if w <= 0 || h <= 0 {
-                    w = 208;
-                    h = 36;
-                    let _ = guard.set_size(w, h);
-                }
-                if screen_w <= 0 || screen_h <= 0 {
-                    continue;
-                }
-                let (sx, sy) = guard.get_screen_position();
-                let cx = sx + w / 2;
-                let cy = sy + h / 2;
-                if cx < 0 || cy < 0 || cx >= screen_w || cy >= screen_h {
-                    let dest_x = ((screen_w - w) / 2).max(0);
-                    let dest_y = ((screen_h - h) / 2).max(0);
-                    let (px, py) = guard.get_position();
-                    let _ = guard.set_position(px + dest_x - sx, py + dest_y - sy);
                 }
             }
         });
@@ -696,7 +643,6 @@ impl MainMenu {
         // only. Other borders were already hidden by MainMenuInit. Do not
         // re-hide them here (show_only_dropdown + transition_set_group stalls).
         self.win_hide_dropdown_main_false();
-        self.ensure_first_run_nav_gadgets_hittable();
         self.transition_set_group("MainMenuFade", true);
         self.transition_set_group("MainMenuDefaultMenu", false);
         set_main_menu_cursor_visibility(true);
@@ -1206,7 +1152,19 @@ impl MainMenu {
     // ============================================================================================
 
     fn transition_set_group(&self, group: &str, immediate: bool) {
-        with_window_manager(|manager| manager.transition_set_group(group, immediate));
+        // Button handlers run nested under a live WM borrow (gadget callback
+        // stack); plain `with_window_manager` would silently drop the call
+        // (fail-closed dummy). Queue with owned data like the hide helpers so
+        // the transition always runs once the outer borrow drains.
+        if !window_manager_try_borrow_free() {
+            log::debug!(
+                "MainMenu: transition_set_group({group}, immediate={immediate}) queued behind live WM borrow"
+            );
+        }
+        let group = group.to_string();
+        queue_window_manager_op(move |manager| {
+            manager.transition_set_group(&group, immediate);
+        });
     }
 
     fn queue_action(state: &mut MainMenuState, action: PendingMainMenuAction) {
@@ -1384,11 +1342,25 @@ impl MainMenu {
     }
 
     fn transition_reverse(&self, group: &str) {
-        with_window_manager(|manager| manager.transition_reverse(group));
+        // Queued, never fail-closed dropped under a nested WM borrow.
+        if !window_manager_try_borrow_free() {
+            log::debug!("MainMenu: transition_reverse({group}) queued behind live WM borrow");
+        }
+        let group = group.to_string();
+        queue_window_manager_op(move |manager| manager.transition_reverse(&group));
     }
 
     fn transition_remove(&self, group: &str, skip_pending: bool) {
-        with_window_manager(|manager| manager.transition_remove(group, skip_pending));
+        // Queued, never fail-closed dropped under a nested WM borrow.
+        if !window_manager_try_borrow_free() {
+            log::debug!(
+                "MainMenu: transition_remove({group}, {skip_pending}) queued behind live WM borrow"
+            );
+        }
+        let group = group.to_string();
+        queue_window_manager_op(move |manager| {
+            manager.transition_remove(&group, skip_pending);
+        });
     }
 
     fn transitions_finished(&self) -> bool {
@@ -1591,7 +1563,6 @@ impl MainMenu {
             self.transition_remove("MainMenuDefaultMenu", false);
             self.transition_reverse("MainMenuDefaultMenuBack");
             self.transition_set_group("MainMenuSinglePlayerMenu", false);
-            self.unhide_single_player_dropdown_buttons();
             log::info!("Single Player button selected");
         } else if control_id == state.window_ids.button_single_back_id {
             // Single Player Back button - C++ lines 1326-1335
@@ -2830,9 +2801,9 @@ pub fn reveal_main_menu_first_input_like_cpp() -> bool {
     handled || !not_shown
 }
 
-/// Test-only: C++ CHAR visibility (`winHide(FALSE)` DROPDOWN_MAIN + gadget
-/// enable/size/on-screen). Skips `transition_set_group` (that path can stall
-/// unit tests). Physical live path still uses [`reveal_main_menu_first_input_like_cpp`].
+/// Test-only: C++ CHAR visibility (`winHide(FALSE)` DROPDOWN_MAIN). Skips
+/// `transition_set_group` (that path can stall unit tests). Physical live
+/// path still uses [`reveal_main_menu_first_input_like_cpp`].
 #[cfg(test)]
 pub fn apply_first_run_dropdown_reveal_visibility_for_tests() -> bool {
     let menu = get_main_menu();
@@ -2842,7 +2813,6 @@ pub fn apply_first_run_dropdown_reveal_visibility_for_tests() -> bool {
     // C++ winHide(FALSE) DROPDOWN_MAIN only — queued name lookup, no
     // transition_set_group / show_only_dropdown.
     menu.win_hide_dropdown_main_false();
-    menu.ensure_first_run_nav_gadgets_hittable();
     set_main_menu_cursor_visibility(true);
     state.not_shown = false;
     true

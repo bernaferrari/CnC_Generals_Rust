@@ -1163,8 +1163,7 @@ fn move_camera_to_selection_retargets_in_flight_move() {
     // for anything else would mean a stray new lookAt.
     let focus = game_logic.take_camera_focus_request();
     assert!(
-        focus.is_none()
-            || focus.unwrap().distance(Vec3::new(0.0, 10.0, 0.0)) < 0.01,
+        focus.is_none() || focus.unwrap().distance(Vec3::new(0.0, 10.0, 0.0)) < 0.01,
         "retarget must not start a new lookAt"
     );
     let target = game_logic
@@ -2076,9 +2075,7 @@ fn combat_fire_queues_authored_fire_sound_audio_event() {
         .templates
         .get_mut("TestTank")
         .expect("TestTank template")
-        .set_primary_weapon_name(
-            crate::game_logic::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON,
-        );
+        .set_primary_weapon_name(crate::game_logic::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON);
 
     let attacker_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -2105,10 +2102,9 @@ fn combat_fire_queues_authored_fire_sound_audio_event() {
     game_logic.queued_audio_events.clear();
     game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
 
-    let expected_authored =
-        crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name(
-            crate::game_logic::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON,
-        );
+    let expected_authored = crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name(
+        crate::game_logic::weapon_bootstrap::TANK_HUNTER_PRIMARY_WEAPON,
+    );
     assert!(
         !expected_authored.is_empty(),
         "TankHunter store must resolve an authored FireSound"

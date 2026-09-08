@@ -1725,58 +1725,58 @@ fn skirmish_new_map_uses_aidata_side_build_list() {
     }
 
     {
-    let mut logic = crate::game_logic::GameLogic::new();
-    logic.add_player(crate::game_logic::Player::new(
-        1,
-        Team::USA,
-        "USA AI",
-        false,
-    ));
-    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
-    cc.add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::CommandCenter);
-    logic.templates.insert("AmericaCommandCenter".into(), cc);
-    let mut wf = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
-    wf.add_kind_of(crate::game_logic::KindOf::Structure);
-    logic.templates.insert("AmericaWarFactory".into(), wf);
-
-    let start_cc = logic
-        .create_object(
-            "AmericaCommandCenter",
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(
+            1,
             Team::USA,
-            Vec3::new(-40.0, 0.0, -40.0),
-        )
-        .expect("map CC");
-    if let Some(obj) = logic.host_object_mut(start_cc) {
-        obj.owner_player_id = Some(1);
-    }
+            "USA AI",
+            false,
+        ));
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::CommandCenter);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut wf = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
+        wf.add_kind_of(crate::game_logic::KindOf::Structure);
+        logic.templates.insert("AmericaWarFactory".into(), wf);
 
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-    ai.initialize(Vec3::new(-40.0, 0.0, -40.0));
-    assert!(ai.apply_skirmish_new_map(&mut logic));
-    assert!(
-        logic.host_object(start_cc).is_none(),
-        "map-placed CC must be destroyed"
-    );
-    let cc_pad = ai
-        .building_queue
-        .iter()
-        .find(|b| b.template_name.contains("CommandCenter"))
-        .expect("list CC");
-    assert!(
-        cc_pad.is_built,
-        "list CC is InitiallyBuilt / buildStructureNow"
-    );
-    let wf_pad = ai
-        .building_queue
-        .iter()
-        .find(|b| b.template_name.contains("WarFactory"))
-        .expect("list WF");
-    assert!(!wf_pad.is_built);
-    assert!(
-        wf_pad.is_buildable(),
-        "non-CC entries incrementNumRebuilds so first build does not spend the last slot"
-    );
+        let start_cc = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                Vec3::new(-40.0, 0.0, -40.0),
+            )
+            .expect("map CC");
+        if let Some(obj) = logic.host_object_mut(start_cc) {
+            obj.owner_player_id = Some(1);
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.initialize(Vec3::new(-40.0, 0.0, -40.0));
+        assert!(ai.apply_skirmish_new_map(&mut logic));
+        assert!(
+            logic.host_object(start_cc).is_none(),
+            "map-placed CC must be destroyed"
+        );
+        let cc_pad = ai
+            .building_queue
+            .iter()
+            .find(|b| b.template_name.contains("CommandCenter"))
+            .expect("list CC");
+        assert!(
+            cc_pad.is_built,
+            "list CC is InitiallyBuilt / buildStructureNow"
+        );
+        let wf_pad = ai
+            .building_queue
+            .iter()
+            .find(|b| b.template_name.contains("WarFactory"))
+            .expect("list WF");
+        assert!(!wf_pad.is_built);
+        assert!(
+            wf_pad.is_buildable(),
+            "non-CC entries incrementNumRebuilds so first build does not spend the last slot"
+        );
     }
     {
         let store = game_engine::common::ini::get_ai_data_store();
@@ -2907,6 +2907,240 @@ fn second_attack_starts_after_first_raid_finishes() {
         logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
         Some(AIState::GuardingArea),
         "second setActive without OnCreate must not overwrite Guard with AttackMove"
+    );
+}
+
+#[test]
+fn wiggle_spiral_walks_rings_in_skirmish_order() {
+    // C++ AIPlayer.cpp:530-583 skirmish wiggle: expanding square, two-cell
+    // ring/edge steps, first legal candidate wins.
+    let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+    let seed = Vec3::new(100.0, 2.0, 100.0);
+    // Legal only at ring 5's top row, second column (x-3c, z-5c): the walk
+    // must pass ring 1 and ring 3 first and keep the seed height.
+    let target = Vec3::new(seed.x - 3.0 * cell, seed.y, seed.z - 5.0 * cell);
+    assert_eq!(
+        AIPlayer::wiggle_find_legal_build_position(seed, |c| c == target),
+        Some(target)
+    );
+    // Nothing legal anywhere → no adjusted spot.
+    assert_eq!(
+        AIPlayer::wiggle_find_legal_build_position(seed, |_| false),
+        None
+    );
+}
+
+#[test]
+fn wiggle_spiral_respects_skirmish_limit() {
+    let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+    let seed = Vec3::ZERO;
+    // Ring 59 is the last ring under the 120-cell skirmish limit.
+    let in_range = Vec3::new(seed.x + 59.0 * cell, seed.y, seed.z - 59.0 * cell);
+    assert_eq!(
+        AIPlayer::wiggle_find_legal_build_position(seed, |c| c == in_range),
+        Some(in_range)
+    );
+    // 61 cells out is never sampled.
+    let out_of_range = Vec3::new(seed.x + 61.0 * cell, seed.y, seed.z);
+    assert_eq!(
+        AIPlayer::wiggle_find_legal_build_position(seed, |c| c == out_of_range),
+        None
+    );
+}
+
+#[test]
+fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
+    // C++ buildStructureWithDozer (AIPlayer.cpp:519-583): intended pad first,
+    // then the expanding-square wiggle. An immobile enemy parked on the pad
+    // must not freeze the build queue retrying the same spot forever.
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+    player.resources.supplies = 1_000;
+    logic.add_player(player);
+
+
+    let mut dozer_template = crate::game_logic::ThingTemplate::new("WiggleDozer");
+    dozer_template
+        .add_kind_of(crate::game_logic::KindOf::Vehicle)
+        .add_kind_of(crate::game_logic::KindOf::Worker)
+        .add_kind_of(crate::game_logic::KindOf::Dozer);
+    logic.templates.insert("WiggleDozer".into(), dozer_template);
+
+    let mut structure_template = crate::game_logic::ThingTemplate::new("WiggleStructure");
+    structure_template
+        .add_kind_of(crate::game_logic::KindOf::Structure)
+        .set_cost(300, 0);
+    structure_template.build_time = 10.0;
+    logic
+        .templates
+        .insert("WiggleStructure".into(), structure_template);
+
+    let mut blocker_template = crate::game_logic::ThingTemplate::new("WiggleBlocker");
+    blocker_template
+        .add_kind_of(crate::game_logic::KindOf::Structure)
+        .add_kind_of(crate::game_logic::KindOf::Immobile);
+    logic.templates.insert("WiggleBlocker".into(), blocker_template);
+
+    let pad = Vec3::new(150.0, 0.0, 150.0);
+    let _dozer_id = logic
+        .create_object("WiggleDozer", Team::USA, Vec3::new(110.0, 0.0, 110.0))
+        .expect("live dozer");
+    // A neutral civilian structure is exactly the real-map obstacle: it is
+    // not an enemy, so isLocationSafe still selects the pad
+    // (AIPlayer::isLocationSafe rejects enemies only), but its
+    // KINDOF_IMMOBILE footprint makes the pad illegal to build on.
+    let blocker = logic
+        .create_object("WiggleBlocker", Team::Neutral, pad)
+        .expect("neutral blocker on the pad");
+    // Structure place radius residual is 20 and the blocker radius 30, so the
+    // pad and every ring-1/ring-3 spiral spot (max 30*sqrt(2) ≈ 42.4 < 50)
+    // stay blocked; ring 5's first corner becomes the first legal spot.
+    if let Some(o) = logic.host_object_mut(blocker) {
+        o.selection_radius = 30.0;
+    }
+
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    ai.add_building("WiggleStructure", pad, 1);
+
+    ai.process_building_queue(&mut logic, 0.0);
+
+    let structure_id = ai.building_queue[0]
+        .object_id
+        .expect("obstructed pad must still start via the wiggle");
+    let adjusted = Vec3::new(100.0, 0.0, 100.0);
+    assert_eq!(
+        ai.building_queue[0].position, adjusted,
+        "first legal spiral spot is stored into the pad"
+    );
+    let built_at = logic
+        .host_object(structure_id)
+        .expect("scaffold live")
+        .get_position();
+    assert!(
+        (built_at - adjusted).length() < 5.0 && (built_at - pad).length() > 20.0,
+        "scaffold created at the wiggle spot {built_at:?}, not the blocked pad"
+    );
+}
+
+#[test]
+fn evaluate_attack_opportunities_moves_scriptless_ready_team_on_known_enemy() {
+    // No skirmish script set exists in this workspace, so checkReadyTeams →
+    // setActive issues no OnCreate orders (AIPlayer.cpp:2729-2803 expects the
+    // script to order the AttackMove). The fallback stands in for it.
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate, Weapon};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", true));
+
+    let mut unit_t = ThingTemplate::new("Ai4Infantry");
+    unit_t.set_health(100.0);
+    unit_t.add_kind_of(KindOf::Infantry);
+    unit_t.add_kind_of(KindOf::Attackable);
+    logic.templates.insert("Ai4Infantry".into(), unit_t);
+
+    let mut base_t = ThingTemplate::new("Ai4Hut");
+    base_t.set_health(500.0);
+    base_t.add_kind_of(KindOf::Structure);
+    base_t.add_kind_of(KindOf::Attackable);
+    logic.templates.insert("Ai4Hut".into(), base_t);
+
+    let usa_unit = logic
+        .create_object("Ai4Infantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("usa unit");
+    let _gla_base = logic
+        .create_object("Ai4Hut", Team::GLA, Vec3::new(300.0, 0.0, 0.0))
+        .expect("gla base");
+    if let Some(o) = logic.host_object_mut(usa_unit) {
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            ..Weapon::default()
+        });
+    }
+
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    ai.enemy_player_id = Some(2);
+    ai.is_active = true;
+
+    let mut order = AIWorkOrder::new("Ai4Infantry".into(), 1, 100);
+    order.num_completed = 1;
+    order.observed_unit_ids.push(usa_unit);
+    ai.team_ready_queue.push_back(AITeamQueue::new(
+        "Ai4Rangers".into(),
+        vec![order],
+        false,
+        0,
+    ));
+
+    let count_before = ai.activity_count;
+    ai.evaluate_attack_opportunities(&mut logic, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
+    assert!(
+        ai.attack_in_progress,
+        "ready team + known enemy must attack-move"
+    );
+    assert_eq!(
+        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        Some(AIState::AttackMoving)
+    );
+    assert_eq!(ai.last_attack_time, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
+    assert!(ai.activity_count > count_before);
+}
+
+#[test]
+fn evaluate_attack_opportunities_stays_noop_without_team_or_enemy() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate, Weapon};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", true));
+
+    let mut unit_t = ThingTemplate::new("Ai5Infantry");
+    unit_t.set_health(100.0);
+    unit_t.add_kind_of(KindOf::Infantry);
+    unit_t.add_kind_of(KindOf::Attackable);
+    logic.templates.insert("Ai5Infantry".into(), unit_t);
+
+    let usa_unit = logic
+        .create_object("Ai5Infantry", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("usa unit");
+    if let Some(o) = logic.host_object_mut(usa_unit) {
+        o.weapon = Some(Weapon {
+            damage: 10.0,
+            ..Weapon::default()
+        });
+    }
+
+    // Known enemy but no ready team → no-op.
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    ai.enemy_player_id = Some(2);
+    ai.is_active = true;
+    let count_before = ai.activity_count;
+    ai.evaluate_attack_opportunities(&mut logic, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
+    assert!(!ai.attack_in_progress, "no ready team → no-op");
+    assert_eq!(ai.activity_count, count_before);
+    assert_eq!(
+        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        Some(AIState::Idle)
+    );
+
+    // Ready team but no known enemy → still no-op.
+    let mut ai2 = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    ai2.is_active = true;
+    let mut order = AIWorkOrder::new("Ai5Infantry".into(), 1, 100);
+    order.num_completed = 1;
+    order.observed_unit_ids.push(usa_unit);
+    ai2.team_ready_queue.push_back(AITeamQueue::new(
+        "Ai5Rangers".into(),
+        vec![order],
+        false,
+        0,
+    ));
+    ai2.evaluate_attack_opportunities(&mut logic, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
+    assert!(!ai2.attack_in_progress, "no known enemy → no-op");
+    assert_eq!(ai2.activity_count, 0);
+    assert_eq!(
+        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+        Some(AIState::Idle)
     );
 }
 

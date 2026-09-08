@@ -21,7 +21,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const PDRP_MAGIC: &[u8; 4] = b"PDRP";
-const PDRP_VERSION: u32 = 1;
+const PDRP_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ProductionDoorPersistPayload {
@@ -39,7 +39,26 @@ struct ObjectProductionDoorPersist {
     active_index: u8,
     /// C++ `DoorInfo::m_holdOpen`.
     hold_open: bool,
+    /// C++ `DoorInfo::m_holdOpen` per hangar stall (v2; door 0 mirrors `hold_open`).
+    #[serde(default)]
+    hold_opens: [bool; 4],
     /// Absolute frame when CONSTRUCTION_COMPLETE should clear (0 = inactive).
+    construction_complete_clear_frame: u32,
+}
+
+/// v1 tails predate the per-door hold array.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ProductionDoorPersistPayloadV1 {
+    objects: Vec<ObjectProductionDoorPersistV1>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectProductionDoorPersistV1 {
+    object_id: u32,
+    phases: [u8; 4],
+    phase_end_frames: [u32; 4],
+    active_index: u8,
+    hold_open: bool,
     construction_complete_clear_frame: u32,
 }
 
@@ -63,7 +82,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != PDRP_VERSION {
+    if version > PDRP_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown PDRP suffix version {version}"
         )));
@@ -74,8 +93,30 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "PDRP payload truncated".to_string(),
         ));
     }
-    let payload: ProductionDoorPersistPayload = bincode::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("PDRP payload decode: {err}")))?;
+    // v1 tails predate the per-door hold array; door 0 mirrors the scalar
+    // alias so a held v1 door stays held after load.
+    let payload: ProductionDoorPersistPayload = if version == 1 {
+        let old: ProductionDoorPersistPayloadV1 = bincode::deserialize(&rest[..payload_len])
+            .map_err(|err| SaveLoadError::Corrupted(format!("PDRP payload decode: {err}")))?;
+        ProductionDoorPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(|o| ObjectProductionDoorPersist {
+                    object_id: o.object_id,
+                    phases: o.phases,
+                    phase_end_frames: o.phase_end_frames,
+                    active_index: o.active_index,
+                    hold_open: o.hold_open,
+                    hold_opens: [o.hold_open, false, false, false],
+                    construction_complete_clear_frame: o.construction_complete_clear_frame,
+                })
+                .collect(),
+        }
+    } else {
+        bincode::deserialize(&rest[..payload_len])
+            .map_err(|err| SaveLoadError::Corrupted(format!("PDRP payload decode: {err}")))?
+    };
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -108,6 +149,15 @@ fn capture(game_logic: &GameLogic) -> ProductionDoorPersistPayload {
             phase_end_frames: ends,
             active_index: object.production_door_active_index,
             hold_open: object.production_door_hold_open,
+            hold_opens: {
+                // C++ xfer writes the raw m_doors[i].m_holdOpen array; the
+                // live scalar is the door-0 alias, so keep both coherent.
+                let mut hold_opens = object.production_door_hold_opens;
+                if object.production_door_hold_open {
+                    hold_opens[0] = true;
+                }
+                hold_opens
+            },
             construction_complete_clear_frame: object.construction_complete_clear_frame,
         });
     }
@@ -122,17 +172,17 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ProductionDoorPersistPaylo
         object.production_door_phases = entry.phases;
         object.production_door_phase_end_frames = entry.phase_end_frames;
         object.production_door_active_index = entry.active_index;
-        object.production_door_hold_open = entry.hold_open;
+        object.production_door_hold_opens = entry.hold_opens;
         object.construction_complete_clear_frame = entry.construction_complete_clear_frame;
         let active = (entry.active_index as usize).min(3);
         let phase = entry.phases[active];
         let end = entry.phase_end_frames[active];
         object.apply_production_door_phase_residual(phase);
-        object.production_door_phases = entry.phases;
-        object.production_door_phase_end_frames = entry.phase_end_frames;
-        object.production_door_phase_end_frames[active] = end;
         object.production_door_phase = object.production_door_phases[0];
         object.production_door_phase_end_frame = object.production_door_phase_end_frames[0];
+        // Xfer is last writer: the residual sync re-derives the door-0 alias
+        // from the array, so re-assert the saved hold state afterwards.
+        object.production_door_hold_open = entry.hold_open;
         if entry.construction_complete_clear_frame > 0 {
             use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
             object.model_condition_bits |= 1u128 << construction_complete_model_bit();

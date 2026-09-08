@@ -381,11 +381,9 @@ impl<'a> CommandExecutor<'a> {
         for (i, &unit_id) in unit_ids.iter().enumerate() {
             let skew = (i as u32)
                 % crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
-            let scheduled = self.game_logic.unit_command_apply_stealth_mood_delay(
-                unit_id,
-                now,
-                skew,
-            );
+            let scheduled = self
+                .game_logic
+                .unit_command_apply_stealth_mood_delay(unit_id, now, skew);
             debug!(
                 "stealth mood delay unit={} scheduled_next_mood_check_time={}",
                 unit_id.0, scheduled
@@ -893,6 +891,12 @@ impl<'a> CommandExecutor<'a> {
         let infantry: Vec<_> = movers.iter().filter(|m| m.5).cloned().collect();
         let vehicles: Vec<_> = movers.iter().filter(|m| m.6 && !m.5).cloned().collect();
 
+        // C++ locomotor GroupMovementPriority (Locomotor.cpp:441; enum
+        // Locomotor.h:43-48: BACK=0, MIDDLE=1, FRONT=2, default MIDDLE). The
+        // host does not parse locomotor INI, so derive the band from march
+        // speed within each kind: fastest third FRONT, slowest third BACK.
+        let priority_of = self.group_march_priorities(&infantry, &vehicles);
+
         let mut out = Vec::new();
         if let Some(col) = Self::pack_column_kind(
             &infantry,
@@ -900,6 +904,7 @@ impl<'a> CommandExecutor<'a> {
             3,
             MIN_INFANTRY_FOR_GROUP_RESIDUAL,
             MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+            &priority_of,
         ) {
             out.extend(col);
         }
@@ -909,19 +914,77 @@ impl<'a> CommandExecutor<'a> {
             2,
             MIN_VEHICLES_FOR_GROUP_RESIDUAL,
             MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+            &priority_of,
         ) {
             out.extend(col);
         }
         if out.is_empty() { None } else { Some(out) }
     }
 
+    /// Locomotor move-priority residual: rank by `movement.max_speed` within
+    /// each kind pass (fast leads the column, slow trails), tertiles →
+    /// LOCO_MOVES_FRONT(2) / MIDDLE(1) / BACK(0); <3 members → all MIDDLE.
+    fn group_march_priorities(
+        &self,
+        infantry: &[(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)],
+        vehicles: &[(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)],
+    ) -> HashMap<ObjectId, i32> {
+        let mut priority_of = HashMap::new();
+        for kind in [infantry, vehicles] {
+            if kind.is_empty() {
+                continue;
+            }
+            let mut speeds: Vec<(ObjectId, f32)> = kind
+                .iter()
+                .map(|m| {
+                    (
+                        m.0,
+                        self.game_logic
+                            .host_object(m.0)
+                            .map(|o| o.movement.max_speed)
+                            .unwrap_or(0.0),
+                    )
+                })
+                .collect();
+            speeds.sort_by(|a, b| b.1.total_cmp(&a.1));
+            let n = speeds.len() as i32;
+            for (i, (id, _)) in speeds.iter().enumerate() {
+                let i = i as i32;
+                let prio = if n < 3 {
+                    1
+                } else if i < (n + 2) / 3 {
+                    2
+                } else if i >= 2 * n / 3 {
+                    0
+                } else {
+                    1
+                };
+                priority_of.insert(*id, prio);
+            }
+        }
+        priority_of
+    }
+
+    /// C++ `friend_moveInfantryToPos` / `friend_moveVehicleToPos`
+    /// destination packing. Lane spacing is CELL-based (AIGroup.cpp:970
+    /// infantry `PATHFIND_CELL_SIZE_F*2.2`, :1446-1449 vehicles `*3.2`, or
+    /// `*1.5` under 5 units); groups of 16+ infantry spread over five
+    /// columns via `fiveColumnDelta = 2 - curIndex/((n+3)/5)`
+    /// (AIGroup.cpp:805-811); locomotor move priority orders lane
+    /// assignment FRONT → MIDDLE → BACK before the column even-out pass
+    /// (AIGroup.cpp:819-827, :838-895) — retail `#if 0`s the priority
+    /// ordering in the vehicle pass (:1288-1298, :1456-1464), so only the
+    /// infantry pass uses it.
     fn pack_column_kind(
         movers: &[(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)],
         destination: Vec3,
         num_columns: i32,
         min_count: i32,
         min_distance: f32,
+        priority_of: &HashMap<ObjectId, i32>,
     ) -> Option<Vec<(ObjectId, Vec3)>> {
+        const CELL: f32 = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        let infantry = num_columns >= 3;
         let n = movers.len() as i32;
         if n < min_count {
             return None;
@@ -946,51 +1009,185 @@ impl<'a> CommandExecutor<'a> {
         let nz = dir_x;
 
         // Sort by projection on normal (C++ FAR_TO_NEAR on normal dot).
-        let mut ordered: Vec<(ObjectId, Vec3, f32, f32)> = movers
+        let mut ordered: Vec<(ObjectId, f32, f32, i32)> = movers
             .iter()
             .map(|m| {
                 let dx = m.1.x - center.x;
                 let dz = m.1.z - center.z;
-                let proj = dx * nx + dz * nz;
-                (m.0, m.1, m.2, proj)
+                (
+                    m.0,
+                    dx * nx + dz * nz,
+                    dx * dir_x + dz * dir_z,
+                    *priority_of.get(&m.0).unwrap_or(&1),
+                )
             })
             .collect();
-        ordered.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+        ordered.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let half = num_columns / 2;
         let units_to_path = ordered.len() as i32;
-        // C++: spacing uses path cell size; host residual ≈ average radius.
-        let avg_r: f32 = ordered.iter().map(|o| o.2).sum::<f32>() / (ordered.len() as f32).max(1.0);
-        let col_spacing = avg_r.max(8.0) * 1.25;
-        let rank_spacing = avg_r.max(8.0) * 1.5;
-
-        let mut out = Vec::with_capacity(ordered.len());
-        for (cur_index, (id, _pos, _r, _proj)) in ordered.into_iter().enumerate() {
-            let cur_index = cur_index as i32;
-            // C++: divisor = (unitsToPath+1)/numColumns; columnDelta = 1 - curIndex/divisor
-            let mut divisor = (units_to_path + 1) / num_columns;
-            if divisor < 1 {
-                divisor = 1;
-            }
-            let mut column_delta = 1 - (cur_index / divisor);
+        // Desired column deltas by sorted index (C++ AIGroup.cpp:801-811
+        // infantry / :1269-1280 vehicles).
+        let mut desired: Vec<(i32, i32)> = Vec::with_capacity(ordered.len());
+        let half = num_columns / 2;
+        for cur_index in 0..units_to_path {
+            let mut divisor = ((units_to_path + 1) / num_columns).max(1);
+            let mut column_delta = 1 - cur_index / divisor;
             if column_delta < -half {
                 column_delta = -half;
             }
             if column_delta > half {
                 column_delta = half;
             }
-            // Rank depth along move direction (rows).
-            let rank = cur_index / num_columns;
+            if num_columns == 2 && column_delta == 0 {
+                column_delta = -1; // C++ 2-column keeps off the center line.
+            }
+            let wide = if infantry {
+                // C++ fiveColumnDelta for 16+ groups (AIGroup.cpp:805-811).
+                divisor = ((units_to_path + 3) / 5).max(1);
+                let mut five = 2 - cur_index / divisor;
+                five = five.clamp(-2, 2);
+                if units_to_path < 16 {
+                    five = column_delta;
+                }
+                five
+            } else {
+                // C++ threeColumnDelta for 5+ vehicle groups (:1273-1280).
+                divisor = ((units_to_path + 1) / 3).max(1);
+                let mut three = 1 - cur_index / divisor;
+                if three < -1 {
+                    three = -1;
+                }
+                if units_to_path < 5 {
+                    three = column_delta;
+                }
+                three
+            };
+            desired.push((column_delta, wide));
+        }
+
+        // C++ second sort (AIGroup.cpp:819-833): move-priority band first
+        // (FRONT before MIDDLE before BACK via the -100/-200 CELL adjust on
+        // the forward projection), FAR_TO_NEAR within a band. Retail `#if 0`s
+        // the adjust in the vehicle pass (:1288-1298).
+        let mut final_order: Vec<usize> = (0..ordered.len()).collect();
+        final_order.sort_by(|&a, &b| {
+            let (pa, pb) = if infantry {
+                (ordered[a].3, ordered[b].3)
+            } else {
+                (1, 1)
+            };
+            pb.cmp(&pa).then_with(|| {
+                ordered[b]
+                    .2
+                    .partial_cmp(&ordered[a].2)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
+
+        // C++ even out columns by priority (AIGroup.cpp:834-895): assign each
+        // unit the least-populated lane, preferring its desired lane on ties.
+        let mut narrow_counts = [0_i32; 3];
+        let mut wide_counts = [0_i32; 5];
+        let mut assigned: Vec<(i32, i32)> = desired.clone();
+        let bands: &[i32] = if infantry { &[2, 1, 0] } else { &[1] };
+        for &band in bands {
+            for &ui in &final_order {
+                if infantry && ordered[ui].3 != band {
+                    continue;
+                }
+                let (des_narrow, des_wide) = desired[ui];
+                // Narrow pick: 3 lanes (infantry) / outer lanes 0 and 2 only
+                // for the 2-column vehicle pass (C++ :854-871 / :1327-1344).
+                let narrow_lanes: &[usize] = if infantry {
+                    &[0, 1, 2]
+                } else {
+                    &[0, 2]
+                };
+                if let Some(best) =
+                    Self::pick_min_count_lane(&narrow_counts, narrow_lanes, des_narrow + 1)
+                {
+                    narrow_counts[best] += 1;
+                    assigned[ui].0 = best as i32 - 1;
+                }
+                // Wide pick: 5 lanes infantry / 3 lanes vehicles
+                // (C++ :873-888 / :1346-1361).
+                let wide_lanes: &[usize] = if infantry {
+                    &[0, 1, 2, 3, 4]
+                } else {
+                    &[0, 1, 2]
+                };
+                let wide_des_idx = des_wide + if infantry { 2 } else { 1 };
+                if let Some(best) =
+                    Self::pick_min_count_lane(&wide_counts, wide_lanes, wide_des_idx)
+                {
+                    wide_counts[best] += 1;
+                    assigned[ui].1 = best as i32 - if infantry { 2 } else { 1 };
+                }
+                // C++ overwrites the wide delta with the narrow one for small
+                // groups (:890-892 infantry <16, :1363-1365 vehicles <5).
+                if infantry && units_to_path < 16 {
+                    assigned[ui].1 = assigned[ui].0;
+                } else if !infantry && units_to_path < 5 {
+                    assigned[ui].1 = assigned[ui].0;
+                }
+            }
+        }
+
+        // Final pass: per-column rank factor, then the CELL-based goal.
+        let mut out = Vec::with_capacity(ordered.len());
+        let mut column_factor = [0_i32; 5];
+        let dest_width = if infantry {
+            CELL * 2.2
+        } else if units_to_path >= 5 {
+            CELL * 3.2
+        } else {
+            CELL * 1.5
+        };
+        for &ui in &final_order {
+            let (id, _, _, prio) = ordered[ui];
+            let (_, wide) = assigned[ui];
+            let factor = column_factor[(wide + 2) as usize];
+            column_factor[(wide + 2) as usize] += 1;
+            // C++ destination stagger: odd ranks one extra cell sideways
+            // (AIGroup.cpp:974-977, :1452-1455).
+            let stagger = if factor & 1 == 1 { CELL } else { 0.0 };
+            // C++ priority depth: MIDDLE one cell, BACK two cells behind the
+            // goal (AIGroup.cpp:979-985; `#if 0` for vehicles :1456-1464).
+            let priority_depth = if infantry {
+                (2 - prio) as f32 * CELL
+            } else {
+                0.0
+            };
+            // Rank depth stacks the column back along the approach
+            // (AIGroup.cpp:987-988, :1465-1466).
+            let depth = factor as f32 * dest_width + priority_depth;
             let goal = Vec3::new(
-                destination.x + nx * (column_delta as f32) * col_spacing
-                    - dir_x * (rank as f32) * rank_spacing,
+                destination.x + nx * (wide as f32 * dest_width + stagger),
                 destination.y,
-                destination.z + nz * (column_delta as f32) * col_spacing
-                    - dir_z * (rank as f32) * rank_spacing,
+                destination.z + nz * (wide as f32 * dest_width + stagger),
             );
+            let goal = goal - Vec3::new(dir_x, 0.0, dir_z) * depth;
             out.push((id, goal));
         }
         Some(out)
+    }
+
+    /// C++ min-count + closest-to-desired lane pick (AIGroup.cpp:851-888).
+    fn pick_min_count_lane(counts: &[i32], lanes: &[usize], desired: i32) -> Option<usize> {
+        let min = lanes.iter().map(|&i| counts[i]).min()?;
+        let mut best = None;
+        let mut best_delta = i32::MAX;
+        for &i in lanes {
+            if counts[i] != min {
+                continue;
+            }
+            let d = (desired - i as i32).abs();
+            if d < best_delta {
+                best_delta = d;
+                best = Some(i);
+            }
+        }
+        best
     }
 
     /// C++ AIGroup::groupAttackMoveToPosition residual.
@@ -1165,9 +1362,7 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .host_object(unit_id)
                 .map(|o| o.get_position());
-            let already_there = pos.is_some_and(|p| {
-                (p.x - goal.x).hypot(p.z - goal.z) < 0.1
-            });
+            let already_there = pos.is_some_and(|p| (p.x - goal.x).hypot(p.z - goal.z) < 0.1);
             if already_there {
                 // C++ still records m_goalPosition for a same-position move
                 // (AIUpdateInterface::doCommandMove), so arrival-gated reads
@@ -1284,5 +1479,121 @@ impl<'a> CommandExecutor<'a> {
         } else {
             CommandResult::InvalidCommand
         }
+    }
+}
+
+#[cfg(test)]
+mod column_pack_tests {
+    use super::*;
+
+    type Mover = (ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool);
+
+    fn mover(id: u32, x: f32, z: f32) -> Mover {
+        (ObjectId(id), Vec3::new(x, 0.0, z), 10.0, 0, glam::Vec2::ZERO, true, true)
+    }
+
+    /// center=(0,0), destination=(0,500) → dir=(0,1), n=(-1,0), so the lane
+    /// lives on the X axis. Infantry destination width = 2.2 cells = 22.
+    fn lane_of(goal: Vec3, destination: Vec3) -> i32 {
+        let lat = goal.x - destination.x;
+        -(lat / 22.0).round() as i32
+    }
+
+    /// C++ AIGroup.cpp:805-811: `fiveColumnDelta = 2 - curIndex/((n+3)/5)`
+    /// spreads groups of 16+ infantry over five destination columns.
+    #[test]
+    fn sixteen_unit_column_pack_uses_five_columns() {
+        let destination = Vec3::new(0.0, 0.0, 500.0);
+        let movers: Vec<Mover> = (0..16_u32)
+            .map(|i| mover(i + 1, (i as f32 - 7.5) * 12.0, 0.0))
+            .collect();
+        let packed = CommandExecutor::pack_column_kind(
+            &movers,
+            destination,
+            3,
+            3,
+            100.0,
+            &HashMap::new(),
+        )
+        .expect("16 infantry must column-pack");
+        assert_eq!(packed.len(), 16);
+        let lanes: HashSet<i32> = packed
+            .iter()
+            .map(|(_, g)| lane_of(*g, destination))
+            .collect();
+        assert_eq!(
+            lanes,
+            HashSet::from([-2, -1, 0, 1, 2]),
+            "16 units must spread over five columns, goals={packed:?}"
+        );
+        // C++ even-out: no column holds more than ceil(16/5) = 4 units.
+        let mut counts: HashMap<i32, u32> = HashMap::new();
+        for (_, g) in &packed {
+            *counts.entry(lane_of(*g, destination)).or_insert(0) += 1;
+        }
+        assert!(
+            counts.values().all(|&c| c <= 4),
+            "columns must stay balanced, counts={counts:?}"
+        );
+    }
+
+    /// C++ AIGroup.cpp:819-827 / :838-895: locomotor move priority orders
+    /// lane assignment FRONT → MIDDLE → BACK, and the destination depth
+    /// (:979-985) trails MIDDLE one cell and BACK two cells behind FRONT.
+    #[test]
+    fn locomotor_priority_orders_column_depth() {
+        let destination = Vec3::new(0.0, 0.0, 500.0);
+        let movers: Vec<Mover> = (0..9_u32)
+            .map(|i| mover(i + 1, (i as f32 - 4.0) * 12.0, 0.0))
+            .collect();
+        let mut priority_of = HashMap::new();
+        for id in 1..=3_u32 {
+            priority_of.insert(ObjectId(id), 2); // LOCO_MOVES_FRONT
+        }
+        for id in 4..=6_u32 {
+            priority_of.insert(ObjectId(id), 1); // LOCO_MOVES_MIDDLE
+        }
+        for id in 7..=9_u32 {
+            priority_of.insert(ObjectId(id), 0); // LOCO_MOVES_BACK
+        }
+        let packed = CommandExecutor::pack_column_kind(
+            &movers,
+            destination,
+            3,
+            3,
+            100.0,
+            &priority_of,
+        )
+        .expect("9 infantry must column-pack");
+
+        // Depth along the march direction (dir = +Z): rank stacks back from
+        // the destination, priority adds one cell per band behind FRONT.
+        let mean_depth = |ids: &[u32]| -> f32 {
+            ids.iter()
+                .map(|id| {
+                    packed
+                        .iter()
+                        .find(|(oid, _)| oid.0 == *id)
+                        .map(|(_, g)| destination.z - g.z)
+                        .unwrap_or(0.0)
+                })
+                .sum::<f32>()
+                / ids.len() as f32
+        };
+        let front = mean_depth(&[1, 2, 3]);
+        let middle = mean_depth(&[4, 5, 6]);
+        let back = mean_depth(&[7, 8, 9]);
+        assert!(
+            middle - front >= 9.5,
+            "MIDDLE must trail FRONT by at least the one-cell priority depth, depths=({front},{middle},{back})"
+        );
+        assert!(
+            back - middle >= 9.5,
+            "BACK must trail MIDDLE by at least the one-cell priority depth, depths=({front},{middle},{back})"
+        );
+        assert!(
+            middle - front <= 55.0 && back - middle <= 55.0,
+            "band gaps must stay in column scale, depths=({front},{middle},{back})"
+        );
     }
 }

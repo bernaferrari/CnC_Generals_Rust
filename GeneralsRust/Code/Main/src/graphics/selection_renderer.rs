@@ -10,6 +10,7 @@
 use glam::{Mat4, Vec2, Vec3};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 // ---------------------------------------------------------------------------
 // Constants (C++ parity)
@@ -623,8 +624,16 @@ impl SelectionRenderer {
                 for i in 0..=CIRCLE_SEGMENTS {
                     let angle = (i as f32 / CIRCLE_SEGMENTS as f32) * std::f32::consts::TAU;
                     let (sin, cos) = angle.sin_cos();
-                    push_vertex(&mut vertices, center.x + radius * cos, center.z + radius * sin);
-                    push_vertex(&mut vertices, center.x + inner * cos, center.z + inner * sin);
+                    push_vertex(
+                        &mut vertices,
+                        center.x + radius * cos,
+                        center.z + radius * sin,
+                    );
+                    push_vertex(
+                        &mut vertices,
+                        center.x + inner * cos,
+                        center.z + inner * sin,
+                    );
                 }
                 let triangle_count = CIRCLE_SEGMENTS as usize * 2;
                 let mut indices: Vec<u32> = Vec::with_capacity(triangle_count * 3);
@@ -776,23 +785,21 @@ pub fn collect_blob_shadows_from_presentation(
         .iter()
         .filter(|u| !u.destroyed && u.shadows_enabled && blob_shadow_visible_through_shroud(u))
         .map(|u| {
-            let (sx, sy) = crate::game_logic::host_battlemaster::leftover_template_shadow_size(
-                &u.template_name,
-                0.0,
-                0.0,
-            );
+            // Retail blob sizing: DECAL family uses the authored ShadowSize world
+            // extent (infantry 14x14); VOLUME-family ShadowSizeX is a sun-elevation
+            // angle, so extent derives from bounding geometry via the C++
+            // W3DProjectedShadow.cpp addShadow `Extent * 2` heuristic. The ladder
+            // is never (0, 0); draw additionally clamps radius to >= 1.
+            let (sx, sy) =
+                crate::game_logic::host_battlemaster::leftover_template_blob_shadow_size(
+                    &u.template_name,
+                );
             let (ox, oy) = crate::game_logic::host_battlemaster::leftover_template_shadow_offset(
                 &u.template_name,
                 0.0,
                 0.0,
             );
-            let radius = if sx > 0.0 || sy > 0.0 {
-                sx.max(sy) * 0.5
-            } else {
-                u.selection_radius
-                    .max(if u.is_structure { 10.0 } else { 4.0 })
-                    * 0.85
-            };
+            let radius = sx.max(sy) * 0.5;
             SelectedUnit {
                 // C++ ShadowOffsetX/Y are world X/Y; live Y is height so offset Y maps to Z.
                 // Disc Y is frozen terrain height, never unit altitude (jets/Comanches).
@@ -881,7 +888,9 @@ fn pack_rally_point_lines(_frame: &crate::presentation_frame::PresentationFrame)
 
 /// C++ `Drawable::drawIconUI` health bar (`Drawable.cpp:2738-2754` via
 /// `computeHealthRegion` `:2661-2704` + `drawHealthBar` `:3825-3937`): a
-/// screen-space bar above each selected drawable — cyan construction/disabled
+/// screen-space bar above each selected **or moused-over** drawable
+/// (`Drawable.cpp:3834-3835` `isSelected() || getMousedOverDrawableID() ==
+/// getID()`) — cyan construction/disabled
 /// branch else red↔green with REALLYDAMAGED/DAMAGED modulation, 1px open-rect
 /// outline + inset fill, width from `getHealthBoxDimensions`
 /// (Object.cpp:3364-3417, min 20 px), height 3 px, anchored at the projected
@@ -896,6 +905,74 @@ fn pack_rally_point_lines(_frame: &crate::presentation_frame::PresentationFrame)
 /// from the frozen presentation snapshot. C++ `zoom` scaling of the bar width
 /// (`widthScale = 1.0f / zoom`) is folded into the projection: the bar width
 /// already lands in tactical-viewport pixels at the current camera.
+// ---------------------------------------------------------------------------
+// ShowObjectHealth gate (C++ Drawable.cpp:3834)
+// ---------------------------------------------------------------------------
+
+/// `TheGlobalData->m_showObjectHealth` decision.
+///
+/// The parsed INI value leads (`Drawable.cpp:3834`; C++ constructor default
+/// FALSE, `GlobalData.cpp:795`). When this install never parsed a GameData
+/// block at all, `show_object_health` sits at the Rust constructor default
+/// (`ini_game_data.rs:862` `false`) — not an authored value — so the live
+/// default follows retail, which ships `ShowObjectHealth = Yes`
+/// (`GameData.ini:25`, INIZH `Data/INI/GameData.ini:31835`). A present
+/// GameData source is trusted as parsed: an authored `No` stays closed.
+fn resolve_show_object_health(parsed: Option<bool>, retail_game_data_source_present: bool) -> bool {
+    match parsed {
+        Some(true) => true,
+        Some(false) => !retail_game_data_source_present,
+        None => true,
+    }
+}
+
+/// Cached probe: 0 unresolved, 1 a GameData INI source resolves on this
+/// install, 2 none resolves.
+static RETAIL_GAME_DATA_PROBE: AtomicU8 = AtomicU8::new(0);
+
+/// Whether any boot GameData INI source (`Data/INI/GameData.ini` or
+/// `Data/INI/Default/GameData.ini`, the `bootstrap_global_data_from_ini`
+/// pair) resolves from this install's extracted disk roots.
+fn retail_game_data_source_present() -> bool {
+    match RETAIL_GAME_DATA_PROBE.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            let present = ["Data/INI/GameData.ini", "Data/INI/Default/GameData.ini"].iter().any(
+                |path| {
+                    crate::cnc_game_engine::CnCGameEngine::read_startup_ini_from_disk(path)
+                        .is_some()
+                },
+            );
+            RETAIL_GAME_DATA_PROBE.store(if present { 1 } else { 2 }, Ordering::Relaxed);
+            present
+        }
+    }
+}
+
+/// Test-only override of the retail GameData probe cache (1 present,
+/// 2 absent, 0 re-probe on next use).
+#[cfg(test)]
+fn force_retail_game_data_probe_for_tests(state: u8) {
+    RETAIL_GAME_DATA_PROBE.store(state, Ordering::Relaxed);
+}
+
+/// Log the active ShowObjectHealth value once at InGame entry (first
+/// health-bar pack of the session).
+static SHOW_OBJECT_HEALTH_GATE_LOGGED: AtomicBool = AtomicBool::new(false);
+
+fn log_show_object_health_gate_once(open: bool) {
+    if !SHOW_OBJECT_HEALTH_GATE_LOGGED.swap(true, Ordering::Relaxed) {
+        if open {
+            log::info!("ShowObjectHealth gate open at InGame entry: health bars visible");
+        } else {
+            log::info!(
+                "ShowObjectHealth gate closed at InGame entry: GameData block sets No"
+            );
+        }
+    }
+}
+
 pub fn pack_health_bar_quads(
     frame: &crate::presentation_frame::PresentationFrame,
     view_matrix: &Mat4,
@@ -904,13 +981,18 @@ pub fn pack_health_bar_quads(
     display_size: (f32, f32),
 ) -> Vec<f32> {
     use crate::game_logic::host_enum_table_residual::{
-        host_model_condition_has, MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED,
+        MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, host_model_condition_has,
     };
 
     // C++ gate: TheGlobalData->m_showObjectHealth (`Drawable.cpp:3834`).
-    let show_object_health = game_engine::common::ini::get_global_data()
-        .map(|data| data.read().show_object_health)
-        .unwrap_or(false);
+    // The parsed INI value leads; when this install never parsed a GameData
+    // block the retail default (`ShowObjectHealth = Yes`, GameData.ini:25 /
+    // INIZH GameData.ini:31835) applies.
+    let parsed_show_object_health = game_engine::common::ini::get_global_data()
+        .map(|data| data.read().show_object_health);
+    let show_object_health =
+        resolve_show_object_health(parsed_show_object_health, retail_game_data_source_present());
+    log_show_object_health_gate_once(show_object_health);
     if !show_object_health || display_size.0 <= 0.0 || display_size.1 <= 0.0 {
         return Vec::new();
     }
@@ -920,7 +1002,23 @@ pub fn pack_health_bar_quads(
     let (vp_w, vp_h) = (tactical_viewport.0.max(1.0), tactical_viewport.1.max(1.0));
     let mut vertices: Vec<f32> = Vec::new();
 
-    for object in frame.objects.iter().filter(|o| o.selected && !o.destroyed) {
+    // C++ gate (`Drawable.cpp:3834-3835`): selected OR moused-over
+    // drawables. The host feeds the mouseover id at the HintSpy boundary
+    // (camera.rs `sync_ingame_mouseover_hint` → `create_mouseover_hint`,
+    // C++ InGameUI.cpp:2254-2284 / impl_input.rs moused_over_drawable_id),
+    // and the id shares the presentation ObjectId u32 space.
+    #[cfg(feature = "game_client")]
+    let moused_over_drawable_id = game_client::helpers::TheInGameUI::get_moused_over_drawable_id();
+    #[cfg(not(feature = "game_client"))]
+    let moused_over_drawable_id: u32 = 0;
+    // INVALID_DRAWABLE_ID == 0 (game_client impl_update.rs) means no hover.
+    let hovered_id = (moused_over_drawable_id != 0).then_some(moused_over_drawable_id);
+
+    for object in frame
+        .objects
+        .iter()
+        .filter(|o| !o.destroyed && (o.selected || hovered_id == Some(o.id.0)))
+    {
         // C++ bails when maxHealth == 0 or health == 0 (`Drawable.cpp:3860`).
         if object.health_max <= 0.0 || object.health_current <= 0.0 {
             continue;
@@ -1502,6 +1600,46 @@ mod presentation_selection_tests {
     }
 
     #[test]
+    fn blob_casters_collect_for_volume_units_with_positive_radius() {
+        // Retail Crusader-class units author SHADOW_VOLUME (a C++ stencil
+        // volume). The stencil pass is structurally skipped (Depth32Float), so
+        // the collector must still yield a blob caster with a positive radius.
+        let mut logic = GameLogic::new();
+        let cfg = golden_skirmish_config("VolBlobMap");
+        apply_skirmish_config(&mut logic, &cfg).expect("config");
+        let mut t = ThingTemplate::new("VolBlobTank");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Vehicle);
+        t.shadow_type = crate::game_logic::host_enum_table_residual::SHADOW_VOLUME;
+        logic.templates.insert("VolBlobTank".into(), t);
+
+        let id = logic
+            .create_object("VolBlobTank", Team::USA, glam::Vec3::new(4.0, 0.0, 6.0))
+            .expect("tank");
+        if let Some(o) = logic.host_object_mut(id) {
+            o.selection_radius = 9.0;
+        }
+
+        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let blobs = collect_blob_shadows_from_presentation(&snap);
+        assert_eq!(
+            blobs.len(),
+            1,
+            "SHADOW_VOLUME unit must still cast a blob disc"
+        );
+        assert!(
+            blobs[0].radius > 0.0,
+            "blob radius must stay positive, got {}",
+            blobs[0].radius
+        );
+        assert!(
+            (blobs[0].position.x - 4.0).abs() < 0.01 && (blobs[0].position.z - 6.0).abs() < 0.01,
+            "blob must sit under the unit pose: {:?}",
+            blobs[0].position
+        );
+    }
+
+    #[test]
     fn production_cnc_render_path_enqueues_selection_with_presentation() {
         // Structural proof: CncGameEngine::render ships enqueue_selection_render with
         // last_presentation_frame (not a dead helper).
@@ -1541,8 +1679,8 @@ mod presentation_selection_tests {
     #[test]
     fn health_bar_packs_cpp_quads_when_gate_open() {
         // C++ Drawable::drawHealthBar (`Drawable.cpp:3825-3937`): one open-rect
-        // outline + inset fill per selected drawable, gated on
-        // TheGlobalData->m_showObjectHealth (`:3834`).
+        // outline + inset fill per selected OR moused-over drawable
+        // (`:3834-3835`), gated on TheGlobalData->m_showObjectHealth.
         use crate::game_logic::{KindOf, ThingTemplate};
         game_engine::common::ini::ini_game_data::init_global_data();
         let mut logic = GameLogic::new();
@@ -1551,15 +1689,27 @@ mod presentation_selection_tests {
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Selectable);
         logic.templates.insert("SelHpUnit".into(), t);
+        let mut other = ThingTemplate::new("HoverHpUnit");
+        other.set_health(90.0);
+        other.add_kind_of(KindOf::Infantry);
+        other.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("HoverHpUnit".into(), other);
         let id = logic
             .create_object("SelHpUnit", Team::USA, Vec3::new(12.0, 4.0, -7.0))
             .expect("unit");
+        let hover_id = logic
+            .create_object("HoverHpUnit", Team::USA, Vec3::new(24.0, 4.0, -14.0))
+            .expect("hover unit");
         if let Some(o) = logic.host_object_mut(id) {
             o.selected = true;
             o.status.selected = true;
             o.selection_radius = 6.0;
             o.health.current = 60.0;
             o.health.maximum = 80.0;
+        }
+        if let Some(o) = logic.host_object_mut(hover_id) {
+            o.health.current = 45.0;
+            o.health.maximum = 90.0;
         }
         let snap = PresentationFrame::build_from_logic(&logic, 0);
 
@@ -1569,25 +1719,30 @@ mod presentation_selection_tests {
             Vec3::Y,
         );
         let proj = Mat4::perspective_rh(1.0, 640.0 / 384.0, 1.0, 800.0);
+        let pack = |snap: &PresentationFrame| {
+            pack_health_bar_quads(snap, &view, &proj, (640.0, 384.0), (640.0, 480.0))
+        };
 
-        // Gate closed (C++ GlobalData.cpp:795 default): no bars.
+        // Gate closed: authored No with a GameData source present (C++
+        // GlobalData.cpp:795 default stays FALSE only when authored).
+        super::force_retail_game_data_probe_for_tests(1);
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().show_object_health = false;
         }
-        assert!(pack_health_bar_quads(&snap, &view, &proj, (640.0, 384.0), (640.0, 480.0)).is_empty());
+        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(0);
+        assert!(pack(&snap).is_empty());
 
         // Gate open: outline (4 quads) + fill (1 quad) = 5 quads of 6 verts
-        // x 6 floats = 180 floats.
+        // x 6 floats = 180 floats for the selected unit alone.
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().show_object_health = true;
         }
-        let verts = pack_health_bar_quads(&snap, &view, &proj, (640.0, 384.0), (640.0, 480.0));
+        let verts = pack(&snap);
         assert_eq!(
             verts.len(),
             180,
             "outline 4 + fill 1 quads, 6 verts x 6 floats each"
         );
-
         // ratio 0.75 → red = 1−((0.75−0.5)/0.5) = 0.5, green = 1; the
         // not-DAMAGED modulation (`Drawable.cpp:3908-3912`) halves red and
         // averages green → fill (0.25, 1.0, 0).
@@ -1595,9 +1750,66 @@ mod presentation_selection_tests {
         assert!((fill[2] - 0.25).abs() < 0.01, "fill red {}", fill[2]);
         assert!((fill[3] - 1.0).abs() < 0.01, "fill green {}", fill[3]);
         assert!(fill[4].abs() < 0.01, "health bars carry no blue");
+
+        // Contract (d): a hovered NON-selected unit gets its own bar quad set
+        // (Drawable.cpp:3834-3835 moused-over branch).
+        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(hover_id.0);
+        let verts = pack(&snap);
+        assert_eq!(verts.len(), 360, "selected + hovered units each pack 5 quads");
+
+        // Hover alone still shows one bar when nothing is selected.
+        let mut hover_only = snap.clone();
+        {
+            let sel = hover_only
+                .objects
+                .iter_mut()
+                .find(|o| o.id == id)
+                .expect("selected row");
+            sel.selected = false;
+        }
+        assert_eq!(pack(&hover_only).len(), 180, "hover-only unit keeps its bar");
+
+        // Clearing the mouseover (INVALID_DRAWABLE_ID) removes the hover bar.
+        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(0);
+        assert!(pack(&hover_only).is_empty());
+
+        // Retail default: an install whose boot lacks the GameData block
+        // falls open to the shipped `ShowObjectHealth = Yes`
+        // (GameData.ini:25 / INIZH GameData.ini:31835).
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().show_object_health = false;
         }
+        super::force_retail_game_data_probe_for_tests(2);
+        assert_eq!(
+            pack(&snap).len(),
+            180,
+            "absent GameData block must fail open to the retail default"
+        );
+
+        // Restore shared state for other tests.
+        super::force_retail_game_data_probe_for_tests(0);
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().show_object_health = false;
+        }
+    }
+
+    #[test]
+    fn show_object_health_default_follows_retail_when_game_data_block_absent() {
+        // Parsed Yes always wins; parsed No only survives a present GameData
+        // source; an absent block (or absent global) fails open to the
+        // retail `ShowObjectHealth = Yes` default.
+        assert!(super::resolve_show_object_health(Some(true), false));
+        assert!(super::resolve_show_object_health(Some(true), true));
+        assert!(
+            super::resolve_show_object_health(Some(false), false),
+            "no GameData source → retail default Yes (GameData.ini:25)"
+        );
+        assert!(
+            !super::resolve_show_object_health(Some(false), true),
+            "authored No stays closed (Drawable.cpp:3834 gate)"
+        );
+        assert!(super::resolve_show_object_health(None, false));
+        assert!(super::resolve_show_object_health(None, true));
     }
 }
 

@@ -1328,28 +1328,34 @@ impl CommandTranslator {
                 }
             }
             0x48 => {
-                // 'H' key - halt/stop
+                // 'H' key - retail VIEW_COMMAND_CENTER (CommandMap KEY_H);
+                // C++ CommandXlat.cpp:2837 viewCommandCenter(). Stop is S.
                 if down {
-                    messages.push(GameMessageType::MetaStop);
+                    messages.push(GameMessageType::MetaViewCommandCenter);
                 }
             }
             0x20 => {
-                // Spacebar - scatter
+                // Spacebar - retail VIEW_LAST_RADAR_EVENT (CommandMap
+                // KEY_SPACE); C++ CommandXlat.cpp:2843. Scatter is X.
                 if down {
-                    messages.push(GameMessageType::MetaScatter);
+                    messages.push(GameMessageType::MetaViewLastRadarEvent);
                 }
             }
             // Control key modifiers
             0x11 => {
-                // Ctrl key
+                // Ctrl key. Retail MetaMap binds CTRL hold to both
+                // BEGIN_FORCEATTACK and BEGIN_FORCEMOVE (C++
+                // CommandXlat.cpp:3424-3434 sets both InGameUI modes).
                 if down {
                     self.force_attack_mode = true;
                     TheInGameUI::set_force_attack_mode(true);
                     messages.push(GameMessageType::MetaBeginForceAttack);
+                    messages.push(GameMessageType::MetaBeginForceMove);
                 } else {
                     self.force_attack_mode = false;
                     TheInGameUI::set_force_attack_mode(false);
                     messages.push(GameMessageType::MetaEndForceAttack);
+                    messages.push(GameMessageType::MetaEndForceMove);
                 }
             }
             0x12 => {

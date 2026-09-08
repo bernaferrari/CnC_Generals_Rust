@@ -267,7 +267,160 @@ mod tests {
         assert!(
             hidden || text.as_deref() != Some("PLACEHOLDER"),
             "MoneyDisplay must be hidden without a player or rewritten from ThePlayerList, got text={text:?} hidden={hidden}"
+    );
+    }
+
+    #[test]
+    fn default_and_none_context_window_matrix_matches_cpp() {
+        // C++ switchToContext hide matrix (ControlBar.cpp:2128-2137): every
+        // non-observer context hides CP_OBSERVER_INFO, and CB_CONTEXT_NONE
+        // additionally hides CP_COMMAND. ControlBar.wnd authors
+        // ObserverPlayerInfoWindow visible (no HIDDEN flag), so only the
+        // context/stage application keeps the observer tab labels off the
+        // command grid in normal play.
+        for (name, hidden) in [
+            ("ControlBar.wnd:ControlBarParent", false),
+            ("ControlBar.wnd:CommandWindow", true),
+            ("ControlBar.wnd:ProductionQueueWindow", true),
+            ("ControlBar.wnd:ObserverPlayerInfoWindow", false),
+        ] {
+            let _ = crate::gui::with_window_manager(|manager| {
+                let win = manager.create_window(None, 0, 0, 10, 10).expect("window");
+                win.borrow_mut().set_name(name);
+                let _ = win.borrow_mut().hide(hidden);
+            });
+        }
+        let read_hidden = |name: &str| {
+            crate::gui::with_window_manager_ref(|manager| {
+                manager
+                    .find_window_by_name(name)
+                    .map(|w| w.borrow().is_hidden())
+            })
+        };
+        ControlBar::new().switch_control_bar_stage(ControlBarStage::Default);
+        assert_eq!(
+            read_hidden("ControlBar.wnd:ObserverPlayerInfoWindow"),
+            Some(true),
+            "ObserverPlayerInfoWindow must never leak over the command grid"
+        );
+        assert_eq!(read_hidden("ControlBar.wnd:CommandWindow"), Some(false));
+        // CB_CONTEXT_NONE parity: no selection means no command grid.
+        apply_none_context_hide();
+        assert_eq!(read_hidden("ControlBar.wnd:CommandWindow"), Some(true));
+        assert_eq!(
+            read_hidden("ControlBar.wnd:ProductionQueueWindow"),
+            Some(true)
+        );
+        assert_eq!(
+            read_hidden("ControlBar.wnd:ObserverPlayerInfoWindow"),
+            Some(true)
         );
     }
 
+    #[test]
+    fn bind_command_windows_hides_unpopulated_slots_in_every_state() {
+        // C++ populateCommand (ControlBarCommand.cpp:262-306): every slot
+        // without a populated CommandButton is winHide(TRUE) at population
+        // time, in every context; repopulation re-shows populated slots.
+        for i in 1..=3 {
+            let _ = crate::gui::with_window_manager(|manager| {
+                let win = manager
+                    .create_window(None, 0, 0, 50, 44)
+                    .expect("command slot");
+                win.borrow_mut()
+                    .set_name(&format!("ControlBar.wnd:ButtonCommand{i:02}"));
+            });
+        }
+        let mut command = CommandButton::default();
+        command.command_name = "Command_TestPopulateHide".to_string();
+        let context = ControlBarContext {
+            current_state: ControlBarState::Command,
+            available_commands: vec![command],
+            ..ControlBarContext::default()
+        };
+        ControlBar::new().bind_command_windows(&context);
+        let states = crate::gui::with_window_manager_ref(|manager| {
+            (1..=3)
+                .map(|i| {
+                    manager
+                        .find_window_by_name(&format!("ControlBar.wnd:ButtonCommand{i:02}"))
+                        .map(|w| w.borrow().is_hidden())
+                })
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(states, vec![Some(false), Some(true), Some(true)]);
+    }
+
+    #[test]
+    fn scheme_apply_gives_right_hud_image_status() {
+        // C++ ControlBarScheme.cpp:407 -> updateRightHUDImage
+        // (winSetEnabledImage raises WIN_STATUS_IMAGE; W3DControlBar.cpp:74-81
+        // paints only under that bit).
+        const IMAGE: &str = "SNTestRightHudArt";
+        crate::display::image::get_mapped_image_collection()
+            .write()
+            .expect("mapped image collection")
+            .add_image(crate::display::image::Image::with_name(IMAGE));
+        let _ = crate::gui::with_window_manager(|manager| {
+            let win = manager.create_window(None, 0, 0, 139, 109).expect("RightHUD");
+            win.borrow_mut().set_name("ControlBar.wnd:RightHUD");
+        });
+        apply_scheme_right_hud_image(IMAGE);
+        let (has_image_status, bound_image) = crate::gui::with_window_manager_ref(|manager| {
+            manager
+                .find_window_by_name("ControlBar.wnd:RightHUD")
+                .map(|w| {
+                    let guard = w.borrow();
+                    (
+                        guard
+                            .get_status()
+                            .contains(crate::gui::game_window::WindowStatus::IMAGE),
+                        guard
+                            .instance_data()
+                            .enabled_draw_data
+                            .first()
+                            .and_then(|data| data.image.as_ref())
+                            .map(|image| image.name.clone()),
+                    )
+                })
+                .unwrap_or((false, None))
+        });
+        assert!(has_image_status, "RightHUD must gain WIN_STATUS_IMAGE");
+        assert_eq!(bound_image.as_deref(), Some(IMAGE));
+    }
+
+    #[test]
+    fn scheme_slot_size_applies_command_bar_size_offset() {
+        // Zero Hour authors COMMAND_BAR_SIZE_OFFSET = 0 (ControlBarScheme.cpp:51)
+        // and adds it on every scheme winSetSize (432-620).
+        assert_eq!(COMMAND_BAR_SIZE_OFFSET, 0);
+        let (width, height) = scheme_slot_size(100, 200, 180, 236, 1.0, 1.0);
+        assert_eq!((width, height), (80, 36));
+        let (half, _) = scheme_slot_size(0, 0, 360, 19, 0.5, 1.0);
+        assert_eq!(half, 180);
+    }
+
+    #[test]
+    fn shortcut_bar_stays_hidden_before_first_purchased_power() {
+        // C++ showSpecialPowerShortcut (ControlBar.cpp:3719-3738): without an
+        // owned shortcut special power or a populated shortcut selection
+        // button, the GenPowersShortcutBar column is never revealed.
+        let _ = crate::gui::with_window_manager(|manager| {
+            let win = manager.create_window(None, 0, 0, 48, 426).expect("shortcut tray");
+            win.borrow_mut()
+                .set_name("ControlBar.wnd:GenPowersShortcutBarParent");
+            let _ = win.borrow_mut().hide(true);
+        });
+        ControlBar::new().show_special_power_shortcut();
+        let hidden = crate::gui::with_window_manager_ref(|manager| {
+            manager
+                .find_window_by_name("ControlBar.wnd:GenPowersShortcutBarParent")
+                .map(|w| w.borrow().is_hidden())
+        });
+        assert_eq!(
+            hidden,
+            Some(true),
+            "shortcut tray must stay closed until a general's power is purchased"
+        );
+    }
 }

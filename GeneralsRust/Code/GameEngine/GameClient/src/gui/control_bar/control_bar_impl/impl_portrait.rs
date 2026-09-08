@@ -840,6 +840,25 @@ impl ControlBar {
         self.presentation_ocl_timer_seconds = seconds;
         if seconds != self.displayed_ocl_timer_seconds {
             self.displayed_ocl_timer_seconds = seconds;
+            // C++ ControlBarOCLTimer.cpp:23-49: when the displayed second
+            // changes, updateOCLTimerTextDisplay reveals CP_OCL_TIMER and
+            // rewrites the countdown text. The host presentation path feeds
+            // seconds here, so the window must reveal from this sync too —
+            // the registry-empty update lane cannot be the only writer.
+            let obj_id = self
+                .context
+                .read()
+                .ok()
+                .and_then(|c| c.selected_objects.first().copied());
+            if let Some(obj_id) = obj_id {
+                let (text, progress) =
+                    super::control_bar_ocl_timer::format_ocl_timer_display(seconds, 0.0);
+                super::control_bar_ocl_timer::apply_ocl_timer_windows(
+                    &text,
+                    progress,
+                    super::control_bar_ocl_timer::ocl_timer_kind_for_object(obj_id),
+                );
+            }
         }
     }
 

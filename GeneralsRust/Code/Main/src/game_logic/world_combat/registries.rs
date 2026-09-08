@@ -2502,9 +2502,10 @@ impl GameLogic {
                 // position one frame of movement behind the drop bone, so the
                 // same-frame integration lands the payload at the jet instead
                 // of a full velocity step ahead of it.
-                let velocity = crate::game_logic::host_a10_strike_drop_log::a10_missile_fire_velocity(
-                    drop_pos, target, inherit,
-                );
+                let velocity =
+                    crate::game_logic::host_a10_strike_drop_log::a10_missile_fire_velocity(
+                        drop_pos, target, inherit,
+                    );
                 let back_pos = drop_pos - velocity;
                 if let Some(mid) = self.create_object(A10_PAYLOAD_TEMPLATE, team, back_pos) {
                     if let Some(o) = self.objects.get_mut(&mid) {

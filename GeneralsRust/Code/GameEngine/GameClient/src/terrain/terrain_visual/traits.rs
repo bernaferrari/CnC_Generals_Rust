@@ -110,7 +110,15 @@ impl SubsystemInterface for TerrainVisualImpl {
         let water_started = std::time::Instant::now();
         self.water_system.update()?;
         self.simulate_water_grid(1.0 / 30.0);
-        self.overlay.river_v_origin = (self.overlay.river_v_origin + 0.002) % 1.0;
+        // C++ WaterRenderObjClass::update (W3DWater.cpp:1201) accumulates
+        // m_riverVOrigin without wrapping; the wave phases (sin(25v + x),
+        // cos(11v)) would visibly pop on every wrap.
+        self.overlay.river_v_origin += 0.002;
+        // C++ rebuilds the trapezoid/river vertex buffers every draw with the
+        // current phase; rebake so polygon water actually scrolls/wobbles.
+        if let Some(device) = self.device.clone() {
+            let _ = self.sync_polygon_water_meshes(device.as_ref());
+        }
         self.overlay.cloud_map.update(1000.0 / 30.0);
         // C++ GameClient.cpp:560 is the only SnowManager::UPDATE; TerrainVisual
         // does not tick snow (GameClient.cpp:719-722).
@@ -133,9 +141,8 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.road_system.update()?;
         if let Some(height_map) = self.height_map.as_ref() {
             if self.road_system.needs_terrain_normal_reprojection() {
-                let light_pos = self.sun_direction;
-                let sun_color = self.sun_color;
-                let ambient_color = self.ambient_color;
+                let (global_lights, ambient_color) =
+                    super::chunk::current_global_terrain_lights();
                 self.road_system.apply_terrain_heights_normals_and_diffuse(
                     |pos| height_map.get_height_at(pos.x, pos.z),
                     |pos| height_map.get_normal_at(pos.x, pos.z),
@@ -143,8 +150,7 @@ impl SubsystemInterface for TerrainVisualImpl {
                         let normal = height_map.get_normal_at(pos.x, pos.z);
                         Self::terrain_static_diffuse_from_normal(
                             normal,
-                            light_pos,
-                            sun_color,
+                            &global_lights,
                             ambient_color,
                         )
                     },

@@ -455,13 +455,82 @@ fn execute_build_refuses_human_on_unmovables() {
 }
 
 #[test]
+fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
+    // C++ PlaceEventTranslator.cpp:170-178 — confirming a placement without
+    // cash plays EVA_InsufficientFunds + "GUI:NotEnoughMoneyToBuild" and
+    // places nothing.
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    use gamelogic::helpers::{EvaEvent, TheEva};
+    use glam::Vec3;
+
+    let _ = TheEva::drain_events();
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 10;
+    logic.add_player(player);
+
+    let mut barracks = ThingTemplate::new("TestPoorBarracks");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .set_cost(50, 0)
+        .set_health(1_000.0);
+    logic.templates.insert("TestPoorBarracks".into(), barracks);
+
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
+    let mut dozer = Object::new(dozer_t, ObjectId(9311), Team::USA);
+    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
+    dozer.owner_player_id = Some(0);
+    logic.objects.insert(ObjectId(9311), dozer);
+
+    let site = Vec3::new(80.0, 0.0, 80.0);
+    let result = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0)
+    };
+    assert_eq!(
+        result,
+        CommandResult::InvalidCommand,
+        "insufficient funds must refuse the placement"
+    );
+    assert_eq!(
+        logic
+            .get_player(0)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0),
+        10,
+        "refused placement must not charge the player"
+    );
+    assert!(
+        !logic
+            .objects
+            .values()
+            .any(|o| o.template_name == "TestPoorBarracks"),
+        "no structure may be placed without funds"
+    );
+    let events = TheEva::drain_events().expect("eva queue");
+    assert!(
+        events.contains(&EvaEvent::InsufficientFunds),
+        "C++ PlaceEventTranslator NO_MONEY must pulse EVA_InsufficientFunds, got {events:?}"
+    );
+}
+
+#[test]
 fn execute_build_source_records_build_slot_and_docks() {
     let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
     let i = src.find("fn execute_build").expect("execute_build");
     let w = &src[i..src.len().min(i + 8000)];
     assert!(
         w.contains("dozer_new_task_build")
-            && w.contains("dozer_repair_approach_position")
+            && w.contains("find_good_build_or_repair_position")
             && w.contains("path_to_goal_with_state_ignoring"),
         "hq-gkpuk/hq-6gy32: execute_build must newTask BUILD, dock half-radius, ignoreObstacle"
     );
@@ -561,7 +630,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+        UnitVoiceSlot, clear_test_template_voices, set_test_template_voice,
     };
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
@@ -645,7 +714,7 @@ fn salvage_click_plays_voice_salvage_not_voice_move() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, CommandType};
     use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+        UnitVoiceSlot, clear_test_template_voices, set_test_template_voice,
     };
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
     use glam::Vec3;
@@ -705,7 +774,7 @@ fn context_attack_plays_voice_attack_and_air() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+        UnitVoiceSlot, clear_test_template_voices, set_test_template_voice,
     };
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -822,7 +891,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, PowerTarget, SpecialPowerType};
     use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_initiate_sound, set_test_template_voice, UnitVoiceSlot,
+        UnitVoiceSlot, clear_test_template_voices, set_test_initiate_sound, set_test_template_voice,
     };
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
@@ -1044,7 +1113,7 @@ fn specialty_attack_voices_replace_voice_attack() {
     use super::CommandExecutor;
     use crate::command_system::{CommandResult, WeaponSlot, WeaponTarget};
     use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+        UnitVoiceSlot, clear_test_template_voices, set_test_template_voice,
     };
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -1429,25 +1498,25 @@ fn group_path_thresholds_read_aidata_store() {
         prev
     };
     {
-    let mut logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("GP_TH");
-    tpl.add_kind_of(KindOf::Vehicle);
-    tpl.add_kind_of(KindOf::Selectable);
-    tpl.set_health(200.0);
-    logic.templates.insert("GP_TH".to_string(), tpl);
-    let a = logic
-        .create_object("GP_TH", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .unwrap();
-    let b = logic
-        .create_object("GP_TH", Team::USA, Vec3::new(40.0, 0.0, 0.0))
-        .unwrap();
-    {
-        let exec = CommandExecutor::new(&mut logic, 0);
-        assert!(
-            !exec.compute_ground_path_should_group(&[a, b], Vec3::new(300.0, 0.0, 0.0)),
-            "click below AIData MinDistanceForGroup must skip group path"
-        );
-    }
+        let mut logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("GP_TH");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("GP_TH".to_string(), tpl);
+        let a = logic
+            .create_object("GP_TH", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("GP_TH", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let exec = CommandExecutor::new(&mut logic, 0);
+            assert!(
+                !exec.compute_ground_path_should_group(&[a, b], Vec3::new(300.0, 0.0, 0.0)),
+                "click below AIData MinDistanceForGroup must skip group path"
+            );
+        }
     }
     {
         let store = game_engine::common::ini::get_ai_data_store();

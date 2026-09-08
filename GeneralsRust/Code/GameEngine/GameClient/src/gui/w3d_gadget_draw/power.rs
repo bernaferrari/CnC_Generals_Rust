@@ -276,8 +276,7 @@ pub fn w3d_power_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
         if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
             eprintln!(
                 "[RHUDPROBE] w3d_power_draw consumption={consumption} production={production} power_range={power_range} needle={needle} center={} slider={}",
-                center_name,
-                "PowerBarSlider",
+                center_name, "PowerBarSlider",
             );
         }
     }
@@ -372,4 +371,3 @@ pub(super) fn draw_vertical_meter(
     }
     note_shipped_ui_draw_commands(1);
 }
-

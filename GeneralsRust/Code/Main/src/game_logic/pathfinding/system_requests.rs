@@ -191,7 +191,8 @@ impl PathfindingSystem {
         };
         let mut dest = dest;
 
-        let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = gamelogic::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(pf) = pf.read() {
                     let mut dest3 = gamelogic::common::Coord3D::new(dest.x, dest.z, dest.y);
@@ -325,11 +326,7 @@ impl PathfindingSystem {
                 }
             }
         }
-        if cells.is_empty() {
-            None
-        } else {
-            Some(cells)
-        }
+        if cells.is_empty() { None } else { Some(cells) }
     }
 
     /// C++ `processPathfindQueue` reset of `m_cumulativeCellsAllocated` + extent.
@@ -586,7 +583,9 @@ impl PathfindingSystem {
             let from_w = self.grid.grid_to_world(start);
             let to_w = self.grid.grid_to_world(goal);
             let ignore_or_tunnel = start_obstacle || ignore_covers(start) || ignore_covers(goal);
-            let quick = self.grid.quick_path_exists_for_crusher(from_w, to_w, surfaces, is_crusher);
+            let quick = self
+                .grid
+                .quick_path_exists_for_crusher(from_w, to_w, surfaces, is_crusher);
             if !ignore_or_tunnel && !quick {
                 return None;
             }
@@ -630,9 +629,10 @@ impl PathfindingSystem {
             }
         }
         if start == goal {
-            return Some(vec![self
-                .grid
-                .adjust_coord_to_cell(start, self.seeker_center_in_cell)]);
+            return Some(vec![
+                self.grid
+                    .adjust_coord_to_cell(start, self.seeker_center_in_cell),
+            ]);
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
@@ -1332,7 +1332,8 @@ impl PathfindingSystem {
             self.grid.wall_height = geom.height;
         }
         if self.grid.wall_height <= 0.0 {
-            let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+            let ai_store = gamelogic::ai::the_ai();
+            if let Ok(ai) = ai_store.read() {
                 if let Ok(data) = ai.get_ai_data().read() {
                     if data.wall_height > 0.0 {
                         self.grid.wall_height = data.wall_height;

@@ -739,3 +739,85 @@ fn set_listener_position_stores_orientation() {
             < 1e-5
     );
 }
+
+#[test]
+fn play_failure_session_set_logs_once_per_event() {
+    // C++ "Missing Audio File" (AudioFileCache::openFile,
+    // MilesAudioManager.cpp:3134) is one line per missing file; the Rust
+    // session set keeps the same one-line-per-event rate limit so a mute
+    // game surfaces without per-frame spam.
+    reset_play_failure_reports_for_tests();
+    assert!(report_play_failure_once("MuteLoop", "no sample"));
+    assert!(
+        !report_play_failure_once("MuteLoop", "no sample"),
+        "same event must not log twice per session"
+    );
+    assert!(
+        !report_play_failure_once("MuteLoop", "different reason"),
+        "rate limit is per event name, not per reason"
+    );
+    assert!(report_play_failure_once("OtherLoop", "no sample"));
+    assert_eq!(
+        play_failure_report_reason_for_tests("MuteLoop").as_deref(),
+        Some("no sample"),
+        "first reason is the one kept"
+    );
+    reset_play_failure_reports_for_tests();
+    assert!(play_failure_report_reason_for_tests("MuteLoop").is_none());
+}
+
+#[test]
+fn unresolved_add_audio_event_reports_failure_once() {
+    // C++ addAudioEvent returns AHSV_Error for unknown names
+    // (GameAudio.cpp:393-395). Pre-fix the dropped handle was invisible;
+    // now the resolve failure is reported once per event name.
+    // Unique event name keeps this independent of the shared session set
+    // (no reset, no race with the rate-limit test).
+    let mut audio = AudioManager::new();
+    audio.init();
+    let handle = audio.add_audio_event(&AudioEventRts::with_event_name(
+        "NoSuchSoundEventAnywhere",
+    ));
+    assert_eq!(handle, AHSV_ERROR);
+    assert_eq!(
+        play_failure_report_reason_for_tests("NoSuchSoundEventAnywhere").as_deref(),
+        Some("addAudioEvent: event name unresolved")
+    );
+    // Second add of the same unresolved name must not grow the report set.
+    let handle = audio.add_audio_event(&AudioEventRts::with_event_name(
+        "NoSuchSoundEventAnywhere",
+    ));
+    assert_eq!(handle, AHSV_ERROR);
+    assert_eq!(
+        play_failure_report_reason_for_tests("NoSuchSoundEventAnywhere").as_deref(),
+        Some("addAudioEvent: event name unresolved")
+    );
+}
+
+#[test]
+fn play_err_strings_reach_the_failure_report_not_a_discard() {
+    // A registered backend that fails must surface through the session set
+    // in every play path: playAudioEvent (hook Err + unresolved info) and
+    // friend_forcePlayAudioEventRTS (hook Err + unresolved info).
+    let src = include_str!("game_audio.rs");
+    let play_audio_event = src
+        .split("fn play_audio_event(")
+        .nth(1)
+        .and_then(|s| s.split("fn ").next())
+        .unwrap_or("");
+    assert_eq!(
+        play_audio_event.matches("report_play_failure_once").count(),
+        2,
+        "playAudioEvent must report both unresolved info and hook.play Err"
+    );
+    let force_play = src
+        .split("fn friend_force_play_audio_event_rts(")
+        .nth(1)
+        .and_then(|s| s.split("pub fn force_played_count").next())
+        .unwrap_or("");
+    assert_eq!(
+        force_play.matches("report_play_failure_once").count(),
+        2,
+        "friend_forcePlayAudioEventRTS must report both unresolved info and hook.play Err"
+    );
+}

@@ -152,12 +152,13 @@ pub fn honesty_host_ingame_logic_shell_helper_source_markers_residual_wave602() 
     };
     let logic_ok = logic.contains("Wave 602")
         && logic.contains("CoupledTickGuard")
-        && logic.contains("host_update_logic_frame")
-        && logic.contains("dual_tick_policy")
-        && logic.contains("apply_post_authority_crate_tick")
-        && logic.contains("host_run_gameworld_shadow_after_logic")
+        && logic.contains("host_run_coupled_fast_forward_loop")
         && logic.contains("host_finalize_presentation_after_logic")
-        && logic.contains("host_tick_game_client_presentation_shell");
+        && logic.contains("host_tick_game_client_presentation_shell")
+        // 2026-09-07 re-pin: the dual-tick policy gate was deleted from this
+        // frame; single-authority is unconditional.
+        && !logic.contains("dual_tick_policy")
+        && !logic.contains("apply_post_authority_crate_tick");
     let shell_ok = shell.contains("Wave 602")
         && shell.contains("enter_shell_menu_from_runtime_host")
         && shell.contains("SkirmishGameOptionsMenu.wnd");

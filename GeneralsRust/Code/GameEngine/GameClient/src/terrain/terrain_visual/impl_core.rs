@@ -71,6 +71,7 @@ impl TerrainVisualImpl {
             grid_water_handle: WaterHandle(0),
             water_grid: WaterGridCpuState::default(),
             terrain_bibs: Vec::new(),
+            prop_meshes: Vec::new(),
             terrain_props: Vec::new(),
             construction_removals: Vec::new(),
             chunk_meshes: HashMap::new(),
@@ -505,6 +506,7 @@ impl TerrainVisualImpl {
                     index_count: gpu_indices.len() as u32,
                     texture_name: "wave256.tga".to_string(),
                     jba: false,
+                    river: false,
                 });
             }
             self.water_track_meshes = meshes;
@@ -562,6 +564,7 @@ impl TerrainVisualImpl {
                 index_count: gpu_indices.len() as u32,
                 texture_name,
                 jba: false,
+                river: false,
             });
         }
         self.water_track_meshes = meshes;
@@ -672,7 +675,7 @@ impl TerrainVisualImpl {
         // band shows the same terrain coloring as the world view instead of
         // black / unresolved samples.
         let resolved_image = Self::resolve_source_tile_texture_path(&class.name)
-            .and_then(|path| image::open(&path).ok())
+            .and_then(|path| Self::open_source_tile_image(&path))
             .map(|img| img.to_rgba8());
         let (image_width, image_height, available_tiles) = match resolved_image.as_ref() {
             Some(image) => {
@@ -798,5 +801,18 @@ impl TerrainVisualImpl {
         }
 
         None
+    }
+
+    /// Open a tile texture by disk path, falling back to the game file
+    /// system: `resolve_texture_path` hands back a *virtual* path for
+    /// BIG-backed art (`Art/Terrain/*.tga` inside `TerrainZH.big`), which
+    /// `image::open` cannot read on its own.
+    fn open_source_tile_image(path: &Path) -> Option<image::DynamicImage> {
+        if let Ok(image) = image::open(path) {
+            return Some(image);
+        }
+        let bytes =
+            crate::terrain::tree_buffer::read_game_fs_bytes(&path.to_string_lossy())?;
+        image::load_from_memory(&bytes).ok()
     }
 }

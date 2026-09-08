@@ -20,6 +20,24 @@ impl RenderPipeline {
         // hydrate W3D pass textures from the archive-backed TextureManager
         // (unit/building skins otherwise bind the white fallback).
         install_archive_pass_texture_provider(&forward_pass.renderer);
+        // Same source of truth for the legacy GameClient drawable lane
+        // (Display::draw render_pass_through): without it in-match units
+        // resolve no texture and draw as flat silhouettes.
+        #[cfg(feature = "game_client")]
+        install_drawable_pipeline_texture_provider();
+        // Late-provider recovery: startup model attempts that failed before
+        // the archive-backed providers existed must get a second chance now
+        // that the full asset path is installed. Drop the session negative
+        // caches — the asset manager's known-missing blacklist (so loader
+        // attempts really re-run) and the render collector's failed-resolution
+        // cache (so keys are retried at all). Fail-closed keys re-fail once
+        // and re-cache; recoverable keys resolve.
+        if let Some(manager_arc) = get_asset_manager() {
+            if let Ok(mut manager) = manager_arc.lock() {
+                manager.clear_missing_model_cache();
+            }
+        }
+        Self::clear_failed_model_resolutions();
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
         let initial_lighting = CachedLighting {
             sun_direction: Some(sun_direction),

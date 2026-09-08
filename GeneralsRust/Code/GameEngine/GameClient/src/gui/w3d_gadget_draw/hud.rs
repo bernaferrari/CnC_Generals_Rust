@@ -130,22 +130,12 @@ pub fn w3d_left_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
             size_x.saturating_sub(2),
             size_y.saturating_sub(2),
         );
-    } else {
-        // Fall back to default drawing when no radar
-        crate::gui::game_window::default_draw_callback(window, inst_data);
-        let (x, y) = window.get_screen_position();
-        let (width, height) = window.get_size();
-        if width > 0 && height > 0 {
-            draw_visible_fill(
-                x,
-                y,
-                width,
-                height,
-                visible_enabled_color(window, inst_data, FALLBACK_HUD_FILL),
-                Some(FALLBACK_BORDER),
-            );
-        }
     }
+    // C++ W3DLeftHUDDraw (W3DControlBar.cpp:38-73): video → draw, radar →
+    // TheRadar->draw(pos+1, pos+1, size-2, size-2), otherwise NOTHING —
+    // W3DGameWinDefaultDraw is commented out in retail. The port's old
+    // fallback slab (default draw + white fill) painted the audit's flat
+    // white minimap disc where retail paints nothing.
 }
 
 /// Draw radar in the HUD area (matches C++ TheRadar->draw())
@@ -178,12 +168,28 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
     }
 
     let current_frame = radar.current_frame();
+    let map_extent_signature = radar_map_extent_signature(radar.map_extent());
+    let terrain_generation = radar.terrain_generation();
     let _ = with_ui_renderer_mut(|renderer| {
-        let texture = renderer.create_texture_from_rgba(
-            game_engine::common::system::radar::RADAR_CELL_WIDTH,
-            game_engine::common::system::radar::RADAR_CELL_HEIGHT,
-            terrain_texture,
-        );
+        // C++ keeps `m_terrainTexture` resident and repaints it only on
+        // `newMap`/`refreshTerrain`; key the upload on extent + generation.
+        let mut terrain_cache = radar_terrain_texture_cache()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if terrain_cache.texture.is_none()
+            || terrain_cache.map_extent_signature != Some(map_extent_signature)
+            || terrain_cache.layer_revision != terrain_generation
+        {
+            terrain_cache.texture = Some(renderer.create_texture_from_rgba(
+                game_engine::common::system::radar::RADAR_CELL_WIDTH,
+                game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+                terrain_texture,
+            ));
+            terrain_cache.map_extent_signature = Some(map_extent_signature);
+            terrain_cache.layer_revision = terrain_generation;
+        }
+        let texture = terrain_cache.texture.clone();
+        drop(terrain_cache);
 
         let fill_color = [0.0, 0.0, 0.0, 1.0];
         let line_color = [50.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 1.0];
@@ -275,12 +281,13 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             scaled_height as f32,
         );
         let radar_uv = radar_layer_vflip_uv();
-        renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], Some(radar_uv), 0.0);
+        if let Some(texture) = texture {
+            renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], Some(radar_uv), 0.0);
+        }
 
         let mut overlay_cache = radar_object_overlay_texture_cache()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let map_extent_signature = radar_map_extent_signature(radar.map_extent());
         if overlay_cache.texture.is_none()
             || overlay_cache.map_extent_signature != Some(map_extent_signature)
             || should_refresh_w3d_object_overlay(current_frame)
@@ -306,19 +313,35 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         let hero_object_ids = overlay_cache.hero_object_ids.clone();
         drop(overlay_cache);
 
-        let shroud_texture = radar.build_shroud_texture_rgba();
-        let shroud_texture = renderer.create_texture_from_rgba(
-            game_engine::common::system::radar::RADAR_CELL_WIDTH,
-            game_engine::common::system::radar::RADAR_CELL_HEIGHT,
-            &shroud_texture,
-        );
-        renderer.draw_textured_rect(
-            rect,
-            shroud_texture,
-            [1.0, 1.0, 1.0, 1.0],
-            Some(radar_uv),
-            0.0,
-        );
+        // C++ paints `m_shroudTexture` incrementally from `setShroudLevel`;
+        // key the upload on extent + shroud revision instead of every frame.
+        let shroud_revision = radar.shroud_revision();
+        let mut shroud_cache = radar_shroud_texture_cache()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if shroud_cache.texture.is_none()
+            || shroud_cache.map_extent_signature != Some(map_extent_signature)
+            || shroud_cache.layer_revision != shroud_revision
+        {
+            let shroud_texture = radar.build_shroud_texture_rgba();
+            shroud_cache.texture = Some(renderer.create_texture_from_rgba(
+                game_engine::common::system::radar::RADAR_CELL_WIDTH,
+                game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+                &shroud_texture,
+            ));
+            shroud_cache.map_extent_signature = Some(map_extent_signature);
+            shroud_cache.layer_revision = shroud_revision;
+        }
+        if let Some(shroud_texture) = shroud_cache.texture.clone() {
+            renderer.draw_textured_rect(
+                rect,
+                shroud_texture,
+                [1.0, 1.0, 1.0, 1.0],
+                Some(radar_uv),
+                0.0,
+            );
+        }
+        drop(shroud_cache);
 
         if !hero_object_ids.is_empty() {
             with_window_manager_ref(|manager| {
@@ -366,27 +389,29 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             let color2 = rgba_int_to_rgba(marker.color2);
             let points = marker.points;
 
-            renderer.draw_line(
-                glam::Vec2::new(points[0].x as f32, points[0].y as f32),
-                glam::Vec2::new(points[1].x as f32, points[1].y as f32),
-                1.0,
-                color1,
-                0.0,
-            );
-            renderer.draw_line(
-                glam::Vec2::new(points[1].x as f32, points[1].y as f32),
-                glam::Vec2::new(points[2].x as f32, points[2].y as f32),
-                1.0,
-                color2,
-                0.0,
-            );
-            renderer.draw_line(
-                glam::Vec2::new(points[2].x as f32, points[2].y as f32),
-                glam::Vec2::new(points[0].x as f32, points[0].y as f32),
-                1.0,
-                color1,
-                0.0,
-            );
+            // C++ `drawSingleGenericEvent` / `drawSingleBeaconEvent` clip each
+            // triangle edge to the radar image rect and draw it as a
+            // color1 -> color2 gradient.
+            let clip = (ul.x, ul.y, scaled_width, scaled_height);
+            let edges = [
+                (points[0], points[1]),
+                (points[1], points[2]),
+                (points[2], points[0]),
+            ];
+            for (a, b) in edges {
+                if let Some((start, end)) =
+                    clip_line_to_rect(a, b, clip.0, clip.1, clip.2, clip.3)
+                {
+                    renderer.draw_line_gradient(
+                        glam::Vec2::new(start.x as f32, start.y as f32),
+                        glam::Vec2::new(end.x as f32, end.y as f32),
+                        1.0,
+                        color1,
+                        color2,
+                        0.0,
+                    );
+                }
+            }
         }
 
         let view_box_lines = with_tactical_view_ref(|view| {
@@ -412,16 +437,27 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                         ul.y,
                         scaled_width,
                         scaled_height,
-                        x,
-                        y,
-                        width,
-                        height,
+                        // C++ `drawViewBox` clips against the whole radar
+                        // window, while the draw rect here is inset by 1px
+                        // (W3DLeftHUDDraw `pos+1 / size-2`).
+                        x - 1,
+                        y - 1,
+                        width + 2,
+                        height + 2,
                     )
                 }
                 _ => Vec::new(),
             }
         });
         for line in view_box_lines {
+            // Degenerate initial camera: all four screen corners project onto
+            // the same radar cell, so `build_view_box_lines` emits zero-length
+            // edges that render as a single stray blob. C++ drawViewBox
+            // (W3DRadar.cpp) draws real view-rectangle edges only — skip any
+            // collapsed line instead of painting it.
+            if line.start.x == line.end.x && line.start.y == line.end.y {
+                continue;
+            }
             renderer.draw_line_gradient(
                 glam::Vec2::new(line.start.x as f32, line.start.y as f32),
                 glam::Vec2::new(line.end.x as f32, line.end.y as f32),

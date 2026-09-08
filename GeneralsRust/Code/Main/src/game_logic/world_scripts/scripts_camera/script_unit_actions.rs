@@ -651,11 +651,7 @@ impl GameLogic {
                 n += 1.0;
             }
         }
-        if n <= 0.0 {
-            None
-        } else {
-            Some(acc / n)
-        }
+        if n <= 0.0 { None } else { Some(acc / n) }
     }
 
     pub(super) fn host_script_team_use_command_on_nearest(

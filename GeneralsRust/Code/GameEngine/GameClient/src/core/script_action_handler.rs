@@ -189,6 +189,10 @@ pub fn script_resize_view_guardband(gbx: f32, gby: f32) {
 }
 
 pub fn script_set_skybox_enabled(enabled: bool) {
+    // C++ doSkyBoxSet (W3DWater.cpp:150-154) writes the single
+    // TheWritableGlobalData; both Rust stores must move together or the
+    // terrain skybox gate (common::global_data draw_sky_box) never sees it.
+    game_engine::common::global_data::write().draw_sky_box = enabled;
     if let Some(global) = get_global_data() {
         global.write().draw_sky_box = if enabled { 1.0 } else { 0.0 };
     }
@@ -1465,12 +1469,15 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn set_skybox_enabled(&self, enabled: bool) -> GameLogicResult<()> {
+        // C++ DRAW_SKYBOX_BEGIN/END -> ScriptActions::doSkyBox -> doSkyBoxSet
+        // writes the single TheWritableGlobalData->m_drawSkyBox; keep both
+        // Rust stores in sync (render gate reads common::global_data).
+        game_engine::common::global_data::write().draw_sky_box = enabled;
         if let Some(global) = get_global_data() {
             global.write().draw_sky_box = if enabled { 1.0 } else { 0.0 };
         }
         Ok(())
     }
-
     fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
         // C++ ScriptActions.cpp: TheSnowManager->setVisible(showWeather)
         if let Some(snow) = crate::snow::get_snow_manager() {

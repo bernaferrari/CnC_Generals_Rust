@@ -167,7 +167,8 @@ impl AIPlayer {
             let store = store.read().expect("AI data store read lock");
             store.get_active().map(|d| d.team_resources_to_build)
         };
-        let ai_store = gamelogic::ai::the_ai();let leftover = ai_store.read().ok().and_then(|ai| {
+        let ai_store = gamelogic::ai::the_ai();
+        let leftover = ai_store.read().ok().and_then(|ai| {
             ai.get_ai_data()
                 .read()
                 .ok()
@@ -493,16 +494,18 @@ impl AIPlayer {
                         // attack", AIGuard.h:33) — behaviorally idle for
                         // checkReadyTeams readiness, so the team activates and
                         // its setActive counts as player activity.
-                        let idle = game_logic.host_object(*id).map(|o| {
-                            o.is_alive()
-                                && matches!(
-                                    o.ai_state,
-                                    AIState::Idle
-                                        | AIState::GuardingArea
-                                        | AIState::GuardingObject
-                                )
-                        })
-                        .unwrap_or(false);
+                        let idle = game_logic
+                            .host_object(*id)
+                            .map(|o| {
+                                o.is_alive()
+                                    && matches!(
+                                        o.ai_state,
+                                        AIState::Idle
+                                            | AIState::GuardingArea
+                                            | AIState::GuardingObject
+                                    )
+                            })
+                            .unwrap_or(false);
                         if idle {
                             any_idle = true;
                         } else {

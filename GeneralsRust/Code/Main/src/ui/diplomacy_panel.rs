@@ -304,7 +304,10 @@ impl DiplomacyPanel {
         let col_start_x = px + PANEL_PADDING + 260i32; // after name/side/team/status columns
         let row_y_start = py + PANEL_PADDING as i32 + HEADER_HEIGHT as i32;
 
-        for (row_idx, player) in self.players.iter().enumerate() {
+        // C++ Diplomacy.cpp grabWindowPointers binds at most one row per
+        // Diplomacy.wnd window slot; entries beyond the panel's row capacity
+        // stay in the player list but get no interactive row.
+        for (row_idx, player) in self.players.iter().take(MAX_PLAYER_ROWS).enumerate() {
             if player.player_id == self.local_player_id {
                 continue; // Cannot change own relationship
             }
@@ -765,15 +768,26 @@ mod tests {
         let mut panel = DiplomacyPanel::new();
         assert!(!panel.handle_key_press(KeyCode::Escape));
     }
-
     #[test]
     fn test_max_players() {
+        // C++ Diplomacy.cpp keeps the full player list (rows come from
+        // Diplomacy.wnd window slots, not data truncation), so all entries
+        // are retained while only the first MAX_PLAYER_ROWS get rows.
         let mut panel = DiplomacyPanel::new();
+        panel.open();
         let many_players: Vec<DiplomacyPlayerEntry> = (0..10)
             .map(|i| sample_player(i, &format!("P{}", i), "USA"))
             .collect();
         panel.set_players(many_players);
-        assert_eq!(panel.players().len(), MAX_PLAYER_ROWS);
+        assert_eq!(panel.players().len(), 10);
+        let mut row_player_ids: Vec<i32> =
+            panel.buttons.iter().map(|b| b.player_id).collect();
+        row_player_ids.sort_unstable();
+        row_player_ids.dedup();
+        assert!(
+            row_player_ids.iter().all(|id| (*id as usize) < MAX_PLAYER_ROWS),
+            "rows must never exceed the panel's row capacity: {row_player_ids:?}"
+        );
     }
 
     #[test]

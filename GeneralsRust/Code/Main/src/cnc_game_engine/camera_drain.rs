@@ -2,6 +2,12 @@
 use super::*;
 
 const REPLAY_FAST_FORWARD_LOGIC_STEPS: usize = 4;
+/// Last presentation frame whose radar messages/events were forwarded to the
+/// HUD (`u32::MAX` = boot residual, nothing forwarded yet). The presentation
+/// freeze is re-applied every render frame; radar forwarding must run once
+/// per presentation frame, not once per render frame.
+static LAST_FORWARDED_RADAR_FRAME: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(u32::MAX);
 
 #[inline]
 fn replay_logic_step_count(replay_fast_forward: bool) -> usize {
@@ -196,6 +202,12 @@ impl CnCGameEngine {
             if !player_cancel.cancels_move() {
                 self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
             }
+            // C++ W3DView::moveCameraTo applies once per script action. The
+            // presentation freeze only peeks the pending request; take it
+            // after applying so a stale script focus cannot re-center the
+            // camera every presentation frame (player pans would fight a
+            // permanent snap-back).
+            self.game_logic.take_camera_focus_request();
         }
 
         // C++ ControlBar setDefault/setLow writes TheTacticalView->setHeight.
@@ -643,12 +655,12 @@ impl CnCGameEngine {
         }
     }
 
-    /// Wave 602: InGame logic frame residual (host tick + shadow → dual-tick policy →
+    /// Wave 602: InGame logic frame residual (host tick + shadow →
     /// presentation finalize → client presentation shell).
     ///
     /// Couples GameWorld shadow when live, advances host logic (with retail FF /
-    /// headless budget), optionally dual-ticks the ported crate, then runs the
-    /// post-logic shadow session and presentation finalize helpers.
+    /// headless budget), then runs the post-logic shadow session and
+    /// presentation finalize helpers.
     pub(super) fn host_run_ingame_logic_presentation_frame(&mut self, dt: f32) {
         // Wave 602: InGame logic+presentation residual.
         // Retail m_TiVOFastMode residual: extra logic steps while armed.
@@ -664,27 +676,19 @@ impl CnCGameEngine {
         // while this is set AND the engine owns a live GameWorldShadow that will
         // write back after the host tick. Host-only gates / missing shadow leave
         // host construction/production advancing (fail-open).
-        // Wave 904: production path is single-authority by default; dual-tick remains
-        // opt-in via GENERALS_ALLOW_DUAL_TICK (verification hardens dual-world failures).
-        crate::authoritative_world::set_verification_single_authority(
-            crate::authoritative_world::verification_single_authority()
-                || std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none(),
-        );
+        // Wave 904/916: single-authority is unconditional — the dual crate tick
+        // gate and its env opt-in were removed (Main GameLogic is the sole host).
         let couple_shadow = self.gameworld_shadow.is_some();
-        // Keep both coupled-frame depth and the TLS shadow handle RAII-owned.
-        // This is intentionally lexical around host logic plus post-logic
-        // writeback: a panic cannot leave a raw shadow handle live into a later
-        // frame.  The handle is dropped before presentation, matching the
-        // existing authority boundary.
+        // Keep coupled-frame depth RAII-owned and publish the live shadow via
+        // the forget-safe scoped `with_coupled_shadow`: the exact previous
+        // couple slot is restored on exit AND unwind, so a panic cannot leave
+        // a raw shadow handle live into a later frame. The shadow is taken
+        // out of `self` for the scope so host helpers can still borrow `self`
+        // while the scope owns the exclusive shadow borrow; it is restored
+        // before presentation, matching the existing authority boundary.
+        let mut coupled_shadow_slot = self.gameworld_shadow.take();
         let coupled_tick_guard =
             couple_shadow.then(crate::gameworld_shadow::CoupledTickGuard::enter);
-        let coupled_shadow_guard = if couple_shadow {
-            self.gameworld_shadow
-                .as_mut()
-                .map(crate::gameworld_shadow::install_coupled_shadow_guard)
-        } else {
-            None
-        };
         // Each replay fast-forward iteration offers one host update, but a host
         // update may produce zero, one, or several fixed 30 Hz logic steps.
         // Advance the coupled GameWorld last-writer boundary for the *actual*
@@ -692,57 +696,31 @@ impl CnCGameEngine {
         // construction, special-power, and movement must not follow render
         // iteration count. Deferring the boundary until after the four offers
         // made these shadow-owned channels run at one quarter speed.
-        for _ in 0..ff_steps {
-            // Wave 584: host logic tick residual via helper.
-            let fixed_steps = self
-                .host_update_logic_frame(dt, headless_step_budget)
-                .steps_run;
-            for _ in 0..fixed_steps {
-                // Consume typed Gather/drop-off observation events immediately after
-                // each authoritative logic step. The evidence helper rejects passive,
-                // untracked, injected, remote, hidden, and non-offline paths.
-                self.host_drain_physical_gather_dropoffs();
-                // Wave 682/925: post-logic host→GameWorld residual batch under the
-                // coupled shadow tick. Single authority boundary replaces N eager
-                // apply dual-borrows.
-                if couple_shadow {
-                    if let Some(ref mut shadow) = self.gameworld_shadow {
-                        crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
-                            shadow,
-                            &mut self.game_logic,
-                        );
-                    }
-                }
-                // Wave 597: GameWorld shadow session residual. This stays per
-                // completed fixed logic step even though presentation is coalesced
-                // after the fast-forward batch.
-                self.host_run_gameworld_shadow_after_logic(couple_shadow);
-            }
+        if couple_shadow {
+            let shadow = coupled_shadow_slot
+                .as_mut()
+                .expect("couple_shadow implies a live GameWorldShadow");
+            crate::gameworld_shadow::with_coupled_shadow(shadow, || {
+                self.host_run_coupled_fast_forward_loop(
+                    dt,
+                    ff_steps,
+                    headless_step_budget,
+                    couple_shadow,
+                );
+            });
+        } else {
+            self.host_run_coupled_fast_forward_loop(
+                dt,
+                ff_steps,
+                headless_step_budget,
+                couple_shadow,
+            );
         }
+        self.gameworld_shadow = coupled_shadow_slot.take();
         // Script FPS applied from presentation residual after snapshot build (below).
         // Live take remains for boot path when no frame is produced this tick.
 
-        // Single-authority policy: Main GameLogic is the match host by default.
-        // Dual-tick of the ported gamelogic crate is opt-in (GENERALS_ALLOW_DUAL_TICK)
-        // and is fatal under GENERALS_VERIFY_SINGLE_AUTHORITY verification builds.
-        // Wave 916: AuthorityOnly (default) never touches the dual crate tick residual.
-        // Dual-tick crate Ok(()) may still be an empty-world no-op; see tick_gamelogic_crate.
-        let policy = crate::authoritative_world::dual_tick_policy();
-        if !matches!(
-            policy,
-            crate::authoritative_world::DualTickPolicy::AuthorityOnly
-        ) {
-            if let Err(e) = crate::authoritative_world::apply_post_authority_crate_tick(
-                policy,
-                crate::game_logic::tick_gamelogic_crate,
-            ) {
-                log::error!("{e}");
-                // Verification: refuse to continue a dual-world silent failure.
-                if crate::authoritative_world::verification_single_authority() {
-                    panic!("{e}");
-                }
-            }
-        }
+        // Wave 916: AuthorityOnly is the only policy — no dual crate tick runs here.
         // C++ parity: when script time-freeze is active, gameplay simulation should not
         // advance outside script evaluation.
         // Host side systems (projectiles) run *before* shadow session + PresentationFrame
@@ -759,9 +737,8 @@ impl CnCGameEngine {
             let _ = dt;
         }
 
-        // Keep active-shadow access available through host writeback, then
-        // release it before building the immutable presentation frame.
-        drop(coupled_shadow_guard);
+        // The scoped couple publication ended with the fast-forward batch
+        // above; release coupled-frame depth before the presentation shell.
         drop(coupled_tick_guard);
 
         // Wave 589: presentation finalize residual via helper (build + audio + FX).
@@ -1099,7 +1076,7 @@ impl CnCGameEngine {
         false
     }
 
-    /// Wave 552: presentation freeze owns shell-bypass residual when installed
+    /// Wave 552: Prefer presentation shell bypass when a frame is installed
     /// (`fow_shell_bypass`, even if false). Boot residual without freeze uses
     /// host `isInShellGame`.
     #[inline]
@@ -1626,11 +1603,11 @@ impl CnCGameEngine {
     /// `GameUIState` from presentation only (no live object walks). Boot/loading
     /// residual without a freeze still uses `host_update_ui_state`.
 
-    /// Wave 592: render-path presentation overlays residual (radar/script/clock/diag).
+    /// Wave 592: render-path presentation overlays residual (script/clock/diag).
     ///
-    /// Applies HUD radar messages from UI state, presentation-or-boot script
-    /// messages, sim clock + fps/diagnostics/asset stats. Does not process UI
-    /// events (caller owns that boundary).
+    /// Applies presentation-or-boot script messages, sim clock + fps/
+    /// diagnostics/asset stats. Does not process UI events (caller owns that
+    /// boundary); radar forwarding lives in `host_finalize_render_ui_state`.
 
     /// Wave 593: render-path UI finalize residual (minimap/radar/victory/last_ui).
     ///
@@ -1646,12 +1623,25 @@ impl CnCGameEngine {
         let world_bounds = self.presentation_world_bounds();
         self.game_hud
             .update_radar_pings(&ui_state.radar_pings, world_bounds.0, world_bounds.1);
-        for msg in &ui_state.radar_messages {
-            self.game_hud.push_radar_message(msg);
-        }
-        for evt in &ui_state.radar_events {
-            self.game_hud
-                .add_radar_message(&evt.text, evt.position, evt.kind);
+        // Radar messages/events are frozen per presentation frame; the same
+        // freeze is re-applied every render frame. Forward each presentation
+        // frame exactly once (re-injecting per render frame spams pings and
+        // flickers the message log).
+        let pres_frame = self
+            .last_presentation_frame
+            .as_ref()
+            .map(|pres| pres.frame.0)
+            .unwrap_or(u32::MAX);
+        if LAST_FORWARDED_RADAR_FRAME.swap(pres_frame, std::sync::atomic::Ordering::Relaxed)
+            != pres_frame
+        {
+            for msg in &ui_state.radar_messages {
+                self.game_hud.push_radar_message(msg);
+            }
+            for evt in &ui_state.radar_events {
+                self.game_hud
+                    .add_radar_message(&evt.text, evt.position, evt.kind);
+            }
         }
 
         ui_state.match_over = self.match_over;
@@ -1674,17 +1664,6 @@ impl CnCGameEngine {
         &mut self,
         ui_state: &mut crate::ui::GameUIState,
     ) {
-        // Wave 592: render UI presentation overlays residual.
-        if !ui_state.radar_events.is_empty() {
-            for evt in &ui_state.radar_events {
-                self.game_hud
-                    .add_radar_message(&evt.text, evt.position, evt.kind);
-            }
-        } else {
-            for msg in &ui_state.radar_messages {
-                self.game_hud.push_radar_message(msg);
-            }
-        }
         // Wave 570: presentation-or-boot script message residual via helper.
         let new_script_messages: Vec<String> = self.take_presentation_or_boot_new_script_messages();
         for msg in &new_script_messages {
@@ -1799,7 +1778,9 @@ impl CnCGameEngine {
                 self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
             );
-        pres.apply_to_game_hud(&mut self.game_hud);
+        // Single rendered GameHUD: seed the instance ui_manager.render()
+        // draws; engine self.game_hud is never drawn.
+        pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
         #[cfg(feature = "game_client")]
         {
             pres.apply_to_control_bar(&mut self.control_bar);
@@ -2323,32 +2304,77 @@ impl CnCGameEngine {
         }
     }
 
-    /// Wave 597: GameWorld shadow session after host logic residual.
+    /// Wave 602/925: one fast-forward batch of host updates under the live
+    /// coupled shadow publication (see `host_run_ingame_logic_presentation_frame`).
     ///
-    /// Runs `shadow_session_after_host_tick` (or maybe_shadow), seeds
-    /// `last_gameworld_presentation_entity_count` from observe-path view, and
-    /// ends a coupled shadow tick when requested. Host remains temporary
+    /// Runs inside `with_coupled_shadow` when a shadow is live; interior
+    /// GameWorld access flows through the ambient coupled accessors.
+    fn host_run_coupled_fast_forward_loop(
+        &mut self,
+        dt: f32,
+        ff_steps: usize,
+        headless_step_budget: Option<usize>,
+        couple_shadow: bool,
+    ) {
+        for _ in 0..ff_steps {
+            // Wave 584: host logic tick residual via helper.
+            let fixed_steps = self
+                .host_update_logic_frame(dt, headless_step_budget)
+                .steps_run;
+            for _ in 0..fixed_steps {
+                // Consume typed Gather/drop-off observation events immediately after
+                // each authoritative logic step. The evidence helper rejects passive,
+                // untracked, injected, remote, hidden, and non-offline paths.
+                self.host_drain_physical_gather_dropoffs();
+                // Wave 682/925: post-logic host→GameWorld residual batch under the
+                // coupled shadow tick. Single authority boundary replaces N eager
+                // apply dual-borrows.
+                if couple_shadow {
+                    crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
+                        crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
+                            shadow,
+                            &mut self.game_logic,
+                        );
+                    });
+                }
+                // Wave 597: GameWorld shadow session residual. This stays per
+                // completed fixed logic step even though presentation is coalesced
+                // after the fast-forward batch.
+                self.host_run_gameworld_shadow_after_logic(couple_shadow);
+            }
+        }
+    }
+
+    /// Wave 597: GameWorld shadow session residual via single boundary.
+    ///
+    /// Ends a coupled shadow tick when requested. Host remains temporary
     /// mid-frame owner; shadow is last-writer for HP/cash/pose.
     pub(super) fn host_run_gameworld_shadow_after_logic(&mut self, couple_shadow: bool) {
         // Wave 597/680/927: GameWorld shadow session residual via single boundary.
         // AFTER host logic + projectiles + path; host temporary mid-frame owner.
         // Keep the generation-checked couple handle live through writeback
         // complete/spawn so `host_authoritative_*` still see GameWorld.
-        let from_boundary = crate::gameworld_shadow::run_post_logic_shadow_boundary(
-            self.gameworld_shadow.as_mut(),
-            &mut self.game_logic,
-        );
+        // Reach the live shadow through the ambient coupled accessor: the
+        // publication is owned by the caller's `with_coupled_shadow` scope.
+        let from_boundary = crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
+            crate::gameworld_shadow::run_post_logic_shadow_boundary(
+                Some(shadow),
+                &mut self.game_logic,
+            )
+        })
+        .unwrap_or_else(|| {
+            crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut self.game_logic)
+        });
         // Wave 186: stamp observe-path entity count from presentation_view_from_shadow
         // after the coupled shadow session (status gameworld_presentation_entities).
-        self.last_gameworld_presentation_entity_count = self
-            .gameworld_shadow
-            .as_ref()
-            .map(|shadow| {
+        self.last_gameworld_presentation_entity_count = crate::gameworld_shadow::with_active_shadow(
+            |shadow| {
                 crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0)
                     .entities
                     .len()
-            })
-            .unwrap_or(from_boundary);
+            },
+        )
+        .unwrap_or(from_boundary);
         // Wave 621/912: after health writeback, drain destroy-ready log and process
         // die side effects same couple-frame (host still owns ObjectId remove).
         let _ = self

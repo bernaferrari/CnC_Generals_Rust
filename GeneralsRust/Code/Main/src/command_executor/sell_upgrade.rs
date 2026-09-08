@@ -225,6 +225,7 @@ impl<'a> CommandExecutor<'a> {
         };
         // Collect successful queues then record honesty (avoids borrow conflicts).
         let mut recorded: Vec<(u32, crate::game_logic::Team, ObjectId)> = Vec::new();
+        let mut queue_full_warned = false;
         for &unit_id in units {
             // C++ queueMaxed / MaxQueueEntries residual: refuse before charging.
             let producer_ok =
@@ -277,7 +278,8 @@ impl<'a> CommandExecutor<'a> {
                 } else if source.owner_player_id.is_none()
                     && self.game_logic.uses_legacy_team_ownership_fallback()
                 {
-                    self.game_logic.unique_player_id_for_team(source.team)
+                    self.game_logic
+                        .unique_player_id_for_team(source.team)
                         .map(|player_id| (player_id, source.team))
                 } else {
                     None
@@ -294,6 +296,16 @@ impl<'a> CommandExecutor<'a> {
                 .get_player(player_id)
                 .is_some_and(|player| player.is_alive && player.team == team);
             if !player_is_matching_owner {
+                continue;
+            }
+            // C++ ControlBarCommandProcessing.cpp:505-509 — producer queue at
+            // capacity fires GUI:ProductionQueueFull on the click, no charge.
+            if self.game_logic.producer_upgrade_queue_is_full(unit_id) {
+                if !queue_full_warned {
+                    queue_full_warned = true;
+                    #[cfg(feature = "game_client")]
+                    game_client::helpers::TheInGameUI::message("GUI:ProductionQueueFull");
+                }
                 continue;
             }
             if let Some(player) = self.game_logic.get_player_mut(player_id) {
@@ -389,12 +401,13 @@ impl<'a> CommandExecutor<'a> {
                     {
                         // C++ getControllingPlayer legacy team-owner fallback
                         // for ownerless synthetic/scripted producers.
-                        self.game_logic.unique_player_id_for_team(source.team)
+                        self.game_logic
+                            .unique_player_id_for_team(source.team)
                             .map(|player_id| (player_id, source.team))
                     } else {
                         None
                     }
-            });
+                });
             let Some((player_id, team)) = owner else {
                 continue;
             };

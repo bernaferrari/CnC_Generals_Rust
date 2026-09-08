@@ -165,7 +165,6 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
         !human_logic.honesty_pilot_recrew_ok(),
         "human residual must not recrew via PilotFindVehicle"
     );
-
 }
 
 #[test]
@@ -310,7 +309,6 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
         "human pilot residual must not base-center fallback"
     );
     assert_eq!(human_logic.usa_pilot_residual().base_center_moves, 0);
-
 }
 
 #[test]
@@ -472,7 +470,6 @@ fn pilot_auto_find_healing_hospital_path_residual() {
         AIState::Idle,
         "human injured pilot residual stays Idle without GetHealed command"
     );
-
 }
 
 #[test]
@@ -593,7 +590,6 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
             || china_logic.host_object(cred).unwrap().ai_state != AIState::Idle,
         "China Redguard AutoFindHealingUpdate must seek a HealPad"
     );
-
 }
 
 #[test]
@@ -876,7 +872,6 @@ fn pilot_find_vehicle_same_player_partition_filter_residual() {
             .unwrap_or(true),
         "pilot consumed after same-player-gated auto-recrew residual"
     );
-
 }
 
 #[test]

@@ -113,13 +113,15 @@ fn center_screen_pick_follows_the_render_camera_not_map_extents() {
 
 #[test]
 fn ray_interval_rejects_a_parallel_ray_outside_the_map() {
-    assert!(ray_interval_in_world_xz(
-        Vec3::new(20.0, 5.0, 0.0),
-        Vec3::new(20.0, -5.0, 0.0),
-        Vec3::new(-10.0, 0.0, -10.0),
-        Vec3::new(10.0, 0.0, 10.0),
-    )
-    .is_none());
+    assert!(
+        ray_interval_in_world_xz(
+            Vec3::new(20.0, 5.0, 0.0),
+            Vec3::new(20.0, -5.0, 0.0),
+            Vec3::new(-10.0, 0.0, -10.0),
+            Vec3::new(10.0, 0.0, 10.0),
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -420,7 +422,7 @@ fn placement_angle_reprojects_screen_anchor() {
     let confirm = src
         .find("confirm re-projects the screen anchor")
         .expect("placement confirm comment");
-    let confirm_body = &src[confirm..src.len().min(confirm + 700)];
+    let confirm_body = &src[confirm..src.len().min(confirm + 1600)];
     assert!(
         confirm_body.contains("self.screen_to_terrain(s)")
             && confirm_body.contains("place_structure_from_ui(&template, start_world)"),
@@ -738,7 +740,7 @@ fn key_and_screenedge_scroll_mouse_lock_like_cpp() {
     );
     let wheel = src
         .find("fn handle_mouse_wheel")
-        .map(|i| &src[i..src.len().min(i + 1800)])
+        .map(|i| &src[i..src.len().min(i + 2500)])
         .expect("handle_mouse_wheel");
     assert!(
         wheel.contains("self.set_lookat_scroll_mouse_lock(false)"),
@@ -800,20 +802,33 @@ fn airborne_look_at_ray_hits_ground_plane() {
 
 #[test]
 fn vertical_pan_uses_display_aspect_boost() {
-    // C++ W3DView.cpp:1796-1798 — 1920x1080 with 80% tactical frac → 2.222.
-    let forward = Vec3::new(0.0, 0.0, 1.0);
-    let right = Vec3::new(1.0, 0.0, 0.0);
+    // C++ W3DView.cpp:1779-1823 scrollBy unprojects the view corner and the
+    // scroll offset through the live camera (vertical pre-multiplied by view
+    // aspect): 1920x864 tactical view -> aspect 2.222.
+    let view = Mat4::look_at_rh(Vec3::new(0.0, 120.0, 120.0), Vec3::ZERO, Vec3::Y);
     let aspect = 1920.0 / 864.0;
-    let dx = lookat_scroll_world_delta(Vec2::new(1.0, 0.0), forward, right, 250.0, aspect);
-    let dy = lookat_scroll_world_delta(Vec2::new(0.0, 1.0), forward, right, 250.0, aspect);
-    assert!((dx.x - 1.0).abs() < 1.0e-5, "horizontal step {dx:?}");
+    let viewport = (1920.0_f32, 864.0_f32);
+    let projection = Mat4::perspective_rh(50.0_f32.to_radians(), aspect, 1.0, 2_000.0);
+    let dx = lookat_scroll_world_delta(Vec2::new(1.0, 0.0), view, projection, viewport);
+    let dy = lookat_scroll_world_delta(Vec2::new(0.0, 1.0), view, projection, viewport);
+
+    // Ground-plane steps only. The camera pitches down 45 degrees toward -Z,
+    // so screen right walks +X and screen down walks back toward the camera.
+    assert!(dx.x > 0.0 && dx.z.abs() < 1.0e-4, "horizontal step {dx:?}");
+    assert!(dy.z > 0.0 && dy.x.abs() < 1.0e-4, "vertical step {dy:?}");
+    assert!(dx.y.abs() < 1.0e-4 && dy.y.abs() < 1.0e-4);
     assert!(
-        (dy.z + aspect).abs() < 1.0e-5,
-        "vertical step must be aspect-boosted, got {dy:?}"
+        dy.length() > dx.length() * 1.4,
+        "retail vertical pan is faster than horizontal by view aspect: {dy:?} vs {dx:?}"
     );
+
+    // The world step must come from the real projection, not a constant: a
+    // wider FOV covers more world per screen pixel.
+    let wide = Mat4::perspective_rh(80.0_f32.to_radians(), aspect, 1.0, 2_000.0);
+    let dx_wide = lookat_scroll_world_delta(Vec2::new(1.0, 0.0), view, wide, viewport);
     assert!(
-        dy.length() > dx.length() * 2.0,
-        "retail vertical pan is faster than horizontal by view aspect"
+        dx_wide.x > dx.x * 1.5,
+        "wider FOV must scale the world step: {dx_wide:?} vs {dx:?}"
     );
 }
 

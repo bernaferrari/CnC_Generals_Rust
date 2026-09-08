@@ -35,6 +35,10 @@ use crate::assets::textures::RawTexture;
 use crate::assets::{ModelPrewarmStats, W3DMaterial, W3DModel};
 use ww3d_renderer_3d::RendererResult;
 use ww3d_renderer_3d::material_system::{MaterialPassClass, VertexMaterialClass};
+use ww3d_renderer_3d::rendering::mesh_system::MeshPassTextureProvider;
+use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
+    DdsCompression, decode_dxt1, decode_dxt3, decode_dxt5,
+};
 use ww3d_renderer_3d::rendering::{
     camera_system::CameraClass,
     lighting_system::{LightClass, LightEnvironmentClass},
@@ -43,10 +47,6 @@ use ww3d_renderer_3d::rendering::{
     wgpu_main_renderer::{WgpuMainRenderer, WgpuMainRendererConfig},
 };
 use ww3d_renderer_3d::texture_system::{TextureClass, TextureFormat};
-use ww3d_renderer_3d::rendering::mesh_system::MeshPassTextureProvider;
-use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
-    DdsCompression, decode_dxt1, decode_dxt3, decode_dxt5,
-};
 use ww3d_renderer_3d::w3d_format::{
     W3dMaterialInfoStruct, W3dRGBAStruct, W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct,
     W3dVertexMaterialStruct,
@@ -88,37 +88,61 @@ pub(crate) fn gameplay_to_render_transform(matrix: Mat4) -> Mat4 {
 /// (windowed-smoke-report.md § TextureProvision).
 fn resolve_archive_pass_texture(name: &str) -> Option<TextureClass> {
     let requested = name.trim();
+    let (data, width, height) = archive_texture_rgba8(name)?;
+    let mut texture =
+        TextureClass::with_format(requested, width, height, TextureFormat::Rgba8Unorm);
+    texture.replace_pixels(data).ok()?;
+    Some(texture)
+}
+
+/// Resolve a W3D texture name through the archive-backed TextureManager raw
+/// cache into decoded RGBA8 pixels (first visible use loads synchronously,
+/// W3DAssetManager.cpp:127-225). Block-compressed DDS payloads decode to
+/// RGBA8 because every bind path only uploads 32-bit surfaces.
+fn archive_texture_rgba8(name: &str) -> Option<(Vec<u8>, u32, u32)> {
+    let requested = name.trim();
     if requested.is_empty() || requested.eq_ignore_ascii_case("none") {
         return None;
     }
     let asset_manager = get_asset_manager()?;
     let mut asset_manager = asset_manager.lock().unwrap_or_else(|e| e.into_inner());
-    // First visible use loads synchronously (W3DAssetManager.cpp:127-225).
     asset_manager.prime_texture_raw_blocking(requested);
     let raw = asset_manager.get_raw_texture(requested)?.clone();
     drop(asset_manager);
 
-    // Mirror TextureManager::create_gpu_texture / ForwardPass::build_texture:
-    // block-compressed archive payloads decode to RGBA8 because the mesh bind
-    // path (MeshRenderManager::ensure_gpu_texture_view) only uploads 32-bit
-    // surfaces.
     let decoded = match raw.dds_compression {
         Some(DdsCompression::Dxt1) => decode_dxt1(&raw.data, raw.width, raw.height),
         Some(DdsCompression::Dxt3) => decode_dxt3(&raw.data, raw.width, raw.height),
         Some(DdsCompression::Dxt5) => decode_dxt5(&raw.data, raw.width, raw.height),
         None => Ok(raw.data.clone()),
     };
-    let data = match decoded {
-        Ok(data) => data,
+    match decoded {
+        Ok(data) => Some((data, raw.width, raw.height)),
         Err(err) => {
             warn!("Pass texture '{}' decode failed: {err}", requested);
-            return None;
+            None
         }
-    };
-    let mut texture =
-        TextureClass::with_format(requested, raw.width, raw.height, TextureFormat::Rgba8Unorm);
-    texture.replace_pixels(data).ok()?;
-    Some(texture)
+    }
+}
+
+/// Install the archive-backed RGBA provider on the legacy GameClient drawable
+/// lane (`Display::draw` → `DrawableManager::render_pass_through` →
+/// `DrawableDrawPipeline`). W3D pass materials are name-only there too, so
+/// without this bridge every in-match unit binds the fallback color.
+#[cfg(feature = "game_client")]
+pub(crate) fn install_drawable_pipeline_texture_provider() {
+    let provider: game_client::drawable::drawable_draw_pipeline::DrawableTextureProvider =
+        Arc::new(|name| {
+            let (rgba, width, height) = archive_texture_rgba8(name)?;
+            Some(game_client::drawable::drawable_draw_pipeline::DecodedTexturePixels {
+                rgba,
+                width,
+                height,
+            })
+        });
+    game_client::drawable::drawable_draw_pipeline::set_drawable_texture_provider(Some(
+        provider,
+    ));
 }
 
 /// Install the archive-backed pass-texture resolver on the ww3d scene

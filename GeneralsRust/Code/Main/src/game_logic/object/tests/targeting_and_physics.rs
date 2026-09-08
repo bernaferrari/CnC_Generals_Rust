@@ -1983,7 +1983,12 @@ fn jet_hangar_taxi_then_afterburner_at_runway_head_and_rtb_approach() {
     // Ownerless legacy objects need a unique alive player per team for the
     // (None, None) relationship branch to read Allies (same-team USA).
     if logic.get_player(0).is_none() {
-        logic.add_player(crate::game_logic::Player::new(0, Team::USA, "TestPlayer", true));
+        logic.add_player(crate::game_logic::Player::new(
+            0,
+            Team::USA,
+            "TestPlayer",
+            true,
+        ));
     }
     af_t.parking_place = Some(ParkingPlaceMetadata {
         num_rows: 2,

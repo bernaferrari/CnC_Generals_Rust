@@ -6,7 +6,6 @@ use gamelogic::world::entities::{EntityId, EntityProductionItem, TemplateRef, Tr
 use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
-
 /// Rebuild convenience: one-shot mirror (stable map discarded with the session).
 pub fn mirror_host_into_gameworld(logic: &GameLogic, max_entities: usize) -> GameWorld {
     let mut shadow = GameWorldShadow::new(max_entities);
@@ -126,8 +125,9 @@ pub fn run_post_logic_shadow_boundary(
         if !probe.full_match() {
             log::warn!("{}", probe.format_report());
         }
-        let gw_view = presentation_view_from_shadow(shadow, 0);
-        gw_view.entities.len()
+        // Observe-path count only: skip building per-entity views (each
+        // clones its template name String) just to read a length.
+        presentation_entity_count_from_shadow(shadow)
     } else {
         let _ = maybe_shadow_after_host_tick(logic);
         0
@@ -1103,10 +1103,15 @@ pub fn shadow_session_after_host_tick(
     {
         let _ = shadow.apply_pending();
     }
-    let _atks = shadow.apply_host_attack_targets(logic);
-    let _moves = shadow.apply_host_move_targets(logic);
-    // Attack-target channel is always bidirectional once session is live: shadow mutations
-    // (and host bulk resync above) settle, then writeback keeps host Object::target aligned.
+    // Gate stale-target integration on movement authority: when the flag is
+    // off, host move/attack targets must not be integrated into the shadow.
+    if gameworld_movement_authority_enabled() {
+        let _atks = shadow.apply_host_attack_targets(logic);
+        let _moves = shadow.apply_host_move_targets(logic);
+    }
+    // Attack-target writeback runs only under `ai_attack` authority (the gate
+    // inside hard-returns 0 otherwise): with the C++-parity default (host sole
+    // writer), host Object::target is authoritative and no GW writeback fires.
     let _atk_wb = shadow.writeback_attack_targets_to_host(logic);
     // Wave 638: drain attack-target ready log after GW writeback.
     let _atk_ready =

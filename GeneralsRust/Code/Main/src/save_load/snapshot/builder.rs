@@ -40,7 +40,9 @@ impl SnapshotBuilder {
             version: WORLD_SNAPSHOT_BINCODE_VERSION,
             timestamp: std::time::SystemTime::now(),
             frame_number: game_logic.get_current_frame(),
-            random_seed: 0, // Main crate GameLogic doesn't track random seed explicitly
+            // Base seed the driving instance's ADC was last seeded from
+            // (broadcast channel for recorder/skirmish/save reseeds).
+            random_seed: game_logic.logic_base_seed as u64,
 
             objects,
             players,
@@ -142,6 +144,11 @@ impl SnapshotBuilder {
             object_experience_trackers: self.snapshot_object_experience_trackers(game_logic),
             object_command_sets: self.snapshot_object_command_sets(game_logic),
             object_disguises: self.snapshot_object_disguises(game_logic),
+            // Driving instance's live ADC words: post-load draws continue
+            // this stream (C++ RandomValue is static; loads never reseed).
+            logic_rng_seed_words: game_logic.logic_random.seed_words(),
+            // C++ GameStateMap::xfer moves the exact counter early in load.
+            next_object_id: game_logic.next_object_id_for_snapshot().0,
         };
 
         super::player_team_persist::stamp_from_live(game_logic);
@@ -197,7 +204,7 @@ impl SnapshotBuilder {
         self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
-        self.restore_all_objects(&snapshot.objects, game_logic)?;
+        self.restore_all_objects(&snapshot.objects, snapshot.next_object_id, game_logic)?;
         self.restore_object_instance_guards(snapshot, game_logic)?;
         self.restore_overcharge_active(snapshot, game_logic)?;
         self.restore_object_experience_trackers(snapshot, game_logic)?;

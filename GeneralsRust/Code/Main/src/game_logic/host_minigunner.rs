@@ -193,19 +193,22 @@ pub fn continuous_rof_multiplier(level: GattlingFireLevel) -> f32 {
     }
 }
 
-/// Combined ROF residual: continuous * horde * nationalism.
+/// Combined ROF residual: continuous + horde + nationalism.
 ///
+/// C++ WeaponBonusSet::appendBonuses (Weapon.cpp:3463-3468) stacks each active
+/// condition ADDITIVELY (`bonus += field - 1`): MEAN 2.0 + HORDE 1.5 → 2.5x,
+/// + NATIONALISM 1.25 → 2.75x — never 2.0 * 1.5.
 /// Nationalism only applies while in horde (C++ AIUpdate evaluateMoraleBonus).
 pub fn minigunner_rof_multiplier(
     level: GattlingFireLevel,
     in_horde: bool,
     has_nationalism: bool,
 ) -> f32 {
-    let mut rof = continuous_rof_multiplier(level);
+    let mut rof = 1.0 + (continuous_rof_multiplier(level) - 1.0);
     if in_horde {
-        rof *= INFANTRY_HORDE_ROF_MULT;
+        rof += INFANTRY_HORDE_ROF_MULT - 1.0;
         if has_nationalism {
-            rof *= INFANTRY_NATIONALISM_ROF_MULT;
+            rof += INFANTRY_NATIONALISM_ROF_MULT - 1.0;
         }
     }
     rof
@@ -330,7 +333,9 @@ pub fn minigunner_air_weapon(
 /// Advance continuous-fire residual state after a shot (MiniGunner thresholds).
 ///
 /// Mirrors C++ `FiringTracker::shotFired` spin-up with ContinuousFireOne=6 / Two=12.
-/// Returns `(new_level, consecutive, entered_fast)`.
+/// Returns `(new_level, consecutive, entered_fast)`. A demotion is C++
+/// coolDown (FiringTracker.cpp:319-321): it returns `consecutive == 0` —
+/// the caller must clear the stored victim along with the count.
 pub fn minigunner_on_shot_fired(
     previous_level: GattlingFireLevel,
     previous_consecutive: u32,
@@ -357,7 +362,10 @@ pub fn minigunner_on_shot_fired(
     match previous_level {
         GattlingFireLevel::Mean => {
             if consecutive < MINIGUNNER_CONTINUOUS_FIRE_ONE {
-                level = GattlingFireLevel::Base;
+                // C++ coolDown: straight to base, count and victim restart
+                // (FiringTracker.cpp:319-321). consecutive == 0 marks the
+                // reset; callers must clear the stored victim too.
+                return (GattlingFireLevel::Base, 0, false);
             } else if consecutive > MINIGUNNER_CONTINUOUS_FIRE_TWO {
                 level = GattlingFireLevel::Fast;
                 entered_fast = true;
@@ -365,7 +373,9 @@ pub fn minigunner_on_shot_fired(
         }
         GattlingFireLevel::Fast => {
             if consecutive < MINIGUNNER_CONTINUOUS_FIRE_TWO {
-                level = GattlingFireLevel::Base;
+                // C++ coolDown: straight to zero from FAST, count and victim
+                // restart (FiringTracker.cpp:126-129, 319-321).
+                return (GattlingFireLevel::Base, 0, false);
             }
         }
         GattlingFireLevel::Base => {
@@ -379,6 +389,11 @@ pub fn minigunner_on_shot_fired(
 }
 
 /// Next coast-until frame after a shot.
+///
+/// `level` must be the FIRED shot's level (pre-promotion): C++ stamps
+/// `m_frameToStartCooldown = getPossibleNextShotFrame() + coast`
+/// (FiringTracker.cpp:106-110) where the next-shot frame was computed with the
+/// bonus at fire time — speedUp runs after firing (Weapon.cpp:2645-2647).
 pub fn minigunner_coast_until_after_shot(
     current_frame: u32,
     level: GattlingFireLevel,
@@ -540,25 +555,51 @@ mod tests {
 
     #[test]
     fn horde_and_nationalism_stack_with_ramp() {
-        // Base + horde: floor(15/1.5)=10
+        // C++ WeaponBonusSet::appendBonuses (Weapon.cpp:3463-3468): each
+        // active condition adds (mult - 1).
+        // Base + horde: 1 + 0.5 = 1.5 → floor(15/1.5)=10
         assert_eq!(
             minigunner_delay_frames(GattlingFireLevel::Base, true, false),
             10
         );
-        // Base + horde + nationalism: floor(15/1.875)=8
+        // Base + horde + nationalism: 1 + 0.5 + 0.25 = 1.75 → floor(15/1.75)=8
         assert_eq!(
             minigunner_delay_frames(GattlingFireLevel::Base, true, true),
             8
         );
-        // MEAN + horde: floor(15/(2*1.5))=floor(5)=5
+        // MEAN + horde: 1 + 1 + 0.5 = 2.5 → floor(15/2.5)=6 (not 2.0*1.5=3.0)
         assert_eq!(
             minigunner_delay_frames(GattlingFireLevel::Mean, true, false),
-            5
+            6
         );
         // Nationalism without horde does nothing residual.
         assert_eq!(
             minigunner_delay_frames(GattlingFireLevel::Base, false, true),
             15
+        );
+    }
+
+    #[test]
+    fn rof_multiplier_stacks_additively() {
+        // Contract examples: MEAN 2.0 + HORDE 1.5 → 2.5x; + NATIONALISM 1.25 → 2.75x.
+        assert!((minigunner_rof_multiplier(GattlingFireLevel::Mean, true, false) - 2.5).abs() < 0.01);
+        assert!(
+            (minigunner_rof_multiplier(GattlingFireLevel::Mean, true, true) - 2.75).abs() < 0.01
+        );
+        // FAST + horde: 1 + 2 + 0.5 = 3.5 → floor(15/3.5)=4.
+        assert_eq!(
+            minigunner_delay_frames(GattlingFireLevel::Fast, true, false),
+            4
+        );
+        // FAST + horde + nationalism: 1 + 2 + 0.5 + 0.25 = 3.75 → floor(4)=4.
+        assert_eq!(
+            minigunner_delay_frames(GattlingFireLevel::Fast, true, true),
+            4
+        );
+        // MEAN + horde + nationalism: 2.75 → floor(15/2.75)=5.
+        assert_eq!(
+            minigunner_delay_frames(GattlingFireLevel::Mean, true, true),
+            5
         );
     }
 
@@ -585,6 +626,37 @@ mod tests {
         assert_eq!(c2, 13);
         assert_eq!(lvl2, GattlingFireLevel::Fast);
         assert!(entered);
+    }
+
+    #[test]
+    fn continuous_fire_demotion_resets_consecutive() {
+        // MEAN with consecutive < One (6) demotes and restarts the count
+        // (C++ coolDown, FiringTracker.cpp:319-321).
+        let (lvl, c, _) =
+            minigunner_on_shot_fired(GattlingFireLevel::Mean, 4, Some(1), Some(1), 10, 100);
+        assert_eq!(lvl, GattlingFireLevel::Base);
+        assert_eq!(c, 0);
+        // FAST with consecutive < Two (12) demotes straight to base as well.
+        let (lvl2, c2, _) =
+            minigunner_on_shot_fired(GattlingFireLevel::Fast, 10, Some(1), Some(1), 20, 100);
+        assert_eq!(lvl2, GattlingFireLevel::Base);
+        assert_eq!(c2, 0);
+    }
+
+    #[test]
+    fn coast_deadline_uses_fired_level_delay() {
+        // FiringTracker.cpp:106-110 + Weapon.cpp:2645-2647: the deadline keeps
+        // the FIRED shot's (pre-promotion) next-shot delay.
+        // Spin-up shot fired at BASE (15f) while promoting to MEAN:
+        assert_eq!(
+            minigunner_coast_until_after_shot(100, GattlingFireLevel::Base, false, false),
+            100 + 15 + MINIGUNNER_COAST_FRAMES
+        );
+        // Shot fired at MEAN (7f):
+        assert_eq!(
+            minigunner_coast_until_after_shot(100, GattlingFireLevel::Mean, false, false),
+            100 + 7 + MINIGUNNER_COAST_FRAMES
+        );
     }
 
     #[test]

@@ -152,4 +152,34 @@ mod tests {
         assert!(world.contain_occupants(bunker.id()).is_empty());
         assert_eq!(world.entity(rider.id()).expect("rider").producer_id, None);
     }
+
+    #[test]
+    fn foreign_world_handle_fails_closed() {
+        // Same raw id and generation in two worlds: only the world epoch
+        // distinguishes the occupants, and the fixup must reject the
+        // foreign handle instead of relinking the wrong entity.
+        let mut world = GameWorld::new(1);
+        let mut other = GameWorld::new(1);
+        let bunker = spawn_at(&mut world, 30, 200.0);
+        let foreign_rider = spawn_at(&mut other, 31, 50.0);
+        let local_rider = spawn_at(&mut world, 31, 50.0);
+        assert_eq!(
+            foreign_rider.generation(),
+            local_rider.generation(),
+            "same generation in both worlds"
+        );
+        assert!(!foreign_rider.same_world(&local_rider));
+        world.apply_contain_producer_fixup(
+            &[ContainFixup {
+                container: bunker,
+                occupant: foreign_rider,
+            }],
+            &[],
+        );
+        assert!(world.contain_occupants(bunker.id()).is_empty());
+        assert_eq!(
+            world.entity(local_rider.id()).expect("rider").contained_by_host,
+            0
+        );
+    }
 }

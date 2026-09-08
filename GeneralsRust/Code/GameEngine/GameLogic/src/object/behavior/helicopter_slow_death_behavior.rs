@@ -11,7 +11,10 @@ use crate::common::{
 };
 use crate::damage::DamageInfo;
 use crate::effects::{FXList, ObjectCreationList};
-use crate::helpers::{TheFXListStore, TheGameLogic, TheObjectCreationListStore, TheTerrainLogic};
+use crate::helpers::{
+    TheFXListStore, TheGameLogic, TheObjectCreationListStore, TheParticleSystemManager,
+    TheTerrainLogic,
+};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface,
     UpdateSleepTime,
@@ -595,6 +598,7 @@ pub struct HelicopterSlowDeathBehavior {
     blade_fly_off_frame: UnsignedInt,
     hit_ground_frame: UnsignedInt,
     active: Bool,
+    pending_particle_attach: Bool,
 }
 
 impl HelicopterSlowDeathBehavior {
@@ -629,6 +633,7 @@ impl HelicopterSlowDeathBehavior {
             blade_fly_off_frame: current_frame + blade_delay as UnsignedInt, // C++ line 146
             hit_ground_frame: 0,            // C++ line 147
             active: false,
+            pending_particle_attach: false,
         }
     }
 
@@ -677,12 +682,71 @@ impl HelicopterSlowDeathBehavior {
         // locomotor->setMaxBraking(modData->m_maxBraking);
         log::debug!("HelicopterSlowDeathBehavior: Would configure locomotor for fall");
 
-        // In C++ lines 216-250: Attach particle system to bone if present
-        // if (modData->m_attachParticleSystem) {
-        //     ParticleSystem *pSys = TheParticleSystemManager->createParticleSystem(...);
-        //     pSys->attachToObject(getObject());
-        // }
-        log::debug!("HelicopterSlowDeathBehavior: Would attach particle effects");
+        // C++ lines 216-250: attach the crash particle system during
+        // beginSlowDeath. The die dispatch holds this object's write lock, so
+        // the attach runs on the next lock-free update tick instead.
+        if self.module_data.attach_particle_system.is_some() {
+            self.pending_particle_attach = true;
+        }
+    }
+
+    /// C++ HelicopterSlowDeathUpdate.cpp:215-250: create the AttachParticle
+    /// system, offset it at the pristine AttachParticleBone (model space) or
+    /// the AttachParticleLoc offset, then attach it to the dying object.
+    fn attach_death_particle_system(&self) {
+        let Some(template_name) = self.module_data.attach_particle_system.as_deref() else {
+            return;
+        };
+        let Some(manager) = TheParticleSystemManager::get() else {
+            return;
+        };
+        // C++ line 218: TheParticleSystemManager->createParticleSystem(template)
+        let Some(system_id) = manager.create_particle_system(Some(template_name)) else {
+            return;
+        };
+
+        // C++ lines 222-243: where do the offsets attach to
+        if !self.module_data.attach_particle_bone.is_empty() {
+            // C++ lines 225-234: pristine bone offset from the object center;
+            // a missing bone/drawable leaves the system at the object center.
+            if let Some(pos) =
+                self.pristine_bone_position(&self.module_data.attach_particle_bone)
+            {
+                manager.set_particle_system_position(system_id, &pos);
+            }
+        } else {
+            // C++ line 241: given location coord (zero = center of obj anyway)
+            manager.set_particle_system_position(
+                system_id,
+                &self.module_data.attach_particle_loc,
+            );
+        }
+
+        // C++ line 246: attach the particle system to the object
+        manager.attach_particle_system_to_object(system_id, self.object_id);
+    }
+
+    /// C++ Drawable::getPristineBonePositions (Drawable.cpp:747): model-space
+    /// offset of the first bone matching `bone`.
+    fn pristine_bone_position(&self, bone: &str) -> Option<Coord3D> {
+        let object = self.owner()?;
+        let object = object.read().ok()?;
+        let drawable = object.get_drawable()?;
+        let drawable = drawable.read().ok()?;
+        drawable
+            .get_pristine_bone_positions(bone, 0, 1)
+            .first()
+            .copied()
+    }
+
+    /// Resolve the owning object handle (same fallback chain as update).
+    fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
+        if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }
     }
 }
 
@@ -693,6 +757,14 @@ impl UpdateModuleInterface for HelicopterSlowDeathBehavior {
         // Return early if not activated (C++ lines 268-269)
         if !self.active {
             return UpdateSleepTime::Forever;
+        }
+
+        // Deferred C++ beginSlowDeath AttachParticle dispatch
+        // (HelicopterSlowDeathUpdate.cpp:215-250); the die path holds this
+        // object's write lock, so bone lookup waits for the lock-free update.
+        if self.pending_particle_attach {
+            self.pending_particle_attach = false;
+            self.attach_death_particle_system();
         }
 
         // Get current frame (C++ uses TheGameLogic->getFrame())
@@ -904,6 +976,9 @@ impl Snapshotable for HelicopterSlowDeathBehavior {
             .map_err(|e| format!("HelicopterSlowDeathBehavior xfer hit_ground_frame: {:?}", e))?;
         xfer.xfer_bool(&mut self.active)
             .map_err(|e| format!("HelicopterSlowDeathBehavior xfer active: {:?}", e))?;
+        xfer.xfer_bool(&mut self.pending_particle_attach).map_err(|e| {
+            format!("HelicopterSlowDeathBehavior xfer pending_particle_attach: {:?}", e)
+        })?;
         Ok(())
     }
 

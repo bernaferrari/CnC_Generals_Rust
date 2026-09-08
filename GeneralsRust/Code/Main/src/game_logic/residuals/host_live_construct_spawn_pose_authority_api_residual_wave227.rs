@@ -87,11 +87,21 @@ pub fn honesty_live_construct_spawn_pose_authority_api_residual_pack_wave227() -
         && honesty_live_construct_spawn_pose_authority_api_nav_commands_residual_wave227()
 }
 
-/// Source residual: spawn pose + object_is_alive; engine has no `.get_object(`.
+/// Source residual: spawn pose + object_is_alive; engine has no `.get_object(`).
 pub fn honesty_construct_spawn_pose_authority_api_source() -> bool {
     // 2026-08-15: scan host plus extra world_* splits.
     let gl = super::host_logic_scan_src();
     let eng = crate::cnc_game_engine::ENGINE_SRC;
+    // 2026-09-07 re-pin: `ui_commands.rs` radius-cursor guard-range fallback
+    // now probes OBJECT_REGISTRY via `.get_object(id.0).is_some()` — an
+    // existence probe, not a construct/upgrade dual-read. The Wave 227
+    // surfaces (spawn/upgrade/order runtime_host splits + host authority)
+    // must stay `.get_object(`-free.
+    let construct_surfaces = concat!(
+        include_str!("../../cnc_game_engine/runtime_host/gameplay_select.rs"),
+        include_str!("../../cnc_game_engine/runtime_host/gameplay_orders.rs"),
+        include_str!("../../cnc_game_engine/host_authority.rs"),
+    );
     gl.contains("pub fn object_is_alive")
         && gl.contains("pub fn object_position")
         && gl.contains("Wave 227")
@@ -101,8 +111,11 @@ pub fn honesty_construct_spawn_pose_authority_api_source() -> bool {
             || eng.contains("presentation_or_boot_object_alive(pid)"))
         && eng.contains("fn presentation_or_boot_object_alive")
         && eng.contains("fn host_object_is_alive")
-        // Production engine must not dual-read via `.get_object(`.
-        && !eng.contains(".get_object(")
+        // Production construct/order surfaces must not dual-read via
+        // `.get_object(`; the only engine-wide occurrence left is the
+        // ui_commands.rs `.is_some()` registry probe.
+        && !construct_surfaces.contains(".get_object(")
+        && eng.matches(".get_object(").count() == 1
 }
 
 /// Live residual: source honesty pack latches.

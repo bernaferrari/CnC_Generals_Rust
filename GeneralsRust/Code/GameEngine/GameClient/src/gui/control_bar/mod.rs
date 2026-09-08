@@ -68,7 +68,6 @@ pub use control_bar_resizer::{
     simulate_control_bar_resizer_prepare_default, simulate_control_bar_resizer_resize,
     simulate_control_bar_resizer_set_base_resolution,
 };
-pub mod control_bar_scheme;
 pub mod control_bar_structure_inventory;
 pub use control_bar_structure_inventory::{
     MAX_STRUCTURE_INVENTORY_BUTTONS, ResidualStructureInventoryAction,
@@ -94,14 +93,6 @@ pub use control_bar_under_construction::{
 pub mod multi_select;
 pub mod observer;
 pub mod resizer;
-pub mod scheme;
-pub use scheme::{
-    CONTROL_BAR_SCHEME_NAMES_8X6, DefaultControlBarSchemeManager, ResidualControlBarSchemeAction,
-    residual_control_bar_scheme_has_current, residual_control_bar_scheme_last_action,
-    residual_control_bar_scheme_loaded_count, simulate_control_bar_scheme_clear,
-    simulate_control_bar_scheme_get_current, simulate_control_bar_scheme_load,
-    simulate_control_bar_scheme_prepare_default,
-};
 pub mod structure_inventory;
 pub mod under_construction;
 
@@ -129,7 +120,6 @@ pub(crate) use host_command_bridge::{
 pub use multi_select::*;
 pub use observer::*;
 pub use resizer::*;
-pub use scheme::*;
 pub use structure_inventory::*;
 pub use under_construction::*;
 

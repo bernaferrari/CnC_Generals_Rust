@@ -158,7 +158,7 @@ impl GameLogic {
 
     pub(super) fn refresh_live_audio_locality(&self) {
         use crate::game_logic::audio_dispatch_impl::{
-            set_live_audio_locality, LiveAudioLocality, LiveAudioPlayer,
+            LiveAudioLocality, LiveAudioPlayer, set_live_audio_locality,
         };
         use game_engine::common::audio::AudioLocalityRelationship;
         let Some(local_id) = self.local_player_id() else {

@@ -63,19 +63,32 @@ mod tests {
     fn terrain_static_diffuse_uses_negative_light_position_and_clamps() {
         let diffuse = TerrainVisualImpl::terrain_static_diffuse_from_normal(
             Vec3::Y,
-            Vec3::new(0.0, -1.0, 0.0),
-            [0.6, 0.5, 0.4],
+            &[(Vec3::new(0.0, -1.0, 0.0), [0.6, 0.5, 0.4])],
             [0.2, 0.2, 0.2],
         );
         assert_eq!(diffuse, [0.8, 0.7, 0.6, 1.0]);
 
         let clamped = TerrainVisualImpl::terrain_static_diffuse_from_normal(
             Vec3::Y,
-            Vec3::new(0.0, -1.0, 0.0),
-            [0.8, 0.8, 0.8],
+            &[(Vec3::new(0.0, -1.0, 0.0), [0.8, 0.8, 0.8])],
             [0.5, 0.4, 0.3],
         );
         assert_eq!(clamped, [1.0, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn terrain_static_diffuse_sums_all_global_lights_like_do_the_light() {
+        // C++ doTheLight (BaseHeightMap.cpp:556-566) adds clamp(N·L,0,1)*diffuse
+        // for every global light on top of light-0 ambient.
+        let multi = TerrainVisualImpl::terrain_static_diffuse_from_normal(
+            Vec3::Y,
+            &[
+                (Vec3::new(0.0, -1.0, 0.0), [0.3, 0.3, 0.3]),
+                (Vec3::new(0.0, -1.0, 0.0), [0.3, 0.3, 0.3]),
+            ],
+            [0.2, 0.2, 0.2],
+        );
+        assert_eq!(multi, [0.8, 0.8, 0.8, 1.0]);
     }
 
     #[test]
@@ -388,4 +401,140 @@ mod tests {
         clear_terrain_scorches();
     }
 
+
+    fn bib_test_visual() -> TerrainVisualImpl {
+        let mut visual = TerrainVisualImpl::new();
+        let heightmap = HeightMap::new(32, 32, 255.0, 1.0);
+        visual
+            .load_heightmap_from_data(heightmap, None, None)
+            .expect("bib test heightmap should load");
+        visual
+    }
+
+
+    /// C++ InGameUI placement lifecycle: preview adds highlight bibs for the
+    /// current blockers (W3DBibBuffer::addBib dedupes per owner, so re-adding
+    /// per drag frame must not grow the set), the sync prunes owners that no
+    /// longer block, and the placement end clears the Object-kind session
+    /// bibs and un-highlights what remains (destroyPlacementIcons /
+    /// removeHighlighting).
+    #[test]
+    fn placement_highlight_bib_session_adds_prunes_and_clears() {
+        let mut visual = bib_test_visual();
+        let object = TerrainBibOwnerKind::Object;
+        let drawable = TerrainBibOwnerKind::Drawable;
+        let transform = Mat4::IDENTITY;
+
+        assert!(visual.add_faction_bib(1, object, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0));
+        assert!(visual.add_faction_bib(2, object, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0));
+        // Same owner re-add (drag frame): update, not growth.
+        assert!(visual.add_faction_bib(2, object, transform, 21.0, 21.0, false, 0.0, 0.0, true, 0.0));
+        assert_eq!(visual.terrain_bibs().len(), 2);
+
+        // Cursor moved: only blocker 1 still blocks — owner 2 is pruned.
+        visual.retain_placement_highlight_bibs(&[1]);
+        assert_eq!(visual.terrain_bibs().len(), 1);
+        assert_eq!(visual.terrain_bibs()[0].owner_id, 1);
+
+        // The client place icon carries its own Drawable-kind bib; the
+        // placement-end clear must keep it (minus highlight) and drop the
+        // host preview bibs.
+        assert!(visual.add_faction_bib(7, drawable, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0));
+        visual.clear_placement_highlight_bibs();
+        assert_eq!(visual.terrain_bibs().len(), 1);
+        assert_eq!(visual.terrain_bibs()[0].owner_kind, drawable);
+        assert!(!visual.terrain_bibs()[0].highlight);
+    }
+
+    /// Bib art: with TBBib.tga/TBRedBib.tga the texture drives the draw
+    /// (white tint, opaque); without the art (this install ships neither
+    /// TGA) the stand-in is the C++ red highlight read at partial alpha.
+    #[test]
+    fn bib_stand_in_is_translucent_red_when_tga_missing() {
+        let (highlight_color, highlight_alpha) =
+            bib_stand_in_appearance(true, false);
+        let (normal_color, normal_alpha) = bib_stand_in_appearance(false, false);
+        let (art_color, art_alpha) = bib_stand_in_appearance(true, true);
+        assert!(highlight_color[0] > 0.8 && highlight_color[1] < 0.4);
+        assert!((0.0..1.0).contains(&highlight_alpha));
+        assert!(normal_color[0] > 0.8);
+        assert!((0.0..1.0).contains(&normal_alpha));
+        assert_eq!(art_color, [1.0, 1.0, 1.0]);
+        assert!((art_alpha - 1.0).abs() < 1.0e-6);
+    }
+
+    /// C++ W3DWater.cpp:2242-2343: the wave grid exists only over actual
+    /// water — a cell fully above the water plane gets no geometry.
+    #[test]
+    fn water_grid_cell_is_wet_tracks_water_plane_vs_terrain() {
+        let mut heightmap = HeightMap::new(8, 8, 255.0, 10.0);
+        // Left half flat at height 10 (wet under a plane at 5), right half
+        // at height 200 (dry).
+        for y in 0..8 {
+            for x in 0..8 {
+                heightmap.set_raw_height(x, y, if x < 4 { 10 } else { 200 });
+            }
+        }
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(heightmap, None, None)
+            .expect("water grid test heightmap should load");
+
+        let wet_corners = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        let dry_corners = [[50.0, 0.0], [60.0, 0.0], [60.0, 10.0], [50.0, 10.0]];
+        assert!(visual.water_grid_cell_is_wet(&wet_corners, 5.0));
+        assert!(!visual.water_grid_cell_is_wet(&dry_corners, 5.0));
+        // Rising the plane above the terrain floods the "dry" cell.
+        assert!(visual.water_grid_cell_is_wet(&dry_corners, 500.0));
+    }
+
+    /// The 4-slot chunk texture selection must rank the map's texture classes
+    /// by placed-tile usage (C++ keeps every class addressable via the
+    /// combiner atlas), not by map order — a rarely used class listed first
+    /// must not consume a slot a heavily used class needs.
+    #[test]
+    fn chunk_texture_selection_ranks_classes_by_tile_usage() {
+        let mut visual = TerrainVisualImpl::new();
+        let mut heightmap = HeightMap::new(8, 8, 255.0, 1.0);
+        // 62 samples of class "Common" (firstTile 4), 2 of "Rare"
+        // (firstTile 0). Map order lists Rare first.
+        let mut tiles = vec![5_i16; 64];
+        tiles[0] = 0;
+        tiles[1] = 1;
+        heightmap.tile_ndxes = tiles;
+        visual
+            .load_heightmap_from_data(heightmap, None, None)
+            .expect("selection test heightmap should load");
+
+        let mut textures = TerrainTextures::new();
+        let rare = textures.register_texture(TerrainTexture::new(
+            0,
+            "Rare".to_string(),
+            "Art/Terrain/Rare.tga".to_string(),
+        ));
+        let common = textures.register_texture(TerrainTexture::new(
+            0,
+            "Common".to_string(),
+            "Art/Terrain/Common.tga".to_string(),
+        ));
+        visual.texture_system = textures;
+        visual.source_tile_classes = vec![
+            TerrainSourceTileClass {
+                first_tile: 0,
+                num_tiles: 4,
+                width: 2,
+                name: "Rare".to_string(),
+            },
+            TerrainSourceTileClass {
+                first_tile: 4,
+                num_tiles: 4,
+                width: 2,
+                name: "Common".to_string(),
+            },
+        ];
+
+        let selected = visual.select_stable_chunk_texture_ids(&[]);
+        assert_eq!(selected[0], common, "most-used class must take slot 0");
+        assert_eq!(selected[1], rare);
+    }
 }

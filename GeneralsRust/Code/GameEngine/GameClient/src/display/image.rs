@@ -1133,7 +1133,8 @@ fn ensure_engine_filesystem_backends() {
         }
 
         {
-            let big_backend: &mut BigArchiveBackend = fs_guard.ensure_backend(BigArchiveBackend::new);
+            let big_backend: &mut BigArchiveBackend =
+                fs_guard.ensure_backend(BigArchiveBackend::new);
             for path in &deduped {
                 big_backend.add_search_path(path);
             }
@@ -1158,7 +1159,6 @@ fn ensure_engine_filesystem_backends() {
         }
     });
 }
-
 
 /// Import mapped image metadata from the common INI collection into the
 /// client-side collection used by GUI and renderer systems.
@@ -1588,4 +1588,4 @@ mod tests {
         let data = atlas.get_image_data().expect("hydrated atlas pixels");
         assert!(data.dimensions().0 >= 512 && data.dimensions().1 >= 512);
     }
- }
+}

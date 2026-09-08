@@ -1,6 +1,7 @@
 //! EVA voice system (GameClient/Eva.cpp).
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::AtomicUsize;
+use std::sync::{LazyLock, Mutex};
 
 use game_engine::common::ini::{
     FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
@@ -67,7 +68,10 @@ const EVA_MESSAGE_NAMES: [&str; 53] = [
 ];
 
 const EVA_COUNT: usize = EVA_MESSAGE_NAMES.len();
-const FOREVER_FRAMES: u32 = 0x3fffffff;
+/// C++ `ExpirationTimeMS = -1` reaches `INI::scanUnsignedInt` (%u) which wraps
+/// to 4294967295 ms; `parseDurationUnsignedInt` scales by 30/1000 and ceils
+/// → 128,849,019 frames (GameCommon.h LOGICFRAMES_PER_SECOND=30).
+const FOREVER_FRAMES: u32 = 128_849_019;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -606,6 +610,11 @@ impl Eva {
     }
 
     fn has_local_player() -> bool {
+        // C++ Eva.cpp:270 reads the same-process ThePlayerList; the live host
+        // players live in Main, so prefer the published local-player snapshot.
+        if eva_host_local_player().is_some() {
+            return true;
+        }
         ThePlayerList()
             .read()
             .ok()
@@ -708,20 +717,30 @@ impl Eva {
                 None => return,
             };
 
-        let Ok(list) = ThePlayerList().read() else {
-            return;
+        // C++ Eva.cpp:270/507-528: side + player index come from the live
+        // local player. Prefer the host-published snapshot; fall back to the
+        // leftover crate PlayerList (tests / boot residual).
+        let (side, player_index) = if let Some((host_side, host_index)) = eva_host_local_player() {
+            (host_side, host_index)
+        } else {
+            let Ok(list) = ThePlayerList().read() else {
+                return;
+            };
+            let Some(local_player) = list.get_local_player().cloned() else {
+                return;
+            };
+            let Ok(local_player) = local_player.read() else {
+                return;
+            };
+            (
+                local_player.get_side().to_string(),
+                local_player.get_player_index() as u32,
+            )
         };
-        let Some(local_player) = list.get_local_player().cloned() else {
-            return;
-        };
-        let Ok(local_player) = local_player.read() else {
-            return;
-        };
-        let side = local_player.get_side();
 
         self.eva_speech.set_event_name(String::new());
         for side_sounds in &eva_side_sounds {
-            if side_sounds.side.eq_ignore_ascii_case(side) {
+            if side_sounds.side.eq_ignore_ascii_case(&side) {
                 if !side_sounds.sound_names.is_empty() {
                     let choice = get_game_client_random_value(
                         0,
@@ -736,10 +755,9 @@ impl Eva {
         }
 
         self.checks[best_index].already_played = true;
+        EVA_PLAYED_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.checks[best_index].time_for_next_check = current_frame + frames_between_checks;
-
-        self.eva_speech
-            .set_player_index(local_player.get_player_index() as u32);
+        self.eva_speech.set_player_index(player_index);
 
         let handle = TheAudio::get()
             .map(|audio| audio.add_audio_event(&self.eva_speech))
@@ -875,7 +893,11 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
         return Err(INIError::InvalidData);
     };
     if EvaMessage::from_name(name).is_none() {
-        return Err(INIError::InvalidData);
+        // C++ INI.cpp:81 / Eva.cpp:99-109: an unknown event name creates an
+        // inert entry and the file load continues. Never fail the whole
+        // Eva.ini for one bad name.
+        skip_eva_event_block(ini)?;
+        return Ok(());
     }
 
     // Always use the OnceLock singleton. Do not hold THE_EVA across INI load
@@ -891,7 +913,7 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
-static THE_EVA: OnceLock<Mutex<Eva>> = OnceLock::new();
+static THE_EVA: LazyLock<Mutex<Eva>> = LazyLock::new(|| Mutex::new(Eva::new()));
 
 thread_local! {
     /// Live host logic frame (Main `GameLogic::get_frame` / presentation freeze).
@@ -923,6 +945,21 @@ pub fn eva_logic_frame() -> u32 {
 }
 
 /// Publish host Energy::hasSufficientPower for Eva.cpp:408-422 LowPower poll.
+static EVA_PLAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+static HOST_EVA_LOCAL_PLAYER: LazyLock<Mutex<Option<(String, u32)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+fn host_eva_local_player_cell() -> &'static Mutex<Option<(String, u32)>> {
+    &HOST_EVA_LOCAL_PLAYER
+}
+
+/// Live-probe counter: total EVA messages dispatched to the audio device.
+pub fn eva_played_count() -> usize {
+    EVA_PLAYED_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Publish host Energy::hasSufficientPower for Eva.cpp:408-422 LowPower poll.
 pub fn set_eva_host_sufficient_power(sufficient: bool) {
     HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.set(Some(sufficient)));
 }
@@ -937,8 +974,31 @@ pub fn eva_host_sufficient_power() -> Option<bool> {
     HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.get())
 }
 
+/// Publish host local-player identity for Eva.cpp:270 `m_localPlayer`
+/// (side token for Eva.ini SideSounds + player index for the speech handle).
+pub fn set_eva_host_local_player(side: impl Into<String>, player_index: u32) {
+    if let Ok(mut cell) = host_eva_local_player_cell().lock() {
+        *cell = Some((side.into(), player_index));
+    }
+}
+
+/// Drop the host local-player snapshot so leftover ThePlayerList is used.
+pub fn clear_eva_host_local_player() {
+    if let Ok(mut cell) = host_eva_local_player_cell().lock() {
+        *cell = None;
+    }
+}
+
+/// Host local-player snapshot: `(side token, player index)`.
+pub fn eva_host_local_player() -> Option<(String, u32)> {
+    host_eva_local_player_cell()
+        .lock()
+        .ok()
+        .and_then(|cell| cell.clone())
+}
+
 pub fn get_eva() -> &'static Mutex<Eva> {
-    THE_EVA.get_or_init(|| Mutex::new(Eva::new()))
+    &THE_EVA
 }
 
 pub fn initialize_eva_system() -> INIResult<()> {
@@ -960,9 +1020,43 @@ pub fn eva_check_info_count() -> usize {
         .unwrap_or(0)
 }
 
+/// Live-probe snapshot: (check infos, pending checks, last played message,
+/// enabled latch, host local-player present, tick frame).
+pub fn eva_check_snapshot() -> (usize, usize, Option<usize>, bool, bool, u32) {
+    let present = eva_host_local_player().is_some();
+    let frame = eva_logic_frame();
+    get_eva()
+        .lock()
+        .map(|eva| {
+            let last_played = eva
+                .checks
+                .iter()
+                .filter(|check| check.already_played)
+                .map(|check| check.eva_info.as_index())
+                .next_back();
+            (
+                eva.all_check_infos.len(),
+                eva.checks.len(),
+                last_played,
+                eva.enabled,
+                present,
+                frame,
+            )
+        })
+        .unwrap_or((0, 0, None, true, present, frame))
+}
+
 pub fn reset_eva_system() {
     set_eva_host_frame(0);
     clear_eva_host_sufficient_power();
+    // C++ has one TheEva singleton: a shell-menu script
+    // EVA_SET_ENABLED_DISABLED(false) persists into the match until
+    // GameClient::reset (GameClient.cpp:450) runs Eva::reset (Eva.cpp:245-263)
+    // which re-enables it. The live port splits that singleton into this
+    // client Eva plus the gamelogic TheEva facade the script action writes;
+    // reset must re-arm both or sync_enabled_from_logic keeps re-applying the
+    // stale shell disable every frame.
+    let _ = LogicEva::set_enabled(true);
     let eva = get_eva();
     if let Ok(mut guard) = eva.lock() {
         guard.reset();

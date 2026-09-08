@@ -6,8 +6,8 @@
 //! Host residual only — network deferred.
 //!
 //! Sources (repo architecture + golden_skirmish):
-//! - authoritative_world::dual_tick_policy defaults AuthorityOnly
-//! - GENERALS_ALLOW_DUAL_TICK opt-in only
+//! - authoritative_world::dual_tick_policy is AuthorityOnly (only variant left)
+//! - the dual-tick env opt-in plumbing was deleted
 //! - GOLDEN_ALLOW_TELEPORT_PULL opt-in only
 //! - GoldenSkirmishResult::playable_claim always false
 //!
@@ -25,7 +25,6 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const SINGLE_AUTHORITY_COMBAT_HONESTY_METHOD_NAMES_WAVE173: &[&str] = &[
     "dual_tick_policy",
     "DualTickPolicy::AuthorityOnly",
-    "GENERALS_ALLOW_DUAL_TICK",
     "GOLDEN_ALLOW_TELEPORT_PULL",
     "combat_no_teleport_ok",
     "playable_claim = false",
@@ -50,7 +49,7 @@ pub const RUNTIME_HOST_SINGLE_AUTHORITY_COMBAT_HONESTY_CMD_NAMES_WAVE173: &[&str
 
 /// Honesty: method names residual pack.
 pub fn honesty_single_authority_combat_method_names_residual_wave173() -> bool {
-    SINGLE_AUTHORITY_COMBAT_HONESTY_METHOD_NAMES_WAVE173.len() == 6
+    SINGLE_AUTHORITY_COMBAT_HONESTY_METHOD_NAMES_WAVE173.len() == 5
         && residual_name_index(
             SINGLE_AUTHORITY_COMBAT_HONESTY_METHOD_NAMES_WAVE173,
             "dual_tick_policy",
@@ -58,11 +57,11 @@ pub fn honesty_single_authority_combat_method_names_residual_wave173() -> bool {
         && residual_name_index(
             SINGLE_AUTHORITY_COMBAT_HONESTY_METHOD_NAMES_WAVE173,
             "GOLDEN_ALLOW_TELEPORT_PULL",
-        ) == Some(3)
+        ) == Some(2)
         && residual_name_index(
             SINGLE_AUTHORITY_COMBAT_HONESTY_METHOD_NAMES_WAVE173,
             "playable_claim = false",
-        ) == Some(5)
+        ) == Some(4)
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
@@ -128,26 +127,9 @@ pub fn simulate_single_authority_combat_honesty() -> bool {
     if !honesty_dual_tick_default_authority_only_source() {
         return false;
     }
-    if !honesty_golden_teleport_pull_opt_in_source() {
-        return false;
-    }
-    if !honesty_golden_playable_claim_false_source() {
-        return false;
-    }
-
-    // Live: with dual-tick env unset (typical CI/dev), policy is AuthorityOnly.
-    // If a parent test enabled dual-tick or verification flags, still require that
-    // dual is not the silent default — DualLegacy only when ALLOW_DUAL is set.
-    let policy = dual_tick_policy();
-    let dual_env = std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_some();
-    if !dual_env {
-        if policy != DualTickPolicy::AuthorityOnly {
-            return false;
-        }
-    } else if !matches!(
-        policy,
-        DualTickPolicy::DualLegacyNonFatal | DualTickPolicy::AuthorityOnly
-    ) {
+    // Live: AuthorityOnly is the only variant; the dual-tick env opt-in was
+    // deleted with the dual crate tick machinery.
+    if dual_tick_policy() != DualTickPolicy::AuthorityOnly {
         return false;
     }
 

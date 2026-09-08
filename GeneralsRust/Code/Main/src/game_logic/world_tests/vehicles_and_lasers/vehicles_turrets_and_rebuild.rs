@@ -943,6 +943,119 @@ fn voice_rapid_fire_missing_unit_sound_stays_silent() {
 }
 
 #[test]
+fn continuous_fire_coast_deadline_uses_fired_shot_level() {
+    use crate::game_logic::host_base_defense::{
+        GATTLING_BUILDING_BASE_DELAY_FRAMES, GATTLING_BUILDING_COAST_FRAMES,
+    };
+    use crate::game_logic::host_gattling_tank::{
+        GattlingFireLevel, GATTLING_BASE_DELAY_FRAMES, GATTLING_COAST_FRAMES,
+        GATTLING_CONTINUOUS_FIRE_ONE, gattling_delay_frames_for_level,
+    };
+    use crate::game_logic::host_minigunner::{MINIGUNNER_BASE_DELAY_FRAMES, MINIGUNNER_COAST_FRAMES};
+    use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+
+    // C++ FiringTracker.cpp:106-110 + Weapon.cpp:2645-2647: the coast
+    // deadline is getPossibleNextShotFrame() + coast, and the next-shot frame
+    // was stamped with the FIRED shot's (pre-promotion) delay — speedUp runs
+    // after firing, so a spin-up shot cools on the OLD level's delay.
+
+    let mut logic = GameLogic::new();
+    let mut tank_t = ThingTemplate::new("ChinaTankGattling");
+    tank_t.add_kind_of(KindOf::Vehicle).set_health(300.0);
+    logic.templates.insert("ChinaTankGattling".into(), tank_t);
+    let tank = logic
+        .create_object("ChinaTankGattling", Team::China, Vec3::ZERO)
+        .expect("tank");
+    logic.frame = 100;
+    // Spin-up shot: consecutive 2 → 3 > ONE(2) promotes to MEAN, but the
+    // shot was FIRED at BASE, so the deadline keeps the BASE delay (12f).
+    {
+        let o = logic.objects.get_mut(&tank).unwrap();
+        o.continuous_fire_consecutive = GATTLING_CONTINUOUS_FIRE_ONE;
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_gattling_continuous_fire(tank, Some(ObjectId(99)), 0);
+    {
+        let o = logic.objects.get(&tank).unwrap();
+        assert_eq!(o.continuous_fire_level, GattlingFireLevel::Mean.as_u8());
+        assert_eq!(
+            o.continuous_fire_coast_until_frame,
+            100 + GATTLING_BASE_DELAY_FRAMES + GATTLING_COAST_FRAMES
+        );
+    }
+    // Demoting shot: MEAN with consecutive 0 → 1 < ONE(2) cools down; count
+    // and victim restart together (FiringTracker.cpp:319-321) and the
+    // deadline keeps the FIRED (MEAN) delay.
+    {
+        let o = logic.objects.get_mut(&tank).unwrap();
+        o.continuous_fire_consecutive = 0;
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_gattling_continuous_fire(tank, Some(ObjectId(99)), 0);
+    {
+        let o = logic.objects.get(&tank).unwrap();
+        assert_eq!(o.continuous_fire_level, GattlingFireLevel::Base.as_u8());
+        assert_eq!(o.continuous_fire_consecutive, 0);
+        assert_eq!(o.continuous_fire_victim, 0);
+        assert_eq!(
+            o.continuous_fire_coast_until_frame,
+            100 + gattling_delay_frames_for_level(GattlingFireLevel::Mean)
+                + GATTLING_COAST_FRAMES
+        );
+    }
+
+    // Structure gattling: spin-up shot fired at BASE (8f) promotes to MEAN.
+    let mut bld_t = ThingTemplate::new("ChinaGattlingCannon");
+    bld_t.add_kind_of(KindOf::Structure).set_health(1000.0);
+    logic.templates.insert("ChinaGattlingCannon".into(), bld_t);
+    let bld = logic
+        .create_object("ChinaGattlingCannon", Team::China, Vec3::ZERO)
+        .expect("cannon");
+    logic.frame = 200;
+    {
+        let o = logic.objects.get_mut(&bld).unwrap();
+        o.continuous_fire_consecutive = 1; // → 2 > ONE(1)
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_gattling_building_continuous_fire(bld, Some(ObjectId(99)), 0);
+    {
+        let o = logic.objects.get(&bld).unwrap();
+        assert_eq!(o.continuous_fire_level, GattlingFireLevel::Mean.as_u8());
+        assert_eq!(
+            o.continuous_fire_coast_until_frame,
+            200 + GATTLING_BUILDING_BASE_DELAY_FRAMES + GATTLING_BUILDING_COAST_FRAMES
+        );
+    }
+
+    // MiniGunner: spin-up shot fired at BASE (15f) promotes to MEAN at
+    // consecutive 7 > ONE(6).
+    let mut mini_t = ThingTemplate::new("ChinaInfantryMiniGunner");
+    mini_t.add_kind_of(KindOf::Infantry).set_health(120.0);
+    logic
+        .templates
+        .insert("ChinaInfantryMiniGunner".into(), mini_t);
+    let mini = logic
+        .create_object("ChinaInfantryMiniGunner", Team::China, Vec3::ZERO)
+        .expect("minigunner");
+    logic.frame = 300;
+    {
+        let o = logic.objects.get_mut(&mini).unwrap();
+        o.continuous_fire_consecutive = 6;
+        o.continuous_fire_victim = 99;
+    }
+    logic.advance_minigunner_continuous_fire(mini, Some(ObjectId(99)), 0);
+    {
+        let o = logic.objects.get(&mini).unwrap();
+        assert_eq!(o.continuous_fire_level, GattlingFireLevel::Mean.as_u8());
+        assert_eq!(
+            o.continuous_fire_coast_until_frame,
+            300 + MINIGUNNER_BASE_DELAY_FRAMES + MINIGUNNER_COAST_FRAMES
+        );
+    }
+}
+
+#[test]
 fn turn_turret_towards_angle_snaps_within_rate() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut t = ThingTemplate::new("Snap");

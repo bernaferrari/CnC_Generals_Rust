@@ -58,6 +58,14 @@ impl GameLogic {
             recoil_dir: recoil_dir_from_positions(source_pos, target_pos, capture.recoil_amount),
             source_orientation: capture.source_orientation,
             target_pos: [target_pos.x, target_pos.y, target_pos.z],
+            weapon_speed: super::weapon_discharge::fire_fx_weapon_speed(
+                self.objects.get(&source),
+                capture.weapon_slot,
+            ),
+            damage_radius: super::weapon_discharge::fire_fx_primary_damage_radius(
+                self.objects.get(&source),
+                capture.weapon_slot,
+            ),
             is_contact_weapon: capture.is_contact_weapon,
         };
         let discharge = FrozenWeaponVisualDischarge {

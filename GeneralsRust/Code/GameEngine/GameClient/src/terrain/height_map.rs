@@ -778,39 +778,113 @@ impl HeightMap {
         uv
     }
 
-    /// World-space UV for a vertex so each MAP_XY_FACTOR cell tiles once.
-    pub fn cell_uv_at_world(&self, world_x: f32, world_z: f32) -> [f32; 2] {
+    /// C++ `WorldHeightMap::getUVForNdx` + the cliff remap of
+    /// `getUVForTileIndex` (WorldHeightMap.cpp:1589-1634, 1737-1757),
+    /// expressed against the composed terrain atlas: `tile_origin_px` is the
+    /// source tile's `m_tileLocationInTexture` pixel origin, and `remap`
+    /// carries the cliff/stretch class offsets
+    /// (`minU = class.positionInTexture.x`,
+    /// `maxV = class.positionInTexture.y + class.width*TILE_PIXEL_EXTENT`,
+    /// both normalized, and `vFactor = TEXTURE_WIDTH / terrainTexHeight`)
+    /// applied as `U = info.u + minU`, `V = info.v * vFactor + maxV`.
+    /// `full_tile` skips the quadrant split (:1618-1633, 1721-1723).
+    pub fn uv_for_tile_atlas(
+        tile_ndx: i16,
+        full_tile: bool,
+        tile_origin_px: (i32, i32),
+        texture_width: f32,
+        terrain_tex_height: f32,
+        remap: Option<(&TCliffInfo, f32, f32, f32)>,
+    ) -> HeightMapUvData {
+        const TILE_PIXEL_EXTENT_PX: f32 = 64.0; // textures.rs TILE_PIXEL_EXTENT
+        let tex_height = if terrain_tex_height > 0.0 {
+            terrain_tex_height
+        } else {
+            texture_width
+        };
+        let mut min_u = tile_origin_px.0 as f32;
+        let mut min_v = tile_origin_px.1 as f32;
+        let mut max_u = min_u + TILE_PIXEL_EXTENT_PX;
+        let mut max_v = min_v + TILE_PIXEL_EXTENT_PX;
+        min_u /= texture_width;
+        min_v /= tex_height;
+        max_u /= texture_width;
+        max_v /= tex_height;
+        let mut uv = HeightMapUvData::default();
+        if !full_tile {
+            // Tiles are 64x64 pixels, height grids map to 32x32: split to the
+            // proper quadrant (y's are flipped, C++ :1623-1632).
+            let mid_x = (min_u + max_u) / 2.0;
+            let mid_y = (min_v + max_v) / 2.0;
+            if tile_ndx & 2 != 0 {
+                max_v = mid_y;
+            } else {
+                min_v = mid_y;
+            }
+            if tile_ndx & 1 != 0 {
+                min_u = mid_x;
+            } else {
+                max_u = mid_x;
+            }
+        }
+        uv.u = [min_u, max_u, max_u, min_u];
+        uv.v = [max_v, max_v, min_v, min_v];
+        if let Some((info, class_min_u_px, class_max_v_px, v_factor)) = remap {
+            let min_u_class = class_min_u_px / texture_width;
+            let max_v_class = class_max_v_px / tex_height;
+            uv.u = [info.u0 + min_u_class, info.u1 + min_u_class, info.u2 + min_u_class, info.u3 + min_u_class];
+            uv.v = [
+                info.v0 * v_factor + max_v_class,
+                info.v1 * v_factor + max_v_class,
+                info.v2 * v_factor + max_v_class,
+                info.v3 * v_factor + max_v_class,
+            ];
+            uv.flip = info.flip;
+            uv.stretched = true;
+        }
+        uv
+    }
+
+    /// Grid cell + in-cell fraction under a world position (the floor/clamp/
+    /// border math shared by `get_packed_terrain_tile_at_world` and the UV
+    /// functions; C++ WorldHeightMap.cpp:2333-2345).
+    pub fn cell_grid_at_world(&self, world_x: f32, world_z: f32) -> (i32, i32, f32, f32) {
         let scale = if self.scale.abs() > f32::EPSILON {
             self.scale
         } else {
             MAP_XY_FACTOR
         };
-        let u = world_x / scale;
-        let v = world_z / scale;
-        let (ix, iy) = {
-            let max_x = self.width.saturating_sub(1) as i32;
-            let max_y = self.height.saturating_sub(1) as i32;
-            let x = ((world_x / scale).floor() as i32 + self.border_size).clamp(0, max_x);
-            let y = ((world_z / scale).floor() as i32 + self.border_size).clamp(0, max_y);
-            (x, y)
-        };
+        let max_x = self.width.saturating_sub(1) as i32;
+        let max_y = self.height.saturating_sub(1) as i32;
+        let ix = ((world_x / scale).floor() as i32 + self.border_size).clamp(0, max_x);
+        let iy = ((world_z / scale).floor() as i32 + self.border_size).clamp(0, max_y);
+        let fx = (world_x / scale + self.border_size as f32 - ix as f32).clamp(0.0, 1.0);
+        let fy = (world_z / scale + self.border_size as f32 - iy as f32).clamp(0.0, 1.0);
+        (ix, iy, fx, fy)
+    }
+
+    /// World-space UV for a terrain vertex: C++ `getUVData` semantics
+    /// (WorldHeightMap.cpp:1663-1694 → getUVForTileIndex). Each cell samples
+    /// its quarter of the shared 64-px source tile (getUVForNdx
+    /// :1618-1633), so adjacent cells read contiguous quarters of the tile
+    /// art instead of repeating one full tile per cell (the per-cell repeat
+    /// was the visible tile-boundary lattice), and stretched/cliff cells get
+    /// the DO_OLD_UV v-remap from `get_uv_for_tile_index`.
+    pub fn cell_uv_at_world(&self, world_x: f32, world_z: f32) -> [f32; 2] {
+        let (ix, iy, fx, fy) = self.cell_grid_at_world(world_x, world_z);
         let uv = self.get_uv_data(ix - self.draw_origin_x, iy - self.draw_origin_y, false);
-        if uv.stretched {
-            let fx = (world_x / scale + self.border_size as f32 - ix as f32).clamp(0.0, 1.0);
-            let fy = (world_z / scale + self.border_size as f32 - iy as f32).clamp(0.0, 1.0);
-            // Bilinear the four corner UVs.
-            let uu = uv.u[0] * (1.0 - fx) * (1.0 - fy)
-                + uv.u[1] * fx * (1.0 - fy)
-                + uv.u[2] * fx * fy
-                + uv.u[3] * (1.0 - fx) * fy;
-            let vv = uv.v[0] * (1.0 - fx) * (1.0 - fy)
-                + uv.v[1] * fx * (1.0 - fy)
-                + uv.v[2] * fx * fy
-                + uv.v[3] * (1.0 - fx) * fy;
-            [uu, vv]
-        } else {
-            [u, v]
-        }
+        // Bilinear the four corner UVs (C++ interpolates the corner U/V
+        // across the cell's two triangles; a single bilinear matches that
+        // for the axis-aligned quarter layout).
+        let uu = uv.u[0] * (1.0 - fx) * (1.0 - fy)
+            + uv.u[1] * fx * (1.0 - fy)
+            + uv.u[2] * fx * fy
+            + uv.u[3] * (1.0 - fx) * fy;
+        let vv = uv.v[0] * (1.0 - fx) * (1.0 - fy)
+            + uv.v[1] * fx * (1.0 - fy)
+            + uv.v[2] * fx * fy
+            + uv.v[3] * (1.0 - fx) * fy;
+        [uu, vv]
     }
 
     /// C++ `updateShorelineTiles` over the full map.
@@ -1998,5 +2072,92 @@ mod tests {
         let w = (v0x * v2y - v2x * v0y) / den;
         let u = 1.0 - v - w;
         u * a[2] + v * b[2] + w * c[2]
+    }
+
+    #[test]
+    fn uv_for_tile_atlas_matches_cpp_offset_formula_for_quadrants() {
+        // C++ getUVForNdx (WorldHeightMap.cpp:1589-1634) with tile origin
+        // (128, 192) in a 512x512 atlas: minU=128/512, maxU=192/512, and the
+        // !fullTile quadrant split.
+        // tileNdx=0 → the minV..midY quadrant (y's are flipped, C++ :1623);
+        // U = [minU, midX, midX, minU], V = [maxV, maxV, minV, minV]
+        // = [0.5, 0.5, 0.4375, 0.4375].
+        assert!((uv.u[0] - 128.0 / 512.0).abs() < 1.0e-6);
+        assert!((uv.u[1] - 160.0 / 512.0).abs() < 1.0e-6);
+        assert!((uv.v[2] - 224.0 / 512.0).abs() < 1.0e-6);
+        assert!((uv.v[0] - 256.0 / 512.0).abs() < 1.0e-6);
+        // tileNdx&1 selects the +u half; tileNdx&2 the -v half.
+        let uv_right = HeightMap::uv_for_tile_atlas(1, false, (128, 192), 512.0, 512.0, None);
+        assert!(uv_right.u[0] > uv.u[0]);
+        let uv_top = HeightMap::uv_for_tile_atlas(2, false, (128, 192), 512.0, 512.0, None);
+        assert!(uv_top.v[2] < uv.v[2]);
+        // fullTile keeps the whole 64px tile (C++ :1721-1723).
+        let full = HeightMap::uv_for_tile_atlas(1, true, (128, 192), 512.0, 512.0, None);
+        assert!((full.u[0] - 128.0 / 512.0).abs() < 1.0e-6);
+        assert!((full.u[1] - 192.0 / 512.0).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn uv_for_tile_atlas_applies_cliff_class_remap() {
+        // C++ :1737-1757 — U = info.u + class.positionInTexture.x/width;
+        // V = info.v * vFactor + (positionInTexture.y + width*64)/height.
+        let info = TCliffInfo {
+            u0: 0.0,
+            v0: 0.0,
+            u1: 1.0,
+            v1: 0.0,
+            u2: 1.0,
+            v2: 1.0,
+            u3: 0.0,
+            v3: 1.0,
+            flip: true,
+            mutant: false,
+            tile_index: 8,
+        };
+        // class at (256, 128), 2 tiles wide; vFactor = 2048/512 = 4.
+        let uv = HeightMap::uv_for_tile_atlas(
+            0,
+            false,
+            (0, 0),
+            2048.0,
+            512.0,
+            Some((&info, 256.0, 128.0 + 2.0 * 64.0, 4.0)),
+        );
+        assert_eq!(uv.u[0], 256.0 / 2048.0);
+        assert_eq!(uv.u[1], 1.0 + 256.0 / 2048.0);
+        assert_eq!(uv.v[2], 1.0 * 4.0 + 256.0 / 512.0);
+        assert_eq!(uv.v[3], 1.0 * 4.0 + 256.0 / 512.0);
+        assert!(uv.flip);
+        assert!(uv.stretched);
+    }
+
+    #[test]
+    fn cell_uv_at_world_uses_quarter_tiles_not_per_cell_repeats() {
+        let mut heightmap = HeightMap::new(4, 4, 255.0, 1.0);
+        // All cells share tile class 0 but alternate the packed quadrant
+        // (tileNdx&3): the C++ layout packs four grids per 64px tile.
+        let mut tiles = vec![0_i16; 16];
+        for (i, tile) in tiles.iter_mut().enumerate() {
+            *tile = (i % 4) as i16;
+        }
+        heightmap.tile_ndxes = tiles;
+        // Cell centers at scale 1: cell (0,0) center = (0.5, 0.5) with the
+        // borderless map. Quarter UVs must stay inside one half of the tile
+        // (32px of 64 per cell) — a per-cell 0..1 repeat would span the full
+        // tile and double the texel density (the lattice the audit shows).
+        let (u_a, v_a) = {
+            let uv = heightmap.cell_uv_at_world(0.5, 0.5);
+            (uv[0], uv[1])
+        };
+        let (u_b, v_b) = {
+            let uv = heightmap.cell_uv_at_world(1.5, 1.5);
+            (uv[0], uv[1])
+        };
+        assert!(u_a.min(u_b) >= 0.0 && u_a.max(u_b) <= 1.0);
+        assert!(
+            (u_a - u_b).abs() > 1.0e-3,
+            "adjacent quarters must differ: {u_a} vs {u_b}"
+        );
+        assert!((v_a - v_b).abs() > 1.0e-3);
     }
 }

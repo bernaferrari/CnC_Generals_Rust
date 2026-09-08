@@ -492,12 +492,14 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
             .collect();
     }
 
+    // The GameLogic script residual is the authoritative hidden/forced pair:
+    // the frame loop stamps it into the radar singleton every update, and a
+    // fresh/unsynced singleton must not clobber it on capture. The singleton
+    // contributes the persisted event ring (C++ Radar::xfer).
     persist.radar_hidden = !game_logic.radar_script_enabled();
     persist.radar_forced = game_logic.radar_forced();
     if let Ok(radar) = get_radar_system().read() {
-        let (hidden, forced, events, next, last) = radar.snapshot_persist_state();
-        persist.radar_hidden = hidden;
-        persist.radar_forced = forced;
+        let (_, _, events, next, last) = radar.snapshot_persist_state();
         persist.radar_events = events.iter().map(persist_radar_event).collect();
         persist.radar_next_event = next as i32;
         persist.radar_last_event = last.map(|idx| idx as i32).unwrap_or(-1);

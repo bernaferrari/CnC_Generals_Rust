@@ -45,6 +45,11 @@ fn vs_main(vertex: WaterVertex) -> VertexOutput {
     return out;
 }
 
+// C++ flat/trapezoid water pixel shader (setupFlatWaterShader /
+// m_trapezoidWaterPixelShader, W3DWater.cpp): color = vertex diffuse * texture
+// RGB (plus sparkle*noise in the trapezoid shader, handled by water_river.wgsl);
+// alpha = vertex diffuse alpha * texture alpha. No fresnel, no alpha floor —
+// WaterTransparency opacity comes from the ini waterDiffuse alpha byte.
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex = textureSample(water_texture, water_sampler, in.tex_coords);
@@ -52,15 +57,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let teal = vec4<f32>(0.13, 0.42, 0.50, 0.70);
     let use_tex = tex_luma > 0.02 || tex.a > 0.02;
     let water = select(teal, tex, use_tex);
-    let lit = max(in.color, vec3<f32>(0.35));
-    // C++ drawSea reflection: mix sky-facing Fresnel into the standing plane.
-    let view = normalize(camera.position - in.world_position);
-    let n = vec3<f32>(0.0, 1.0, 0.0);
-    let r = reflect(-view, n);
-    let sky = mix(vec3<f32>(0.18, 0.38, 0.55), vec3<f32>(0.78, 0.86, 0.95), saturate(r.y * 0.5 + 0.5));
-    let fresnel = pow(1.0 - saturate(dot(view, n)), 3.0);
-    let bump = 0.04 * sin(in.tex_coords.x * 28.0 + in.tex_coords.y * 17.0);
-    let rgb = mix(lit * water.rgb, sky, fresnel * 0.45 + bump);
-    let alpha = clamp(max(water.a, 0.55) * max(in.alpha, 0.50), 0.0, 1.0);
+    let rgb = in.color * water.rgb;
+    let alpha = clamp(water.a * in.alpha, 0.0, 1.0);
     return vec4<f32>(rgb, alpha);
 }

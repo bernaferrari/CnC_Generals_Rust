@@ -571,14 +571,6 @@ impl ScriptEngine {
         }
     }
 
-    /// Update the victory condition manager with the current context
-    pub fn update_victory_manager(
-        &self,
-        _context: crate::scripting::ScriptContext,
-    ) -> GameLogicResult<()> {
-        Ok(())
-    }
-
     /// Update fade effects
     fn update_fades(&self) {
         let mut inner = self.lock_inner_mut();

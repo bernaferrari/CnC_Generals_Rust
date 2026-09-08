@@ -343,6 +343,25 @@ impl CnCGameEngine {
             return;
         }
 
+        // Retail CommandMap CAMERA_RESET KEY_KP5 residual. C++
+        // MetaMap binds KEY_KP5/NONE -> MSG_META_CAMERA_RESET
+        // (CommandXlat.cpp:3213 InGameUI::resetCamera). Numpad5 is
+        // physical: NumLock gives Character("5"), else NamedKey::Clear.
+        if !command_map_binds_host("CAMERA_RESET")
+            && !ctrl_down
+            && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+            && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
+            && matches!(
+                physical,
+                Some(winit::keyboard::PhysicalKey::Code(
+                    winit::keyboard::KeyCode::Numpad5
+                ))
+            )
+        {
+            self.reset_camera_view_hotkey();
+            return;
+        }
+
         match key {
             Key::Named(NamedKey::Space) => {
                 // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
@@ -457,7 +476,11 @@ impl CnCGameEngine {
                     // Producer selection: Delete cancels queue head residual.
                 } else {
                     // Retail CommandMap DELETE_BEACON KEY_DEL residual.
-                    if !command_map_binds_host("DELETE_BEACON") {
+                    // C++ CommandXlat.cpp:3082-3090 routes MSG_META_REMOVE_BEACON
+                    // only in non-replay multiplayer games.
+                    if !command_map_binds_host("DELETE_BEACON")
+                        && self.host_command_xlat_multiplayer_meta()
+                    {
                         self.issue_named_command_from_ui("Command_RemoveBeacon");
                     }
                 }
@@ -966,7 +989,11 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Retail CommandMap PLACE_BEACON Ctrl+B residual.
-                if !command_map_binds_host("PLACE_BEACON") {
+                // C++ CommandXlat.cpp:3063-3080 arms the beacon GUI command
+                // only in non-replay multiplayer games.
+                if !command_map_binds_host("PLACE_BEACON")
+                    && self.host_command_xlat_multiplayer_meta()
+                {
                     self.issue_named_command_from_ui("Command_PlaceBeacon");
                 }
             }
@@ -975,7 +1002,8 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Retail CommandMap ALL_CHEER Ctrl+C residual.
-                if !command_map_binds_host("ALL_CHEER") {
+                // C++ CommandXlat.cpp:3469-3477 cheers only in multiplayer.
+                if !command_map_binds_host("ALL_CHEER") && self.host_is_in_multiplayer_game() {
                     self.issue_named_command_from_ui("Command_Cheer");
                 }
             }
@@ -1039,7 +1067,8 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::F9) => {
                 // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
-                // C++ CommandXlat.cpp:3156-3170 no-op in RECORDERMODETYPE_PLAYBACK.
+                // C++ CommandXlat.cpp:3144 F9 -> MSG_META_TOGGLE_CONTROL_BAR
+                // -> WND ToggleControlBar; :3156-3170 no-op in playback.
                 if !command_map_binds_host("TOGGLE_CONTROL_BAR")
                     && !self.presentation_or_boot_in_replay_game()
                 {
@@ -1050,11 +1079,10 @@ impl CnCGameEngine {
                                 true,
                             );
                     }
-                    self.game_hud.toggle_visibility();
                     self.ui_manager.game_hud_mut().toggle_visibility();
                     info!(
-                        "Control bar visibility toggled (engine visible={})",
-                        self.game_hud.hud_visible()
+                        "Control bar visibility toggled (visible={})",
+                        self.ui_manager.game_hud().hud_visible()
                     );
                 }
             }
@@ -1438,7 +1466,6 @@ impl CnCGameEngine {
                                 true,
                             );
                     }
-                    self.game_hud.toggle_visibility();
                     self.ui_manager.game_hud_mut().toggle_visibility();
                     true
                 }

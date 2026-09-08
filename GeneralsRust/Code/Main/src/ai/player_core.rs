@@ -662,7 +662,9 @@ impl AIPlayer {
         template_name.contains("CommandCenter")
     }
 
+
     pub(super) fn aidata_rotate_skirmish_bases() -> bool {
+        ensure_aidata_loaded_from_game_fs();
         let store = game_engine::common::ini::get_ai_data_store();
         let store = store.read().expect("AI data store read lock");
         if let Some(data) = store.get_active() {
@@ -682,6 +684,7 @@ impl AIPlayer {
     }
 
     pub(super) fn aidata_max_recruit_distance() -> f32 {
+        ensure_aidata_loaded_from_game_fs();
         let from_store = (|| {
             let store = game_engine::common::ini::get_ai_data_store();
             let store = store.read().expect("AI data store read lock");
@@ -695,14 +698,11 @@ impl AIPlayer {
                     .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))
             })
             .unwrap_or(0.0);
-        if dist > 0.0 {
-            dist
-        } else {
-            99_999.0
-        }
+        if dist > 0.0 { dist } else { 99_999.0 }
     }
 
     pub(super) fn aidata_side_build_entries(side: &str) -> Option<Vec<SideBuildPad>> {
+        ensure_aidata_loaded_from_game_fs();
         {
             let store = game_engine::common::ini::get_ai_data_store();
             let store = store.read().expect("AI data store read lock");
@@ -729,7 +729,8 @@ impl AIPlayer {
                 }
             }
         }
-        let ai_store = gamelogic::ai::the_ai();let ai = ai_store.read().ok()?;
+        let ai_store = gamelogic::ai::the_ai();
+        let ai = ai_store.read().ok()?;
         let data_arc = ai.get_ai_data();
         let data = data_arc.read().ok()?;
         let entry = data
@@ -753,11 +754,7 @@ impl AIPlayer {
             }
             cur = info.get_next();
         }
-        if out.is_empty() {
-            None
-        } else {
-            Some(out)
-        }
+        if out.is_empty() { None } else { Some(out) }
     }
 
     /// C++ `AIData.ini` `SideInfo` name for the live host team.
@@ -796,7 +793,7 @@ impl AIPlayer {
     }
 
     pub(super) fn science_names_from_skill_ids(num_skills: i32, skills: &[i32]) -> Vec<String> {
-        use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
+        use game_engine::common::rts::science::{SCIENCE_INVALID, get_science_store};
         let Some(store) = get_science_store() else {
             return Vec::new();
         };
@@ -856,7 +853,8 @@ impl AIPlayer {
                 }
             }
         }
-        let ai_store = gamelogic::ai::the_ai();let ai = ai_store.read().ok()?;
+        let ai_store = gamelogic::ai::the_ai();
+        let ai = ai_store.read().ok()?;
         let ai_data = ai.get_ai_data();
         let data = ai_data.read().ok()?;
         let info = data
@@ -1271,6 +1269,7 @@ impl AIPlayer {
                 }
             }
         }
+
         true
     }
 
@@ -1305,5 +1304,95 @@ impl AIPlayer {
     pub(super) fn player_in_bad_shape(&self, game_logic: &GameLogic, player: &Player) -> bool {
         !self.player_has_any_units(game_logic, player.team)
             || !self.player_has_any_build_facility(game_logic, player.team)
+    }
+}
+
+/// Populate the engine AIData store from the retail `AIData.ini` when it has
+/// not been loaded yet. INIZH.big carries the real definitions as
+/// `Data\INI\Default\AIData.ini` (the top-level `Data\INI\AIData.ini` entry
+/// is a stub that defers to it), so both are parsed through the game file
+/// system in retail order: Default base first, stub override second.
+pub(super) fn ensure_aidata_loaded_from_game_fs() {
+    static LOADED: std::sync::LazyLock<()> = std::sync::LazyLock::new(|| {
+        if game_engine::common::ini::get_ai_data_store()
+            .read()
+            .map(|store| store.get_active().is_some())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        for virtual_path in ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"] {
+            let Some(text) = read_ini_text_from_game_fs(virtual_path) else {
+                continue;
+            };
+            let mut ini = game_engine::common::ini::INI::new();
+            if let Err(err) = ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
+                log::warn!("Failed parsing archived '{virtual_path}': {err}");
+            }
+        }
+    });
+    std::sync::LazyLock::force(&LOADED);
+}
+
+fn read_ini_text_from_game_fs(virtual_path: &str) -> Option<String> {
+    use game_engine::common::system::file::FileAccess;
+    use game_engine::common::system::file_system::get_file_system;
+
+    let file_system = get_file_system();
+    let mut fs = file_system.lock().ok()?;
+    let mut file = fs.open_file(virtual_path, FileAccess::READ.combine(FileAccess::BINARY))?;
+    let bytes = file.read_entire_and_close().ok()?;
+    String::from_utf8(bytes).ok()
+}
+
+#[cfg(test)]
+mod aidata_archive_tests {
+    use super::*;
+    use game_engine::common::system::big_file_system::BigArchiveBackend;
+    use game_engine::common::system::file_system::FileSystemBackend as _;
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::local_file_system::LocalFileSystem;
+    use game_engine::common::system::subsystem_interface::SubsystemInterface as CommonSubsystemInterface;
+
+    fn assets_root() -> Option<std::path::PathBuf> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+        root.join("INIZH.big").is_file().then_some(root)
+    }
+
+    /// (d) INIZH.big carries `Data\INI\Default\AIData.ini`; the store must
+    /// populate from it (SkirmishBuildList America et al.) before match
+    /// start consumers read it.
+    #[test]
+    fn aidata_store_populates_from_inizh_big() {
+        let Some(assets) = assets_root() else {
+            eprintln!("skipping: no INIZH.big under Main/assets");
+            return;
+        };
+        {
+            let file_system = get_file_system();
+            let mut guard = file_system.lock().expect("FileSystem lock");
+            let local: &mut LocalFileSystem = guard.ensure_backend(LocalFileSystem::new);
+            local.add_search_path(&assets);
+            let big: &mut BigArchiveBackend = guard.ensure_backend(BigArchiveBackend::new);
+            big.add_search_path(&assets);
+            big.reset();
+            guard.clear_cache();
+            let _ = CommonSubsystemInterface::init(&mut *guard);
+        }
+
+        ensure_aidata_loaded_from_game_fs();
+
+        let store = game_engine::common::ini::get_ai_data_store();
+        let guard = store.read().expect("AI data store read lock");
+        let data = guard.get_active().expect("AIData store populated");
+        let america = data
+            .side_build_lists
+            .iter()
+            .find(|list| list.side.eq_ignore_ascii_case("America"))
+            .expect("retail SkirmishBuildList America");
+        assert!(
+            !america.entries.is_empty(),
+            "America build list must carry structure entries"
+        );
     }
 }

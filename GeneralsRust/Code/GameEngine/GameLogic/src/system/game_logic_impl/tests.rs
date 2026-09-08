@@ -6,7 +6,7 @@ mod tests {
     use std::fs;
     use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
-    fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
+    pub(super) fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
         static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         TEST_STATE_LOCK
             .get_or_init(|| Mutex::new(()))

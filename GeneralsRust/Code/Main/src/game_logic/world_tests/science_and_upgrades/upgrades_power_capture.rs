@@ -2201,7 +2201,10 @@ fn actively_constructing_bit_on_dozer_and_factory() {
     // state after acquiring the build goal — C++ enters the dozer sub-task
     // after the goal object is set.
     logic.host_object_mut(did).unwrap().set_target(Some(bid));
-    logic.host_object_mut(did).unwrap().set_ai_state(AIState::Constructing);
+    logic
+        .host_object_mut(did)
+        .unwrap()
+        .set_ai_state(AIState::Constructing);
     logic.update_actively_constructing_model_conditions();
     assert!(logic.honesty_actively_constructing_ok());
     let d = logic.host_object(did).expect("d");

@@ -144,6 +144,10 @@ impl PreparedMeshModel {
     }
 }
 
+/// C++ MissingTexture::_Init (missingtexture.cpp:74): an unresolvable texture
+/// binds `0x7FFF00FF` (A8R8G8B8) — opaque magenta — never white.
+pub(crate) const MISSING_TEXTURE_PIXEL: [u8; 4] = [255, 0, 255, 255];
+
 struct MeshFallbackTextures {
     _texture_2d: Arc<wgpu::Texture>,
     view_2d: Arc<wgpu::TextureView>,
@@ -280,6 +284,11 @@ pub struct MeshRenderManager {
     /// simulation query or scalar substitute.
     projected_shroud: Option<crate::rendering::projected_shroud::FrozenProjectedShroudTexture>,
 
+    /// Warn-once dedup for missing-texture binds, keyed by
+    /// (lowercased texture name, reason). Mirrors C++ WW3D's single
+    /// "texture not found" debug spam guard; prevents per-frame log floods.
+    fallback_bind_warnings:
+        Mutex<HashMap<(String, &'static str), ()>>,
 }
 
 impl MeshRenderManager {
@@ -320,6 +329,7 @@ impl MeshRenderManager {
             gpu_device,
             preparedmodels: HashMap::new(),
             gpu_texture_views: Mutex::new(HashMap::new()),
+            fallback_bind_warnings: Mutex::new(HashMap::new()),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
             asset_manager: None,
@@ -400,7 +410,12 @@ impl MeshRenderManager {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> MeshFallbackTextures {
-        let white_pixel: [u8; 4] = [255, 255, 255, 255];
+        // Magenta missing texture — C++ MissingTexture::_Init binds 0x7FFF00FF
+        // (missingtexture.cpp:74) and dx8wrapper.cpp:2875-2889 hands that
+        // surface back on a true archive miss. Binding white here is what
+        // painted every unresolved unit texture white; Main's ForwardPass
+        // fallback (forward_materials.rs) uses the same magenta pixel.
+        let white_pixel: [u8; 4] = MISSING_TEXTURE_PIXEL;
 
         let texture_2d = Arc::new(device.create_texture(&TextureDescriptor {
             label: Some("MeshManager Fallback Texture 2D"),
@@ -1459,7 +1474,10 @@ impl MeshRenderManager {
                 // W3D placeholder pass texture (name only, no pixels/view):
                 // resolve it through the host-installed archive-backed provider
                 // (C++ WW3DAssetManager::Get_Texture parity) and upload the
-                // hydrated pixels through the same first-bind path.
+                // hydrated pixels through the same first-bind path. A provider
+                // miss is a true archive miss: bind the magenta missing
+                // texture (MissingTexture::_Create_Missing_Surface,
+                // missingtexture.cpp / dx8wrapper.cpp:2889), never white.
                 match self
                     .pass_texture_provider
                     .as_ref()
@@ -1478,10 +1496,20 @@ impl MeshRenderManager {
                                 sampler,
                             }
                         } else {
+                            self.warn_fallback_bind_once(
+                                texture.get_name(),
+                                "hydrated payload rejected (unsupported format or undersized)",
+                            );
                             self.fallback_stage_resources()
                         }
                     }
-                    None => self.fallback_stage_resources(),
+                    None => {
+                        self.warn_fallback_bind_once(
+                            texture.get_name(),
+                            "archive miss (provider returned no texture)",
+                        );
+                        self.fallback_stage_resources()
+                    }
                 }
             }
         } else {
@@ -1490,6 +1518,8 @@ impl MeshRenderManager {
         resources
     }
 
+    /// The shared magenta missing texture. Every true miss funnels through
+    /// here (see `stage_resources_for`); white is never a fallback.
     fn fallback_stage_resources(&self) -> StageResources {
         StageResources {
             view_2d: self.fallback_textures.view_2d.clone(),
@@ -1498,9 +1528,48 @@ impl MeshRenderManager {
         }
     }
 
+    /// Warn once per (texture name, reason) when a pass texture fails to
+    /// resolve and the magenta missing texture is bound instead. C++ logs the
+    /// miss once at the asset-manager layer; without the dedup this fires
+    /// per stage per frame.
+    fn warn_fallback_bind_once(&self, texture_name: &str, reason: &'static str) {
+        let Ok(mut seen) = self.fallback_bind_warnings.lock() else {
+            return;
+        };
+        if seen
+            .insert((texture_name.to_ascii_lowercase(), reason), ())
+            .is_none()
+        {
+            warn!(
+                "Mesh pass texture '{}' unresolved ({}); binding magenta missing texture",
+                texture_name, reason
+            );
+        }
+    }
+
     /// Upload a CPU-only pass texture on first bind and cache its view,
-    /// keyed by texture name. Only 32-bit uncompressed formats are uploaded;
-    /// anything else keeps the manager's fallback texture.
+    /// keyed by texture name. Only 32-bit uncompressed payloads are accepted;
+    /// anything else keeps the magenta missing texture (warn-once).
+    ///
+    /// DDS variant acceptance: the shipped archives (TexturesZH.big,
+    /// TerrainZH.big, W3DZH.big, PatchZH.big) contain exactly three compressed
+    /// variants — DXT1 (1975), DXT5 (1515) and DXT3 (6) files; no DXT2, DXT4,
+    /// paletted or DX10 DDS exists. Host-side decode (ForwardPass::build_texture
+    /// and the archive pass-texture provider) covers DXT1/DXT3/DXT5 through the
+    /// dds_loader decoders, whose FourCC table also maps DXT2→BC2 and DXT4→BC3
+    /// should one ever appear. Paletted DDS stays rejected (unrepresented in
+    /// the shipped content) and binds magenta.
+    ///
+    /// sRGB: mesh pass textures are color content and the scene target is
+    /// Bgra8UnormSrgb (color_format below). Uploading them as *Unorm sampled
+    /// them twice-gamma-corrected — the washed-white unit look. Uploading the
+    /// same bytes with the Srgb view format makes the sampler linearize once;
+    /// the lighting math stays linear and the sRGB target re-encodes on store
+    /// (single gamma-correct path, C++ dx8renderer.cpp:1771-1775 where the one
+    /// LightEnvironment install feeds the whole draw). There is no normal/light
+    /// map stage in this lane — every stage hint (diffuse/emissive/env/spec
+    /// mask) is color content — so all four 32-bit formats map to their Srgb
+    /// view variant.
     fn ensure_gpu_texture_view(&self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
         let key = texture.get_name().to_ascii_lowercase();
         if let Ok(cache) = self.gpu_texture_views.lock() {
@@ -1515,11 +1584,11 @@ impl MeshRenderManager {
             return None;
         }
         let wgpu_format = match texture.format {
-            crate::texture_system::TextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
+            crate::texture_system::TextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8UnormSrgb,
             crate::texture_system::TextureFormat::Rgba8UnormSrgb => {
                 wgpu::TextureFormat::Rgba8UnormSrgb
             }
-            crate::texture_system::TextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8Unorm,
+            crate::texture_system::TextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8UnormSrgb,
             crate::texture_system::TextureFormat::Bgra8UnormSrgb => {
                 wgpu::TextureFormat::Bgra8UnormSrgb
             }

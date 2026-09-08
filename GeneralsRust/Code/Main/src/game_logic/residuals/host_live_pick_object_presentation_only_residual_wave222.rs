@@ -95,8 +95,15 @@ pub fn honesty_pick_object_presentation_only_source() -> bool {
         return false;
     };
     let body = &rest[..sig_end + close + 6];
+    // Re-pinned 2026-09-07: find_object_at_position now delegates to
+    // host_find_object_at_position, which owns the presentation pick call.
+    let Some(host_i) = eng.find("fn host_find_object_at_position(") else {
+        return false;
+    };
+    let host = &eng[host_i..host_i.saturating_add(1200)];
     body.contains("Wave 222")
-        && body.contains("pick_object_id_at_world_from_presentation")
+        && body.contains("self.host_find_object_at_position(position, command_context)")
+        && host.contains("pick_object_id_at_world_from_presentation")
         && !body.contains("&GameLogic")
         && !body.contains("_game_logic")
         && eng.contains("find_object_at_position(clamped, true)")

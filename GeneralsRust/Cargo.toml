@@ -233,10 +233,14 @@ generals_compression = { path = "Code/Libraries/Source/Compression" }
 opt-level = 0
 # Line tables only for workspace crates (enough for backtraces).
 debug = 1
-# Packed dSYM/obj on macOS avoids tens of thousands of loose *.o debug files.
-split-debuginfo = "packed"
-# Incremental caches for generals_main/gamelogic alone were multi-GB each.
-incremental = false
+# Unpacked debuginfo skips dsymutil: "packed" emitted a ~15 GB tail of
+# per-binary .dSYM bundles under deps/ (one per superseded test/bin hash —
+# Cargo never garbage-collects superseded artifacts).
+split-debuginfo = "unpacked"
+# Incremental back ON (user-facing requirement for iteration speed). With
+# line-tables-only + deps stripped of debuginfo the caches are a fraction of
+# the old full-debug ones that forced this off.
+incremental = true
 
 # Dependencies: no debug info; mild opts for runtime without fat objects.
 [profile.dev.package."*"]
@@ -245,8 +249,9 @@ debug = false
 
 [profile.test]
 debug = 1
-incremental = false
-
+# Same reasoning as [profile.dev]: unpacked + incremental.
+split-debuginfo = "unpacked"
+incremental = true
 [profile.test.package."*"]
 debug = false
 

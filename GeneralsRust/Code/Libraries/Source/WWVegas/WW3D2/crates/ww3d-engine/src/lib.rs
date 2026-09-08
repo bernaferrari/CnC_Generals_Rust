@@ -781,6 +781,12 @@ pub struct Engine {
     /// Main drive_frame reads timing() after update(); without this cache the
     /// subsequent timing() would measure near-zero delta from the just-updated clock.
     last_emitted_timing: Option<FrameTiming>,
+    /// True while the current frame cycle has been opened by update() (the
+    /// single `last_frame_start` writer). begin_render() uses it to READ the
+    /// clock without re-stamping; only a begin_render-only cycle (no update()
+    /// ran — examples, tests, demo loops) stamps and takes the fps sample
+    /// itself.
+    frame_clock_open: bool,
     color_format: wgpu::TextureFormat,
     _depth_format: Option<wgpu::TextureFormat>,
     /// All integrated subsystems
@@ -856,6 +862,7 @@ impl Engine {
             frame_index: 0,
             last_frame_start: None,
             last_emitted_timing: None,
+            frame_clock_open: false,
             color_format,
             _depth_format: depth_format,
             subsystems: EngineSubsystems::new(),
@@ -920,6 +927,7 @@ impl Engine {
             frame_index: 0,
             last_frame_start: None,
             last_emitted_timing: None,
+            frame_clock_open: false,
             color_format: format,
             _depth_format: depth_format,
             subsystems: EngineSubsystems::new(),
@@ -957,11 +965,24 @@ impl Engine {
         // Update all subsystems
         self.subsystems.update(&timing);
 
+        // SINGLE FRAME CLOCK OWNER: update() opens the frame and is the ONLY
+        // last_frame_start writer. C++ anchor: GameEngine::execute
+        // (GameEngine.cpp:774-884) runs one update() + one draw per iteration
+        // with no second clock stamp between them, so the dt feeding
+        // TheGameLogic spans the FULL previous frame (WW3D update + logic
+        // batch + render; logic cadence 30 Hz — W3DView.cpp:84
+        // TheW3DFrameLengthInMsec = 1000/LOGICFRAMES_PER_SECOND).
+        // Measured failure this fixes: when begin_render() also stamped the
+        // clock, frame N's WW3D-update + logic-batch duration was excluded
+        // from frame N+1's dt, the logic accumulator under-filled every
+        // frame, and the sim settled at 1.6-2 logic steps per 98-190 ms
+        // frame (~16-17 fps) instead of 30.
         // Main drive_frame uses update()+timing() without WW3D begin_render.
         // Advance last_frame_start here so delta_seconds reflects wall time between
         // logic frames (otherwise timing always falls back to 1/60 and construction
         // / production stall under slow headless renders).
         self.last_frame_start = Some(now);
+        self.frame_clock_open = true;
         self.last_emitted_timing = Some(timing);
 
         Ok(())
@@ -990,6 +1011,14 @@ impl Engine {
         self.frame_index = self.frame_index.wrapping_add(1);
         let start_time = Instant::now();
 
+        // FPS: exactly one sample per frame cycle. update() already recorded
+        // it when it opened the clock (game loop); begin_render-only cycles
+        // (examples, tests, demo loops that never call update()) take the
+        // once-per-frame sample here instead.
+        if !self.frame_clock_open {
+            self.fps_counter.record_frame(start_time);
+        }
+
         // Calculate timing information
         let delta_time = self
             .last_frame_start
@@ -997,8 +1026,6 @@ impl Engine {
             .unwrap_or(Duration::from_secs_f32(1.0 / 60.0));
 
         let total_time = start_time.duration_since(self.start_time);
-
-        self.fps_counter.record_frame(start_time);
 
         let timing = FrameTiming {
             frame_number: self.frame_index,
@@ -1010,7 +1037,15 @@ impl Engine {
             previous_sync_time: self.previous_sync_time,
         };
 
-        self.last_frame_start = Some(start_time);
+        // READ, NEVER STAMP the frame clock when update() opened it: stamping
+        // here used to exclude frame N's WW3D-update + logic-batch from frame
+        // N+1's dt (1.6-2 steps per 98-190 ms frame ~ 16-17 fps equilibrium
+        // instead of 30; see update()). begin_render-only cycles must still
+        // advance the clock, or their dt would grow without bound.
+        if !self.frame_clock_open {
+            self.last_frame_start = Some(start_time);
+        }
+        self.frame_clock_open = false;
         self.last_emitted_timing = Some(timing);
 
         let encoder = self
@@ -2389,5 +2424,103 @@ mod tests {
                 .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
         );
         assert_eq!(cfg.sample_count, 1);
+    }
+
+    /// Serialize the GPU-backed engine tests in this binary.
+    fn engine_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
+            std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn headless_engine() -> Engine {
+        pollster::block_on(Engine::new_headless(EngineConfig::default()))
+            .expect("headless engine for frame-clock tests")
+    }
+
+    /// Regression: begin_render() must never advance the frame clock. After
+    /// update() opens a frame, begin_render() may only read last_frame_start;
+    /// the next update()'s dt must span the FULL elapsed (WW3D update + logic
+    /// batch + render), matching the single C++ clock (GameEngine.cpp:774-884).
+    /// Before the fix, begin_render() re-stamped the clock and cut the next
+    /// dt roughly in half (~16-17 fps logic equilibrium instead of 30).
+    #[test]
+    fn begin_render_does_not_advance_frame_clock() {
+        let _lock = engine_test_lock();
+        let mut engine = headless_engine();
+
+        engine.update().expect("first update opens the frame");
+        let opened_at = engine.last_frame_start.expect("update() stamps the clock");
+
+        std::thread::sleep(Duration::from_millis(40));
+        let frame = engine.begin_render().expect("begin_render");
+        // The clock still reads update()'s stamp: begin_render is a reader.
+        assert_eq!(
+            engine.last_frame_start,
+            Some(opened_at),
+            "begin_render() re-stamped last_frame_start"
+        );
+        engine.end_render(frame).expect("end_render");
+
+        std::thread::sleep(Duration::from_millis(40));
+        engine.update().expect("second update");
+        let timing = engine.timing();
+        // ~80 ms of full frame elapsed, not the ~40 ms since begin_render and
+        // not the 1/60 s fallback (~17 ms).
+        assert!(
+            timing.delta_time >= Duration::from_millis(70),
+            "next update dt must span the full frame, got {:?}",
+            timing.delta_time
+        );
+    }
+
+    /// Regression: fps_counter must sample exactly once per frame cycle —
+    /// update() in the game loop, never again from begin_render().
+    #[test]
+    fn fps_counter_records_once_per_frame() {
+        let _lock = engine_test_lock();
+        let mut engine = headless_engine();
+
+        engine.update().expect("update opens the frame");
+        assert_eq!(engine.fps_counter.frame_times.len(), 1);
+
+        let frame = engine.begin_render().expect("begin_render");
+        engine.end_render(frame).expect("end_render");
+        assert_eq!(
+            engine.fps_counter.frame_times.len(),
+            1,
+            "begin_render() double-counted the frame in fps_counter"
+        );
+
+        engine.update().expect("next frame");
+        assert_eq!(engine.fps_counter.frame_times.len(), 2);
+    }
+
+    /// begin_render-only cycles (examples, tests, demo loops without update())
+    /// must still open the frame: stamp the clock and take the fps sample, or
+    /// their dt would grow without bound and fps would freeze at 0.
+    #[test]
+    fn begin_render_opens_frame_when_update_absent() {
+        let _lock = engine_test_lock();
+        let mut engine = headless_engine();
+
+        let frame = engine.begin_render().expect("begin_render");
+        assert!(
+            engine.last_frame_start.is_some(),
+            "begin_render-only cycle must own the clock"
+        );
+        assert_eq!(engine.fps_counter.frame_times.len(), 1);
+        engine.end_render(frame).expect("end_render");
+
+        std::thread::sleep(Duration::from_millis(30));
+        let frame = engine.begin_render().expect("second begin_render");
+        engine.end_render(frame).expect("second end_render");
+        let timing = engine.timing();
+        assert!(
+            timing.delta_time >= Duration::from_millis(25),
+            "consecutive begin_render-only frames must measure real elapsed, got {:?}",
+            timing.delta_time
+        );
+        assert_eq!(engine.fps_counter.frame_times.len(), 2);
     }
 }

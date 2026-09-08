@@ -43,9 +43,9 @@ impl TerrainVisualImpl {
             label: Some("JBA river shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/water_river.wgsl").into()),
         });
-        self.river_gpu.pipeline = Some(device.create_render_pipeline(
-            &wgpu::RenderPipelineDescriptor {
-                label: Some("JBA river/trapezoid pipeline"),
+        let make_pipeline = |label: &str, blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
@@ -59,7 +59,7 @@ impl TerrainVisualImpl {
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend: Some(blend),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -78,20 +78,61 @@ impl TerrainVisualImpl {
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,
+            })
+        };
+        self.river_gpu.pipeline =
+            Some(make_pipeline("JBA river/trapezoid pipeline", wgpu::BlendState::ALPHA_BLENDING));
+        self.river_gpu.trapezoid_pipeline =
+            Some(make_pipeline("JBA trapezoid pipeline", wgpu::BlendState::ALPHA_BLENDING));
+        // C++ drawRiverWater additive override (W3DWater.cpp:2882-2883):
+        // SRCBLEND=SRCALPHA on top of PresetAdditiveShader => SRCALPHA, ONE.
+        self.river_gpu.river_additive_pipeline = Some(make_pipeline(
+            "JBA river additive pipeline",
+            wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            },
+        ));
+        // C++ setupFlatWaterShader additive (PresetAdditiveShader): ONE, ONE.
+        self.river_gpu.trapezoid_additive_pipeline = Some(make_pipeline(
+            "JBA trapezoid additive pipeline",
+            wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
             },
         ));
         self.river_gpu.bind_layout = Some(bind_layout);
-        self.river_gpu.params = Some(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("JBA river params"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }));
+        let make_params = |label: &str| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        self.river_gpu.params = Some(make_params("JBA river params"));
+        self.river_gpu.trapezoid_params = Some(make_params("JBA trapezoid params"));
         Ok(())
     }
 
     fn ensure_river_bind_group(&mut self, device: &wgpu::Device) {
-        if self.river_gpu.bind_group.is_some() {
+        if self.river_gpu.bind_group.is_some() && self.river_gpu.trapezoid_bind_group.is_some() {
             return;
         }
         let Some(layout) = self.river_gpu.bind_layout.clone() else {
@@ -101,6 +142,9 @@ impl TerrainVisualImpl {
             return;
         };
         let Some(params) = self.river_gpu.params.as_ref() else {
+            return;
+        };
+        let Some(trapezoid_params) = self.river_gpu.trapezoid_params.as_ref() else {
             return;
         };
         // C++ m_riverTexture is standing water; extras are named TGA assets.
@@ -156,57 +200,65 @@ impl TerrainVisualImpl {
         let sparkle_view = sparkle.create_view(&wgpu::TextureViewDescriptor::default());
         let noise_view = noise.create_view(&wgpu::TextureViewDescriptor::default());
         let edge_view = edge.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("JBA river bind"),
-            layout: layout.as_ref(),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&river_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&sparkle_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&noise_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&edge_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: params.as_entire_binding(),
-                },
-            ],
-        });
+        let make_bind = |label: &str, params: &wgpu::Buffer| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: layout.as_ref(),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&river_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&sparkle_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&noise_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&edge_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: params.as_entire_binding(),
+                    },
+                ],
+            })
+        };
+        let bind = make_bind("JBA river bind", params);
+        let trapezoid_bind = make_bind("JBA trapezoid bind", trapezoid_params);
         self.river_gpu.river_tex = Some(river_tex);
         self.river_gpu.sparkle_tex = Some(sparkle);
         self.river_gpu.noise_tex = Some(noise);
         self.river_gpu.edge_tex = Some(edge);
         self.river_gpu.bind_group = Some(bind);
+        self.river_gpu.trapezoid_bind_group = Some(trapezoid_bind);
     }
 
     fn sync_river_params(&self) {
         let Some(queue) = self.queue.as_ref() else {
             return;
         };
-        let Some(buf) = self.river_gpu.params.as_ref() else {
-            return;
+        let write = |buf: Option<&wgpu::Buffer>, is_trapezoid: f32| {
+            if let Some(buf) = buf {
+                let params = [
+                    self.overlay.river_v_origin,
+                    RIVER_NOISE_REPEAT,
+                    RIVER_REFLECTION,
+                    is_trapezoid,
+                ];
+                queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
+            }
         };
-        let params = [
-            self.overlay.river_v_origin,
-            RIVER_NOISE_REPEAT,
-            RIVER_REFLECTION,
-            0.0f32,
-        ];
-        queue.write_buffer(buf, 0, bytemuck::cast_slice(&params));
+        write(self.river_gpu.params.as_ref(), 0.0);
+        write(self.river_gpu.trapezoid_params.as_ref(), 1.0);
     }
 
     fn load_first_available_named_texture(

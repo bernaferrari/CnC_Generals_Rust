@@ -1,10 +1,14 @@
-//! Status timers: structure collapse / topple / fire-when-damaged / base regen.
+//! Status timers: structure collapse / topple / fire-when-damaged.
 
 use crate::gameworld_shadow::GameWorldShadow;
 use gamelogic::world::entities::EntityId;
 
 impl GameWorldShadow {
-    /// Waves 775–780: structure collapse/topple, FWWD continuous, base regen.
+    /// Waves 775–778: structure collapse/topple, FWWD continuous.
+    ///
+    /// Wave 780 BaseRegenerateUpdate dual-peel (GW sole-heal into
+    /// host_heal_log) was retired: host `update_base_regenerate` is the sole
+    /// ticker unless damage authority is live (C++ one store).
     pub(super) fn tick_status_structure(&mut self, eid: EntityId, frame: u32) -> bool {
         let Some(e) = self.world.world_mut().entity_mut(eid) else {
             return false;
@@ -200,41 +204,6 @@ impl GameWorldShadow {
                         );
                     }
                     changed = true;
-                }
-            }
-        }
-        // Wave 780: BaseRegenerateUpdate residual (structure auto-heal).
-        if e.base_regen_active && !e.base_regen_done_sold {
-            use crate::game_logic::host_base_regenerate::{
-                BASE_REGEN_HEAL_RATE_FRAMES, base_regen_heal_amount,
-            };
-            if e.base_regen_pending_damage {
-                // C++ onDamage non-healing: delay wake.
-                use crate::game_logic::host_base_regenerate::BASE_REGEN_DELAY_FRAMES;
-                e.base_regen_wake_frame = frame.saturating_add(BASE_REGEN_DELAY_FRAMES);
-                e.base_regen_pending_damage = false;
-                changed = true;
-            }
-            if e.sold {
-                e.base_regen_done_sold = true;
-                changed = true;
-            } else if !e.under_construction {
-                let max_h = e.max_health.max(e.health).max(1.0);
-                if e.health + f32::EPSILON < max_h && frame >= e.base_regen_wake_frame {
-                    let elapsed = frame.saturating_sub(e.base_regen_wake_frame);
-                    if elapsed % BASE_REGEN_HEAL_RATE_FRAMES == 0 {
-                        let amount = base_regen_heal_amount(max_h);
-                        if amount > 0.0 {
-                            e.health = (e.health + amount).min(max_h);
-                            if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                                crate::game_logic::host_heal_log::record(
-                                    crate::game_logic::ObjectId(hid),
-                                    e.health,
-                                );
-                            }
-                            changed = true;
-                        }
-                    }
                 }
             }
         }

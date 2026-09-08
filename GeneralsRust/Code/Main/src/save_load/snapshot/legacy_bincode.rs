@@ -36,10 +36,12 @@ use std::time::SystemTime;
 /// CaveSystem, TunnelTracker, airfield stalls). Version 17 predates the v18
 /// persist_v18 / experience-tracker tail. Version 18 predates the v19
 /// Object command-set override tail. Version 19 predates the v20
-/// StealthUpdate disguise identity/transition tail.
+/// StealthUpdate disguise identity/transition tail. Version 21 predates the
+/// v22 logic-RNG ADC words + exact next-object-ID counter tail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV22V21,
     LegacyPreV20V19,
     LegacyPreV19V18,
     LegacyPreV18V17,
@@ -66,12 +68,20 @@ pub(crate) fn decode_bincode_world_snapshot(
 ) -> SaveLoadResult<(WorldSnapshot, BincodeWorldSnapshotDecodePath)> {
     let version = bincode_prefix::<u32>(payload)
         .map_err(|error| SaveLoadError::Serialization(error.to_string()))?;
-
     match version {
         // v20 → v21 carried no serde field change (the v21 addition is the
-        // direct-Xfer weapon residual tail only), so a v20 payload decodes as
-        // the exact current record and keeps its stamped version for gating.
-        20 | WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
+        // direct-Xfer weapon residual tail only), so v20 and v21 payloads
+        // share one exact pre-v22 mirror; both migrate up with the v22 RNG
+        // words and object-ID counter defaulted to their legacy sentinels.
+        20 | 21 => bincode_exact::<PreV22WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV22V21,
+                )
+            })
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         19 => bincode_exact::<PreV20WorldSnapshot>(payload)
@@ -731,6 +741,8 @@ impl From<PreV18WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -827,6 +839,8 @@ impl From<PreV19WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: snapshot.object_experience_trackers,
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -924,6 +938,114 @@ impl From<PreV20WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: snapshot.object_experience_trackers,
             object_command_sets: snapshot.object_command_sets,
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
+        }
+    }
+}
+
+/// Complete v21 world record before the v22 logic-RNG ADC words and the
+/// exact next-object-ID counter were appended. v20 payloads share this
+/// layout: the v21 addition changed only the direct-Xfer `Weapon` record.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV22WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
+    player_ranks: Vec<PlayerRankSnapshot>,
+    object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+    overcharge_active: Vec<ObjectOverchargeSnapshot>,
+    cia_intelligence: crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry,
+    vision_spied: Vec<ObjectVisionSpiedSnapshot>,
+    builder_tasks: Vec<ObjectBuilderTaskSnapshot>,
+    sell_list: Vec<SellListEntrySnapshot>,
+    object_persist: Vec<ObjectPersistTailSnapshot>,
+    client_drawable_visuals: Vec<ClientDrawableVisualSnapshot>,
+    player_energy: Vec<PlayerEnergySnapshot>,
+    object_triggers: Vec<ObjectTriggerPersistSnapshot>,
+    is_scoring_enabled: bool,
+    limit_superweapons: bool,
+    cave_system: crate::game_logic::HostCaveSystem,
+    tunnel_network: crate::game_logic::HostTunnelNetworkRegistry,
+    airfield_parking: AirfieldParkingWorldSnapshot,
+    persist_v18: super::persist_v18::WorldPersistV18,
+    object_experience_trackers: Vec<ObjectExperienceTrackerSnapshot>,
+    object_command_sets: Vec<ObjectCommandSetSnapshot>,
+    object_disguises: Vec<ObjectDisguiseSnapshot>,
+}
+
+impl From<PreV22WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV22WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: snapshot.overcharge_active,
+            cia_intelligence: snapshot.cia_intelligence,
+            vision_spied: snapshot.vision_spied,
+            builder_tasks: snapshot.builder_tasks,
+            sell_list: snapshot.sell_list,
+            object_persist: snapshot.object_persist,
+            client_drawable_visuals: snapshot.client_drawable_visuals,
+            player_energy: snapshot.player_energy,
+            object_triggers: snapshot.object_triggers,
+            is_scoring_enabled: snapshot.is_scoring_enabled,
+            limit_superweapons: snapshot.limit_superweapons,
+            cave_system: snapshot.cave_system,
+            tunnel_network: snapshot.tunnel_network,
+            airfield_parking: snapshot.airfield_parking,
+            persist_v18: snapshot.persist_v18,
+            object_experience_trackers: snapshot.object_experience_trackers,
+            object_command_sets: snapshot.object_command_sets,
+            object_disguises: snapshot.object_disguises,
+            // v22 tail: pre-v22 saves carry no ADC words and no exact
+            // counter; the sentinels keep the legacy load behavior (the
+            // staged instance keeps its game-start re-derivation and the
+            // allocator falls back to max live id + 1).
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1264,6 +1386,8 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1406,6 +1530,8 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1494,6 +1620,8 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1549,6 +1677,8 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1604,6 +1734,8 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1655,6 +1787,8 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1706,6 +1840,8 @@ impl From<PreV10WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1757,6 +1893,8 @@ impl From<PreV11WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1808,6 +1946,8 @@ impl From<PreV12WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1859,6 +1999,8 @@ impl From<PreV13WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1909,6 +2051,8 @@ impl From<PreV14WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -1959,6 +2103,8 @@ impl From<PreV15WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -2009,6 +2155,8 @@ impl From<PreV16WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -2059,6 +2207,8 @@ impl From<PreV17WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -2147,6 +2297,8 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }
@@ -2235,6 +2387,8 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }

@@ -185,16 +185,45 @@ impl InGameUI {
         template_name: Option<String>,
         ready_frame: u32,
     ) {
-        let existing = self.superweapon_timers.iter().any(|t| {
-            t.player_index == player_index && t.power_name == power_name && t.object_id == object_id
-        });
-        if existing {
+        if Self::strip_has_timer(&self.superweapon_timers, player_index, object_id, &power_name) {
             return;
         }
+        let timer = Self::make_superweapon_timer(
+            player_index,
+            object_id,
+            power_name,
+            template_name,
+            ready_frame,
+        );
+        self.superweapon_timers.push(timer);
+    }
+
+    /// Dedup key shared by the instance path and the live host strip
+    /// (C++ keys `m_superweapons[player][templateName]` by object id).
+    fn strip_has_timer(
+        timers: &[SuperweaponTimerData],
+        player_index: u8,
+        object_id: ObjectID,
+        power_name: &str,
+    ) -> bool {
+        timers.iter().any(|t| {
+            t.player_index == player_index && t.power_name == power_name && t.object_id == object_id
+        })
+    }
+
+    /// Build one strip entry (shared by the instance path and the live host
+    /// strip so science hiding and player colors stay single-sourced).
+    fn make_superweapon_timer(
+        player_index: u8,
+        object_id: ObjectID,
+        power_name: String,
+        template_name: Option<String>,
+        ready_frame: u32,
+    ) -> SuperweaponTimerData {
         let template_name = template_name.unwrap_or_else(|| power_name.clone());
         let (hidden_by_science, color) =
             Self::superweapon_science_and_color(player_index, &template_name);
-        self.superweapon_timers.push(SuperweaponTimerData {
+        SuperweaponTimerData {
             player_index,
             object_id,
             power_name,
@@ -211,7 +240,7 @@ impl InGameUI {
             name_text: String::new(),
             time_text: String::new(),
             use_ready_font: false,
-        });
+        }
     }
 
     fn superweapon_science_and_color(player_index: u8, template_name: &str) -> (bool, u32) {
@@ -313,6 +342,26 @@ impl InGameUI {
 
     /// C++ postDraw SW block state (InGameUI.cpp:3487-3697).
     pub fn update_superweapon_timers(&mut self, current_frame: u32) {
+        Self::update_superweapon_timer_entries(
+            &mut self.superweapon_timers,
+            self.superweapon_hidden_by_script,
+            self.superweapon_flash_duration,
+            &mut self.superweapon_last_flash_frame,
+            &mut self.superweapon_used_flash_color,
+            current_frame,
+        );
+    }
+
+    /// Per-frame strip update shared by the integrated-UI instance and the
+    /// live host strip (C++ InGameUI.cpp:3487-3697 loop body).
+    fn update_superweapon_timer_entries(
+        timers: &mut [SuperweaponTimerData],
+        strip_hidden_by_script: bool,
+        flash_duration: f32,
+        last_flash_frame: &mut u32,
+        used_flash_color: &mut bool,
+        current_frame: u32,
+    ) {
         const LOGICFRAMES_PER_SECOND: u32 = 30;
         if current_frame == 0 {
             return;
@@ -320,18 +369,16 @@ impl InGameUI {
         let mut flash_toggled = false;
         let mut i = 0;
         let mut shared_seen: Vec<(u8, String)> = Vec::new();
-        while i < self.superweapon_timers.len() {
-            let player_index = self.superweapon_timers[i].player_index;
-            let power_name = self.superweapon_timers[i].power_name.clone();
-            if self.superweapon_timers[i].hidden_by_script
-                || self.superweapon_timers[i].hidden_by_science
-            {
+        while i < timers.len() {
+            let player_index = timers[i].player_index;
+            let power_name = timers[i].power_name.clone();
+            if timers[i].hidden_by_script || timers[i].hidden_by_science {
                 i += 1;
                 continue;
             }
 
-            let object_id = self.superweapon_timers[i].object_id;
-            let template_name = self.superweapon_timers[i].template_name.clone();
+            let object_id = timers[i].object_id;
+            let template_name = timers[i].template_name.clone();
             let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
                 i += 1;
                 continue;
@@ -350,7 +397,7 @@ impl InGameUI {
             } else {
                 template_name.as_str()
             };
-            let (is_ready, ready_frame, power_type, shared) = guard
+            let (is_ready, ready_frame, power_type, shared) = match guard
                 .with_special_power_module_interface_by_name(lookup_name, |sp| {
                     let template = get_special_power_store().and_then(|store| {
                         store.find_special_power_template(lookup_name).cloned()
@@ -367,13 +414,29 @@ impl InGameUI {
                             .map(|t| t.is_shared_n_sync())
                             .unwrap_or(false),
                     )
-                })
-                .unwrap_or((
-                    false,
-                    self.superweapon_timers[i].ready_frame,
-                    gamelogic::object::special_power_types::SpecialPowerType::Invalid,
-                    false,
-                ));
+                }) {
+                Some(polled) => polled,
+                None => {
+                    // No live module (dual-world residual): the stored ready
+                    // frame owns the countdown, and passing it means READY.
+                    let ready_frame = timers[i].ready_frame;
+                    let template = get_special_power_store().and_then(|store| {
+                        store.find_special_power_template(lookup_name).cloned()
+                    });
+                    (
+                        ready_frame <= current_frame,
+                        ready_frame,
+                        template
+                            .as_ref()
+                            .map(|t| t.get_special_power_type())
+                            .unwrap_or(gamelogic::object::special_power_types::SpecialPowerType::Invalid),
+                        template
+                            .as_ref()
+                            .map(|t| t.is_shared_n_sync())
+                            .unwrap_or(false),
+                    )
+                }
+            };
             drop(guard);
 
             if shared && shared_seen.iter().any(|(p, n)| *p == player_index && n == &power_name) {
@@ -390,47 +453,43 @@ impl InGameUI {
                 (ready_frame - current_frame) / LOGICFRAMES_PER_SECOND
             } as i32;
 
-            if is_ready && !self.superweapon_timers[i].eva_ready_played {
+            if is_ready && !timers[i].eva_ready_played {
                 Self::announce_superweapon_ready(object_id, power_type);
-                self.superweapon_timers[i].eva_ready_played = true;
+                timers[i].eva_ready_played = true;
             } else if !is_ready {
-                self.superweapon_timers[i].eva_ready_played = false;
+                timers[i].eva_ready_played = false;
             }
 
-            if self.superweapon_hidden_by_script {
+            if strip_hidden_by_script {
                 i += 1;
                 continue;
             }
 
-            let change_bolding = ready_secs != self.superweapon_timers[i].timestamp
-                || is_ready != self.superweapon_timers[i].ready
-                || self.superweapon_timers[i].force_update_text;
+            let change_bolding = ready_secs != timers[i].timestamp
+                || is_ready != timers[i].ready
+                || timers[i].force_update_text;
             if change_bolding {
                 if is_ready {
-                    self.superweapon_timers[i].use_ready_font = true;
-                } else if self.superweapon_timers[i].timestamp == 0 {
-                    self.superweapon_timers[i].use_ready_font = false;
+                    timers[i].use_ready_font = true;
+                } else if timers[i].timestamp == 0 {
+                    timers[i].use_ready_font = false;
                 }
-                self.superweapon_timers[i].force_update_text = false;
-                self.superweapon_timers[i].ready = is_ready;
-                self.superweapon_timers[i].timestamp = ready_secs;
-                self.superweapon_timers[i].ready_frame = ready_frame;
+                timers[i].force_update_text = false;
+                timers[i].ready = is_ready;
+                timers[i].timestamp = ready_secs;
+                timers[i].ready_frame = ready_frame;
                 let min = ready_secs / 60;
                 let sec = ready_secs - min * 60;
                 let label = GameText::fetch(&format!("GUI:{lookup_name}"));
-                self.superweapon_timers[i].name_text = format!("{label}: ");
-                self.superweapon_timers[i].time_text = format!("{min}:{sec:02}");
-                self.superweapon_timers[i].countdown_text =
-                    format!("{label}: {min}:{sec:02}");
+                timers[i].name_text = format!("{label}: ");
+                timers[i].time_text = format!("{min}:{sec:02}");
+                timers[i].countdown_text = format!("{label}: {min}:{sec:02}");
             }
 
-            if is_ready && self.superweapon_flash_duration != 0.0 && !flash_toggled {
-                if current_frame
-                    >= self.superweapon_last_flash_frame
-                        + self.superweapon_flash_duration as u32
-                {
-                    self.superweapon_used_flash_color = !self.superweapon_used_flash_color;
-                    self.superweapon_last_flash_frame = current_frame;
+            if is_ready && flash_duration != 0.0 && !flash_toggled {
+                if current_frame >= *last_flash_frame + flash_duration as u32 {
+                    *used_flash_color = !*used_flash_color;
+                    *last_flash_frame = current_frame;
                     flash_toggled = true;
                 }
             }
@@ -516,13 +575,18 @@ impl InGameUI {
 
     /// Visible SW rows after script/science/construction filters.
     pub fn visible_superweapon_draw_entries(&self) -> Vec<&SuperweaponTimerData> {
-        if self.superweapon_hidden_by_script {
-            return Vec::new();
-        }
-        self.superweapon_timers
-            .iter()
-            .filter(|t| !t.hidden_by_script && !t.hidden_by_science)
+        Self::visible_strip_entries(&self.superweapon_timers, self.superweapon_hidden_by_script)
             .collect()
+    }
+
+    /// Drawn-row filter shared by the instance path and the live host strip.
+    fn visible_strip_entries<'a>(
+        timers: &'a [SuperweaponTimerData],
+        strip_hidden_by_script: bool,
+    ) -> impl Iterator<Item = &'a SuperweaponTimerData> {
+        timers
+            .iter()
+            .filter(move |t| !strip_hidden_by_script && !t.hidden_by_script && !t.hidden_by_science)
     }
 
     // ── Mouse cursor system ──────────────────────────────────────────────
@@ -1181,4 +1245,113 @@ impl InGameUI {
     /// Invalid drawable ID sentinel. C++: INVALID_DRAWABLE_ID (Drawable.h)
     /// In Rust, 0 is used as the invalid sentinel for moused_over_drawable_id.
     const INVALID_DRAWABLE_ID: u32 = 0;
+}
+
+// ── Live host superweapon countdown strip ─────────────────────────────
+// C++ InGameUI::addSuperweapon / postDraw strip (InGameUI.cpp:548-580,
+// 3487-3697). The integrated-UI instance is demo-only; the live host keeps
+// this crate-global strip fed from GameLogic's TheInGameUI::add_superweapon
+// store, ticking the same shared update/filter helpers, and bridged into the
+// drawn InGameUI-subsystem presentation residual each HUD build.
+
+/// Flash state mirrors the InGameUI constructor defaults (InGameUI.cpp:925).
+struct LiveSuperweaponStrip {
+    timers: Vec<SuperweaponTimerData>,
+    flash_duration: f32,
+    last_flash_frame: u32,
+    used_flash_color: bool,
+}
+
+static LIVE_SUPERWEAPON_STRIP: std::sync::Mutex<LiveSuperweaponStrip> =
+    std::sync::Mutex::new(LiveSuperweaponStrip {
+        timers: Vec::new(),
+        flash_duration: 1.0,
+        last_flash_frame: 0,
+        used_flash_color: true,
+    });
+
+fn lock_live_superweapon_strip(
+) -> std::sync::MutexGuard<'static, LiveSuperweaponStrip> {
+    LIVE_SUPERWEAPON_STRIP
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Reconcile the live strip against GameLogic's superweapon store snapshot
+/// (adds new entries, drops removed ones) and tick it to `frame`.
+pub fn live_superweapon_strip_sync(
+    entries: &[(i32, String, ObjectID, u32)],
+    frame: u32,
+) {
+    let mut strip = lock_live_superweapon_strip();
+    strip
+        .timers
+        .retain(|t| {
+            entries.iter().any(|(player_index, power_name, object_id, _)| {
+                *player_index as u8 == t.player_index
+                    && *object_id == t.object_id
+                    && *power_name == t.power_name
+            })
+        });
+    for (player_index, power_name, object_id, ready_frame) in entries {
+        let player_index = (*player_index).clamp(0, u8::MAX as i32) as u8;
+        if InGameUI::strip_has_timer(&strip.timers, player_index, *object_id, power_name) {
+            continue;
+        }
+        let timer = InGameUI::make_superweapon_timer(
+            player_index,
+            *object_id,
+            power_name.clone(),
+            None,
+            *ready_frame,
+        );
+        strip.timers.push(timer);
+    }
+    drop(strip);
+    live_superweapon_strip_update(frame);
+}
+
+/// Tick the live strip countdown/READY/EVA state (C++ postDraw SW block).
+pub fn live_superweapon_strip_update(frame: u32) {
+    let mut strip = lock_live_superweapon_strip();
+    let LiveSuperweaponStrip {
+        timers,
+        flash_duration,
+        last_flash_frame,
+        used_flash_color,
+    } = &mut *strip;
+    InGameUI::update_superweapon_timer_entries(
+        timers,
+        false,
+        *flash_duration,
+        last_flash_frame,
+        used_flash_color,
+        frame,
+    );
+}
+
+/// Drawn strip rows (label, m:ss, ready) after the shared visibility filter —
+/// the exact entries bridged into the InGameUI-subsystem presentation
+/// residual that impl_draw renders at (0.7, 0.7).
+pub fn live_superweapon_draw_entries() -> Vec<(String, String, bool)> {
+    let strip = lock_live_superweapon_strip();
+    InGameUI::visible_strip_entries(&strip.timers, false)
+        .filter(|t| !t.time_text.is_empty() || t.ready)
+        .map(|t| {
+            (
+                t.name_text
+                    .trim_end()
+                    .trim_end_matches(':')
+                    .trim_end()
+                    .to_string(),
+                t.time_text.clone(),
+                t.ready,
+            )
+        })
+        .collect()
+}
+
+/// Clear the live strip (test/reset hook matching C++ InGameUI::reset).
+pub fn live_superweapon_strip_clear() {
+    lock_live_superweapon_strip().timers.clear();
 }

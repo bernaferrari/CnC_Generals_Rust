@@ -99,7 +99,6 @@ use std::time::Instant;
 
 use super::*;
 
-
 /// Fetch a menu Arc from `MenuManager` and release the manager lock BEFORE
 /// dispatching into the menu.
 ///
@@ -113,7 +112,9 @@ use super::*;
 /// The manager guard is only needed to clone the menu Arc out; drop it first
 /// (same fetch-then-drop discipline as the list-box mapped-image fix).
 fn dispatch_menu<T, R>(
-    fetch: impl FnOnce(&crate::gui::callbacks::menu_callbacks::MenuManager) -> std::sync::Arc<std::sync::RwLock<T>>,
+    fetch: impl FnOnce(
+        &crate::gui::callbacks::menu_callbacks::MenuManager,
+    ) -> std::sync::Arc<std::sync::RwLock<T>>,
     f: impl FnOnce(&mut T) -> R,
 ) -> R {
     let menu = {
@@ -141,9 +142,9 @@ impl WindowManager {
                 })),
                 "SinglePlayerMenuInit" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_single_player_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_single_player_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Single player menu init failed: {}", err);
@@ -151,9 +152,9 @@ impl WindowManager {
                 })),
                 "OptionsMenuInit" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_options_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_options_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Options menu init failed: {}", err);
@@ -161,9 +162,9 @@ impl WindowManager {
                 })),
                 "MapSelectMenuInit" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_map_select_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_map_select_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Map select menu init failed: {}", err);
@@ -171,9 +172,9 @@ impl WindowManager {
                 })),
                 "CreditsMenuInit" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_credits_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_credits_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Credits menu init failed: {}", err);
@@ -181,9 +182,9 @@ impl WindowManager {
                 })),
                 "LanLobbyMenuInit" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_lan_lobby_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_lan_lobby_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("LAN lobby menu init failed: {}", err);
@@ -315,9 +316,9 @@ impl WindowManager {
                 })),
                 "SinglePlayerMenuUpdate" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_single_player_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_single_player_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Single player menu update failed: {}", err);
@@ -325,9 +326,9 @@ impl WindowManager {
                 })),
                 "OptionsMenuUpdate" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_options_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_options_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Options menu update failed: {}", err);
@@ -335,9 +336,9 @@ impl WindowManager {
                 })),
                 "MapSelectMenuUpdate" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_map_select_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_map_select_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Map select menu update failed: {}", err);
@@ -345,9 +346,9 @@ impl WindowManager {
                 })),
                 "CreditsMenuUpdate" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_credits_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_credits_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Credits menu update failed: {}", err);
@@ -355,9 +356,9 @@ impl WindowManager {
                 })),
                 "LanLobbyMenuUpdate" => Some(Box::new(|layout, _| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_lan_lobby_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_lan_lobby_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("LAN lobby menu update failed: {}", err);
@@ -468,9 +469,9 @@ impl WindowManager {
                 })),
                 "SinglePlayerMenuShutdown" => Some(Box::new(|layout, data| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_single_player_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_single_player_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Single player menu shutdown failed: {}", err);
@@ -478,9 +479,9 @@ impl WindowManager {
                 })),
                 "OptionsMenuShutdown" => Some(Box::new(|layout, data| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_options_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_options_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Options menu shutdown failed: {}", err);
@@ -488,9 +489,9 @@ impl WindowManager {
                 })),
                 "MapSelectMenuShutdown" => Some(Box::new(|layout, data| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_map_select_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_map_select_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Map select menu shutdown failed: {}", err);
@@ -498,9 +499,9 @@ impl WindowManager {
                 })),
                 "CreditsMenuShutdown" => Some(Box::new(|layout, data| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_credits_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_credits_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Credits menu shutdown failed: {}", err);
@@ -508,9 +509,9 @@ impl WindowManager {
                 })),
                 "LanLobbyMenuShutdown" => Some(Box::new(|layout, data| {
                     let menu = {
-                    let manager = get_menu_manager();
-                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                    manager.get_lan_lobby_menu()
+                        let manager = get_menu_manager();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                        manager.get_lan_lobby_menu()
                     };
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("LAN lobby menu shutdown failed: {}", err);
@@ -759,51 +760,51 @@ impl WindowManager {
                 "SinglePlayerMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_single_player_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_single_player_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
                 }
                 "OptionsMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_options_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_options_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
                 }
                 "MapSelectMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_map_select_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_map_select_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
                 }
                 "CreditsMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_credits_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_credits_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
                 }
                 "LanLobbyMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_lan_lobby_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_lan_lobby_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
                 }
                 "QuitMessageBoxSystem" => {
@@ -1166,51 +1167,51 @@ impl WindowManager {
                 "SinglePlayerMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_single_player_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_single_player_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
                 }
                 "OptionsMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_options_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_options_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
                 }
                 "MapSelectMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_map_select_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_map_select_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
                 }
                 "CreditsMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_credits_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_credits_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
                 }
                 "LanLobbyMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let menu = {
-                        let manager = get_menu_manager();
-                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
-                        manager.get_lan_lobby_menu()
+                            let manager = get_menu_manager();
+                            let manager = manager.read().unwrap_or_else(|e| e.into_inner());
+                            manager.get_lan_lobby_menu()
                         };
-                                                with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
+                        with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
                 }
                 "GeneralsExpPointsInput" => {

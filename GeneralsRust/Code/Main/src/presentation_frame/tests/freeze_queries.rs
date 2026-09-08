@@ -956,6 +956,17 @@ fn weapon_and_stealth_freeze_from_host() {
         // Disguised clears effectively_stealthed
         obj.status.disguised = true;
     }
+    // Enemy-view counterpart (C++ StealthUpdate.cpp:991-1007): a unit whose
+    // controlling house is NOT allied with the local player draws the disguise
+    // team color; the ally/self case above draws true colors.
+    let eid = logic
+        .create_object("StealthScout", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("enemy");
+    if let Some(obj) = logic.host_object_mut(eid) {
+        obj.status.disguised = true;
+        obj.disguise_as_template = Some("ChinaTroopCrawler".into());
+        obj.disguise_as_team = Some(Team::China);
+    }
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     let u = frame.objects.iter().find(|o| o.id == uid).expect("u");
     assert!(u.has_weapon);
@@ -977,8 +988,15 @@ fn weapon_and_stealth_freeze_from_host() {
     // DISGUISED model condition residual bit 116.
     use crate::game_logic::host_enum_table_residual::MC_BIT_DISGUISED;
     assert_ne!(u.model_condition_bits & (1u128 << MC_BIT_DISGUISED), 0);
-    // Disguise team color residual (China) replaces true USA tint.
-    assert_eq!(u.team_color, Team::China.get_color());
+    // C++ StealthUpdate::changeVisualDisguise (StealthUpdate.cpp:991-1007):
+    // controlling player is ALLIES with the local player → true colors;
+    // neutrals and enemies see the disguise team color instead. The freeze
+    // resolves the local house (player roster or default local house), so the
+    // USA-owned disguised unit shows its true USA tint to the local viewer.
+    assert_eq!(u.team_color, Team::USA.get_color());
+    let e = frame.objects.iter().find(|o| o.id == eid).expect("e");
+    assert!(e.disguised);
+    assert_eq!(e.team_color, Team::China.get_color(), "enemy view uses disguise color");
     assert_eq!(frame.attacking_units().len(), 1);
     assert_eq!(frame.contained_units().len(), 1);
     // pure stealth unit without disguise

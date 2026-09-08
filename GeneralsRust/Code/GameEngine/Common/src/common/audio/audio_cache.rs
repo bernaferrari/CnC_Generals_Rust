@@ -4,7 +4,7 @@
 //! functionality of the C++ AudioFileCache. It manages memory usage and implements
 //! LRU (Least Recently Used) eviction to keep memory usage under control.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -155,6 +155,15 @@ pub struct AudioFileCache {
     operation_lock: Mutex<()>,
     /// Search paths for audio files
     search_paths: RwLock<Vec<PathBuf>>,
+    /// Session-lifetime tombstones for keys whose loader already returned
+    /// `None`. C++ parity anchor: `AudioFileCache::openFile`
+    /// (MilesAudioManager.cpp:3102-3136) looks `m_openFiles` up by filename
+    /// and, when the file is missing, logs "Missing Audio File" and returns
+    /// NULL — the C++ Drawable restart path only re-adds sounds that were
+    /// previously playing, so a miss cannot spin. The Rust live host
+    /// re-queues failed ambient loops, so misses must be remembered here or
+    /// every failing play re-probes the VFS per frame.
+    negative_cache: parking_lot::RwLock<HashSet<PathBuf>>,
 }
 
 impl AudioFileCache {
@@ -180,6 +189,7 @@ impl AudioFileCache {
                 PathBuf::from("./assets/audio/"),
                 PathBuf::from("./audio/"),
             ]),
+            negative_cache: parking_lot::RwLock::new(HashSet::new()),
         }
     }
 
@@ -258,7 +268,25 @@ impl AudioFileCache {
             return Some(data);
         }
 
-        let data = loader()?;
+        // Negative cache (session tombstone): a key whose loader already
+        // returned None must not re-probe. Without this, a missing sample
+        // re-runs the loader (~8 path candidates + fs reads) on every play
+        // attempt while a failing loop re-queues per frame.
+        if self.negative_cache.read().contains(&path) {
+            let mut stats = self.stats.write().unwrap();
+            stats.miss_count += 1;
+            return None;
+        }
+
+        let Some(data) = loader() else {
+            // Tombstone the miss for the cache's lifetime (session): the
+            // sample is absent, so the next open of this name is an
+            // immediate miss instead of another VFS probe.
+            self.negative_cache.write().insert(path.clone());
+            let mut stats = self.stats.write().unwrap();
+            stats.miss_count += 1;
+            return None;
+        };
         let file_size = data.len();
         if !self.ensure_space_available(file_size) {
             let mut stats = self.stats.write().unwrap();
@@ -357,6 +385,9 @@ impl AudioFileCache {
         cache.clear();
         *current_size = 0;
         access_order.clear();
+        // Miss tombstones are session state keyed to the cache contents;
+        // a full clear re-arms probing for every name.
+        self.negative_cache.write().clear();
 
         let mut stats = self.stats.write().unwrap();
         stats.entry_count = 0;
@@ -922,5 +953,65 @@ mod tests {
         cache.close_named("boom.wav");
         let cached = cache.get_cached_files();
         assert_eq!(cached[0].2, 1);
+    }
+
+    #[test]
+    fn get_or_insert_named_misses_probe_the_loader_once_per_key() {
+        // C++ AudioFileCache::openFile (MilesAudioManager.cpp:3123-3136)
+        // consults the filename hash before touching the file system and
+        // logs "Missing Audio File" for the miss. The Rust live host
+        // re-queues failing loops, so a miss must be tombstoned: exactly one
+        // loader probe per key until clear_cache re-arms the session.
+        let cache = AudioFileCache::new(1024);
+        let missing = "van/missing_loop.wav";
+        let mut probes = 0;
+        assert!(
+            cache
+                .get_or_insert_named(missing, || {
+                    probes += 1;
+                    None
+                })
+                .is_none()
+        );
+        for _ in 0..5 {
+            assert!(
+                cache
+                    .get_or_insert_named(missing, || {
+                        probes += 1;
+                        None
+                    })
+                    .is_none(),
+                "tombstoned miss must stay a miss"
+            );
+        }
+        assert_eq!(
+            probes, 1,
+            "loader must run exactly once per missing key, not per play"
+        );
+
+        // Distinct keys probe independently of each other's tombstones.
+        let mut other_probes = 0;
+        assert!(
+            cache
+                .get_or_insert_named("van/other_missing.wav", || {
+                    other_probes += 1;
+                    None
+                })
+                .is_none()
+        );
+        assert_eq!(other_probes, 1);
+
+        // clear_cache drops tombstones: the next open probes again.
+        cache.clear_cache();
+        let mut probes_after_clear = 0;
+        assert!(
+            cache
+                .get_or_insert_named(missing, || {
+                    probes_after_clear += 1;
+                    None
+                })
+                .is_none()
+        );
+        assert_eq!(probes_after_clear, 1);
     }
 }

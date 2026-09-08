@@ -1213,24 +1213,59 @@ impl GameLogic {
 
     /// Copy GameWorld HP / pose / target / fat fields onto the HashMap view.
     fn overlay_object_from_gameworld(&mut self, id: ObjectId) {
-        use crate::gameworld_shadow::{
-            coupled_entity_fat_view, coupled_entity_health, coupled_entity_pose,
-            coupled_entity_target_host, with_active_shadow,
-        };
-        let mapped = with_active_shadow(|s| s.entity_for_host(id).is_some()).unwrap_or(false);
-        if !mapped {
-            return;
-        }
-        let hp = coupled_entity_health(id);
-        let pose = coupled_entity_pose(id);
-        let target = coupled_entity_target_host(id);
-        let fat = coupled_entity_fat_view(id);
+        use crate::gameworld_shadow::{with_active_shadow, CoupledFatView};
+        // Mid-frame authority logs own these fields until writeback; resolve
+        // the skip flags BEFORE the shadow visit so a fully log-owned object
+        // skips building the fat view (it clones Vecs per object) and so the
+        // per-field clones below are skipped for log-owned fields.
         let skip_hp = crate::game_logic::host_damage_log::has_pending(id);
         let skip_weapon = crate::game_logic::host_weapon_stats_log::has_pending(id);
         let skip_ai = crate::game_logic::host_ai_state_log::has_pending(id)
             || crate::game_logic::host_combat_attack_log::has_pending(id);
         let skip_contain = crate::game_logic::host_contain_log::has_pending(id);
         let skip_move = crate::game_logic::host_movement_log::has_pending(id);
+        let need_fat = !(skip_weapon && skip_ai && skip_contain && skip_move);
+        // One TLS shadow visit per object (was five ambient round trips):
+        // read HP / pose / target / fat facts in a single closure.
+        let facts = with_active_shadow(|shadow| {
+            let eid = shadow.entity_for_host(id)?;
+            let e = shadow.world().entity(eid);
+            Some((
+                e.map(|e| e.health),
+                e.map(|e| {
+                    let p = e.transform.position;
+                    [p.x, p.y, p.z]
+                }),
+                e.and_then(|e| e.attack_target)
+                    .and_then(|tid| shadow.host_for_entity(tid)),
+                e.filter(|_| need_fat).map(|e| CoupledFatView {
+                    weapon_ammo: e.weapon_ammo,
+                    weapon_clip_size: e.weapon_clip_size,
+                    active_weapon_slot: e.active_weapon_slot,
+                    weapon_fire_status: e.weapon_fire_status,
+                    attack_substate_ordinal: e.attack_substate_ordinal,
+                    ai_state_ordinal: e.ai_state_ordinal,
+                    occupant_count: e.occupant_count,
+                    contained_by_host: e.contained_by_host,
+                    // Log-owned fields never read the clone; skip the copy.
+                    garrisoned_host_ids: if skip_contain {
+                        Vec::new()
+                    } else {
+                        e.garrisoned_host_ids.clone()
+                    },
+                    move_target: e.move_target,
+                    path_waypoints: if skip_move {
+                        Vec::new()
+                    } else {
+                        e.path_waypoints.clone()
+                    },
+                    path_index: e.path_index,
+                }),
+            ))
+        });
+        let Some((hp, pose, target, fat)) = facts.flatten() else {
+            return;
+        };
         let Some(obj) = self.objects.get_mut(&id) else {
             return;
         };
@@ -1374,6 +1409,8 @@ impl GameLogic {
                     obj.movement.velocity.z,
                 ],
                 max_speed: obj.movement.max_speed,
+                accel: obj.movement.acceleration,
+                turn_rate: obj.movement.turn_rate,
                 path_index: obj.movement.current_path_index.min(u16::MAX as usize) as u16,
                 path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,
                 path_waypoints,
@@ -2227,7 +2264,16 @@ mod select_object_cpp_parity_tests {
             "SelectParityHero",
             &[KindOf::Infantry, KindOf::Selectable, KindOf::Hero],
         );
-        let humvee = spawn(&mut logic, "SelectParityUnit", 0, 0.0);
+        // C++ containers carry a ContainModuleInterface (Humvee = OpenContain on
+        // KINDOF_VEHICLE); plain infantry have none (Object::isHero walks
+        // getContain()), so the container fixture must be a vehicle — matches
+        // radar_live host_radar_contained_hero_marks_container.
+        ensure_tpl(
+            &mut logic,
+            "SelectParityTransport",
+            &[KindOf::Vehicle, KindOf::Selectable],
+        );
+        let humvee = spawn(&mut logic, "SelectParityTransport", 0, 0.0);
         let burton = spawn(&mut logic, "SelectParityHero", 0, 10.0);
         assert!(logic.unit_is_hero(burton));
         assert!(!logic.unit_is_hero(humvee));

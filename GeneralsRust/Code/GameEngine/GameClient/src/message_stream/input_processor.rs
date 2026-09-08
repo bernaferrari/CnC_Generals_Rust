@@ -337,9 +337,19 @@ impl InputProcessor {
                 messages.push(raw_key_msg);
 
                 match key {
-                    KeyCode::LeftCtrl | KeyCode::RightCtrl => messages.push(
-                        GameMessage::with_player(GameMessageType::MetaBeginForceAttack, player_id),
-                    ),
+                    KeyCode::LeftCtrl | KeyCode::RightCtrl => {
+                        // Retail MetaMap binds CTRL hold to both BEGIN_FORCEATTACK
+                        // and BEGIN_FORCEMOVE (mods-only DOWN); C++ CommandXlat
+                        // 3424-3434 sets both InGameUI modes.
+                        messages.push(GameMessage::with_player(
+                            GameMessageType::MetaBeginForceAttack,
+                            player_id,
+                        ));
+                        messages.push(GameMessage::with_player(
+                            GameMessageType::MetaBeginForceMove,
+                            player_id,
+                        ));
+                    }
                     KeyCode::LeftAlt | KeyCode::RightAlt => messages.push(
                         GameMessage::with_player(GameMessageType::MetaBeginWaypoints, player_id),
                     ),
@@ -383,6 +393,18 @@ impl InputProcessor {
                             player_id,
                         ));
                     }
+                } else if modifiers.contains(KeyModifiers::ALT)
+                    && !modifiers.contains(KeyModifiers::CTRL)
+                    && !modifiers.contains(KeyModifiers::SHIFT)
+                {
+                    // Retail CommandMap VIEW_TEAM0..9: ALT+number (C++
+                    // SelectionXlat MSG_META_VIEW_TEAM recenters the squad).
+                    if let Some(group) = self.key_to_number_group(key) {
+                        messages.push(GameMessage::with_player(
+                            GameMessageType::MetaViewTeam(group),
+                            player_id,
+                        ));
+                    }
                 } else if !modifiers.contains(KeyModifiers::CTRL)
                     && !modifiers.contains(KeyModifiers::ALT)
                 {
@@ -411,9 +433,16 @@ impl InputProcessor {
                 messages.push(raw_key_msg);
 
                 match key {
-                    KeyCode::LeftCtrl | KeyCode::RightCtrl => messages.push(
-                        GameMessage::with_player(GameMessageType::MetaEndForceAttack, player_id),
-                    ),
+                    KeyCode::LeftCtrl | KeyCode::RightCtrl => {
+                        messages.push(GameMessage::with_player(
+                            GameMessageType::MetaEndForceAttack,
+                            player_id,
+                        ));
+                        messages.push(GameMessage::with_player(
+                            GameMessageType::MetaEndForceMove,
+                            player_id,
+                        ));
+                    }
                     KeyCode::LeftAlt | KeyCode::RightAlt => messages.push(
                         GameMessage::with_player(GameMessageType::MetaEndWaypoints, player_id),
                     ),

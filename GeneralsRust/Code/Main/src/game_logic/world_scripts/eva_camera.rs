@@ -91,7 +91,7 @@ impl GameLogic {
     }
 
     pub fn update_eva_low_power(&mut self) {
-        use crate::game_logic::host_ui_presentation_residual::EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL;
+        use crate::game_logic::host_ui_presentation_residual::EVA_LOWPOWER_FRAMES_BETWEEN_CHECKS_INI;
         let local_low = self
             .players
             .values()
@@ -108,9 +108,11 @@ impl GameLogic {
         let _ = gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::LowPower);
         crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::LowPower);
         self.eva_low_power = self.eva_low_power.saturating_add(1);
+        // Eva.ini:63-66 LowPower TimeBetweenChecksMS=120000 → 3600 frames;
+        // the C++ poll replays every 2 minutes while power stays low.
         self.eva_low_power_next_frame = self
             .frame
-            .saturating_add(EVA_FRAMES_BETWEEN_CHECKS_DEFAULT_RESIDUAL);
+            .saturating_add(EVA_LOWPOWER_FRAMES_BETWEEN_CHECKS_INI);
     }
 
     /// C++ TheEva->setShouldPlay(EVA_InsufficientFunds) on every failed click.

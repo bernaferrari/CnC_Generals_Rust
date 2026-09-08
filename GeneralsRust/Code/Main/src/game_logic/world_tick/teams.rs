@@ -91,7 +91,8 @@ fn leftover_wander_tick_timer(can_be_repulsed: bool, timer: i32, wait_frames: i3
 
 /// Leftover `the_ai.find_closest_repulsor` then live leftover-faithful host port.
 fn leftover_wander_has_repulsor(logic: &GameLogic, id: ObjectId, vision: f32) -> bool {
-    let ai_store = gamelogic::ai::the_ai();let leftover_hit = ai_store
+    let ai_store = gamelogic::ai::the_ai();
+    let leftover_hit = ai_store
         .read()
         .ok()
         .and_then(|ai| ai.find_closest_repulsor(id.0, vision).ok())

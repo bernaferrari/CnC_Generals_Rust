@@ -6,11 +6,11 @@
 //! Orthogonal to Wave 293 AIBuildList dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/scripting/victory.rs` dual_world_registry_unavailable
+//! - `GameLogic/src/scripting/victory.rs` was DELETED (wave-1 no-legacy
+//!   sweep); the source pin now asserts that deletion.
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
-//! - Dual-world still active when registry is populated
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -79,56 +79,19 @@ pub fn honesty_live_victory_dual_world_empty_gate_residual_pack_wave294() -> boo
         && honesty_live_victory_dual_world_empty_gate_nav_commands_residual_wave294()
 }
 
-fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    let mut search_from = 0usize;
-    while let Some(rel) = src[search_from..].find(name) {
-        let i = search_from + rel;
-        let Some(b) = src[i..].find('{') else {
-            search_from = i + name.len();
-            continue;
-        };
-        let brace = i + b;
-        let mut depth = 0usize;
-        for (off, ch) in src[brace..].char_indices() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        search_from = i + name.len();
-    }
-    None
-}
-
-/// Source residual: victory empty dual-world short-circuits.
+/// Source residual: the dual-world victory module was deleted (wave-1 sweep).
+///
+/// `scripting/victory.rs` (VictoryManager second brain) and the byte-stub
+/// `script_engine/` compat module are gone; the crate no longer declares or
+/// re-exports either. Host-only victory honesty lives in the crate's live
+/// `system::victory_conditions` + `helpers::TheVictoryConditions`.
 pub fn honesty_victory_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/scripting/victory.rs");
-    if !(g.contains("Wave 294")
-        && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
-    {
-        return false;
-    }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    OBJECT_REGISTRY.is_empty()\n}",
-    );
-    let Some(kill) = fn_body(g, "fn calculate_kill_progress(") else {
-        return false;
-    };
-    let Some(dest) = fn_body(g, "fn calculate_destruction_progress(") else {
-        return false;
-    };
-    helper_ok && kill.contains("Ok(0.0)") && dest.contains("Ok(0.0)")
+    let lib = include_str!("../../../../GameEngine/GameLogic/src/lib.rs");
+    let scripting_mod = include_str!("../../../../GameEngine/GameLogic/src/scripting/mod.rs");
+    !lib.contains("pub mod script_engine")
+        && !lib.contains("VictoryManager")
+        && !scripting_mod.contains("pub mod victory")
+        && !scripting_mod.contains("VictoryManager")
 }
 
 /// Live residual: source honesty pack latches.

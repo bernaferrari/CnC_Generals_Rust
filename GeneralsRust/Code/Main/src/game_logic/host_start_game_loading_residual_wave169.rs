@@ -149,7 +149,10 @@ pub fn resolve_retail_map_path(map_name: &str) -> Option<PathBuf> {
     // must resolve the same way from any launch directory.
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     bases.push(manifest);
-    for ancestor in PathBuf::from(env!("CARGO_MANIFEST_DIR")).ancestors().skip(1) {
+    for ancestor in PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .skip(1)
+    {
         bases.push(ancestor.to_path_buf());
     }
     for base in bases {

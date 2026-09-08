@@ -25,7 +25,6 @@ pub fn ensure_control_bar_wnd_draw_callbacks() {
     });
 }
 
-
 /// Feed the draw-time marker position into the scheme manager's stability
 /// latch (C++ ControlBar.cpp:1222-1225 captures the marker base at init;
 /// the port latches on the first stable observation window instead).

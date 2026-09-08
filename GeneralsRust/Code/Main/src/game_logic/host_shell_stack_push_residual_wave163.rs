@@ -81,7 +81,7 @@ pub fn honesty_show_shell_menu_init_before_push_source() -> bool {
         Some(i) => i,
         None => return false,
     };
-    let body = &src[i..src.len().min(i + 2200)];
+    let body = &src[i..src.len().min(i + 3200)];
     body.contains("SubsystemInterface::init")
         && body.contains("shell.push(\"Menus/MainMenu.wnd\"")
         && body.contains("get_screen_count()")

@@ -151,8 +151,29 @@ impl GameLogic {
 
                 // C++ AIHuntState::update scans with no isAbleToAttack gate.
                 // Scan clock is per-unit jitter, not global frame%30.
+                #[cfg(test)]
+                if std::env::var("HQ_DEBUG").is_ok() {
+                    eprintln!(
+                        "HQ_DEBUG patrolling id={:?} out_of_ammo={:?} paused={}",
+                        object_id,
+                        self.objects.get(&object_id).map(|o| o.is_out_of_ammo()),
+                        ai_auto_engage_paused
+                    );
+                }
                 if !ai_auto_engage_paused && self.hunt_acquire_scan_due(object_id, frame) {
                     let units_should_hunt = self.object_units_should_hunt(object_id);
+                    #[cfg(test)]
+                    if std::env::var("HQ_DEBUG").is_ok() {
+                        eprintln!(
+                            "HQ_DEBUG scan id={:?} should_hunt={} has_priority={} team_victim={:?} scanned={:?} hunting={:?}",
+                            object_id,
+                            self.object_units_should_hunt(object_id),
+                            self.attack_priority_info_for(object_id).is_some(),
+                            self.host_team_common_target(object_id),
+                            self.find_closest_enemy(object_id, 9999.9, crate::game_logic::find_enemy_flags::CAN_ATTACK),
+                            self.objects.get(&object_id).map(|o| o.hunting)
+                        );
+                    }
                     let has_priority = self.attack_priority_info_for(object_id).is_some();
                     let team_victim = self.host_team_common_target(object_id);
                     let victim = if team_victim.is_some() && !has_priority {
@@ -342,9 +363,7 @@ impl GameLogic {
                     owner_player_id,
                     position,
                 ) {
-                    if let Some(dest) =
-                        self.objects.get(&center_id).map(|c| c.get_position())
-                    {
+                    if let Some(dest) = self.objects.get(&center_id).map(|c| c.get_position()) {
                         if position.distance(dest)
                             > crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE
                         {
@@ -875,10 +894,13 @@ impl GameLogic {
         // Host engagement is same-frame so residual auto-fire / continue-after-kill
         // can shoot without waiting for shadow writeback.
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.set_target(Some(target_id));
-            // C++ Hunt stays in AI_HUNT and Attack-Move stays in
-            // AI_ATTACK_MOVE_TO while the nested attack machine runs.
-            // Combat already fires from both parent states.
+            // `set_order_target`, not `set_target`: the raw setter
+            // re-publishes AIState::Attacking as a side effect, which would
+            // peel the parent state. C++ Hunt stays in AI_HUNT and Attack-Move
+            // stays in AI_ATTACK_MOVE_TO while the nested attack machine runs.
+            // Combat already fires from both parent states, and this block
+            // owns the Attacking transition for every other parent.
+            u.set_order_target(Some(target_id));
             if !matches!(u.ai_state, AIState::Patrolling | AIState::AttackMoving) {
                 u.set_ai_state(AIState::Attacking);
             }
@@ -1512,7 +1534,21 @@ mod hq_m6gcj_tests {
         info.set_priority_template("Tank", 80);
         logic.register_attack_priority_set(info);
 
+        // 2026-09-07 re-pin: the team-common-target surface is
+        // PLAYER_COMPUTER-only (`set_host_team_common_target` clears for
+        // local/human owners) and `object_units_should_hunt` reads the
+        // owning player's flag, so the hunter needs a non-local AI owner
+        // with units_should_hunt armed.
+        let mut player = Player::new(1, Team::USA, "USA AI", false);
+        player.units_should_hunt = true;
+        logic.players.insert(1, player);
+        logic
+            .ai_manager
+            .add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);
+        logic.set_ai_active(1, true);
+
         let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
+        hunter.owner_player_id = Some(1);
         hunter.team_instance_name = "teamUSA".into();
         hunter.attack_priority_set = Some("HuntPrio".into());
         hunter.weapon = Some(Weapon {
@@ -1524,9 +1560,13 @@ mod hq_m6gcj_tests {
         hunter.set_ai_state(AIState::Patrolling);
         hunter.set_position(Vec3::ZERO);
 
-        let mut dozer = Object::new(ThingTemplate::new("Dozer"), ObjectId(2), Team::GLA);
+        let mut dozer_t = ThingTemplate::new("Dozer");
+        dozer_t.add_kind_of(KindOf::Attackable);
+        let mut dozer = Object::new(dozer_t, ObjectId(2), Team::GLA);
         dozer.set_position(Vec3::new(10.0, 0.0, 0.0));
-        let mut tank = Object::new(ThingTemplate::new("Tank"), ObjectId(3), Team::GLA);
+        let mut tank_t = ThingTemplate::new("Tank");
+        tank_t.add_kind_of(KindOf::Attackable);
+        let mut tank = Object::new(tank_t, ObjectId(3), Team::GLA);
         tank.set_position(Vec3::new(40.0, 0.0, 0.0));
         logic.objects.insert(hunter.id, hunter);
         logic.objects.insert(dozer.id, dozer);

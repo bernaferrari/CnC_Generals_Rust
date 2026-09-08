@@ -61,6 +61,30 @@ impl CombatParticleKind {
             CombatParticleKind::DisableFx => "DisabledEffectBinaryShower0",
         }
     }
+
+    /// Host sweep lifetime (logic frames) for one-shot feedback kinds,
+    /// mirroring the GameClient preset `SystemLifetime` (C++ ParticleSys.cpp:
+    /// 2066-2081: the system dies once the lifetime expires and emitted
+    /// particles drain). `None` = attached/continuous kind owned by object
+    /// updates — never swept.
+    pub fn sweep_system_lifetime(self) -> Option<u32> {
+        match self {
+            CombatParticleKind::DeathExplosion
+            | CombatParticleKind::DeathLaser
+            | CombatParticleKind::WeaponMuzzleFlash
+            | CombatParticleKind::WeaponImpact => Some(2),
+            CombatParticleKind::DeathSmoke
+            | CombatParticleKind::DeathBurn
+            | CombatParticleKind::DeathPoison => Some(600),
+            // Authored BinaryShower lifetimes vary per template; the host
+            // marker is only a residual, so cap it at a bounded fallback.
+            CombatParticleKind::DisableFx => Some(30),
+            CombatParticleKind::ProjectileExhaust
+            | CombatParticleKind::ParticleSysBone
+            | CombatParticleKind::BodyFire
+            | CombatParticleKind::BodySmoke => None,
+        }
+    }
 }
 
 /// One active combat particle system entry in the host registry.
@@ -108,6 +132,10 @@ pub struct CombatParticleRegistry {
     spawned_this_frame: Vec<u32>,
     /// C++ `setMuzzleFlashHidden(false)` for one RecoilStart frame.
     muzzle_flash_until: HashMap<ObjectId, u32>,
+    /// Newest logic frame observed through spawns / per-frame syncs. The
+    /// expiry sweep in `clear_frame_events` measures elapsed lifetimes
+    /// against it.
+    current_frame: u32,
 }
 
 impl CombatParticleRegistry {
@@ -119,6 +147,7 @@ impl CombatParticleRegistry {
             destroyed_this_frame: Vec::new(),
             spawned_this_frame: Vec::new(),
             muzzle_flash_until: HashMap::new(),
+            current_frame: 0,
         }
     }
 
@@ -207,8 +236,33 @@ impl CombatParticleRegistry {
     }
 
     pub fn clear_frame_events(&mut self) {
+        // Per-frame expiry sweep (called once per host logic tick): one-shot
+        // systems deactivate once their system_lifetime elapses since spawn so
+        // the registry cannot grow unbounded.
+        self.sweep_expired_systems(self.current_frame);
         self.destroyed_this_frame.clear();
         self.spawned_this_frame.clear();
+    }
+
+    /// C++ finite `SystemLifetime` sweep (ParticleSys.cpp:2066-2081):
+    /// deactivate one-shot feedback systems once their lifetime has elapsed
+    /// since spawn. Attached/continuous kinds (exhausts, bone systems, body
+    /// fire/smoke) are owned by object updates and never expire here.
+    pub fn sweep_expired_systems(&mut self, frame: u32) {
+        let expired: Vec<u32> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                let Some(lifetime) = entry.kind.sweep_system_lifetime() else {
+                    return false;
+                };
+                entry.active && frame.saturating_sub(entry.spawned_frame) >= lifetime
+            })
+            .map(|entry| entry.id)
+            .collect();
+        for id in expired {
+            self.deactivate(id);
+        }
     }
 
     /// Spawn a combat particle system entry. Returns the host registry id.
@@ -256,6 +310,7 @@ impl CombatParticleRegistry {
         target: Option<ObjectId>,
     ) -> u32 {
         let id = self.next_id;
+        self.current_frame = self.current_frame.max(frame);
         self.next_id = self.next_id.saturating_add(1).max(1);
 
         let client_system_id = mirror_spawn_to_client_manager(&template_name, position);
@@ -590,20 +645,6 @@ impl CombatParticleRegistry {
                     drawable_matrix,
                 );
                 ids.push(impact_id);
-            } else {
-                let impact_id = self.spawn(
-                    CombatParticleKind::WeaponImpact,
-                    impact,
-                    frame,
-                    Some(shooter),
-                    target,
-                );
-                if !detonation_ocl_name.is_empty() {
-                    if let Some(e) = self.systems.get_mut(&impact_id) {
-                        e.ocl_list_name = detonation_ocl_name.to_string();
-                    }
-                }
-                ids.push(impact_id);
             }
         }
         ids
@@ -621,6 +662,7 @@ impl CombatParticleRegistry {
         target: Option<ObjectId>,
     ) -> u32 {
         let id = self.next_id;
+        self.current_frame = self.current_frame.max(frame);
         self.next_id = self.next_id.saturating_add(1).max(1);
         let entry = CombatParticleSystemEntry {
             id,
@@ -702,6 +744,7 @@ impl CombatParticleRegistry {
         frame: u32,
         projectiles: &[(ObjectId, ObjectId, Vec3, String)],
     ) {
+        self.current_frame = self.current_frame.max(frame);
         let live_projectiles: HashSet<ObjectId> = projectiles
             .iter()
             .map(|(projectile_id, _, _, _)| *projectile_id)
@@ -1451,6 +1494,7 @@ fn spawn_attached_system(
     let world = rotate_yaw_host(origin, yaw, local);
     let id = registry.next_id;
     registry.next_id = registry.next_id.saturating_add(1).max(1);
+    registry.current_frame = registry.current_frame.max(frame);
     crate::game_logic::publish_host_fx_object(owner.0, origin, yaw, -1);
 
     let cpp_local = host_local_to_cpp(local);
@@ -1672,7 +1716,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_spawn_fire_creates_muzzle_and_impact_entries() {
+    fn registry_spawn_fire_creates_muzzle_entry_only() {
         let mut reg = CombatParticleRegistry::new();
         let ids = reg.spawn_weapon_fire_fx(
             Vec3::new(1.0, 0.0, 1.0),
@@ -1681,7 +1725,9 @@ mod tests {
             ObjectId(1),
             Some(ObjectId(2)),
         );
-        assert_eq!(ids.len(), 2);
+        // C++ Weapon.cpp:903-939: without an authored DetonationFX list the
+        // impact plays nothing — no generic BulletImpact preset spawn.
+        assert_eq!(ids.len(), 1);
         assert_eq!(
             reg.systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
                 .len(),
@@ -1689,7 +1735,7 @@ mod tests {
         );
         assert_eq!(
             reg.systems_of_kind(CombatParticleKind::WeaponImpact).len(),
-            1
+            0
         );
         let muzzle = reg.get(ids[0]).unwrap();
         assert_eq!(muzzle.template_name, "MuzzleFlash");
@@ -1919,6 +1965,66 @@ mod tests {
             !body.contains("primary_speed,\n                0.0"),
             "must not hardcode overrideRadius=0 on FireFX dispatch"
         );
+    }
+    #[test]
+    fn empty_detonation_fx_spawns_no_generic_impact_preset() {
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named_ocl(
+            Vec3::ZERO,
+            Some(Vec3::ONE),
+            1,
+            ObjectId(1),
+            Some(ObjectId(2)),
+            "FX_Muzzle",
+            "",
+            "",
+            "",
+            0.0,
+            0.0,
+        );
+        // C++ Weapon.cpp:903-939 plays nothing at the impact without an
+        // authored DetonationFX list — never a generic BulletImpact preset.
+        assert_eq!(ids.len(), 1, "only the muzzle entry may spawn");
+        assert!(
+            !reg
+                .systems
+                .values()
+                .any(|entry| entry.kind == CombatParticleKind::WeaponImpact),
+        );
+    }
+
+    #[test]
+    fn one_shot_systems_deactivate_once_system_lifetime_elapses() {
+        let mut reg = CombatParticleRegistry::new();
+        let explosion = reg.spawn(
+            CombatParticleKind::DeathExplosion,
+            Vec3::ZERO,
+            5,
+            Some(ObjectId(1)),
+            None,
+        );
+        let smoke = reg.spawn(
+            CombatParticleKind::DeathSmoke,
+            Vec3::ZERO,
+            5,
+            Some(ObjectId(1)),
+            None,
+        );
+
+        // Registry frame still at 0: lifetime has not elapsed.
+        reg.clear_frame_events();
+        assert!(reg.get(explosion).expect("explosion").active);
+
+        // frame - spawned_frame reaches the 2-frame MediumExplosion lifetime.
+        reg.sync_projectile_exhausts(7, &[]);
+        reg.clear_frame_events();
+        assert!(!reg.get(explosion).expect("explosion").active);
+        // SmokePlume residual lives 600 frames — untouched at 7.
+        assert!(reg.get(smoke).expect("smoke").active);
+
+        reg.sync_projectile_exhausts(605, &[]);
+        reg.clear_frame_events();
+        assert!(!reg.get(smoke).expect("smoke").active);
     }
     #[test]
     fn projectile_exhaust_reuses_one_named_system_and_stops_with_projectile() {

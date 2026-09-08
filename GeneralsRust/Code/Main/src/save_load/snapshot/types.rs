@@ -64,8 +64,14 @@ use std::time::SystemTime;
 /// reloading_clip, last_bonus_rof) that the serde payload always carried but
 /// the historical direct-Xfer `Weapon` record dropped — C++ `Weapon::xfer` v3
 /// (Weapon.cpp:3364-3367) persists `m_status` RELOADING_CLIP + `m_ammoInClip`
-/// so a mid-clip-reload slot resumes after load.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 21;
+/// so a mid-clip-reload slot resumes after load. Version 22 appends the
+/// driving logic instance's 6-word ADC stream state plus the exact next
+/// object-ID counter: C++ keeps RandomValue process-static and never
+/// reseeds it on load (GameState.cpp:628-741), and `GameStateMap::xfer`
+/// moves the ID counter verbatim and early (GameStateMap.cpp:372-383), so
+/// a load must continue both rather than re-derive the stream from the
+/// game-start base seed or the counter from max live id + 1.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 22;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -73,7 +79,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 21;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 21;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 22;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -93,6 +99,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION: u32 = 18;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION: u32 = 19;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION: u32 = 20;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION: u32 = 21;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V22_TAIL_VERSION: u32 = 22;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -103,7 +110,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
         1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19
-        | 20 | 21 => Ok(()),
+        | 20 | 21 | 22 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -287,6 +294,22 @@ pub struct WorldSnapshot {
     /// `ObjectSnapshot` / `ObjectStatusSnapshot` stay aligned with v1-v19.
     #[serde(default)]
     pub object_disguises: Vec<ObjectDisguiseSnapshot>,
+
+    /// Driving logic instance's raw 6-word ADC stream state at save time
+    /// (C++ RandomValue seed array, RandomValue.cpp:150-174). C++ keeps the
+    /// stream process-static and no load path reseeds it, so the post-load
+    /// stream continues from these words. `[0; 6]` marks a pre-v22 save:
+    /// keep the legacy game-start re-derivation.
+    #[serde(default)]
+    pub logic_rng_seed_words: [u32; 6],
+
+    /// C++ `GameLogic::getObjectIDCounter` xferred verbatim and early by
+    /// `GameStateMap::xfer` (GameStateMap.cpp:372-383). The exact counter,
+    /// not max live id + 1, so IDs allocated after load never alias lingering
+    /// references to objects destroyed before the save. `0` marks a pre-v22
+    /// save: fall back to the historical max-id-plus-one derivation.
+    #[serde(default)]
+    pub next_object_id: u32,
 }
 
 /// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
@@ -561,6 +584,8 @@ impl Default for WorldSnapshot {
             object_experience_trackers: Vec::new(),
             object_command_sets: Vec::new(),
             object_disguises: Vec::new(),
+            logic_rng_seed_words: [0; 6],
+            next_object_id: 0,
         }
     }
 }

@@ -342,6 +342,15 @@ impl WgpuMainRenderer {
     }
 
     /// Begin a new frame.
+    ///
+    /// FRAME CLOCK: the logic frame clock (`ww3d_engine` `last_frame_start`) is
+    /// owned by `ww3d_engine::update()`, which opens every game frame. This
+    /// call used to re-stamp it via `ww3d_engine::begin_render()`, excluding
+    /// frame N's WW3D-update + logic-batch from frame N+1's dt and holding the
+    /// sim at ~16-17 fps instead of 30 (C++ anchor: GameEngine::execute,
+    /// GameEngine.cpp:774-884 — one clock per iteration). begin_render() now
+    /// only reads the clock; `self.frame_start` below is this renderer's own
+    /// stats clock (frame_accumulator in end_frame), not the logic dt chain.
     pub fn begin_frame(&mut self) -> RendererResult<()> {
         self.frame_start = Instant::now();
         self.shadow_caster_submissions.clear();

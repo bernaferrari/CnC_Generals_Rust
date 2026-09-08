@@ -393,13 +393,14 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{AIState, Player, Team, ThingTemplate};
+    use crate::game_logic::{AIState, KindOf, Player, Team, ThingTemplate};
     use crate::save_load::snapshot::{ObjectTypeSnapshot, SnapshotBuilder};
 
     fn ranger_logic() -> GameLogic {
         let mut logic = GameLogic::new();
         let mut ranger = ThingTemplate::new("Ranger");
         ranger.set_health(100.0);
+        ranger.add_kind_of(KindOf::Infantry);
         logic.templates.insert("Ranger".into(), ranger);
         let mut depot = ThingTemplate::new("USASupplyDepot");
         depot.set_health(400.0);

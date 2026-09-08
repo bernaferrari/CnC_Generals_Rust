@@ -693,72 +693,17 @@ impl UnitRenderInput {
             bits |= 1u128 << atk_b;
         }
         // Wave 517: slot-aware FIRING / BETWEEN / PREATTACK / RELOADING + PANICKING.
+        // Combat popping fix: the twelve weapon condition bits are derived by
+        // the host every logic frame (`sync_weapon_model_conditions_from_status`,
+        // mirroring C++ Object::adjustModelConditionForWeaponStatus,
+        // Object.cpp:4683-4761). Re-deriving them here per presentation frame
+        // from coarser residuals (`attacking && !is_firing_weapon` → PREATTACK)
+        // flapped the model condition between shots, popping units out of
+        // their combat poses. Pass the host-synced bits through untouched and
+        // only stamp PANICKING here (USING_WEAPON pairing lives in the Wave
+        // 505 block further down).
         {
-            use crate::game_logic::host_enum_table_residual::{
-                between_firing_shots_a_model_bit, between_firing_shots_b_model_bit,
-                between_firing_shots_c_model_bit, firing_a_model_bit, firing_b_model_bit,
-                firing_c_model_bit, panicking_model_bit, preattack_a_model_bit,
-                preattack_b_model_bit, preattack_c_model_bit, reloading_a_model_bit,
-                reloading_b_model_bit, reloading_c_model_bit, using_weapon_a_model_bit,
-                using_weapon_b_model_bit, using_weapon_c_model_bit,
-            };
-            // WeaponFireStatus ordinal: 0 Ready, 1 OutOfAmmo, 2 Between, 3 Reloading, 4 PreAttack
-            let status = self.weapon_fire_status;
-            let slot = self.active_weapon_slot; // 0=A,1=B,2=C residual
-            let (fire_b, between_b, pre_b, reload_b, use_b) = match slot {
-                1 => (
-                    firing_b_model_bit(),
-                    between_firing_shots_b_model_bit(),
-                    preattack_b_model_bit(),
-                    reloading_b_model_bit(),
-                    using_weapon_b_model_bit(),
-                ),
-                2 => (
-                    firing_c_model_bit(),
-                    between_firing_shots_c_model_bit(),
-                    preattack_c_model_bit(),
-                    reloading_c_model_bit(),
-                    using_weapon_c_model_bit(),
-                ),
-                _ => (
-                    firing_a_model_bit(),
-                    between_firing_shots_a_model_bit(),
-                    preattack_a_model_bit(),
-                    reloading_a_model_bit(),
-                    using_weapon_a_model_bit(),
-                ),
-            };
-            // clear slot banks then set
-            for b in [
-                firing_a_model_bit(),
-                firing_b_model_bit(),
-                firing_c_model_bit(),
-                between_firing_shots_a_model_bit(),
-                between_firing_shots_b_model_bit(),
-                between_firing_shots_c_model_bit(),
-                preattack_a_model_bit(),
-                preattack_b_model_bit(),
-                preattack_c_model_bit(),
-                reloading_a_model_bit(),
-                reloading_b_model_bit(),
-                reloading_c_model_bit(),
-                using_weapon_a_model_bit(),
-                using_weapon_b_model_bit(),
-                using_weapon_c_model_bit(),
-                panicking_model_bit(),
-            ] {
-                bits &= !(1u128 << b);
-            }
-            bits |= 1u128 << use_b;
-            if self.is_firing_weapon {
-                bits |= 1u128 << fire_b;
-            } else if status == 2 {
-                bits |= 1u128 << between_b;
-            } else if status == 3 {
-                bits |= 1u128 << reload_b;
-            } else if status == 4 || (self.attacking && !self.is_firing_weapon) {
-                bits |= 1u128 << pre_b;
-            }
+            use crate::game_logic::host_enum_table_residual::panicking_model_bit;
             if self.is_panicking {
                 bits |= 1u128 << panicking_model_bit();
             }
@@ -1351,7 +1296,10 @@ impl UnitRenderInput {
                     2 => c,
                     _ => a,
                 };
-                if (self.attacking && !self.is_firing_weapon) || self.weapon_fire_status == 4 {
+                // C++ sets WSF_PREATTACK only for WeaponStatus::PRE_ATTACK
+                // (Object.cpp:4719-4727). Approaching or aiming units never
+                // pop into PREATTACK poses here.
+                if self.weapon_fire_status == 4 {
                     bits |= 1u128 << pre_b;
                 }
             }

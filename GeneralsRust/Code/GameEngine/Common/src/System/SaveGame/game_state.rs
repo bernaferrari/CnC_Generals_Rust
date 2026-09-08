@@ -1006,10 +1006,16 @@ impl GameState {
                     if block_name.eq_ignore_ascii_case(GAME_STATE_BLOCK_STRING) {
                         self.xfer(xfer)?;
                     } else {
-                        let snapshot = self.snapshot_block_lists[index][block_pos]
-                            .snapshot
-                            .as_mut();
-                        xfer.xfer_snapshot(snapshot)?;
+                        // Take the block out so `&mut self` (the mutex-held
+                        // GameState) can be handed to the bridge — borrowing
+                        // the slot in place would not allow it.
+                        let mut snapshot = std::mem::replace(
+                            &mut self.snapshot_block_lists[index][block_pos].snapshot,
+                            Box::new(NullSnapshot),
+                        );
+                        let res = snapshot.xfer_with_state(xfer, self);
+                        self.snapshot_block_lists[index][block_pos].snapshot = snapshot;
+                        res?;
                     }
 
                     // End block
@@ -1047,10 +1053,25 @@ impl GameState {
                     if let Some(pos) = block_pos {
                         let _block_size = xfer.begin_block()?;
                         self.pending_post_process_snapshot = Some((which, pos));
-                        let snapshot = self.snapshot_block_lists[index][pos].snapshot.as_mut();
-                        if let Err(err) = xfer.xfer_snapshot(snapshot) {
+                        // Take the block out (see save branch) so the bridge
+                        // receives `&mut self` instead of re-locking THE_GAME_STATE.
+                        let mut snapshot = std::mem::replace(
+                            &mut self.snapshot_block_lists[index][pos].snapshot,
+                            Box::new(NullSnapshot),
+                        );
+                        let res = snapshot.xfer_with_state(xfer, self);
+                        self.snapshot_block_lists[index][pos].snapshot = snapshot;
+                        if let Err(err) = res {
                             self.pending_post_process_snapshot = None;
                             return Err(err);
+                        }
+                        // XferLoad::xfer_snapshot fires the post-process callback
+                        // after dispatch; we bypassed it, so perform the
+                        // pending->list handoff here under the same option gate.
+                        if !bit_test(xfer.get_options(), xfer_options::NO_POST_PROCESSING) {
+                            if let Some(entry) = self.pending_post_process_snapshot.take() {
+                                self.snapshot_post_process_list.push(entry);
+                            }
                         }
                         xfer.end_block()?;
                     } else {

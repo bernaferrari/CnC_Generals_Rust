@@ -99,13 +99,12 @@ pub fn honesty_fire_special_power_channel_api_source() -> bool {
 pub fn honesty_fire_special_power_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let ctx = include_str!("../../game_logic/game_logic/gameworld_authority.rs");
-    let gate_reads_context = |fn_name: &str, field: &str| {
-        match src.find(&format!("pub fn {fn_name}")) {
+    let gate_reads_context =
+        |fn_name: &str, field: &str| match src.find(&format!("pub fn {fn_name}")) {
             Some(i) => src[i..src.len().min(i + 300)]
                 .contains(&format!("current_gameworld_authority().{field}")),
             None => false,
-        }
-    };
+        };
     gate_reads_context("gameworld_fire_spawn_authority_enabled", "fire_spawn")
         && gate_reads_context("gameworld_special_power_authority_enabled", "special_power")
         && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")

@@ -1349,9 +1349,11 @@ fn cleanup_area_residual_clears_hazards_and_mines() {
             .objects
             .values()
             .any(|o| o.cleanup_stream_projectile && o.is_alive())
-            && game_logic.cleanup_areas().activations().iter().any(|a| {
-                a.radiation_cleared + a.toxin_cleared + a.mines_cleared > 0
-            })
+            && game_logic
+                .cleanup_areas()
+                .activations()
+                .iter()
+                .any(|a| a.radiation_cleared + a.toxin_cleared + a.mines_cleared > 0)
         {
             break;
         }
@@ -1773,6 +1775,18 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
     let far_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(800.0, 0.0, 0.0))
         .expect("far enemy");
+    // Parallel-batch isolation: the ShroudManager per-object status map is a
+    // process global shared by every test thread. A leftover non-Clear entry
+    // on a colliding small ObjectId (leaked by any test that ran a vision
+    // pass) fails closed the orbit gattling fog gate, so only the unfiltered
+    // howitzer damage lands and the residual damage asserts below see
+    // dealt=80 instead of 90/170. Sanitize the viewer slot the gate reads
+    // before the strike — leaked-global defense precedent:
+    // combat::tests::ensure_unit_test_direct_damage.
+    gamelogic::system::shroud_manager::get_shroud_manager()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear_host_object_visibility(0);
 
     {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
@@ -1795,6 +1809,24 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
     }
 
     let target = Vec3::new(40.0, 0.0, 0.0);
+    // Parallel-batch isolation: the DoSpecialPower location gate
+    // (ActionManager.cpp:1521 parity, via ThePartitionManager ->
+    // ShroudManager::get_shroud_state) refuses a damaging strike on a
+    // shrouded cell. Synthetic worlds fail open only while the
+    // process-global ShroudManager has no grid; another test's strike
+    // insertion (init_shroud_grid + undo reveals) flips the gate to
+    // consult cells that read Hidden here. A real match guarantees the
+    // strike target is visible to the caster, so establish the grid and
+    // reveal the target for player 0 before queueing (mask bit 0).
+    {
+        let center = gamelogic::common::Coord3D::new(target.x, target.z, target.y);
+        let shroud = gamelogic::system::shroud_manager::get_shroud_manager();
+        let mut mgr = shroud.lock().unwrap_or_else(|e| e.into_inner());
+        if !mgr.has_shroud_grid() {
+            mgr.init_shroud_grid(game_logic.world_width.max(1.0), game_logic.world_height.max(1.0));
+        }
+        mgr.do_shroud_reveal(&center, crate::game_logic::special_power_strikes::SPECTRE_VIEW_OBJECT_RANGE, 1);
+    }
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::SpectreGunship,
@@ -2016,7 +2048,20 @@ fn spectre_orbit_skips_gattling_when_gunship_overhead() {
         g.producer_id = Some(caster);
         g.spectre_gunship_update = Some(HostSpectreGunshipUpdateData::initiate_at(enemy_pos));
     }
-
+    // Same parallel-batch isolation as the host-path spectre test above:
+    // the damaging-strike shroud gate (ThePartitionManager ->
+    // ShroudManager::get_shroud_state) flips fail-closed once any sibling
+    // test initializes the process-global ShroudManager grid, so make the
+    // strike target visible to the caster (player 0) before queueing.
+    {
+        let center = gamelogic::common::Coord3D::new(enemy_pos.x, enemy_pos.z, enemy_pos.y);
+        let shroud = gamelogic::system::shroud_manager::get_shroud_manager();
+        let mut mgr = shroud.lock().unwrap_or_else(|e| e.into_inner());
+        if !mgr.has_shroud_grid() {
+            mgr.init_shroud_grid(logic.world_width.max(1.0), logic.world_height.max(1.0));
+        }
+        mgr.do_shroud_reveal(&center, crate::game_logic::special_power_strikes::SPECTRE_VIEW_OBJECT_RANGE, 1);
+    }
     logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
             power_type: SpecialPowerType::SpectreGunship,

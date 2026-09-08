@@ -8,48 +8,6 @@ use super::prelude::*;
 use super::script_camera::*;
 use super::*;
 
-/// Host count of crate ticks that were empty-world no-ops (not C++ phase order).
-pub(super) static CRATE_EMPTY_NOOP_TICKS: AtomicU32 = AtomicU32::new(0);
-
-/// Tick the gamelogic crate's full C++-parity update pipeline.
-/// This runs AI players, production/build assistant, weapon store (delayed damage),
-/// partition manager, death cleanup, locomotor store, victory conditions, and
-/// disabled-status checks — all phases from C++ GameLogic::update().
-///
-/// Empty crate worlds still return `Ok(())` so the host frame loop continues.
-/// That is **not** a C++ `GameLogic.cpp` phase-order tick: this helper logs at
-/// debug and increments [`crate_empty_noop_tick_count`]. Do not treat `Ok(())`
-/// as proof a dual-world crate simulation step ran.
-pub fn tick_gamelogic_crate() -> Result<(), String> {
-    update_game_logic()?;
-    note_crate_empty_noop_if_any();
-    Ok(())
-}
-
-pub(super) fn note_crate_empty_noop_if_any() {
-    let (is_noop, crate_count) = match gamelogic::get_game_logic().lock() {
-        Ok(logic) => (
-            logic.last_update_was_empty_noop(),
-            logic.empty_world_tick_count(),
-        ),
-        Err(_) => return,
-    };
-    if !is_noop {
-        return;
-    }
-    let host_count = CRATE_EMPTY_NOOP_TICKS
-        .fetch_add(1, Ordering::Relaxed)
-        .saturating_add(1);
-    log::debug!(
-        "tick_gamelogic_crate: empty-world no-op (not a C++ GameLogic.cpp phase-order tick); crate_count={crate_count} host_count={host_count}"
-    );
-}
-
-/// How many dual-tick crate calls reported an empty-world no-op this process.
-pub fn crate_empty_noop_tick_count() -> u32 {
-    CRATE_EMPTY_NOOP_TICKS.load(Ordering::Relaxed)
-}
-
 /// AI command structure for parallel processing
 #[derive(Debug)]
 pub enum AICommand {
@@ -248,11 +206,19 @@ pub enum GameMode {
 }
 
 /// Fixed-step loop diagnostics used for shell/menu stall investigations.
+/// `frozen_steps` counts steps whose update ran scripts but returned early on
+/// the C++ freezeTime check (GameLogic.cpp:3614-3616) — time consumed, nothing
+/// advanced.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FixedStepDiagnostics {
     pub steps_run: usize,
+    pub frozen_steps: usize,
     pub budget_hit: bool,
     pub accumulated_time_seconds: f32,
+    /// Live-path clamp (`step_simulation_with_budget` with `max_fixed_steps
+    /// = None`): after hitting the 6-step per drive_frame ceiling, the excess
+    /// accumulated time was dropped instead of carried into later frames.
+    pub dropped_excess_time: bool,
 }
 
 /// Wave 908: post-tick host residual stamp payload (frame + fixed-step diagnostics).

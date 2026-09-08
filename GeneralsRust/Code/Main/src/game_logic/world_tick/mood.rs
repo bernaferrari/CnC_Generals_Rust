@@ -1481,57 +1481,57 @@ mod common_target_parity {
             prev
         };
         {
-        let mut logic = GameLogic::new();
-        logic.frame = 100;
-        let mut at = ThingTemplate::new("MoodHutAtk");
-        at.add_kind_of(KindOf::Infantry);
-        at.add_kind_of(KindOf::Attackable);
-        let aid = ObjectId(2701);
-        logic.objects.insert(aid, {
-            let mut o = Object::new(at, aid, Team::USA);
-            o.set_position(glam::Vec3::ZERO);
-            o.ai_attitude = 0;
-            o.vision_range = 200.0;
-            o.next_mood_check_time = 0;
-            o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE | AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS;
-            o.weapon = Some(Weapon {
-                range: 80.0,
-                damage: 10.0,
-                can_target_ground: true,
-                ..Default::default()
+            let mut logic = GameLogic::new();
+            logic.frame = 100;
+            let mut at = ThingTemplate::new("MoodHutAtk");
+            at.add_kind_of(KindOf::Infantry);
+            at.add_kind_of(KindOf::Attackable);
+            let aid = ObjectId(2701);
+            logic.objects.insert(aid, {
+                let mut o = Object::new(at, aid, Team::USA);
+                o.set_position(glam::Vec3::ZERO);
+                o.ai_attitude = 0;
+                o.vision_range = 200.0;
+                o.next_mood_check_time = 0;
+                o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE | AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS;
+                o.weapon = Some(Weapon {
+                    range: 80.0,
+                    damage: 10.0,
+                    can_target_ground: true,
+                    ..Default::default()
+                });
+                o
             });
-            o
-        });
-        let mut hut_t = ThingTemplate::new("CivilianHut");
-        hut_t.add_kind_of(KindOf::Structure);
-        hut_t.add_kind_of(KindOf::Attackable);
-        let hut = ObjectId(2702);
-        logic.objects.insert(hut, {
-            let mut o = Object::new(hut_t, hut, Team::GLA);
-            o.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
-            o
-        });
-        assert!(
-            logic.get_next_mood_target(aid, true, true, false).is_none(),
-            "ATTACK_BUILDINGS + ignore-insig must skip civilian huts"
-        );
-        if let Some(o) = logic.objects.get_mut(&aid) {
-            o.next_mood_check_time = 0;
-        }
-        let mut inf_t = ThingTemplate::new("MoodHutInf");
-        inf_t.add_kind_of(KindOf::Infantry);
-        inf_t.add_kind_of(KindOf::Attackable);
-        let inf = ObjectId(2703);
-        logic.objects.insert(inf, {
-            let mut o = Object::new(inf_t, inf, Team::GLA);
-            o.set_position(glam::Vec3::new(45.0, 0.0, 0.0));
-            o
-        });
-        assert_eq!(
-            logic.get_next_mood_target(aid, true, true, false),
-            Some(inf),
-            "ignore-insig must still acquire units"
-        );
+            let mut hut_t = ThingTemplate::new("CivilianHut");
+            hut_t.add_kind_of(KindOf::Structure);
+            hut_t.add_kind_of(KindOf::Attackable);
+            let hut = ObjectId(2702);
+            logic.objects.insert(hut, {
+                let mut o = Object::new(hut_t, hut, Team::GLA);
+                o.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
+                o
+            });
+            assert!(
+                logic.get_next_mood_target(aid, true, true, false).is_none(),
+                "ATTACK_BUILDINGS + ignore-insig must skip civilian huts"
+            );
+            if let Some(o) = logic.objects.get_mut(&aid) {
+                o.next_mood_check_time = 0;
+            }
+            let mut inf_t = ThingTemplate::new("MoodHutInf");
+            inf_t.add_kind_of(KindOf::Infantry);
+            inf_t.add_kind_of(KindOf::Attackable);
+            let inf = ObjectId(2703);
+            logic.objects.insert(inf, {
+                let mut o = Object::new(inf_t, inf, Team::GLA);
+                o.set_position(glam::Vec3::new(45.0, 0.0, 0.0));
+                o
+            });
+            assert_eq!(
+                logic.get_next_mood_target(aid, true, true, false),
+                Some(inf),
+                "ignore-insig must still acquire units"
+            );
         }
         {
             let store = game_engine::common::ini::get_ai_data_store();

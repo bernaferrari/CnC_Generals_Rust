@@ -1525,8 +1525,7 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         {
             let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-            let mut shroud = shroud_manager.lock()
-                .expect("shroud");
+            let mut shroud = shroud_manager.lock().expect("shroud");
             shroud.clear_all();
         }
 
@@ -1695,8 +1694,7 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         {
             let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-            let mut shroud = shroud_manager.lock()
-                .expect("shroud");
+            let mut shroud = shroud_manager.lock().expect("shroud");
             shroud.clear_all();
         }
 
@@ -1779,4 +1777,6 @@ mod tests {
             "detected stealthed enemy is pickable"
         );
     }
+
+
 }

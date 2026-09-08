@@ -655,16 +655,23 @@ pub fn honesty_spectre_orbit_residual_pack_wave73() -> bool {
         && SpectreGunshipScienceTier::Level1.orbit_duration_frames() == 300
         && SpectreGunshipScienceTier::Level2.orbit_duration_frames() == 450
         && SpectreGunshipScienceTier::Level3.orbit_duration_frames() == 600
-        // Dual-weapon ROF residual schedule.
+        // SCIENCE_SpectreGunshipSolo (vanilla USA, ungated module) = retail
+        // default OrbitTime 15000 ms → Level2 semantics, never Level1.
+        && SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunshipSolo")
+            == Some(SpectreGunshipScienceTier::Level2)
+        // Dual-weapon ROF residual schedule: gattling ramps 3→1→1; the
+        // howitzer template's MEAN/FAST values stay documented residuals, but
+        // the effective orbit cadence is FIXED 9f (fresh temp weapon per shot,
+        // SpectreGunshipUpdate.cpp:493/583).
         && SPECTRE_DUAL_HOWITZER_BASE_INTERVAL == 9
         && SPECTRE_DUAL_HOWITZER_MEAN_INTERVAL == 6
         && SPECTRE_DUAL_HOWITZER_FAST_INTERVAL == 4
         && SPECTRE_DUAL_GATTLING_BASE_INTERVAL == 3
         && SPECTRE_DUAL_GATTLING_MEAN_INTERVAL == 1
         && SPECTRE_DUAL_GATTLING_FAST_INTERVAL == 1
-        && spectre_howitzer_interval_frames(0) == SPECTRE_DUAL_HOWITZER_BASE_INTERVAL
-        && spectre_howitzer_interval_frames(2) == SPECTRE_DUAL_HOWITZER_MEAN_INTERVAL
-        && spectre_howitzer_interval_frames(3) == SPECTRE_DUAL_HOWITZER_FAST_INTERVAL
+        && spectre_howitzer_interval_frames(0) == SPECTRE_ORBIT_TICK_INTERVAL_FRAMES
+        && spectre_howitzer_interval_frames(2) == SPECTRE_ORBIT_TICK_INTERVAL_FRAMES
+        && spectre_howitzer_interval_frames(3) == SPECTRE_ORBIT_TICK_INTERVAL_FRAMES
         && spectre_gattling_interval_frames(0) == SPECTRE_DUAL_GATTLING_BASE_INTERVAL
         && spectre_gattling_interval_frames(2) == SPECTRE_DUAL_GATTLING_MEAN_INTERVAL
         && spectre_gattling_interval_frames(3) == SPECTRE_DUAL_GATTLING_FAST_INTERVAL

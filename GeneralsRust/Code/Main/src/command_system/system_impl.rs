@@ -978,6 +978,8 @@ impl CommandSystem {
                 template_name,
                 player_id,
                 location,
+                // Wave 232 residual path has no authored facing.
+                0.0,
             );
             if created.is_none() {
                 game_logic.player_refund_supplies(player_id, build_cost.supplies);
@@ -1892,9 +1894,7 @@ fn target_is_carbombable_vehicle(hint: &PresentationTargetHint) -> bool {
         && hint.is_vehicle
         && !hint.is_aircraft
         && !hint.is_carbomb
-        && crate::game_logic::host_car_bomb::template_has_carbomb_weapon_set(
-            &hint.template_name,
-        )
+        && crate::game_logic::host_car_bomb::template_has_carbomb_weapon_set(&hint.template_name)
 }
 
 fn selection_can_hijack_target(

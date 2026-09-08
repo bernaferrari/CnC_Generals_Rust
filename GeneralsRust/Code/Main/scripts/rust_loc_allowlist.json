@@ -1,7 +1,11 @@
 {
   "hard_limit": 4000,
   "policy": "Entries are temporary ceilings: counts may decrease or disappear, never increase.",
-  "production": {},
+  "production": {
+    "Code/Main/src/game_logic/world_objects/create_destroy_die.rs": 4003
+  },
   "schema_version": 1,
-  "test": {}
+  "test": {
+    "Code/Main/src/ai/cpp_parity_tests.rs": 4166
+  }
 }

@@ -116,6 +116,15 @@ pub async fn run_cnc_game(
     let mut shutdown_logged = false;
     let mut next_redraw_at = Instant::now();
     let mut last_slow_frame_log = None::<Instant>;
+    /// Frame-start Instant of the previous drive_frame that fed the logic dt
+    /// chain (ww3d_engine::update() + update_with_timing). Anchors the
+    /// DT-CHAIN GUARD inside drive_frame: engine.update_with_timing must
+    /// receive the true elapsed since the PREVIOUS frame start, never a span
+    /// cut short by a mid-frame clock stamp. C++ anchor: GameEngine::execute
+    /// (GameEngine.cpp:774-884) has ONE frame clock per iteration — update()
+    /// then draw() with no second stamp — so logic dt covers the full
+    /// previous frame (WW3D update + logic batch + render).
+    let mut last_drive_frame_start: Option<Instant> = None;
     let mut slow_frame_count = 0u32;
     let mut slow_frame_peak = Duration::ZERO;
     let mut slow_ww3d_peak = Duration::ZERO;
@@ -167,6 +176,10 @@ pub async fn run_cnc_game(
                 let _ = applied;
             }
 
+            // Frame-start captured ONCE per drive_frame, before any work: the
+            // logic dt must span the full previous frame, the way C++
+            // GameEngine::execute measures one whole update()+draw iteration
+            // per clock stamp (GameEngine.cpp:856-866).
             let frame_started = Instant::now();
             let mut ww3d_elapsed = Duration::ZERO;
             let frame_timing = if matches!(
@@ -199,6 +212,35 @@ pub async fn run_cnc_game(
             } else {
                 None
             };
+
+            // DT-CHAIN GUARD: timing.delta_time must equal the elapsed since
+            // the PREVIOUS drive_frame that fed the logic chain — the FULL
+            // previous frame (WW3D update + logic batch + render), matching
+            // the single C++ frame clock (GameEngine.cpp:774-884). Correct
+            // rather than trust, so a re-introduced second clock stamp
+            // (begin_render re-stamp) cannot re-halve sim speed to its
+            // measured ~16-17 fps equilibrium (1.6-2 logic steps per
+            // 98-190 ms frame). Post-fix this never fires; the ww3d clock
+            // stamp and this anchor differ only by microseconds.
+            let frame_timing = frame_timing.map(|mut timing| {
+                if let Some(prev_start) = last_drive_frame_start {
+                    let true_elapsed = frame_started.duration_since(prev_start);
+                    if timing.delta_time.abs_diff(true_elapsed) > Duration::from_millis(2) {
+                        warn!(
+                            "WW3D timing dt {:?} diverged from full-frame elapsed {:?}; using full-frame elapsed",
+                            timing.delta_time, true_elapsed
+                        );
+                        timing.delta_time = true_elapsed;
+                    }
+                }
+                timing
+            });
+            // Only timed frames advance the anchor: logic-less states use
+            // update_with_frame_clock()'s own internal clock, and timing
+            // deltas keep spanning update-to-update across them.
+            if frame_timing.is_some() {
+                last_drive_frame_start = Some(frame_started);
+            }
 
             let update_started = Instant::now();
             // C++ GameEngine::update (GameEngine.cpp:732-752):
@@ -923,8 +965,6 @@ impl CnCGameEngine {
             radar.set_local_player_active(local_player_active);
             radar.set_local_has_radar(local_has_radar);
             radar.force_on(radar_forced);
-            let frame = self.host_match_logic_frame.unwrap_or(0);
-            radar.update(frame);
             // C++ `getShroudedStatus` is queried at overlay render, after
             // `Radar::update` rebuilds the object lists. Stamp after sync so
             // PARTIAL_CLEAR fog-edge blips survive provider rebuild.
@@ -1101,18 +1141,16 @@ mod tests {
             "C++ GameEngine.cpp:732 TheRadar->UPDATE before TheAudio->UPDATE"
         );
         assert!(
-            live.contains("radar.update(frame)"),
-            "host_update_the_radar must call RadarSystem::update"
+            !live.contains("radar.update("),
+            "exactly one radar.update driver: Common GameEngine client-frame \
+             counter (game_engine.rs); host_update_the_radar must not re-drive it"
         );
-        let update_at = live
-            .find("radar.update(frame)")
-            .expect("RadarSystem::update");
         let stamp_at = live
             .rfind("apply_object_shrouds")
             .expect("object shroud stamp");
         assert!(
-            update_at < stamp_at,
-            "C++ getShroudedStatus is queried after Radar::update rebuilds lists"
+            stamp_at > live.find("get_radar_system").expect("radar lock"),
+            "shroud stamp runs against the shared radar system"
         );
         assert!(
             live.contains("execute_wait_deadline("),

@@ -856,7 +856,7 @@ fn radar_view_box_bottom_color() -> RGBAColorInt {
     RGBAColorInt::new(158, 158, 0, 255)
 }
 
-fn clip_line_to_rect(
+pub fn clip_line_to_rect(
     mut start: ICoord2D,
     mut end: ICoord2D,
     clip_x: i32,
@@ -1002,6 +1002,17 @@ pub struct RadarSystem {
     /// Is terrain texture dirty
     terrain_dirty: bool,
 
+    /// Monotonic counter bumped every time `terrain_texture` is (re)built or
+    /// cleared. C++ keeps the W3D terrain texture resident and repaints it only
+    /// on `newMap` / `refreshTerrain`; client layers key their GPU uploads on
+    /// this counter instead of re-uploading every frame.
+    terrain_generation: u64,
+
+    /// Monotonic counter bumped every time the shroud grid changes. C++ paints
+    /// `m_shroudTexture` incrementally from `setShroudLevel` / `clearShroud`;
+    /// clients key their shroud uploads on this revision.
+    shroud_revision: u64,
+
     /// Shroud status grid (matches C++ shroud system)
     /// Indexed as [y * RADAR_CELL_WIDTH + x]
     shroud_grid: Vec<CellShroudStatus>,
@@ -1074,6 +1085,8 @@ impl RadarSystem {
             terrain_texture: vec![0; (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT * 4) as usize],
             terrain_samples: Vec::new(),
             terrain_dirty: true,
+            terrain_generation: 0,
+            shroud_revision: 0,
             shroud_grid: vec![CellShroudStatus::Shrouded; grid_size],
             shroud_cleared: false,
             gps_active_until_frame: 0,
@@ -1092,6 +1105,8 @@ impl RadarSystem {
         self.clear_all_events();
         self.radar_force_on = false;
         self.terrain_dirty = true;
+        self.terrain_generation = self.terrain_generation.wrapping_add(1);
+        self.shroud_revision = self.shroud_revision.wrapping_add(1);
     }
 
     /// Clear all radar events (matches C++ Radar::clearAllEvents)
@@ -1507,12 +1522,28 @@ impl RadarSystem {
     /// own device surfaces.
     pub fn clear_terrain_texture_rgba(&mut self) {
         self.terrain_texture.fill(0);
+        self.terrain_generation = self.terrain_generation.wrapping_add(1);
     }
 
     /// Check if terrain texture needs refresh
     pub fn is_terrain_dirty(&self) -> bool {
         self.terrain_dirty
     }
+
+    /// Monotonic terrain-texture generation (C++ keeps `m_terrainTexture`
+    /// resident and repaints only on refresh; callers cache uploads by this).
+    #[must_use]
+    pub fn terrain_generation(&self) -> u64 {
+        self.terrain_generation
+    }
+
+    /// Monotonic shroud-grid revision (C++ paints `m_shroudTexture`
+    /// incrementally from `setShroudLevel`; callers cache uploads by this).
+    #[must_use]
+    pub fn shroud_revision(&self) -> u64 {
+        self.shroud_revision
+    }
+
 
     /// Hide/show radar
     pub fn hide(&mut self, hidden: bool) {
@@ -1768,6 +1799,7 @@ impl RadarSystem {
         }
         self.shroud_cleared = true;
         self.terrain_dirty = true;
+        self.shroud_revision = self.shroud_revision.wrapping_add(1);
     }
 
     /// Set shroud level at specific radar cell
@@ -1782,6 +1814,7 @@ impl RadarSystem {
         if index < self.shroud_grid.len() {
             self.shroud_grid[index] = status;
             self.terrain_dirty = true;
+            self.shroud_revision = self.shroud_revision.wrapping_add(1);
         }
     }
 
@@ -1909,6 +1942,7 @@ impl RadarSystem {
         }
 
         self.terrain_dirty = true;
+        self.shroud_revision = self.shroud_revision.wrapping_add(1);
     }
 
     /// Check if shroud is cleared

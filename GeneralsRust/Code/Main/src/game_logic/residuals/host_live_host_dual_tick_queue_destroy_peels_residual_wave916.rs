@@ -1,6 +1,6 @@
-//! Wave 916: dual-tick AuthorityOnly short-circuit + queue/destroy residual peels.
+//! Wave 916: AuthorityOnly-only frame path + queue/destroy residual peels.
 //!
-//! - default dual-tick policy never invokes tick_gamelogic_crate
+//! - the dual-tick crate gate was deleted; AuthorityOnly is the only policy
 //! - queue_command no longer stamps sim timing mid-queue
 //! - destroy_object skips when presentation residual already destroyed
 //! playable_claim stays false.
@@ -18,7 +18,6 @@ pub const LIVE_HOST_DUAL_TICK_QUEUE_DESTROY_PEELS_METHOD_NAMES_WAVE916: &[&str] 
     "host_queue_command",
     "host_destroy_object",
     "dual_tick_policy",
-    "tick_gamelogic_crate",
     "Wave 916",
     "playable_claim = false",
 ];
@@ -85,7 +84,9 @@ pub fn honesty_host_dual_tick_queue_destroy_peels_nav_commands_residual_wave916(
 
 pub fn honesty_host_dual_tick_queue_destroy_peels_residual_pack_wave916() -> bool {
     let cnc = cnc_source();
-    // dual-tick site is not a fn host_*; search policy block
+    // 2026-09-07 re-pin: the dual-tick crate gate (policy fetch +
+    // apply_post_authority_crate_tick + tick_gamelogic_crate call) was deleted
+    // from the InGame frame; single-authority is unconditional now.
     let dual_idx = cnc.find("Wave 916: AuthorityOnly");
     let dual_raw = if dual_idx.is_some() {
         let i = dual_idx.unwrap();
@@ -99,8 +100,9 @@ pub fn honesty_host_dual_tick_queue_destroy_peels_residual_pack_wave916() -> boo
     let d_raw = code_window(cnc, "fn host_destroy_object", 1200);
     let d = non_comment_code(d_raw);
     let ok = dual_raw.contains("916")
-        && dual.contains("AuthorityOnly")
-        && dual.contains("tick_gamelogic_crate")
+        && dual_raw.contains("no dual crate tick")
+        && !dual_raw.contains("apply_post_authority_crate_tick")
+        && !cnc.contains("apply_post_authority_crate_tick")
         && q_raw.contains("916")
         && !q.contains("host_stamp_sim_timing_residuals")
         && d_raw.contains("916")

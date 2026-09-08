@@ -6,6 +6,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use gamelogic::world::entities::EntityId;
 use gamelogic::world::entities::EntityLifecycleEnvelope;
 use gamelogic::world::entity_fixup::{ContainFixup, ProducerFixup};
+use crate::gameworld_shadow::GameWorldShadow;
 use gamelogic::world::entity_generation::EntityHandle;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -96,26 +97,63 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
     })
 }
 
+/// Live GameWorld entity-store generation for a host object, when the shadow
+/// session is reachable at capture time.
+///
+/// C++ `ObjectID`s are never reused (`GameLogic.cpp:3816-3821`), so C++ xfer
+/// links are implicitly "generation 1"; the Rust restore path
+/// (`EntityStore::spawn_at`) can reuse an id, and these generations are what
+/// disambiguates occupants for the GameWorld-side fixups built by
+/// `contain_fixups_from_tail` / `producer_fixups_from_tail`.
+fn shadow_generation_for(shadow: &GameWorldShadow, host: ObjectId) -> Option<u32> {
+    let eid = shadow.entity_for_host(host)?;
+    shadow.world().entity_handle(eid).map(|h| h.generation())
+}
+
 pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
     let mut tail = LifecycleTail::default();
+    // Real store generations when the shadow is installed for a coupled tick;
+    // otherwise the historical wire value 1. NOTE: the production save entry
+    // (`SnapshotBuilder::create_world_snapshot`) holds only `&GameLogic` and
+    // runs outside the coupled tick, so it takes the fallback today —
+    // capturing real generations there requires the save path to carry the
+    // shadow session (remaining gap; deliberately not plumbed wrong here).
+    let mut generation_fallbacks = 0usize;
+    let mut generation_for = |host: ObjectId| {
+        crate::gameworld_shadow::with_active_shadow(|shadow| {
+            shadow_generation_for(shadow, host)
+        })
+        .flatten()
+        .unwrap_or_else(|| {
+            generation_fallbacks += 1;
+            1
+        })
+    };
     for object in game_logic.host_objects().values() {
         tail.envelopes.push(object.entity_lifecycle_envelope());
+        let entity_generation = generation_for(object.id);
         for occupant in &object.occupants {
             tail.contain_links.push(ContainLink {
                 container_id: object.id.0,
                 occupant_id: occupant.0,
-                container_generation: 1,
-                occupant_generation: 1,
+                container_generation: entity_generation,
+                occupant_generation: generation_for(*occupant),
             });
         }
         if let Some(producer) = object.producer_id {
             tail.producer_links.push(ProducerLink {
                 entity_id: object.id.0,
                 producer_id: producer.0,
-                entity_generation: 1,
-                producer_generation: 1,
+                entity_generation,
+                producer_generation: generation_for(producer),
             });
         }
+    }
+    if generation_fallbacks > 0 {
+        log::debug!(
+            "lifecycle tail: shadow entity store unreachable at capture; \
+             {generation_fallbacks} link generation(s) defaulted to 1"
+        );
     }
     tail
 }
@@ -350,5 +388,65 @@ mod tests {
         assert_eq!(restored.wait_at_station_timer, 12);
         assert!(restored.held);
         railroad_registry_reset();
+    }
+
+    #[test]
+    fn capture_uses_shadow_store_generations_when_coupled() {
+        use crate::game_logic::{Object, Team, ThingTemplate};
+        use gamelogic::world::entities::{TemplateRef, Transform};
+
+        // with_active_shadow fail-closes unless the env opt-out is off.
+        let _guard = crate::gameworld_shadow::authority_env_lock();
+        let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
+
+        let mut logic = GameLogic::new();
+        let mut object = Object::new(
+            ThingTemplate::new("CivilianTrainEngine"),
+            ObjectId(9),
+            Team::USA,
+        );
+        object.producer_id = Some(ObjectId(4));
+        object.occupants.push(ObjectId(5));
+        logic.host_objects_mut().insert(ObjectId(9), object);
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(ObjectId(9)).expect("mapped");
+        // Roll the store occupant once so the live generation is 2.
+        assert!(shadow.world_mut().world_mut().remove_entity(eid));
+        assert_eq!(
+            shadow.world_mut().spawn_entity_at(
+                eid,
+                TemplateRef::new("CivilianTrainEngine"),
+                None,
+                Transform::default(),
+                100.0
+            ),
+            Some(eid)
+        );
+        assert_eq!(
+            shadow.world().entity_handle(eid).map(|h| h.generation()),
+            Some(2)
+        );
+
+        crate::gameworld_shadow::begin_shadow_coupled_tick();
+        crate::gameworld_shadow::install_active_shadow_for_coupled_tick(&mut shadow);
+        let tail = capture_lifecycle_tail(&logic);
+        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+        crate::gameworld_shadow::end_shadow_coupled_tick();
+
+        match prev {
+            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
+            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
+        }
+
+        assert_eq!(tail.contain_links.len(), 1);
+        assert_eq!(tail.contain_links[0].container_generation, 2);
+        // Occupant/producer host ids without a shadow mapping fall back to 1.
+        assert_eq!(tail.contain_links[0].occupant_generation, 1);
+        assert_eq!(tail.producer_links.len(), 1);
+        assert_eq!(tail.producer_links[0].entity_generation, 2);
+        assert_eq!(tail.producer_links[0].producer_generation, 1);
     }
 }

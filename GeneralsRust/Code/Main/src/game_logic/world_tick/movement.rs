@@ -197,7 +197,8 @@ impl GameLogic {
         }
 
         // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
-        let mut repaths: Vec<(ObjectId, Vec<Vec3>)> = Vec::new();
+        let mut repaths: Vec<(ObjectId, Vec<Vec3>, bool)> = Vec::new();
+        let mut concessions: Vec<(ObjectId, bool, u32, bool, f32)> = Vec::new();
         for &id in object_ids {
             let Some(obj) = self.objects.get(&id) else {
                 continue;
@@ -233,15 +234,18 @@ impl GameLogic {
                     if let Some(path) = self.pathfinding_system.find_safe_path_from(
                         from, rep_pos, rep2_pos, vision, surfaces, is_crusher, is_human,
                     ) {
-                        repaths.push((id, path));
+                        repaths.push((id, path, false));
                     }
                 }
             } else if (obj.is_blocked_and_stuck || obj.num_frames_blocked > 60)
                 && obj.movement.path.len() >= 2
+                // C++ setQueueForPathTime backoff (AIUpdate.cpp:481-496): a
+                // conceded unit must not order another A* until the deadline.
+                && obj.queue_for_path_frames == 0
             {
                 let from = obj.get_position();
                 let original = obj.movement.path.clone();
-                if let Some(path) = self.pathfinding_system.patch_path(
+                match self.pathfinding_system.patch_path(
                     from,
                     &original,
                     surfaces,
@@ -249,20 +253,78 @@ impl GameLogic {
                     &self.objects,
                     Some(id),
                 ) {
-                    repaths.push((id, path));
+                    Some(path) => repaths.push((id, path, obj.is_blocked_and_stuck)),
+                    None => concessions.push((
+                        id,
+                        obj.is_blocked_and_stuck,
+                        surfaces,
+                        is_crusher,
+                        obj.selection_radius,
+                    )),
                 }
             }
         }
-        for (id, path) in repaths {
+        for (id, path, was_stuck) in repaths {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if path.len() >= 2 {
                     obj.movement.path = path;
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.is_blocked_and_stuck = false;
+                    // C++ AIUpdate.cpp:2116-2121 — blocked-frame reset once a
+                    // fresh path installs; otherwise the unit repaths every frame.
+                    obj.num_frames_blocked = 0;
                     obj.set_status_moving(true);
                     obj.record_host_movement();
+                    if was_stuck {
+                        // C++ AIUpdate.cpp:486-495: repathing while stuck →
+                        // setIgnoreCollisionTime(2s) so the unit can slip
+                        // through the jam instead of vibrating against it.
+                        obj.ignore_collisions_until_frame = self
+                            .frame
+                            .saturating_add(
+                                2 * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL,
+                            );
+                    }
                 }
+            }
+        }
+        for (id, was_jammed, surfaces, is_crusher, radius) in concessions {
+            // C++ AIUpdate.cpp:1731-1748 concede: patchPath failed while
+            // blocked-and-stuck → destroyPath, snap the final position,
+            // locomotor goal none, queue for path in 1s, reset blocked flags.
+            let goal_pos = self.pathfinding_system.snap_closest_goal_position(
+                self.objects
+                    .get(&id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(Vec3::ZERO),
+                surfaces,
+                is_crusher,
+                radius,
+            );
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            obj.movement.path.clear();
+            obj.movement.current_path_index = 0;
+            obj.movement.target_position = None;
+            obj.movement.velocity = Vec3::ZERO;
+            obj.final_position = goal_pos;
+            obj.do_final_position = true;
+            obj.set_locomotor_goal_none();
+            obj.queue_for_path_frames =
+                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            obj.num_frames_blocked = 0;
+            obj.is_blocked = false;
+            obj.is_blocked_and_stuck = false;
+            obj.set_status_moving(false);
+            obj.record_host_movement();
+            if was_jammed {
+                // C++ AIMoveOutOfTheWayState::computePath (AIStates.cpp:2143-
+                // 2148): a blocked-and-stuck unit arms canPathThroughUnits and
+                // stops instead of repathing — the physics tunnel
+                // (physics.rs:383-385) and findClosestPath goal accept.
+                obj.can_path_through_units = true;
             }
         }
 
@@ -312,7 +374,9 @@ impl GameLogic {
                     .is_some_and(|t| t.is_underwater_at_world(pos));
                 (gy, sy, ahead_y, cell_type, underwater)
             };
-            let mut plant_snap = false;
+            // C++ setFinalPosition(goalPosition): capture the path's last node
+            // before stop_moving() clears the path.
+            let mut plant_goal: Option<Vec3> = None;
             'unit: {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
@@ -462,47 +526,65 @@ impl GameLogic {
                     let close_enough_sanity =
                         4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
 
+                    // C++ advances the waypoint at most once per frame; the
+                    // post-integration advance below is suppressed when the
+                    // top-of-loop projection advance already consumed
+                    // waypoints.
+                    let mut advanced_index_this_frame = false;
                     if !obj.movement.path.is_empty()
                         && obj.movement.current_path_index < obj.movement.path.len()
                     {
                         let current_pos = obj.get_position();
-                        let waypoint = obj.movement.path[obj.movement.current_path_index];
-                        if obj.host_locomotor_distance_to_goal(current_pos, waypoint) < close_enough
-                        {
-                            let finishing =
-                                obj.movement.current_path_index + 1 >= obj.movement.path.len();
-                            let last = *obj.movement.path.last().unwrap_or(&waypoint);
-                            // C++ AIStates.cpp:1889-1904 — ground sanity refuses to
-                            // plant if 2D to last node > 4*PATHFIND_CELL_SIZE.
-                            if finishing
-                                && !z_motive
-                                && horiz(current_pos, last) > close_enough_sanity
+                        // C++ Path::computePointOnPath (AIPathfind.cpp:769-860)
+                        // advances the closest segment by forward projection —
+                        // the lead points past node[i], so gating the index on
+                        // a node radius stalled corner-cutting units in
+                        // stop-go loops. Advance while the projection is past
+                        // node[i]; arrival is a separate final-goal check.
+                        let advanced = Self::advance_path_index_by_projection(
+                            &obj.movement.path,
+                            obj.movement.current_path_index,
+                            current_pos,
+                        );
+                        if advanced != obj.movement.current_path_index {
+                            obj.movement.current_path_index = advanced;
+                            advanced_index_this_frame = true;
+                        }
+
+                        // Arrival is only the final goal node: locomotor
+                        // close-enough distance to the last node, with the C++
+                        // ground sanity refusing to plant when 2D to it exceeds
+                        // 4*PATHFIND_CELL_SIZE (AIStates.cpp:1887-1904).
+                        if obj.movement.current_path_index + 1 >= obj.movement.path.len() {
+                            let last = *obj.movement.path.last().unwrap();
+                            let plant_ok =
+                                z_motive || horiz(current_pos, last) <= close_enough_sanity;
+                            if obj.host_locomotor_distance_to_goal(current_pos, last)
+                                < close_enough
+                                && plant_ok
                             {
-                                // Keep marching toward the last node.
-                            } else {
                                 obj.movement.current_path_index += 1;
-                                if obj.movement.current_path_index >= obj.movement.path.len() {
-                                    let do_evac = obj.pending_evacuate_on_stop;
-                                    let and_exit = obj.pending_exit_after_evacuate;
-                                    if obj.holds_air_position_when_idle() {
-                                        obj.movement.path.clear();
-                                        obj.movement.current_path_index = 0;
-                                        obj.movement.target_position = None;
-                                        obj.maintain_pos_valid = false;
-                                        obj.can_path_through_units = false;
-                                        let _ = obj.loco_maintain_current_position(surface_y, dt);
-                                    } else {
-                                        obj.stop_moving();
-                                        plant_snap = true;
-                                    }
-                                    if do_evac {
-                                        obj.pending_evacuate_on_stop = true;
-                                        obj.pending_exit_after_evacuate = and_exit;
-                                    }
-                                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                    Self::stamp_object_airborne_target(obj, ground_y);
-                                    break 'unit;
+                                advanced_index_this_frame = true;
+                                let do_evac = obj.pending_evacuate_on_stop;
+                                let and_exit = obj.pending_exit_after_evacuate;
+                                if obj.holds_air_position_when_idle() {
+                                    obj.movement.path.clear();
+                                    obj.movement.current_path_index = 0;
+                                    obj.movement.target_position = None;
+                                    obj.maintain_pos_valid = false;
+                                    obj.can_path_through_units = false;
+                                    let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                } else {
+                                    plant_goal = obj.movement.path.last().copied();
+                                    obj.stop_moving();
                                 }
+                                if do_evac {
+                                    obj.pending_evacuate_on_stop = true;
+                                    obj.pending_exit_after_evacuate = and_exit;
+                                }
+                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::stamp_object_airborne_target(obj, ground_y);
+                                break 'unit;
                             }
                         }
 
@@ -525,6 +607,7 @@ impl GameLogic {
                             is_crusher,
                             obj.owner_player_id,
                             obj.crusher_level,
+                            obj.ignored_obstacle_id.map(|id| id.0),
                         );
                         let mut target = lead;
                         // Ground locos keep XZ march; Z-motive / Climber keep lead Y
@@ -708,8 +791,9 @@ impl GameLogic {
                                             let _ =
                                                 obj.loco_maintain_current_position(surface_y, dt);
                                         } else {
+                                            plant_goal =
+                                                obj.movement.path.last().copied();
                                             obj.stop_moving();
-                                            plant_snap = true;
                                         }
                                     } else {
                                         obj.movement.current_path_index += 1;
@@ -899,13 +983,15 @@ impl GameLogic {
                                 };
                                 let signed_speed = if move_backwards { -speed } else { speed };
                                 let target_velocity = heading * signed_speed;
-                                let velocity_diff = target_velocity - obj.movement.velocity;
                                 let accel = obj.effective_acceleration();
                                 let max_accel = if obj.is_braking {
-                                    obj.braking_factor.max(1.0) * obj.braking.max(accel) * dt
+                                    // C++ Locomotor.cpp:1234 — decel is exactly
+                                    // brakingFactor * braking; no accel mix or floor.
+                                    obj.braking_factor * obj.braking * dt
                                 } else {
                                     accel * dt
                                 };
+                                let velocity_diff = target_velocity - obj.movement.velocity;
 
                                 let new_velocity = if velocity_diff.length() <= max_accel {
                                     target_velocity
@@ -963,11 +1049,21 @@ impl GameLogic {
                                         obj.maintain_pos_valid = false;
                                         let _ = obj.loco_maintain_current_position(surface_y, dt);
                                     } else {
+                                        plant_goal =
+                                            obj.movement.path.last().copied();
                                         obj.stop_moving();
-                                        plant_snap = true;
                                     }
-                                } else {
-                                    obj.movement.current_path_index += 1;
+                                } else if !advanced_index_this_frame {
+                                    // Same projection advance as the
+                                    // top-of-loop; reaching the lead's vicinity
+                                    // counts as at least the current node.
+                                    let reached_pos = obj.get_position();
+                                    obj.movement.current_path_index = Self::advance_path_index_by_projection(
+                                        &obj.movement.path,
+                                        obj.movement.current_path_index,
+                                        reached_pos,
+                                    )
+                                    .max(obj.movement.current_path_index + 1);
                                     let mut next =
                                         obj.movement.path[obj.movement.current_path_index];
                                     if !keep_goal_y {
@@ -1014,8 +1110,8 @@ impl GameLogic {
                                     obj.movement.current_path_index = 0;
                                     obj.movement.target_position = None;
                                 } else {
+                                    plant_goal = obj.movement.path.last().copied();
                                     obj.stop_moving();
-                                    plant_snap = true;
                                 }
                             }
                         }
@@ -1043,18 +1139,72 @@ impl GameLogic {
                     Self::stamp_object_airborne_target(obj, ground_y);
                 }
             }
-            if plant_snap {
-                self.apply_arrival_goal_snap(id);
+            if let Some(goal) = plant_goal {
+                self.apply_arrival_goal_snap(id, Some(goal));
             }
         }
 
         self.drain_pending_transport_exits();
     }
+    /// Closest-segment projection on the host XZ polyline — the same loop as
+    /// `PathfindingSystem::compute_point_on_path_for`
+    /// (pathfinding/system_routes.rs; C++ AIPathfind.cpp:769-851). Returns the
+    /// closest segment's start-node index and clamped projection parameter so
+    /// the waypoint advance and the lead-point computation agree.
+    fn closest_segment_projection(pos: Vec3, waypoints: &[Vec3]) -> (usize, f32) {
+        let mut best_d2 = f32::MAX;
+        let mut best_seg = 0usize;
+        let mut best_t = 0.0f32;
+        for i in 0..waypoints.len().saturating_sub(1) {
+            let a = &waypoints[i];
+            let b = &waypoints[i + 1];
+            let sx = b.x - a.x;
+            let sz = b.z - a.z;
+            let len_sqr = sx * sx + sz * sz;
+            let t = if len_sqr <= 1.0e-8 {
+                0.0
+            } else {
+                let tx = pos.x - a.x;
+                let tz = pos.z - a.z;
+                ((tx * sx + tz * sz) / len_sqr).clamp(0.0, 1.0)
+            };
+            let px = a.x + sx * t;
+            let pz = a.z + sz * t;
+            let dx = pos.x - px;
+            let dz = pos.z - pz;
+            let d2 = dx * dx + dz * dz;
+            if d2 < best_d2 {
+                best_d2 = d2;
+                best_seg = i;
+                best_t = t;
+            }
+        }
+        (best_seg, best_t)
+    }
 
+    /// C++ tracks the path by closest segment with forward projection
+    /// (AIPathfind.cpp:769-860): intermediate nodes have no arrival radius —
+    /// only the final goal uses closeEnoughDist (AIStates.cpp:1885-1904).
+    /// Returns the first node index whose projection the unit has not passed.
+    /// node[i] counts as passed when the closest segment starts at i or later,
+    /// or is the segment ending at i with t clamped at 1.0.
+    fn advance_path_index_by_projection(path: &[Vec3], current: usize, pos: Vec3) -> usize {
+        if current + 1 >= path.len() {
+            return current;
+        }
+        let start = current.saturating_sub(1);
+        let (best_seg, best_t) = Self::closest_segment_projection(pos, &path[start..]);
+        let seg_start = start + best_seg;
+        let mut i = current;
+        while i + 1 < path.len() && (seg_start >= i || (seg_start + 1 == i && best_t >= 1.0)) {
+            i += 1;
+        }
+        i
+    }
     /// C++ `AIUpdateInterface::update` movement-complete `setFinalPosition`
-    /// then NONE-goal leftover settle (AIUpdate.cpp:1039-1041, 2234-2262).
-    /// Snap computes the plant cell; leftover marches 2 cells/s — no teleport.
-    fn apply_arrival_goal_snap(&mut self, id: ObjectId) {
+    /// (AIUpdate.cpp:1027-1041): arms the path's last node as final position
+    /// without moving the unit; occupancy re-snap only when >1 cell away.
+    fn apply_arrival_goal_snap(&mut self, id: ObjectId, goal: Option<Vec3>) {
         let Some(obj) = self.objects.get(&id) else {
             return;
         };
@@ -1066,30 +1216,45 @@ impl GameLogic {
         {
             return;
         }
+        let goal = goal.or_else(|| obj.movement.path.last().copied());
         let pos = obj.get_position();
+        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
         let surfaces = if obj.locomotor_surfaces != 0 {
             obj.locomotor_surfaces
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
-        let is_crusher = obj.crusher_level > 0;
-        let radius = obj.selection_radius;
-        let player = obj.owner_player_id.or(Some(obj.team as u32));
-        let snapped = self.pathfinding_system.snap_plant_goal(
-            pos,
-            surfaces,
-            is_crusher,
-            radius,
-            id,
-            player,
-            &self.objects,
-        );
+        // C++ AIUpdate.cpp:1027-1041 — setFinalPosition(goalPosition): arm the
+        // path's last node as the final position; do NOT move the unit.
+        // Occupancy re-snap only when farther than one cell; no post-stop slide.
+        let goal = goal.or_else(|| obj.movement.path.last().copied());
+        let dx = pos.x - goal.map(|g| g.x).unwrap_or(pos.x);
+        let dz = pos.z - goal.map(|g| g.z).unwrap_or(pos.z);
+        let beyond_one_cell = dx * dx + dz * dz > cell * cell;
+        let final_pos = match (goal, beyond_one_cell) {
+            (Some(goal), false) => goal,
+            (Some(goal), true) => self.pathfinding_system.snap_plant_goal(
+                goal,
+                surfaces,
+                obj.crusher_level > 0,
+                obj.selection_radius,
+                id,
+                obj.owner_player_id.or(Some(obj.team as u32)),
+                &self.objects,
+            ),
+            (None, _) => self.pathfinding_system.snap_plant_goal(
+                pos,
+                surfaces,
+                obj.crusher_level > 0,
+                obj.selection_radius,
+                id,
+                obj.owner_player_id.or(Some(obj.team as u32)),
+                &self.objects,
+            ),
+        };
         if let Some(obj) = self.objects.get_mut(&id) {
-            // Leftover `set_final_position` matches the C++ header (`= false`)
-            // but settle only runs when the flag is armed. Live arms it.
-            obj.final_position = snapped;
+            obj.final_position = final_pos;
             obj.do_final_position = true;
-            leftover_settle_final_position_on_object(obj);
         }
     }
 
@@ -2625,55 +2790,31 @@ mod tests {
         );
     }
 
-    /// hq-xg2ym: arrival leftover-marches to the plant cell (no teleport).
+    /// C++ AIUpdate.cpp:1027-1041 — setFinalPosition arms the path's last
+    /// node; occupancy re-snap only when farther than one cell; no teleport.
     #[test]
-    fn arrival_snap_offsets_off_occupied_pad() {
+    fn arrival_arms_final_position_at_path_last_node() {
         let mut logic = GameLogic::new();
-        let pad = Vec3::new(80.0, 0.0, 80.0);
-        let parked_id = ObjectId(7001);
-        let arriver_id = ObjectId(7002);
-        logic.objects.insert(parked_id, ranger_at(7001, pad));
-        let mut arriver = ranger_at(7002, pad);
-        arriver.movement.path = vec![Vec3::new(70.0, 0.0, 80.0), pad];
+        let goal = Vec3::new(80.0, 0.0, 80.0);
+        let stop = Vec3::new(79.4, 0.0, 80.0);
+        let mut arriver = ranger_at(7002, stop);
+        arriver.movement.path = vec![Vec3::new(70.0, 0.0, 80.0), goal];
         arriver.movement.current_path_index = 1;
-        arriver.movement.target_position = Some(pad);
+        arriver.movement.target_position = Some(goal);
         arriver.set_status_moving(true);
         arriver.set_ai_state(AIState::Moving);
+        let arriver_id = ObjectId(7002);
         logic.objects.insert(arriver_id, arriver);
-        logic.update_movement_for_test(&[parked_id, arriver_id], 1.0 / 30.0);
-        {
-            let obj = logic.objects.get(&arriver_id).expect("arriver");
-            let pos = obj.get_position();
-            let dx = pos.x - pad.x;
-            let dz = pos.z - pad.z;
-            let dist = (dx * dx + dz * dz).sqrt();
-            assert!(
-                obj.do_final_position,
-                "arrival must arm leftover do_final_position, pos={pos:?}"
-            );
-            assert!(
-                dist > 0.1 && dist < crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL,
-                "first settle step must leftover-march, not teleport, pos={pos:?} dist={dist}"
-            );
-        }
-        for _ in 0..20 {
-            logic.update_movement_for_test(&[parked_id, arriver_id], 1.0 / 30.0);
-        }
-        let pos = logic
-            .objects
-            .get(&arriver_id)
-            .expect("arriver")
-            .get_position();
-        let dx = pos.x - pad.x;
-        let dz = pos.z - pad.z;
-        let dist = (dx * dx + dz * dz).sqrt();
+        logic.update_movement_for_test(&[arriver_id], 1.0 / 30.0);
+        let obj = logic.objects.get(&arriver_id).expect("arriver");
+        let pos = obj.get_position();
         assert!(
-            dist > 1.0,
-            "leftover settle must finish off the occupied pad, pos={pos:?}"
+            (pos.x - stop.x).abs() < 1.0e-3 && (pos.z - stop.z).abs() < 1.0e-3,
+            "setFinalPosition must not teleport the unit, pos={pos:?}"
         );
+        assert!(obj.do_final_position, "arrival must arm do_final_position");
+        assert_eq!(obj.final_position, goal);
     }
-
-    /// hq-xg2ym: NONE-goal leftover settle is 2 cells/s then DARN_CLOSE snap.
     #[test]
     fn leftover_goal_none_settles_final_position() {
         let mut logic = GameLogic::new();
@@ -3387,6 +3528,132 @@ mod tests {
         assert!(
             obj.host_locomotor_distance_to_goal(obj.get_position(), Vec3::new(1.0, 0.0, 0.0)) > 9.0,
             "3D remaining must stay large while high"
+        );
+    }
+
+    /// C++ AIUpdate.cpp:1731-1748: patchPath failing while blocked-and-stuck
+    /// must concede (destroyPath, snap final position, locomotor goal none,
+    /// queue-for-path 1s, reset blocked flags) instead of ordering another
+    /// A* every frame; AIStates.cpp:2143-2148 arms the canPathThroughUnits
+    /// tunnel for the jam.
+    #[test]
+    fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
+        let mut logic = GameLogic::new();
+        let id = ObjectId(98301);
+        let mut unit = ranger_at(98301, Vec3::new(5.0, 0.0, 5.0));
+        unit.movement.path = vec![
+            Vec3::new(5.0, 0.0, 5.0),
+            Vec3::new(35.0, 0.0, 5.0),
+            Vec3::new(95.0, 0.0, 5.0),
+        ];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
+        unit.is_blocked = true;
+        unit.is_blocked_and_stuck = true;
+        unit.num_frames_blocked = 90;
+        logic.objects.insert(id, unit);
+        // Seal the goal node's column: patchPath's reverse walk stops at the
+        // first blocked suffix node and returns None before any A* splice.
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(Vec3::new(5.0, 0.0, 5.0));
+        seal_column(&mut logic, start_cell.x + 9);
+
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.movement.path.is_empty(),
+            "concede must destroy the path instead of hammering A*"
+        );
+        assert_eq!(
+            obj.queue_for_path_frames, 30,
+            "concede queues for path 1s (LOGICFRAMES_PER_SECOND)"
+        );
+        assert!(obj.movement.target_position.is_none());
+        assert_eq!(obj.locomotor_goal_type, LocoGoalType::None);
+        assert!(!obj.is_blocked && !obj.is_blocked_and_stuck);
+        assert_eq!(obj.num_frames_blocked, 0);
+        assert!(obj.do_final_position, "concede must snap the final position");
+        assert!(
+            obj.final_position.x.is_finite() && obj.final_position.z.is_finite(),
+            "final position must be a snapped cell"
+        );
+        assert!(
+            obj.can_path_through_units,
+            "blocked-and-stuck jam must arm the can_path_through_units tunnel"
+        );
+
+        // No repath before the deadline: reinstall a path (as the AI state
+        // machine would), keep the deadline, reopen the wall — the stuck
+        // branch must stay gated.
+        {
+            let obj = logic.objects.get_mut(&id).unwrap();
+            obj.movement.path = vec![
+                Vec3::new(5.0, 0.0, 5.0),
+                Vec3::new(35.0, 0.0, 5.0),
+                Vec3::new(95.0, 0.0, 5.0),
+            ];
+            obj.movement.current_path_index = 1;
+            obj.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
+            obj.is_blocked_and_stuck = true;
+        }
+        for y in -8..80 {
+            logic
+                .pathfinding_system
+                .grid
+                .set_blocked(GridPos::new(start_cell.x + 9, y), false);
+        }
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            obj.is_blocked_and_stuck,
+            "queue deadline must gate the stuck repath (no A* before it)"
+        );
+        assert_eq!(obj.movement.path.len(), 3, "path must be untouched");
+
+        // After the deadline expires, a stuck unit's successful patch
+        // installs and grants 2s of ignore-collision (AIUpdate.cpp:486-495).
+        logic.objects.get_mut(&id).unwrap().queue_for_path_frames = 0;
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(
+            !obj.is_blocked_and_stuck,
+            "successful patch must install and reset the stuck flag"
+        );
+        assert!(obj.movement.path.len() >= 2, "patched path must install");
+        assert_eq!(
+            obj.ignore_collisions_until_frame,
+            logic.frame.saturating_add(60),
+            "stuck patch install must grant 2s ignore-collision"
+        );
+    }
+
+    /// num_frames_blocked > 60 without the hard jam concedes but does not
+    /// arm the tunnel (C++ concede only; AIMoveOutOfTheWayState arms it).
+    #[test]
+    fn blocked_not_jammed_unit_concedes_without_tunnel() {
+        let mut logic = GameLogic::new();
+        let id = ObjectId(98302);
+        let mut unit = ranger_at(98302, Vec3::new(5.0, 0.0, 5.0));
+        unit.movement.path = vec![
+            Vec3::new(5.0, 0.0, 5.0),
+            Vec3::new(35.0, 0.0, 5.0),
+            Vec3::new(95.0, 0.0, 5.0),
+        ];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
+        unit.num_frames_blocked = 90;
+        logic.objects.insert(id, unit);
+        // Goal-node column seal: patchPath's reverse walk hits the blocked
+        // suffix node and returns None before any A* splice.
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(Vec3::new(5.0, 0.0, 5.0));
+        seal_column(&mut logic, start_cell.x + 9);
+
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        assert!(obj.movement.path.is_empty(), "slow-blocked unit still concedes");
+        assert_eq!(obj.queue_for_path_frames, 30);
+        assert!(
+            !obj.can_path_through_units,
+            "tunnel arms only for blocked-and-stuck jams"
         );
     }
 }

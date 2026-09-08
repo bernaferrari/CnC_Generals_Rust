@@ -850,7 +850,8 @@ fn attack_order_chases_target_when_out_of_range() {
     // current target; the chase destination is the pathfinder's cell, not the
     // target pose. The chase is observable through the attack state machine.
     assert_eq!(
-        attacker.ai_state, AIState::Attacking,
+        attacker.ai_state,
+        AIState::Attacking,
         "attacker must enter the attack chase state machine"
     );
     assert!(attacker.status.moving);
@@ -2768,11 +2769,7 @@ fn script_team_nearest_and_partial_command_button_live() {
         .create_object("TestTank", Team::China, glam::Vec3::new(40.0, 0.0, 0.0))
         .expect("enemy near");
     let enemy_far = logic
-        .create_object(
-            "TestTank",
-            Team::China,
-            glam::Vec3::new(400.0, 0.0, 0.0),
-        )
+        .create_object("TestTank", Team::China, glam::Vec3::new(400.0, 0.0, 0.0))
         .expect("enemy far");
     if let Some(obj) = logic.host_object_mut(enemy_near) {
         obj.owner_player_id = Some(1);

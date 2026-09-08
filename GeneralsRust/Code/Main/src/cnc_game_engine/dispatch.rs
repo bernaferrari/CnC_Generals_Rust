@@ -1009,7 +1009,6 @@ impl CnCGameEngine {
             }
         }
 
-
         let (window_outer_x, window_outer_y, window_outer_w, window_outer_h) =
             self.runtime_host_window_outer_rect();
         let gadget_hits = self.runtime_host_hittable_gadget_hits();

@@ -148,7 +148,6 @@ pub struct TextLayout {
     pub single_line: bool,
 }
 
-
 /// Per-frame CPU-side UI command state.
 ///
 /// The Main host updates some presentation UI (selection bars and drawable
@@ -221,6 +220,12 @@ pub enum VerticalAlignment {
     Bottom,
 }
 
+/// Upper bound on cached texture bind groups. Video/radar uploads create a
+/// fresh view per frame; bind groups are cheap to rebuild, so drop the whole
+/// cache past the cap instead of tracking LRU. Normal UIs use a few dozen
+/// textures and never reach it.
+const TEXTURE_BIND_GROUP_CACHE_CAP: usize = 128;
+
 /// UI Renderer - main rendering system
 pub struct UIRenderer {
     device: Arc<Device>,
@@ -250,6 +255,10 @@ pub struct UIRenderer {
 
     // Bind groups
     uniform_bind_group: BindGroup,
+    /// Bind groups are immutable per texture view, so cache them keyed by the
+    /// view (wgpu handles hash/compare by unique resource identity) and reuse
+    /// across frames instead of recreating one per texture switch per frame.
+    texture_bind_groups: HashMap<TextureView, BindGroup>,
 
     // Text rendering system. cosmic_text types are `Send + !Sync`; wrap them
     // so UIRenderer can live in `Arc<RwLock<UIRenderer>>` without a lying
@@ -719,6 +728,7 @@ impl UIRenderer {
             }),
             font_cache: HashMap::new(),
             text_texture_cache: HashMap::new(),
+            texture_bind_groups: HashMap::new(),
             vertex_buffer,
             index_buffer,
             instance_buffer,
@@ -1278,11 +1288,29 @@ impl UIRenderer {
         bold: bool,
         z_order: f32,
     ) -> Result<()> {
+        // C++ `Create_GDI_Font` aliases the "Generals" family to Arial
+        // (render2dsentence.cpp:1481-1486); no font family named "Generals"
+        // exists in the database, so resolve it before matching.
+        let font_name = if font_name.eq_ignore_ascii_case("Generals") {
+            "Arial"
+        } else {
+            font_name
+        };
         if layout.text.is_empty() || layout.bounds.width <= 0.0 || layout.bounds.height <= 0.0 {
             return Ok(());
         }
         let cache_key = Self::text_layout_cache_key(layout, font_name, bold);
-        if let Some((texture, quad)) = self.text_texture_cache.get(&cache_key).cloned() {
+        if let Some((texture, rel_quad)) = self.text_texture_cache.get(&cache_key).cloned() {
+            // The cache stores canvas offsets RELATIVE to layout.bounds: the
+            // same text/layout drawn elsewhere must land at the new position
+            // (an absolute quad re-renders identical text at the first
+            // location it was rasterized at — jumping text).
+            let quad = UIRect::new(
+                layout.bounds.x + rel_quad.x,
+                layout.bounds.y + rel_quad.y,
+                rel_quad.width,
+                rel_quad.height,
+            );
             self.draw_textured_rect(quad, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
             return Ok(());
         }
@@ -1312,11 +1340,7 @@ impl UIRenderer {
             } else {
                 Family::Name(font_name)
             })
-            .weight(if bold {
-                Weight::BOLD
-            } else {
-                Weight::NORMAL
-            })
+            .weight(if bold { Weight::BOLD } else { Weight::NORMAL })
             .stretch(Stretch::Normal)
             .style(Style::Normal);
         let text_color = TextColor::rgba(
@@ -1398,12 +1422,7 @@ impl UIRenderer {
             let bottom = (y_offset + text_height).max(canvas_height as i32);
             let width = (right - left).clamp(1, 2048);
             let height = (bottom - top).clamp(1, 512);
-            (
-                left,
-                top,
-                width as u32,
-                height as u32,
-            )
+            (left, top, width as u32, height as u32)
         };
         let canvas_width = quad_width;
         let canvas_height = quad_height;
@@ -1428,27 +1447,31 @@ impl UIRenderer {
             if out_a <= f32::EPSILON {
                 continue;
             }
-            for channel in 0..3 {
-                let src_c = src[channel] as f32 / 255.0;
-                let dst_c = dst[channel] as f32 / 255.0;
-                let out_c = (src_c * src_a + dst_c * dst_a * (1.0 - src_a)) / out_a;
-                dst[channel] = (out_c * 255.0).clamp(0.0, 255.0) as u8;
-            }
-            dst[3] = (out_a * 255.0).clamp(0.0, 255.0) as u8;
         }
-
         let texture = self.create_texture_from_rgba(canvas_width, canvas_height, &canvas);
-        let quad = UIRect::new(
-            layout.bounds.x + canvas_origin_x as f32,
-            layout.bounds.y + canvas_origin_y as f32,
+        // Store offsets RELATIVE to layout.bounds (see hit path): position
+        // must come from the current draw's layout, not the rasterized one.
+        let rel_quad = UIRect::new(
+            canvas_origin_x as f32,
+            canvas_origin_y as f32,
             canvas_width as f32,
             canvas_height as f32,
         );
+        // Single-entry eviction: clearing the whole cache at 256 entries
+        // re-rasterizes every label at once (popping + frame spikes).
         if self.text_texture_cache.len() >= 256 {
-            self.text_texture_cache.clear();
+            if let Some(oldest) = self.text_texture_cache.keys().next().copied() {
+                self.text_texture_cache.remove(&oldest);
+            }
         }
         self.text_texture_cache
-            .insert(cache_key, (texture.clone(), quad));
+            .insert(cache_key, (texture.clone(), rel_quad));
+        let quad = UIRect::new(
+            layout.bounds.x + rel_quad.x,
+            layout.bounds.y + rel_quad.y,
+            rel_quad.width,
+            rel_quad.height,
+        );
         self.draw_textured_rect(quad, texture, [1.0, 1.0, 1.0, 1.0], None, z_order);
         Ok(())
     }
@@ -1571,24 +1594,36 @@ impl UIRenderer {
                             .as_ref()
                             .is_none_or(|current| !Arc::ptr_eq(current, texture));
                         if texture_changed {
-                            let texture_bind_group =
-                                self.device.create_bind_group(&BindGroupDescriptor {
-                                    label: Some("UI Texture Bind Group"),
-                                    layout: &self.texture_bind_group_layout,
-                                    entries: &[
-                                        BindGroupEntry {
-                                            binding: 0,
-                                            resource: wgpu::BindingResource::TextureView(texture),
-                                        },
-                                        BindGroupEntry {
-                                            binding: 1,
-                                            resource: wgpu::BindingResource::Sampler(
-                                                &self.linear_sampler,
-                                            ),
-                                        },
-                                    ],
-                                });
-                            render_pass.set_bind_group(1, &texture_bind_group, &[]);
+                            if !self.texture_bind_groups.contains_key(texture) {
+                                if self.texture_bind_groups.len()
+                                    >= TEXTURE_BIND_GROUP_CACHE_CAP
+                                {
+                                    self.texture_bind_groups.clear();
+                                }
+                                let texture_bind_group =
+                                    self.device.create_bind_group(&BindGroupDescriptor {
+                                        label: Some("UI Texture Bind Group"),
+                                        layout: &self.texture_bind_group_layout,
+                                        entries: &[
+                                            BindGroupEntry {
+                                                binding: 0,
+                                                resource: wgpu::BindingResource::TextureView(
+                                                    texture,
+                                                ),
+                                            },
+                                            BindGroupEntry {
+                                                binding: 1,
+                                                resource: wgpu::BindingResource::Sampler(
+                                                    &self.linear_sampler,
+                                                ),
+                                            },
+                                        ],
+                                    });
+                                self.texture_bind_groups
+                                    .insert(texture.as_ref().clone(), texture_bind_group);
+                            }
+                            let texture_bind_group = &self.texture_bind_groups[texture.as_ref()];
+                            render_pass.set_bind_group(1, texture_bind_group, &[]);
                             current_texture = Some(texture.clone());
                             stats.texture_switches += 1;
                         }
@@ -1602,21 +1637,38 @@ impl UIRenderer {
                 }
 
                 if let Some(scissor) = command.scissor_rect {
-                    let x = scissor.x.max(0.0).floor() as u32;
-                    let y = scissor.y.max(0.0).floor() as u32;
-                    // A scissor outside the render target is a skipped draw,
-                    // never a fatal: wgpu rejects rects exceeding the target
-                    // (stale 800x600 layout coords against a smaller window).
-                    if x >= self.screen_size.0 || y >= self.screen_size.1 {
+                    // Intersect the requested scissor with the render target.
+                    // wgpu rejects rects exceeding the target (stale 800x600
+                    // layout coords against a smaller window); clamping size to
+                    // a 1-px minimum instead of intersecting made edge scissors
+                    // clip text away. Cover the integer pixels overlapped by
+                    // [left, right) x [top, bottom) and skip the draw when the
+                    // intersection is empty.
+                    let left = scissor.x.max(0.0);
+                    let top = scissor.y.max(0.0);
+                    let right = scissor.x + scissor.width;
+                    let bottom = scissor.y + scissor.height;
+                    // Raw-sum guard: rejects empty rects and NaN components
+                    // (NaN would otherwise slip through f32::min/max).
+                    if !(right > left && bottom > top) {
                         continue;
                     }
-                    let max_w = self.screen_size.0.saturating_sub(x);
-                    let max_h = self.screen_size.1.saturating_sub(y);
-                    let w = scissor.width.max(0.0).ceil() as u32;
-                    let h = scissor.height.max(0.0).ceil() as u32;
-                    let w = w.min(max_w).max(1);
-                    let h = h.min(max_h).max(1);
-                    render_pass.set_scissor_rect(x, y, w, h);
+                    let x0 = left.floor();
+                    let y0 = top.floor();
+                    let x1 = right.min(self.screen_size.0 as f32).ceil();
+                    let y1 = bottom.min(self.screen_size.1 as f32).ceil();
+                    // Second guard: a rect starting past the right/bottom
+                    // target edge clamps to an empty integer span.
+                    if x1 > x0 && y1 > y0 {
+                        render_pass.set_scissor_rect(
+                            x0 as u32,
+                            y0 as u32,
+                            (x1 - x0) as u32,
+                            (y1 - y0) as u32,
+                        );
+                    } else {
+                        continue;
+                    }
                 } else {
                     render_pass.set_scissor_rect(
                         0,
@@ -1721,7 +1773,7 @@ impl UIRenderer {
     ) -> Result<()> {
         let px = super::font::font_pixel_size(point_size.max(1.0) as i32) as f32;
         let char_width = px * 0.6;
-        let text_width = text.len() as f32 * char_width;
+        let text_width = text.chars().count() as f32 * char_width;
 
         let layout = TextLayout {
             text: text.to_string(),

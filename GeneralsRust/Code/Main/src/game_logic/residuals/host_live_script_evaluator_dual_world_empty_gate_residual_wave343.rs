@@ -1,12 +1,13 @@
 //! Wave 343 residual peels: script evaluator dual-world empty short-circuits.
 //! When `OBJECT_REGISTRY` is empty (host-only presentation path), condition
-//! evaluators fail-closed without dual-world factory walks.
+//! evaluators skip dual-world factory walks: pure checks fail to `Ok(false)`,
+//! named/team paths answer from the live host (C++ parity).
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 342 SpecialPowerTemplate dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/scripting/evaluator.rs` dual_world_registry_unavailable
+//! - `GameLogic/src/scripting/evaluator/` dual_world_registry_unavailable
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -132,10 +133,19 @@ pub fn honesty_script_evaluator_dual_world_empty_gate_source() -> bool {
     };
     helper_ok
         && cond.contains("return Ok(false)")
-        && dest.contains("return Ok(false)")
+        // C++ parity (ScriptConditions.cpp evaluateNamedUnitDestroyed): the
+        // empty-registry gate skips dual-world factory walks and answers from
+        // the live host; didUnitExist decides when the unit is unknown.
+        && dest.contains("crate::scripting::host_script_query_object")
+        && dest.contains("crate::scripting::host_script_named_unit_alive")
+        && dest.contains("did_object_exist")
         && sp.contains("return Ok(false)")
-        // Broad coverage of nested named/team condition evaluators.
-        && g.matches("Wave 343: empty dual-world → Ok(false).").count() >= 20
+        // Broad coverage of nested named/team condition evaluators: every
+        // gated evaluator checks the empty registry (36 sites; 22 at Wave 343).
+        && g.matches("if dual_world_registry_unavailable()").count() >= 20
+        // Pure fail-close family still present; host-fallback gates carry
+        // variant "Wave 343: empty dual-world → host ..." markers.
+        && g.contains("Wave 343: empty dual-world → Ok(false).")
 }
 
 /// Live residual: source honesty pack latches.

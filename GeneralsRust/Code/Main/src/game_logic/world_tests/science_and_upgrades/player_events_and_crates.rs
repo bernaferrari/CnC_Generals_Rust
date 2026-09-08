@@ -2883,3 +2883,25 @@ fn attack_move_picks_up_created_crate() {
     );
     assert_eq!(u.requested_victim_id, Some(cid));
 }
+
+#[test]
+fn leftover_sa_pack_complete_dispatches_voice_family() {
+    // C++ SpecialAbilityUpdate.cpp:742-764 — startPacking(success) plays the
+    // per-unit steal/disable keys, else the template VoiceTaskComplete slot.
+    // The seam is pub(super), so pin the dispatch block source.
+    let src = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/game_logic/world_objects/support_states/special_abilities.rs"
+    ));
+    let start = src
+        .find("fn leftover_begin_packing(")
+        .expect("leftover_begin_packing");
+    let body = &src[start..src.len().min(start + 4200)];
+    assert!(
+        body.contains("\"VoiceStealCashComplete\"")
+            && body.contains("\"VoiceDisableVehicleComplete\"")
+            && body.contains("UnitVoiceSlot::TaskComplete")
+            && body.contains("resolve_per_unit_sound"),
+        "pack-complete voice family must dispatch per C++ SpecialAbilityUpdate"
+    );
+}

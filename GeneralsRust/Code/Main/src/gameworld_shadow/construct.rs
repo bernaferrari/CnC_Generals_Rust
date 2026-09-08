@@ -1547,8 +1547,9 @@ impl GameWorldShadow {
                         // sparse host registry often leaves owner_player_id
                         // unset; resolve it from the team exactly like
                         // update_main_crate_vision's look pass does.
-                        let resolved_owner =
-                            obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
+                        let resolved_owner = obj
+                            .owner_player_id
+                            .or_else(|| logic.player_id_for_team(obj.team));
                         let vis = if logic.isInShellGame() {
                             crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                         } else if resolved_owner == Some(local_player_id) {
@@ -2121,8 +2122,9 @@ impl GameWorldShadow {
                     // Same controlling-player resolution as the update site:
                     // team fallback mirrors update_main_crate_vision's look
                     // pass (C++ Object::getControllingPlayer parity).
-                    let resolved_owner =
-                        obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
+                    let resolved_owner = obj
+                        .owner_player_id
+                        .or_else(|| logic.player_id_for_team(obj.team));
                     let vis = if logic.isInShellGame() {
                         crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                     } else if resolved_owner == Some(local_player_id) {

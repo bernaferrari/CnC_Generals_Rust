@@ -2,7 +2,7 @@
 //!
 //! Ported from `ControlBarResizer.cpp`.
 
-use super::control_bar::ControlBarResizer;
+
 use std::sync::RwLock;
 
 /// Mirrors the C++ `ResizerWindow` data blob.
@@ -73,7 +73,7 @@ impl IniControlBarResizer {
     }
 }
 
-impl ControlBarResizer for IniControlBarResizer {
+impl IniControlBarResizer {
     fn resize(&self, width: u32, height: u32) -> Result<(), Box<dyn std::error::Error>> {
         let (base_w, base_h) = self.base_resolution;
         let scale_x = width as f32 / base_w as f32;

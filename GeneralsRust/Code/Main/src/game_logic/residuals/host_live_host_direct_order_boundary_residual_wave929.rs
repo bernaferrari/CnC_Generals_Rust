@@ -93,7 +93,7 @@ pub fn honesty_host_direct_order_boundary_residual_pack_wave929() -> bool {
     let stop = non_comment_code(code_window(cnc, "fn host_command_stop", 400));
     let mov = non_comment_code(code_window(cnc, "fn host_command_move", 400));
     let amov = non_comment_code(code_window(cnc, "fn host_command_attack_move", 400));
-    let tick = non_comment_code(code_window(cnc, "fn host_update_logic_frame", 900));
+    let tick = non_comment_code(code_window(cnc, "fn host_update_logic_frame", 1600));
     let legal = non_comment_code(code_window(
         cnc,
         "fn host_legal_build_code_at_for_builder",

@@ -1,7 +1,8 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::mouse::{
-    PATHFIND_CELL_SIZE_F, SHAKE_AXIS_PITCH, SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW, SHAKE_END_OMEGA,
-    SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA, airborne_look_at_ground, w3d_camera_constraint_offset,
+    LOOKAT_DEFAULT_PITCH_DEG, PATHFIND_CELL_SIZE_F, SHAKE_AXIS_PITCH, SHAKE_AXIS_ROLL,
+    SHAKE_AXIS_YAW, SHAKE_END_OMEGA, SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA, airborne_look_at_ground,
+    w3d_camera_constraint_offset,
 };
 use super::*;
 use crate::graphics::render_pipeline::CachedLighting;
@@ -211,6 +212,196 @@ fn structure_placement_model_key(template_name: &str) -> String {
         template_name.trim().to_string()
     } else {
         key
+    }
+}
+
+/// Minimum slot count for a synthesized Skirmish: the local human plus at
+/// least one registered AI opponent. A C++ GameInfo session never launches a
+/// zero-opponent skirmish, so neither may the synthesized fallback.
+const HOST_SYNTHESIZED_SKIRMISH_MIN_SLOTS: usize = 2;
+
+/// Slot palette for starts with no C++ GameInfo MultiplayerSettings colors.
+/// Slots 0/1 mirror the golden host pair (blue human, red first AI).
+const HOST_SYNTHESIZED_SKIRMISH_COLORS: [(u8, u8, u8); 8] = [
+    (0, 0, 200),
+    (200, 0, 0),
+    (0, 200, 0),
+    (200, 200, 0),
+    (0, 200, 200),
+    (200, 0, 200),
+    (200, 120, 0),
+    (120, 120, 120),
+];
+
+/// Map SidesList `playerFaction`/`playerName` identifiers to Main base-side
+/// labels. Exact base sides only: civilians, observers, neutral sides, and
+/// unknown authored sides are not skirmish competitors.
+fn host_base_faction_from_map_side(side_value: &str) -> Option<&'static str> {
+    let value = side_value.trim().to_ascii_lowercase();
+    let side = value
+        .strip_prefix("faction")
+        .or_else(|| value.strip_prefix("plyr"))
+        .unwrap_or(value.as_str());
+    match side {
+        "america" | "usa" | "us" => Some("USA"),
+        "china" => Some("China"),
+        "gla" => Some("GLA"),
+        _ => None,
+    }
+}
+
+/// Resolve a requested local faction label into the pair every synthesized
+/// slot needs: a display label plus the authoritative PlayerTemplate
+/// selection. `Random` keeps C++ `PLAYERTEMPLATE_RANDOM` semantics and is
+/// resolved once by the seeded authority path; an unrecognized label is
+/// retained verbatim so `apply_skirmish_config` fails closed on it.
+fn host_synthesized_player_template(
+    faction: &str,
+) -> (
+    String,
+    crate::skirmish_config::SkirmishPlayerTemplateSelection,
+) {
+    if faction.trim().eq_ignore_ascii_case("random") {
+        return (
+            "Random".to_string(),
+            crate::skirmish_config::SkirmishPlayerTemplateSelection::Random,
+        );
+    }
+    match host_base_faction_from_map_side(faction) {
+        Some(base) => (
+            base.to_string(),
+            crate::skirmish_config::SkirmishPlayerTemplateSelection::base_faction(base),
+        ),
+        None => {
+            let label = faction.trim().to_string();
+            let selection =
+                crate::skirmish_config::SkirmishPlayerTemplateSelection::base_faction(&label);
+            (label, selection)
+        }
+    }
+}
+
+/// Build Skirmish slots for a start that carried no C++ GameInfo config.
+///
+/// Slot 0 is the local human on its requested faction; every remaining
+/// authored map start becomes a Medium AI on the map's next playable side
+/// (cycling through the base sides when the map lists fewer). Alliance teams
+/// stay one per slot (free-for-all) like the C++ skirmish lobby defaults.
+fn host_synthesize_skirmish_slots(
+    start_positions: &[i32],
+    map_side_factions: &[&'static str],
+    human_faction: &str,
+) -> Vec<crate::skirmish_config::SkirmishSlotConfig> {
+    use crate::skirmish_config::SkirmishPlayerTemplateSelection;
+
+    let mut starts: Vec<i32> = start_positions.to_vec();
+    if starts.len() < HOST_SYNTHESIZED_SKIRMISH_MIN_SLOTS {
+        // Unknown map shape: keep the golden two-slot default rather than a
+        // zero-opponent match.
+        starts = (0..HOST_SYNTHESIZED_SKIRMISH_MIN_SLOTS as i32).collect();
+    }
+    starts.truncate(crate::ui::skirmish_menu::MAX_SLOTS);
+
+    let (human_label, human_template) = host_synthesized_player_template(human_faction);
+    let fallback_factions = ["USA", "GLA", "China"];
+    let mut map_factions = map_side_factions.iter().copied();
+    let mut fallback_index = 0usize;
+
+    starts
+        .iter()
+        .enumerate()
+        .map(|(slot_index, &start_position)| {
+            let is_human = slot_index == 0;
+            let (faction, player_template, ai_difficulty, player_name) = if is_human {
+                (
+                    human_label.clone(),
+                    human_template.clone(),
+                    None,
+                    "Player".to_string(),
+                )
+            } else {
+                let faction = map_factions.next().unwrap_or_else(|| {
+                    let fallback = fallback_factions[fallback_index % fallback_factions.len()];
+                    fallback_index += 1;
+                    fallback
+                });
+                (
+                    faction.to_string(),
+                    SkirmishPlayerTemplateSelection::base_faction(faction),
+                    Some("Medium".to_string()),
+                    format!("{faction} AI"),
+                )
+            };
+            crate::skirmish_config::SkirmishSlotConfig {
+                slot_index,
+                is_human,
+                is_active: true,
+                player_template,
+                faction,
+                color_rgb: HOST_SYNTHESIZED_SKIRMISH_COLORS
+                    [slot_index % HOST_SYNTHESIZED_SKIRMISH_COLORS.len()],
+                team: slot_index as i32,
+                start_position,
+                player_name,
+                ai_difficulty,
+            }
+        })
+        .collect()
+}
+
+/// Read the map's player-start and SidesList shape for slot synthesis.
+///
+/// Both sources come from a single chunky parse; a missing or unparseable map
+/// yields the empty shape and the synthesizer keeps its two-slot default.
+fn host_map_skirmish_shape(map_name: &str) -> (Vec<i32>, Vec<&'static str>) {
+    use crate::game_logic::script_loader::{
+        load_chunky_map, parse_player_start_waypoints_from_chunky, parse_runtime_sides_from_chunky,
+    };
+    use game_engine::common::well_known_keys::{key_player_faction, key_player_name};
+
+    let Ok(Some(chunky)) = load_chunky_map(map_name) else {
+        return (Vec::new(), Vec::new());
+    };
+    let starts = parse_player_start_waypoints_from_chunky(&chunky).unwrap_or_default();
+    let start_positions: Vec<i32> = starts.iter().map(|(idx, _, _)| *idx as i32).collect();
+    let side_factions: Vec<&'static str> = parse_runtime_sides_from_chunky(&chunky)
+        .map(|sides| {
+            sides
+                .side_dicts
+                .iter()
+                .filter_map(|dict| {
+                    let faction = dict.get_ascii_string(key_player_faction());
+                    let name = dict.get_ascii_string(key_player_name());
+                    host_base_faction_from_map_side(&faction)
+                        .or_else(|| host_base_faction_from_map_side(&name))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    (start_positions, side_factions)
+}
+
+/// Synthesize the C++ GameInfo-equivalent skirmish config for a start that
+/// arrived without one (runtime-host `start_game`, WND NewGame drains).
+///
+/// C++ `GameLogic::startNewGame` (GameLogic.cpp:1494-1532) consumes GameInfo
+/// slots — PlayerTemplate, cash, and computer players per slot — for every
+/// skirmish launch; this reconstruction keeps that contract against the map
+/// itself: one slot per authored player start, the human on its requested
+/// faction, Medium AI everywhere else, and the default rules (10k cash).
+fn host_synthesize_skirmish_config(
+    map_name: &str,
+    human_faction: &str,
+) -> crate::skirmish_config::SkirmishMatchConfig {
+    let (start_positions, map_side_factions) = host_map_skirmish_shape(map_name);
+    crate::skirmish_config::SkirmishMatchConfig {
+        map: map_name.to_string(),
+        // There is no live GameInfo seed here; 0 is the deterministic seed
+        // the golden host config uses for the same situation.
+        random_seed: 0,
+        old_factions_only: false,
+        rules: crate::skirmish_config::GameRulesSnapshot::default_rules(),
+        slots: host_synthesize_skirmish_slots(&start_positions, &map_side_factions, human_faction),
     }
 }
 
@@ -442,9 +633,32 @@ impl CnCGameEngine {
                     self.current_player_id = human.slot_index as u32;
                 }
             } else {
-                // Wave 577: host start residual via helper.
-                info!("host_start_game_from_ui: host_start_new_game_with_faction(skirmish)");
-                self.host_start_new_game_with_faction(mode, faction_team, true);
+                // C++ `GameLogic::startNewGame` (GameLogic.cpp:1494-1532)
+                // consumes GameInfo slots — PlayerTemplate, cash, and
+                // computer players per slot — for every skirmish launch. A
+                // start without an explicit config still needs those slots,
+                // so synthesize them from the map's player/start data and
+                // route the same skirmish-config authority instead of the
+                // Team-only legacy bootstrap (hard-coded players, default
+                // supplies, and no registered AI).
+                let synthesized = host_synthesize_skirmish_config(&map_name, &faction);
+                info!(
+                    "host_start_game_from_ui: synthesized skirmish config for '{}' ({} active slots, human faction {})",
+                    map_name,
+                    synthesized.slots.iter().filter(|s| s.is_active).count(),
+                    faction
+                );
+                match self.host_apply_skirmish_config_authority(&synthesized) {
+                    Ok(()) => {
+                        // The synthesized human always owns slot 0.
+                        self.current_player_id = 0;
+                    }
+                    Err(e) => {
+                        warn!("Rejecting synthesized Skirmish start before map load: {e}");
+                        self.return_to_main_menu_after_match();
+                        return;
+                    }
+                }
             }
         } else {
             match player_template {
@@ -863,9 +1077,7 @@ impl CnCGameEngine {
         // Radar::newMap may have painted the band black. Re-run
         // buildTerrainTexture once hydration completes (C++ parity:
         // W3DRadar::refreshTerrain, W3DRadar.cpp:1421-1432).
-        if let Ok(mut radar) =
-            game_engine::common::system::radar::get_radar_system().write()
-        {
+        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
             radar.refresh_terrain();
         }
 
@@ -1059,13 +1271,32 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ user pitch model (View.cpp:148-158): `View::setPitch` stores a user
+    /// delta clamped ±PI/5, and `W3DView::buildCameraTransform`
+    /// (W3DView.cpp:307-321) rotates the GameData-`CameraPitch` base camera
+    /// offset by that delta, so the absolute orbit pitch is base plus the
+    /// clamped delta. The host stores the absolute pitch, so its distance from
+    /// the GameData base is the user delta and the ±PI/5 clamp bounds it; the
+    /// ±[5,85] render guards keep the orbit offset solvable.
+    fn clamp_orbit_pitch_radians(pitch: f32) -> f32 {
+        let base_degrees = game_engine::common::global_data::read().camera_pitch;
+        let base_degrees = if base_degrees.is_finite() && base_degrees.abs() >= 0.1 {
+            base_degrees
+        } else {
+            LOOKAT_DEFAULT_PITCH_DEG
+        };
+        let base = base_degrees.to_radians();
+        let limit = std::f32::consts::PI / 5.0;
+        pitch
+            .clamp(base - limit, base + limit)
+            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians())
+    }
+
     pub(super) fn apply_camera_orbit_transform(&mut self) {
         if self.camera_slave_mode.is_some() {
             return;
         }
-        self.camera_pitch_radians = self
-            .camera_pitch_radians
-            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
+        self.camera_pitch_radians = Self::clamp_orbit_pitch_radians(self.camera_pitch_radians);
         self.camera_orbit_distance = self.camera_orbit_distance.max(1.0);
         let offset = self.camera_orbit_offset();
         let (source, look) = self.camera_fx_adjusted_eye_and_look(
@@ -1101,9 +1332,7 @@ impl CnCGameEngine {
         } else {
             zoom
         };
-        let pitch = self
-            .camera_pitch_radians
-            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
+        let pitch = Self::clamp_orbit_pitch_radians(self.camera_pitch_radians);
         let horizontal = distance * pitch.cos();
         Vec3::new(
             horizontal * self.camera_yaw_radians.sin(),
@@ -2520,5 +2749,157 @@ End
                 && !body.contains("position: self.camera_target"),
             "CAMERA_ADD_SHAKER must keep the scripted waypoint"
         );
+    }
+
+    #[test]
+    fn no_config_skirmish_start_routes_through_the_config_authority() {
+        // A config-less Skirmish start must synthesize the GameInfo slots
+        // and apply them through host_apply_skirmish_config_authority; the
+        // Team-only legacy bootstrap is the degenerate 3-player match this
+        // replaces.
+        let src = include_str!("start_game.rs");
+        let start = src
+            .find("pub(super) fn complete_parked_match_start")
+            .expect("parked start finish authority");
+        let after_start = &src[start..];
+        let end = after_start[1..]
+            .find("\n    pub(super) fn ")
+            .map(|offset| offset + 1)
+            .unwrap_or(after_start.len());
+        let body = &after_start[..end];
+
+        let branch = body
+            .find("if mode == GameMode::Skirmish {")
+            .expect("skirmish branch");
+        let synthesis = body
+            .find("host_synthesize_skirmish_config(&map_name, &faction)")
+            .expect("config-less start synthesizes the slot set");
+        let authority = body[branch..]
+            .find("self.host_apply_skirmish_config_authority(&synthesized)")
+            .map(|offset| branch + offset)
+            .expect("synthesized config goes through the skirmish authority");
+        assert!(branch < synthesis && synthesis < authority);
+        assert!(
+            !body.contains("host_start_new_game_with_faction(mode, faction_team, true)"),
+            "a config-less Skirmish start must not fall back to the legacy Team-only bootstrap"
+        );
+    }
+
+    #[test]
+    fn synthesized_skirmish_slots_follow_map_player_count_sides_and_difficulty() {
+        // One slot per authored player start: slot 0 is the human on the
+        // requested faction, the rest are Medium AIs on the map sides with
+        // one free-for-all alliance team and one map start each.
+        let slots = host_synthesize_skirmish_slots(&[0, 1, 2, 3], &["USA", "GLA", "China"], "China");
+        assert_eq!(slots.len(), 4);
+        assert_eq!(slots.iter().filter(|s| s.is_active).count(), 4);
+        let (human, ais) = slots.split_first().expect("slots");
+        assert!(human.is_human);
+        assert_eq!(human.faction, "China");
+        assert_eq!(human.team, 0);
+        assert_eq!(human.start_position, 0);
+        assert_eq!(human.player_name, "Player");
+        assert!(human.ai_difficulty.is_none());
+        for (offset, ai) in ais.iter().enumerate() {
+            let slot = offset + 1;
+            assert!(!ai.is_human, "slot {slot}");
+            assert_eq!(ai.ai_difficulty.as_deref(), Some("Medium"), "slot {slot}");
+            assert_eq!(ai.team, slot as i32, "slot {slot}");
+            assert_eq!(ai.start_position, slot as i32, "slot {slot}");
+        }
+        assert_eq!(ais[0].faction, "USA");
+        assert_eq!(ais[1].faction, "GLA");
+        assert_eq!(ais[2].faction, "China");
+
+        // Map side faction names accept both SidesList spellings and skip
+        // civilians/observers entirely.
+        assert_eq!(host_base_faction_from_map_side("FactionAmerica"), Some("USA"));
+        assert_eq!(host_base_faction_from_map_side("PlyrGLA"), Some("GLA"));
+        assert_eq!(host_base_faction_from_map_side("FactionChina"), Some("China"));
+        assert_eq!(host_base_faction_from_map_side("FactionCivilian"), None);
+        assert_eq!(host_base_faction_from_map_side("FactionObserver"), None);
+        assert_eq!(host_base_faction_from_map_side(""), None);
+    }
+
+    #[test]
+    fn synthesized_skirmish_slots_cycle_sides_and_floor_at_two() {
+        // Five starts against one map side: the remaining AI slots cycle the
+        // base sides rather than repeating the single map side.
+        let slots = host_synthesize_skirmish_slots(&[0, 1, 2, 3, 4], &["China"], "USA");
+        assert_eq!(slots.len(), 5);
+        let factions: Vec<&str> = slots[1..].iter().map(|s| s.faction.as_str()).collect();
+        assert_eq!(factions, vec!["China", "USA", "GLA", "China"]);
+
+        // Unknown map shape keeps the golden two-slot floor (human plus one
+        // AI) instead of a zero-opponent match.
+        let degenerate = host_synthesize_skirmish_slots(&[], &[], "Random");
+        assert_eq!(degenerate.len(), HOST_SYNTHESIZED_SKIRMISH_MIN_SLOTS);
+        assert_eq!(degenerate[0].faction, "Random");
+        assert!(
+            matches!(
+                degenerate[0].player_template,
+                crate::skirmish_config::SkirmishPlayerTemplateSelection::Random
+            ),
+            "a Random human keeps PLAYERTEMPLATE_RANDOM resolution semantics"
+        );
+        assert_eq!(degenerate[1].ai_difficulty.as_deref(), Some("Medium"));
+        assert_eq!(degenerate[1].faction, "USA");
+
+        // A 10-start map is capped at the C++ MAX_SLOTS slot set.
+        let wide = host_synthesize_skirmish_slots(
+            &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            &["USA", "GLA", "China", "USA", "GLA", "China", "USA", "GLA", "China"],
+            "USA",
+        );
+        assert_eq!(wide.len(), crate::ui::skirmish_menu::MAX_SLOTS);
+    }
+
+    #[test]
+    fn synthesized_skirmish_config_registers_ai_opponents_and_sets_cash() {
+        // The contract a plain runtime-host `start_game` must observe after
+        // this synthesis: N players registered, N-1 of them real registered
+        // AI opponents carrying their difficulty, and the default starting
+        // cash applied by the production authority path.
+        let slots = host_synthesize_skirmish_slots(&[0, 1, 2], &["GLA", "China"], "USA");
+        let config = crate::skirmish_config::SkirmishMatchConfig {
+            map: "SynthMap".to_string(),
+            random_seed: 0,
+            old_factions_only: false,
+            rules: crate::skirmish_config::GameRulesSnapshot::default_rules(),
+            slots,
+        };
+        assert_eq!(config.rules.starting_cash, 10_000);
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        crate::skirmish_config::apply_skirmish_config(&mut logic, &config)
+            .expect("synthesized config applies through the skirmish authority");
+
+        let active = config.slots.iter().filter(|s| s.is_active).count();
+        assert!(
+            logic.get_players().len() >= active,
+            "every synthesized slot must register a player (got {})",
+            logic.get_players().len()
+        );
+        assert_eq!(
+            logic.host_ai_player_count(),
+            active - 1,
+            "every computer slot must become a registered AI opponent"
+        );
+        let human = logic.get_player(0).expect("human registered");
+        assert_eq!(human.resources.supplies, 10_000);
+        for slot in config.slots.iter().filter(|s| !s.is_human) {
+            let player = logic
+                .get_player(slot.slot_index as u32)
+                .expect("ai player registered");
+            assert!(
+                player.resources.supplies >= 10_000,
+                "slot {} cash must come from the synthesized rules",
+                slot.slot_index
+            );
+            assert_eq!(
+                logic.host_ai_difficulty(slot.slot_index as u32),
+                Some(crate::ai::AIDifficulty::Medium)
+            );
+        }
     }
 }

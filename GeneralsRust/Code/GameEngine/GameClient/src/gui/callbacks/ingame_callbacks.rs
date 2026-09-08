@@ -935,6 +935,18 @@ pub fn set_in_game_chat_type(chat_type: InGameChatType) -> Result<(), Box<dyn st
     system.set_in_game_chat_type(chat_type)
 }
 
+/// Current in-game chat type (defeat UX flips it to Everyone).
+pub fn get_in_game_chat_type() -> InGameChatType {
+    let system = get_ingame_ui_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    system
+        .chat
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_chat_type()
+        .clone()
+}
+
 pub fn is_in_game_chat_active() -> bool {
     let system = get_ingame_ui_system();
     let system = system.read().unwrap_or_else(|e| e.into_inner());

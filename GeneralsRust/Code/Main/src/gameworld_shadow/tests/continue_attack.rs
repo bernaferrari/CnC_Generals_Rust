@@ -778,20 +778,24 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         .create_object("MaU", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("v");
     {
-    // C++ human idle auto-acquire only takes OBJECTSHROUD_CLEAR victims
-    // (AIUpdate.cpp:4608-4619 PartitionFilterFreeOfFog residual, mood.rs
-    // UNFOGGED flag for a local player's scan). No vision pass runs in this
-    // raw fixture, so stamp the retail precondition: the enemy in front of
-    // the start units is shroud-clear for the owning local player.
-    if let Some(pid) = logic.player_id_for_team(Team::USA) {
-        if let Some(mgr) = gamelogic::system::shroud_manager::get_shroud_manager()
-            .lock()
-            .ok()
-            .as_mut()
-        {
-            mgr.set_host_object_shroud_status(pid, vid.0, gamelogic::common::ObjectShroudStatus::Clear);
+        // C++ human idle auto-acquire only takes OBJECTSHROUD_CLEAR victims
+        // (AIUpdate.cpp:4608-4619 PartitionFilterFreeOfFog residual, mood.rs
+        // UNFOGGED flag for a local player's scan). No vision pass runs in this
+        // raw fixture, so stamp the retail precondition: the enemy in front of
+        // the start units is shroud-clear for the owning local player.
+        if let Some(pid) = logic.player_id_for_team(Team::USA) {
+            if let Some(mgr) = gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .ok()
+                .as_mut()
+            {
+                mgr.set_host_object_shroud_status(
+                    pid,
+                    vid.0,
+                    gamelogic::common::ObjectShroudStatus::Clear,
+                );
+            }
         }
-    }
         let o = logic.host_object_mut(oid).expect("o");
         // Mood auto-acquire is an IDLE-state scan (mood.rs:601 eligible gate);
         // the try_mood_auto_acquire_enters_attack precedent sets Idle explicitly.
@@ -800,7 +804,8 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         // C++ AutoAcquireEnemiesWhenIdle is a BITFIELD parsed from INI
         // (AIUpdate.cpp; AUTO_ACQUIRE_* flags) — get_next_mood_target gates
         // called_during_idle on AUTO_ACQUIRE_IDLE, not the legacy bool.
-        o.auto_acquire_idle_bits |= gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+        o.auto_acquire_idle_bits |=
+            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         // Retail infantry author VisionRange (AmericaInfantry.ini Ranger 150);
         // the mood scan fails closed on vision <= 0
         // (mood.rs adjusted_vision_range_for_mood gate).

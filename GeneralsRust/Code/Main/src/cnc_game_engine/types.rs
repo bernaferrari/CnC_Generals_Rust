@@ -1266,7 +1266,7 @@ pub struct CnCGameEngine {
     pub(crate) last_click_time: Option<Instant>,
     pub(crate) last_click_position: Option<(f32, f32)>,
     pub(crate) last_right_click_time: Option<Instant>,
-    pub(crate) last_right_click_position: Option<Vec3>,
+    pub(crate) last_right_click_screen: Option<(f32, f32)>,
     pub(crate) left_click_release_behavior: LeftMouseReleaseBehavior,
     /// C++ `SelectionTranslator::m_displayedMaxWarning` / `setDisplayedMaxWarning`.
     pub(crate) displayed_max_selection_warning: bool,

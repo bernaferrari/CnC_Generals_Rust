@@ -9,6 +9,19 @@
 )]
 use super::*;
 
+/// Session negative-cache for model keys whose full resolution chain —
+/// asset-manager load plus filesystem residual — already failed. Without it
+/// every unresolvable drawable re-attempted `load_w3d_model` +
+/// `resolve_mesh_for_model_key` (warn + note + filesystem probe) on every
+/// frame. A failed key now costs exactly one attempt and one warn per
+/// session. Cleared by [`RenderPipeline::clear_failed_model_resolutions`]
+/// when late archive providers install so keys that failed early can
+/// re-resolve; `RenderModelLoadResult::Failed` is a retry policy, not a
+/// forever-blacklist.
+static FAILED_MODEL_RESOLUTIONS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashSet<String>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
 impl RenderPipeline {
     /// Retain the exact source stamp and authored weapon-bone bases on every
     /// RenderItem emitted from one GameClient DrawSubmission.  This is a pure
@@ -1034,6 +1047,65 @@ impl RenderPipeline {
         }
     }
 
+    /// True when this model key already failed a full resolution this session.
+    fn failed_model_resolution_cached(model_name: &str) -> bool {
+        let canonical =
+            crate::assets::mesh_asset_resolve::canonical_model_key(model_name).to_ascii_lowercase();
+        if canonical.is_empty() {
+            return false;
+        }
+        FAILED_MODEL_RESOLUTIONS
+            .lock()
+            .map(|failed| failed.contains(&canonical))
+            .unwrap_or(false)
+    }
+
+    /// Record a failed model resolution for session-wide negative caching.
+    fn record_failed_model_resolution(model_name: &str) {
+        let canonical =
+            crate::assets::mesh_asset_resolve::canonical_model_key(model_name).to_ascii_lowercase();
+        if canonical.is_empty() {
+            return;
+        }
+        if let Ok(mut failed) = FAILED_MODEL_RESOLUTIONS.lock() {
+            failed.insert(canonical);
+        }
+    }
+
+    /// Late-provider recovery hook: drop the session failed-resolution cache
+    /// so keys that failed before the archive-backed providers installed can
+    /// re-attempt resolution. Called from pipeline lifecycle initialization.
+    pub(super) fn clear_failed_model_resolutions() {
+        let cleared = match FAILED_MODEL_RESOLUTIONS.lock() {
+            Ok(mut failed) => {
+                let cleared = failed.len();
+                failed.clear();
+                cleared
+            }
+            Err(_) => 0,
+        };
+        if cleared > 0 {
+            info!(
+                "Cleared {cleared} failed model resolutions for late archive provider recovery"
+            );
+        }
+    }
+
+    /// True when the authored Object INI template is a sound-only host
+    /// template: no drawable/model, but an ambient loop. Those `Amb_*` map
+    /// objects are seeded deliberately (host ambient audio); mesh resolution
+    /// can never succeed and must be skipped, not retried every frame.
+    fn template_definition_is_audio_only(
+        asset_manager: &crate::assets::AssetManager,
+        template_name: &str,
+    ) -> bool {
+        let Some(definition) = asset_manager.resolve_object_definition(template_name, None)
+        else {
+            return false;
+        };
+        object_definition_is_audio_only(definition)
+    }
+
     pub(super) fn ensure_render_model_loaded(
         graphics_system: &mut GraphicsSystem,
         template_name: &str,
@@ -1077,6 +1149,20 @@ impl RenderPipeline {
                 return RenderModelLoadResult::Ready(model);
             }
         }
+        // Known-failed negative cache: the full chain (asset manager +
+        // filesystem residual) already failed for this key this session.
+        // Short-circuit before the budget gate so deferred startup loads do
+        // not burn their budget on unresolvable keys, and before the asset
+        // manager lock so repeats are O(1) with no warns or probes.
+        if Self::failed_model_resolution_cached(model_name) {
+            if trace_this_attempt {
+                info!(
+                    "Startup model load: known-failed negative cache hit template='{}' model='{}'",
+                    template_name, resolved_key
+                );
+            }
+            return RenderModelLoadResult::Failed;
+        }
         if !allow_sync_model_loads && *deferred_model_load_budget == 0 {
             if trace_this_attempt {
                 info!(
@@ -1100,6 +1186,15 @@ impl RenderPipeline {
                             "Startup model load: template='{}' exact_model='{}' requested='{}'",
                             template_name, model_name, requested_model_name
                         );
+                    }
+
+                    // Audio-only host templates (Amb_* ambient loops) are
+                    // seeded deliberately with no drawable/model. Resolution
+                    // can never succeed; record the failure once, silently —
+                    // no per-frame warn, no filesystem probe.
+                    if Self::template_definition_is_audio_only(&asset_manager, template_name) {
+                        Self::record_failed_model_resolution(model_name);
+                        return RenderModelLoadResult::Failed;
                     }
 
                     match asset_manager.load_w3d_model(&requested_model_name) {
@@ -1202,6 +1297,11 @@ impl RenderPipeline {
                 "Startup model load: unresolved template='{}' model='{}' requested='{}'",
                 template_name, model_name, requested_model_name
             );
+        }
+        if resolved.is_none() {
+            // Session negative cache: this key must not re-attempt the asset
+            // manager load + filesystem residual chain on the next frame.
+            Self::record_failed_model_resolution(model_name);
         }
         resolved
             .map(RenderModelLoadResult::Ready)
@@ -1785,14 +1885,14 @@ impl RenderPipeline {
 
     /// Execute water rendering pass - equivalent to C++ RenderPipeline::ExecuteWaterPass()
     ///
-    /// Uses the GameClient `TerrainVisual` water mesh (`sync_global_water_plane` /
-    /// tiled `bake_water_tiles_world`) honoring GlobalData `water_position_z` /
-    /// extents. Not a no-op when that mesh exists.
-    pub(super) fn execute_water_pass(
-        &mut self,
-        _encoder: &mut wgpu::CommandEncoder,
-        graphics_system: &GraphicsSystem,
-    ) -> Result<()> {
+    /// C++ renders water at static sort level 2, after opaque objects AND
+    /// shadows (W3DWater.cpp:1019 `Set_Sort_Level(2)`, W3DScene.cpp:833
+    /// Render_And_Clear_Static_Sort_Lists). The whole water scene — GlobalData
+    /// sea plane (drawSea), water tracks, polygon rivers/trapezoids
+    /// (renderWater), water grid mesh (renderWaterMesh) and its shroud pass —
+    /// therefore records into a post-frame callback that depth-tests against
+    /// the full scene depth buffer.
+    pub(super) fn execute_water_pass(&mut self, graphics_system: &GraphicsSystem) -> Result<()> {
         self.current_pass = Some(RenderPass::WaterPass);
         #[cfg(feature = "game_client")]
         {
@@ -1805,12 +1905,21 @@ impl RenderPipeline {
             }
             let vp_w = self.tactical_viewport_width.max(1.0);
             let vp_h = (self.tactical_viewport_height * self.tactical_view_height_frac).max(1.0);
-            self.forward_pass.enqueue_pre_scene_callback(move |frame| {
-                let depth_view = frame.depth_view_arc();
+            self.forward_pass.enqueue_post_frame_callback(move |frame| {
+                let Some(depth_view) = frame.depth_view_arc() else {
+                    return Ok(());
+                };
                 let color_view = frame.color_view_arc();
                 let encoder = frame.encoder();
                 let terrain_visual_guard =
                     game_client::terrain::terrain_visual::get_terrain_visual().ok();
+                // get_terrain_visual yields a guard over Option<TerrainVisualImpl>.
+                let Some(terrain_visual) = terrain_visual_guard
+                    .as_deref()
+                    .and_then(|visual| visual.as_ref())
+                else {
+                    return Ok(());
+                };
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("main water pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1822,26 +1931,21 @@ impl RenderPipeline {
                             store: wgpu::StoreOp::Store,
                         },
                     })],
-                    depth_stencil_attachment: depth_view.as_ref().map(|depth| {
-                        wgpu::RenderPassDepthStencilAttachment {
-                            view: depth.as_ref(),
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }
+                    // Depth presence was early-returned above.
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: depth_view.as_ref(),
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
                 render_pass.set_viewport(0.0, 0.0, vp_w, vp_h, 0.0, 1.0);
                 render_pass.set_scissor_rect(0, 0, vp_w as u32, vp_h as u32);
-                if let Some(terrain_guard) = terrain_visual_guard.as_ref() {
-                    if let Some(terrain_visual) = terrain_guard.as_ref() {
-                        terrain_visual.record_water_draws(&mut render_pass);
-                    }
-                }
+                terrain_visual.record_water_scene_draws(&mut render_pass);
                 drop(render_pass);
                 Ok(())
             });
@@ -1881,6 +1985,19 @@ impl RenderPipeline {
     pub fn get_current_player(&self) -> u32 {
         self.current_player_id
     }
+}
+
+/// True when the authored Object INI definition carries no drawable/model but
+/// a real ambient loop — the deliberately spawned `Amb_*` audio-only case.
+/// Same predicate as template seeding (`is_audio_only` in spawn_templates).
+fn object_definition_is_audio_only(definition: &crate::assets::ObjectDefinition) -> bool {
+    use crate::game_logic::host_move_ambient_audio::definition_has_sound_ambient;
+    let model_name = definition
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty() && !model.eq_ignore_ascii_case("none"));
+    model_name.is_none() && definition_has_sound_ambient(definition)
 }
 
 /// True when the requested model is a real W3D key (not the diagnostic cube).
@@ -2148,5 +2265,70 @@ mod w3d_live_path_tests {
         assert!(!real_w3d_name_resolved(""));
         let src = include_str!("pipeline_collect.rs");
         assert!(src.contains("!real_w3d_name_resolved(model_name)"));
+    }
+}
+
+#[cfg(test)]
+mod failed_model_resolution_cache_tests {
+    use super::*;
+
+    #[test]
+    fn failed_resolution_is_cached_per_session_until_invalidated() {
+        let key = "zzz_failed_resolution_cache_probe";
+        assert!(
+            !RenderPipeline::failed_model_resolution_cached(key),
+            "fresh key must not start cached"
+        );
+
+        RenderPipeline::record_failed_model_resolution(key);
+        assert!(
+            RenderPipeline::failed_model_resolution_cached(key),
+            "the next frame must short-circuit on the session negative cache"
+        );
+        // Presentation keys can arrive with path or extension decoration;
+        // canonicalization must still hit the cached failure.
+        assert!(RenderPipeline::failed_model_resolution_cached(&format!(
+            "Art/W3D/{key}.w3d"
+        )));
+
+        // Late-provider invalidation must allow a re-attempt.
+        RenderPipeline::clear_failed_model_resolutions();
+        assert!(
+            !RenderPipeline::failed_model_resolution_cached(key),
+            "provider install must clear the failed-resolution cache"
+        );
+    }
+
+    #[test]
+    fn audio_only_definitions_are_detected_without_a_model() {
+        use crate::assets::ObjectDefinition;
+
+        let mut ambient_only = ObjectDefinition::new("Amb_TestEmitter".to_string());
+        ambient_only
+            .attributes
+            .insert("SoundAmbient".to_string(), "Amb_TestLoop".to_string());
+        assert!(
+            object_definition_is_audio_only(&ambient_only),
+            "no model + ambient loop is the seeded audio-only host template case"
+        );
+
+        let mut with_model = ObjectDefinition::new("VisualUnit".to_string());
+        with_model.model_name = Some("avleopard".to_string());
+        with_model
+            .attributes
+            .insert("SoundAmbient".to_string(), "Amb_TestLoop".to_string());
+        assert!(
+            !object_definition_is_audio_only(&with_model),
+            "a definition with a real model is not audio-only"
+        );
+
+        let mut nosound = ObjectDefinition::new("SilentTemplate".to_string());
+        nosound
+            .attributes
+            .insert("SoundAmbient".to_string(), "NoSound".to_string());
+        assert!(
+            !object_definition_is_audio_only(&nosound),
+            "SoundAmbient = NoSound is not an ambient loop"
+        );
     }
 }

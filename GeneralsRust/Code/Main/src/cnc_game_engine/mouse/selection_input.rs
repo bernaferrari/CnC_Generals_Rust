@@ -451,20 +451,51 @@ impl CnCGameEngine {
     }
 
     fn host_note_right_double_click(&mut self) -> bool {
+        // C++ Mouse.cpp promotes right MBS_DoubleClick from the OS, so the
+        // gate is the OS double-click time plus the SM_CXDOUBLECLK screen
+        // slop — not a 10-world-unit pad (matches the LMB residual path).
         let now = Instant::now();
-        let mouse_pos = self.mouse_world_position;
-        let is_double = if let (Some(last_time), Some(last_pos)) =
-            (self.last_right_click_time, self.last_right_click_position)
+        let is_double = if let (Some(last_time), Some(last_screen)) =
+            (self.last_right_click_time, self.last_right_click_screen)
         {
             let time_delta = now.duration_since(last_time).as_millis();
-            let pos_delta = (mouse_pos - last_pos).length();
-            time_delta < 500 && pos_delta < 10.0
+            let dx = self.mouse_position.0 - last_screen.0;
+            let dy = self.mouse_position.1 - last_screen.1;
+            is_os_style_double_click(
+                time_delta,
+                dx,
+                dy,
+                os_double_click_time_ms(),
+                OS_DOUBLE_CLICK_SLOP_PX,
+            )
         } else {
             false
         };
         self.last_right_click_time = Some(now);
-        self.last_right_click_position = Some(mouse_pos);
+        self.last_right_click_screen = Some(self.mouse_position);
         is_double
+    }
+
+    /// C++ `CommandXlat.cpp:1423-1427` — a locally controlled `KINDOF_MINE`
+    /// under the cursor is nulled out before context evaluation, so the click
+    /// degrades to a plain position order (move) instead of an object order
+    /// or a silent no-op. Ally/neutral/enemy mines are left intact.
+    fn peel_locally_controlled_mine_target(&self, target: Option<ObjectId>) -> Option<ObjectId> {
+        let id = target?;
+        let is_local_mine = self
+            .presentation_target_hint(id)
+            .is_some_and(|hint| hint.is_mine)
+            && self.last_presentation_frame.as_ref().is_some_and(|frame| {
+                frame
+                    .objects
+                    .iter()
+                    .any(|o| o.id == id && frame.is_owned_by_local(o))
+            });
+        if is_local_mine {
+            None
+        } else {
+            Some(id)
+        }
     }
 
     /// C++ CommandXlat.cpp:3635-3713 double-click attack-move → MSG_DO_GUARD_POSITION.
@@ -972,7 +1003,8 @@ impl CnCGameEngine {
 
         // C++ context-sensitive click residual via CommandSystem:
         // attack / gather / repair / enter / get-repaired / get-healed / move / attack-move.
-        let target_object = self.find_object_at_cursor(true);
+        let target_object =
+            self.peel_locally_controlled_mine_target(self.find_object_at_cursor(true));
         let ctrl = self.keys_pressed.iter().any(|k| {
             matches!(
                 k,

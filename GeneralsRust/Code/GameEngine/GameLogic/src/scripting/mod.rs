@@ -41,7 +41,7 @@ pub mod script_engine;
 pub mod scripts;
 pub mod triggers;
 pub mod variables;
-pub mod victory;
+
 
 pub use actions::*;
 pub use conditions::*;
@@ -87,9 +87,7 @@ pub use script_actions::*;
 pub use script_conditions::*;
 pub use script_engine::*;
 pub use scripts::*;
-pub use triggers::{GameDifficulty, Trigger, TriggerMode, TriggerState, TriggerSystem};
 pub use variables::{VariableScope, VariableScopeManager};
-pub use victory::*;
 
 /// Snapshot serialization trait for scripting data.
 pub trait XferSnapshot {
@@ -325,8 +323,6 @@ pub struct ScriptingEngine {
     action_registry: Arc<RwLock<ActionRegistry>>,
     /// Condition registry
     condition_registry: Arc<RwLock<ConditionRegistry>>,
-    /// Victory condition manager
-    victory_manager: Arc<RwLock<VictoryManager>>,
     /// Performance metrics
     metrics: Arc<RwLock<ScriptMetrics>>,
     /// External action handler (mission hooks)
@@ -382,7 +378,6 @@ impl ScriptingEngine {
             global_variables: Arc::new(RwLock::new(HashMap::new())),
             action_registry: Arc::new(RwLock::new(ActionRegistry::new())),
             condition_registry: Arc::new(RwLock::new(ConditionRegistry::new())),
-            victory_manager: Arc::new(RwLock::new(VictoryManager::new())),
             metrics: Arc::new(RwLock::new(ScriptMetrics::default())),
             action_handler: None,
             host_game_state: Arc::new(RwLock::new(GameStateContext {

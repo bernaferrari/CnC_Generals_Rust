@@ -412,7 +412,6 @@ pub(crate) fn collect_presentation_world_anims(logic: &GameLogic) -> Vec<Present
     out
 }
 
-
 #[cfg(test)]
 mod vanish_window_tests {
     use super::*;

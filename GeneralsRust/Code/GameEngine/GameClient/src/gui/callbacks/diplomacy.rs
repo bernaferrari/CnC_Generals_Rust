@@ -403,7 +403,10 @@ impl DiplomacyCallbacks {
         Ok(())
     }
 
-    fn apply_visibility_change(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    fn apply_visibility_change(
+        &mut self,
+        immediate: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.active {
             self.show_layout(immediate);
         } else {
@@ -542,7 +545,6 @@ impl DiplomacyCallbacks {
         }
     }
 
-
     fn hide_layout(&self) {
         let state_handle = diplomacy_ui_state();
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -553,7 +555,6 @@ impl DiplomacyCallbacks {
             let _ = window.borrow_mut().enable(false);
         }
     }
-
 
     fn refresh_from_player_list(&mut self) {
         let Ok(list) = ThePlayerList().read() else {
@@ -663,34 +664,31 @@ impl DiplomacyCallbacks {
         false
     }
 }
-    /// Per-frame tick of the live Diplomacy layout animation. C++ registers
-    /// this as the layout update func (`theLayout->setUpdate(updateFunc)`,
-    /// Diplomacy.cpp:197) and InGameUI::update runs it for every registered
-    /// window layout (InGameUI.cpp:1825-1829): advance the slide animation,
-    /// and once a reverse (hide) animation finishes, hide the window for real.
-    pub fn tick_diplomacy_animation() {
-        let animate_windows = get_global_data()
-            .map(|data| data.read().animate_windows)
-            .unwrap_or(true);
-        if !animate_windows {
-            return;
-        }
-        let state_handle = diplomacy_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if state.window.is_none() {
-            return;
-        }
-        let was_finished = state.animate_manager.is_finished();
-        state.animate_manager.update();
-        if state.animate_manager.is_finished()
-            && !was_finished
-            && state.animate_manager.is_reversed()
-        {
-            if let Some(window) = &state.window {
-                let _ = window.borrow_mut().hide(true);
-            }
+/// Per-frame tick of the live Diplomacy layout animation. C++ registers
+/// this as the layout update func (`theLayout->setUpdate(updateFunc)`,
+/// Diplomacy.cpp:197) and InGameUI::update runs it for every registered
+/// window layout (InGameUI.cpp:1825-1829): advance the slide animation,
+/// and once a reverse (hide) animation finishes, hide the window for real.
+pub fn tick_diplomacy_animation() {
+    let animate_windows = get_global_data()
+        .map(|data| data.read().animate_windows)
+        .unwrap_or(true);
+    if !animate_windows {
+        return;
+    }
+    let state_handle = diplomacy_ui_state();
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    if state.window.is_none() {
+        return;
+    }
+    let was_finished = state.animate_manager.is_finished();
+    state.animate_manager.update();
+    if state.animate_manager.is_finished() && !was_finished && state.animate_manager.is_reversed() {
+        if let Some(window) = &state.window {
+            let _ = window.borrow_mut().hide(true);
         }
     }
+}
 
 impl Default for DiplomacyCallbacks {
     fn default() -> Self {

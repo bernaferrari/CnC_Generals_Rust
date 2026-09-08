@@ -818,7 +818,7 @@ impl CnCGameEngine {
                                 &template,
                                 Some(builder),
                             );
-                            
+
                             if code
                                 == crate::game_logic::host_production_buildable_command_residual::LBC_OK
                             {
@@ -828,7 +828,6 @@ impl CnCGameEngine {
                         }
                     }
                 }
-                
                 if let Some(p) = found {
                     self.place_structure_from_ui(&template, p);
                     self.runtime_host_last_gameplay_cmd =

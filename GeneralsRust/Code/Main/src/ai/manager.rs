@@ -62,6 +62,16 @@ impl AIManager {
         }
     }
 
+    /// C++ `AISkirmishPlayer` ctor `p->setCanBuildUnits(true)`
+    /// (AISkirmishPlayer.cpp:59-62): the skirmish subclass re-enables unit
+    /// production that the base `AIPlayer` ctor disabled.  Without it the
+    /// skirmish team path (`should_build_new_team`) never runs.
+    pub fn apply_skirmish_can_build_units(game_logic: &mut GameLogic, player_id: u32) {
+        if let Some(player) = game_logic.get_player_mut(player_id) {
+            player.set_can_build_units(true);
+        }
+    }
+
     /// Update all AI players
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         if self.last_update_time >= 0.0

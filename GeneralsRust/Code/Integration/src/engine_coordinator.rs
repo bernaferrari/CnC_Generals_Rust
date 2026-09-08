@@ -56,7 +56,6 @@ pub struct EngineCoordinator {
 
     // Game subsystems
     game_client: Option<GameClientSystem>,
-    game_logic: Option<GameLogicSystem>,
     game_network: Option<GameNetworkSystem>,
     audio_system: Option<AudioSystem>,
 
@@ -79,15 +78,6 @@ pub struct GameClientSystem {
     last_update: NetworkInstant,
     // Add actual game client instance when available
     // client: game_client::GameClient,
-}
-
-/// Game Logic subsystem wrapper  
-#[derive(Debug)]
-pub struct GameLogicSystem {
-    state: SubsystemState,
-    last_update: NetworkInstant,
-    // Add actual game logic instance when available
-    // logic: game_logic::GameLogic,
 }
 
 /// Game Network subsystem wrapper
@@ -128,7 +118,6 @@ impl EngineCoordinator {
             diagnostics,
 
             game_client: None,
-            game_logic: None,
             game_network: None,
             audio_system: None,
 
@@ -167,15 +156,7 @@ impl EngineCoordinator {
         });
         self.initialize_audio_system().await?;
 
-        // 3. Initialize Game Logic (depends on client for rendering)
-        info!("Initializing Game Logic subsystem");
-        self.game_logic = Some(GameLogicSystem {
-            state: SubsystemState::Initializing,
-            last_update: NetworkInstant::now(),
-        });
-        self.initialize_game_logic().await?;
-
-        // 4. Initialize Game Network (depends on logic for game state)
+        // 3. Initialize Game Network
         info!("Initializing Game Network subsystem");
         self.game_network = Some(GameNetworkSystem {
             state: SubsystemState::Initializing,
@@ -217,13 +198,6 @@ impl EngineCoordinator {
             if client.state == SubsystemState::Running {
                 trace!("Updating Game Client");
                 self.update_game_client(timing).await?;
-            }
-        }
-
-        if let Some(ref mut logic) = self.game_logic {
-            if logic.state == SubsystemState::Running {
-                trace!("Updating Game Logic");
-                self.update_game_logic(timing).await?;
             }
         }
 
@@ -269,14 +243,6 @@ impl EngineCoordinator {
             }
         }
 
-        if self.game_logic.is_some() {
-            info!("Shutting down Game Logic");
-            self.shutdown_game_logic().await?;
-            if let Some(logic) = self.game_logic.as_mut() {
-                logic.state = SubsystemState::Shutdown;
-            }
-        }
-
         if self.audio_system.is_some() {
             info!("Shutting down Audio System");
             self.shutdown_audio_system().await?;
@@ -314,9 +280,6 @@ impl EngineCoordinator {
         if let Some(ref mut client) = self.game_client {
             client.state = SubsystemState::Paused;
         }
-        if let Some(ref mut logic) = self.game_logic {
-            logic.state = SubsystemState::Paused;
-        }
         if let Some(ref mut network) = self.game_network {
             network.state = SubsystemState::Paused;
         }
@@ -351,9 +314,6 @@ impl EngineCoordinator {
         if let Some(ref mut client) = self.game_client {
             client.state = SubsystemState::Running;
         }
-        if let Some(ref mut logic) = self.game_logic {
-            logic.state = SubsystemState::Running;
-        }
         if let Some(ref mut network) = self.game_network {
             network.state = SubsystemState::Running;
         }
@@ -382,11 +342,6 @@ impl EngineCoordinator {
             subsystems: SubsystemStatus {
                 game_client: self
                     .game_client
-                    .as_ref()
-                    .map(|s| s.state)
-                    .unwrap_or(SubsystemState::Uninitialized),
-                game_logic: self
-                    .game_logic
                     .as_ref()
                     .map(|s| s.state)
                     .unwrap_or(SubsystemState::Uninitialized),
@@ -460,67 +415,6 @@ impl EngineCoordinator {
         Ok(())
     }
 
-    async fn initialize_game_logic(&mut self) -> IntegrationResult<()> {
-        debug!("Initializing Game Logic subsystem");
-
-        // Initialize game logic based on C++ GameLogic patterns
-
-        // 1. Initialize object factory and thing templates
-        info!("Initializing object factory and thing templates");
-        // Load all unit, building, and projectile templates
-
-        // 2. Initialize player management system
-        info!("Initializing player management system");
-        // Set up player slots, teams, and faction data
-
-        // 3. Initialize AI system
-        info!("Initializing AI system with pathfinding");
-        // Set up AI state machines, pathfinding, and behavior trees
-
-        // 4. Initialize physics system
-        info!("Initializing physics simulation system");
-        // Set up collision detection, movement, and projectile physics
-
-        // 5. Initialize weapon system
-        info!("Initializing weapon system");
-        // Load weapon templates, damage calculations, and ballistics
-
-        // 6. Initialize armor system
-        info!("Initializing armor and damage system");
-        // Set up armor types, damage types, and resistance calculations
-
-        // 7. Initialize experience and veterancy system
-        info!("Initializing experience tracking system");
-        // Set up unit experience, ranks, and bonuses
-
-        // 8. Initialize special powers system
-        info!("Initializing special powers system");
-        // Set up general powers, cooldowns, and effects
-
-        // 9. Initialize economy system
-        info!("Initializing economy and resource system");
-        // Set up resource gathering, spending, and supply tracking
-
-        // 10. Initialize victory conditions
-        info!("Initializing victory condition checking");
-        // Set up win/loss conditions and objective tracking
-
-        // 11. Initialize script engine
-        info!("Initializing script engine for map scripts");
-        // Set up scripting system for map events and triggers
-
-        // 12. Initialize game state management
-        info!("Initializing game state management");
-        // Set up save/load functionality and state synchronization
-
-        if let Some(ref mut logic) = self.game_logic {
-            logic.state = SubsystemState::Running;
-            logic.last_update = NetworkInstant::now();
-        }
-
-        debug!("Game Logic initialized successfully");
-        Ok(())
-    }
 
     async fn initialize_game_network(&mut self) -> IntegrationResult<()> {
         debug!("Initializing Game Network subsystem");
@@ -678,48 +572,6 @@ impl EngineCoordinator {
         Ok(())
     }
 
-    async fn update_game_logic(&mut self, _timing: &FrameTiming) -> IntegrationResult<()> {
-        // Update game logic based on C++ GameLogic update patterns
-
-        // 1. Update game objects
-        // Process all units, buildings, and projectiles in the world
-
-        // 2. Update AI systems
-        // Execute AI decision making, pathfinding, and behaviors
-
-        // 3. Update physics simulation
-        // Process movement, collisions, and projectile trajectories
-
-        // 4. Update weapon systems
-        // Handle firing, reload times, and damage calculations
-
-        // 5. Update experience system
-        // Process veterancy gains and unit promotions
-
-        // 6. Update special powers
-        // Handle cooldowns, effects, and power activations
-
-        // 7. Update economy system
-        // Process resource gathering, income, and expenses
-
-        // 8. Update construction and production
-        // Handle building construction and unit production queues
-
-        // 9. Update victory conditions
-        // Check for win/loss conditions and objectives
-
-        // 10. Execute script events
-        // Process map scripts, triggers, and cinematic events
-
-        // 11. Update game state
-        // Maintain synchronization and state consistency
-
-        if let Some(ref mut logic) = self.game_logic {
-            logic.last_update = NetworkInstant::now();
-        }
-
-        Ok(())
-    }
 
     async fn update_game_network(&mut self, _timing: &FrameTiming) -> IntegrationResult<()> {
         // Update game network based on C++ GameNetwork update patterns
@@ -843,45 +695,6 @@ impl EngineCoordinator {
         Ok(())
     }
 
-    async fn shutdown_game_logic(&mut self) -> IntegrationResult<()> {
-        debug!("Shutting down Game Logic");
-
-        // Shutdown game logic based on C++ GameLogic cleanup patterns
-
-        // 1. Stop AI processing
-        info!("Stopping AI processing and pathfinding");
-
-        // 2. Clear all game objects
-        info!("Destroying all game objects");
-        // Clean up units, buildings, projectiles, and effects
-
-        // 3. Shutdown physics system
-        info!("Shutting down physics simulation");
-        // Stop physics simulation and free physics resources
-
-        // 4. Clear player data
-        info!("Clearing player and team data");
-        // Reset player states, resources, and statistics
-
-        // 5. Shutdown script engine
-        info!("Shutting down script engine");
-        // Stop map scripts and free script resources
-
-        // 6. Clear weapon and damage systems
-        info!("Clearing weapon and damage systems");
-        // Reset weapon templates and damage calculations
-
-        // 7. Shutdown special powers
-        info!("Shutting down special powers system");
-        // Clear power cooldowns and active effects
-
-        // 8. Clear experience system
-        info!("Clearing experience and veterancy data");
-        // Reset unit experience and promotion data
-
-        debug!("Game Logic shutdown complete");
-        Ok(())
-    }
 
     async fn shutdown_game_network(&mut self) -> IntegrationResult<()> {
         debug!("Shutting down Game Network");
@@ -1039,7 +852,6 @@ pub struct CoordinatorStatus {
 #[derive(Debug, Clone)]
 pub struct SubsystemStatus {
     pub game_client: SubsystemState,
-    pub game_logic: SubsystemState,
     pub game_network: SubsystemState,
     pub audio_system: SubsystemState,
 }

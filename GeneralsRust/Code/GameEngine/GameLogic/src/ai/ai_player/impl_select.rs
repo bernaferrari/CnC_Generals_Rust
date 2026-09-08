@@ -49,14 +49,16 @@ impl AIPlayer {
             let Ok(player_guard) = player_arc.read() else {
                 return Ok((false, false));
             };
-            for (thing_name, min_units, max_units) in &units {
+            for (thing_name, min_units, max_units) in
+                units.iter().map(|(name, min_units, max_units)| (name.as_str(), *min_units, *max_units))
+            {
                 let Some(template) = TheThingFactory::find_template(thing_name) else {
                     continue;
                 };
                 let thing_cost = template.calc_cost_to_build(Some(&*player_guard)) as i32;
                 // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f);  // truncates to Int
                 cost +=
-                    (thing_cost as f32 * ((*max_units as f32 + *min_units as f32) / 2.0)) as i32;
+                    (thing_cost as f32 * ((max_units as f32 + min_units as f32) / 2.0)) as i32;
             }
         }
 
@@ -313,23 +315,6 @@ impl AIPlayer {
                         dozer_names.push(name);
                     }
                     current = template.get_next_template().clone();
-                }
-            }
-        }
-        // Fallback residual when ThingFactory unloaded (tests / early boot).
-        if dozer_names.is_empty() {
-            for name in [
-                "AmericaVehicleDozer",
-                "ChinaVehicleDozer",
-                "GLAInfantryWorker",
-                "Dozer",
-                "Worker",
-            ] {
-                if TheThingFactory::find_template(name)
-                    .map(|t| t.is_kind_of(KindOf::Dozer))
-                    .unwrap_or(false)
-                {
-                    dozer_names.push(name.to_string());
                 }
             }
         }

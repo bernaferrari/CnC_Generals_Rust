@@ -226,8 +226,8 @@ impl GameLogic {
         use crate::game_logic::partition_coi::{
             HostPartitionFootprint, cells_touched_for_footprint, mix_object_shroud_from_cells,
         };
-        use gamelogic::common::{Relationship, types::ObjectShroudStatus};
         use game_engine::common::system::radar::CellShroudStatus;
+        use gamelogic::common::{Relationship, types::ObjectShroudStatus};
 
         let object_snaps: Vec<_> = self
             .objects

@@ -433,6 +433,10 @@ impl HostSneakAttackRegistry {
     /// Queue with the source player's identity preserved through delayed
     /// tunnel/start-object creation.  Team-only callers retain the wrapper
     /// above for legacy data that has no player provenance.
+    ///
+    /// Pure mission insert (Xfer-faithful: no derived side state).  The
+    /// GameLogic special-power wrapper schedules the multi-pulse shockwave
+    /// residual so save/load round trips persist exactly the pending list.
     pub fn queue_for_owner(
         &mut self,
         kind: HostSneakAttackKind,
@@ -467,15 +471,6 @@ impl HostSneakAttackRegistry {
         self.missions.insert(id, mission);
         self.activated_this_frame.push(id);
         self.activation_count = self.activation_count.saturating_add(1);
-        // C++ GLASneakAttackTunnelNetworkStart FireWeaponUpdate multi-pulse residual.
-        self.schedule_shockwave_pulses(
-            id,
-            source_object,
-            source_team,
-            source_owner_player_id,
-            target_position,
-            activate_frame,
-        );
         id
     }
 

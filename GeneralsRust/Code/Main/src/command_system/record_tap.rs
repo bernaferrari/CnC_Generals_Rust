@@ -383,11 +383,15 @@ fn leftover_logic_crc() -> u32 {
 
 fn logic_crc_due(frame: u32) -> bool {
     let interval = game_engine::common::crc_debug::replay_crc_interval();
-    interval > 0 && frame % (interval as u32) == 0
+    // C++ GameLogic.cpp:3634 — m_frame > 0 && m_frame % REPLAY_CRC_INTERVAL == 0.
+    interval > 0 && frame > 0 && frame % (interval as u32) == 0
 }
 
 /// C++ `GameLogic.cpp:3625-3654`: every `REPLAY_CRC_INTERVAL` frames compute
 /// `getCRC(CRC_RECALC)` and append `MSG_LOGIC_CRC` so `updateRecord` writes it.
+/// The recorded value is the plain state CRC: retail `.rep` files store
+/// `GameLogic::getCRC` exactly (GameLogic.cpp:3636-3652), so folding the live
+/// host object hash into the recorded series would desync playback compare.
 pub fn post_host_logic_crc_if_due(frame: u32, host_fold: u32) -> Option<u32> {
     if !logic_crc_due(frame) {
         return None;
@@ -396,14 +400,20 @@ pub fn post_host_logic_crc_if_due(frame: u32, host_fold: u32) -> Option<u32> {
         return Some(LAST_LOGIC_CRC.load(Ordering::Relaxed));
     }
 
-    let leftover = leftover_logic_crc();
-    let mut hasher = game_engine::common::crc::Crc::new();
-    hasher.compute_crc(&leftover.to_le_bytes());
-    hasher.compute_crc(&host_fold.to_le_bytes());
-    let crc = hasher.get();
+    let crc = leftover_logic_crc();
+    // `host_fold` (live host object fold) is diagnostic only — it must never
+    // blend into the recorded CRC series.
+    log::trace!(
+        "MSG_LOGIC_CRC frame={} state_crc=0x{:08X} host_fold=0x{:08X}",
+        frame,
+        crc,
+        host_fold
+    );
 
     let playback = host_recorder_is_playback();
-    let mut message = GameMessage::new(GameMessageType::LogicCRC(crc));
+    // C++ GameLogicDispatch.cpp:1904-1946 threads the local player index.
+    let mut message =
+        GameMessage::with_player(GameMessageType::LogicCRC(crc), host_local_player_index());
     message.append_boolean_argument(playback);
     append_to_command_list(message);
 
@@ -526,13 +536,33 @@ pub fn leftover_player_current_selection_ids(player_index: i32) -> Vec<ObjectId>
 
 fn host_local_player_index() -> i32 {
     let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        // Unresolvable (no player list yet): fall back to C++ player index 0.
         return 0;
     };
     let index = list.get_local_player_index();
     if index == gamelogic::player::PLAYER_INDEX_INVALID {
+        // Unresolvable (no local player bound yet): fall back to 0.
         0
     } else {
         index
+    }
+}
+
+/// C++ `GameLogic::update` writes every `TheCommandList` message exactly
+/// once: `updateRecord` snapshots the list, then `processCommandList`
+/// (GameLogic.cpp:3669) consumes it — `TheCommandList->reset()` at
+/// GameLogic.cpp:3765. The Rust recorder only *snapshots* the list, so the
+/// `MSG_LOGIC_CRC` entries `updateRecord` just wrote must be removed here;
+/// otherwise every later client pump re-writes them into the `.rep`, the
+/// playback CRC queue drifts, and playback reports a false
+/// "Replay desync".
+fn consume_written_logic_crcs() {
+    #[cfg(feature = "game_client")]
+    {
+        if let Ok(mut list) = game_client::message_stream::command_list::get_command_list().write()
+        {
+            list.retain_messages(|msg| !matches!(msg.get_type(), GameMessageType::LogicCRC(_)));
+        }
     }
 }
 
@@ -550,8 +580,9 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
         recorder.update();
         if playback {
             if let Some(crc) = posted {
-                // C++ GameLogicDispatch.cpp:1940-1946 — compare only in playback.
-                recorder.notify_logic_crc(crc, 0);
+                // C++ GameLogicDispatch.cpp:1940-1946 — compare only in
+                // playback, attributed to the local player.
+                recorder.notify_logic_crc(crc, host_local_player_index());
             }
         }
     });
@@ -562,10 +593,14 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
         let messages = take_command_list_messages();
         apply_replay_messages_to_host(&messages);
     } else {
-        // Record mode: drop stale network user orders but keep the
-        // MSG_LOGIC_CRC just posted above — C++ GameLogic.cpp:3625-3654 posts
-        // the CRC before TheRecorder->update() so updateRecord writes it to
-        // the .rep stream; a blanket clear would silently eat it.
+        // Record mode: updateRecord just wrote the CommandList snapshot, so
+        // consume the written MSG_LOGIC_CRC entries — C++
+        // processCommandList (GameLogic.cpp:3669) drains TheCommandList
+        // after the recorder update, which keeps each CRC in the .rep
+        // exactly once regardless of how many fixed steps ran since the
+        // last client pump.
+        consume_written_logic_crcs();
+        // Drop stale network user orders; the host already queued them.
         cull_host_command_list();
     }
 
@@ -1362,44 +1397,230 @@ mod tests {
         LAST_LOGIC_CRC.store(0, Ordering::Relaxed);
     }
 
-    #[test]
-    fn live_host_posts_logic_crc_every_replay_interval() {
-        // C++ GameLogic.cpp:3634 — (m_frame % REPLAY_CRC_INTERVAL) == 0.
-        reset_logic_crc_cadence();
-        stamp_host_logic_frame(100);
-        let posted = post_host_logic_crc_if_due(100, 0xABCD_0001).expect("frame 100 is due");
-        let snap = snapshot_command_list();
-        let crc_msg = snap
-            .iter()
-            .rev()
-            .find(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_)))
-            .expect("MSG_LOGIC_CRC must land on TheCommandList");
-        match crc_msg.get_type() {
-            GameMessageType::LogicCRC(value) => assert_eq!(*value, posted),
-            other => panic!("expected LogicCRC, got {other:?}"),
-        }
-        assert!(matches!(
-            crc_msg.get_argument(0),
-            Some(GameMessageArgumentType::Boolean(_))
-        ));
-
-        assert!(
-            post_host_logic_crc_if_due(101, 0xABCD_0002).is_none(),
-            "off-interval frames must not emit LogicCRC"
-        );
+    /// The global recorder, TheCommandList, and the CRC cadence statics are
+    /// process-wide; serialize every test that mutates them.
+    fn with_recorder_test_lock<T>(f: impl FnOnce() -> T) -> T {
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        f()
     }
 
     #[test]
-    fn flush_recorder_posts_logic_crc_before_update() {
-        reset_logic_crc_cadence();
-        stamp_host_logic_frame(200);
-        let mut queue = VecDeque::new();
-        flush_recorder_and_replay_authority(&mut queue);
-        let snap = snapshot_command_list();
-        assert!(
-            snap.iter()
-                .any(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_))),
-            "flush must post MSG_LOGIC_CRC so updateRecord can write .rep entries"
-        );
+    fn live_host_posts_logic_crc_every_replay_interval() {
+        // C++ GameLogic.cpp:3634 — m_frame > 0 && (m_frame % REPLAY_CRC_INTERVAL) == 0.
+        with_recorder_test_lock(|| {
+            reset_logic_crc_cadence();
+            clear_command_list();
+            stamp_host_logic_frame(100);
+            let posted = post_host_logic_crc_if_due(100, 0xABCD_0001).expect("frame 100 is due");
+            let snap = snapshot_command_list();
+            let crc_msg = snap
+                .iter()
+                .rev()
+                .find(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_)))
+                .expect("MSG_LOGIC_CRC must land on TheCommandList");
+            match crc_msg.get_type() {
+                GameMessageType::LogicCRC(value) => assert_eq!(*value, posted),
+                other => panic!("expected LogicCRC, got {other:?}"),
+            }
+            assert!(matches!(
+                crc_msg.get_argument(0),
+                Some(GameMessageArgumentType::Boolean(_))
+            ));
+
+            assert!(
+                post_host_logic_crc_if_due(101, 0xABCD_0002).is_none(),
+                "off-interval frames must not emit LogicCRC"
+            );
+            assert!(
+                post_host_logic_crc_if_due(0, 0xABCD_0003).is_none(),
+                "frame 0 must not emit LogicCRC (C++ m_frame > 0 guard)"
+            );
+            clear_command_list();
+        });
+    }
+
+    #[test]
+    fn logic_crc_post_is_plain_state_crc_without_host_fold_blend() {
+        // C++ GameLogic.cpp:3636-3652 — retail .rep stores getCRC exactly.
+        with_recorder_test_lock(|| {
+            reset_logic_crc_cadence();
+            clear_command_list();
+            stamp_host_logic_frame(100);
+            let posted = post_host_logic_crc_if_due(100, 0xABCD_0001).expect("frame 100 is due");
+            let plain = leftover_logic_crc();
+            assert_eq!(posted, plain, "recorded series must equal getCRC exactly");
+            let mut blended = game_engine::common::crc::Crc::new();
+            blended.compute_crc(&plain.to_le_bytes());
+            blended.compute_crc(&0xABCD_0001u32.to_le_bytes());
+            assert_ne!(
+                posted,
+                blended.get(),
+                "host object fold must not blend into the recorded CRC"
+            );
+            clear_command_list();
+        });
+    }
+
+    #[test]
+    fn logic_crc_message_carries_local_player_index() {
+        // C++ GameLogicDispatch.cpp:1904-1946 threads the local player index.
+        with_recorder_test_lock(|| {
+            reset_logic_crc_cadence();
+            clear_command_list();
+            {
+                let mut list = gamelogic::player::ThePlayerList()
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
+                list.clear();
+                for index in 0..3 {
+                    list.add_player(Arc::new(std::sync::RwLock::new(
+                        gamelogic::player::Player::new(index),
+                    )));
+                }
+                list.set_local_player_index(2);
+            }
+            stamp_host_logic_frame(300);
+            assert!(
+                post_host_logic_crc_if_due(300, 0).is_some(),
+                "frame 300 is due"
+            );
+            let snap = snapshot_command_list();
+            let crc_msg = snap
+                .iter()
+                .rev()
+                .find(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_)))
+                .expect("MSG_LOGIC_CRC must land on TheCommandList");
+            assert_eq!(
+                crc_msg.get_player_index(),
+                2,
+                "MSG_LOGIC_CRC must be attributed to the local player slot"
+            );
+            {
+                let mut list = gamelogic::player::ThePlayerList()
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
+                list.clear();
+            }
+            clear_command_list();
+        });
+    }
+
+    #[test]
+    fn flush_recorder_writes_then_consumes_logic_crc() {
+        with_recorder_test_lock(|| {
+            reset_logic_crc_cadence();
+            clear_command_list();
+            stamp_host_logic_frame(200);
+            // Premise: the stamp is the frame source (crate GameLogic
+            // singleton untouched in this test binary).
+            assert_eq!(host_logic_frame(), 200);
+            let mut queue = VecDeque::new();
+            flush_recorder_and_replay_authority(&mut queue);
+            // The flush posts MSG_LOGIC_CRC for updateRecord before update()...
+            assert_eq!(
+                LAST_LOGIC_CRC_FRAME.load(Ordering::Relaxed),
+                200,
+                "flush must post MSG_LOGIC_CRC before updateRecord"
+            );
+            // ...then consumes it after the write: C++ processCommandList
+            // (GameLogic.cpp:3669) drains TheCommandList, so a later pump
+            // must not re-write the same CRC.
+            let snap = snapshot_command_list();
+            assert!(
+                snap.iter()
+                    .all(|msg| !matches!(msg.get_type(), GameMessageType::LogicCRC(_))),
+                "written MSG_LOGIC_CRC entries must be consumed, not retained"
+            );
+        });
+    }
+
+    #[test]
+    fn slow_client_pump_records_each_logic_crc_exactly_once() {
+        // C++ processCommandList consumes TheCommandList every logic frame
+        // (GameLogic.cpp:3669). With a slow client pump (3 fixed steps per
+        // pump) each interval boundary's MSG_LOGIC_CRC must still reach the
+        // .rep exactly once — retaining them would re-write old CRCs on
+        // every pump and drift the playback CRC queue.
+        with_recorder_test_lock(|| {
+            let temp = tempfile::tempdir().unwrap();
+            // Recorder reads the replay dir from ini_game_data's GlobalData.
+            let global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            {
+                let mut data = global.write();
+                data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                data.map_name = "Maps/SlowPump.map".to_string();
+                data.pending_file.clear();
+            }
+            // Local player in slot 2 so the recorded attribution is non-zero.
+            {
+                let mut list = gamelogic::player::ThePlayerList()
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
+                list.clear();
+                for index in 0..3 {
+                    list.add_player(Arc::new(std::sync::RwLock::new(
+                        gamelogic::player::Player::new(index),
+                    )));
+                }
+                list.set_local_player_index(2);
+            }
+            clear_command_list();
+            // The global recorder is lazy: `with_recorder_mut` is a no-op
+            // until the host replay bridges install the singleton, so
+            // `start_recording` would silently never run and the playback
+            // below would find no .rep (NotFound). Install the bridges first,
+            // exactly like every live entry point does.
+            install_host_replay_bridges();
+            with_recorder_mut(|recorder| {
+                recorder.reset();
+                recorder.start_recording(1, 2, 0, 30).expect("start recording");
+            });
+
+            let interval = game_engine::common::crc_debug::replay_crc_interval().max(1) as u32;
+            const STEPS_PER_PUMP: u32 = 3;
+            let pumps = (3 * interval) / STEPS_PER_PUMP + 2;
+            let mut frame = 0u32;
+            for _ in 0..pumps {
+                for _ in 0..STEPS_PER_PUMP {
+                    frame += 1;
+                    stamp_host_logic_frame(frame);
+                    let _ = post_host_logic_crc_if_due(frame, 0xFEED_F00D);
+                }
+                let mut queue = VecDeque::new();
+                flush_recorder_and_replay_authority(&mut queue);
+            }
+            with_recorder_mut(|recorder| recorder.stop_recording());
+
+            // Read the .rep back through a playback sink.
+            let crc_players: Arc<Mutex<Vec<i32>>> = Arc::new(Mutex::new(Vec::new()));
+            let sink_players = crc_players.clone();
+            let mut reader = game_engine::common::recorder::Recorder::new();
+            reader.set_command_sink(Some(Arc::new(move |msg: GameMessage| {
+                if matches!(msg.get_type(), GameMessageType::LogicCRC(_)) {
+                    sink_players
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(msg.get_player_index());
+                }
+            })));
+            assert!(reader
+                .playback_file("00000000.rep".to_string())
+                .expect("open recorded .rep"));
+            for f in 1..=frame {
+                reader.set_current_frame(f);
+                reader.update();
+            }
+            let crc_players = crc_players.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(
+                crc_players.as_slice(),
+                &[2, 2, 2],
+                "each recorded MSG_LOGIC_CRC carries the local player slot"
+            );
+            gamelogic::player::ThePlayerList()
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+        });
     }
 }

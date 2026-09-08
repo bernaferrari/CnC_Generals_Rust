@@ -1922,17 +1922,13 @@ impl GameLogic {
         // SpawnBehavior::computeAggregateStates aggregate residual: master and
         // drone sync to the higher rank at attach (SlavedUpdate live tick in
         // world_tick/ai.rs re-applies the same sync every frame).
-        let (master_level, drone_level) = match (
-            self.objects.get(&master_id),
-            self.objects.get(&drone_id),
-        ) {
-            (Some(m), Some(d)) => (m.experience.level, d.experience.level),
-            _ => return Some(drone_id),
-        };
-        let (sync_master, sync_drone) = crate::game_logic::host_slave_drones::synced_spawn_veterancy(
-            master_level,
-            drone_level,
-        );
+        let (master_level, drone_level) =
+            match (self.objects.get(&master_id), self.objects.get(&drone_id)) {
+                (Some(m), Some(d)) => (m.experience.level, d.experience.level),
+                _ => return Some(drone_id),
+            };
+        let (sync_master, sync_drone) =
+            crate::game_logic::host_slave_drones::synced_spawn_veterancy(master_level, drone_level);
         if sync_master != master_level {
             if let Some(master) = self.objects.get_mut(&master_id) {
                 master.set_min_veterancy_level(sync_master);

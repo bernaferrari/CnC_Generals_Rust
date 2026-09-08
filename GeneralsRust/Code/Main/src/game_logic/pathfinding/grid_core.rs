@@ -388,13 +388,11 @@ impl PathfindingGrid {
         if id == 0 {
             return None;
         }
-        let owner = self.occ_obstacle_owner.get(idx).copied().and_then(|p| {
-            if p == 0xFF {
-                None
-            } else {
-                Some(p as u32)
-            }
-        });
+        let owner = self
+            .occ_obstacle_owner
+            .get(idx)
+            .copied()
+            .and_then(|p| if p == 0xFF { None } else { Some(p as u32) });
         let team = self
             .occ_obstacle_team
             .get(idx)
@@ -617,11 +615,7 @@ impl PathfindingGrid {
             tl_x += ydx;
             tl_z += ydy;
         }
-        if did {
-            Some((lo, hi))
-        } else {
-            None
-        }
+        if did { Some((lo, hi)) } else { None }
     }
 
     /// C++ `REAL_TO_INT_FLOOR((x+0.5)/PATHFIND_CELL_SIZE)` used by classify raster.
@@ -778,11 +772,7 @@ impl PathfindingGrid {
                 }
             }
         }
-        if did {
-            Some((lo, hi))
-        } else {
-            None
-        }
+        if did { Some((lo, hi)) } else { None }
     }
 
     /// C++ `internal_classifyObjectFootprint` (AIPathfind.cpp:4175).
@@ -889,11 +879,7 @@ impl PathfindingGrid {
                 }
             }
         }
-        if did {
-            Some((lo, hi))
-        } else {
-            None
-        }
+        if did { Some((lo, hi)) } else { None }
     }
 
     /// C++ `Pathfinder::createAWallFromMyFootprint`.

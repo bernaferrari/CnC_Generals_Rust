@@ -52,10 +52,7 @@ pub(super) fn visible_enabled_color(
     fallback: u32,
 ) -> u32 {
     let pick = |color: u32| {
-        if color != WIN_COLOR_UNDEFINED
-            && color != PLACEHOLDER_RED
-            && color_alpha(color) > 16
-        {
+        if color != WIN_COLOR_UNDEFINED && color != PLACEHOLDER_RED && color_alpha(color) > 16 {
             Some(color)
         } else {
             None
@@ -306,6 +303,31 @@ pub(super) fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObject
     CACHE.get_or_init(|| Mutex::new(RadarObjectOverlayTextureCache::default()))
 }
 
+/// Cached device texture for one resident radar layer.
+///
+/// C++ `W3DRadar` keeps `m_terrainTexture` / `m_shroudTexture` resident and only
+/// repaints their surfaces on `newMap` / `refreshTerrain` / `setShroudLevel`;
+/// the Rust renderer mirrors that by keying each upload on the map extent plus
+/// the layer's `terrain_generation` / `shroud_revision` counter.
+#[derive(Default)]
+pub(super) struct RadarLayerTextureCache {
+    pub(super) map_extent_signature: Option<[u32; 6]>,
+    pub(super) layer_revision: u64,
+    pub(super) texture: Option<Arc<wgpu::TextureView>>,
+}
+
+pub(super) fn radar_terrain_texture_cache() -> &'static Mutex<RadarLayerTextureCache> {
+    pub(super) static CACHE: LazyLock<Mutex<RadarLayerTextureCache>> =
+        LazyLock::new(|| Mutex::new(RadarLayerTextureCache::default()));
+    &CACHE
+}
+
+pub(super) fn radar_shroud_texture_cache() -> &'static Mutex<RadarLayerTextureCache> {
+    pub(super) static CACHE: LazyLock<Mutex<RadarLayerTextureCache>> =
+        LazyLock::new(|| Mutex::new(RadarLayerTextureCache::default()));
+    &CACHE
+}
+
 pub(super) fn radar_map_extent_signature(map_extent: Region3D) -> [u32; 6] {
     [
         map_extent.lo.x.to_bits(),
@@ -394,32 +416,32 @@ pub(super) fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceDa
         display.set_text(text.clone());
         display.draw(text_x, text_y, text_color, border_color);
     } else {
-    let _ = with_ui_renderer_mut(|renderer| {
-        let (point_size, font_name, bold) = match inst_data.font.as_ref() {
-            Some(font) => (font.size as f32, font.name.as_str(), font.bold),
-            None => (12.0, "Arial", false),
-        };
-        if let Err(err) = renderer.draw_text_simple_named(
-            &text,
-            glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
-            point_size,
-            crate::gui::game_window::color_to_rgba(border_color),
-            font_name,
-            bold,
-        ) {
-            log::warn!("W3DGadgetDraw text shadow render failed: {err}");
-        }
-        if let Err(err) = renderer.draw_text_simple_named(
-            &text,
-            glam::Vec2::new(text_x as f32, text_y as f32),
-            point_size,
-            crate::gui::game_window::color_to_rgba(text_color),
-            font_name,
-            bold,
-        ) {
-            log::warn!("W3DGadgetDraw text render failed: {err}");
-        }
-    });
+        let _ = with_ui_renderer_mut(|renderer| {
+            let (point_size, font_name, bold) = match inst_data.font.as_ref() {
+                Some(font) => (font.size as f32, font.name.as_str(), font.bold),
+                None => (12.0, "Arial", false),
+            };
+            if let Err(err) = renderer.draw_text_simple_named(
+                &text,
+                glam::Vec2::new((text_x + 1) as f32, (text_y + 1) as f32),
+                point_size,
+                crate::gui::game_window::color_to_rgba(border_color),
+                font_name,
+                bold,
+            ) {
+                log::warn!("W3DGadgetDraw text shadow render failed: {err}");
+            }
+            if let Err(err) = renderer.draw_text_simple_named(
+                &text,
+                glam::Vec2::new(text_x as f32, text_y as f32),
+                point_size,
+                crate::gui::game_window::color_to_rgba(text_color),
+                font_name,
+                bold,
+            ) {
+                log::warn!("W3DGadgetDraw text render failed: {err}");
+            }
+        });
     }
     note_shipped_ui_draw_commands(1);
 }

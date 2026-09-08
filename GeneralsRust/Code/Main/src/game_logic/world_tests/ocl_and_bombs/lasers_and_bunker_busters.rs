@@ -1783,14 +1783,12 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
     // C++ RadiusDamageAffects ENEMIES resolves through controlling players
     // (Player::setPlayerRelationship); ownerless objects resolve Neutral and
     // are excluded from the cook field. Bind owners + enemy relation.
-    logic.players.insert(
-        0,
-        Player::new(0, Team::USA, "USA", true),
-    );
-    logic.players.insert(
-        1,
-        Player::new(1, Team::China, "China", false),
-    );
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic
+        .players
+        .insert(1, Player::new(1, Team::China, "China", false));
     logic
         .players
         .get_mut(&0)
@@ -1821,18 +1819,10 @@ fn microwave_emitter_damages_nearby_enemy_infantry() {
         .insert("ChinaInfantryRedguard".to_string(), r_tpl);
 
     let mw = logic
-        .create_object_for_player(
-            "AmericaTankMicrowave",
-            0,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
+        .create_object_for_player("AmericaTankMicrowave", 0, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("mw");
     let inf = logic
-        .create_object_for_player(
-            "ChinaInfantryRedguard",
-            1,
-            glam::Vec3::new(40.0, 0.0, 0.0),
-        )
+        .create_object_for_player("ChinaInfantryRedguard", 1, glam::Vec3::new(40.0, 0.0, 0.0))
         .expect("inf");
     let _ = mw;
     // Align frame to emitter cadence.

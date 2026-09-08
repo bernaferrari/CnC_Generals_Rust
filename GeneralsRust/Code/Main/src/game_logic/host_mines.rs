@@ -1622,7 +1622,6 @@ pub fn smart_border_mine_positions(
     out
 }
 
-
 /// ClusterMinesBomb SmartBorder residual around a drop center.
 /// C++ GenerateMinefieldBehavior::placeMines SmartBorder path
 /// (GenerateMinefieldBehavior.cpp:366-393): retail ClusterMinesBomb authors
@@ -1865,7 +1864,6 @@ pub fn structure_minefield_positions_for_geom(
         true,
     )
 }
-
 
 #[cfg(test)]
 mod tests {

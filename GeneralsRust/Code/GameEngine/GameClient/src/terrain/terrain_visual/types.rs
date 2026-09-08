@@ -317,10 +317,20 @@ struct ShroudGpuState {
 
 #[derive(Default)]
 struct RiverGpuState {
+    /// C++ drawRiverWater pixel-shader path (alpha blend, `is_trapezoid = 0`).
     pipeline: Option<wgpu::RenderPipeline>,
+    /// C++ drawRiverWater additive override (W3DWater.cpp:2882-2883): SRCALPHA, ONE.
+    river_additive_pipeline: Option<wgpu::RenderPipeline>,
+    /// C++ drawTrapezoidWater via setupFlatWaterShader (alpha blend, `is_trapezoid = 1`).
+    trapezoid_pipeline: Option<wgpu::RenderPipeline>,
+    /// C++ setupFlatWaterShader additive (PresetAdditiveShader): ONE, ONE.
+    trapezoid_additive_pipeline: Option<wgpu::RenderPipeline>,
     bind_layout: Option<Arc<BindGroupLayout>>,
     bind_group: Option<BindGroup>,
+    /// Same textures as `bind_group` but `is_trapezoid = 1` (no river alpha-edge).
+    trapezoid_bind_group: Option<BindGroup>,
     params: Option<Buffer>,
+    trapezoid_params: Option<Buffer>,
     river_tex: Option<Texture>,
     sparkle_tex: Option<Texture>,
     noise_tex: Option<Texture>,

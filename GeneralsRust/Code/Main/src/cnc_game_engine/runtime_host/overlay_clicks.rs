@@ -153,6 +153,16 @@ impl CnCGameEngine {
             .unwrap_or_else(|| "LOWPOWER".to_string());
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
+        if action == "verify" {
+            let (infos, pending, last, enabled, host_lp, frame) =
+                game_client::eva::eva_check_snapshot();
+            let played = game_client::eva::eva_played_count();
+            self.runtime_host_last_gameplay_cmd = format!(
+                "click_eva_verify_infos={infos}_pending={pending}_last={last:?}_played={played}_en={enabled}_hlp={host_lp}_fr={frame}"
+            );
+            return;
+        }
+        #[cfg(feature = "game_client")]
         {
             use game_client::eva::{
                 simulate_eva_disable, simulate_eva_enable, simulate_eva_prepare_low_power_alert,
@@ -160,6 +170,14 @@ impl CnCGameEngine {
             };
             wnd_ok = match action.as_str() {
                 "enable" => simulate_eva_enable(),
+                // C++ ScriptActions.cpp:6007 — script/user toggles flip the
+                // single TheEva enable state; the host mirror is the leftover
+                // TheEva queue gate that client Eva syncs from.
+                "logic_enable" | "logic_disable" => {
+                    let on = action == "logic_enable";
+                    let _ = gamelogic::helpers::TheEva::set_enabled(on);
+                    simulate_eva_enable()
+                }
                 "disable" => simulate_eva_disable(),
                 "reset" => simulate_eva_reset(),
                 "update" => simulate_eva_update(),
@@ -620,15 +638,26 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            use game_client::gui::control_bar::{
-                simulate_control_bar_scheme_clear, simulate_control_bar_scheme_get_current,
-                simulate_control_bar_scheme_load, simulate_control_bar_scheme_prepare_default,
+            // Wave 2 rewiring: drive the LIVE INI ControlBarSchemeManager
+            // (Common ini_control_bar_scheme.rs). The fabricated GameClient
+            // DefaultControlBarSchemeManager was deleted; these peels now
+            // exercise the same manager the in-game control bar reads.
+            use game_engine::common::ini::{
+                ensure_control_bar_scheme_manager,
+                ini_control_bar_scheme::initialize_control_bar_scheme_manager,
             };
+            let manager = ensure_control_bar_scheme_manager();
             wnd_ok = match action.as_str() {
-                "load" => simulate_control_bar_scheme_load(&name),
-                "get" => simulate_control_bar_scheme_get_current(),
-                "clear" => simulate_control_bar_scheme_clear(),
-                _ => simulate_control_bar_scheme_prepare_default(),
+                // C++ ControlBarSchemeManager scheme select by retail name.
+                "load" => manager.write().set_active_scheme(name.clone()).is_ok(),
+                "get" => manager.read().get_active_scheme().is_some(),
+                // Reload the authored ControlBarScheme.ini set, no active scheme.
+                "clear" => {
+                    initialize_control_bar_scheme_manager();
+                    manager.read().get_active_scheme().is_none()
+                }
+                // C++ setControlBarSchemeByPlayer for the default America side.
+                _ => manager.write().set_active_scheme_for_side("America").is_ok(),
             };
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {

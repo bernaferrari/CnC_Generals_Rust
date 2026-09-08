@@ -865,10 +865,15 @@ mod tests {
         aa_t.add_kind_of(KindOf::Vehicle);
         aa_t.add_kind_of(KindOf::Attackable);
         game_logic.templates.insert("QuadCannon".into(), aa_t);
+        // Retail AmericaJetRaptor is `KindOf = ... VEHICLE SCORE AIRCRAFT`
+        // (FactionUnit.ini).  C++ getVictimAntiMask (WeaponSet.cpp:381-393)
+        // fail-closes an airborne target with none of VEHICLE/INFANTRY/
+        // PARACHUTE (debug-crashes on that data), so the fixture must carry
+        // the retail VEHICLE kindof for the airborne mask to resolve.
         let mut jet_t = ThingTemplate::new("Raptor");
+        jet_t.add_kind_of(KindOf::Vehicle);
         jet_t.add_kind_of(KindOf::Aircraft);
         jet_t.add_kind_of(KindOf::Attackable);
-        game_logic.templates.insert("Raptor".into(), jet_t);
 
         let aa = game_logic
             .create_object("QuadCannon", Team::USA, Vec3::ZERO)

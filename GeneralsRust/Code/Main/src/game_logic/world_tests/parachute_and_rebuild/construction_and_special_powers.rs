@@ -602,6 +602,7 @@ fn structure_placement_rejects_no_clear_path_residual() {
     };
     use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
 
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -625,7 +626,12 @@ fn structure_placement_rejects_no_clear_path_residual() {
             glam::Vec3::new(-100.0, 0.0, 0.0),
         )
         .expect("dozer");
-    // Wall of static-blocked cells between dozer and pad.
+    // C++ BuildAssistant.cpp:987 CLEAR_PATH → ai->isQuickPathAvailable
+    // (AIUpdate.cpp:2080-2091) → Pathfinder::clientSafeQuickDoesPathExistForUI
+    // (AIPathfind.cpp:8055-8103): compares TERRAIN zones only. terrain()
+    // (AIPathfind.cpp:1782-1791) folds CELL_OBSTACLE into CELL_CLEAR, so
+    // structure walls merge zones (applyZone ladder :2636-2666); only
+    // Impassable/Water/Cliff terrain seals split them.
     let start = logic
         .pathfinding_system
         .grid
@@ -635,18 +641,15 @@ fn structure_placement_rejects_no_clear_path_residual() {
         .grid
         .world_to_grid(glam::Vec3::new(100.0, 0.0, 0.0));
     let mid_x = (start.x + goal.x) / 2;
-    // C++ zones flood the whole map (grid_layers.rs:199): a partial wall
-    // leaves around-paths in the same zone, so the seal must span the full
-    // grid height.
+    // The seal must span the full grid height or the zones flow around it.
     let grid_h = logic.pathfinding_system.grid.height();
     for gy in 0..grid_h {
         logic
             .pathfinding_system
             .grid
-            .set_blocked(GridPos::new(mid_x, gy), true);
+            .set_cell_type(GridPos::new(mid_x, gy), PathfindCellType::Impassable);
     }
-    // C++ quickDoesPathExist compares map zones (AIPathfind.cpp:8055); zones
-    // are flood-filled from cell types after edits (grid_layers.rs:199).
+    logic.pathfinding_system.grid.rebuild_terrain_zones();
     logic.pathfinding_system.grid.rebuild_path_zones();
     let pad = glam::Vec3::new(100.0, 0.0, 0.0);
     assert_eq!(
@@ -663,8 +666,24 @@ fn structure_placement_rejects_no_clear_path_residual() {
         logic
             .pathfinding_system
             .grid
-            .set_blocked(GridPos::new(mid_x, gy), false);
+            .set_cell_type(GridPos::new(mid_x, gy), PathfindCellType::Clear);
     }
+    logic.pathfinding_system.grid.rebuild_terrain_zones();
+    logic.pathfinding_system.grid.rebuild_path_zones();
+    assert_eq!(
+        logic.legal_build_code_at_for_builder(Team::USA, pad, "TestPathBarracks", Some(dozer)),
+        LBC_OK
+    );
+    // C++ structure-blind parity: a full CELL_OBSTACLE wall must NOT reject —
+    // terrain zones merge across it (AIPathfind.cpp:1782-1791), the ForUI gate
+    // stays OK, and AIPlayer.cpp:596-602 teleports the AI dozer if walk fails.
+    for gy in 0..grid_h {
+        logic
+            .pathfinding_system
+            .grid
+            .set_blocked(GridPos::new(mid_x, gy), true);
+    }
+    logic.pathfinding_system.grid.rebuild_terrain_zones();
     logic.pathfinding_system.grid.rebuild_path_zones();
     assert_eq!(
         logic.legal_build_code_at_for_builder(Team::USA, pad, "TestPathBarracks", Some(dozer)),
@@ -771,10 +790,12 @@ fn structure_placement_rejects_shrouded_location_residual() {
         logic.legal_build_code_at(Team::USA, pos, "TestShroudBarracks"),
         LBC_SHROUD
     );
+    // C++ DozerAIUpdate.cpp:1648-1670 — createObject is unconditional after
+    // the executor LBC gate; the shroud residual above is the placement gate.
     assert!(
         logic
             .create_object_under_construction("TestShroudBarracks", Team::USA, pos)
-            .is_none()
+            .is_some()
     );
 
     // Permanent reveal → CELLSHROUD_CLEAR residual (active lookers).
@@ -844,10 +865,12 @@ fn structure_placement_rejects_map_edge_residual() {
         logic.legal_build_code_at(Team::USA, near_edge, "TestEdgeBarracks"),
         LBC_RESTRICTED_TERRAIN
     );
+    // C++ DozerAIUpdate.cpp:1648-1670 — creation itself carries no LBC gate;
+    // the restricted-terrain residual above is the placement gate.
     assert!(
         logic
             .create_object_under_construction("TestEdgeBarracks", Team::USA, near_edge)
-            .is_none()
+            .is_some()
     );
 
     // Center of map OK.
@@ -949,6 +972,8 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
         LBC_OK,
         "a Supply-looking basename without KINDOF_SUPPLY_SOURCE is not a retail exclusion source"
     );
+    // C++ DozerAIUpdate.cpp:1648-1670 — creation is unconditional; the
+    // too-close residual above is the placement gate.
     assert!(
         logic
             .create_object_under_construction(
@@ -956,7 +981,7 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
                 Team::USA,
                 glam::Vec3::new(50.0, 0.0, 0.0),
             )
-            .is_none()
+            .is_some()
     );
     // Far enough residual.
     assert_eq!(
@@ -1019,6 +1044,8 @@ fn structure_placement_rejects_objects_in_the_way_residual() {
         logic.legal_build_code_at(Team::USA, glam::Vec3::new(0.0, 0.0, 0.0), "TestBarracksPad"),
         LBC_OBJECTS_IN_THE_WAY
     );
+    // C++ DozerAIUpdate.cpp:1648-1670 — creation is unconditional; the
+    // stacked-pad residual above is the placement gate.
     assert!(
         logic
             .create_object_under_construction(
@@ -1026,8 +1053,8 @@ fn structure_placement_rejects_objects_in_the_way_residual() {
                 Team::USA,
                 glam::Vec3::new(5.0, 0.0, 0.0),
             )
-            .is_none(),
-        "stacked pad blocked"
+            .is_some(),
+        "stacked pad still places after the executor gate"
     );
     // Far enough residual.
     assert_eq!(

@@ -1269,8 +1269,8 @@ impl GameLogic {
         leader_is_hacker: bool,
         player_id: Option<u32>,
     ) -> bool {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         if !building.is_alive() || building.status.destroyed {
             return false;
         }
@@ -1304,8 +1304,8 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_team_garrison_nearest(&mut self, team: &str) {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         let members = self.host_script_garrison_team_member_ids(team);
         let Some(&leader_id) = members.first() else {
             return;
@@ -1372,8 +1372,8 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_named_garrison_nearest(&mut self, unit: &str) {
-        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         use crate::game_logic::KindOf;
+        use crate::game_logic::host_deliver_payload::is_off_map_default_residual;
         let Some(unit_id) = self.host_object_id_by_script_name(unit) else {
             return;
         };

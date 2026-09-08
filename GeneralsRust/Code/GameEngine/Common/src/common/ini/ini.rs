@@ -491,6 +491,29 @@ fn parse_unnamed_property_block(ini: &mut INI) -> INIResult<HashMap<String, Stri
     Ok(properties)
 }
 
+/// C++ parses FXList blocks through exactly one parser (`Source/Common/INI/
+/// INI.cpp:82` -> `Source/GameClient/FXList.cpp:850-858`,
+/// `INI::parseFXListDefinition` -> `FXListStore::parseFXListDefinition`: name
+/// token, NAMEKEY-keyed slot, `fxl.clear()` + `TheFXListFieldParse` re-parse
+/// of the eight nugget kinds). Rust splits that parser in two and resolves
+/// precedence at runtime in [`INI::find_block_parser`]:
+/// `EXTRA_BLOCK_PARSERS` win over `BLOCK_PARSE_TABLE`.
+///
+/// - Client runs: `GameClient::fx_list::init_fx_list_store` registers
+///   `parse_fx_list_definition` under `"FXList"` (GameClient
+///   `fx_list.rs:829-832`) before loading `Data/INI/{Default/,}FXList.ini`,
+///   so the GameClient parser handles every FXList block from then on and
+///   fills the client store plus `gamelogic` `TheFXListStore`.
+/// - Headless runs (no GameClient init; e.g. Main `ini_crc_boot` loading
+///   `Data/INI/FXList.ini`): this table entry is the only parser and feeds
+///   the Common `ini_fx_list` store consumed by `thing_template` per-unit FX,
+///   `ini_damage_fx`, and Main `host_fx_list_dispatch`. Removing it would
+///   turn those loads into hard "Unknown block" errors (non-tolerant
+///   dispatch in `INI::parse_file`), so it must stay.
+///
+/// Keep this loop's grammar equal to the GameClient parser: name token
+/// skipping `=` (via `get_next_value_token`), `End`-terminated property
+/// blocks, unknown nugget kind -> `INIError::InvalidData`.
 fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
     let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
     let mut fx_list = super::ini_fx_list::FXList::new(AsciiString::from(name.as_str()));
@@ -501,7 +524,14 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
             return Err(INIError::MissingEndToken);
         }
 
-        let nugget_kind = ini.buffer.trim();
+        // Client parity: the nugget kind is the FIRST token of the line
+        // (C++ `initFromINI` field lookup), not the whole trimmed line.
+        let nugget_kind = ini
+            .buffer
+            .trim()
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
         if nugget_kind.is_empty() {
             continue;
         }
@@ -796,6 +826,11 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
         token: "GameData",
         parse: parse_game_data_block,
     },
+    // Client runs: GameClient `fx_list::init_fx_list_store` registers the
+    // winning "FXList" parser via `register_block_parser`, which
+    // `find_block_parser` prefers over this entry. This entry stays as the
+    // headless fallback feeding the Common `ini_fx_list` store — see
+    // `parse_fx_list_block` for the full precedence analysis.
     BlockParse {
         token: "FXList",
         parse: parse_fx_list_block,
@@ -899,10 +934,6 @@ const BLOCK_PARSE_TABLE: &[BlockParse] = &[
     BlockParse {
         token: "Rank",
         parse: parse_rank_block,
-    },
-    BlockParse {
-        token: "ShellMenuScheme",
-        parse: super::ini_shell_menu_scheme::parse_shell_menu_scheme_definition,
     },
     BlockParse {
         token: "SpecialPower",
@@ -1730,9 +1761,16 @@ impl INI {
         Ok(bits)
     }
 
-    /// Convert duration from milliseconds to frames (assuming 30 FPS)
+    /// Convert duration from milliseconds to frames.
+    /// C++ GameCommon.h:51 `ConvertDurationFromMsecsToFrames`:
+    /// `msec * LOGICFRAMES_PER_MSEC_REAL` with
+    /// `LOGICFRAMES_PER_MSEC_REAL = 30.0f / 1000.0f` — a multiply, not a
+    /// divide. In f32, `1000 / (1000 / 30)` = 1000 / 33.333332 rounds to
+    /// 30.000001 whose ceil is 31; the C++ product `1000 * 0.03f` is
+    /// 29.999999 whose ceil is 30 (retail `TimeBetweenDrawableSounds =
+    /// 1000` ⇒ 30 frames, exactly 1 s at 30 Hz).
     pub fn convert_duration_msecs_to_frames(msecs: f32) -> f32 {
-        msecs / (1000.0 / 30.0)
+        msecs * (30.0 / 1000.0)
     }
 
     /// Convert velocity from units per second to units per frame (assuming 30 FPS)

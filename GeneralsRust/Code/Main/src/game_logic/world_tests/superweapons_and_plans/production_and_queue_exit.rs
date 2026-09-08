@@ -327,6 +327,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut game_logic = GameLogic::new();
         ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_barracks_template(&mut game_logic);
         // Opt this instance into construction authority (retired env
         // channel); with shadow on + coupled frame this makes the sole-tick
         // gate observable.

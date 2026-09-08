@@ -126,7 +126,10 @@ pub fn honesty_command_executor_authority_api_source() -> bool {
         // 2026-09-01: execute_move_to is a thin wrapper; the authority body
         // (Wave 232 stamp + unit_command_move_to_waypoints) lives in
         // execute_move_to_with_voice.
-        ("fn execute_move_to_with_voice(", "unit_command_move_to_waypoints"),
+        (
+            "fn execute_move_to_with_voice(",
+            "unit_command_move_to_waypoints",
+        ),
         ("fn execute_force_move(", "unit_command_force_move_to"),
         ("fn execute_attack(", "unit_command_attack"),
         ("fn execute_force_attack(", "unit_command_force_attack"),

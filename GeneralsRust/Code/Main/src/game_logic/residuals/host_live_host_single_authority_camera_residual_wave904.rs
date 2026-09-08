@@ -1,8 +1,9 @@
-//! Wave 904: single-authority verification stamp + camera follow freeze-only pose.
+//! Wave 904: single-authority frame + camera follow freeze-only pose.
 //!
-//! - InGame frame enables verification single-authority when dual-tick is not opted in.
+//! - the verification single-authority machinery was deleted with the dual-tick
+//!   gate; single-authority is unconditional in the InGame frame.
 //! - `host_set_camera_follow_object` stamps pose from presentation freeze only.
-//! playable_claim stays false.
+//! - playable_claim stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -14,9 +15,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const LIVE_HOST_SINGLE_AUTHORITY_CAMERA_METHOD_NAMES_WAVE904: &[&str] = &[
-    "set_verification_single_authority",
     "host_set_camera_follow_object",
-    "GENERALS_ALLOW_DUAL_TICK",
     "Wave 904",
     "playable_claim = false",
 ];
@@ -64,8 +63,7 @@ fn non_comment_code(window: &str) -> String {
 
 pub fn honesty_host_single_authority_camera_method_names_residual_wave904() -> bool {
     let names = LIVE_HOST_SINGLE_AUTHORITY_CAMERA_METHOD_NAMES_WAVE904;
-    let ok = residual_name_index(names, "set_verification_single_authority").is_some()
-        && residual_name_index(names, "host_set_camera_follow_object").is_some()
+    let ok = residual_name_index(names, "host_set_camera_follow_object").is_some()
         && residual_name_index(names, "Wave 904").is_some();
     residual_action_store(ResidualHostSingleAuthorityCameraAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
@@ -82,11 +80,14 @@ pub fn honesty_host_single_authority_camera_nav_commands_residual_wave904() -> b
 }
 
 pub fn honesty_host_single_authority_camera_residual_pack_wave904() -> bool {
+
     let cnc = cnc_source();
     let follow_raw = code_window(cnc, "fn host_set_camera_follow_object", 900);
     let follow = non_comment_code(follow_raw);
-    let ok = cnc.contains("set_verification_single_authority")
-        && cnc.contains("GENERALS_ALLOW_DUAL_TICK")
+    // 2026-09-07 re-pin: the verification single-authority flag and dual-tick
+    // env opt-in were deleted from the InGame frame — assert their absence.
+    let ok = !cnc.contains("set_verification_single_authority")
+        && !cnc.contains("GENERALS_ALLOW_DUAL_TICK")
         && follow.contains("last_presentation_frame")
         && !follow.contains("get_object")
         && follow.contains("set_camera_follow_object")

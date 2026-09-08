@@ -60,7 +60,6 @@ pub trait SubsystemInterface: Send + Sync + Any {
 /// not while the core data subsystem is still being initialized.
 pub fn initialize_shell_ui_schemes() {
     game_engine::common::ini::ini_control_bar_scheme::initialize_control_bar_scheme_manager();
-    game_engine::common::ini::ini_shell_menu_scheme::init_shell_menu_scheme_manager();
 }
 
 /// One save folder for host list/save/load **and** Popup / Common TheGameState.
@@ -2052,10 +2051,7 @@ pub fn shutdown_subsystem_manager() -> Result<()> {
 mod tests {
     use super::*;
     use game_engine::common::audio::GameplayAudioDispatch;
-    use game_engine::common::ini::{
-        ini_control_bar_scheme::get_control_bar_scheme_manager,
-        ini_shell_menu_scheme::get_shell_menu_scheme_manager,
-    };
+    use game_engine::common::ini::ini_control_bar_scheme::get_control_bar_scheme_manager;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -2424,7 +2420,9 @@ mod tests {
         initialize_shell_ui_schemes();
 
         assert!(get_control_bar_scheme_manager().is_some());
-        assert!(get_shell_menu_scheme_manager().read().is_ok());
+        // Wave 2: the parallel Common ShellMenuScheme store was deleted;
+        // GameClient's own ShellMenuSchemeManager (gui/shell/base/scheme.rs)
+        // is the live retail INI discovery path.
     }
 
     #[test]

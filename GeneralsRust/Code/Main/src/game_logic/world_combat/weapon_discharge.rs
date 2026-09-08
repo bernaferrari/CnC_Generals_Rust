@@ -76,16 +76,40 @@ impl GameLogic {
             if leftover_handle_weapon_fire_fx_at_fx_bone(source, capture) {
                 // Leftover W3DModelDraw played FireFX at the FX-bone matrix.
             } else if !capture.selected_fx_name.is_empty() {
-                let pos = Vec3::new(
-                    capture.source_pos[0],
-                    capture.source_pos[1],
-                    capture.source_pos[2],
-                );
+                // C++ Weapon.cpp:923-926 plays at the fired barrel's FX-bone
+                // world matrix; the source position is only the no-topology
+                // fallback. Contact weapons detonate at the victim instead.
+                let fire_fx_bone = if capture.is_contact_weapon {
+                    None
+                } else {
+                    self.weapon_fire_fx_bone_world(
+                        source,
+                        capture.weapon_slot,
+                        capture.fired_barrel,
+                    )
+                };
+                let pos = fire_fx_bone
+                    .as_ref()
+                    .map(|(pos, _)| *pos)
+                    .unwrap_or_else(|| {
+                        Vec3::new(
+                            capture.source_pos[0],
+                            capture.source_pos[1],
+                            capture.source_pos[2],
+                        )
+                    });
                 let target = capture.target_pos.map(|p| Vec3::new(p[0], p[1], p[2]));
                 let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
                 let radius =
                     fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
-                let matrix = self.objects.get(&source).map(|o| o.get_transform_matrix());
+                let matrix = self
+                    .objects
+                    .get(&source)
+                    .map(|o| o.get_transform_matrix())
+                    .map(|m| match fire_fx_bone {
+                        Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
+                        None => m,
+                    });
                 let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
                     &capture.selected_fx_name,
                     pos,
@@ -172,14 +196,32 @@ impl GameLogic {
         if leftover_handle_weapon_fire_fx_at_fx_bone(source, capture) {
             return;
         }
+        // C++ Weapon.cpp:923-926 plays at the fired barrel's FX-bone world
+        // matrix; the source position is only the no-topology fallback.
+        // Contact weapons detonate at the victim instead.
+        let fire_fx_bone = if capture.is_contact_weapon {
+            None
+        } else {
+            self.weapon_fire_fx_bone_world(source, capture.weapon_slot, capture.fired_barrel)
+        };
         let where_pos = if capture.is_contact_weapon {
             target_pos
         } else {
-            source_pos
+            fire_fx_bone
+                .as_ref()
+                .map(|(pos, _)| *pos)
+                .unwrap_or(source_pos)
         };
         let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
         let radius = fire_fx_primary_damage_radius(self.objects.get(&source), capture.weapon_slot);
-        let matrix = self.objects.get(&source).map(|o| o.get_transform_matrix());
+        let matrix = self
+            .objects
+            .get(&source)
+            .map(|o| o.get_transform_matrix())
+            .map(|m| match fire_fx_bone {
+                Some((_, bone_yaw)) => m * glam::Mat4::from_rotation_y(bone_yaw),
+                None => m,
+            });
         let _ = self
             .combat_particles
             .spawn_weapon_fire_fx_named_ocl_oriented(
@@ -206,7 +248,7 @@ impl GameLogic {
 }
 
 /// C++ `Weapon::getWeaponSpeed()` for FireFX / TracerFXNugget primarySpeed.
-fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) -> f32 {
+pub(in super::super) fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) -> f32 {
     let Some(object) = object else {
         return 0.0;
     };
@@ -227,7 +269,7 @@ fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) -> f32 {
 }
 
 /// C++ `Weapon::getPrimaryDamageRadius(bonus)` for FireFX `overrideRadius`.
-fn fire_fx_primary_damage_radius(object: Option<&Object>, slot: u8) -> f32 {
+pub(in super::super) fn fire_fx_primary_damage_radius(object: Option<&Object>, slot: u8) -> f32 {
     let Some(name) = object.and_then(|o| o.weapon_name_for_slot(slot)) else {
         return 0.0;
     };

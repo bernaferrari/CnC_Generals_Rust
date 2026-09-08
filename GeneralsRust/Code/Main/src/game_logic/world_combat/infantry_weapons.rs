@@ -326,14 +326,38 @@ impl GameLogic {
 
     /// C++ RadiusDecalUpdate::update residual.
     /// C++ CheckpointUpdate residual (open gate for allies when clear of enemies).
-    /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
-    /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+    /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual (default
+    /// Level2 tier — the no-science-context entry; retail default OrbitTime).
     pub fn initiate_spectre_gunship_deployment(
         &mut self,
         caster_id: ObjectId,
         target_pos: Vec3,
     ) -> Option<ObjectId> {
-        use crate::game_logic::host_spectre_gunship_deployment::default_map_extents;
+        self.initiate_spectre_gunship_deployment_with_tier(
+            caster_id,
+            target_pos,
+            crate::game_logic::special_power_strikes::SpectreGunshipScienceTier::Level2,
+        )
+    }
+
+    /// C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+    ///
+    /// The first passing deployment module spawns ITS GunshipTemplateName:
+    /// AirF hosts resolve the module from the unlocked science tier
+    /// (AirF_AmericaJetSpectreGunship1/2/3, OrbitTime 10000/15000/20000 ms);
+    /// vanilla USA (no RequiredScience module) keeps AmericaJetSpectreGunship
+    /// at 15000 ms. The spawned ship departs exactly when firing stops —
+    /// `orbit_frames` carries the module's OrbitTime
+    /// (SpectreGunshipUpdate.cpp:450).
+    pub fn initiate_spectre_gunship_deployment_with_tier(
+        &mut self,
+        caster_id: ObjectId,
+        target_pos: Vec3,
+        tier: crate::game_logic::special_power_strikes::SpectreGunshipScienceTier,
+    ) -> Option<ObjectId> {
+        use crate::game_logic::host_spectre_gunship_deployment::{
+            SPECTRE_GUNSHIP_TEMPLATE, airf_gunship_template_for_tier, default_map_extents,
+        };
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let (source_pos, team, plan) = {
@@ -341,7 +365,19 @@ impl GameLogic {
             obj.install_spectre_gunship_deployment_if_needed();
             let source_pos = obj.get_position();
             let team = obj.team;
+            // C++: select the passing module's GunshipTemplateName before the
+            // spawn plan reads it. AirF hosts gate on the science tier; the
+            // vanilla CC has a single ungated module.
+            let template = {
+                let n = obj.template_name.to_ascii_lowercase();
+                if n.contains("airf") || n.contains("airforce") {
+                    airf_gunship_template_for_tier(tier)
+                } else {
+                    SPECTRE_GUNSHIP_TEMPLATE
+                }
+            };
             let dep = obj.spectre_gunship_deployment.as_mut()?;
+            dep.gunship_template_name = template.to_string();
             let (minx, minz, maxx, maxz) = default_map_extents();
             // Prefer live terrain extents when present.
             let (minx, minz, maxx, maxz) = if let Some(t) = self.terrain.as_ref() {
@@ -416,6 +452,11 @@ impl GameLogic {
                 flight.preferred_elevation = existing.preferred_elevation;
                 flight.initiate(target_pos);
             }
+            // C++ GUNSHIP_STATUS_ORBITING transition:
+            // m_orbitEscapeFrame = frame + m_orbitFrames where m_orbitFrames
+            // is the spawning module's OrbitTime (.cpp:450) — the ship departs
+            // exactly when its bombardment residual ends.
+            flight.orbit_frames = tier.orbit_duration_frames();
             crate::game_logic::host_spectre_gunship_update::apply_spectre_door_and_afterburner(
                 g,
                 flight.door_opening,

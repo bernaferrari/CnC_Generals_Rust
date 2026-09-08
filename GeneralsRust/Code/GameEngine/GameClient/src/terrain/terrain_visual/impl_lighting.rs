@@ -91,10 +91,13 @@ impl TerrainVisualImpl {
         (self.fog_start, self.fog_end)
     }
 
+    /// C++ `doTheLight` vertex bake (`BaseHeightMap.cpp:491-566`): ambient
+    /// comes from light 0 only; every global light then adds
+    /// `clamp(N·L, 0, 1) * diffuse`. `lights` holds (Y-up-converted light
+    /// position, diffuse) pairs — see `chunk::current_global_terrain_lights`.
     pub(crate) fn terrain_static_diffuse_from_normal(
         normal: Vec3,
-        light_pos: Vec3,
-        sun_color: [f32; 3],
+        lights: &[(Vec3, [f32; 3])],
         ambient_color: [f32; 3],
     ) -> [f32; 4] {
         let normal = if normal.length_squared() > 1.0e-8 && normal.is_finite() {
@@ -102,17 +105,24 @@ impl TerrainVisualImpl {
         } else {
             Vec3::Y
         };
-        let light_ray = if light_pos.length_squared() > 1.0e-8 && light_pos.is_finite() {
-            (-light_pos).normalize()
-        } else {
-            Vec3::Y
-        };
-        let intensity = normal.dot(light_ray).max(0.0);
-
+        let mut red = ambient_color[0];
+        let mut green = ambient_color[1];
+        let mut blue = ambient_color[2];
+        for (light_pos, sun_color) in lights {
+            let light_ray = if light_pos.length_squared() > 1.0e-8 && light_pos.is_finite() {
+                (-*light_pos).normalize()
+            } else {
+                Vec3::Y
+            };
+            let intensity = normal.dot(light_ray).max(0.0);
+            red += sun_color[0] * intensity;
+            green += sun_color[1] * intensity;
+            blue += sun_color[2] * intensity;
+        }
         [
-            (ambient_color[0] + sun_color[0] * intensity).clamp(0.0, 1.0),
-            (ambient_color[1] + sun_color[1] * intensity).clamp(0.0, 1.0),
-            (ambient_color[2] + sun_color[2] * intensity).clamp(0.0, 1.0),
+            red.clamp(0.0, 1.0),
+            green.clamp(0.0, 1.0),
+            blue.clamp(0.0, 1.0),
             1.0,
         ]
     }
@@ -143,7 +153,29 @@ impl TerrainVisualImpl {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        let count = ini_terrain::load_terrain_definitions(&sources)?;
+        let archive_source_count = sources
+            .iter()
+            .filter(|p| Self::is_archive_extracted_terrain_source(p))
+            .count();
+        let count = match ini_terrain::load_terrain_definitions(&sources) {
+            Ok(count) => count,
+            Err(err) if archive_source_count > 0 => {
+                // A corrupt archive copy must not blank the whole registry:
+                // retry with the loose sources only (C++ would have fallen
+                // back to whatever the local Data/INI tree provides).
+                warn!(
+                    "Terrain definition load failed with archive sources ({}); retrying loose-only: {}",
+                    archive_source_count, err
+                );
+                let loose_sources: Vec<PathBuf> = sources
+                    .iter()
+                    .filter(|p| !Self::is_archive_extracted_terrain_source(p))
+                    .cloned()
+                    .collect();
+                ini_terrain::load_terrain_definitions(&loose_sources)?
+            }
+            Err(err) => return Err(err.into()),
+        };
         if count == 0 {
             warn!(
                 "No terrain definitions were loaded from the resolved sources: {}",
@@ -216,13 +248,63 @@ impl TerrainVisualImpl {
             Self::push_if_exists(&mut sources, &mut seen, PathBuf::from(fallback));
         }
 
+
         if let Some(reference_path) = reference {
             if let Some(map_dir) = reference_path.parent() {
                 Self::collect_map_specific_sources(map_dir, &mut sources, &mut seen);
             }
         }
 
+        Self::append_archive_terrain_ini_sources(&mut sources);
+
         sources
+    }
+
+    /// Retail installs carry Terrain.ini only inside `INIZH.big`
+    /// (`Data\INI\Default\Terrain.ini` base plus the `Data\INI\Terrain.ini`
+    /// override). When no loose source was discovered, extract the archive
+    /// copy through the game file system into temp files so the existing
+    /// parser can consume them; loose files always keep precedence.
+    fn append_archive_terrain_ini_sources(sources: &mut Vec<PathBuf>) {
+        let has_loose = |relative: &str| sources.iter().any(|p| p.ends_with(relative));
+
+        let mut extracted_default = None;
+        if !has_loose("Data/INI/Default/Terrain.ini") {
+            extracted_default = Self::extract_archive_ini_to_temp(
+                "Data/INI/Default/Terrain.ini",
+                "generals_default_terrain.ini",
+            );
+        }
+        let mut extracted_override = None;
+        if !has_loose("Data/INI/Terrain.ini") {
+            extracted_override =
+                Self::extract_archive_ini_to_temp("Data/INI/Terrain.ini", "generals_terrain.ini");
+        }
+
+        // Base (Default) definitions must parse before the override so the
+        // retail load order is preserved even when the two halves come from
+        // different places.
+        if let Some(path) = extracted_default {
+            sources.insert(0, path);
+        }
+        if let Some(path) = extracted_override {
+            sources.push(path);
+        }
+    }
+
+    fn extract_archive_ini_to_temp(virtual_path: &str, temp_name: &str) -> Option<PathBuf> {
+        let bytes = crate::terrain::tree_buffer::read_game_fs_bytes(virtual_path)?;
+        let path = std::env::temp_dir().join(temp_name);
+        std::fs::write(&path, bytes).ok()?;
+        Some(path)
+    }
+
+    /// Temp-file marker for the archive-extracted sources appended by
+    /// [`Self::append_archive_terrain_ini_sources`].
+    fn is_archive_extracted_terrain_source(path: &Path) -> bool {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "generals_terrain.ini" || name == "generals_default_terrain.ini")
     }
 
     fn collect_from_ancestors(
@@ -785,5 +867,65 @@ impl TerrainVisualImpl {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod terrain_ini_archive_tests {
+    use super::*;
+
+    fn assets_root() -> Option<PathBuf> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Main/assets");
+        root.join("INIZH.big")
+            .is_file()
+            .then_some(root)
+    }
+
+    /// (a) The terrain class registry must populate from INIZH.big when no
+    /// loose Terrain.ini exists — `Data\INI\Default\Terrain.ini` plus the
+    /// `Data\INI\Terrain.ini` override, extracted through the game FS.
+    #[test]
+    fn terrain_registry_loads_from_inizh_big() {
+        let Some(assets) = assets_root() else {
+            eprintln!("skipping: no INIZH.big under Main/assets");
+            return;
+        };
+        crate::terrain::tree_buffer::add_game_fs_search_roots(&[assets], true);
+
+        let sources = TerrainVisualImpl::collect_terrain_ini_sources(None);
+        let archive_sources = sources
+            .iter()
+            .filter(|p| TerrainVisualImpl::is_archive_extracted_terrain_source(p))
+            .count();
+        assert!(
+            archive_sources > 0,
+            "expected archive-extracted Terrain.ini sources, got {sources:?}"
+        );
+
+        let count = ini_terrain::load_terrain_definitions(&sources)
+            .expect("retail Terrain.ini must parse");
+        assert!(count > 0, "terrain registry must be non-empty");
+
+        // (b) A known retail class maps to a texture that resolves through
+        // the game FS into TerrainZH.big (Art\Terrain\TMGras37a.tga).
+        let registry = ini_terrain::get_terrain_types().expect("terrain registry");
+        let guard = registry.read();
+        let terrain = guard
+            .find_terrain(&AsciiString::from("GrassMediumType37a"))
+            .expect("known retail terrain class GrassMediumType37a");
+        let texture = format!(
+            "{TERRAIN_TGA_DIR_PATH}{}",
+            terrain.texture_name.as_str().trim()
+        );
+        drop(guard);
+        let resolved = TerrainTextures::resolve_texture_path(&texture)
+            .expect("class texture must resolve through the game FS");
+        assert!(
+            resolved
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with(".tga"),
+            "unexpected resolved path {resolved:?}"
+        );
     }
 }

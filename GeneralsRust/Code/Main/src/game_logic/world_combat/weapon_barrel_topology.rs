@@ -62,6 +62,99 @@ impl GameLogic {
         }
         true
     }
+
+    /// C++ `Drawable::handleWeaponFireFX` (`W3DModelDraw.cpp:3672-3727`):
+    /// the fired barrel's FireFX plays at that barrel's FX-bone world matrix.
+    ///
+    /// Host equivalent resolved from the same cache boundary as
+    /// [`GameLogic::configure_cached_weapon_barrel_topology_for_object`]:
+    /// the cached per-condition barrel counts prove the barrel topology
+    /// exists, the selected Draw models supply the authored FX-bone base,
+    /// and the pristine W3D pose hook supplies the bone offset. Returns the
+    /// host Y-up world position plus the bone's Z-rotation (the caller
+    /// composes it onto the source object matrix). `None` means no cached
+    /// topology or no FX bone: callers must fall back to the source position.
+    pub(in super::super) fn weapon_fire_fx_bone_world(
+        &self,
+        source: ObjectId,
+        weapon_slot: u8,
+        fired_barrel: u8,
+    ) -> Option<(Vec3, f32)> {
+        if usize::from(weapon_slot) >= 3 {
+            return None;
+        }
+        let object = self.objects.get(&source)?;
+        if object.template_name.trim().is_empty() {
+            return None;
+        }
+
+        let manager_arc = crate::assets::get_asset_manager()?;
+        // The model catalogue is shared with WGPU preparation. A fixed-step
+        // combat path must not wait for it: a busy cache is a fallback to the
+        // source position, never evidence about barrels.
+        let mut manager = manager_arc.try_lock().ok()?;
+        let barrel_count = manager
+            .cached_weapon_barrel_counts_for_object_conditions(
+                &object.template_name,
+                object.model_condition_bits,
+            )?
+            .get(usize::from(weapon_slot))
+            .copied()
+            .flatten()?;
+        let fx_base = manager
+            .select_draw_models_for_object_conditions(
+                &object.template_name,
+                object.model_condition_bits,
+            )?
+            .into_iter()
+            .find_map(|model| {
+                if !model.weapon_bone_bindings.source_fields_valid {
+                    return None;
+                }
+                model
+                    .weapon_bone_bindings
+                    .slot(weapon_slot)
+                    .and_then(|slot| slot.fire_fx_bone_base.clone())
+                    .filter(|base| !base.trim().is_empty())
+            })?;
+        drop(manager);
+
+        if barrel_count == 0 || u32::from(fired_barrel) >= u32::from(barrel_count) {
+            return None;
+        }
+
+        // C++ `validateWeaponBarrelInfo` names barrels `{base}01`.. and a
+        // numbered FireFX record reuses the previous numbered FX pivot when
+        // its own pivot is missing (retail multi-flash exception); the
+        // unadorned base is the single-barrel name.
+        let model_name = object.thing.template.get_model_name();
+        let scale = object.thing.template.asset_scale;
+        let mut pose = None;
+        for index in (1..=u32::from(fired_barrel) + 1).rev() {
+            let numbered = format!("{fx_base}{index:02}");
+            if let Some(found) =
+                gamelogic::object::draw::lookup_pristine_bone_pose(model_name, scale, &numbered)
+            {
+                pose = Some(found);
+                break;
+            }
+        }
+        let (bone_local, bone_yaw) = pose.or_else(|| {
+            gamelogic::object::draw::lookup_pristine_bone_pose(model_name, scale, &fx_base)
+        })?;
+
+        // C++ Z-up bone offset → host Y-up, then yaw-rotate into world space
+        // (same mapping as the FIREPOINT helpers in `drones_and_garrison`).
+        let local = Vec3::new(bone_local.x, bone_local.z, bone_local.y);
+        let (sin, cos) = object.get_orientation().sin_cos();
+        let world = object.get_position()
+            + Vec3::new(
+                local.x * cos - local.z * sin,
+                local.y,
+                local.x * sin + local.z * cos,
+            );
+        Some((world, bone_yaw))
+    }
 }
 
 #[cfg(test)]

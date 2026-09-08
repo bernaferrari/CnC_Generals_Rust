@@ -23,8 +23,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         .get_mut("TestInfantry")
         .expect("TestInfantry template");
     infantry_template.capture_starts_paused = true;
-    infantry_template.capture_upgrade_trigger =
-        Some(UPGRADE_INFANTRY_CAPTURE.to_string());
+    infantry_template.capture_upgrade_trigger = Some(UPGRADE_INFANTRY_CAPTURE.to_string());
     // Retail infantry authors SightRange/ShroudClearingRange; without a
     // non-zero look radius the captor registers no look and the building
     // stays shrouded for the FOW gate.
@@ -65,10 +64,16 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     // host consults the shared shroud manager, so this fixture registers the
     // captor's look and refreshes vision before issuing CaptureBuilding (a
     // live game would have run Object::look every frame since spawn).
-    game_logic.host_object_mut(captor_id).expect("captor").vision_range = 200.0;
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor")
+        .vision_range = 200.0;
     // The shroud look radius (Object::getShroudClearingRange) is what
     // registers the look; vision_range alone does not.
-    game_logic.host_object_mut(captor_id).expect("captor").shroud_range = 200.0;
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor")
+        .shroud_range = 200.0;
     game_logic.update_main_crate_vision();
     // A C++ match initializes the shroud grid at map load; without it every
     // look computes Hidden and the FOW gate would refuse the capture.
@@ -176,8 +181,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     // vision pass would (fixture style of scripts_and_capture.rs:2392).
     {
         let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-        let mut shroud = shroud_manager.lock()
-            .expect("shroud");
+        let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(
             0,
             building_id.0,
@@ -254,8 +258,7 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
         .get_mut("TestInfantry")
         .expect("TestInfantry template");
     infantry_template.capture_starts_paused = true;
-    infantry_template.capture_upgrade_trigger =
-        Some(UPGRADE_INFANTRY_CAPTURE.to_string());
+    infantry_template.capture_upgrade_trigger = Some(UPGRADE_INFANTRY_CAPTURE.to_string());
     infantry_template.sight_range = 200.0;
 
     // Outside capture range (≈ 8+25+4 = 37) so Capturing must walk in.
@@ -282,8 +285,14 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
 
     // C++ canCaptureBuilding FOW gate (ActionManager.cpp:76-102): register
     // the captor's look + refresh the shared shroud before issuing capture.
-    game_logic.host_object_mut(captor_id).expect("captor").vision_range = 200.0;
-    game_logic.host_object_mut(captor_id).expect("captor").shroud_range = 200.0;
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor")
+        .vision_range = 200.0;
+    game_logic
+        .host_object_mut(captor_id)
+        .expect("captor")
+        .shroud_range = 200.0;
     gamelogic::system::shroud_manager::get_shroud_manager()
         .lock()
         .expect("shroud")
@@ -1188,7 +1197,7 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplyCenter)
         .add_kind_of(KindOf::Selectable)
-            .set_health(100.0);
+        .set_health(100.0);
     // C++ AmericaSupplyCenter authors SupplyCenterDockUpdate (dock-approach
     // capacity keys on the parsed dock kind) — author it so the dozer's
     // drop-off below actually runs instead of failing closed.

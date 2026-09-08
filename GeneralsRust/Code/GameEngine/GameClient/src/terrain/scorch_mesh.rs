@@ -420,7 +420,10 @@ mod tests {
         init_random_with_seed(20260829);
         let second = resolve_scorch_type(-1);
 
-        assert!((0..=3).contains(&first), "scorch {first} outside SCORCH_1..SCORCH_4");
+        assert!(
+            (0..=3).contains(&first),
+            "scorch {first} outside SCORCH_1..SCORCH_4"
+        );
         assert_eq!(first, second);
     }
 }

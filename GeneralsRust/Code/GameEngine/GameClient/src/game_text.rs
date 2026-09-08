@@ -120,13 +120,8 @@ impl GameText {
     fn lookup_string(key: &str) -> Option<String> {
         let lookup = key.strip_prefix("LOC:").unwrap_or(key);
         if let Ok(guard) = get_game_text().read() {
-            if let Some(text) = guard
-                .map_strings
-                .get(key)
-                .or_else(|| guard.map_strings.get(lookup))
-            {
-                return Some(text.clone());
-            }
+            // C++ searches the CSF lookup table first and the map-string
+            // table only on a miss (GameText.cpp:1253-1258).
             if let Some(text) = guard
                 .csf_strings
                 .get(key)
@@ -134,12 +129,19 @@ impl GameText {
             {
                 return Some(text.clone());
             }
+            if let Some(text) = guard
+                .map_strings
+                .get(key)
+                .or_else(|| guard.map_strings.get(lookup))
+            {
+                return Some(text.clone());
+            }
             // C++ bsearch + stricmp: case-insensitive label match.
             let lower = lookup.to_ascii_lowercase();
             if let Some(text) = guard
-                .map_strings_lower
+                .csf_strings_lower
                 .get(&lower)
-                .or_else(|| guard.csf_strings_lower.get(&lower))
+                .or_else(|| guard.map_strings_lower.get(&lower))
             {
                 return Some(text.clone());
             }

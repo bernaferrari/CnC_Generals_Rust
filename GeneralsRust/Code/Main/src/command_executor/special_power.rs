@@ -315,8 +315,7 @@ impl<'a> CommandExecutor<'a> {
             // gate: their ground clicks fall through to the per-caster loop below,
             // where each power's doSpecialPowerAtLocation residual is a no-op
             // (CashHackSpecialPower.cpp:76-82) and nothing is issued or consumed.
-            if crate::command_system::leftover_special_power_is_location_target_only(power_type)
-            {
+            if crate::command_system::leftover_special_power_is_location_target_only(power_type) {
                 let player_index = {
                     let src = self.special_power_source_object(units, power_type);
                     src.and_then(|id| {
@@ -334,7 +333,6 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
         }
-
 
         // Resolve impact position for residual superweapon path
         // (DaisyCutter/A10/Scud/PUC/NuclearMissile/AnthraxBomb/SpectreGunship/

@@ -386,6 +386,8 @@ impl Object {
             self.id,
             self.movement.velocity,
             self.movement.max_speed,
+            self.movement.acceleration,
+            self.movement.turn_rate,
             self.movement.current_path_index,
             &self.movement.path,
             self.waiting_for_path,

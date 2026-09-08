@@ -1,6 +1,29 @@
 use super::*;
 use crate::fow_rendering::{ProjectedShroudMetadata, ProjectedShroudSnapshot};
 
+/// Per-frame frozen FOW runtime facts for the direct-drawable shroud freeze.
+///
+/// Hoists the shroud-manager lock and the runtime-active probe out of the
+/// per-object loop: the fallback branch needs only this one bit, and probing
+/// it per object used to materialize the full visible/explored snapshot Vecs
+/// per object per frame. `None` mirrors the per-object lock-failure Clear
+/// fallback (a poisoned manager stays poisoned for the whole frame).
+pub(super) struct DirectShroudFrameFacts {
+    runtime_active: bool,
+}
+
+impl DirectShroudFrameFacts {
+    /// One lock + O(1) membership probe per presentation frame.
+    pub(super) fn freeze(local_player_id: u32) -> Option<Self> {
+        let shroud = gamelogic::system::shroud_manager::get_shroud_manager();
+        let guard = shroud.lock().ok()?;
+        Some(Self {
+            runtime_active: guard.has_any_visible_object(local_player_id)
+                || guard.has_any_explored_object(local_player_id),
+        })
+    }
+}
+
 /// Freeze only the source facts C++ resolves for a direct Object-backed
 /// Drawable. Host object FOW is the PartitionData COI mix stored by
 /// `update_main_crate_vision` (Clear / PartialClear / Fogged / Shrouded).
@@ -9,6 +32,25 @@ pub(super) fn freeze_direct_object_shroud_facts(
     local_player_id: u32,
     local_team: Team,
     fow_shell_bypass: bool,
+) -> PresentationDrawableShroudFacts {
+    freeze_direct_object_shroud_facts_with_frame_facts(
+        obj,
+        local_player_id,
+        local_team,
+        fow_shell_bypass,
+        DirectShroudFrameFacts::freeze(local_player_id).as_ref(),
+    )
+}
+
+/// Per-object shroud freeze sharing the per-frame [DirectShroudFrameFacts]
+/// probe (see the frame build loop). Behavior-identical to probing per
+/// object: the runtime-active bit only feeds the cache-miss fallback.
+pub(super) fn freeze_direct_object_shroud_facts_with_frame_facts(
+    obj: &crate::game_logic::Object,
+    local_player_id: u32,
+    local_team: Team,
+    fow_shell_bypass: bool,
+    frame_facts: Option<&DirectShroudFrameFacts>,
 ) -> PresentationDrawableShroudFacts {
     // Team fallback mirrors the look pass (C++ Object::getControllingPlayer):
     // the sparse host registry often leaves owner_player_id unset.
@@ -19,25 +61,29 @@ pub(super) fn freeze_direct_object_shroud_facts(
         // The host FOW bridge deliberately preserves C++ own-force/no-partition
         // clear behavior even when the standalone manager has no membership.
         PresentationObjectShroudStatus::Clear
-    } else if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
-        if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0) {
-            PresentationObjectShroudStatus::from(status)
-        } else {
-            let runtime_active = !shroud.get_visible_objects(local_player_id).is_empty()
-                || !shroud.get_explored_objects(local_player_id).is_empty();
-            if !runtime_active || shroud.can_see_object(local_player_id, obj.id.0) {
+    } else if let Some(facts) = frame_facts {
+        if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+            if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0) {
+                PresentationObjectShroudStatus::from(status)
+            } else if !facts.runtime_active
+                || shroud.can_see_object(local_player_id, obj.id.0)
+            {
                 PresentationObjectShroudStatus::Clear
             } else if shroud.has_explored_object(local_player_id, obj.id.0) {
                 PresentationObjectShroudStatus::Fogged
             } else {
                 PresentationObjectShroudStatus::Shrouded
             }
+        } else {
+            // The C++ Object fallback is Clear when it has no partition data.
+            PresentationObjectShroudStatus::Clear
         }
     } else {
-        // The C++ Object fallback is Clear when it has no partition data.
+        // The frame-start lock already failed (a poisoned manager stays
+        // poisoned), so the per-object lookup cannot succeed either: keep
+        // the C++ no-partition Clear fallback.
         PresentationObjectShroudStatus::Clear
     };
-
     // `Object::is_alive` also tests HP, which is deliberately not a direct
     // Drawable residency signal: deferred death paths retain a visual Object
     // with a sliver of HP.  Freeze only the C++ effectively-dead/deferred
@@ -353,6 +399,13 @@ impl PresentationFrame {
                 local_team = team;
             }
         }
+        // C++ always resolves a real local house (skirmish slot 0 = America):
+        // there is no Neutral local controller.  Leaving local_team Neutral
+        // makes the legacy team-fallback treat every object as hostile and
+        // nothing as locally owned, so fail over to the default local house.
+        if local_team == Team::Neutral {
+            local_team = Team::USA;
+        }
         // Freeze team base proximity once (camera snap / host residual).
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
@@ -381,6 +434,9 @@ impl PresentationFrame {
                 ),
             )
         };
+        // Freeze the FOW runtime-active probe once per frame (one lock, no
+        // per-object visible/explored set materialization in the loop below).
+        let direct_shroud_frame_facts = DirectShroudFrameFacts::freeze(local_player_id);
         let mut objects = Vec::with_capacity(logic.host_objects().len());
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().len());
         for obj in logic.host_objects().values() {
@@ -519,8 +575,9 @@ impl PresentationFrame {
             // the sparse host registry often leaves owner_player_id unset, so
             // fall back to team (update_main_crate_vision look-pass parity;
             // C++ Object::getControllingPlayer).
-            let resolved_owner =
-                obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
+            let resolved_owner = obj
+                .owner_player_id
+                .or_else(|| logic.player_id_for_team(obj.team));
             let fow_visibility = if fow_shell_bypass {
                 ObjectVisibility::FULLY_VISIBLE
             } else if resolved_owner == Some(local_player_id) {
@@ -529,8 +586,13 @@ impl PresentationFrame {
             } else {
                 FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
             };
-            let drawable_shroud =
-                freeze_direct_object_shroud_facts(obj, local_player_id, local_team, fow_shell_bypass);
+            let drawable_shroud = freeze_direct_object_shroud_facts_with_frame_facts(
+                obj,
+                local_player_id,
+                local_team,
+                fow_shell_bypass,
+                direct_shroud_frame_facts.as_ref(),
+            );
             let visual_template_name = direct_host_visual_template_name(obj);
             let visual_mesh_scale =
                 direct_host_visual_mesh_scale(logic, obj, &visual_template_name);
@@ -1496,9 +1558,33 @@ impl PresentationFrame {
         }
 
         // ControlBar CanMake residual for selected local producer (HelpBox feed).
+        // C++ ControlBar::evaluateContextUI walks the local player's selection
+        // and every C++ Drawable has a controlling player. A playerless roster
+        // (old snapshots / playerless harnesses — every host object ownerless)
+        // resolves the local house through the freeze fallback and stands in
+        // the Object-side `selected` flags for the player selection list.
         let mut can_make_cameos: Vec<PresentationCanMakeCameo> = Vec::new();
         let mut can_make_producer_id: Option<u32> = None;
-        if let Some(p) = local {
+        let can_make_scope = local
+            .map(|p| (p.team, p.selected_objects.clone()))
+            .or_else(|| {
+                let ownerless = logic
+                    .host_objects()
+                    .iter()
+                    .all(|(_, o)| o.owner_player_id.is_none());
+                ownerless.then(|| {
+                    (
+                        local_team,
+                        logic
+                            .host_objects()
+                            .iter()
+                            .filter(|(_, o)| o.selected)
+                            .map(|(id, _)| *id)
+                            .collect::<Vec<ObjectId>>(),
+                    )
+                })
+            });
+        if let Some((scope_team, scope_selection)) = can_make_scope {
             use crate::game_logic::host_ui_presentation_residual::can_make_type_help_box_message_residual;
             let is_producer = |o: &crate::game_logic::Object| {
                 let under = logic
@@ -1508,15 +1594,14 @@ impl PresentationFrame {
                 let is_factory = o.building_data.is_some();
                 let is_dozer = o.is_kind_of(crate::game_logic::KindOf::Dozer)
                     || o.is_kind_of(crate::game_logic::KindOf::Worker);
-                o.team == p.team
+                o.team == scope_team
                     && o.is_alive()
                     && !o.status.destroyed
                     && (is_factory || is_dozer)
                     && !under
             };
             // Prefer first selected producer residual; fall back to any local factory.
-            let producer = p
-                .selected_objects
+            let producer = scope_selection
                 .iter()
                 .copied()
                 .find(|&id| logic.host_object(id).is_some_and(is_producer))
@@ -2568,10 +2653,13 @@ mod sw_hud_tests {
             "local row must stay unadorned: {}",
             local_row.name
         );
+        // The strip also carries science-unlocked non-structure rows (Carpet
+        // Bomb / Cruise Missile) for both players, so select the enemy nuke
+        // row by its unique power key, not by display-name substring.
         let enemy_row = frame
             .superweapon_timers
             .iter()
-            .find(|t| t.name.contains("Nuclear") || t.name.contains("Enemy"))
+            .find(|t| t.power_key == "NuclearMissile#1")
             .expect("enemy nuke row");
         assert!(
             enemy_row.name.contains("Enemy"),

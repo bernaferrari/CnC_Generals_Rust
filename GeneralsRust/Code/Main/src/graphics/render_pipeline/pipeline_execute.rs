@@ -342,6 +342,13 @@ impl RenderPipeline {
                 );
                 Ok(())
             });
+
+            // C++ W3DScene order: water (static sort level 2) renders after the
+            // shadow passes and before translucent objects / post filters
+            // (W3DScene.cpp:833-836). Enqueued after the shadow callback above,
+            // so post-frame execution order is shadows -> water -> filter.
+            self.execute_water_pass(graphics_system)?;
+
             // C++ W3DView::draw filterPostRender + W3DStatusCircle fade overlay.
             // Leftover Display::draw is not the live 3D path.
             // `filter_composite.scroll_delta` is leftover View.scroll_amount,

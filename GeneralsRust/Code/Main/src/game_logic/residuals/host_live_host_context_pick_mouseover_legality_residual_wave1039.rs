@@ -87,7 +87,10 @@ pub fn honesty_host_context_pick_mouseover_legality_residual_residual_pack_wave1
         && tr.contains("entry.destroyed || entry.sold || entry.unselectable || entry.masked")
         && tr.contains("entry.effectively_stealthed && !translator_entry_is_local(entry)")
         && tr.contains("entry.shroud_status >= 2")
-        && ui.contains("Wave 1039: dead/sold/unselectable/masked/stealthed hover residual")
+        // Re-pinned 2026-09-07: the "Wave 1039" hover comment was folded into
+        // hover_target_command_context (impl_input.rs, Wave 1087 note); pin the
+        // live predicate instead of the retired comment text.
+        && ui.contains("entry.destroyed || entry.sold || entry.unselectable || entry.masked")
         && ui.contains("entry.effectively_stealthed")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");

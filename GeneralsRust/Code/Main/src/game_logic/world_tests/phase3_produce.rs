@@ -901,4 +901,3 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
     clear_test_template_voices();
     clear_building_loops();
 }
-

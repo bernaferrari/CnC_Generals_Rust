@@ -2022,8 +2022,10 @@ impl InGameUISubsystem {
                 Some(money) => {
                     // C++ 1799-1807: rewrite the text only when the amount changed.
                     if LAST_MONEY.load(Ordering::Relaxed) != money {
-                        let text = crate::gui::control_bar::ControlBar::
-                            format_control_bar_money_display(money);
+                        let text =
+                            crate::gui::control_bar::ControlBar::format_control_bar_money_display(
+                                money,
+                            );
                         if let Some(window) = money_window.as_ref() {
                             let _ = window.borrow_mut().set_text(&text);
                         }
@@ -2037,15 +2039,14 @@ impl InGameUISubsystem {
                         let _ = window.borrow_mut().hide(false);
                     }
                 }
-                // C++ 1811-1815: moneyPlayer == NULL hides both windows.
-                None => {
-                    if let Some(window) = money_window.as_ref() {
-                        let _ = window.borrow_mut().hide(true);
-                    }
-                    if let Some(window) = power_window.as_ref() {
-                        let _ = window.borrow_mut().hide(true);
-                    }
-                }
+                // C++ 1811-1815 hides both windows when moneyPlayer == NULL,
+                // which never happens in a real skirmish: the live crate
+                // PlayerList is frequently empty even in an offline match, and
+                // hiding here fought the ControlBar residual write (which
+                // falls back to the presentation-freeze money, 0 allowed) and
+                // left the authored `$$$` box fighting a hide every frame.
+                // Leave the windows as-is; the residual path owns the text.
+                None => {}
             }
         });
     }
