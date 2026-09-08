@@ -141,6 +141,10 @@ impl MultiplayerSettings {
             show_random_start_pos: true,
             show_random_color: true,
             num_colors: 0,
+            random_color: MultiplayerColorDefinition::new(AsciiString::new()),
+            observer_color: MultiplayerColorDefinition::new(AsciiString::new()),
+            default_starting_money: Money::default(),
+            got_default_starting_money: false,
         }
     }
 

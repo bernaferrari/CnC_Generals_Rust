@@ -286,42 +286,54 @@ impl AIPlayer {
     /// (`AIPlayer.cpp:533-536`); the skirmish `posOffset` bumps make both
     /// the ring half-width and the edge walk advance two pathfind cells at a
     /// time, and the pre-bump `posOffset < limit` check caps the rings at
-    /// odd cell counts 1, 3, …, 59 (`AIPlayer.cpp:538-541`).  (The C++
-    /// skirmish bump also skews each row one cell past the ring edge; the
-    /// host keeps the samples centered on the ring.)
+    /// odd cell counts 1, 3, …, 59 (`AIPlayer.cpp:538-541`). The inner
+    /// skirmish bump occurs after the loop condition, shifting each edge's
+    /// samples by one cell and including one sample past the positive edge.
     pub(super) fn wiggle_find_legal_build_position(
         seed: Vec3,
         is_legal: impl Fn(Vec3) -> bool,
     ) -> Option<Vec3> {
         let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-        let step = 2.0 * cell;
         // Ring half-widths 1, 3, …, 59 cells; 120-cell skirmish limit.
         let max_ring = 59.0 * cell;
         let mut ring = cell;
         while ring <= max_ring {
             // Top and bottom rows, paired per column (AIPlayer.cpp:544-561).
-            let mut lateral = -ring;
-            while lateral <= ring {
-                for vertical in [-ring, ring] {
-                    let candidate = Vec3::new(seed.x + lateral, seed.y, seed.z + vertical);
-                    if is_legal(candidate) {
-                        return Some(candidate);
-                    }
+            let top = seed.z - ring;
+            let mut lateral = seed.x - ring;
+            let mut edge_result = None;
+            while lateral <= seed.x + ring {
+                lateral += cell;
+                let candidate = Vec3::new(lateral, seed.y, top);
+                if is_legal(candidate) {
+                    return Some(candidate);
                 }
-                lateral += step;
+                // C++ only checks this second result after the edge loop.
+                // A subsequent iteration can overwrite a successful query.
+                let candidate = Vec3::new(lateral, seed.y, top + 2.0 * ring);
+                edge_result = is_legal(candidate).then_some(candidate);
+                lateral += cell;
+            }
+            if edge_result.is_some() {
+                return edge_result;
             }
             // Left and right columns, paired per row (AIPlayer.cpp:563-581).
-            let mut vertical = -ring;
-            while vertical <= ring {
-                for lateral in [-ring, ring] {
-                    let candidate = Vec3::new(seed.x + lateral, seed.y, seed.z + vertical);
-                    if is_legal(candidate) {
-                        return Some(candidate);
-                    }
+            let left = seed.x - ring;
+            let mut vertical = seed.z - ring;
+            while vertical <= seed.z + ring {
+                vertical += cell;
+                let candidate = Vec3::new(left, seed.y, vertical);
+                if is_legal(candidate) {
+                    return Some(candidate);
                 }
-                vertical += step;
+                let candidate = Vec3::new(left + 2.0 * ring, seed.y, vertical);
+                edge_result = is_legal(candidate).then_some(candidate);
+                vertical += cell;
             }
-            ring += step;
+            if edge_result.is_some() {
+                return edge_result;
+            }
+            ring += 2.0 * cell;
         }
         None
     }
@@ -523,7 +535,7 @@ impl AIPlayer {
     }
 
     /// C++ `AISkirmishPlayer::processBaseBuilding` pick: first priority pad,
-    /// then underpowered / automatic FS_POWER. Automatic pads never win
+    /// then underpowered / automatic FS_POWER. Ordinary automatic pads never win
     /// (`canMakeUnit(dozer, NULL)` → `CANMAKE_NO_PREREQ`).
     pub(super) fn select_priority_or_power_build(
         &self,
@@ -584,17 +596,11 @@ impl AIPlayer {
             {
                 power_idx = Some(index);
             }
-            // C++ AISkirmishPlayer.cpp:198-243: after the priority/power
-            // candidates, `if (!info->isAutomaticBuild()) continue;` skips
-            // only script-gated pads, and the first automatic pad that has a
-            // dozer and `canMakeUnit(dozer, bldgPlan) == CANMAKE_OK` wins via
-            // `if (bldgPlan == NULL)`.  `m_automaticallyBuild = true` means
-            // "the ai will build" (SidesList.h:267); the skirmish build list
-            // is otherwise dead.  Dozer + legality enforcement stays in
-            // process_building_queue (findDozer / isLocationLegalToBuild).
-            if selected.is_none() && building.automatic_build {
-                selected = Some(index);
-            }
+            // AISkirmishPlayer.cpp:206 checks bldgPlan, NOT curPlan.
+            // With no selection, BuildAssistant.cpp:1283-1284 rejects NULL;
+            // with a selection, the later `bldgPlan == NULL` branch cannot
+            // replace it. Thus this automatic branch never selects a pad.
+            // Preserve the independent power override below.
         }
         // C++: `if (powerPlan && powerInfo && !powerPlan->isEquivalentTo(bldgPlan))`
         // — while no FS_POWER scaffold is under construction, the power plan

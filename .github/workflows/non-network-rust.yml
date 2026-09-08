@@ -79,6 +79,9 @@ jobs:
       - name: Test migration and parity tooling contracts
         run: python3 -m unittest discover -s Code/Main/scripts -p 'test_*.py'
 
+      - name: Compare original C++ and Rust skirmish placement decisions
+        run: python3 Code/Main/scripts/verify_ai_placement_parity.py --cxx c++
+
       - name: Reject stale generated parity inventory
         working-directory: .
         run: >-
