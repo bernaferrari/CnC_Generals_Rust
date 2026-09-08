@@ -1013,7 +1013,10 @@ impl GameLogic {
     /// is the equivalent already-loaded set. Never call
     /// `TheThingFactory::find_template` here: that helper lazy-inits every
     /// Object INI (14s+ on Lone Eagle).
-    pub(in crate::game_logic) fn ensure_host_spawn_template(&mut self, template_name: &str) -> bool {
+    pub(in crate::game_logic) fn ensure_host_spawn_template(
+        &mut self,
+        template_name: &str,
+    ) -> bool {
         if self.templates.contains_key(template_name) {
             self.apply_pending_leftover_object_override(template_name);
             return true;
@@ -2448,27 +2451,29 @@ impl GameLogic {
         position: Vec3,
     ) -> Option<ObjectId> {
         let owner_player_id = self.unique_player_id_for_team(team);
+        // AI/script placements carry no authored facing residual.
         self.create_object_under_construction_with_owner(
             template_name,
             team,
             owner_player_id,
             position,
+            0.0,
         )
     }
 
-    /// Create a construction object for one controlling player.
+    /// Create a construction object for one controlling player. Command
+    /// and builder paths that know the player must use the owned variant.
     pub fn create_object_under_construction_for_player(
         &mut self,
         template_name: &str,
         owner_player_id: u32,
         position: Vec3,
+        orientation: f32,
     ) -> Option<ObjectId> {
         let Some(team) = self.players.get(&owner_player_id).map(|p| p.team) else {
-            
             return None;
         };
         if team == Team::Neutral {
-            
             return None;
         }
         self.create_object_under_construction_with_owner(
@@ -2476,6 +2481,7 @@ impl GameLogic {
             team,
             Some(owner_player_id),
             position,
+            orientation,
         )
     }
 
@@ -2485,21 +2491,11 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         position: Vec3,
+        orientation: f32,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
         }) {
-            
-            return None;
-        }
-        // C++ BuildAssistant isLocationLegalToBuild residual (objects-in-way / bounds).
-        if !self.is_location_legal_to_build(team, position, template_name) {
-            
-            log::debug!(
-                "Blocked construction {} at {:?} (LegalBuildCode residual)",
-                template_name,
-                position
-            );
             return None;
         }
         // C++ ProductionPrerequisite: leftover is_satisfied for every template.
@@ -2507,7 +2503,6 @@ impl GameLogic {
             .map(|player_id| self.player_satisfies_build_prerequisites(player_id, template_name))
             .unwrap_or_else(|| self.team_satisfies_build_prerequisites(team, template_name));
         if !prerequisites_ok {
-            
             log::debug!(
                 "Blocked construction {} for team {:?} (Prerequisites residual)",
                 template_name,
@@ -2522,7 +2517,6 @@ impl GameLogic {
             })
             .unwrap_or_else(|| self.can_start_superweapon_building(team, template_name));
         if !superweapon_ok {
-            
             log::debug!(
                 "Blocked superweapon construction {} for team {:?} (MaxSimultaneous residual)",
                 template_name,
@@ -2533,7 +2527,6 @@ impl GameLogic {
         // C++ Player::canBuildMoreOfType — numeric INI MaxSimultaneousOfType
         // (unique buildings / heroes) plus link-key rebuild holes.
         if !self.can_build_more_of_type(owner_player_id, team, template_name) {
-            
             log::debug!(
                 "Blocked construction {} for team {:?} (MaxSimultaneousOfType)",
                 template_name,
@@ -2557,6 +2550,9 @@ impl GameLogic {
             object.partition_cash_value = partition_cash;
             object.partition_threat_value = partition_threat;
             object.set_position(position);
+            // C++ DozerAIUpdate.cpp:1666-1674 — placement facing applied via
+            // setOrientation before flatten/pathfind-add.
+            object.set_orientation(orientation);
             // C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain then getGroundHeight Z snap.
             // Applied after insert so the host object exists for snap.
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
@@ -2607,7 +2603,17 @@ impl GameLogic {
             // C++ DozerAIUpdate.cpp:1692-1699 flattenTerrain + Z snap + addObjectToPathfindMap.
             self.flatten_and_snap_construction(id);
             self.block_structure_object_path(id);
-            let _ = self.move_objects_for_construction(position, 12.0, None);
+            let placed_orientation = self
+                .objects
+                .get(&id)
+                .map(|obj| obj.get_orientation())
+                .unwrap_or(0.0);
+            let _ = self.move_objects_for_construction(
+                template_name,
+                position,
+                placed_orientation,
+                None,
+            );
             if let Some(obj) = self.objects.get(&id) {
                 if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
                     self.pathfinding_system.add_wall_piece_from_object(obj);

@@ -283,7 +283,9 @@ pub fn template_has_carbomb_weapon_set(template_name: &str) -> bool {
     {
         let names = TEST_CARBOMB_WEAPON_SET_TEMPLATES.lock().ok();
         if names.is_some_and(|names| {
-            names.iter().any(|name| name.eq_ignore_ascii_case(template_name))
+            names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(template_name))
         }) {
             return true;
         }
@@ -302,9 +304,8 @@ pub fn template_has_carbomb_weapon_set(template_name: &str) -> bool {
 
 /// Test-registerable retail weapon-set evidence, keyed by template name.
 #[cfg(test)]
-static TEST_CARBOMB_WEAPON_SET_TEMPLATES: std::sync::LazyLock<
-    std::sync::Mutex<Vec<String>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+static TEST_CARBOMB_WEAPON_SET_TEMPLATES: std::sync::LazyLock<std::sync::Mutex<Vec<String>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
 
 /// Seed retail `WEAPONSET_CARBOMB` evidence for a template in tests that run
 /// without the extracted retail INI catalog.
@@ -313,7 +314,10 @@ pub fn register_test_carbomb_weapon_set(template_name: &str) {
     let Ok(mut names) = TEST_CARBOMB_WEAPON_SET_TEMPLATES.lock() else {
         return;
     };
-    if !names.iter().any(|name| name.eq_ignore_ascii_case(template_name)) {
+    if !names
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(template_name))
+    {
         names.push(template_name.to_string());
     }
 }

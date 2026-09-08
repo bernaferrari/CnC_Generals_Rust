@@ -41,6 +41,10 @@ pub mod explosions {
 
         // Particle properties
         info.lifetime = GameClientRandomVariable::new(15.0, 25.0); // frames
+        // C++ SystemLifetime (ParticleSys.cpp:2066-2081): stop emitting once
+        // expired; the system is removed after emitted particles drain. 0 =
+        // forever, which made these presets flicker/leak (burst_delay 0).
+        info.system_lifetime = 2;
         info.start_size = GameClientRandomVariable::new(3.0, 6.0);
         info.size_rate = GameClientRandomVariable::new(0.3, 0.5);
         info.size_rate_damping = GameClientRandomVariable::new(0.95, 0.98);
@@ -86,6 +90,8 @@ pub mod explosions {
         };
 
         info.lifetime = GameClientRandomVariable::new(20.0, 35.0);
+        // C++ SystemLifetime (ParticleSys.cpp:2066-2081); 0 = forever.
+        info.system_lifetime = 2;
         info.start_size = GameClientRandomVariable::new(5.0, 10.0);
         info.size_rate = GameClientRandomVariable::new(0.5, 0.8);
         info.size_rate_damping = GameClientRandomVariable::new(0.93, 0.96);
@@ -222,6 +228,8 @@ pub mod weapons {
 
         // Very short lifetime
         info.lifetime = GameClientRandomVariable::new(3.0, 5.0);
+        // C++ SystemLifetime (ParticleSys.cpp:2066-2081); 0 = forever.
+        info.system_lifetime = 2;
         info.start_size = GameClientRandomVariable::new(2.0, 4.0);
         info.size_rate = GameClientRandomVariable::new(0.5, 1.0);
 
@@ -256,6 +264,8 @@ pub mod weapons {
         };
 
         info.lifetime = GameClientRandomVariable::new(5.0, 10.0);
+        // C++ SystemLifetime (ParticleSys.cpp:2066-2081); 0 = forever.
+        info.system_lifetime = 2;
         info.start_size = GameClientRandomVariable::new(0.5, 1.5);
 
         info.gravity = 2.0; // Sparks fall quickly
@@ -351,6 +361,9 @@ pub mod environment {
         };
 
         info.lifetime = GameClientRandomVariable::new(60.0, 90.0);
+        // Lingering residual: 600 logic frames (~20 s), then the plume dies
+        // like a C++ finite SystemLifetime system (ParticleSys.cpp:2066-2081).
+        info.system_lifetime = 600;
         info.start_size = GameClientRandomVariable::new(3.0, 5.0);
         info.size_rate = GameClientRandomVariable::new(0.2, 0.4);
         info.size_rate_damping = GameClientRandomVariable::new(0.98, 0.99);

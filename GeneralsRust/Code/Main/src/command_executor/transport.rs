@@ -184,7 +184,8 @@ impl<'a> CommandExecutor<'a> {
                         <= unit.selection_radius + container.selection_radius + 4.0
                 });
             let issued_order = if in_enter_range {
-                self.game_logic.unit_command_set_ai_state(unit_id, AIState::Entering)
+                self.game_logic
+                    .unit_command_set_ai_state(unit_id, AIState::Entering)
             } else {
                 self.path_to_goal_with_state_ignoring(
                     unit_id,
@@ -608,7 +609,16 @@ impl<'a> CommandExecutor<'a> {
                     } else if is_troop_crawler {
                         (false, false, false, false, false, false, true, false)
                     } else {
-                        (false, false, false, false, false, false, false, is_generic_transport)
+                        (
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            is_generic_transport,
+                        )
                     }
                 } else if unit.contained_by.is_some() || container_id.is_some() {
                     if is_overlord {
@@ -624,7 +634,16 @@ impl<'a> CommandExecutor<'a> {
                     } else if is_battle_bus {
                         (false, false, true, false, false, false, false, false)
                     } else {
-                        (false, false, false, false, false, false, false, is_generic_transport)
+                        (
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            false,
+                            is_generic_transport,
+                        )
                     }
                 } else {
                     (false, false, false, false, false, false, false, false)

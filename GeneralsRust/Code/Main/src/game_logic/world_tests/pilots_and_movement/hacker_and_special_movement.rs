@@ -749,12 +749,12 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
     // 6000ms. Facing consumes a variable number of ticks at the unit's turn
     // rate; drive the channel to its trigger with bounded per-frame ticks.
     for _ in 0..1200 {
-            game_logic.frame = game_logic.frame.saturating_add(1);
-            if game_logic.hero_abilities().cash_stolen_total > 0 {
-                break;
-            }
-            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        if game_logic.hero_abilities().cash_stolen_total > 0 {
+            break;
         }
+        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+    }
 
     let lotus = game_logic.host_object(lotus_id).expect("lotus after steal");
     assert_eq!(
@@ -892,12 +892,12 @@ fn steal_cash_hack_uses_controlling_players_not_faction_slot() {
     // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
     // ticks at the unit's turn rate — drive to trigger with bounded ticks.
     for _ in 0..1200 {
-            game_logic.frame = game_logic.frame.saturating_add(1);
-            if game_logic.hero_abilities().cash_stolen_total > 0 {
-                break;
-            }
-            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        if game_logic.hero_abilities().cash_stolen_total > 0 {
+            break;
         }
+        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+    }
 
     let china_caster = game_logic
         .get_player(1)
@@ -971,17 +971,17 @@ fn leftover_lotus_prep_aborts_when_target_stealthed() {
     // C++ NeedToFace → Unpack → Prep; facing consumes a variable number of
     // ticks at the unit's turn rate — reach mid-prep with bounded ticks.
     for _ in 0..1200 {
-            game_logic.frame = game_logic.frame.saturating_add(1);
-            if game_logic
-                .hero_abilities()
-                .leftover_channel(lotus_id)
-                .map(|ch| ch.phase)
-                == Some(LeftoverSaPhase::Preparing)
-            {
-                break;
-            }
-            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        if game_logic
+            .hero_abilities()
+            .leftover_channel(lotus_id)
+            .map(|ch| ch.phase)
+            == Some(LeftoverSaPhase::Preparing)
+        {
+            break;
         }
+        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+    }
     let phase = game_logic
         .hero_abilities()
         .leftover_channel(lotus_id)
@@ -1113,16 +1113,16 @@ fn leftover_sa_trigger_queues_ini_trigger_sound() {
     // ticks at the unit's turn rate — drive to trigger with bounded ticks.
     game_logic.queued_audio_events.clear();
     for _ in 0..1200 {
-            game_logic.frame = game_logic.frame.saturating_add(1);
-            if game_logic
-                .queued_audio_events
-                .iter()
-                .any(|event| event.event_type == LOTUS_TRIGGER_SOUND)
-            {
-                break;
-            }
-            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        if game_logic
+            .queued_audio_events
+            .iter()
+            .any(|event| event.event_type == LOTUS_TRIGGER_SOUND)
+        {
+            break;
         }
+        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+    }
     assert!(
         game_logic
             .queued_audio_events
@@ -1282,25 +1282,25 @@ fn leftover_burton_flips_180_after_unpack() {
     use crate::game_logic::host_hero_abilities::LeftoverSaPhase;
     let mut unpack_start_orientation: Option<f32> = None;
     for _ in 0..600 {
-            game_logic.frame = game_logic.frame.saturating_add(1);
-            game_logic.update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP);
-            let phase = game_logic
-                .hero_abilities()
-                .leftover_channel(burton_id)
-                .map(|ch| ch.phase);
-            if phase == Some(LeftoverSaPhase::Unpacking) {
-                if unpack_start_orientation.is_none() {
-                    unpack_start_orientation = Some(
-                        game_logic
-                            .host_object(burton_id)
-                            .expect("burton")
-                            .get_orientation(),
-                    );
-                }
-            } else if unpack_start_orientation.is_some() {
-                break;
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_ai(&[burton_id, target_id], LOGIC_FRAME_TIMESTEP);
+        let phase = game_logic
+            .hero_abilities()
+            .leftover_channel(burton_id)
+            .map(|ch| ch.phase);
+        if phase == Some(LeftoverSaPhase::Unpacking) {
+            if unpack_start_orientation.is_none() {
+                unpack_start_orientation = Some(
+                    game_logic
+                        .host_object(burton_id)
+                        .expect("burton")
+                        .get_orientation(),
+                );
             }
+        } else if unpack_start_orientation.is_some() {
+            break;
         }
+    }
     let unpack_start = unpack_start_orientation.expect("channel must reach Unpacking");
     let facing_after = game_logic
         .host_object(burton_id)
@@ -1741,15 +1741,15 @@ fn disable_vehicle_hack_command_disables_after_reach() {
     // variable number of ticks at the unit's turn rate — drive the channel
     // to its trigger with bounded per-frame ticks.
     for _ in 0..1200 {
-            game_logic.frame = game_logic.frame.saturating_add(1);
-            if game_logic
-                .host_object(target_id)
-                .is_some_and(|t| t.is_hacked_disabled())
-            {
-                break;
-            }
-            game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        if game_logic
+            .host_object(target_id)
+            .is_some_and(|t| t.is_hacked_disabled())
+        {
+            break;
         }
+        game_logic.update_ai(&[lotus_id, target_id], LOGIC_FRAME_TIMESTEP);
+    }
 
     let target_after = game_logic
         .host_object(target_id)

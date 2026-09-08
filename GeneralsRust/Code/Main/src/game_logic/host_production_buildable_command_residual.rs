@@ -135,10 +135,12 @@ pub const CHINA_BARRACKS_UNIT_CREATE_MODEL: (f32, f32, f32) = (0.0, -25.0, 0.0);
 
 /// Transform a model-space exit offset into world space using producer yaw residual.
 ///
-/// C++ applies the building transform matrix; residual uses orientation about Y
-/// (forward = -Z in model when yaw=0 is common W3D layout). Host uses the
-/// object's direction vector as +X-local forward residual:
-/// world = pos + right*local_x + up*local_z + forward*local_y
+/// C++ applies the building transform matrix; INI UnitCreatePoint /
+/// NaturalRallyPoint are model-space with +X = forward through the building
+/// matrix (PartitionManager.cpp:5284 dir = X vector; INI rule
+/// NaturalRallyPointX == GeometryMajorRadius). Host uses the object's
+/// direction vector as the +X-local forward residual:
+/// world = pos + forward*local_x + right*local_y + up*local_z
 /// with local (x,y,z) from INI UnitCreate/NaturalRally.
 pub fn transform_model_exit_offset(
     producer_pos: glam::Vec3,
@@ -155,8 +157,8 @@ pub fn transform_model_exit_offset(
     // Right = cross(up, forward) with up = +Y.
     let right = glam::Vec3::Y.cross(f).normalize_or_zero();
     let (lx, ly, lz) = local;
-    // INI X → right, INI Y → forward residual, INI Z → up.
-    producer_pos + right * lx + f * ly + glam::Vec3::Y * lz
+    // INI X → forward, INI Y → right residual, INI Z → up.
+    producer_pos + f * lx + right * ly + glam::Vec3::Y * lz
 }
 
 /// C++ `BuildCompletionType` residual count (BC_NUM_TYPES).
@@ -1065,49 +1067,61 @@ pub fn legal_build_code_from_checks_complete_residual(
     legal_build_code_from_checks_with_path_residual(
         in_world_bounds,
         shrouded,
-        not_flat_enough,
         objects_in_the_way,
         too_close_to_supplies,
-        too_close_to_map_edge,
         false,
+        false,
+        too_close_to_map_edge,
+        not_flat_enough,
     )
 }
 
 /// Complete residual mapper including CLEAR_PATH / LBC_NO_CLEAR_PATH.
+///
+/// C++ BuildAssistant::isLocationLegalToBuild order (BuildAssistant.cpp:884-1044):
+/// off-map → shroud → object overlap → supplies → CLEAR_PATH → terrain
+/// (restricted tiles / map-edge samples → LBC_RESTRICTED_TERRAIN, then flatness).
 pub fn legal_build_code_from_checks_with_path_residual(
     in_world_bounds: bool,
     shrouded: bool,
-    not_flat_enough: bool,
     objects_in_the_way: bool,
     too_close_to_supplies: bool,
-    too_close_to_map_edge: bool,
     no_clear_path: bool,
+    terrain_restricted: bool,
+    too_close_to_map_edge: bool,
+    not_flat_enough: bool,
 ) -> u32 {
     if !in_world_bounds {
-        // C++ off-map → LBC_RESTRICTED_TERRAIN.
+        // C++ off-map → LBC_RESTRICTED_TERRAIN (BuildAssistant.cpp:892-897).
         return LBC_RESTRICTED_TERRAIN;
     }
-    // C++ SHROUD_REVEALED option: not CELLSHROUD_CLEAR → LBC_SHROUD (before other errors).
+    // C++ SHROUD_REVEALED option: not CELLSHROUD_CLEAR → LBC_SHROUD
+    // (BuildAssistant.cpp:899-915) — first check after off-map so shrouded
+    // areas cannot be probed for other blockers.
     if shrouded {
         return LBC_SHROUD;
     }
-    // C++ MinDistFromEdgeOfMapForBuild samples set terrainRestricted → LBC_RESTRICTED_TERRAIN.
-    if too_close_to_map_edge {
+    // C++ NO_OBJECT_OVERLAP / NO_ENEMY_OBJECT_OVERLAP (BuildAssistant.cpp:922-942).
+    if objects_in_the_way {
+        return LBC_OBJECTS_IN_THE_WAY;
+    }
+    // C++ KINDOF_CANNOT_BUILD_NEAR_SUPPLIES border (BuildAssistant.cpp:944-970).
+    if too_close_to_supplies {
+        return LBC_TOO_CLOSE_TO_SUPPLIES;
+    }
+    // C++ CLEAR_PATH + isQuickPathAvailable (BuildAssistant.cpp:972-990).
+    if no_clear_path {
+        return LBC_NO_CLEAR_PATH;
+    }
+    // C++ TERRAIN_RESTRICTIONS stage (BuildAssistant.cpp:992-1039): bad-tile /
+    // bridge samples (checkSampleBuildLocation) and MinDistFromEdgeOfMapForBuild
+    // samples set terrainRestricted → LBC_RESTRICTED_TERRAIN.
+    if terrain_restricted || too_close_to_map_edge {
         return LBC_RESTRICTED_TERRAIN;
     }
     // C++ hiZ-loZ > AllowedHeightVariationForBuilding → LBC_NOT_FLAT_ENOUGH.
     if not_flat_enough {
         return LBC_NOT_FLAT_ENOUGH;
-    }
-    if objects_in_the_way {
-        return LBC_OBJECTS_IN_THE_WAY;
-    }
-    if too_close_to_supplies {
-        return LBC_TOO_CLOSE_TO_SUPPLIES;
-    }
-    // C++ CLEAR_PATH + isQuickPathAvailable residual.
-    if no_clear_path {
-        return LBC_NO_CLEAR_PATH;
     }
     LBC_OK
 }
@@ -1155,6 +1169,60 @@ pub fn min_dist_from_map_edge_residual(
     dx.min(dz)
 }
 
+/// C++ iterateFootprint extreme samples for the map-edge gate
+/// (BuildAssistant.cpp:563-576, rotated by the placement angle): a box
+/// footprint samples at its four rotated corners (rectToFourPoints,
+/// PartitionManager.cpp:787-810); a circle footprint at its four axis
+/// extremes (rotation invariant). These points bound the footprint's reach
+/// toward each map edge, so the per-sample edge gate reduces to them.
+pub fn footprint_map_edge_sample_points_residual(
+    center: (f32, f32),
+    major: f32,
+    minor: f32,
+    is_box: bool,
+    angle: f32,
+) -> [(f32, f32); 4] {
+    let (cx, cz) = center;
+    if is_box {
+        let c = angle.cos();
+        let s = angle.sin();
+        let exc = major * c;
+        let eyc = minor * c;
+        let exs = major * s;
+        let eys = minor * s;
+        [
+            (cx - exc - eys, cz + eyc - exs),
+            (cx + exc - eys, cz + eyc + exs),
+            (cx - exc + eys, cz - eyc - exs),
+            (cx + exc + eys, cz - eyc + exs),
+        ]
+    } else {
+        [
+            (cx - major, cz),
+            (cx + major, cz),
+            (cx, cz - major),
+            (cx, cz + major),
+        ]
+    }
+}
+
+/// C++ checkSampleBuildLocation map-edge gate (BuildAssistant.cpp:511-521):
+/// any footprint sample inside the MinDistFromEdgeOfMapForBuild border strip
+/// sets terrainRestricted → LBC_RESTRICTED_TERRAIN.
+pub fn footprint_map_edge_violation_residual(
+    samples: &[(f32, f32); 4],
+    map_min: (f32, f32),
+    map_max: (f32, f32),
+    min_dist: f32,
+) -> bool {
+    if min_dist <= 0.0 {
+        return false;
+    }
+    samples
+        .iter()
+        .any(|&(x, z)| min_dist_from_map_edge_residual((x, z), map_min, map_max) < min_dist)
+}
+
 /// Wave 99 honesty: buildable residual pack.
 pub fn honesty_buildable_residual_pack_wave99() -> bool {
     BUILDABLE_STATUS_NUM_TYPES == 4
@@ -1194,8 +1262,19 @@ pub fn honesty_buildable_residual_pack_wave99() -> bool {
         && (footprint_height_delta_residual(&[0.0, 5.0, 10.0]) - 10.0).abs() < 0.01
         && footprint_height_delta_residual(&[]) == 0.0
         && legal_build_code_from_checks_with_path_residual(
-            true, false, false, false, false, false, true,
+            true, false, false, false, true, false, false, false,
         ) == LBC_NO_CLEAR_PATH
+        // audit-7 B-8: C++ priority order — overlap beats terrain/edge,
+        // CLEAR_PATH beats terrain, restricted (tiles + edge) beats flatness.
+        && legal_build_code_from_checks_with_path_residual(
+            true, false, true, false, false, false, true, true,
+        ) == LBC_OBJECTS_IN_THE_WAY
+        && legal_build_code_from_checks_with_path_residual(
+            true, false, false, false, true, false, false, true,
+        ) == LBC_NO_CLEAR_PATH
+        && legal_build_code_from_checks_with_path_residual(
+            true, false, false, false, false, true, true, true,
+        ) == LBC_RESTRICTED_TERRAIN
         && builder_skips_clear_path_residual(true)
         && !builder_skips_clear_path_residual(false)
         && min_dist_from_map_edge_residual((0.0, 0.0), (-100.0, -100.0), (100.0, 100.0)) == 100.0

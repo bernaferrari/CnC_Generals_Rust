@@ -121,6 +121,11 @@ impl Drop for CoupledShadowGuard {
 
 /// Install the live `GameWorldShadow` for the whole coupled tick (including
 /// post-writeback complete/spawn). Keep the slot until `clear` / guard drop.
+///
+/// LEGACY, escape-the-borrow path: the slot keeps a pointer after this call
+/// returns, so the caller must keep `shadow` alive and pinned at this address
+/// until `clear` / guard drop — the borrow checker cannot enforce that.  New
+/// code must use [`with_coupled_shadow`], which pins the pointer to the scope.
 fn install_active_shadow_for_coupled_tick_inner(shadow: &mut GameWorldShadow) -> Option<u64> {
     // Replacing a live slot while a callback owns its mutable borrow would make
     // a second alias possible.  This is not a valid engine transition, so keep
@@ -151,6 +156,10 @@ pub fn install_active_shadow_for_coupled_tick(shadow: &mut GameWorldShadow) {
 }
 
 /// Same as `install_active_shadow_for_coupled_tick` but clears on Drop.
+///
+/// LEGACY: forget-unsafe — `std::mem::forget` (or any leak) of the returned
+/// guard leaves the pointer published past the caller's borrow.  Prefer
+/// [`with_coupled_shadow`]; kept for existing out-of-module callers.
 pub fn install_coupled_shadow_guard(shadow: &mut GameWorldShadow) -> CoupledShadowGuard {
     CoupledShadowGuard {
         generation: install_active_shadow_for_coupled_tick_inner(shadow),
@@ -208,10 +217,68 @@ fn with_coupled_shadow_slot<R>(f: impl FnOnce(&mut GameWorldShadow) -> R) -> Opt
         ))
     })?;
     // SAFETY: the lexical borrow guard above is the sole dynamic access to this
-    // generation.  The pointer was installed from the engine-owned shadow and
-    // cannot escape this callback.
+    // generation. The pointer was installed from an owner `&mut GameWorldShadow`
+    // whose borrow outlives the slot: pinned to one scope frame by
+    // `with_coupled_shadow`, or — legacy paths — held at that address by the
+    // engine until `clear` / guard drop. The reference cannot escape this callback.
     let shadow = unsafe { &mut *ptr };
     Some(f(shadow))
+}
+
+/// Restores the exact pre-scope couple slot when a [`with_coupled_shadow`]
+/// scope ends, including during unwinding.  Private and never handed to the
+/// scope callback, so a caller cannot `std::mem::forget` it: forget-safety
+/// comes from the value never escaping the scope frame.
+struct CoupledShadowScopeGuard {
+    prev: CoupledShadowSlot,
+}
+
+impl Drop for CoupledShadowScopeGuard {
+    fn drop(&mut self) {
+        COUPLED_SHADOW.with(|c| c.set(self.prev));
+    }
+}
+
+/// Publish `shadow` as the live coupled shadow for the duration of `f` only.
+///
+/// Sound replacement for [`install_active_shadow_for_coupled_tick`]: the slot
+/// pointer is installed from `&mut GameWorldShadow` at entry and the exact
+/// previous slot is restored at exit (normal return or unwind), so the TLS
+/// pointer is dereferenceable only while the owner's exclusive borrow is still
+/// alive on this stack frame.  A forgotten guard cannot leave the owner
+/// dangling-published because the restore guard is private and never escapes.
+///
+/// `f` receives no reference: inside the scope, reach the shadow through the
+/// ambient accessors (`with_active_shadow`, `with_active_shadow_mut`,
+/// `push_coupled_world_mutation`, the `coupled_*` readers), which derive their
+/// sole `&mut` inside `with_coupled_shadow_slot` under the `borrowed` marker.
+/// Direct exclusive work runs via `with_active_shadow_mut(|s| ...)` inside `f`.
+///
+/// Nesting policy: supported, with stack discipline.  A nested
+/// `with_coupled_shadow` saves the outer slot, publishes its own shadow
+/// (ambient access inside resolves to the innermost scope), and the outer slot
+/// resumes when the inner scope ends.  Nested ambient *borrows* still fail
+/// closed while one is live, unchanged.  Any slot state installed inside a
+/// scope — including a legacy `install_active_shadow_for_coupled_tick` call —
+/// is undone at scope exit, so do not rely on state published inside `f`
+/// outliving the scope.
+pub fn with_coupled_shadow<R>(shadow: &mut GameWorldShadow, f: impl FnOnce() -> R) -> R {
+    let prev = COUPLED_SHADOW.with(|c| {
+        let prev = c.get();
+        let generation = COUPLE_GENERATION.with(|g| {
+            let next = g.get().wrapping_add(1).max(1);
+            g.set(next);
+            next
+        });
+        c.set(CoupledShadowSlot {
+            generation,
+            ptr: shadow as *mut GameWorldShadow,
+            borrowed: false,
+        });
+        prev
+    });
+    let _scope_guard = CoupledShadowScopeGuard { prev };
+    f()
 }
 
 /// Wave 680: if a coupled shadow tick is live, map this host spawn into GameWorld now.
@@ -417,6 +484,124 @@ mod couple_handle_tests {
         });
         assert!(panicked.is_err());
         assert!(!shadow_coupled_tick_active());
+    }
+
+    #[test]
+    fn scoped_shadow_publishes_only_inside_scope() {
+        clear_active_shadow_for_coupled_tick();
+        let mut shadow = GameWorldShadow::new(4);
+        let shadow_addr = &mut shadow as *mut GameWorldShadow as usize;
+        assert!(with_coupled_shadow_slot(|_| ()).is_none());
+        with_coupled_shadow(&mut shadow, || {
+            assert_eq!(
+                with_coupled_shadow_slot(|s| s as *mut GameWorldShadow as usize),
+                Some(shadow_addr)
+            );
+        });
+        assert!(
+            with_coupled_shadow_slot(|_| ()).is_none(),
+            "slot must be restored after the scope returns"
+        );
+    }
+
+    #[test]
+    fn scoped_shadow_ambient_reads_observe_scope_boundaries() {
+        clear_active_shadow_for_coupled_tick();
+        let mut shadow = GameWorldShadow::new(4);
+        let shadow_addr = &mut shadow as *mut GameWorldShadow as usize;
+        let _tick = CoupledTickGuard::enter();
+        assert!(with_active_shadow(|_| ()).is_none());
+        with_coupled_shadow(&mut shadow, || {
+            assert_eq!(
+                with_active_shadow(|s| s as *const GameWorldShadow as usize),
+                Some(shadow_addr)
+            );
+            assert_eq!(
+                with_active_shadow_mut(|s| s as *mut GameWorldShadow as usize),
+                Some(shadow_addr)
+            );
+        });
+        assert!(with_active_shadow(|_| ()).is_none());
+        assert!(with_active_shadow_mut(|_| ()).is_none());
+    }
+
+    #[test]
+    fn scoped_shadow_nesting_follows_stack_discipline() {
+        clear_active_shadow_for_coupled_tick();
+        let mut outer = GameWorldShadow::new(4);
+        let mut inner = GameWorldShadow::new(2);
+        let outer_addr = &mut outer as *mut GameWorldShadow as usize;
+        let inner_addr = &mut inner as *mut GameWorldShadow as usize;
+        with_coupled_shadow(&mut outer, || {
+            assert_eq!(
+                with_coupled_shadow_slot(|s| s as *mut GameWorldShadow as usize),
+                Some(outer_addr)
+            );
+            with_coupled_shadow(&mut inner, || {
+                assert_eq!(
+                    with_coupled_shadow_slot(|s| s as *mut GameWorldShadow as usize),
+                    Some(inner_addr),
+                    "innermost scope must win ambient resolution"
+                );
+            });
+            assert_eq!(
+                with_coupled_shadow_slot(|s| s as *mut GameWorldShadow as usize),
+                Some(outer_addr),
+                "outer scope must resume after the inner scope ends"
+            );
+        });
+        assert!(with_coupled_shadow_slot(|_| ()).is_none());
+    }
+
+    #[test]
+    fn scoped_shadow_restores_previous_slot_after_unwind() {
+        clear_active_shadow_for_coupled_tick();
+        let mut shadow = GameWorldShadow::new(4);
+        let shadow_addr = &mut shadow as *mut GameWorldShadow as usize;
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_coupled_shadow(&mut shadow, || {
+                let inner = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _ = with_coupled_shadow_slot(|_| {
+                        panic!("intentional scoped ambient panic")
+                    });
+                }));
+                assert!(inner.is_err());
+                assert_eq!(
+                    with_coupled_shadow_slot(|s| s as *mut GameWorldShadow as usize),
+                    Some(shadow_addr),
+                    "ambient borrow marker must clear and the scope must stay live"
+                );
+                panic!("intentional scoped frame panic");
+            });
+        }));
+        assert!(panicked.is_err());
+        assert!(
+            with_coupled_shadow_slot(|_| ()).is_none(),
+            "unwinding through the scope must restore the previous slot"
+        );
+    }
+
+    #[test]
+    fn scoped_shadow_inside_legacy_install_restores_it_verbatim() {
+        clear_active_shadow_for_coupled_tick();
+        let mut shadow = GameWorldShadow::new(4);
+        let shadow_addr = &mut shadow as *mut GameWorldShadow as usize;
+        let guard = install_coupled_shadow_guard(&mut shadow);
+        let mut other = GameWorldShadow::new(2);
+        let other_addr = &mut other as *mut GameWorldShadow as usize;
+        with_coupled_shadow(&mut other, || {
+            assert_eq!(
+                with_coupled_shadow_slot(|s| s as *mut GameWorldShadow as usize),
+                Some(other_addr)
+            );
+        });
+        assert_eq!(
+            with_coupled_shadow_slot(|s| s as *mut GameWorldShadow as usize),
+            Some(shadow_addr),
+            "the legacy region must resume with its own slot after the scope"
+        );
+        drop(guard);
+        assert!(with_coupled_shadow_slot(|_| ()).is_none());
     }
 }
 

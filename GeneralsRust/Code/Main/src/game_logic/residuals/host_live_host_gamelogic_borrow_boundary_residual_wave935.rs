@@ -41,10 +41,6 @@ const ALLOWED_NAKED_GAMELOGIC_FNS_WAVE935: &[&str] = &[
     "host_apply_skirmish_config_authority",
     "host_simulate_gameworld_authority_probe",
     "host_load_map_or_default",
-    "host_save_game_authority",
-    "host_load_game_authority",
-    "host_apply_skirmish_config_authority",
-    "host_simulate_gameworld_authority_probe",
     "host_replace_staged_restore_world",
     "stage_saved_world_for_restore",
     "host_load_game_from_ui",
@@ -56,6 +52,28 @@ const ALLOWED_NAKED_GAMELOGIC_FNS_WAVE935: &[&str] = &[
     "presentation_runtime_heightmap_for_frame",
     "runtime_host_cmd_enqueue_production",
     "host_resolve_unit_template",
+    // 2026-09-07 re-pin: split-borrow presentation / camera / radar / UI
+    // probe adapters that read the field directly (host_ops_writeback batched
+    // shadow visit + start_game skirmish routing exposed them).
+    "publish_eva_host_frame_and_tick",
+    "apply_presentation_camera_residual",
+    "host_run_coupled_fast_forward_loop",
+    "host_tick_game_client_presentation_shell",
+    "host_update_logic_frame",
+    "host_try_load_game_authority",
+    "update_internal",
+    "remirror_host_replay_observer_selection",
+    "remirror_host_replay_leftover_selection",
+    "host_camera_movement_finished",
+    "host_update_the_radar",
+    "host_selection_has_flame_weapon",
+    "host_pick_object_at_cursor_ex",
+    "pending_target_relationship_allowed",
+    "radius_cursor_primary_weapon_name",
+    "radius_cursor_guard_range",
+    "issue_named_command_from_ui",
+    "host_mark_single_use_command_if_needed",
+    "host_apply_control_bar_target",
 ];
 
 #[repr(u8)]

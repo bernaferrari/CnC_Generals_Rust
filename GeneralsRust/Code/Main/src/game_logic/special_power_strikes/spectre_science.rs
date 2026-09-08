@@ -45,11 +45,13 @@ impl SpectreGunshipScienceTier {
             Some(SpectreGunshipScienceTier::Level3)
         } else if n.contains("spectregunship2") {
             Some(SpectreGunshipScienceTier::Level2)
-        } else if n.contains("spectregunship1")
-            || n.contains("spectregunshipsolo")
-            || n.contains("spectregunship")
-        {
+        } else if n.contains("spectregunship1") {
             Some(SpectreGunshipScienceTier::Level1)
+        } else if n.contains("spectregunship") {
+            // SCIENCE_SpectreGunshipSolo (vanilla USA, no RequiredScience
+            // deployment module) and the bare catch-all carry the retail
+            // default OrbitTime 15000 ms → 450 frames = Level2, NOT Level1.
+            Some(SpectreGunshipScienceTier::Level2)
         } else {
             None
         }

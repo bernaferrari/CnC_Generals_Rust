@@ -95,6 +95,8 @@ fn ground_height_at(x: f32, y: f32) -> f32 {
         .unwrap_or(0.0)
 }
 
+/// C++ `getHeightAroundPos` (W3DView.cpp:117): raw max of the terrain
+/// samples — below-sea terrain pulls the zoom target down (no 0.0 floor).
 fn height_around_pos(x: f32, y: f32) -> f32 {
     let sample = TERRAIN_SAMPLE_SIZE;
     [
@@ -106,11 +108,26 @@ fn height_around_pos(x: f32, y: f32) -> f32 {
     ]
     .into_iter()
     .fold(f32::NEG_INFINITY, f32::max)
-    .max(0.0)
+}
+
+/// Absolute pitch (radians) of the global default camera boom
+/// (`camera_offset_from_global` builds its offset at this elevation).
+fn global_camera_pitch_radians() -> f32 {
+    let pitch_deg = get_global_data()
+        .map(|global| {
+            let global = global.read();
+            if global.camera_pitch.abs() < 0.1 {
+                DEFAULT_CAMERA_PITCH_DEG
+            } else {
+                global.camera_pitch
+            }
+        })
+        .unwrap_or(DEFAULT_CAMERA_PITCH_DEG);
+    pitch_deg * PI / 180.0
 }
 
 fn camera_offset_from_global(ground_level: f32) -> Point3 {
-    let (height, pitch_deg, yaw_deg) = get_global_data()
+    let (height, yaw_deg) = get_global_data()
         .map(|global| {
             let global = global.read();
             let height = if global.camera_height.abs() < 1.0 {
@@ -118,16 +135,11 @@ fn camera_offset_from_global(ground_level: f32) -> Point3 {
             } else {
                 global.camera_height
             };
-            let pitch = if global.camera_pitch.abs() < 0.1 {
-                DEFAULT_CAMERA_PITCH_DEG
-            } else {
-                global.camera_pitch
-            };
-            (height, pitch, global.camera_yaw)
+            (height, global.camera_yaw)
         })
-        .unwrap_or((DEFAULT_CAMERA_HEIGHT, DEFAULT_CAMERA_PITCH_DEG, 0.0));
+        .unwrap_or((DEFAULT_CAMERA_HEIGHT, 0.0));
     let z = ground_level + height;
-    let pitch = pitch_deg * PI / 180.0;
+    let pitch = global_camera_pitch_radians();
     let yaw = yaw_deg * PI / 180.0;
     let tan_pitch = pitch.tan();
     let y = if tan_pitch.abs() < 1.0e-4 {
@@ -261,6 +273,11 @@ impl Vector2 {
 
     pub fn zero() -> Self {
         Self { x: 0.0, y: 0.0 }
+    }
+
+    /// Euclidean length (C++ `Coord2D::Length`).
+    pub fn length(&self) -> f32 {
+        (self.x * self.x + self.y * self.y).sqrt()
     }
 }
 
@@ -875,6 +892,26 @@ impl View {
         self.position = *pos;
     }
 
+    /// Host-camera pose mirror (Main owns the live W3D camera; the leftover
+    /// GameClient View must track it for the audio listener and HUD
+    /// projections). Raw field assignment: unlike the player-facing
+    /// `set_position`/`set_angle`/`set_zoom` setters this does NOT cancel
+    /// scripted camera (C++ GameAudio only reads TheTacticalView), and it
+    /// does not rescan terrain per frame — `init_height_for_map` stays a
+    /// view-init / map-install concern.
+    ///
+    /// `pitch` is Main's absolute orbit elevation; the view stores pitch as a
+    /// tilt relative to the global camera-offset pitch (C++ `m_pitchAngle`,
+    /// clamped ±PI/5), so the leftover projection tracks the pitched render
+    /// camera instead of sitting at a flat default.
+    pub fn sync_pose_from_host(&mut self, pos: &Point3, angle: f32, pitch: f32, zoom: f32) {
+        self.position = *pos;
+        self.angle = angle;
+        self.pitch_angle = (pitch - global_camera_pitch_radians()).clamp(-PI / 5.0, PI / 5.0);
+        self.zoom = zoom;
+        self.rebuild_real_zoom_fov();
+    }
+
     /// C++ W3DView.cpp:3097-3212 — scripted pans expand m_cameraConstraint.
     fn widen_camera_constraint_for_scripted(&mut self, x: f32, y: f32) {
         if !self.camera_constraint_valid {
@@ -1024,11 +1061,9 @@ impl View {
         self.zoom
     }
     pub fn set_zoom(&mut self, zoom: f32) {
-        if self.zoom_limited {
-            self.zoom = zoom.clamp(self.min_zoom, self.max_zoom);
-        } else {
-            self.zoom = zoom;
-        }
+        // C++ W3DView::setZoom clamps m_zoom unconditionally; `zoomLimited`
+        // gates setHeightAboveGround, not zoom (W3DView.cpp:1930-1949).
+        self.zoom = zoom.clamp(self.min_zoom, self.max_zoom);
         self.rebuild_real_zoom_fov();
         // C++ W3DView::setZoom cancels scripted rotate/pitch/zoom/path/lock.
         self.cancel_scripted_camera_from_player_set();
@@ -1051,12 +1086,12 @@ impl View {
     }
 
     pub fn zoom_in(&mut self) {
-        self.ok_to_adjust_height = true;
+        // C++ View::zoomIn only steps height (View.cpp:104-107);
+        // okToAdjustHeight is owned by GameLogic (GameLogic.cpp:2237).
         self.set_height_above_ground(self.height_above_ground - 10.0);
     }
 
     pub fn zoom_out(&mut self) {
-        self.ok_to_adjust_height = true;
         self.set_height_above_ground(self.height_above_ground + 10.0);
     }
 
@@ -1190,12 +1225,25 @@ impl View {
         self.camera_lock_id
     }
     pub fn set_camera_lock(&mut self, id: Option<u32>) {
+        // C++ W3DView::setCameraLock (W3DView.cpp:1757-1765): do not lock
+        // onto an object while camera movement is disabled.
+        if id.is_some()
+            && get_global_data()
+                .map(|g| g.read().disable_camera_movement)
+                .unwrap_or(false)
+        {
+            return;
+        }
         self.camera_lock_id = id;
         self.lock_distance = 0.0;
         self.camera_lock_type = CameraLockType::Follow;
         // C++ W3DView::setCameraLock clears m_doingScriptedCameraLock.
         self.doing_scripted_camera_lock = false;
-        if id.is_none() {
+        if id.is_some() {
+            // A lock engages: a leftover scripted waypoint path would keep
+            // fighting the follow each frame.
+            self.camera_path = None;
+        } else {
             self.follow_factor = -1.0;
         }
     }
@@ -1310,9 +1358,25 @@ impl View {
         }
         let desired_height = self.terrain_height_under_camera + self.height_above_ground;
         let desired_zoom = desired_height / self.camera_offset.z;
-        let adjust = get_global_data()
-            .map(|g| g.read().camera_adjust_speed)
-            .unwrap_or(0.1);
+        let (adjust, scroll_cutoff, enforce_max) = get_global_data()
+            .map(|g| {
+                let g = g.read();
+                (
+                    g.camera_adjust_speed,
+                    g.scroll_amount_cutoff,
+                    g.enforce_max_camera_height,
+                )
+            })
+            .unwrap_or((0.1, 10.0, true));
+        // C++ W3DView.cpp:1321-1333: while scrolling, only settle when the
+        // scroll is slow or the height left the [min,max] band.
+        if self.scroll_amount.length() > 0.0
+            && self.scroll_amount.length() >= scroll_cutoff
+            && self.current_height_above_ground >= self.min_height_above_ground
+            && !(enforce_max && self.current_height_above_ground > self.max_height_above_ground)
+        {
+            return;
+        }
         let zoom_adj = (desired_zoom - self.zoom) * adjust;
         if zoom_adj.abs() >= 0.0001 {
             self.zoom += zoom_adj;
@@ -2221,7 +2285,8 @@ pub fn draw_live_command_markers() {
             }
             let world = Point3::new(hint.end.x, hint.end.y, hint.end.z);
             with_tactical_view_ref(|view| {
-                view.world_to_screen(&world).map(|screen| (screen, hint.hint_type, elapsed))
+                view.world_to_screen(&world)
+                    .map(|screen| (screen, hint.hint_type, elapsed))
             })
         })
         .collect();
@@ -2256,14 +2321,8 @@ pub fn draw_live_command_markers() {
                 let a0 = (i as f32) * tau / segments as f32;
                 let a1 = ((i + 1) as f32) * tau / segments as f32;
                 renderer.draw_line(
-                    glam::Vec2::new(
-                        center.x + radius * a0.cos(),
-                        center.y + radius * a0.sin(),
-                    ),
-                    glam::Vec2::new(
-                        center.x + radius * a1.cos(),
-                        center.y + radius * a1.sin(),
-                    ),
+                    glam::Vec2::new(center.x + radius * a0.cos(), center.y + radius * a0.sin()),
+                    glam::Vec2::new(center.x + radius * a1.cos(), center.y + radius * a1.sin()),
                     2.0,
                     color,
                     0.0,

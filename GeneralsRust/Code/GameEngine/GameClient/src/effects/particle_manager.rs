@@ -10,12 +10,12 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 use thiserror::Error;
 
-use game_engine::common::random_value::get_game_client_random_value_real;
 use crate::core::DrawableId;
 use crate::effects::particle_ini_loader::ParticleSystemINIParser;
 use crate::system::SubsystemInterface;
 use game_engine::System::XferVersion;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::random_value::get_game_client_random_value_real;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -1268,12 +1268,22 @@ impl ParticleSystemManager {
             return false;
         }
 
-        // Check particle count limit (C++ lines 1699-1704)
-        if self.particle_count >= max_particle_count {
-            let needed = self.particle_count - max_particle_count + 1;
-            if self.remove_oldest_particles(needed, priority) != needed {
-                return false;
-            }
+        // Check particle count limit (C++ ParticleSys.cpp:1699-1708).
+        // C++ culls only when the count strictly EXCEEDS the cap, evicts the
+        // excess, and then still rejects the NEW particle:
+        // removeOldestParticles (ParticleSys.cpp:3177-3201) does
+        // `while (count-- && ...)` on an UnsignedInt, so its post-decrement
+        // wraps to 0xFFFFFFFF on loop exit and the function returns
+        // requested + 1 — never equal to the requested count. The
+        // `!= numInExcess` check therefore always fails, and the steady-state
+        // population hovers between max and max+1 as each new particle that
+        // pushes the count over the cap is itself rejected after the eviction.
+        if self.particle_count > max_particle_count {
+            let num_in_excess = self.particle_count - max_particle_count;
+            self.remove_oldest_particles(num_in_excess, priority);
+            // C++ removeOldestParticles returns requested+1 (see above), so
+            // `!= numInExcess` holds and the new particle is never created.
+            return false;
         }
 
         true
@@ -1316,7 +1326,16 @@ impl ParticleSystemManager {
         extent: [f32; 3],
         max_per_system: usize,
     ) {
+        // Field-particle count basis (C++ W3DParticleSys.cpp:124/205): the
+        // renderer counts EVERY drawn AREA_EFFECT ground particle each frame.
+        // Count in-box particles before the per-system render-budget cap is
+        // applied, so the cap (MaxFieldParticleCount, default 30) fires on the
+        // true on-screen density rather than an undercount caused by the
+        // rendering budget limiting how many particles each system keeps.
+        let mut field_count = 0usize;
         self.for_each_particle_system_mut(|system| {
+            let is_field_system = system.priority() == ParticlePriorityType::AreaEffect
+                && system.template().info().is_ground_aligned;
             let mut kept = 0usize;
             for particle in system.particles_mut() {
                 if !particle.is_lifetime_active() {
@@ -1327,6 +1346,9 @@ impl ParticleSystemManager {
                 let outside = (particle.position.x - center[0]).abs() > extent[0] + size
                     || (particle.position.y - center[1]).abs() > extent[1] + size
                     || (particle.position.z - center[2]).abs() > extent[2] + size;
+                if is_field_system && !outside {
+                    field_count += 1;
+                }
                 if outside || kept >= max_per_system {
                     particle.is_culled = true;
                 } else {
@@ -1335,21 +1357,7 @@ impl ParticleSystemManager {
                 }
             }
         });
-        self.recount_on_screen_field_particles();
-    }
-
-    /// C++ `m_fieldParticleCount` — AREA_EFFECT + ground-aligned particles
-    /// that passed the visible-box cull (drawn this frame).
-    fn recount_on_screen_field_particles(&mut self) {
-        self.field_particle_count = self
-            .active_systems
-            .values()
-            .filter(|s| {
-                s.priority() == ParticlePriorityType::AreaEffect
-                    && s.template().info().is_ground_aligned
-            })
-            .map(|s| s.particles().iter().filter(|p| p.is_draw_alive()).count())
-            .sum();
+        self.field_particle_count = field_count;
     }
 
     /// Get statistics

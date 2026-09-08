@@ -7,12 +7,30 @@ use crate::gui::game_window::{GameWindow, WindowMessage, WindowMsgData};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use log::warn;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 use std::rc::Weak;
 
 const KEY_STATE_CONTROL: u32 = 0x0004 | 0x0008;
 const KEY_STATE_SHIFT: u32 = 0x0010 | 0x0020 | 0x0400;
 const KEY_STATE_ALT: u32 = 0x0040 | 0x0080;
+
+/// Session dedup for the duplicate-hotkey diagnostic.
+///
+/// C++ `HotKeyManager::addHotKey` (HotKey.cpp:123-137) DEBUG_ASSERTCRASHes on
+/// a duplicate claim and silently ignores it in retail. The control bar
+/// re-binds command windows repeatedly, so warn once per key per session and
+/// demote repeats to debug instead of flooding the log every frame.
+static DUPLICATE_HOTKEY_WARNED: LazyLock<std::sync::Mutex<HashSet<String>>> =
+    LazyLock::new(|| std::sync::Mutex::new(HashSet::new()));
+
+/// True when this key already triggered its once-per-session duplicate warn.
+pub(crate) fn duplicate_hotkey_warned(key: &str) -> bool {
+    DUPLICATE_HOTKEY_WARNED
+        .lock()
+        .map(|warned| warned.contains(key))
+        .unwrap_or(false)
+}
 
 fn keycode_to_char(key_code: u32) -> Option<char> {
     match key_code {
@@ -105,10 +123,24 @@ impl HotKeyManager {
         }
 
         if let Some(existing) = self.hot_key_map.get(&key) {
-            warn!(
-                "Hotkey {} already mapped; ignoring new window registration",
-                existing.key
-            );
+            // C++ HotKey.cpp:130 DEBUG_ASSERTCRASH on duplicates, silent in
+            // retail: the registration is ignored either way. Warn once per
+            // key per session; repeats are debug-only.
+            let should_warn = match DUPLICATE_HOTKEY_WARNED.lock() {
+                Ok(mut warned) => warned.insert(key.clone()),
+                Err(_) => false,
+            };
+            if should_warn {
+                warn!(
+                    "Hotkey {} already mapped; ignoring new window registration",
+                    existing.key
+                );
+            } else {
+                log::debug!(
+                    "Hotkey {} already mapped; ignoring new window registration (repeat)",
+                    existing.key
+                );
+            }
             return;
         }
 
@@ -197,4 +229,53 @@ pub fn with_hot_key_manager<R>(f: impl FnOnce(&mut HotKeyManager) -> R) -> R {
             std::cell::RefCell::new(HotKeyManager::default());
     }
     HOT_KEY_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
+}
+
+#[cfg(test)]
+mod hot_key_dedup_tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_hotkey_registration_is_ignored_and_warns_once_per_session() {
+        let key = "z";
+        let first_window = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
+        let second_window = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
+        let first_id = first_window.borrow().get_id();
+
+        let mut manager = HotKeyManager::default();
+        manager.add_hot_key(first_window, key);
+        // A second window claiming the same key is ignored (C++ HotKey.cpp:128).
+        manager.add_hot_key(second_window, key);
+
+        assert_eq!(
+            manager.hot_key_map.len(),
+            1,
+            "only the first registration may own the key"
+        );
+        let owner_id = manager
+            .hot_key_map
+            .get(key)
+            .and_then(|hot_key| hot_key.window.upgrade())
+            .map(|window| window.borrow().get_id());
+        assert_eq!(owner_id, Some(first_id), "the first window stays mapped");
+        assert!(
+            duplicate_hotkey_warned(key),
+            "the duplicate claim must record its once-per-session warn"
+        );
+    }
+
+    #[test]
+    fn duplicate_warn_records_exactly_one_session_entry_per_key() {
+        let key = "zz_dedup_probe";
+        let mut manager = HotKeyManager::default();
+        let window = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
+        manager.add_hot_key(window.clone(), key);
+        for _ in 0..3 {
+            manager.add_hot_key(window.clone(), key);
+        }
+        assert!(
+            duplicate_hotkey_warned(key),
+            "repeated duplicate claims stay recorded after the first warn"
+        );
+    }
 }

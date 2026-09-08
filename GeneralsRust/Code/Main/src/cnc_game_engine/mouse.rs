@@ -1,7 +1,7 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::input::MouseInputOrigin;
 use super::selection_hud::{
-    is_os_style_double_click, os_double_click_time_ms, OS_DOUBLE_CLICK_SLOP_PX,
+    OS_DOUBLE_CLICK_SLOP_PX, is_os_style_double_click, os_double_click_time_ms,
 };
 use super::*;
 
@@ -11,7 +11,7 @@ const LOOKAT_MMB_CLICK_PIXEL_OFFSET: f32 = 5.0;
 /// C++ `LookAtXlat.cpp:298` `const Real FACTOR = 0.01f`.
 const LOOKAT_MMB_YAW_FACTOR: f32 = 0.01;
 /// C++ `View.cpp` / `W3DView` default pitch when GameData CameraPitch is ~0.
-const LOOKAT_DEFAULT_PITCH_DEG: f32 = 37.5;
+pub(super) const LOOKAT_DEFAULT_PITCH_DEG: f32 = 37.5;
 /// C++ `LookAtXlat.cpp:45` `edgeScrollSize`.
 pub(super) const EDGE_SCROLL_SIZE: f32 = 3.0;
 /// C++ `View.cpp:78-79` / `W3DView::setZoom` clamp.
@@ -246,22 +246,57 @@ fn lookat_has_mouse_moved_recently(frame: u32) -> bool {
     last + game_engine::common::game_common::LOGICFRAMES_PER_SECOND as u32 >= frame
 }
 
-/// C++ `W3DView::scrollBy` (1779-1823): `end.Y += dy * SCROLL_RESOLUTION * aspect`
-/// where `aspect = getWidth()/getHeight()`. Vertical screen delta is pre-multiplied
-/// by tactical-view aspect before the world conversion.
+/// C++ `W3DView::scrollBy` (W3DView.cpp:1779-1823): unproject the view's
+/// bottom-right device corner and the same corner offset by the scroll —
+/// `end = start + delta * 250`, vertical pre-multiplied by view aspect —
+/// through the live camera and move the view position by the ground-plane
+/// world delta.
 fn lookat_scroll_world_delta(
     screen_scroll: Vec2,
-    forward: Vec3,
-    right: Vec3,
-    camera_height: f32,
-    view_aspect: f32,
+    view_matrix: Mat4,
+    projection_matrix: Mat4,
+    viewport: (f32, f32),
 ) -> Vec3 {
     if screen_scroll.length_squared() <= f32::EPSILON {
         return Vec3::ZERO;
     }
-    let scale = camera_height.max(1.0) / SCROLL_RESOLUTION;
-    let aspect = view_aspect.max(0.01);
-    (right * screen_scroll.x + forward * (-screen_scroll.y * aspect)) * scale
+    let (width, height) = viewport;
+    if width <= 1.0 || height <= 1.0 {
+        return Vec3::ZERO;
+    }
+    let camera_world = view_matrix.inverse();
+    // The projection x/y scale rows are 1/tan(half-FOV); inverting them
+    // recovers the view-plane extents the live matrix actually renders with.
+    let tan_half_horizontal = 1.0 / projection_matrix.x_axis.x;
+    let tan_half_vertical = 1.0 / projection_matrix.y_axis.y;
+    if !camera_world.is_finite()
+        || !tan_half_horizontal.is_finite()
+        || !tan_half_vertical.is_finite()
+    {
+        return Vec3::ZERO;
+    }
+    // C++ `CameraClass::Device_To_World_Space` (camera.cpp:626-631) maps a
+    // device point onto the view plane at view depth 1 (camera.cpp:588-611).
+    // The mapping is linear over device pixels: no clamping, the scroll end
+    // intentionally extrapolates past the screen.
+    let view_plane_point = |pixel: Vec2| {
+        let ndc_x = pixel.x / width * 2.0 - 1.0;
+        let ndc_y = 1.0 - pixel.y / height * 2.0;
+        camera_world
+            * glam::Vec4::new(
+                ndc_x * tan_half_horizontal,
+                ndc_y * tan_half_vertical,
+                -1.0,
+                1.0,
+            )
+    };
+    let aspect = width / height;
+    let world = view_plane_point(Vec2::new(
+        width + screen_scroll.x * SCROLL_RESOLUTION,
+        height + screen_scroll.y * SCROLL_RESOLUTION * aspect,
+    )) - view_plane_point(Vec2::new(width, height));
+    // C++ applies only the world X/Y components to the view position.
+    Vec3::new(world.x, 0.0, world.z)
 }
 
 /// C++ `W3DView::calcCameraConstraints` inset: |center-95%| pick at ground Y.

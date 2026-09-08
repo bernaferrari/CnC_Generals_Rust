@@ -9,14 +9,17 @@ pub fn translate_audio_event(event: &str) -> &str {
         "Mission_Message" => "GUIMessageReceived",
         "Beacon_Placed" => "UI_BeaconPlaced",
         "Beacon_Removed" => "UI_BeaconRemoved",
-        "Radar_Event" => "UI_RadarEvent",
-        "Radar_Attack" => "UI_RadarAttack",
-        "Radar_Ally" => "UI_RadarAllyRequest",
-        "Radar_BaseAttacked" => "UI_RadarAttack",
-        "Radar_EnemyDetected" => "UI_RadarEvent",
-        "Radar_UnitCreated" => "UI_RadarEvent",
-        "Radar_UnitDestroyed" => "UI_RadarEvent",
-        "Radar_Event_Beacon" => "UI_RadarEvent",
+        // C++ authored radar event: SoundEffects.ini `RadarEvent` has an empty
+        // Sounds list (authentic silent chirp); audible cues are the
+        // RadarNotify*UnderAttack family dispatched by the radar/EVA lane.
+        "Radar_Event" => "RadarEvent",
+        "Radar_Attack" => "RadarEvent",
+        "Radar_Ally" => "RadarEvent",
+        "Radar_BaseAttacked" => "RadarEvent",
+        "Radar_EnemyDetected" => "RadarEvent",
+        "Radar_UnitCreated" => "RadarEvent",
+        "Radar_UnitDestroyed" => "RadarEvent",
+        "Radar_Event_Beacon" => "RadarEvent",
         _ => event,
     }
 }

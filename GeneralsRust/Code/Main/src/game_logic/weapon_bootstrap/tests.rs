@@ -438,7 +438,6 @@ fn update_combat_prefers_secondary_damage_vs_infantry() {
         }
     }
 
-
     // ScatterRadius 4 + grenade detonate falloff make exact landed damage
     // vary; the secondary path itself is proven by the last_fire asserts.
     let dealt = fire_until_flashbang_lands(&mut logic, attacker_id, target_id, true);
@@ -745,7 +744,10 @@ fn fire_sound_for_seeded_weapons_residual() {
     // AudioEventRTS; no weapon → no FireSound → AHSV_NoSound
     // (GameAudio.cpp:384-386). Never an invented generic token.
     let fallback = host_fire_sound_for_unit_slot("UnknownUnitXYZ", None, None, 0);
-    assert!(fallback.is_empty(), "no-weapon must be silent, got {fallback}");
+    assert!(
+        fallback.is_empty(),
+        "no-weapon must be silent, got {fallback}"
+    );
     assert!(
         host_fire_sound_for_weapon_name("UnknownWeaponXYZ").is_empty(),
         "unknown store weapon must not invent a FireSound token"

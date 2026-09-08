@@ -63,7 +63,10 @@ fn assert_radar_kept(logic: &GameLogic, local: u32, ctx: &str) {
         p.radar_count, 1,
         "{ctx}: coupled session must not zero host radar_count"
     );
-    assert!(p.has_radar(), "{ctx}: coupled session must not drop has_radar");
+    assert!(
+        p.has_radar(),
+        "{ctx}: coupled session must not drop has_radar"
+    );
 }
 
 #[test]

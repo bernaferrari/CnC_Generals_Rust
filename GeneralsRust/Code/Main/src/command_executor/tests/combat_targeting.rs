@@ -700,8 +700,8 @@ fn go_prone_sets_prone_timer_and_bit() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::{
-        host_enum_table_residual::model_condition_bit_name_index, GameLogic, KindOf, Team,
-        ThingTemplate,
+        GameLogic, KindOf, Team, ThingTemplate,
+        host_enum_table_residual::model_condition_bit_name_index,
     };
     use glam::Vec3;
 
@@ -804,11 +804,13 @@ fn move_to_and_evacuate_sets_pending_flag() {
         p.set_contained_by(Some(transport));
         p.set_ai_state(crate::game_logic::AIState::Docked);
     }
-    assert!(!logic
-        .host_object(transport)
-        .unwrap()
-        .contained_units()
-        .is_empty());
+    assert!(
+        !logic
+            .host_object(transport)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1094,10 +1096,12 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
     logic.tick_deploy_style_updates();
     let unpacked = logic.host_object(deployable).expect("unpacked unit");
     assert!(unpacked.is_deployed());
-    assert!(unpacked
-        .deploy_style
-        .as_ref()
-        .is_some_and(|style| style.is_ready_to_attack()));
+    assert!(
+        unpacked
+            .deploy_style
+            .as_ref()
+            .is_some_and(|style| style.is_ready_to_attack())
+    );
 
     // The next explicit Deploy reverses direction: deployed status clears at
     // pack start and movement becomes available only on the authored boundary.
@@ -1122,10 +1126,12 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
     );
     logic.frame = 6;
     logic.tick_deploy_style_updates();
-    assert!(logic
-        .host_object(deployable)
-        .unwrap()
-        .deploy_style_allows_move());
+    assert!(
+        logic
+            .host_object(deployable)
+            .unwrap()
+            .deploy_style_allows_move()
+    );
 
     // A plain vehicle must not inherit DeployStyle behavior because a name or
     // VEHICLE KindOf happened to resemble an older residual list.
@@ -1137,11 +1143,13 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
         CommandResult::InvalidCommand
     );
     drop(executor);
-    assert!(logic
-        .host_object(no_behavior)
-        .unwrap()
-        .deploy_style
-        .is_none());
+    assert!(
+        logic
+            .host_object(no_behavior)
+            .unwrap()
+            .deploy_style
+            .is_none()
+    );
 }
 
 #[test]
@@ -1330,7 +1338,7 @@ fn add_waypoint_plays_voice_move_when_idle() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::audio_dispatch_impl::{
-        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+        UnitVoiceSlot, clear_test_template_voices, set_test_template_voice,
     };
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;

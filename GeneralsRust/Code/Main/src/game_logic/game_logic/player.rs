@@ -259,6 +259,23 @@ impl PlayerTemplateIdentity {
         }
     }
 
+    /// C++ `PlayerTemplate::getSide()` for this identity — the `Side` token
+    /// authored beside the template (`Boss` for `FactionBossGeneral`, not its
+    /// `BaseSide` `China`).  Borrowed from the immutable Common store, so no
+    /// template clone; `None` when the store no longer carries the template
+    /// (same index-and-name validation as [`Self::resolve`]).
+    pub fn side_token(&self) -> Option<String> {
+        game_engine::common::ini::ensure_player_templates_loaded();
+        let store = game_engine::common::rts::player_template::get_player_template_store();
+        let template = match self.template_index {
+            Some(index) => store
+                .get_nth_player_template_signed(index)
+                .filter(|template| template.get_name() == self.template_name)?,
+            None => store.find_template(&self.template_name)?,
+        };
+        Some(template.get_side().to_string())
+    }
+
     /// Main's current Team enum represents only the three C++ base sides.
     /// Keep that conversion exact and reject observer/civilian/Boss identities
     /// rather than silently choosing a different General.

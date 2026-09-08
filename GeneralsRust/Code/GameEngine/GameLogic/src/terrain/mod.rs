@@ -460,6 +460,10 @@ impl Bridge {
 
     /// Update damage state
     pub fn update_damage_state(&mut self) {
+        // Wave 341: empty dual-world → host GameLogic owns damage application.
+        if dual_world_registry_unavailable() {
+            return;
+        }
         crate::terrain_bridge::update_damage_state(self);
     }
 

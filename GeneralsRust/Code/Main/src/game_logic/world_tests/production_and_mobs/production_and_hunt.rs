@@ -1509,7 +1509,11 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     }
     let killed = {
         let o = game_logic.host_object_mut(id).unwrap();
-        o.take_damage_from_typed(999.0, None, crate::game_logic::combat::DamageType::Explosive)
+        o.take_damage_from_typed(
+            999.0,
+            None,
+            crate::game_logic::combat::DamageType::Explosive,
+        )
     };
     assert!(!killed);
     let o = game_logic.host_object(id).unwrap();

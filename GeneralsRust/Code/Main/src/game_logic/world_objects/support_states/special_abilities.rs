@@ -226,7 +226,7 @@ impl GameLogic {
         crate::game_logic::host_hero_abilities::LeftoverSaTimings,
         f32,
     ) {
-        use crate::game_logic::host_hero_abilities::{leftover_sa_timings, LeftoverSaKind};
+        use crate::game_logic::host_hero_abilities::{LeftoverSaKind, leftover_sa_timings};
         let mut timings = leftover_sa_timings(kind);
         let mut variation = 0.0;
         if matches!(
@@ -1347,8 +1347,8 @@ impl GameLogic {
         prep_ms: u32,
     ) -> bool {
         use crate::game_logic::host_hero_abilities::{
-            LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase, LOTUS_DISABLE_SPECIAL_OBJECT,
-            LOTUS_STEAL_SPECIAL_OBJECT,
+            LOTUS_DISABLE_SPECIAL_OBJECT, LOTUS_STEAL_SPECIAL_OBJECT, LeftoverSaChannel,
+            LeftoverSaKind, LeftoverSaPhase,
         };
         let target_alive = self
             .objects
@@ -1455,7 +1455,7 @@ impl GameLogic {
         dt: f32,
     ) -> LeftoverSaTick {
         use crate::game_logic::host_hero_abilities::{
-            leftover_should_unstealth_during_unpack, LeftoverSaChannel, LeftoverSaPhase,
+            LeftoverSaChannel, LeftoverSaPhase, leftover_should_unstealth_during_unpack,
         };
         const EPS: f32 = 0.000_1;
         let (timings, variation) = self.leftover_timings_for(object_id, kind);
@@ -1646,6 +1646,44 @@ impl GameLogic {
         }
         self.leftover_sa_set_pack_model(object_id, false, true, false);
         self.leftover_sa_queue_pack_unpack_sound(object_id, kind, true);
+        // C++ SpecialAbilityUpdate.cpp:742-764 — startPacking(success) plays
+        // the task-complete voice family as the unit begins packing away:
+        // per-unit VoiceStealCashComplete / VoiceDisableVehicleComplete, else
+        // the template VoiceTaskComplete slot. No local gate (device filters).
+        if let Some(obj) = self.objects.get(&object_id) {
+            let per_unit_key = match kind {
+                crate::game_logic::host_hero_abilities::LeftoverSaKind::StealCash => {
+                    Some("VoiceStealCashComplete")
+                }
+                crate::game_logic::host_hero_abilities::LeftoverSaKind::DisableVehicle => {
+                    Some("VoiceDisableVehicleComplete")
+                }
+                crate::game_logic::host_hero_abilities::LeftoverSaKind::PlantTimed
+                | crate::game_logic::host_hero_abilities::LeftoverSaKind::PlantRemote
+                | crate::game_logic::host_hero_abilities::LeftoverSaKind::LaserGuided => None,
+            };
+            let complete_event = per_unit_key
+                .and_then(|key| {
+                    crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+                        &obj.template_name,
+                        key,
+                    )
+                })
+                .or_else(|| {
+                    crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
+                        &obj.template_name,
+                        crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::TaskComplete,
+                    )
+                });
+            if let Some(event) = complete_event {
+                let pos = obj.get_position();
+                self.queue_audio_event(
+                    crate::game_logic::game_logic::AudioEventRequest::new(&event)
+                        .with_object(object_id)
+                        .with_position(pos),
+                );
+            }
+        }
         self.hero_abilities.set_leftover_channel(
             object_id,
             LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Packing, pack_ms),
@@ -1751,10 +1789,9 @@ impl GameLogic {
             return None;
         }
 
-        let complete =
-            crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set(
-                &rider_metadata.active_locomotor_names,
-            )?;
+        let complete = crate::game_logic::locomotor_bootstrap::resolve_complete_host_locomotor_set(
+            &rider_metadata.active_locomotor_names,
+        )?;
         let names_match_metadata = complete.locomotor_names.len()
             == rider_metadata.active_locomotor_names.len()
             && complete
@@ -1780,9 +1817,10 @@ impl GameLogic {
             .pathfinding_system
             .grid
             .world_to_grid(container.get_position());
-        let acceptable = crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
-            self.pathfinding_system.grid.cell_type(container_cell),
-        );
+        let acceptable =
+            crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
+                self.pathfinding_system.grid.cell_type(container_cell),
+            );
         let (active_locomotor_name, active_locomotor) =
             crate::game_logic::locomotor_bootstrap::choose_host_locomotor_set_member_for_surfaces(
                 &complete.locomotor_names,

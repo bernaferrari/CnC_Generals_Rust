@@ -463,13 +463,36 @@ impl RenderPipeline {
                 grid.as_ref().map(|g| g.active).unwrap_or(false)
             );
         }
+
+        // C++ W3DShroud second pass: feed the frozen presentation grid into
+        // the terrain shroud overlay (GameClient ST_SHROUD dest texture) so
+        // the GPU shroud passes stop running on the 1x1 clear fallback.
+        // Inactive grids yield no R8 payload and leave the overlay untouched
+        // (fail-open: empty cells keep the shroud pass disabled).
+        #[cfg(feature = "game_client")]
+        if let Some(grid) = grid.as_ref() {
+            if let Some(r8) = self.presentation_terrain_fow_r8() {
+                if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
+                    if let Some(visual) = guard.as_mut() {
+                        visual.set_shroud_overlay_r8(
+                            grid.width as i32,
+                            grid.height as i32,
+                            grid.cell_size,
+                            grid.world_origin_xy,
+                            &r8,
+                        );
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
     /// R8 terrain FOW overlay payload from the presentation snapshot (no live shroud).
     ///
-    /// Feed into `FowTerrainOverlay::update_texture` when the GPU overlay is bound.
-    /// Returns `None` when inactive / fail-open (skip overlay upload).
+    /// Fed into `TerrainVisualImpl::set_shroud_overlay_r8` every frame by
+    /// `update_minimap_fow_texture` (the C++ W3DShroud destination-texture
+    /// second pass). Returns `None` when inactive / fail-open (skip upload).
     pub fn presentation_terrain_fow_r8(&self) -> Option<Vec<u8>> {
         self.presentation_frame
             .as_ref()

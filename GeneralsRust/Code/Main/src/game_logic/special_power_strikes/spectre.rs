@@ -136,6 +136,21 @@ pub const SPECTRE_GATTLING_ANTI_GROUND: bool = true;
 /// (`FiringTracker::speedUp` PerUnitSound "VoiceRapidFire"). Host residual:
 /// honesty name for Spectre orbit when gattling/howitzer reaches FAST.
 pub const SPECTRE_VOICE_RAPID_FIRE_AUDIO: &str = "SpectreGunshipVoiceRapidFire";
+/// C++ FiringTracker.cpp:251-255 `speedUp` per-unit slot for the MEAN→FAST
+/// crossing. Resolved per firing unit (`ThingTemplate::getPerUnitSound`) via
+/// `audio_dispatch_impl`, exactly like the gattling lanes; missing authored
+/// UnitSpecificSounds stay silent.
+pub const SPECTRE_VOICE_RAPID_FIRE_SLOT: &str = "VoiceRapidFire";
+
+/// C++ `FiringTracker::speedUp` MEAN→FAST crossings between two orbit-field cue
+/// counts. The orbit registry increments `rapid_fire_voice_cues` once per FAST
+/// entry (gattling or howitzer stream); each increment dispatches one
+/// VoiceRapidFire on the gunship (object + position), matching the gattling
+/// lanes' once-per-crossing dispatch.
+#[inline]
+pub fn spectre_voice_rapid_fire_crossings(prev_cues: u32, now_cues: u32) -> u32 {
+    now_cues.saturating_sub(prev_cues)
+}
 
 /// Residual Spectre gattling ContinuousFire stage (FiringTracker MEAN/FAST).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -264,6 +279,11 @@ pub const SPECTRE_HOWITZER_FIRE_SOUND: &str = "StrategyCenter_ArtilleryRound";
 pub const SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES: u32 = (1000 * 30) / 1000;
 /// Retail HeightDieUpdate TargetHeight residual.
 pub const SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT: f32 = 1.0;
+/// C++ `DumbProjectileBehavior` DEFAULT_MAX_LIFESPAN = 10 s → 300 frames.
+/// SpectreHowitzerShell authors no MaxLifespan, so the shell detonates at end
+/// of life (DumbProjectileBehavior.cpp:39-44, 561-565) even if it never
+/// reaches the HeightDie target height.
+pub const SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES: u32 = 10 * 30;
 /// Retail SpectreHowitzerShell GeometryMajorRadius residual.
 pub const SPECTRE_HOWITZER_SHELL_GEOMETRY_RADIUS: f32 = 4.0;
 /// Retail SpectreHowitzerShell Scale residual.
@@ -643,5 +663,27 @@ mod tests {
             ),
             "leftover stealth gate must skip disguised-as-friend"
         );
+    }
+
+    #[test]
+    fn voice_rapid_fire_crossings_track_cue_counter_increments() {
+        // C++ FiringTracker::speedUp: one VoiceRapidFire per MEAN→FAST entry.
+        // Orbit registry bumps rapid_fire_voice_cues once per FAST entry
+        // (gattling or howitzer), so each increment is one dispatch.
+        assert_eq!(spectre_voice_rapid_fire_crossings(0, 1), 1);
+        // Both streams cross in the same tick → two crossings.
+        assert_eq!(spectre_voice_rapid_fire_crossings(0, 2), 2);
+        // Holding FAST never re-crosses → no dispatch.
+        assert_eq!(spectre_voice_rapid_fire_crossings(2, 2), 0);
+        assert_eq!(spectre_voice_rapid_fire_crossings(3, 3), 0);
+        // Saturating: a stale snapshot never yields negative crossings.
+        assert_eq!(spectre_voice_rapid_fire_crossings(5, 3), 0);
+    }
+
+    #[test]
+    fn voice_rapid_fire_slot_matches_firingtracker_per_unit_key() {
+        // FiringTracker.cpp:252 getPerUnitSound("VoiceRapidFire") — the exact
+        // slot key the gattling lanes resolve via audio_dispatch_impl.
+        assert_eq!(SPECTRE_VOICE_RAPID_FIRE_SLOT, "VoiceRapidFire");
     }
 }

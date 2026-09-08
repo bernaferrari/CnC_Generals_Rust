@@ -10,8 +10,8 @@
 //! - `game_music` — GameMusic.cpp
 //! - `game_sounds` — GameSounds.cpp
 //! - `game_speech` — GameSpeech.cpp
-//! - `simple_player` / `simpleplayer` — simpleplayer.cpp
-//! - `url_launch` / `urllaunch` — urllaunch.cpp
+//! - `simple_player` — simpleplayer.cpp
+//! - `url_launch` — urllaunch.cpp
 //!
 //! ## Rust-Only Modules (no C++ equivalent, gated behind `audio` feature)
 //! These provide speculative abstractions for future audio engine work:
@@ -43,9 +43,7 @@ pub mod game_speech;
 pub mod gameplay_audio_dispatch;
 pub mod rodio_spatial;
 pub mod simple_player;
-pub mod simpleplayer;
 pub mod url_launch;
-pub mod urllaunch;
 
 // New comprehensive audio system modules
 pub mod assets; // Audio asset management and caching
@@ -173,8 +171,6 @@ pub struct ComprehensiveAudioSystem {
     pub sound_effects: SoundEffectManager,
     /// Stream manager for large audio files
     pub stream_manager: StreamManager,
-    /// Legacy audio manager for compatibility
-    pub legacy_manager: AudioManager,
 }
 
 impl ComprehensiveAudioSystem {
@@ -186,8 +182,6 @@ impl ComprehensiveAudioSystem {
         let spatial_processor = Arc::new(SpatialAudioProcessor::new());
         let sound_effects = SoundEffectManager::new(asset_manager.clone());
         let stream_manager = StreamManager::new(16); // Max 16 concurrent streams
-        let legacy_manager = AudioManager::new();
-
         Ok(Self {
             engine,
             asset_manager,
@@ -195,20 +189,16 @@ impl ComprehensiveAudioSystem {
             spatial_processor,
             sound_effects,
             stream_manager,
-            legacy_manager,
         })
     }
-
     /// Initialize all audio subsystems
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Start the core audio engine
         self.engine.start()?;
 
-        // Initialize legacy manager for compatibility
-        self.legacy_manager.init();
-
         // Set up default sound effect descriptors
         self.setup_default_sound_effects();
+
 
         // Set up default audio buses
         self.setup_default_audio_buses();

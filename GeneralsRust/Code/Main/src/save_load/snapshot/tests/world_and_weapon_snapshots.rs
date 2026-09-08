@@ -560,9 +560,24 @@ fn snapshot_restore_recovers_veterancy_from_tracker_data() {
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable);
+    // C++ ThingTemplate ctor defaults m_isTrainable=FALSE (ThingTemplate.cpp:994)
+    // and ExperienceTracker::addExperiencePoints drops XP for untrainable
+    // objects (ExperienceTracker.cpp:138-139), so a promotable tank models an
+    // IsTrainable=Yes unit.
+    tank_template.is_trainable = true;
     source
         .templates
         .insert("TestTank".to_string(), tank_template);
+
+    // Control: identical chassis without IsTrainable — C++ must never promote it.
+    let mut truck_template = ThingTemplate::new("TestTruck");
+    truck_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable);
+    source
+        .templates
+        .insert("TestTruck".to_string(), truck_template);
 
     let tank_id = source
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -571,6 +586,19 @@ fn snapshot_restore_recovers_veterancy_from_tracker_data() {
         let tank = source.host_object_mut(tank_id).expect("tank should exist");
         tank.gain_experience(180.0);
         assert_eq!(tank.experience.level, VeterancyLevel::Elite);
+    }
+
+    let truck_id = source
+        .create_object("TestTruck", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("failed to create truck");
+    {
+        let truck = source
+            .host_object_mut(truck_id)
+            .expect("truck should exist");
+        truck.gain_experience(180.0);
+        // C++ ExperienceTracker::addExperiencePoints: untrainable, so no XP and no level.
+        assert_eq!(truck.experience.level, VeterancyLevel::Rookie);
+        assert_eq!(truck.experience.current, 0.0);
     }
 
     let builder = SnapshotBuilder::new();
@@ -597,6 +625,13 @@ fn snapshot_restore_recovers_veterancy_from_tracker_data() {
         .expect("restored tank should exist");
     assert_eq!(restored_tank.experience.level, VeterancyLevel::Elite);
     assert!(restored_tank.health.maximum > 100.0);
+
+    let restored_truck = restored
+        .host_object(truck_id)
+        .expect("restored truck should exist");
+    // The tracker replay must not phantom-promote the untrainable control either.
+    assert_eq!(restored_truck.experience.level, VeterancyLevel::Rookie);
+    assert_eq!(restored_truck.experience.current, 0.0);
 }
 
 #[test]
@@ -1696,6 +1731,13 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     let barracks_id = source
         .create_object("TestBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
         .expect("barracks");
+    // Residual C++ CommandSet authorship: Object::canProduceUpgrade walks the
+    // producer's CommandSet, so the synthetic barracks carries the retail
+    // AmericaBarracks producer identity for the Capture button walk.
+    source
+        .host_object_mut(barracks_id)
+        .expect("barracks")
+        .set_command_set_override(Some("AmericaBarracks".into()));
     // Stand outside the barracks/building static path footprint so post-load
     // CaptureBuilding can A* (same live gap as 12-unit spawn sitting inside
     // the structure block). Upgrade residual is what this test persists.
@@ -1847,6 +1889,29 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
         "captor must receive capture upgrade tag after post-load complete"
     );
 
+    // Live-fixture residuals before the command (same shape as
+    // capture_and_containment.rs): the authored capture reload elapsed during
+    // the research window, and the local-player FOW gate needs the captor's
+    // maintained sight of the target — a live game ran Object::look every
+    // frame since spawn, a restored world must seed it explicitly.
+    restored
+        .host_object_mut(captor_id)
+        .expect("captor ready")
+        .set_special_power_ready_seconds(
+            &crate::command_system::SpecialPowerType::RangerCaptureBuilding,
+            0.0,
+        );
+    {
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        let mut shroud = shroud_manager.lock().expect("shroud");
+        shroud.set_host_object_shroud_status(
+            0,
+            building_id.0,
+            gamelogic::common::ObjectShroudStatus::Clear,
+        );
+        shroud.mark_host_object_seen(0, building_id.0);
+    }
+
     // Ability now available.
     restored.queue_command(GameCommand {
         command_type: CommandType::CaptureBuilding {
@@ -1888,6 +1953,11 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     let barracks = source
         .create_object("TestBarracks", Team::USA, Vec3::ZERO)
         .expect("barracks");
+    // Residual C++ CommandSet authorship for the capture producer walk.
+    source
+        .host_object_mut(barracks)
+        .expect("barracks")
+        .set_command_set_override(Some("AmericaBarracks".into()));
     source.set_current_frame(5);
     source.queue_command(GameCommand {
         command_type: CommandType::QueueUpgrade {
@@ -2898,9 +2968,7 @@ fn direct_xfer_v21_appends_weapon_clip_residual_and_keeps_alignment() {
         let mut object = default_object_snapshot();
         object.id = object_id;
         object.template_name = "ClipResidualObject".to_string();
-        object.weapons.push(clip_residual(
-            5, 3.0, 12.5, true, 1.5,
-        ));
+        object.weapons.push(clip_residual(5, 3.0, 12.5, true, 1.5));
         world.objects.insert(object_id, object);
 
         let mut player = default_player_snapshot();

@@ -1,10 +1,10 @@
 //! C++ support-state dispatcher and per-object update loop.
 use super::super::super::*;
 use super::guard_states::{
-    host_guard_xy_dist_sq, host_guardee_moved_beyond_return_threshold, GUARD_CHASE_PHASE_INNER,
-    GUARD_RETURN_CLOSE_SQ,
+    GUARD_CHASE_PHASE_INNER, GUARD_RETURN_CLOSE_SQ, host_guard_xy_dist_sq,
+    host_guardee_moved_beyond_return_threshold,
 };
-use super::special_abilities::{clear_raising_flag_model, LeftoverSaTick};
+use super::special_abilities::{LeftoverSaTick, clear_raising_flag_model};
 
 impl GameLogic {
     pub(in super::super::super) fn update_support_states(
@@ -2304,9 +2304,9 @@ impl GameLogic {
                             // C++ Sabotage*CrateCollide residual: type-specific structure
                             // sabotage; saboteur consumed on success (mobile crate).
                             use crate::game_logic::host_saboteur::{
-                                classify_sabotage_target, is_saboteur_template, SaboteurEffectKind,
                                 SABOTEUR_CASH_STEAL_AUDIO, SABOTEUR_RESET_TIMER_AUDIO,
                                 SABOTEUR_STEAL_CASH_AMOUNT, SABOTEUR_SUCCESS_AUDIO,
+                                SaboteurEffectKind, classify_sabotage_target, is_saboteur_template,
                             };
                             let saboteur_ok = self
                                 .objects
@@ -2916,8 +2916,8 @@ impl GameLogic {
                             // checkAndDetonateBoobyTrap first; cancel if either dies;
                             // refuse a second plant while BOOBY_TRAPPED remains.
                             use crate::game_logic::host_booby_trap::{
-                                has_booby_trap_upgrade, is_booby_trap_planter_template,
-                                BOOBY_TRAP_INSTALL_AUDIO,
+                                BOOBY_TRAP_INSTALL_AUDIO, has_booby_trap_upgrade,
+                                is_booby_trap_planter_template,
                             };
                             if self.leftover_probe_booby_at_target(
                                 object_id,
@@ -3461,6 +3461,7 @@ impl GameLogic {
                                 carrier_is_chinook,
                                 carrier_is_combat_chinook,
                                 carrier_authored_boost,
+                                carrier_has_supply_lines,
                             ) = self
                                 .objects
                                 .get(&object_id)
@@ -3480,6 +3481,19 @@ impl GameLogic {
                                                 crate::game_logic::host_gla_worker::UPGRADE_GLA_WORKER_SHOES,
                                             )
                                         });
+                                    // C++ ChinookAIUpdate::getUpgradedSupplyBoost
+                                    // (ChinookAIUpdate.cpp:1644-1652): controlling
+                                    // player hasUpgradeComplete only. A same-Team
+                                    // ally researching the upgrade pays nothing
+                                    // for this carrier.
+                                    let supply_lines = self
+                                        .player_owner_for_host_object(o)
+                                        .and_then(|pid| self.players.get(&pid))
+                                        .is_some_and(|p| {
+                                            p.has_unlocked_upgrade(
+                                                crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES,
+                                            )
+                                        });
                                     let is_chinook =
                                         crate::game_logic::host_supply_gather::is_chinook_supply_collector(
                                             &o.template_name,
@@ -3495,23 +3509,20 @@ impl GameLogic {
                                         .supply_truck_metadata
                                         .map(|m| m.upgraded_supply_boost)
                                         .unwrap_or(0);
-                                    (is_w, shoes, is_chinook, is_combat, authored)
+                                    (is_w, shoes, is_chinook, is_combat, authored, supply_lines)
                                 })
-                                .unwrap_or((false, false, false, false, 0));
+                                .unwrap_or((false, false, false, false, 0, false));
 
                         // Clear carried resources.
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_stored_supplies(0);
                         }
-                        // C++ SupplyCenterDockUpdate::action + Chinook
-                        // getUpgradedSupplyBoost: INI boost only for Chinooks
-                        // with Upgrade_AmericaSupplyLines. Trucks return 0.
-                        let has_supply_lines = self.players.values().any(|p| {
-                            p.team == team
-                                && p.has_unlocked_upgrade(
-                                    crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES,
-                                )
-                        });
+                        // C++ ChinookAIUpdate::getUpgradedSupplyBoost
+                        // (ChinookAIUpdate.cpp:1644-1652): the CARRIER's
+                        // controlling player must have completed
+                        // Upgrade_AmericaSupplyLines; an allied researcher
+                        // alone pays nothing. Trucks return 0.
+                        let has_supply_lines = carrier_has_supply_lines;
                         let supply_lines_boost =
                             crate::game_logic::host_supply_gather::collector_supply_lines_boost(
                                 carrier_is_chinook,

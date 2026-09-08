@@ -145,12 +145,16 @@ fn presentation_fow_shroud_drawable_residual_no_object_registry() {
 #[test]
 fn presentation_alliance_local_player_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
+    // Wave 569/607/900: live `take_alliance_events` dual-read was removed;
+    // the residual is now fail-closed via host_take_presentation_or_boot_alliance_events
+    // (camera_drain.rs), which returns the frozen frame's alliance_events.
     assert!(
-        eng.contains("take_alliance_events")
+        eng.contains("fn host_take_presentation_or_boot_alliance_events")
+            && eng.contains("pres.alliance_events.clone()")
+            && eng.contains("Wave 569: alliance residual — prefer presentation freeze")
             && eng.contains("last_presentation_frame")
-            && eng.contains("Prefer presentation local_player residual")
             && eng.contains("local_player_id"),
-        "alliance notifications must prefer presentation residual then drain live take"
+        "alliance notifications must prefer the presentation freeze residual"
     );
 }
 
@@ -220,15 +224,19 @@ fn presentation_popup_music_fps_residual() {
 #[test]
 fn presentation_script_message_movie_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
+    // Movie take helpers moved to the EvaCamera script module (same residual:
+    // pending script/radar movies consumed after presentation freeze/apply).
     let gl = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/game_logic.rs"
+        "/src/game_logic/world_scripts/eva_camera.rs"
     ));
     assert!(
-        eng.contains("Prefer presentation new_script_messages residual")
+        eng.contains("fn host_take_presentation_or_boot_new_script_messages")
+            && eng.contains("pres.new_script_messages.clone()")
             && eng.contains("apply_presentation_movie_residual")
             && eng.contains("fn apply_presentation_movie_residual")
-            && eng.contains("Prefer presentation victory residual when installed")
+            && eng.contains("fn presentation_or_boot_match_over_label")
+            && eng.contains("pres.victory_label.clone()")
             && gl.contains("fn take_pending_movie")
             && gl.contains("fn take_pending_radar_movie"),
         "script messages/movies/victory status must prefer presentation freeze"
@@ -242,8 +250,11 @@ fn presentation_play_time_residual() {
     assert!(
         pf.contains("total_play_time_seconds: logic.get_total_play_time()")
             && pf.contains("ui.current_game_time = self.total_play_time_seconds")
-            && eng.contains("Prefer presentation sim clock residual")
-            && eng.contains("p.total_play_time_seconds"),
+            && eng.contains("fn presentation_or_boot_total_play_time")
+            && eng.contains("pres.total_play_time_seconds")
+            && eng.contains(
+                "ui_state.current_game_time = self.presentation_or_boot_total_play_time()"
+            ),
         "UI game time must prefer presentation total_play_time_seconds"
     );
 }
@@ -252,18 +263,22 @@ fn presentation_play_time_residual() {
 fn presentation_defeat_save_info_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    // GameLogic facade split: peek helpers live in game_logic/game_logic/mod.rs
+    // (game_logic.rs is a 1 KB include_str! shim).
     let gl = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/game_logic.rs"
+        "/src/game_logic/game_logic/mod.rs"
     ));
     assert!(
         pf.contains("defeated_player_ids")
             && pf.contains("logic.peek_defeat_events()")
             && gl.contains("fn peek_defeat_events")
             && eng.contains("pres.defeated_player_ids.clone()")
-            && eng.contains("Prefer presentation residual for map/play_time/local team")
-            && eng.contains("p.total_play_time_seconds")
-            && eng.contains("p.world_env.map_name"),
+            && eng.contains("Wave 607/900: presentation freeze owns defeat residual when installed")
+            // Wave 545/554: save metadata resolves via presentation_or_boot_* helpers
+            // (host_authority.rs build_save_info), no live world_env/map dual-read.
+            && eng.contains("presentation_or_boot_total_play_time()")
+            && eng.contains("presentation_or_boot_map_name()"),
         "defeat notifications and save_info must prefer presentation freeze"
     );
 }
@@ -272,15 +287,16 @@ fn presentation_defeat_save_info_residual() {
 fn presentation_alliance_events_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    // GameLogic facade split: peek helpers live in game_logic/game_logic/mod.rs.
     let gl = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/game_logic.rs"
+        "/src/game_logic/game_logic/mod.rs"
     ));
     assert!(
         pf.contains("pub alliance_events:")
             && pf.contains("logic.peek_alliance_events()")
             && gl.contains("fn peek_alliance_events")
-            && eng.contains("Prefer presentation alliance residual")
+            && eng.contains("Wave 569: alliance residual — prefer presentation freeze")
             && eng.contains("pres.alliance_events.clone()"),
         "alliance notifications must prefer presentation freeze over live take"
     );
@@ -290,13 +306,17 @@ fn presentation_alliance_events_residual() {
 fn presentation_difficulty_game_mode_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    // Wave 554/609: difficulty/mode/map resolve via presentation_or_boot_* helpers
+    // (camera_drain.rs presentation_or_boot_ai_difficulty / presentation_or_live_game_mode
+    // / presentation_or_boot_map_name; host_authority.rs build_save_info consumes them).
     assert!(
         pf.contains("ai_difficulty: logic.get_difficulty()")
             && pf.contains("game_mode: logic.game_mode()")
-            && eng.contains("p.ai_difficulty")
-            && eng.contains("p.game_mode")
-            && eng.contains("Prefer presentation residual for map/mode/faction")
-            && eng.contains("Prefer presentation world_env map residual"),
+            && eng.contains("fn presentation_or_boot_ai_difficulty")
+            && eng.contains("pres.ai_difficulty")
+            && eng.contains("pres.game_mode")
+            && eng.contains("Wave 554: presentation freeze owns map-name residual when installed")
+            && eng.contains("presentation_or_boot_map_name()"),
         "save/restart/runtime-host must prefer presentation difficulty/mode/map"
     );
 }
@@ -304,10 +324,13 @@ fn presentation_difficulty_game_mode_residual() {
 #[test]
 fn presentation_menu_shell_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
+    // Wave 552/568: menu residual lives in presentation_affirms_shell_or_boot
+    // (host_authority.rs) and apply_shell_script_fps_limit_residual (start_game.rs);
+    // both still trust the freeze only when it affirms fow_shell_bypass.
     assert!(
-        eng.contains("Prefer presentation shell residual when it affirms shell-map mode")
+        eng.contains("only trust freeze when it *affirms* shell-map")
             && eng.contains("Some(pres) if pres.fow_shell_bypass => true")
-            && eng.contains("Prefer presentation script FPS residual when shell frame installed")
+            && eng.contains("fn apply_shell_script_fps_limit_residual")
             && eng.contains("filter(|p| p.fow_shell_bypass)"),
         "menu shell tick must prefer presentation fow_shell_bypass when true"
     );
@@ -362,9 +385,11 @@ fn presentation_military_caption_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     let gc = game_client::core::game_client::GAME_CLIENT_SRC;
+    // GameLogic facade split: the caption duration helper lives in the
+    // ui_production world-script module.
     let gl = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/game_logic.rs"
+        "/src/game_logic/world_scripts/ui_production.rs"
     ));
     assert!(
         pf.contains("military_caption_remaining_ms")
@@ -380,13 +405,18 @@ fn presentation_military_caption_residual() {
 fn presentation_cinematic_text_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let gc = game_client::core::game_client::GAME_CLIENT_SRC;
+    // Wave (caption residual): cinematic text is a W3DDisplay caption driven via
+    // arm_cinematic_overlay, explicitly *not* an InGameUI HUD message (C++
+    // doDisplayCinematicText); the engine call site (camera_drain.rs) now passes
+    // text/remaining_ms/font across lines.
     assert!(
         gc.contains("fn apply_presentation_cinematic_text")
-            && gc.contains("push_hud_message")
+            && gc.contains("arm_cinematic_overlay")
             && gc.contains("last_applied_cinematic_text")
-            && eng.contains("apply_presentation_cinematic_text(pres.cinematic_text.as_deref())")
+            && eng.contains("apply_presentation_cinematic_text(")
+            && eng.contains("pres.cinematic_text.as_deref()")
             && eng.contains("Cinematic text residual"),
-        "presentation cinematic_text must push InGameUI HUD message with anti-spam"
+        "presentation cinematic_text must drive the W3DDisplay cinematic caption with anti-spam"
     );
 }
 
@@ -394,16 +424,18 @@ fn presentation_cinematic_text_residual() {
 fn presentation_camera_follow_residual() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    // GameLogic facade split: the follow-target peek lives in the EvaCamera
+    // world-script module; the engine marker reworded (camera_drain.rs Wave 216).
     let gl = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/game_logic.rs"
+        "/src/game_logic/world_scripts/eva_camera.rs"
     ));
     assert!(
         gl.contains("fn peek_camera_follow_target_position")
             && pf.contains("camera_follow_position")
             && pf.contains("peek_camera_follow_target_position")
             && eng.contains("pres.camera_follow_position")
-            && eng.contains("Prefer presentation-frozen follow position"),
+            && eng.contains("presentation-frozen follow only"),
         "camera follow must prefer presentation freeze over live dual-read"
     );
 }

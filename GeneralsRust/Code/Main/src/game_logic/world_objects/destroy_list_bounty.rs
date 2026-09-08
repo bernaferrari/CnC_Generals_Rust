@@ -391,7 +391,10 @@ impl GameLogic {
                     .slow_death
                     .as_ref()
                     .map(|s| s.has_authored_phase_fx())
-                    .unwrap_or(false);
+                    .unwrap_or(false)
+                    // C++ has no generic death explosion: an authored FXListDie
+                    // module owns the death visual when present.
+                    || obj.fx_list_die.is_some();
                 if !skip_generic_death_fx {
                     let _ = self.combat_particles.spawn_death_fx_for_type(
                         death_pos,

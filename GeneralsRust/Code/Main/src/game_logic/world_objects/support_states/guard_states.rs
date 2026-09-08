@@ -31,8 +31,8 @@ pub(crate) fn host_same_map_status_off(
     )
 }
 
-fn host_area_occupancy(
-) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::BTreeSet<u32>>> {
+fn host_area_occupancy()
+-> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::BTreeSet<u32>>> {
     static SESSIONS: std::sync::LazyLock<
         std::sync::Mutex<std::collections::HashMap<String, std::collections::BTreeSet<u32>>>,
     > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));

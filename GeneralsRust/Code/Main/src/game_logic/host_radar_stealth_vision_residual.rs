@@ -40,10 +40,11 @@ pub const RADAR_MSG_HARVESTER_UNDER_ATTACK: &str = "RADAR:HarvesterUnderAttack";
 pub const RADAR_MSG_STRUCTURE_UNDER_ATTACK: &str = "RADAR:StructureUnderAttack";
 /// C++ RADAR:UnderAttack residual (generic).
 pub const RADAR_MSG_UNDER_ATTACK: &str = "RADAR:UnderAttack";
-/// C++ MiscAudio m_radarStructureUnderAttackSound residual.
-pub const RADAR_AUDIO_STRUCTURE_UNDER_ATTACK: &str = "RadarStructureUnderAttack";
-/// C++ MiscAudio m_radarHarvesterUnderAttackSound residual.
-pub const RADAR_AUDIO_HARVESTER_UNDER_ATTACK: &str = "RadarHarvesterUnderAttack";
+/// C++ MiscAudio m_radarStructureUnderAttackSound (MiscAudio.ini:5
+/// RadarNotifyStructureUnderAttackSound = RadarNotifyStructureUnderAttack).
+pub const RADAR_AUDIO_STRUCTURE_UNDER_ATTACK: &str = "RadarNotifyStructureUnderAttack";
+/// C++ MiscAudio m_radarHarvesterUnderAttackSound (MiscAudio.ini:4).
+pub const RADAR_AUDIO_HARVESTER_UNDER_ATTACK: &str = "RadarNotifyHarvesterUnderAttack";
 
 pub const RADAR_STEALTH_VISION_LOGIC_FPS: f32 = 30.0;
 

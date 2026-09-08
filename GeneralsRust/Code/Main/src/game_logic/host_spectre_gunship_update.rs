@@ -240,15 +240,13 @@ impl HostSpectreGunshipUpdateData {
         )
     }
 
-    /// C++ update clamp (SpectreGunshipUpdate.cpp:426-439):
+    /// C++ update clamp (SpectreGunshipUpdate.cpp:422-439):
     /// `constraintRadius = AttackAreaRadius - TargetingReticleRadius` around
-    /// the steered `m_initialTargetPosition`. The click itself was stored
-    /// unclamped by setSpecialPowerOverridableDestination (.cpp:268-282).
+    /// the FIXED `m_initialTargetPosition` — latched once at initiate
+    /// (.cpp:177/185) and never rewritten by a retarget click. The click
+    /// itself was stored unclamped by setSpecialPowerOverridableDestination
+    /// (.cpp:268-282) and only moves `m_overrideTargetDestination`.
     pub fn constrain_override(&mut self) {
-        // C++ update steers the orbit center (initial target) onto the click
-        // via satellite aiMoveToPosition; host flight data keeps that center in
-        // initial_target, so mirror it here before clamping the reticle.
-        self.initial_target = self.override_target;
         self.override_target = clamp_spectre_override_destination(
             self.initial_target,
             self.override_target,
@@ -500,4 +498,51 @@ pub fn spawn_spectre_gattling_strafe_smoke(impact: Vec3) -> Option<u32> {
     let leftover = gamelogic::common::Coord3D::new(impact.x, impact.z, impact.y);
     manager.set_particle_system_position(id, &leftover);
     Some(id)
+}
+
+#[cfg(test)]
+mod override_clamp_tests {
+    use super::*;
+
+    #[test]
+    fn retarget_click_never_moves_the_orbit_center() {
+        // C++ latches m_initialTargetPosition once (:177/185); a retarget
+        // click writes only m_overrideTargetDestination (:268-283) and the
+        // update clamps it to AttackAreaRadius - TargetingReticleRadius
+        // = 175 around the FIXED center (:422-439).
+        let mut d = HostSpectreGunshipUpdateData::initiate_at(Vec3::new(500.0, 0.0, 500.0));
+        let far_click = Vec3::new(2500.0, 0.0, 3000.0);
+        d.override_target = far_click;
+        d.constrain_override();
+        assert!(
+            (d.initial_target.x - 500.0).abs() < 0.01
+                && (d.initial_target.z - 500.0).abs() < 0.01,
+            "epicenter must stay latched at the strike target"
+        );
+        let dx = d.override_target.x - d.initial_target.x;
+        let dz = d.override_target.z - d.initial_target.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        let constraint = d.attack_area_radius - d.targeting_reticle_radius;
+        assert!(
+            (dist - constraint).abs() < 0.05,
+            "far click must drag the reticle to the {constraint} ring edge, got {dist}"
+        );
+        // Repeated ticks are idempotent — the center never drifts.
+        for _ in 0..10 {
+            d.constrain_override();
+        }
+        assert!((d.initial_target.z - 500.0).abs() < 0.01);
+        let dx = d.override_target.x - d.initial_target.x;
+        let dz = d.override_target.z - d.initial_target.z;
+        let dist = (dx * dx + dz * dz).sqrt();
+        assert!((dist - constraint).abs() < 0.05);
+    }
+
+    #[test]
+    fn status_below_departing_is_the_overridable_gate() {
+        assert!(HostGunshipStatus::Inserting.overridable_destination_active());
+        assert!(HostGunshipStatus::Orbiting.overridable_destination_active());
+        assert!(!HostGunshipStatus::Departing.overridable_destination_active());
+        assert!(!HostGunshipStatus::Idle.overridable_destination_active());
+    }
 }

@@ -504,8 +504,8 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         use super::super::ATTACK_PRIORITY_DISTANCE_MODIFIER;
         use crate::game_logic::host_command_button_hunt::{
-            COMMAND_BUTTON_HUNT_SCAN_RANGE, hunt_effective_priority, hunt_same_map_status,
-            hunt_place_explosive_mine_view_range, hunt_special_capture_skips,
+            COMMAND_BUTTON_HUNT_SCAN_RANGE, hunt_effective_priority,
+            hunt_place_explosive_mine_view_range, hunt_same_map_status, hunt_special_capture_skips,
             hunt_special_is_place_explosive, hunt_stealthed_undetected,
         };
         use gamelogic::common::Relationship;

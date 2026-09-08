@@ -78,6 +78,12 @@ fn spectre_howitzer_shell_death_generic_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_shell_death_generic_ok());
+    // C++ FollowLag 12f (SpectreGunshipUpdate.cpp:596-623): the howitzer may
+    // fire only after the gattling has actually been firing — wind the aim
+    // counter past the lag before the tick.
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -177,6 +183,10 @@ fn spectre_howitzer_shell_design_params_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_shell_design_params_ok());
+    // C++ FollowLag 12f wind before the howitzer tick (see first shell test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -259,6 +269,10 @@ fn spectre_howitzer_shell_locomotor_template_residual_honesty() {
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_shell_locomotor_template_ok());
     assert!(!reg.honesty_howitzer_shell_damage_fx_ok());
+    // C++ FollowLag 12f wind before the howitzer tick (see first shell test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -376,6 +390,10 @@ fn spectre_howitzer_gun_aim_params_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_gun_aim_params_ok());
+    // C++ FollowLag 12f wind before the howitzer tick (see first shell test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -448,6 +466,10 @@ fn spectre_howitzer_gun_fire_params_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_gun_fire_params_ok());
+    // C++ FollowLag 12f wind before the howitzer tick (see first shell test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -551,6 +573,10 @@ fn spectre_howitzer_gun_anti_params_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_gun_anti_params_ok());
+    // C++ FollowLag 12f wind before the howitzer tick (see first shell test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -1375,6 +1401,10 @@ fn spectre_howitzer_shell_thing_factory_pack_wave65_honesty() {
     assert!(!reg.orbit_fields().is_empty());
     let field_id = reg.orbit_fields()[0].id;
     let spawn = reg.orbit_fields()[0].spawn_frame;
+    // C++ FollowLag 12f wind before the howitzer tick (see first shell test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
     {
         let f = &reg.orbit_fields()[0];
@@ -1537,13 +1567,19 @@ fn spectre_orbit_residual_pack_wave73_honesty() {
         SpectreGunshipScienceTier::Level3.orbit_duration_frames(),
         600
     );
-    // Dual-weapon ROF residual schedule.
+    // Dual-weapon ROF residual schedule: gattling ramps 3→1→1; the howitzer
+    // orbit cadence is FIXED 9f (fresh temp weapon per shot — :493/:583).
     assert_eq!(spectre_howitzer_interval_frames(0), 9);
-    assert_eq!(spectre_howitzer_interval_frames(2), 6);
-    assert_eq!(spectre_howitzer_interval_frames(3), 4);
+    assert_eq!(spectre_howitzer_interval_frames(2), 9);
+    assert_eq!(spectre_howitzer_interval_frames(3), 9);
     assert_eq!(spectre_gattling_interval_frames(0), 3);
     assert_eq!(spectre_gattling_interval_frames(2), 1);
     assert_eq!(spectre_gattling_interval_frames(3), 1);
+    // SCIENCE_SpectreGunshipSolo (vanilla USA) = default 15000 ms orbit.
+    assert_eq!(
+        SpectreGunshipScienceTier::from_science_name("SCIENCE_SpectreGunshipSolo"),
+        Some(SpectreGunshipScienceTier::Level2)
+    );
 
     // Application path: orbit spawn + dual-weapon tick still host-testable.
     let mut reg = HostSpecialPowerStrikeRegistry::new();
@@ -1564,6 +1600,10 @@ fn spectre_orbit_residual_pack_wave73_honesty() {
         reg.orbit_fields()[0].expires_frame,
         spawn + SpectreGunshipScienceTier::Level3.orbit_duration_frames()
     );
+    // C++ FollowLag 12f wind before the howitzer tick (see first shell test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
     {
         let f = &reg.orbit_fields()[0];

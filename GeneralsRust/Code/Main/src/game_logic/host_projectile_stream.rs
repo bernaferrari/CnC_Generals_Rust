@@ -36,7 +36,9 @@ impl ProjectileStreamState {
 
     /// C++ ProjectileStreamUpdate::addProjectile residual — ring of recent
     /// positions. A retarget (object or position) inserts a (0,0,0) hole so
-    /// presentation can break the ribbon.
+    /// presentation can break the ribbon.  The hole separates target runs:
+    /// the first run of a fresh stream starts clean (C++ writes the
+    /// INVALID_ID marker only between differing-target entries).
     pub fn add_point(
         &mut self,
         pos: Vec3,
@@ -45,16 +47,16 @@ impl ProjectileStreamState {
         frame: u32,
     ) {
         if let Some(vid) = target_id {
-            if self.target_id != Some(vid) {
+            if self.target_id.is_some() && self.target_id != Some(vid) {
                 self.push_ring(STREAM_HOLE);
-                self.target_id = Some(vid);
             }
+            self.target_id = Some(vid);
             self.target_pos = None;
         } else if let Some(pos_tgt) = target_pos {
-            if self.target_pos != Some(pos_tgt) {
+            if self.target_pos.is_some() && self.target_pos != Some(pos_tgt) {
                 self.push_ring(STREAM_HOLE);
-                self.target_pos = Some(pos_tgt);
             }
+            self.target_pos = Some(pos_tgt);
             self.target_id = None;
         }
         self.push_ring(pos);
@@ -227,11 +229,10 @@ mod tests {
         state.add_point(Vec3::new(1.0, 2.0, 3.0), Some(ObjectId(10)), None, 1);
         state.add_point(Vec3::new(2.0, 2.0, 3.0), Some(ObjectId(10)), None, 2);
         state.add_point(Vec3::new(8.0, 2.0, 3.0), Some(ObjectId(11)), None, 3);
-        assert!(is_stream_hole(state.points[0]));
-        assert_eq!(state.points[1], Vec3::new(1.0, 2.0, 3.0));
-        assert_eq!(state.points[2], Vec3::new(2.0, 2.0, 3.0));
-        assert!(is_stream_hole(state.points[3]));
-        assert_eq!(state.points[4], Vec3::new(8.0, 2.0, 3.0));
+        assert_eq!(state.points[0], Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(state.points[1], Vec3::new(2.0, 2.0, 3.0));
+        assert!(is_stream_hole(state.points[2]));
+        assert_eq!(state.points[3], Vec3::new(8.0, 2.0, 3.0));
     }
 
     #[test]

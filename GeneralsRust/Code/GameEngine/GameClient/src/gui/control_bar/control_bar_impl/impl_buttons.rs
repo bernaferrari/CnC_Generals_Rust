@@ -1,16 +1,15 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 impl ControlBar {
+    /// C++ CB_CONTEXT_NONE (ControlBar.cpp:2123-2174) hides CP_COMMAND and
+    /// never populates command buttons — the 14 ButtonCommand windows keep
+    /// whatever bind they had and stay out of sight with the context parent.
+    /// The old port bound the first 12 INI CommandButtons here, which leaked
+    /// arbitrary unit cameos over the command grid at match start.
     fn add_default_commands(
         &self,
-        context: &mut ControlBarContext,
+        _context: &mut ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(control_bar) = get_ini_control_bar() {
-            for (_name, definition) in control_bar.iter_buttons().take(12) {
-                let button = Self::command_from_definition(definition);
-                context.available_commands.push(button);
-            }
-        }
         Ok(())
     }
 

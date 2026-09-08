@@ -27,7 +27,6 @@ impl<'a> CommandExecutor<'a> {
 
     pub(super) fn validate_build_location(&self, location: Vec3) -> bool {
         if !location.x.is_finite() || !location.z.is_finite() {
-            
             return false;
         }
         // Use loaded map world bounds when available (Lone Eagle bases can sit
@@ -170,8 +169,7 @@ impl<'a> CommandExecutor<'a> {
                 // explicit alliance (shared `alliance_team` / diplomacy map).
                 // Faction equality alone is ENEMIES-or-NEUTRAL, and a Neutral
                 // label must not open another player's warehouse.
-                self.game_logic.object_relationship(target, unit)
-                    == Relationship::Allies
+                self.game_logic.object_relationship(target, unit) == Relationship::Allies
             }
             // `Object::getRelationship` treats an ownerless map object as
             // neutral. Do not manufacture hostility from its faction label.
@@ -222,8 +220,8 @@ mod leftover_dispatch_tests;
 mod can_use_special_power_caster_filter_tests;
 
 #[cfg(test)]
-#[path = "transport_tests.rs"]
-mod transport_tests;
-#[cfg(test)]
 #[path = "tests/mod.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "transport_tests.rs"]
+mod transport_tests;

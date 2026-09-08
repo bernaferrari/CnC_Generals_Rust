@@ -566,8 +566,7 @@ fn timed_c4_kill_sinks_xp_to_planter() {
 fn cluster_mines_special_power_places_mines() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::{
-        SpecialPowerModuleKind, SpecialPowerModuleMetadata,
-        host_mines::CLUSTER_MINE_COUNT,
+        SpecialPowerModuleKind, SpecialPowerModuleMetadata, host_mines::CLUSTER_MINE_COUNT,
     };
 
     let mut game_logic = GameLogic::new();
@@ -575,23 +574,22 @@ fn cluster_mines_special_power_places_mines() {
     // C++ SpecialPower.cpp:308 canUseSpecialPower: the caster must carry the
     // SpecialPowerModule for the command; stamp ClusterMines on the template.
     if let Some(t) = game_logic.templates.get_mut("TestBuilding") {
-        t.special_power_modules
-            .push(SpecialPowerModuleMetadata {
-                source_index: 0,
-                module_tag: Some("ModuleTag_SpecialPowerClusterMines".into()),
-                module_kind: SpecialPowerModuleKind::OclSpecialPower,
-                special_power_template: "SpecialPowerClusterMines".into(),
-                special_power_template_id: 1,
-                command_power: Some(SpecialPowerType::ClusterMines),
-                reload_time_frames: 0,
-                required_science: Some("SCIENCE_ClusterMines".into()),
-                public_timer: false,
-                shared_n_sync: false,
-                shortcut_power: false,
-                update_module_starts_attack: false,
-                starts_paused: false,
-                scripted_special_power_only: false,
-            });
+        t.special_power_modules.push(SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_SpecialPowerClusterMines".into()),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: "SpecialPowerClusterMines".into(),
+            special_power_template_id: 1,
+            command_power: Some(SpecialPowerType::ClusterMines),
+            reload_time_frames: 0,
+            required_science: Some("SCIENCE_ClusterMines".into()),
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        });
     }
 
     // Ensure controlling player + science residual (SCIENCE_ClusterMines gate).

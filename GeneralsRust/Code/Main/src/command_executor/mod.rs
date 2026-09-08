@@ -26,7 +26,6 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
-
 /// Command executor that processes game commands.
 ///
 /// Wave 955: host_object/host_objects authority dual-read seal (no presentation dual-read).
@@ -66,7 +65,6 @@ pub use leftover::{
     host_local_player_can_place_beacon, take_leftover_dispatch_commands_from_common_stream,
     tick_live_beacon_client_updates,
 };
-
 
 impl<'a> CommandExecutor<'a> {
     /// Create a new command executor with game logic reference
@@ -551,11 +549,7 @@ impl<'a> CommandExecutor<'a> {
             };
             let position = target.get_position();
             let source_id = command.selected_units.first().map(|id| id.0).unwrap_or(0);
-            let pos = game_client::message_stream::Coord3D::new(
-                position.x,
-                position.y,
-                position.z,
-            );
+            let pos = game_client::message_stream::Coord3D::new(position.x, position.y, position.z);
             game_client::helpers::TheInGameUI::create_attack_hint(pos.clone(), pos, source_id);
         }
         #[cfg(not(feature = "game_client"))]
@@ -744,7 +738,6 @@ impl<'a> CommandExecutor<'a> {
         (self.commands_executed, self.commands_failed)
     }
 }
-
 
 /// Concatenated live command_executor sources for residual `include_str` scans.
 pub const COMMAND_EXECUTOR_SRC: &str = concat!(

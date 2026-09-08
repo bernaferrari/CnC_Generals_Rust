@@ -14,6 +14,15 @@ impl GameLogic {
             UnitDisplayInfo,
         };
 
+        // C++ InGameUI::destroyPlacementIcons (InGameUI.cpp:2933-2948) clears
+        // ALL terrain bibs when a placement ends. The live host learns about
+        // cancel/end-of-preview here: with no pending placement, any Object
+        // highlight bibs left by the last blocked preview frame are stale and
+        // must go (the audit's persistent yellow grid).
+        if !Self::placement_preview_pending() {
+            self.clear_placement_highlight_bibs();
+        }
+
         // Get player associated with the current viewport/camera
         let player = self.players.get(&player_id);
 
@@ -602,13 +611,12 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             STRUCTURE_PLACE_CLEARANCE_RESIDUAL, cell_shroud_blocks_build_residual,
-            footprint_height_delta_residual, legal_build_code_from_checks_complete_residual,
+            footprint_height_delta_residual, footprint_map_edge_sample_points_residual,
+            footprint_map_edge_violation_residual, legal_build_code_from_checks_complete_residual,
             legal_build_objects_in_the_way_residual, legal_build_too_close_to_supplies_residual,
-            min_dist_from_map_edge_residual,
         };
         use crate::game_logic::host_structure_economy_residual::{
-            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
-            is_legal_build_distance_from_map_edge, is_legal_build_height_variation,
+            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER, is_legal_build_height_variation,
         };
         let (min, max) = self.world_bounds();
         // Use real map extent (no generous pad) for C++ off-map / edge residual.
@@ -622,25 +630,19 @@ impl GameLogic {
             && position.x <= max_x
             && position.z >= min_z
             && position.z <= max_z;
-        let edge_dist = min_dist_from_map_edge_residual(
-            (position.x, position.z),
-            (min_x, min_z),
-            (max_x, max_z),
-        );
-        let too_close_edge = in_bounds
-            && MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD > 0.0
-            && !is_legal_build_distance_from_map_edge(edge_dist);
         let (_, extra_bib) = leftover_factory_exit_widths(template_name);
         let place_r = self.structure_place_radius_for_template(template_name) + extra_bib.max(0.0);
         // C++ BuildAssistant::isLocationClearOfObjects queries
         // iteratePotentialCollisions with the template geometry at the
         // placement angle (BuildAssistant.cpp:648-651), so the overlap test
         // below uses the authored footprint shape, not a center-distance sum.
-        let (query_major, query_minor, query_is_box) = self.structure_place_footprint(template_name);
+        let (query_major, query_minor, query_is_box) =
+            self.structure_place_footprint(template_name);
+        let placement_angle = leftover_placement_view_angle(template_name);
         let query_shape = PlacementShape {
             x: position.x,
             z: position.z,
-            angle: leftover_placement_view_angle(template_name),
+            angle: placement_angle,
             geom_type: if query_is_box {
                 crate::game_logic::HostGeometryType::Box
             } else {
@@ -649,6 +651,24 @@ impl GameLogic {
             major: query_major,
             minor: query_minor,
         };
+        // C++ TERRAIN_RESTRICTIONS samples the whole footprint against
+        // MinDistFromEdgeOfMapForBuild (checkSampleBuildLocation
+        // BuildAssistant.cpp:511-521 via iterateFootprint :563-576) — box
+        // corners / circle axis extremes at the placement angle — not just
+        // the placement center.
+        let too_close_edge = in_bounds
+            && footprint_map_edge_violation_residual(
+                &footprint_map_edge_sample_points_residual(
+                    (position.x, position.z),
+                    query_major,
+                    query_minor,
+                    query_is_box,
+                    placement_angle,
+                ),
+                (min_x, min_z),
+                (max_x, max_z),
+                MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD,
+            );
         let builder = builder_id.and_then(|id| self.objects.get(&id));
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
         let mut blocker_ids: Vec<ObjectId> = Vec::new();
@@ -764,11 +784,15 @@ impl GameLogic {
                     blocker_ids.push(obj.id);
                 }
             }
-            // C++ BuildAssistant.cpp:759-870 factory exit-width bibs.
-            if let Some((ex, ez, er)) =
-                leftover_factory_exit_blocker(&obj.template_name, p, obj.get_orientation())
-            {
-                blockers.push((ex, ez, er));
+            // C++ BuildAssistant.cpp:759-870 factory exit-width bibs — only
+            // KINDOF_IMMOBILE neighbours are collision-tested (mobile objects
+            // can move out of the way).
+            if obj.is_kind_of(crate::game_logic::KindOf::Immobile) {
+                if let Some((ex, ez, er)) =
+                    leftover_factory_exit_blocker(&obj.template_name, p, obj.get_orientation())
+                {
+                    blockers.push((ex, ez, er));
+                }
             }
         }
         if let Some((ex, ez, er)) = leftover_factory_exit_blocker(
@@ -790,7 +814,15 @@ impl GameLogic {
         if stealth_fail_no_bib {
             return crate::game_logic::host_production_buildable_command_residual::LBC_GENERIC_FAILURE;
         }
-        if in_way && !busy_ally_in_way {
+        // C++ BuildAssistant.cpp:683-688 returns OBJECTS_IN_THE_WAY for a busy
+        // ally BEFORE any addFactionBib, so that case adds no bibs here either.
+        // C++ parity note (W3DBibBuffer.cpp:279-285 + BuildAssistant.cpp:713):
+        // the add is a per-owner UPDATE (addBib dedupes by object id) and the
+        // sync inside PRUNES Object-kind bibs that are no longer current
+        // blockers, so dragging the placement around cannot grow the bib set
+        // unboundedly and stale highlight rectangles disappear as soon as the
+        // cursor leaves the blocked spot.
+        if !busy_ally_in_way {
             self.bib_blocking_objects_for_build(position, &blocker_ids);
         }
         // KINDOF_CANNOT_BUILD_NEAR_SUPPLIES bit, rather than assigning the
@@ -831,22 +863,29 @@ impl GameLogic {
             None => false,
         };
         // C++ BuildAssistant.cpp:491-499 CELL_WATER/CLIFF/IMPASSABLE and
-        // :1006-1009 non-GROUND layer (bridge) → LBC_RESTRICTED_TERRAIN.
-        if self.placement_terrain_restricted(position, place_r) {
-            return crate::game_logic::host_production_buildable_command_residual::LBC_RESTRICTED_TERRAIN;
-        }
+        // :1006-1009 non-GROUND layer (bridge) set terrainRestricted inside
+        // the final TERRAIN_RESTRICTIONS stage — not an early out.
+        let terrain_restricted = self.placement_terrain_restricted(position, place_r);
+        // C++ BuildAssistant.cpp:884-1044 priority order: off-map → shroud →
+        // object overlap → supplies → CLEAR_PATH → terrain (restricted/edge,
+        // then flatness).
         crate::game_logic::host_production_buildable_command_residual::legal_build_code_from_checks_with_path_residual(
             in_bounds,
             shrouded,
-            not_flat,
             in_way,
             too_close,
-            too_close_edge,
             no_clear,
+            terrain_restricted,
+            too_close_edge,
+            not_flat,
         )
     }
 
-    /// C++ `TheTerrainVisual->addFactionBib(them, TRUE)` on the blocking object.
+    /// C++ `TheTerrainVisual->addFactionBib(them, TRUE)` on the blocking
+    /// object (BuildAssistant.cpp:713-738). W3DBibBuffer::addBib
+    /// (W3DBibBuffer.cpp:279-285) updates the bib in place per object id, and
+    /// the sync below prunes Object-kind bibs from earlier preview frames that
+    /// are no longer current blockers, so the preview set stays bounded.
     pub(crate) fn bib_blocking_objects_for_build(
         &self,
         _position: glam::Vec3,
@@ -897,10 +936,48 @@ impl GameLogic {
                     0.0,
                 );
             }
+            // Bound the session: drop Object-kind bibs that were added by
+            // earlier preview frames but are no longer in the blocker set.
+            let owners: Vec<u32> = blocker_ids.iter().map(|id| id.0).collect();
+            visual.retain_placement_highlight_bibs(&owners);
         }
         #[cfg(not(feature = "game_client"))]
         {
             let _ = blocker_ids;
+        }
+    }
+
+    /// C++ `InGameUI::destroyPlacementIcons` (InGameUI.cpp:2933-2948) ends a
+    /// placement with `removeAllBibs`; `W3DBibBuffer::removeHighlighting`
+    /// (W3DBibBuffer.cpp:266-272) clears the highlight flags. Wired to the two
+    /// host placement-end events reachable here:
+    ///   * commit — `move_objects_for_construction` success,
+    ///   * cancel/end-of-preview — `update_ui_state` clears whenever no
+    ///     placement is pending, so a last-frame blocked preview cannot leave
+    ///     highlight rectangles behind (the audit's yellow grid).
+    pub(crate) fn clear_placement_highlight_bibs(&self) {
+        #[cfg(feature = "game_client")]
+        {
+            let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() else {
+                return;
+            };
+            if let Some(visual) = guard.as_mut() {
+                visual.clear_placement_highlight_bibs();
+            }
+        }
+    }
+
+    /// True while the client still holds a pending structure placement (the
+    /// pending-place state that drives the preview legal-build checks).
+    pub(crate) fn placement_preview_pending() -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::get_pending_place_template().is_some()
+                || game_client::helpers::TheInGameUI::get_pending_place_source_object_id() != 0
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            false
         }
     }
 
@@ -966,21 +1043,42 @@ impl GameLogic {
         false
     }
 
-    /// C++ BuildAssistant::moveObjectsForConstruction — leftover bool contract.
-    /// FALSE when any footprint occupant is an enemy or cannot be scooted
-    /// (no AI / not mobile). Mines, inert, ALWAYS_SELECTABLE, and removable
-    /// occupants are skipped. Allied/neutral mobiles are issued an aside.
+    /// C++ BuildAssistant::moveObjectsForConstruction (BuildAssistant.cpp:1392-1470).
+    /// Candidate set = iteratePotentialCollisions(pos, gi, angle) — filtered by
+    /// PartitionFilterWouldCollide (PartitionManager.cpp:3619-3622), the SAME
+    /// shape-exact wouldCollide test isLocationClearOfObjects uses, NOT a
+    /// radius-sum circle. Query geometry: authored BOX, else BOX(major, major)
+    /// (BuildAssistant.cpp:1397-1401). FALSE when a shape-overlapping occupant
+    /// is an enemy or has no AI; neutral/allied AI occupants are shoved aside.
+    /// Mines, inert, removable, and ALWAYS_SELECTABLE occupants are skipped.
     pub(crate) fn move_objects_for_construction(
         &mut self,
+        template_name: &str,
         location: glam::Vec3,
-        place_r: f32,
+        orientation: f32,
         builder_id: Option<ObjectId>,
     ) -> bool {
         use game_engine::common::system::kind_of::KindOfMask;
         let builder = builder_id.and_then(|id| self.objects.get(&id)).cloned();
         let player_id = builder.as_ref().and_then(|b| b.owner_player_id);
-        // Leftover `hypot(major,minor)*1.4` scoot radius.
-        let aside_r = place_r * 1.4;
+        // C++ BuildAssistant.cpp:1397-1401 query geometry.
+        let (q_major, q_minor, q_is_box) = self.structure_place_footprint(template_name);
+        let query_shape = PlacementShape {
+            x: location.x,
+            z: location.z,
+            angle: orientation,
+            geom_type: crate::game_logic::HostGeometryType::Box,
+            major: q_major.max(1.0),
+            minor: if q_is_box {
+                q_minor.max(1.0)
+            } else {
+                q_major.max(1.0)
+            },
+        };
+        // C++ BuildAssistant.cpp:1409-1410 scoot distance.
+        let aside_r =
+            (query_shape.major * query_shape.major + query_shape.minor * query_shape.minor).sqrt()
+                * 1.4;
         let mut any_unmovables = false;
         let mut to_move: Vec<(ObjectId, glam::Vec3)> = Vec::new();
         for (id, obj) in self.objects.iter() {
@@ -1002,11 +1100,36 @@ impl GameLogic {
             }
             let p = obj.get_position();
             let r = Self::structure_place_radius(obj);
-            let dx = p.x - location.x;
-            let dz = p.z - location.z;
-            if dx * dx + dz * dz >= (place_r + r) * (place_r + r) {
+            // C++ PartitionFilterWouldCollide shape-exact candidate test
+            // (PartitionManager.cpp:3619-3622): objects whose authored shape
+            // misses the pad shape are never candidates. The old radius-sum
+            // circle flagged authored-shape neutral props that legally miss
+            // the pad and aborted the whole placement.
+            let obj_shape = if obj.thing.template.geometry_info.authored {
+                let geometry = &obj.thing.template.geometry_info;
+                PlacementShape {
+                    x: p.x,
+                    z: p.z,
+                    angle: obj.get_orientation(),
+                    geom_type: geometry.geom_type,
+                    major: geometry.major_radius.max(1.0),
+                    minor: geometry.minor_radius.max(1.0),
+                }
+            } else {
+                PlacementShape {
+                    x: p.x,
+                    z: p.z,
+                    angle: obj.get_orientation(),
+                    geom_type: crate::game_logic::HostGeometryType::Cylinder,
+                    major: r,
+                    minor: r,
+                }
+            };
+            if !xy_shapes_collide(&query_shape, &obj_shape) {
                 continue;
             }
+            let dx = p.x - location.x;
+            let dz = p.z - location.z;
             // Leftover `object_relationship_enemy` — C++ ENEMIES are unmovable.
             let enemy = if let Some(b) = &builder {
                 self.object_relationship(b, obj) == gamelogic::common::Relationship::Enemies
@@ -1029,7 +1152,7 @@ impl GameLogic {
                 } else {
                     glam::Vec3::new(dx, 0.0, dz).normalize_or_zero()
                 };
-                to_move.push((*id, location + dir * aside_r.max(place_r + r + 8.0)));
+                to_move.push((*id, location + dir * aside_r.max(q_major + r + 8.0)));
             } else {
                 any_unmovables = true;
             }
@@ -1039,7 +1162,13 @@ impl GameLogic {
                 obj.set_destination(dest);
             }
         }
-        !any_unmovables
+        // C++ placement commit ends the preview session and its bibs
+        // (InGameUI::destroyPlacementIcons removeAllBibs on placement end).
+        let moved = !any_unmovables;
+        if moved {
+            self.clear_placement_highlight_bibs();
+        }
+        moved
     }
 
     /// C++ `Player::getPlayerType()==PLAYER_HUMAN`. Leftover PlayerList wins;
@@ -1145,10 +1274,16 @@ impl GameLogic {
             return builder_skips_clear_path_residual(true);
         }
         let start = builder.get_position();
-        // C++ AIPlayer.cpp:595-602 clientSafeQuickDoesPathExist (structure-aware).
-        // No dist<=64 early-true: a walled-off dozer 50 units from the pad is stuck.
-        self.pathfinding_system
-            .client_safe_quick_does_path_exist(start, goal)
+        // C++ BuildAssistant.cpp:987 calls ai->isQuickPathAvailable —
+        // AIUpdate.cpp:2080-2091 → Pathfinder::clientSafeQuickDoesPathExistForUI
+        // (AIPathfind.cpp:8055-8103): terrain-zone compare that explicitly does
+        // NOT take structures into account (:8079-8081) and fail-opens TRUE on
+        // UNINITIALIZED zones (:8073-8078). The structure-aware
+        // clientSafeQuickDoesPathExist (AIPathfind.cpp:7997-8046) is the
+        // AIPlayer.cpp:596 dozer teleport-check site, NOT the build gate —
+        // using it here walled the pad scan behind the base's own
+        // Structure-kindof ring (LBC_NO_CLEAR_PATH at every out-of-pocket pad).
+        self.quick_path_available_residual(start, goal)
     }
 
     /// C++ Pathfinder::clientSafeQuickDoesPathExistForUI residual.
@@ -1279,9 +1414,7 @@ impl GameLogic {
             return Some(key);
         }
         crate::game_logic::host_superweapon_kindof::is_superweapon_link_key_template(template_name)
-            .then(|| {
-                crate::game_logic::host_superweapon_kindof::SUPERWEAPON_LINK_KEY.to_string()
-            })
+            .then(|| crate::game_logic::host_superweapon_kindof::SUPERWEAPON_LINK_KEY.to_string())
     }
 
     fn count_superweapon_link_key_owned_for_template(
@@ -2041,9 +2174,35 @@ impl GameLogic {
                     };
                     if let Some(p) = owner {
                         let pid = p.id;
+                        let is_local = p.is_local;
                         self.try_eva_insufficient_funds(pid);
+                        // C++ ControlBarCommandProcessing.cpp:388-389 — every
+                        if is_local {
+                            #[cfg(feature = "game_client")]
+                            game_client::helpers::TheInGameUI::message(
+                                "GUI:NotEnoughMoneyToBuild",
+                            );
+                        }
                     }
                 }
+            } else if can_make
+                == crate::game_logic::host_production_buildable_command_residual::CANMAKE_QUEUE_FULL
+            {
+                // C++ ControlBarCommandProcessing.cpp:392-395 — queue-full text.
+                #[cfg(feature = "game_client")]
+                game_client::helpers::TheInGameUI::message("GUI:ProductionQueueFull");
+            } else if can_make
+                == crate::game_logic::host_production_buildable_command_residual::CANMAKE_PARKING_PLACES_FULL
+            {
+                // C++ ControlBarCommandProcessing.cpp:397-400.
+                #[cfg(feature = "game_client")]
+                game_client::helpers::TheInGameUI::message("GUI:ParkingPlacesFull");
+            } else if can_make
+                == crate::game_logic::host_production_buildable_command_residual::CANMAKE_MAXED_OUT_FOR_PLAYER
+            {
+                // C++ ControlBarCommandProcessing.cpp:402-405.
+                #[cfg(feature = "game_client")]
+                game_client::helpers::TheInGameUI::message("GUI:UnitMaxedOut");
             }
             if science_gated
                 && can_make
@@ -2404,8 +2563,7 @@ fn xy_rect_rect_collide(a: &PlacementShape, b: &PlacementShape) -> bool {
     a.to_four_points()
         .iter()
         .any(|&(x, z)| b.contains_rotated_point(x, z))
-        || b
-            .to_four_points()
+        || b.to_four_points()
             .iter()
             .any(|&(x, z)| a.contains_rotated_point(x, z))
 }
@@ -2439,8 +2597,12 @@ fn xy_shapes_collide(a: &PlacementShape, b: &PlacementShape) -> bool {
         (crate::game_logic::HostGeometryType::Box, crate::game_logic::HostGeometryType::Box) => {
             xy_rect_rect_collide(a, b)
         }
-        (crate::game_logic::HostGeometryType::Box, _) => xy_rect_rect_collide(a, &circle_as_square(b)),
-        (_, crate::game_logic::HostGeometryType::Box) => xy_rect_rect_collide(&circle_as_square(a), b),
+        (crate::game_logic::HostGeometryType::Box, _) => {
+            xy_rect_rect_collide(a, &circle_as_square(b))
+        }
+        (_, crate::game_logic::HostGeometryType::Box) => {
+            xy_rect_rect_collide(&circle_as_square(a), b)
+        }
         _ => dx * dx + dz * dz <= (a.major + b.major) * (a.major + b.major),
     }
 }
@@ -2495,9 +2657,11 @@ fn leftover_factory_exit_blocker(
         .map(|(major, _, _)| major)
         .unwrap_or(exit_w * 0.5);
     let offset = major + exit_w * 0.5;
+    // Port facing is (cosθ, 0, −sinθ) (thing.rs:3360; C++ model +X = forward,
+    // PartitionManager.cpp:5284) — the exit bib sits forward of the door.
     Some((
         position.x + orientation.cos() * offset,
-        position.z + orientation.sin() * offset,
+        position.z - orientation.sin() * offset,
         (exit_w * 0.5).max(1.0),
     ))
 }

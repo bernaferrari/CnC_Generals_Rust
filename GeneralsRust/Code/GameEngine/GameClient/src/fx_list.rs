@@ -100,6 +100,16 @@ impl FXListManagerInterface for FXListManagerBridge {
 pub fn register_fx_list_manager_bridge() {
     let _ = gamelogic::helpers::register_fx_list_manager(Arc::new(FXListManagerBridge));
     game_engine::common::ini::register_fx_list_obj_runtime(Arc::new(DamageFxListRuntime));
+    game_engine::common::ini::ini_damage_fx::register_fx_bone_pos_runtime(
+        |object_id, bone_name, start, max_bones| {
+            crate::core::game_client::query_live_current_client_bone_positions(
+                object_id, bone_name, start, max_bones,
+            )
+            .into_iter()
+            .map(|(pos, mtx)| ([pos.x, pos.y, pos.z], mtx.to_cols_array()))
+            .collect()
+        },
+    );
     ensure_default_ray_effect_manager();
 }
 
@@ -874,7 +884,15 @@ fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
         }
     }
 
-    get_fx_list_store_mut().add_fx_list(name, fx_list);
+    get_fx_list_store_mut().add_fx_list(name.clone(), fx_list);
+    // C++ keeps a single TheFXListStore shared by logic and client
+    // (FXList.cpp:852-858). Register the same name in the GameLogic store so
+    // logic-side consumers (FXListDie, SlowDeath, InstantDeath, ...) resolve
+    // the authored FXList and dispatch through the FXListManager bridge.
+    gamelogic::helpers::TheFXListStore::register_fx_list(
+        &name,
+        gamelogic::effects::FXList::new(&name),
+    );
     Ok(())
 }
 
@@ -2329,3 +2347,4 @@ mod tests {
         assert_eq!(pulses[0].pos, [1.0, 2.0, 3.0]);
     }
 }
+

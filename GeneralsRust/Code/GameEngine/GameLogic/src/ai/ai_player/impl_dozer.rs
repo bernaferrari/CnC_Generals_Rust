@@ -71,10 +71,14 @@ impl AIPlayer {
                 | LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
                 | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP,
         );
+        let player_id = self.player_id as ObjectID;
+        let legal_at = |p: &Coord3D| {
+            validator
+                .validate_placement(p, template_name, angle, player_id)
+                .is_ok()
+        };
         let is_skirmish = self.is_skirmish_ai_player();
-        let mut legal = validator
-            .validate_placement(&pos, template_name, angle, self.player_id as ObjectID)
-            .is_ok();
+        let mut legal = legal_at(&pos);
         if !legal {
             log::debug!(
                 "{} - Dozer unable to place.  Attempting to adjust position.",
@@ -85,86 +89,73 @@ impl AIPlayer {
             } else {
                 10.0 * PATHFIND_CELL_SIZE_F
             };
-            let step = if is_skirmish {
-                4.0 * PATHFIND_CELL_SIZE_F
-            } else {
-                2.0 * PATHFIND_CELL_SIZE_F
-            };
+            // C++ wiggle (AIPlayer.cpp:530-591). Skirmish advances posOffset by
+            // an extra 2 cells INSIDE the loop body, so the first ring samples
+            // at ±1 cell (posOffset=2 cells) and never re-tests the failed
+            // seed. Within a row scan the SECOND candidate never short-
+            // circuits: valid/new_pos keep the last-tested candidate, so a
+            // later first+second failure pair overwrites an earlier
+            // second-candidate success; only a first-candidate hit breaks a
+            // scan, and only a completed scan ends the ring.
             let mut pos_offset = 0.0_f32;
-            let mut found = None;
+            let mut new_pos = pos;
+            let mut valid = false;
             while pos_offset < limit {
-                let offset = pos_offset * 0.5;
-                // Horizontal edges at y = pos.y ± offset
+                if is_skirmish {
+                    pos_offset += 2.0 * PATHFIND_CELL_SIZE_F;
+                }
+                let offset = pos_offset / 2.0;
+                // Top/bottom edges: (x, pos.y-offset) breaks on success;
+                // (x, pos.y-offset+posOffset) only overwrites valid.
                 let mut x = pos.x - offset;
-                let y0 = pos.y - offset;
-                while x <= pos.x + offset + 0.001 {
-                    for y in [y0, y0 + pos_offset] {
-                        let candidate = Coord3D::new(x, y, pos.z);
-                        if validator
-                            .validate_placement(
-                                &candidate,
-                                template_name,
-                                angle,
-                                self.player_id as ObjectID,
-                            )
-                            .is_ok()
-                        {
-                            found = Some(candidate);
-                            break;
-                        }
+                let y_top = pos.y - offset;
+                while x <= pos.x + offset {
+                    if is_skirmish {
+                        x += PATHFIND_CELL_SIZE_F;
                     }
-                    if found.is_some() {
+                    new_pos = Coord3D::new(x, y_top, pos.z);
+                    valid = legal_at(&new_pos);
+                    if valid {
                         break;
                     }
-                    x += if is_skirmish {
-                        2.0 * PATHFIND_CELL_SIZE_F
-                    } else {
-                        PATHFIND_CELL_SIZE_F
-                    };
+                    // No break on the second candidate (AIPlayer.cpp:556-560).
+                    new_pos = Coord3D::new(x, y_top + pos_offset, pos.z);
+                    valid = legal_at(&new_pos);
+                    x += PATHFIND_CELL_SIZE_F;
                 }
-                if found.is_some() {
+                if valid {
                     break;
                 }
-                // Vertical edges at x = pos.x ± offset
+                // Left/right edges: (pos.x-offset, y) breaks on success;
+                // (pos.x-offset+posOffset, y) only overwrites valid.
                 let mut y = pos.y - offset;
-                let x0 = pos.x - offset;
-                while y <= pos.y + offset + 0.001 {
-                    for x in [x0, x0 + pos_offset] {
-                        let candidate = Coord3D::new(x, y, pos.z);
-                        if validator
-                            .validate_placement(
-                                &candidate,
-                                template_name,
-                                angle,
-                                self.player_id as ObjectID,
-                            )
-                            .is_ok()
-                        {
-                            found = Some(candidate);
-                            break;
-                        }
+                let x_left = pos.x - offset;
+                while y <= pos.y + offset {
+                    if is_skirmish {
+                        y += PATHFIND_CELL_SIZE_F;
                     }
-                    if found.is_some() {
+                    new_pos = Coord3D::new(x_left, y, pos.z);
+                    valid = legal_at(&new_pos);
+                    if valid {
                         break;
                     }
-                    y += if is_skirmish {
-                        2.0 * PATHFIND_CELL_SIZE_F
-                    } else {
-                        PATHFIND_CELL_SIZE_F
-                    };
+                    // No break on the second candidate (AIPlayer.cpp:575-579).
+                    new_pos = Coord3D::new(x_left + pos_offset, y, pos.z);
+                    valid = legal_at(&new_pos);
+                    y += PATHFIND_CELL_SIZE_F;
                 }
-                if found.is_some() {
+                if valid {
                     break;
                 }
-                pos_offset += step;
+                pos_offset += 2.0 * PATHFIND_CELL_SIZE_F;
             }
-            if let Some(p) = found {
-                pos = p;
+            if valid {
+                pos = new_pos;
                 legal = true;
             } else {
-                // C++ final fallback: NO_ENEMY_OBJECT_OVERLAP only.
+                // C++ final fallback: NO_ENEMY_OBJECT_OVERLAP only, at the seed.
                 legal = enemy_only
-                    .validate_placement(&pos, template_name, angle, self.player_id as ObjectID)
+                    .validate_placement(&pos, template_name, angle, player_id)
                     .is_ok();
             }
         }

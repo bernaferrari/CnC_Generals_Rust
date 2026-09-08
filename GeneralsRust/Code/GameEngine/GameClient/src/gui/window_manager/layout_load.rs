@@ -378,10 +378,11 @@ impl WindowManager {
                 .unwrap_or((screen_w.max(1), screen_h.max(1)));
             let x_scale = screen_w as f32 / create_w.max(1) as f32;
             let y_scale = screen_h as f32 / create_h.max(1) as f32;
-            let scaled_x1 = (x1 as f32 * x_scale).round() as i32;
-            let scaled_y1 = (y1 as f32 * y_scale).round() as i32;
-            let scaled_x2 = (x2 as f32 * x_scale).round() as i32;
-            let scaled_y2 = (y2 as f32 * y_scale).round() as i32;
+            // C++ (Int)(real * scale) truncates toward zero.
+            let scaled_x1 = (x1 as f32 * x_scale) as i32;
+            let scaled_y1 = (y1 as f32 * y_scale) as i32;
+            let scaled_x2 = (x2 as f32 * x_scale) as i32;
+            let scaled_y2 = (y2 as f32 * y_scale) as i32;
             let (mut rel_x, mut rel_y) = (scaled_x1, scaled_y1);
             if let Some(parent_window) = parent {
                 let (parent_x, parent_y) = parent_window.borrow().get_screen_position();

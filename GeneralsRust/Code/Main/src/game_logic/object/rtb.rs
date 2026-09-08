@@ -27,8 +27,7 @@ impl Object {
         // Weapon.cpp:1889-1893); DelayBetweenShots only gates rounds inside a
         // clip. Manual/ReturnToBase never auto-ready an empty clip via
         // weapon_has_ammo_for_shot above.
-        if weapon.ammo == Some(0)
-            && current_time - weapon.last_fire_time < weapon.clip_reload_time
+        if weapon.ammo == Some(0) && current_time - weapon.last_fire_time < weapon.clip_reload_time
         {
             return false;
         }

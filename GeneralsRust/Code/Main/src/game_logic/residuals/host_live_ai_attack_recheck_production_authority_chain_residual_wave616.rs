@@ -1,6 +1,9 @@
 //! Wave 616 residual peels:
-//! 1) Host AI attack recheck spacing stays **60s** (C++ `checkReadyTeams` ready-team
-//!    force-start *numeric* residual) — not a gate-driven early-attack shortcut.
+//! 1) The host AI attack-recheck spacing constant stays **60.0s**
+//!    (`AIPlayer::ATTACK_RECHECK_SECONDS`, C++ `checkReadyTeams` ready-team
+//!    force-start *numeric* residual). The live path keeps C++ parity: no
+//!    all-army raid latch — `evaluate_attack_opportunities` only clears
+//!    finished attacks, and team activation stays with `checkReadyTeams`.
 //! 2) Production authority chain markers remain wired:
 //!    ready-log → collect → spawn helper → apply (Waves 614/613/615/608).
 //! Never flips shell `playable_claim`.
@@ -9,7 +12,8 @@
 //! Host residual only — network deferred.
 //!
 //! Sources:
-//! - `ai.rs` ATTACK_RECHECK_SECONDS + evaluate_attack_opportunities
+//! - `ai.rs` + `ai/` module split (2026-08-25) — ATTACK_RECHECK_SECONDS and
+//!   `evaluate_attack_opportunities` live in `ai/combat.rs` today
 //! - `game_logic.rs` / `gameworld_shadow.rs` production sole-tick chain
 //! - GeneralsMD `AI/AIPlayer.cpp` checkReadyTeams 60*LOGICFRAMES_PER_SECOND
 //!
@@ -96,7 +100,17 @@ pub fn residual_ai_attack_recheck_production_authority_chain_last_action()
 }
 
 fn ai_source() -> &'static str {
-    include_str!("../../ai.rs")
+    // 2026-09-06: the oversized ai.rs was split (a8aeb60b3); scan the whole
+    // production module so the markers follow the code, not the old path.
+    concat!(
+        include_str!("../../ai.rs"),
+        include_str!("../../ai/combat.rs"),
+        include_str!("../../ai/destination_clearance.rs"),
+        include_str!("../../ai/economy.rs"),
+        include_str!("../../ai/manager.rs"),
+        include_str!("../../ai/player_core.rs"),
+        include_str!("../../ai/teams.rs"),
+    )
 }
 
 fn gl_source() -> &'static str {
@@ -177,7 +191,14 @@ pub fn simulate_ai_attack_recheck_production_authority_chain_collect_source() ->
 pub fn simulate_ai_attack_recheck_production_authority_chain_dispatch_source() -> bool {
     let ai = ai_source();
     let gl = gl_source();
-    let ok = ai.contains("current_time - self.last_attack_time < Self::ATTACK_RECHECK_SECONDS")
+    // The literal `current_time - self.last_attack_time < ATTACK_RECHECK_SECONDS`
+    // gate is gone: C++ AIPlayer has no all-army raid latch, so
+    // `evaluate_attack_opportunities` only clears finished attacks and team
+    // activation stays with checkReadyTeams. Pin that parity shape plus the
+    // 60.0s numeric residual instead.
+    let ok = ai.contains("pub const ATTACK_RECHECK_SECONDS: f32 = 60.0")
+        && ai.contains("pub(super) fn evaluate_attack_opportunities")
+        && ai.contains("self.clear_finished_attack(game_logic)")
         && gl.contains("host_production_ready_log::drain")
         && gl.contains("self.host_spawn_production_unit(&template, team, spawn_pos)")
         && crate::ai::AIPlayer::ATTACK_RECHECK_SECONDS == 60.0

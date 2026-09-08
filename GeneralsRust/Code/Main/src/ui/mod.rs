@@ -252,7 +252,16 @@ pub mod layout {
     pub const MENU_BUTTON_HEIGHT: u32 = 40;
     pub const MENU_SPACING: u32 = 10;
     pub const HUD_PANEL_HEIGHT: u32 = 120;
-    pub const MINIMAP_SIZE: u32 = 200;
+    /// Authored LeftHUD minimap width at the 800x600 creation res
+    /// (ControlBar.wnd LeftHUD rect (7,443)-(174,595)).
+    pub const MINIMAP_WIDTH: u32 = 167;
+    /// Authored LeftHUD minimap height at the 800x600 creation res.
+    pub const MINIMAP_HEIGHT: u32 = 152;
+    /// Authored command-bar height at the 800x600 creation res.
+    pub const CONTROL_BAR_HEIGHT: u32 = 140;
+    /// Command-strip buttons per row (two rows of 7 = 14 ButtonCommand slots,
+    /// C++ ControlBar.cpp:2177-2188 / MAX_COMMANDS_PER_SET 14).
+    pub const COMMAND_BUTTONS_PER_ROW: usize = 7;
     pub const RESOURCE_PANEL_WIDTH: u32 = 300;
 }
 

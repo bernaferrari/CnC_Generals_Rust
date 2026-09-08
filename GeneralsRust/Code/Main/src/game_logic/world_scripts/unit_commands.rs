@@ -1970,42 +1970,62 @@ impl GameLogic {
         true
     }
 
-    /// C++ `setSpecialPowerOverridableDestination` on PUC / Spectre.
-    /// Stores the dest on the live Object, then drives any matching
-    /// `HostParticleBeamField` / `HostSpectreOrbitField` (and the selected
-    /// gunship's `override_target`) immediately — not leftover-only.
+    /// C++ `setSpecialPowerOverridableDestination` on PUC / Spectre
+    /// (SpectreGunshipUpdate.cpp:268-283).
+    ///
+    /// Gates: `!isDisabled()` (the whole click is dropped on a disabled ship)
+    /// and gunship status `< DEPARTING`. Stores the dest on the live Object,
+    /// then drives any matching `HostParticleBeamField` / the bound ship's
+    /// `HostSpectreOrbitField` (and the gunship's `override_target`)
+    /// immediately — not leftover-only. For the local controlling player the
+    /// template's VoiceAttack plays on the ship (object id).
     pub fn unit_command_set_special_power_overridable_destination(
         &mut self,
         id: ObjectId,
         location: glam::Vec3,
     ) -> bool {
-        let producer = {
+        let (producer, overridable) = {
             let Some(unit) = self.objects.get_mut(&id) else {
                 return false;
             };
+            // C++ :271 — `!me->isDisabled()` gates the whole click.
             if !unit.is_alive() || unit.is_disabled() {
                 return false;
             }
             unit.set_special_power_overridable_destination(location, None);
+            let mut overridable = true;
             if let Some(flight) = unit.spectre_gunship_update.as_mut() {
-                if flight.status.overridable_destination_active() {
-                    // C++ setSpecialPowerOverridableDestination
-                    // (SpectreGunshipUpdate.cpp:268-282) stores the click
-                    // UNCLAMPED. The AttackAreaRadius - TargetingReticleRadius
-                    // constraint applies in the update tick, which already runs
-                    // constrain_override against the steered initial target.
+                // C++ :271-281 — the click lands only while status < DEPARTING;
+                // it is stored UNCLAMPED. The AttackAreaRadius -
+                // TargetingReticleRadius constraint applies in the update tick
+                // (constrain_override against the FIXED initial target).
+                overridable = flight.status.overridable_destination_active();
+                if overridable {
                     flight.override_target = location;
                 }
             }
-            unit.producer_id
+            (unit.producer_id, overridable)
         };
-        let frame = self.frame;
-        self.special_power_strikes
-            .apply_source_override_destination(id, location, frame);
-        if let Some(producer) = producer {
-            if producer != id {
-                self.special_power_strikes
-                    .apply_source_override_destination(producer, location, frame);
+        if overridable {
+            let frame = self.frame;
+            self.special_power_strikes
+                .apply_source_override_destination(id, location, frame);
+            if let Some(producer) = producer {
+                if producer != id {
+                    self.special_power_strikes
+                        .apply_source_override_destination(producer, location, frame);
+                }
+            }
+            // C++ :275-280 — VoiceAttack for the local controlling player.
+            let local_owner = self
+                .objects
+                .get(&id)
+                .and_then(|o| self.player_owner_for_host_object(o))
+                .and_then(|pid| self.players.get(&pid))
+                .map(|p| p.is_local)
+                .unwrap_or(false);
+            if local_owner {
+                self.queue_resolved_per_unit_sound(id, "VoiceAttack", true, false, None, 140);
             }
         }
         true
@@ -2038,6 +2058,21 @@ impl GameLogic {
             return false;
         };
         building.add_upgrade_to_queue(upgrade_name.to_string(), research_secs, cost)
+    }
+
+    /// C++ ProductionUpdate::canQueueUpgrade — QUEUE_FULL when the producer
+    /// production queue is at capacity (ControlBarCommandProcessing.cpp:505-509
+    /// fires GUI:ProductionQueueFull on the click).
+    pub fn producer_upgrade_queue_is_full(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .map(|obj| {
+                obj.building_data.as_ref().is_some_and(|building| {
+                    building.production_queue.len()
+                        >= crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT
+                })
+            })
+            .unwrap_or(true)
     }
 
     /// Wave 233: remove upgrade entry from producer production queue.

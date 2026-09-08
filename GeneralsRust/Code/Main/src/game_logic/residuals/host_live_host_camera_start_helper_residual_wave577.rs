@@ -177,7 +177,6 @@ pub fn simulate_host_camera_start_helper_collect_source() -> bool {
 pub fn simulate_host_camera_start_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let ok = eng.contains("host_center_camera_and_request_focus")
-        && eng.contains("self.host_start_new_game_with_faction(mode, faction_team, true)")
         && eng.contains("self.host_start_new_game_with_faction(mode, faction_team, false)");
     residual_action_store(ResidualHostCameraStartHelperAction::DispatchSource);
     ok

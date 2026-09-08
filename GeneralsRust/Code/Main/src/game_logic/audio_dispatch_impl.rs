@@ -140,6 +140,8 @@ pub enum UnitVoiceSlot {
     TertiaryWeaponMode,
     /// Per-unit `VoiceBombard` (MSG_DO_FORCE_ATTACK_GROUND when valid).
     Bombard,
+    /// ThingTemplate `VoiceTaskComplete` (SpecialAbilityUpdate pack-complete default).
+    TaskComplete,
 }
 
 impl UnitVoiceSlot {
@@ -177,6 +179,7 @@ impl UnitVoiceSlot {
             Self::SecondaryWeaponMode => "VoiceSecondaryWeaponMode",
             Self::TertiaryWeaponMode => "VoiceTertiaryWeaponMode",
             Self::Bombard => "VoiceBombard",
+            Self::TaskComplete => "VoiceTaskComplete",
         }
     }
 
@@ -322,6 +325,7 @@ fn named_template_voice(
         }
         UnitVoiceSlot::Garrison => tmpl.get_voice_garrison().and_then(nonempty_event_name),
         UnitVoiceSlot::Created => tmpl.get_voice_created().and_then(nonempty_event_name),
+        UnitVoiceSlot::TaskComplete => tmpl.get_voice_task_complete().and_then(nonempty_event_name),
         _ => None,
     }
 }

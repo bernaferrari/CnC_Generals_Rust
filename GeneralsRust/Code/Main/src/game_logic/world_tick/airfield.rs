@@ -2353,7 +2353,11 @@ impl GameLogic {
             return;
         };
         if let Some(building) = airfield.building_data.as_mut() {
-            if let Some(pos) = building.garrisoned_units.iter().position(|&id| id == jet_id) {
+            if let Some(pos) = building
+                .garrisoned_units
+                .iter()
+                .position(|&id| id == jet_id)
+            {
                 building.garrisoned_units.remove(pos);
                 crate::game_logic::host_contain_log::record_garrison(
                     airfield.id,
@@ -2363,7 +2367,11 @@ impl GameLogic {
             }
         } else if let Some(pos) = airfield.occupants.iter().position(|&id| id == jet_id) {
             airfield.occupants.remove(pos);
-            crate::game_logic::host_contain_log::record_garrison(airfield.id, &airfield.occupants, 0);
+            crate::game_logic::host_contain_log::record_garrison(
+                airfield.id,
+                &airfield.occupants,
+                0,
+            );
         }
     }
 
@@ -2468,7 +2476,9 @@ impl GameLogic {
             // jet into a nearer same-faction other-player airfield.
             if producer_is_usable && self.airfield_has_exact_controller_for_jet(jet_id, producer_id)
             {
-                if self.reserve_airfield_parking_space(producer_id, jet_id).is_some()
+                if self
+                    .reserve_airfield_parking_space(producer_id, jet_id)
+                    .is_some()
                     || self.airfield_has_reserved_space(producer_id, jet_id)
                 {
                     return Some(producer_id);
@@ -2484,7 +2494,9 @@ impl GameLogic {
             // the strict exact-controller/allied checks above.
             if producer_is_usable
                 && self.jet_rtb_leg_bound_to_ownerless_airfield(jet_id, producer_id)
-                && (self.reserve_airfield_parking_space(producer_id, jet_id).is_some()
+                && (self
+                    .reserve_airfield_parking_space(producer_id, jet_id)
+                    .is_some()
                     || self.airfield_has_reserved_space(producer_id, jet_id))
             {
                 return Some(producer_id);
@@ -2543,7 +2555,8 @@ impl GameLogic {
         let Some(airfield) = self.objects.get(&airfield_id) else {
             return false;
         };
-        if airfield.owner_player_id.is_some() || !Self::has_usable_airfield_parking_behavior(airfield)
+        if airfield.owner_player_id.is_some()
+            || !Self::has_usable_airfield_parking_behavior(airfield)
         {
             return false;
         }

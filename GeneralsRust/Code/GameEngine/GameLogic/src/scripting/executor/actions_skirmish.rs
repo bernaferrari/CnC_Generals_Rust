@@ -893,11 +893,47 @@ impl ScriptActionDispatcher {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let enabled = self.get_int_param(action, 0)? != 0;
+        // Bead hq-p2ev5 rogue-disable trace: a boot/shell script executes
+        // EVA_SET_ENABLED_DISABLED with param 0 before/at match start and the
+        // client Eva singleton starts disabled (the C++ pathway at
+        // ScriptActions.cpp:6007 is correct; the offending script content is
+        // still unidentified because binary script chunks carry numeric action
+        // IDs). The [EV] info marker fingerprints every execution with the raw
+        // action params — a backtrace-free caller summary; the resolved
+        // boolean is warned once per process on the rogue disable.
+        log::info!(
+            "[EV] eva_set_enabled_disabled enabled={} params: {}",
+            enabled,
+            Self::eva_action_params_summary(action)
+        );
+        if !enabled {
+            static ROGUE_DISABLE_WARNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !ROGUE_DISABLE_WARNED.swap(true, Ordering::Relaxed) {
+                log::warn!("[EV] script EVA_SET_ENABLED_DISABLED resolved enabled=false");
+            }
+        }
         log::debug!("EVA enabled: {}", enabled);
         if let Err(err) = crate::helpers::TheEva::set_enabled(enabled) {
             log::warn!("Failed to update EVA enabled state: {}", err);
         }
         Ok(ScriptActionResult::Success)
+    }
+
+    /// Bead hq-p2ev5: compact raw-parameter fingerprint for the rogue EVA
+    /// disable trace (C++ `Parameter` slots as authored in the script chunk).
+    fn eva_action_params_summary(action: &ScriptAction) -> String {
+        (0..action.num_parms)
+            .filter_map(|index| action.get_parameter(index))
+            .map(|param| {
+                let value = match param.param_type {
+                    ParameterType::Int | ParameterType::Boolean => param.get_int().to_string(),
+                    _ => param.get_string().to_string(),
+                };
+                format!("{:?}={}", param.param_type, value)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     pub(crate) fn do_options_set_occlusion_mode(

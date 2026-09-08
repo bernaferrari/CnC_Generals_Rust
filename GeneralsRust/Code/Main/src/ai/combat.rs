@@ -7,9 +7,9 @@ impl AIPlayer {
     /// Shares the **numeric** 60s value from C++ `AIPlayer::checkReadyTeams`
     /// (`GeneralsMD/.../AI/AIPlayer.cpp`: force-start ready team after
     /// `60 * LOGICFRAMES_PER_SECOND`), but this is **not** a port of that function.
-    /// C++ uses 60s for team activation at rally; this host AI uses 60s only as
-    /// spacing between strength-threshold attack decisions. Full checkReadyTeams
-    /// (idle/anyIdle, production-condition scripts, setActive) remains unported.
+    /// C++ uses 60s for team activation at rally; this host AI uses 60s as the
+    /// spacing between attack decisions (scripted raids and the script-absent
+    /// ready-team fallback in `evaluate_attack_opportunities` below).
     pub const ATTACK_RECHECK_SECONDS: f32 = 60.0;
 
     /// Retail `AIData.ini` defaults (Default/AIData.ini).
@@ -36,7 +36,84 @@ impl AIPlayer {
     /// Retail AIData `TeamResourcesToStart` fallback when leftover AIData is unset.
     pub const TEAM_RESOURCES_TO_START: f32 = 0.1;
 
-    /// Evaluate opportunities to attack enemies (strength-threshold + C++-aligned spacing).
+    /// Evaluate opportunities to attack enemies.
+    ///
+    /// C++ `AIPlayer` has no all-army raid latch: `checkReadyTeams`
+    /// (`AIPlayer.cpp:2729-2803`) activates a ready team and its OnCreate
+    /// script issues the AttackMove.  This workspace ships no skirmish
+    /// script set, so activation alone issues no orders at all.  The
+    /// fallback here stands in for the missing script: a ready team plus a
+    /// known enemy is attack-moved toward that enemy — exactly what
+    /// `apply_on_create_host_orders` runs for a scripted AttackMove team —
+    /// re-evaluated on the `ATTACK_RECHECK_SECONDS` cadence (the
+    /// checkReadyTeams 60s force-start numeric residual).  No strength
+    /// thresholds or difficulty tuning beyond that.
+    pub(super) fn evaluate_attack_opportunities(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+    ) {
+        // C++ AIPlayer has no all-army raid latch. Teams only AttackMove when
+        // OnCreate scripts say so (checkReadyTeams → setActive). Keep the host
+        // attack_in_progress flag only so a finished raid can clear.
+        self.clear_finished_attack(game_logic);
+
+        // Spacing between fallback launches (not an all-army gate: the army
+        // is never dumped — only ready-team members are ever ordered).
+        let since_last_attack = current_time - self.last_attack_time;
+        if self.attack_in_progress || since_last_attack < Self::ATTACK_RECHECK_SECONDS {
+            return;
+        }
+        let Some(enemy_id) = self.enemy_player_id else {
+            return;
+        };
+        if game_logic.get_player(enemy_id).is_none() {
+            return;
+        }
+        let attack_units: Vec<ObjectId> = self
+            .team_ready_queue
+            .iter()
+            // C++ reinforcement teams joinTeam (copy an existing teammate's
+            // order); they never initiate an attack.
+            .filter(|team| !team.reinforcement)
+            // Teams whose OnCreate script carries hunt/guard/attack orders
+            // are commanded by the script path on activation.
+            .filter(|team| !Self::ready_team_has_on_create_orders(team))
+            .flat_map(|team| {
+                team.work_orders
+                    .iter()
+                    .flat_map(|order| order.observed_unit_ids.iter().copied())
+            })
+            .filter(|&unit_id| {
+                game_logic.host_object(unit_id).is_some_and(|object| {
+                    object.team == self.team
+                        && object.is_alive()
+                        && object.can_attack()
+                        && object.is_mobile()
+                })
+            })
+            .collect();
+        if !attack_units.is_empty() {
+            self.attack_move_units(game_logic, &attack_units, current_time);
+        }
+    }
+
+    /// True when the ready team's OnCreate script carries hunt/guard/attack
+    /// orders — the script path commands the team after activation, so the
+    /// script-absent fallback in `evaluate_attack_opportunities` must leave
+    /// it alone.
+    fn ready_team_has_on_create_orders(team: &AITeamQueue) -> bool {
+        let on_create = gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_prototype(&team.name)
+                    .map(|proto| proto.get_script_on_create().to_string())
+            })
+            .unwrap_or_default();
+        Self::classify_on_create_script(&on_create) != OnCreateIntent::None
+    }
 
     /// AIData wealth/poor rate residual: returns speed multiplier (>= rate means faster).
     pub(super) fn resource_speed_rate(&self, game_logic: &GameLogic, for_structures: bool) -> f32 {
@@ -77,17 +154,6 @@ impl AIPlayer {
             .max(0.01);
         // C++ rate multiplies speed → shorter wait when rate > 1.
         (base_seconds * delay) / rate
-    }
-
-    pub(super) fn evaluate_attack_opportunities(
-        &mut self,
-        game_logic: &mut GameLogic,
-        _current_time: f32,
-    ) {
-        // C++ AIPlayer has no all-army raid latch. Teams only AttackMove when
-        // OnCreate scripts say so (checkReadyTeams → setActive). Keep the host
-        // attack_in_progress flag only so a finished raid can clear.
-        self.clear_finished_attack(game_logic);
     }
 
     /// Calculate our military strength
@@ -643,10 +709,8 @@ impl AIPlayer {
             out
         };
         let loco = gamelogic::locomotor::LocomotorSet::from_surfaces(surfaces);
-        let ai_store = gamelogic::ai::the_ai();let leftover_pf = ai_store
-            .read()
-            .ok()
-            .and_then(|ai| ai.pathfinder());
+        let ai_store = gamelogic::ai::the_ai();
+        let leftover_pf = ai_store.read().ok().and_then(|ai| ai.pathfinder());
 
         for target in hop_targets {
             let hop = Vec3::new(target.x, target.z, target.y);

@@ -607,7 +607,7 @@ impl ControlBar {
 
     /// C++ ControlBar.cpp:1086 / setControlCommand :2403-2480 — bind
     /// ButtonCommand01..14, tooltip, border, command identity, and hotkeys.
-    fn bind_command_windows(&self, context: &ControlBarContext) {
+    pub(crate) fn bind_command_windows(&self, context: &ControlBarContext) {
         // C++ switchToContext resets TheHotKeyManager before rebinding.
         with_hot_key_manager(|manager| manager.reset());
         with_window_manager(|wm| {
@@ -635,9 +635,11 @@ impl ControlBar {
                     }
                     let _ = win.borrow_mut().enable(cmd.button_enabled);
                     let _ = win.borrow_mut().hide(false);
-                } else if context.current_state == ControlBarState::Command
-                    || context.current_state == ControlBarState::StructureInventory
-                {
+                } else {
+                    // C++ populateCommand (ControlBarCommand.cpp:262-306):
+                    // every slot without a populated button is winHide(TRUE),
+                    // in EVERY context — not only Command/StructureInventory.
+                    // Repopulation re-shows populated slots below.
                     let _ = win.borrow_mut().hide(true);
                 }
             }

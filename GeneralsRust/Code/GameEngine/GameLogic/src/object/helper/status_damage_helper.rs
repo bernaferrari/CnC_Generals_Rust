@@ -21,6 +21,7 @@
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
 use crate::helpers::TheGameLogic;
+use crate::object::Object;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
@@ -153,6 +154,33 @@ impl StatusDamageHelper {
         } else {
             self.frame_to_heal - current_frame
         }
+    }
+
+    /// Owner-explicit variant of [`ObjectHelperInterface::update`].
+    ///
+    /// `Object::update` passes itself here instead of the helper re-finding its
+    /// owner through `TheGameLogic::find_object_by_id(self.owner_id)` (the path
+    /// `clear_status_condition` takes), which never returns in isolated/local-instance
+    /// contexts. Logic mirrors the C++ StatusDamageHelper update (Graham Smallwood,
+    /// June 2003 — see file header) and matches the trait impl minus the global lookup.
+    pub fn update_in_owner(&mut self, current_frame: u32, owner: &mut Object) -> UpdateSleepTime {
+        // We are sleep-driven, so seeing an update means our timer is ready
+        debug_assert!(
+            self.frame_to_heal <= current_frame,
+            "StatusDamageHelper woke up too soon"
+        );
+
+        // Clear the status condition directly on the owner (mirrors
+        // clear_status_condition without the global owner lookup).
+        if self.status_to_heal != ObjectStatusTypes::None {
+            owner.set_status(ObjectStatusMaskType::from_status(self.status_to_heal), false);
+            self.status_to_heal = ObjectStatusTypes::None;
+            self.frame_to_heal = 0;
+            self.wake_frame = u32::MAX;
+        }
+
+        // Sleep forever until next status is applied
+        UpdateSleepTime::Forever
     }
 }
 

@@ -828,13 +828,11 @@ impl Object {
     pub fn can_target(&self, target: &Object) -> bool {
         // DISARM exception (see can_target_with_slot): a hidden enemy mine
         // stays a legal DAMAGE_DISARM victim for mine-clearing weapons.
-        let any_slot_disarm = [0u8, 1, 2]
-            .into_iter()
-            .any(|slot| {
-                self.weapon_name_for_slot(slot)
-                    .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
-                    .unwrap_or(false)
-            });
+        let any_slot_disarm = [0u8, 1, 2].into_iter().any(|slot| {
+            self.weapon_name_for_slot(slot)
+                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
+                .unwrap_or(false)
+        });
         if target.is_effectively_stealthed()
             && target.team != self.team
             && !(any_slot_disarm && target.is_disarmable_mine())

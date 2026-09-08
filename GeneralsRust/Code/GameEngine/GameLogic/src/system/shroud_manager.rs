@@ -1834,6 +1834,18 @@ impl ShroudManager {
             .collect()
     }
 
+    /// O(1) "is any object currently visible" probe.
+    ///
+    /// Same semantics as `!get_visible_objects(player_id).is_empty()` without
+    /// materializing the snapshot Vec — hot presentation paths call this per
+    /// object per frame and must not allocate.
+    pub fn has_any_visible_object(&self, player_id: u32) -> bool {
+        if player_id >= MAX_PLAYER_COUNT as u32 {
+            return false;
+        }
+        !self.player_visible_objects[player_id as usize].is_empty()
+    }
+
     /// Set the visibility update interval
     ///
     /// Controls how frequently visibility is recalculated. Lower values mean
@@ -2154,6 +2166,18 @@ impl ShroudManager {
             .iter()
             .copied()
             .collect()
+    }
+
+    /// O(1) "has any object ever been explored" probe.
+    ///
+    /// Same semantics as `!get_explored_objects(player_id).is_empty()` without
+    /// materializing the snapshot Vec — hot presentation paths call this per
+    /// object per frame and must not allocate.
+    pub fn has_any_explored_object(&self, player_id: u32) -> bool {
+        if player_id >= MAX_PLAYER_COUNT as u32 {
+            return false;
+        }
+        !self.player_explored_objects[player_id as usize].is_empty()
     }
 
     /// Set vision recalculation interval
@@ -2652,6 +2676,60 @@ mod tests {
 
         let can_see = manager.can_see_object(999, 1);
         assert!(!can_see, "Invalid player cannot see anything");
+    }
+
+    /// `has_any_visible_object` / `has_any_explored_object` must equal the
+    /// materialized-set semantics (`!get_visible_objects(p).is_empty()` /
+    /// `!get_explored_objects(p).is_empty()`) for every membership pattern
+    /// over small sets, including invalid player ids.
+    #[test]
+    fn test_has_any_probes_equal_materialized_set_semantics() {
+        const OBJECT_IDS: [ObjectID; 4] = [1, 7, 42, 4242];
+        // Every subset of OBJECT_IDS as a 4-bit mask (plus visible/explored
+        // differing per object), for two valid players.
+        for player_id in [0u32, 3] {
+            for visible_mask in 0u8..=0b1111 {
+                for explored_mask in 0u8..=0b1111 {
+                    let mut manager = ShroudManager::new();
+                    for (bit, &object_id) in OBJECT_IDS.iter().enumerate() {
+                        if visible_mask & (1 << bit) != 0 {
+                            manager.mark_host_object_seen(player_id, object_id);
+                        }
+                        if explored_mask & (1 << bit) != 0 {
+                            manager.mark_host_object_explored(player_id, object_id);
+                        }
+                    }
+                    assert_eq!(
+                        manager.has_any_visible_object(player_id),
+                        !manager.get_visible_objects(player_id).is_empty(),
+                        "visible mismatch player={player_id} vis={visible_mask:04b} exp={explored_mask:04b}"
+                    );
+                    assert_eq!(
+                        manager.has_any_explored_object(player_id),
+                        !manager.get_explored_objects(player_id).is_empty(),
+                        "explored mismatch player={player_id} vis={visible_mask:04b} exp={explored_mask:04b}"
+                    );
+                }
+            }
+        }
+        // Invalid players: both probes and both getters must agree on "no".
+        let mut manager = ShroudManager::new();
+        manager.mark_host_object_seen(0, 9);
+        manager.mark_host_object_explored(0, 9);
+        for invalid in [MAX_PLAYER_COUNT as u32, 999] {
+            assert!(!manager.has_any_visible_object(invalid));
+            assert!(!manager.has_any_explored_object(invalid));
+            assert!(manager.get_visible_objects(invalid).is_empty());
+            assert!(manager.get_explored_objects(invalid).is_empty());
+        }
+
+        // Corner the public API cannot build (visible but never explored):
+        // both sides must still read the same sets.
+        let mut manager = ShroudManager::new();
+        manager.player_visible_objects[2].insert(5);
+        assert!(manager.has_any_visible_object(2));
+        assert!(!manager.has_any_explored_object(2));
+        assert!(manager.get_explored_objects(2).is_empty());
     }
 
     #[test]

@@ -1875,7 +1875,10 @@ fn airfield_runway_reservation_limits_parallel_takeoff() {
         .get(&af)
         .map(|slots| slots.iter().flatten().copied().collect())
         .unwrap_or_default();
-    assert!(!held.contains(&jets[0]), "cleared jet must release its runway");
+    assert!(
+        !held.contains(&jets[0]),
+        "cleared jet must release its runway"
+    );
     assert!(logic.try_runway_takeoff_from_airfield(jets[2]));
     assert!(
         logic

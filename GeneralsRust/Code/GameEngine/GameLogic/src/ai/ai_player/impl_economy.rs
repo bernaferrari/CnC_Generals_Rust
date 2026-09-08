@@ -98,11 +98,12 @@ impl AIPlayer {
 
             // Temporarily allow unit building while training a harvester.
             let prev_can_build = self.set_can_build_units_temp(true);
-            let queued = self.queue_one_harvester_at_factory(center_id, cur_gatherers)?;
+            // C++ `break` (AIPlayer.cpp:399) exits only the template walk; the
+            // outer build-list pass keeps going, so EVERY understaffed supply
+            // center queues one truck per update pass (truckInQueue is computed
+            // once, before the pass, and is not re-checked mid-pass).
+            self.queue_one_harvester_at_factory(center_id, cur_gatherers)?;
             self.set_can_build_units_temp(prev_can_build);
-            if queued {
-                return Ok(());
-            }
         }
 
         Ok(())
@@ -408,8 +409,9 @@ impl AIPlayer {
 
     /// Find a harvester template with an idle factory and queue one (C++ priority team).
     ///
-    /// C++ walks `TheThingFactory->firstTemplate()` / `friend_getNextTemplate()` for
-    /// `KINDOF_HARVESTER`. Fall back to known faction names if the factory is empty.
+    /// C++ walks `TheThingFactory->firstTemplate()` / `friend_getNextTemplate()`
+    /// for `KINDOF_HARVESTER` (AIPlayer.cpp:365-403). There is no fallback list:
+    /// if the walk finds no harvester template, nothing is queued.
     pub(super) fn queue_one_harvester_at_factory(
         &mut self,
         center_id: ObjectID,
@@ -433,24 +435,6 @@ impl AIPlayer {
                         harvester_names.push(name);
                     }
                     current = template.get_next_template().clone();
-                }
-            }
-        }
-        // Fallback residual when ThingFactory unloaded (tests / early boot).
-        if harvester_names.is_empty() {
-            for name in [
-                "AmericaVehicleChinook",
-                "AmericaVehicleSupplyTruck",
-                "ChinaVehicleSupplyTruck",
-                "GLAVehicleSupplyTruck",
-                "GLAInfantryWorker",
-                "SupplyTruck",
-            ] {
-                if TheThingFactory::find_template(name)
-                    .map(|t| t.is_kind_of(KindOf::Harvester))
-                    .unwrap_or(false)
-                {
-                    harvester_names.push(name.to_string());
                 }
             }
         }

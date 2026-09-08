@@ -57,6 +57,7 @@ impl GameLogic {
             Option<u32>,
             Option<ObjectId>,
             Option<Vec3>,
+            AIState,
         )> = self
             .objects
             .values()
@@ -66,8 +67,9 @@ impl GameLogic {
                     obj.id,
                     obj.get_position(),
                     object_owner_player_ids.get(&obj.id).copied().flatten(),
-                    obj.target,
+                    obj.dozer_task_build_target.or(obj.target),
                     obj.dozer_dock_action,
+                    obj.ai_state.clone(),
                 )
             })
             .collect();
@@ -96,19 +98,34 @@ impl GameLogic {
                     let exclusive_builder = obj.builder_id;
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(did, pos, owner_player_id, target, stored_dock)| {
+                        .filter(|(did, pos, owner_player_id, target, stored_dock, ai_state)| {
                             *owner_player_id == build_owner_player_id
                                 && *target == Some(id)
                                 && exclusive_builder.map(|bid| bid == *did).unwrap_or(true)
+                                // C++ DOZER_DO_BUILD_AT_DOCK
+                                // (DozerAIUpdate.cpp:495-507) is entered only
+                                // after the approach leg finished. The port's
+                                // docked-building state is Constructing;
+                                // Idle/Docked are the other at-rest states.
+                                && matches!(
+                                    ai_state,
+                                    AIState::Idle | AIState::Docked | AIState::Constructing
+                                )
                                 && {
                                     // C++ DozerActionPickActionPosState
-                                    // (DozerAIUpdate.cpp:318-335): arrival SUCCESS is
-                                    // `dist(dozer, goalPos) <= max(MIN_ACTION_TOLERANCE,
-                                    // boundingSphere + SLOP)` — the distance IS the
-                                    // arrival test, so a live approach leg inside the
-                                    // window still builds while a dozer stopped outside
-                                    // never does. DOZER_DO_BUILD_AT_DOCK (cpp:499-507)
-                                    // then gates progress to this ACTION dock.
+                                    // (DozerAIUpdate.cpp:318-335): arrival
+                                    // SUCCESS is `dist(dozer, goalPos) <=
+                                    // max(MIN_ACTION_TOLERANCE, boundingSphere
+                                    // + SLOP)` — the distance IS the arrival
+                                    // test, so a dozer whose approach leg is
+                                    // already inside the window builds while
+                                    // one stopped outside never does. Resume
+                                    // issues that approach walk even when the
+                                    // dozer already sits inside the window,
+                                    // and OBJECT_STATUS_IS_MOVING clears only
+                                    // on the movement tick, so gating on the
+                                    // moving flag here would stall an arrived
+                                    // dozer (docked build never starts).
                                     let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
                                         *stored_dock,
                                         *pos,
@@ -343,6 +360,82 @@ impl GameLogic {
             && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_actively_constructing_model_conditions();
+        }
+    }
+    /// C++ DozerAIUpdate.cpp:318-348 — PICK_ACTION_POS re-issues the approach
+    /// order until arrival. The host issues the walk once; an approach path
+    /// queued the same frame its scaffold was created can install without ever
+    /// integrating (velocity stays zero, percent frozen at 0). Called from
+    /// `update()` AFTER the fixed step — the proven integration timing (paths
+    /// queued between ticks install and walk). Throttled to once a second.
+    pub(crate) fn reissue_dozer_approaches(&mut self) {
+        const BUILDER_RANGE: f32 = crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE;
+        if self.frame % 30 != 0 {
+            return;
+        }
+        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>, Option<Vec3>)> = self
+            .objects
+            .values()
+            .filter(|obj| obj.is_alive() && obj.can_construct())
+            .map(|obj| {
+                (
+                    obj.id,
+                    obj.get_position(),
+                    obj.owner_player_id,
+                    obj.dozer_task_build_target.or(obj.target),
+                    obj.dozer_dock_action,
+                )
+            })
+            .collect();
+        for (did, dpos, downer, dtarget, sdock) in dozer_info.iter() {
+            let Some(sid) = dtarget else {
+                continue;
+            };
+            let Some(site) = self.host_object(*sid) else {
+                continue;
+            };
+            if !site.status.under_construction || !site.is_alive() {
+                continue;
+            }
+            if site.owner_player_id != *downer {
+                continue;
+            }
+            let (bpos, bradius) = (site.get_position(), site.selection_radius);
+            let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
+                *sdock, *dpos, bpos, bradius,
+            );
+            if dpos.distance(dock) <= BUILDER_RANGE {
+                continue;
+            }
+            let Some(d) = self.objects.get(did) else {
+                continue;
+            };
+            // C++ DozerActionPickActionPosState (DozerAIUpdate.cpp:346-350):
+            // the approach order is re-issued only when the dozer went IDLE
+            // short of the dock (STATE_FAILURE back to PICK_ACTION_POS). A
+            // pending path or an installed path being followed is a healthy
+            // approach — the old speed threshold sat below dozer cruise speed
+            // and re-pathed walking dozers every cycle.
+            if d.waiting_for_path
+                || d.status.moving
+                || d.movement.velocity.length_squared() > 1e-3
+            {
+                continue;
+            }
+            let approach = self.find_good_build_or_repair_position(
+                *dpos,
+                bpos,
+                bradius,
+                false,
+                None,
+                Some(*did),
+            );
+            let _ = self.unit_command_path_with_state_ignoring(
+                *did,
+                approach,
+                AIState::Moving,
+                Some(*sid),
+            );
         }
     }
 

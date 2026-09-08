@@ -1260,6 +1260,12 @@ impl GameLogic {
         self.next_formation_id = 1;
     }
 
+    /// Read the next object ID counter for the snapshot (C++
+    /// `GameLogic::getObjectIDCounter`, xferred by GameStateMap::xfer).
+    pub fn next_object_id_for_snapshot(&self) -> ObjectId {
+        self.next_object_id
+    }
+
     /// Set the next object ID counter (for snapshot restoration).
     pub fn set_next_object_id_for_restore(&mut self, next_object_id: ObjectId) {
         self.next_object_id = next_object_id;
@@ -2169,7 +2175,8 @@ impl GameLogic {
                     .is_some_and(|player| player.is_local)
                 {
                     let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-                    let visible = shroud_manager.lock()
+                    let visible = shroud_manager
+                        .lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
                         .unwrap_or(false);
                     if !visible {
@@ -2363,7 +2370,8 @@ impl GameLogic {
                     .is_some_and(|player| player.is_local)
                 {
                     let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-                    let visible = shroud_manager.lock()
+                    let visible = shroud_manager
+                        .lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
                         .unwrap_or(false);
                     if !visible {

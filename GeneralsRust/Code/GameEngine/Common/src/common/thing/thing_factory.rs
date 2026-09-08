@@ -1785,14 +1785,41 @@ mod tests {
         assert!(!properties.contains_key("Animation"));
     }
 
+    /// Locate a retail Object INI the way `read_system_ini_text` does:
+    /// search cwd + manifest roots against relative candidates (the extracted
+    /// retail tree is gitignored local data, so absence is a SKIP, not a
+    /// failure — CI checkouts cannot carry game assets).
+    fn read_retail_object_ini(filename: &str) -> Option<String> {
+        const CANDIDATES: &[&str] = &[
+            "windows_game/extracted_big_files_v2/INI/Object",
+            "../windows_game/extracted_big_files_v2/INI/Object",
+            "../../windows_game/extracted_big_files_v2/INI/Object",
+            "../../../windows_game/extracted_big_files_v2/INI/Object",
+            "../../../../windows_game/extracted_big_files_v2/INI/Object",
+        ];
+        let mut roots = Vec::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            roots.push(cwd);
+        }
+        if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+            roots.push(std::path::PathBuf::from(manifest));
+        }
+        for root in &roots {
+            for rel in CANDIDATES {
+                if let Ok(text) = std::fs::read_to_string(root.join(rel).join(filename)) {
+                    return Some(text);
+                }
+            }
+        }
+        None
+    }
+
     #[test]
     fn retail_gla_hijacker_block_stops_before_worker() {
-        let source = std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-                "../../../../windows_game/extracted_big_files_v2/INI/Object/GLAInfantry.ini",
-            ),
-        )
-        .expect("read retail GLAInfantry.ini");
+        let Some(source) = read_retail_object_ini("GLAInfantry.ini") else {
+            eprintln!("SKIP retail_gla_hijacker_block_stops_before_worker: retail INI data absent");
+            return;
+        };
         let lines: Vec<&str> = source.lines().collect();
         let start = lines
             .iter()
@@ -1811,12 +1838,10 @@ mod tests {
 
     #[test]
     fn retail_america_crusader_block_stops_before_dozer() {
-        let source = std::fs::read_to_string(
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-                "../../../../windows_game/extracted_big_files_v2/INI/Object/AmericaVehicle.ini",
-            ),
-        )
-        .expect("read retail AmericaVehicle.ini");
+        let Some(source) = read_retail_object_ini("AmericaVehicle.ini") else {
+            eprintln!("SKIP retail_america_crusader_block_stops_before_dozer: retail INI data absent");
+            return;
+        };
         let lines: Vec<&str> = source.lines().collect();
         let start = lines
             .iter()

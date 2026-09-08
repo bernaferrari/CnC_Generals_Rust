@@ -82,9 +82,7 @@ fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
     // SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES vs KINDOF_STRUCTURE —
     // the laser target must be a mobile unit, not a tunnel network.
     let mut buggy_t = ThingTemplate::new("GLAVehicleRocketBuggy");
-    buggy_t
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(120.0);
+    buggy_t.add_kind_of(KindOf::Vehicle).set_health(120.0);
     logic
         .templates
         .insert("GLAVehicleRocketBuggy".into(), buggy_t);

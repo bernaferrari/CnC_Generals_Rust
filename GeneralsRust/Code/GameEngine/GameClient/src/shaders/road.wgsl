@@ -56,6 +56,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let gravel = vec3<f32>(0.47, 0.43, 0.37);
     let albedo = select(tex.rgb, gravel, tex_luma < 0.04);
     let lit = max(in.color, vec3<f32>(0.35));
-    let alpha = clamp(in.road_width, 0.0, 1.0);
+    // C++ detailAlphaShader (faction bibs, W3DBibBuffer.cpp:403) blends with
+    // the texture alpha; road_width stays the per-vertex coverage/alpha term
+    // so the bib stand-in keeps its translucent alpha when art is missing.
+    let alpha = clamp(in.road_width, 0.0, 1.0) * tex.a;
     return vec4<f32>(lit * albedo, alpha);
 }

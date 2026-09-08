@@ -278,6 +278,54 @@ impl AIPlayer {
         }
     }
 
+    /// C++ `AIPlayer::buildStructureWithDozer` position wiggle
+    /// (`AIPlayer.cpp:530-583`): when the intended pad fails
+    /// CLEAR_PATH | TERRAIN_RESTRICTIONS | NO_OBJECT_OVERLAP, re-test an
+    /// expanding square of candidates around it and take the first legal
+    /// one.  Skirmish limit is `120 * PATHFIND_CELL_SIZE_F`
+    /// (`AIPlayer.cpp:533-536`); the skirmish `posOffset` bumps make both
+    /// the ring half-width and the edge walk advance two pathfind cells at a
+    /// time, and the pre-bump `posOffset < limit` check caps the rings at
+    /// odd cell counts 1, 3, …, 59 (`AIPlayer.cpp:538-541`).  (The C++
+    /// skirmish bump also skews each row one cell past the ring edge; the
+    /// host keeps the samples centered on the ring.)
+    pub(super) fn wiggle_find_legal_build_position(
+        seed: Vec3,
+        is_legal: impl Fn(Vec3) -> bool,
+    ) -> Option<Vec3> {
+        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        let step = 2.0 * cell;
+        // Ring half-widths 1, 3, …, 59 cells; 120-cell skirmish limit.
+        let max_ring = 59.0 * cell;
+        let mut ring = cell;
+        while ring <= max_ring {
+            // Top and bottom rows, paired per column (AIPlayer.cpp:544-561).
+            let mut lateral = -ring;
+            while lateral <= ring {
+                for vertical in [-ring, ring] {
+                    let candidate = Vec3::new(seed.x + lateral, seed.y, seed.z + vertical);
+                    if is_legal(candidate) {
+                        return Some(candidate);
+                    }
+                }
+                lateral += step;
+            }
+            // Left and right columns, paired per row (AIPlayer.cpp:563-581).
+            let mut vertical = -ring;
+            while vertical <= ring {
+                for lateral in [-ring, ring] {
+                    let candidate = Vec3::new(seed.x + lateral, seed.y, seed.z + vertical);
+                    if is_legal(candidate) {
+                        return Some(candidate);
+                    }
+                }
+                vertical += step;
+            }
+            ring += step;
+        }
+        None
+    }
+
     /// Process one building construction start, matching
     /// `AISkirmishPlayer::processBaseBuilding`.
     ///
@@ -320,19 +368,36 @@ impl AIPlayer {
                 );
                 let started =
                     Self::find_available_dozer(game_logic, self.team, position, self.repair_dozer)
-                        .filter(|&dozer_id| {
-                            game_logic.is_location_legal_to_build_for_builder(
-                                self.team,
-                                position,
-                                &template_name,
-                                Some(dozer_id),
-                            )
-                        })
                         .and_then(|dozer_id| {
+                            // C++ buildStructureWithDozer tries the intended
+                            // location first (AIPlayer.cpp:504-517), then
+                            // wiggles an expanding square for the first legal
+                            // spot (AIPlayer.cpp:519-583). Without the wiggle
+                            // an obstructed pad is retried forever.
+                            let is_legal = |candidate: Vec3| {
+                                game_logic.is_location_legal_to_build_for_builder(
+                                    self.team,
+                                    candidate,
+                                    &template_name,
+                                    Some(dozer_id),
+                                )
+                            };
+                            let build_position = if is_legal(position) {
+                                position
+                            } else {
+                                let adjusted =
+                                    Self::wiggle_find_legal_build_position(position, is_legal)?;
+                                // Store the adjusted pad like the base-defense
+                                // fan does, so rebuilds reuse the legal spot.
+                                if let Some(building) = self.building_queue.get_mut(index) {
+                                    building.position = adjusted;
+                                }
+                                adjusted
+                            };
                             let structure_id = game_logic.create_object_under_construction(
                                 &template_name,
                                 self.team,
-                                position,
+                                build_position,
                             )?;
 
                             // The authoritative construction APIs carry the exact live
@@ -341,7 +406,8 @@ impl AIPlayer {
                             let assigned =
                                 game_logic.resume_construction(&[dozer_id], structure_id);
                             let commanded = assigned
-                                && game_logic.unit_command_begin_construct(dozer_id, position);
+                                && game_logic
+                                    .unit_command_begin_construct(dozer_id, build_position);
                             let paid = commanded
                                 && game_logic
                                     .get_player_mut(self.player_id)
@@ -359,6 +425,7 @@ impl AIPlayer {
                         });
 
                 if let Some(object_id) = started {
+                    let built_at = self.building_queue[index].position;
                     let building = &mut self.building_queue[index];
                     building.object_id = Some(object_id);
                     building.decrement_num_rebuilds();
@@ -369,7 +436,7 @@ impl AIPlayer {
                         "AI Player {} building {} at {:?}",
                         self.player_id,
                         template_name,
-                        position
+                        built_at
                     );
                 }
             }
@@ -517,13 +584,23 @@ impl AIPlayer {
             {
                 power_idx = Some(index);
             }
+            // C++ AISkirmishPlayer.cpp:198-243: after the priority/power
+            // candidates, `if (!info->isAutomaticBuild()) continue;` skips
+            // only script-gated pads, and the first automatic pad that has a
+            // dozer and `canMakeUnit(dozer, bldgPlan) == CANMAKE_OK` wins via
+            // `if (bldgPlan == NULL)`.  `m_automaticallyBuild = true` means
+            // "the ai will build" (SidesList.h:267); the skirmish build list
+            // is otherwise dead.  Dozer + legality enforcement stays in
+            // process_building_queue (findDozer / isLocationLegalToBuild).
+            if selected.is_none() && building.automatic_build {
+                selected = Some(index);
+            }
         }
         // C++: `if (powerPlan && powerInfo && !powerPlan->isEquivalentTo(bldgPlan))`
         // — while no FS_POWER scaffold is under construction, the power plan
         // overrides ANY selection (the isEquivalentTo check only skips an
         // identical replacement when the selection is already this power
-        // plan, which changes nothing).  Automatic pads alone never win
-        // (`canMakeUnit(dozer, NULL) -> CANMAKE_NO_PREREQ`).
+        // plan, which changes nothing).
         if let Some(power) = power_idx {
             if !power_under_construction {
                 selected = Some(power);
@@ -1105,12 +1182,35 @@ impl AIPlayer {
             .filter_map(|(&id, source)| {
                 if !source.is_alive()
                     || source.status.under_construction
-                    || (source.team != Team::Neutral && source.team != self.team)
+                    // C++ PartitionFilterPlayer(m_player, false) (AIPlayer.cpp:265)
+                    // admits only sources controlled by ANOTHER player.
+                    || Self::pad_object_still_ours(source, self.player_id, self.team)
                     || !(source.is_kind_of(KindOf::Resource)
                         || source.is_kind_of(KindOf::Harvestable))
-                    || source.stored_resources.supplies == 0
                 {
                     return None;
+                }
+                // C++ gates cash and relationship on the SupplyWarehouseDockUpdate
+                // module only (AIPlayer.cpp:275-283): a warehouse-dock source must
+                // hold boxes and must not be an ENEMY (allies and neutral pass);
+                // non-dock sources carry no cash or relationship gate.
+                if source.thing.template.dock_kind
+                    == crate::game_logic::DockKind::SupplyWarehouse
+                {
+                    if source.stored_resources.supplies == 0 {
+                        return None;
+                    }
+                    // C++ m_player->getRelationship(supplySource->getTeam()).
+                    let relationship = match source.owner_player_id {
+                        Some(owner) => game_logic.player_relationship(self.player_id, owner),
+                        None if source.team != Team::Neutral && source.team != self.team => {
+                            gamelogic::common::Relationship::Enemies
+                        }
+                        None => gamelogic::common::Relationship::Neutral,
+                    };
+                    if relationship == gamelogic::common::Relationship::Enemies {
+                        return None;
+                    }
                 }
                 let delta = source.get_position() - center_position;
                 let distance_squared = delta.x * delta.x + delta.z * delta.z;
@@ -1119,7 +1219,7 @@ impl AIPlayer {
             .min_by(|left, right| {
                 left.0
                     .total_cmp(&right.0)
-                    .then_with(|| left.1 .0.cmp(&right.1 .0))
+                    .then_with(|| left.1.0.cmp(&right.1.0))
             })
             .map(|(_, id)| id)
     }

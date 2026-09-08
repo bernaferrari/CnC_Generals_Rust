@@ -2661,7 +2661,11 @@ mod tests {
             .create_object_for_player("AmericaTankMicrowave", 0, Vec3::new(0.0, 0.0, 0.0))
             .unwrap();
         let civ = logic
-            .create_object("CivilianInfantry", crate::game_logic::Team::Neutral, Vec3::new(20.0, 0.0, 0.0))
+            .create_object(
+                "CivilianInfantry",
+                crate::game_logic::Team::Neutral,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
             .unwrap();
         let enemy = logic
             .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(25.0, 0.0, 0.0))

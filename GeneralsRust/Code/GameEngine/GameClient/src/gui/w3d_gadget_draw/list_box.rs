@@ -99,6 +99,7 @@ pub(super) const LIST_BOX_TEXT_X_OFFSET: i32 = 5;
 pub(super) const LIST_BOX_TEXT_WIDTH_OFFSET: i32 = 7;
 
 pub(super) fn draw_list_box_cell_text(
+    cell_key: (usize, usize),
     text: &str,
     inst_data: &WindowInstanceData,
     column_region: IRegion2D,
@@ -109,23 +110,35 @@ pub(super) fn draw_list_box_cell_text(
     text_color: u32,
     border_color: u32,
 ) {
-    let mut display = DisplayString::new();
-    display.set_text(text.to_string());
-    if let Some(font) = inst_data.font.as_ref() {
-        display.set_font(font);
+    // C++ ports one retained DisplayString per cell (cells[j].data) and
+    // only re-wraps when the text/font changes. Retain one per (item,
+    // column) here too; set_text short-circuits when the text is
+    // unchanged, so steady-state frames skip re-layout entirely.
+    thread_local! {
+        static CELL_DISPLAY_STRINGS: std::cell::RefCell<
+            std::collections::HashMap<(usize, usize), DisplayString>,
+        > = std::cell::RefCell::new(std::collections::HashMap::new());
     }
-    if window_status.contains(WindowStatus::ONE_LINE) {
-        display.set_word_wrap(0);
-    } else {
-        display.set_word_wrap(column_width - LIST_BOX_TEXT_WIDTH_OFFSET);
-    }
-    display.set_clip_region(Some(column_region));
-    display.draw(
-        column_x + LIST_BOX_TEXT_X_OFFSET,
-        draw_y,
-        text_color,
-        border_color,
-    );
+    CELL_DISPLAY_STRINGS.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        let display = cache.entry(cell_key).or_insert_with(DisplayString::new);
+        display.set_text(text.to_string());
+        if let Some(font) = inst_data.font.as_ref() {
+            display.set_font(font);
+        }
+        if window_status.contains(WindowStatus::ONE_LINE) {
+            display.set_word_wrap(0);
+        } else {
+            display.set_word_wrap(column_width - LIST_BOX_TEXT_WIDTH_OFFSET);
+        }
+        display.set_clip_region(Some(column_region));
+        display.draw(
+            column_x + LIST_BOX_TEXT_X_OFFSET,
+            draw_y,
+            text_color,
+            border_color,
+        );
+    });
     note_shipped_ui_draw_commands(1);
 }
 
@@ -275,6 +288,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                                 .or(gadget_color_opt_to_win_color(item.text_color))
                                 .unwrap_or(text_colors.color);
                             draw_list_box_cell_text(
+                                (idx, column),
                                 text,
                                 inst_data,
                                 column_region,
@@ -357,6 +371,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                                     .or(gadget_color_opt_to_win_color(item.text_color))
                                     .unwrap_or(text_colors.color);
                                 draw_list_box_cell_text(
+                                    (idx, column),
                                     &item.text,
                                     inst_data,
                                     column_region,
@@ -503,6 +518,7 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                                 .or(gadget_color_opt_to_win_color(item.text_color))
                                 .unwrap_or(text_colors.color);
                             draw_list_box_cell_text(
+                                (idx, column),
                                 text,
                                 inst_data,
                                 column_region,
@@ -585,6 +601,7 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                                     .or(gadget_color_opt_to_win_color(item.text_color))
                                     .unwrap_or(text_colors.color);
                                 draw_list_box_cell_text(
+                                    (idx, column),
                                     &item.text,
                                     inst_data,
                                     column_region,

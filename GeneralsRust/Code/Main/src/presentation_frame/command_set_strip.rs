@@ -156,6 +156,13 @@ impl PresentationFrame {
                 // even when the leftover definition is unavailable; the host
                 // slot-gate verdict stays authoritative for the rest.
                 let n = cmd.command_name.to_ascii_lowercase();
+                // C++ ControlBarCommand.cpp:1158-1164 — GUI_COMMAND_SELL
+                // returns COMMAND_HIDDEN for OBJECT_STATUS_SCRIPT_UNSELLABLE
+                // (button removed entirely, not merely restricted).
+                if ro.script_unsellable && n.contains("sell") {
+                    *cmd = UnitCommandButton::default();
+                    continue;
+                }
                 let subdued_container = ro.disabled_subdued
                     && (n.contains("sell")
                         || n.contains("evacuate")

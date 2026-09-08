@@ -1770,7 +1770,8 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         );
     }
 
-    // Nationalism residual: additional ROF 125% while in horde → floor(15/1.875)=8 frames.
+    // Nationalism residual: additional ROF 125% while in horde (additive
+    // appendBonuses: 1 + 0.5 + 0.25 = 1.75) → floor(15/1.75)=8 frames.
     assert!(game_logic.apply_minigunner_nationalism_upgrade(mg0));
     assert!(game_logic.honesty_minigunner_nationalism_ok());
     {

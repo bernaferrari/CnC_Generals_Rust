@@ -14,6 +14,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use ww3d_collision::bounding_volumes::OBBoxClass;
 
+pub use self::vertex_material::ColorSourceType;
+
 /// Vertex material class - defines surface properties
 #[derive(Debug, Clone)]
 pub struct VertexMaterialClass {
@@ -25,6 +27,21 @@ pub struct VertexMaterialClass {
     pub shininess: f32,
     pub opacity: f32,
     pub translucency: f32,
+    /// Whether dynamic (light-environment) lighting is applied.
+    /// C++ `VertexMaterialClass::UseLighting` (vermaterial.cpp:45); applied as
+    /// `D3DRS_LIGHTING` in VertexMaterialClass::Apply (vermaterial.cpp:919).
+    /// Prelit meshes carry baked vertex colors and render with lighting OFF
+    /// (meshmdlio.cpp:1801-1808, vertmaterial.cpp:984-986).
+    pub use_lighting: bool,
+    /// Source for the ambient term: material color or the vertex color arrays.
+    /// C++ `AmbientColorSource` (D3DRS_AMBIENTMATERIALSOURCE, vermaterial.cpp:920).
+    pub ambient_color_source: ColorSourceType,
+    /// Source for the diffuse term (D3DRS_DIFFUSEMATERIALSOURCE,
+    /// vermaterial.cpp:921). COLOR1 = the per-vertex DCG array.
+    pub diffuse_color_source: ColorSourceType,
+    /// Source for the emissive term (D3DRS_EMISSIVEMATERIALSOURCE,
+    /// vermaterial.cpp:922). COLOR1 = the per-vertex DIG array.
+    pub emissive_color_source: ColorSourceType,
 }
 
 impl VertexMaterialClass {
@@ -39,6 +56,14 @@ impl VertexMaterialClass {
             shininess: 32.0,
             opacity: 1.0,
             translucency: 0.0,
+            // C++ defaults (vermaterial.cpp:41-45): lighting OFF, all color
+            // sources from the material itself. Pass builders override these
+            // per pass (MeshMatDescClass::Configure_Material parity,
+            // meshmatdesc.cpp:903-917).
+            use_lighting: false,
+            ambient_color_source: ColorSourceType::Material,
+            diffuse_color_source: ColorSourceType::Material,
+            emissive_color_source: ColorSourceType::Material,
         }
     }
 
@@ -61,6 +86,17 @@ impl VertexMaterialClass {
             )
         };
 
+        // The W3D `attributes` bitmask (w3d_file.h:609-629) carries only the
+        // depth-cue flags (W3DVERTMAT_USE_DEPTH_CUE / _COPY_SPECULAR_TO_DIFFUSE
+        // / _DEPTH_CUE_TO_ALPHA) and the per-stage texture-mapper IDs, which
+        // are consumed by Parse_Mapping_Args (vermaterial.cpp:509+). UseLighting
+        // and the D3DMCS_* color sources are NOT authored in the chunk: C++
+        // Load_W3D leaves them at the constructor defaults (vermaterial.cpp:42-45,
+        // lighting OFF / MATERIAL sources) and MeshMatDescClass::
+        // Post_Load_Process + Configure_Material (meshmatdesc.cpp:604-917) set
+        // the per-pass values afterwards. The pass builders in
+        // mesh_system_impl::materials and Main's forward_materials perform that
+        // Configure_Material step; these stay at the C++ defaults here.
         Self {
             name: name.to_string(),
             ambient: to_vec3(&material.ambient),
@@ -70,6 +106,10 @@ impl VertexMaterialClass {
             shininess: material.shininess,
             opacity: material.opacity,
             translucency: material.translucency,
+            use_lighting: false,
+            ambient_color_source: ColorSourceType::Material,
+            diffuse_color_source: ColorSourceType::Material,
+            emissive_color_source: ColorSourceType::Material,
         }
     }
 }
@@ -477,6 +517,12 @@ impl MaterialFactory {
             shininess: w3d_material.shininess,
             opacity: w3d_material.opacity,
             translucency: w3d_material.translucency,
+            // C++ Load_W3D defaults (vermaterial.cpp:42-45); pass builders
+            // apply the Configure_Material per-pass overrides.
+            use_lighting: false,
+            ambient_color_source: ColorSourceType::Material,
+            diffuse_color_source: ColorSourceType::Material,
+            emissive_color_source: ColorSourceType::Material,
         }
     }
 

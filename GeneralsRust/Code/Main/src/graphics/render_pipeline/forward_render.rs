@@ -726,15 +726,12 @@ impl ForwardPass {
             queue_error_total = error_count;
         } // Mutex lock released here
 
-        // C++ W3DInGameUI::draw always winRepaints. If render_frame fails,
-        // post-frame callbacks are dropped. Enqueue UI as last pre-scene so
-        // the overlay still presents over terrain, and again as post-frame
-        self.renderer.enqueue_pre_scene_callback(|frame| {
-            if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame(frame) {
-                log::warn!("pre-scene flush_ui_to_frame failed: {err}");
-            }
-            Ok(())
-        });
+        // C++ W3DInGameUI::draw paints the GUI exactly once post-scene
+        // (winRepaint at the end of the frame). A pre-scene flush here
+        // double-paints the UI, double-applies alpha, and consumes button
+        // clock requests in an erased pass (clock rings vanish), so only
+        // the post-frame registration below remains. Error paths above
+        // still enqueue post-frame flushes so the overlay survives 3D faults.
         self.renderer.enqueue_post_frame_callback(|frame| {
             if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame(frame) {
                 log::warn!("post-frame flush_ui_to_frame failed: {err}");

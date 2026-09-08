@@ -1,6 +1,8 @@
-//! Wave 780: GW entity carries BaseRegenerateUpdate residual; under coupled
-//! or damage-auth, `tick_status_timer_expirations` sole-ticks structure auto-heal
-//! into host_heal_log; host peels `update_base_regenerate`. playable_claim stays false.
+//! Wave 780: BaseRegenerateUpdate is host-sole (C++ one store). The GW
+//! dual-peal heal tick into host_heal_log was retired; host
+//! `update_base_regenerate` runs unless damage authority is live. The GW
+//! still syncs the base-regen residual fields for probing. playable_claim
+//! stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
@@ -86,11 +88,16 @@ pub fn honesty_host_base_regen_dual_peel_source_markers_residual_wave780() -> bo
     let ent = include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs");
     let ok = ent.contains("base_regen_active")
         && ent.contains("base_regen_wake_frame")
-        && sh.contains("Wave 780")
-        && sh.contains("base_regen_heal_amount")
-        && sh.contains("host_heal_log::record")
+        // GW still mirrors the residual fields for sync/probe (construct.rs)…
+        && sh.contains("base_regen_active")
+        // …but the GW sole-heal dual peel is gone: no producer into the heal
+        // log and no GW heal-rate tick remain in the shadow sources.
+        && !sh.contains("host_heal_log::record")
+        && !sh.contains("BASE_REGEN_HEAL_RATE_FRAMES")
         && gl.contains("Wave 780")
-        && gl.contains("update_base_regenerate");
+        && gl.contains("update_base_regenerate")
+        // Host-sole gate: skip only while damage authority is live.
+        && gl.contains("if !crate::gameworld_shadow::gameworld_damage_authority_live()");
     residual_action_store(ResidualHostBaseRegenDualPeelAction::SourceMarkers);
     ok
 }
@@ -106,17 +113,19 @@ pub fn honesty_host_base_regen_dual_peel_nav_commands_residual_wave780() -> bool
     ok
 }
 pub fn simulate_host_base_regen_dual_peel_collect_source() -> bool {
-    let ok = sh_source().contains("Wave 780")
-        && sh_source().contains("base_regen_active")
-        && gl_source().contains("Wave 780");
+    let ok = sh_source().contains("base_regen_active")
+        && !sh_source().contains("base_regen_heal_amount")
+        && gl_source().contains("Wave 780")
+        && gl_source().contains("update_base_regenerate");
     residual_action_store(ResidualHostBaseRegenDualPeelAction::CollectSource);
     ok
 }
 pub fn simulate_host_base_regen_dual_peel_dispatch_source() -> bool {
-    let ok = sh_source().contains("host_heal_log::record")
-        && sh_source().contains("BASE_REGEN_HEAL_RATE_FRAMES")
+    let ok = !sh_source().contains("host_heal_log::record")
+        && !sh_source().contains("BASE_REGEN_HEAL_RATE_FRAMES")
         && gl_source().contains("update_base_regenerate")
-        && gl_source().contains("gameworld_damage_authority_live");
+        && gl_source().contains("gameworld_damage_authority_live")
+        && gl_source().contains("if !crate::gameworld_shadow::gameworld_damage_authority_live()");
     residual_action_store(ResidualHostBaseRegenDualPeelAction::DispatchSource);
     ok
 }

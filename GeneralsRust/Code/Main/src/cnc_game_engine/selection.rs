@@ -139,6 +139,7 @@ fn pick_widened_context_target_along_ray(
     ray_end: glam::Vec3,
     player_team: Option<crate::game_logic::Team>,
     profile: HostContextPickProfile,
+    now_logic_frame: u32,
 ) -> Option<ObjectId> {
     if !profile_has_widened_bits(profile) {
         return None;
@@ -156,15 +157,15 @@ fn pick_widened_context_target_along_ray(
             continue;
         }
 
-        let radius =
-            crate::pick_ray::presentation_mesh_pick_radius(o.selection_radius, o.health_box_width);
-        let Some(t) = crate::pick_ray::ray_sphere_hit_t(ray_start, ray_dir, o.position, radius)
-        else {
+        let Some(t) = crate::pick_ray::object_hit_along_ray(
+            o,
+            frame.frame.0,
+            now_logic_frame,
+            ray_start,
+            ray_dir,
+        ) else {
             continue;
         };
-        if t > 1.0 {
-            continue;
-        }
         if best.is_none_or(|(_, best_t)| t < best_t) {
             best = Some((o.id, t));
         }
@@ -176,17 +177,20 @@ fn closer_presentation_pick_along_ray(
     frame: &crate::presentation_frame::PresentationFrame,
     ray_start: glam::Vec3,
     ray_end: glam::Vec3,
+    now_logic_frame: u32,
     standard: Option<ObjectId>,
     extra: Option<ObjectId>,
 ) -> Option<ObjectId> {
     let ray_dir = ray_end - ray_start;
     let hit_t = |id: ObjectId| {
         frame.objects.iter().find(|o| o.id == id).and_then(|o| {
-            let radius = crate::pick_ray::presentation_mesh_pick_radius(
-                o.selection_radius,
-                o.health_box_width,
-            );
-            crate::pick_ray::ray_sphere_hit_t(ray_start, ray_dir, o.position, radius)
+            crate::pick_ray::object_hit_along_ray(
+                o,
+                frame.frame.0,
+                now_logic_frame,
+                ray_start,
+                ray_dir,
+            )
         })
     };
     match (standard, extra) {
@@ -198,6 +202,7 @@ fn closer_presentation_pick_along_ray(
         (s, e) => s.or(e),
     }
 }
+
 
 fn project_world_to_screen(
     view_projection: glam::Mat4,
@@ -414,7 +419,21 @@ impl CnCGameEngine {
         if self.host_cursor_blocked_by_opaque_window() {
             return None;
         }
-        let frame = self.last_presentation_frame.as_ref()?;
+        // C++ picks the live client scene at message time
+        // (`W3DView::pickDrawable`, W3DView.cpp:2183-2230). This host picks
+        // frozen snapshots, so click with the freshest freeze available —
+        // the render pipeline's when it is newer than the engine's last —
+        // and keep the frozen frame as the fallback.
+        let frozen = self.last_presentation_frame.as_ref()?;
+        let frame = match self.render_pipeline.presentation_frame() {
+            Some(pipeline) if pipeline.frame.0 > frozen.frame.0 => pipeline,
+            _ => frozen,
+        };
+        // Lead the snapshot poses to the live logic frame so a click lands
+        // where the unit is, not where the stamp left it (velocity ×
+        // elapsed frames; see pick_ray::extrapolated_pick_position).
+        let now_logic_frame =
+            u32::try_from(self.game_logic.get_current_frame()).unwrap_or(u32::MAX).max(frame.frame.0);
         let (view_w, view_h) = self.tactical_viewport_size();
         let (ray_start, ray_end) = super::mouse::unproject_mouse_ray(
             self.view_matrix,
@@ -437,18 +456,32 @@ impl CnCGameEngine {
         if hover_force_attackable {
             profile.include_force_attackable = true;
         }
-        let standard = crate::pick_ray::pick_object_id_along_camera_ray(
+        let standard = crate::pick_ray::pick_object_id_along_camera_ray_ex(
             frame,
             ray_start,
             ray_end,
             player_team,
             prioritize_enemy_targets,
+            now_logic_frame,
         );
-        let extra =
-            pick_widened_context_target_along_ray(frame, ray_start, ray_end, player_team, profile);
-        closer_presentation_pick_along_ray(frame, ray_start, ray_end, standard, extra)
-            .filter(|&id| !self.host_object_id_blocked_by_opaque_hud(id))
-            .map(|id| self.remap_ignored_in_gui_pick(frame, id))
+        let extra = pick_widened_context_target_along_ray(
+            frame,
+            ray_start,
+            ray_end,
+            player_team,
+            profile,
+            now_logic_frame,
+        );
+        closer_presentation_pick_along_ray(
+            frame,
+            ray_start,
+            ray_end,
+            now_logic_frame,
+            standard,
+            extra,
+        )
+        .filter(|&id| !self.host_object_id_blocked_by_opaque_hud(id))
+        .map(|id| self.remap_ignored_in_gui_pick(frame, id))
     }
 
     fn remap_ignored_in_gui_pick(
@@ -1981,7 +2014,8 @@ mod idle_worker_selection_tests {
                 camera,
                 glam::Vec3::ZERO,
                 Some(Team::USA),
-                armed
+                armed,
+                frame.frame.0
             ),
             Some(id)
         );

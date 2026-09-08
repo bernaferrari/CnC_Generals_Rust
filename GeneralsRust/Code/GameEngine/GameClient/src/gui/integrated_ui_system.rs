@@ -95,6 +95,11 @@ impl IntegratedUISystem {
         // Create shared renderer
         let renderer = Arc::new(RwLock::new(UIRenderer::new(device, queue, format)?));
         crate::gui::set_ui_renderer(renderer.clone());
+        // Seed the renderer projection in the same logical units the
+        // UIManager subsystems below are laid out in.
+        if let Ok(mut renderer) = renderer.write() {
+            renderer.set_screen_size(screen_width, screen_height);
+        }
 
         // Create subsystems
         let ingame_ui = InGameUI::new(renderer.clone(), screen_width as f32, screen_height as f32);

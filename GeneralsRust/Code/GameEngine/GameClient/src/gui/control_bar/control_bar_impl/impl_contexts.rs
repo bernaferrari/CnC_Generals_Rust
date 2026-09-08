@@ -471,13 +471,33 @@ impl ControlBar {
         {
             return Ok(());
         }
-
         let percent = self.presentation_construction_percent;
+        let text = crate::drawable::drawable::format_under_construction_desc(percent);
         if (percent - self.displayed_construct_percent).abs() > 0.001 {
             self.displayed_construct_percent = percent;
             self.mark_ui_dirty();
         }
+        // C++ ControlBarUnderConstruction.cpp:24-41 updateConstructionTextDisplay:
+        // write `CONTROLBAR:UnderConstructionDesc` formatted with the live
+        // percent into ControlBar.wnd:UnderConstructionDesc every update, and
+        // populateUnderConstruction (ControlBar.cpp:2271) reveals the parent
+        // window. The authored WND label must never show raw.
+        Self::apply_under_construction_windows(&text);
         Ok(())
+    }
+
+    /// Write the localized under-construction label and reveal the context
+    /// window (C++ `GadgetStaticTextSetText` + `winHide(FALSE)`).
+    fn apply_under_construction_windows(text: &str) {
+        crate::gui::with_window_manager(|manager| {
+            if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc") {
+                let _ = win.borrow_mut().set_text(text);
+            }
+            if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionWindow")
+            {
+                let _ = win.borrow_mut().hide(false);
+            }
+        });
     }
 
     fn update_context_ocl_timer(

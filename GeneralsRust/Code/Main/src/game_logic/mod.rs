@@ -22,10 +22,7 @@ pub mod game_logic;
 pub(crate) use game_logic::PathfindingHeightSamples;
 
 #[cfg(test)]
-pub(in crate) fn evaluate_and_execute_scripts_for_test(
-    logic: &mut game_logic::GameLogic,
-    dt: f32,
-) {
+pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::GameLogic, dt: f32) {
     logic.evaluate_and_execute_scripts(dt);
 }
 

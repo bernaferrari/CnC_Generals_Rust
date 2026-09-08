@@ -204,17 +204,15 @@ pub fn honesty_superweapon_kindof_residual_pack_wave80() -> bool {
 /// True when template is counted under MaxSimultaneousLinkKey=Superweapon residual.
 ///
 /// Includes baseline PUC / Nuke / Scud + rebuild-hole residual name tokens.
+/// The static table matches EXACT retail identity names only: the C++
+/// MaxSimultaneousLinkKey comes from authored Object INI module data, not
+/// from the template's name, so a substring heuristic here would rope
+/// name-spoof structures (no SpecialPower module, no authored link key)
+/// into the superweapon arm limit ("...drive_arm_limit_energy_and_
+/// presentation_not_names").
 pub fn is_superweapon_link_key_template(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     if n.contains("rebuildhole") && (n.contains("scud") || n.contains("superweapon")) {
-        return true;
-    }
-    if n.contains("particlecannon")
-        || n.contains("particleuplink")
-        || n.contains("scudstorm")
-        || n.contains("nuclearmissile")
-        || n.contains("nuclear_missile")
-    {
         return true;
     }
     // Exact retail names residual.

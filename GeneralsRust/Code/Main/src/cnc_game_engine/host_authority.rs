@@ -13,6 +13,12 @@ struct StagedRestoreWorld {
     /// queued only after the staged world has committed, then validated
     /// against the first fresh presentation topology by RenderPipeline.
     client_drawables: crate::save_load::snapshot::ClientDrawableWorldSnapshot,
+    /// Driving-instance logic-RNG ADC words captured at save time.  C++
+    /// keeps RandomValue process-static and no load path reseeds it
+    /// (GameState.cpp:628-741), so the commit boundary reseeds the staged
+    /// instance from these words instead of leaving it on the game-start
+    /// re-derivation.  `[0; 6]` marks a pre-v22 save: keep that stream.
+    logic_rng_seed_words: [u32; 6],
 }
 
 impl CnCGameEngine {
@@ -170,6 +176,14 @@ impl CnCGameEngine {
     }
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
+    ///
+    /// The tick runs inside a scoped GameWorld authority window opened from
+    /// this instance's own switches — the same save/restore seam as the
+    /// post-logic eager batch (gameworld_shadow/tick/dispatch.rs). C++ has a
+    /// single `TheGameLogic`, so its global gates always match the driving
+    /// world; this port's constructible GameLogic instances require the
+    /// window so a foreign construction/configuration mid-session (which
+    /// publishes its own snapshot) cannot re-author this frame's deep gates.
     #[inline]
     pub(super) fn host_update_logic_frame(
         &mut self,
@@ -189,9 +203,10 @@ impl CnCGameEngine {
         if self.game_logic.is_paused() {
             self.game_logic.set_paused(false);
         }
-        let snap = self
-            .game_logic
-            .tick_logic_frame(dt, self.last_frame_timing.as_ref(), budget);
+        let snap = crate::gameworld_shadow::with_gameworld_authority(
+            *self.game_logic.gameworld_authority(),
+            || self.game_logic.tick_logic_frame(dt, self.last_frame_timing.as_ref(), budget),
+        );
 
         self.host_stamp_sim_timing_from_snapshot(snap);
         snap
@@ -371,6 +386,7 @@ impl CnCGameEngine {
         &self,
         winner: Option<u32>,
     ) -> crate::game_logic::VictorySummary {
+        // Prefer presentation-frozen summary when available (no live re-aggregate).
         // Wave 584/849/859: presentation freeze owns victory summary residual when installed.
         if let Some(summary) = self
             .last_presentation_frame
@@ -383,7 +399,8 @@ impl CnCGameEngine {
         if let Some(summary) = self.host_match_victory_summary.clone() {
             return summary;
         }
-        // Boot residual only when match outcome residual was never stamped.
+        // Boot residual only — no presentation summary yet. Boot default when
+        // match outcome residual was never stamped.
         // Prefer host_match_over stamp path: if match not over and residual cold, empty.
         // Wave 895: fail-closed boot default (no dual-read). Match-over residual
         // and freeze already covered above; cold residual yields empty summary.
@@ -926,6 +943,8 @@ impl CnCGameEngine {
     }
 
     pub(super) fn presentation_or_boot_match_over_label(&mut self) -> (bool, String) {
+        // Prefer presentation victory residual when frame installed (no live
+        // re-evaluate dual-read).
         // Wave 556/849: presentation freeze owns match-over / victory-label residual.
         if let Some(pres) = self.last_presentation_frame.as_ref() {
             return (
@@ -939,6 +958,7 @@ impl CnCGameEngine {
                 self.host_match_victory_label.clone().unwrap_or_default(),
             );
         }
+        // Boot residual only — no presentation frame yet (single stamped evaluate).
         // Wave 855: boot residual via single stamped evaluate.
         if let Some(v) = self.host_boot_victory_condition_residual() {
             (true, format!("{v:?}"))
@@ -1085,6 +1105,32 @@ impl CnCGameEngine {
         self.invalidate_presentation_terrain_cache();
     }
 
+    /// Commit-time reseed of a staged world's driving-instance logic RNG from
+    /// the ADC words captured at save time.
+    ///
+    /// The staged instance re-derived its words from the game-start base seed
+    /// during `start_new_game`; without this, the first post-load tick would
+    /// replay the entire pre-save draw sequence while the un-reloaded branch
+    /// continues mid-stream.  The instance's recorded base seed is pinned to
+    /// the CURRENT Common broadcast so the next tick's
+    /// `sync_logic_rng_with_global_seed` adopts these words instead of
+    /// re-deriving fresh ones.  `[0; 6]` (pre-v22 saves) is an intentional
+    /// no-op.  Must run after all staging work (map load, singleton install),
+    /// which may itself consume or reseed the global stream.
+    fn host_restore_staged_logic_rng(
+        logic: &mut crate::game_logic::GameLogic,
+        seed_words: [u32; 6],
+    ) {
+        if seed_words == [0u32; 6] {
+            return;
+        }
+        logic.logic_random.set_seed_words(seed_words);
+        logic.logic_base_seed = game_engine::common::random_value::get_game_logic_random_seed();
+        // Out-of-tick draws resolve the process-global fallback; C++ shares
+        // one static stream, so that side continues from the same words too.
+        game_engine::common::random_value::set_game_logic_random_seed_state(seed_words);
+    }
+
     /// Install a fully staged save world as one no-fail host boundary.
     ///
     /// Unlike `host_replace_game_logic`, this also owns the legacy singleton
@@ -1104,6 +1150,7 @@ impl CnCGameEngine {
             runtime_world,
             shroud: _,
             client_drawables,
+            logic_rng_seed_words,
         } = staged;
         let deferred_effects = runtime_world.install_globals();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
@@ -1114,6 +1161,12 @@ impl CnCGameEngine {
         // execute them in original queue order before shadow reconstruction.
         deferred_effects.execute_after_logic_commit();
         drop(old_logic);
+        // C++ RandomValue is process-static and no load path reseeds it
+        // (GameState.cpp:628-741); only mission saves InitRandom(0) in their
+        // message-loop follow-up.  Reseed the committed world's driving
+        // instance here — after staging's map load and singleton install —
+        // so the first post-load draw continues the save-point stream.
+        Self::host_restore_staged_logic_rng(&mut self.game_logic, logic_rng_seed_words);
 
         self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]
@@ -1408,6 +1461,7 @@ impl CnCGameEngine {
             runtime_world,
             shroud: snapshot.shroud.clone(),
             client_drawables: snapshot.client_drawables.clone(),
+            logic_rng_seed_words: snapshot.logic_rng_seed_words,
         })
     }
 
@@ -1837,6 +1891,8 @@ mod staged_restore_tests {
             object,
             glam::Vec3::new(1.0, 2.0, 3.0),
             4.0,
+            5.0,
+            1.0,
             0,
             &[glam::Vec3::new(5.0, 6.0, 7.0)],
             false,
@@ -2106,8 +2162,7 @@ mod staged_restore_tests {
         // expiry queue rather than retaining its map-load singleton state.
         let expected_shroud = {
             let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-            let mut shroud = shroud_manager.lock()
-                .expect("source shroud lock");
+            let mut shroud = shroud_manager.lock().expect("source shroud lock");
             shroud.do_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1);
             shroud.queue_undo_shroud_reveal(&glam::Vec3::ZERO, 75.0, 1, 41, 321);
             shroud.snapshot_state()
@@ -2203,7 +2258,8 @@ mod staged_restore_tests {
         source.add_player(Player::new(1, Team::China, "Computer", false));
         source.setup_skirmish_ai(0);
         let (first_live_ai_group_id, second_live_ai_group_id) = {
-            let ai_store = gamelogic::ai::the_ai();let mut ai = ai_store.write().expect("lock live legacy AI");
+            let ai_store = gamelogic::ai::the_ai();
+            let mut ai = ai_store.write().expect("lock live legacy AI");
             let first = ai.create_group();
             let first = first.read().expect("read first live AI group").get_id();
             let second = ai.create_group();
@@ -2258,7 +2314,8 @@ mod staged_restore_tests {
                 .map(|sides| (sides.get_num_sides(), sides.get_num_teams()))
                 .unwrap_or_default();
             let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
-            let shroud = shroud_manager.lock()
+            let shroud = shroud_manager
+                .lock()
                 .map(|shroud| shroud.snapshot_state())
                 .unwrap_or_default();
             let mut named = gamelogic::scripting::engine::get_named_object_tracker()
@@ -2271,7 +2328,8 @@ mod staged_restore_tests {
                 .read()
                 .map(|engine| engine.is_some())
                 .unwrap_or(false);
-            let ai_store = gamelogic::ai::the_ai();let legacy_ai_groups = ai_store
+            let ai_store = gamelogic::ai::the_ai();
+            let legacy_ai_groups = ai_store
                 .read()
                 .map(|ai| {
                     (
@@ -2338,9 +2396,8 @@ mod staged_restore_tests {
 
         assert_eq!(global_probe(), before, "rollback must restore live globals");
         let resumed_ai_group_id = {
-            let ai_store = gamelogic::ai::the_ai();let mut ai = ai_store
-                .write()
-                .expect("lock restored legacy AI");
+            let ai_store = gamelogic::ai::the_ai();
+            let mut ai = ai_store.write().expect("lock restored legacy AI");
             let resumed = ai.create_group();
             let resumed_id = resumed
                 .read()
@@ -2390,5 +2447,240 @@ mod staged_restore_tests {
             .expect("deferred team effects");
         let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
         assert!(globals < logic && logic < effects && effects < shadow);
+    }
+
+    /// C++ keeps RandomValue process-static and no load path reseeds it
+    /// (GameState.cpp:628-741): the post-load stream continues from wherever
+    /// the save left it.  This is the run-to-N / save / continue / load /
+    /// continue comparison in miniature: branch A keeps ticking the live
+    /// match past the save, branch B stages the save and applies the
+    /// commit-time reseed, and both must draw the identical sequence.
+    #[test]
+    fn staged_restore_continues_logic_rng_stream_from_save_point() {
+        let Some(map_name) = retail_map_path_for_test() else {
+            eprintln!("retail maps unavailable — skip staged restore RNG continuation test");
+            return;
+        };
+        const FRAME_TIMESTEP: f32 = 1.0 / 30.0;
+
+        let temp = tempfile::tempdir().expect("temporary save directory");
+        let mut saves = SaveFileManager::with_save_directory(temp.path());
+        saves.init().expect("initialize temporary save directory");
+
+        let mut source = GameLogic::new();
+        source.start_new_game(GameMode::Skirmish);
+        assert!(source.load_map(&map_name), "load source retail map");
+        // Known base seed, then frames so the driving instance adopts the
+        // broadcast and its ADC words advance past a fresh derivation.
+        game_engine::common::random_value::init_game_logic_random(0x1BAD_B002);
+        for _ in 0..8 {
+            source.tick_logic_frame(FRAME_TIMESTEP, None, None);
+        }
+        // Deterministic draws through the driving instance — exactly what a
+        // tick's published-owner scope does — so the save-point words
+        // provably sit past a fresh re-derivation of the base seed.
+        let draw_through_instance = |logic: &mut GameLogic, draws: usize| -> Vec<i32> {
+            game_engine::common::random_value::with_logic_rng_owner(
+                &mut logic.logic_random,
+                || {
+                    (0..draws)
+                        .map(|_| {
+                            game_engine::common::random_value::get_game_logic_random_value(
+                                0, 1_000_000,
+                            )
+                        })
+                        .collect()
+                },
+            )
+        };
+        let _ = draw_through_instance(&mut source, 16);
+        let saved_words = source.logic_random.seed_words();
+        let mut fresh_derivation = game_engine::common::random_value::RandomState::default();
+        fresh_derivation.seed_random(0x1BAD_B002);
+        assert_ne!(
+            saved_words,
+            fresh_derivation.seed_words(),
+            "pre-save draws must move the instance stream off the fresh derivation"
+        );
+
+        let catalog = source.templates.clone();
+        saves
+            .save_game(
+                "rng_continue",
+                &source,
+                &save_info("rng_continue", map_name.clone()),
+            )
+            .expect("write RNG continuation save");
+
+        // Branch A: the live match continues from the save point.
+        let branch_a_draws = draw_through_instance(&mut source, 6);
+        let branch_a_words = source.logic_random.seed_words();
+
+        // Branch B: stage the save (its map load may consume or reseed the
+        // global stream) and apply the commit-time reseed.
+        let mut staged = CnCGameEngine::stage_saved_world_for_restore(
+            &mut saves,
+            "rng_continue",
+            GameMode::Shell,
+            &catalog,
+        )
+        .expect("stage RNG continuation save");
+        assert_eq!(
+            staged.logic_rng_seed_words, saved_words,
+            "the snapshot must carry the save-point driving-instance words"
+        );
+        CnCGameEngine::host_restore_staged_logic_rng(
+            &mut staged.logic,
+            staged.logic_rng_seed_words,
+        );
+        assert_eq!(
+            staged.logic.logic_random.seed_words(),
+            saved_words,
+            "commit must reseed the staged instance from the saved words"
+        );
+        assert_eq!(
+            staged.logic.logic_base_seed,
+            game_engine::common::random_value::get_game_logic_random_seed(),
+            "commit must pin the instance base to the live broadcast so the first tick cannot re-derive"
+        );
+        let branch_b_draws = draw_through_instance(&mut staged.logic, 6);
+        assert_eq!(
+            branch_b_draws, branch_a_draws,
+            "first post-load draws must continue the save-point stream"
+        );
+        assert_eq!(
+            staged.logic.logic_random.seed_words(),
+            branch_a_words,
+            "post-load stream state must match the unreloaded branch"
+        );
+    }
+
+    /// C++ `GameStateMap::xfer` moves the exact object-ID counter early in
+    /// the load (GameStateMap.cpp:372-383) so a post-load creation can never
+    /// alias the ID of an object destroyed before the save.  No retail map
+    /// needed: the allocator contract lives in the snapshot round trip.
+    #[test]
+    fn restored_object_allocator_never_reuses_a_dead_object_id() {
+        let mut source = GameLogic::new();
+        let mut ranger = crate::game_logic::ThingTemplate::new("USARanger");
+        ranger
+            .add_kind_of(crate::game_logic::KindOf::Infantry)
+            .add_kind_of(crate::game_logic::KindOf::Selectable);
+        source.templates.insert("USARanger".to_string(), ranger);
+        source.add_player(Player::new(0, Team::USA, "USA", true));
+
+        let mut live_ids = Vec::new();
+        for index in 0..6 {
+            live_ids.push(
+                source
+                    .create_object(
+                        "USARanger",
+                        Team::USA,
+                        glam::Vec3::new(10.0 + index as f32, 0.0, 8.0),
+                    )
+                    .expect("create ranger"),
+            );
+        }
+        let dead_id = *live_ids.last().expect("allocated ids");
+        source.destroy_object(dead_id);
+        // Drain the destruction list so the dead object is gone from the
+        // saved world (C++ processes destruction during the logic update).
+        for _ in 0..16 {
+            source.tick_logic_frame(1.0 / 30.0, None, None);
+            if source.host_object(dead_id).is_none() {
+                break;
+            }
+        }
+        assert!(
+            source.host_object(dead_id).is_none(),
+            "dead object must leave the world before the save"
+        );
+
+        let builder = crate::save_load::SnapshotBuilder::new();
+        let mut snapshot = builder
+            .create_world_snapshot(&source)
+            .expect("snapshot with id gap");
+        assert!(
+            snapshot.next_object_id > dead_id.0,
+            "snapshot must carry the exact allocator counter past the dead id"
+        );
+        let saved_next = snapshot.next_object_id;
+        assert!(!snapshot.objects.contains_key(&dead_id));
+
+        let restore_and_create = |snapshot: &crate::save_load::WorldSnapshot| -> u32 {
+            let mut restored = GameLogic::new();
+            restored.templates = source.templates.clone();
+            builder
+                .restore_from_snapshot(snapshot, &mut restored)
+                .expect("restore");
+            restored
+                .create_object("USARanger", Team::USA, glam::Vec3::new(60.0, 0.0, 8.0))
+                .expect("post-load creation must allocate")
+                .0
+        };
+
+        // v22 save: the exact saved counter is authoritative.
+        assert_eq!(
+            restore_and_create(&snapshot),
+            saved_next,
+            "post-load creation must continue the saved allocator"
+        );
+        assert_ne!(
+            saved_next, dead_id.0,
+            "post-load creation must never alias the destroyed object's id"
+        );
+
+        // Pre-v22 save (sentinel counter): legacy max-live-id + 1 fallback.
+        snapshot.next_object_id = 0;
+        let fallback_id = restore_and_create(&snapshot);
+        let max_live = snapshot
+            .objects
+            .keys()
+            .map(|id| id.0)
+            .max()
+            .unwrap_or(0);
+        assert_eq!(
+            fallback_id,
+            max_live.saturating_add(1),
+            "pre-v22 saves keep the max-id-plus-one derivation"
+        );
+    }
+
+    /// Pre-v22 saves carry the `[0; 6]` sentinel: the commit reseed must be
+    /// a no-op so those loads keep the staged instance's game-start stream
+    /// (the historical behavior).
+    #[test]
+    fn commit_logic_rng_reseed_is_a_no_op_for_pre_v22_saves() {
+        let mut logic = GameLogic::new();
+        logic.start_new_game(GameMode::Skirmish);
+        let before_words = logic.logic_random.seed_words();
+        let before_base = logic.logic_base_seed;
+        CnCGameEngine::host_restore_staged_logic_rng(&mut logic, [0u32; 6]);
+        assert_eq!(logic.logic_random.seed_words(), before_words);
+        assert_eq!(logic.logic_base_seed, before_base);
+    }
+
+    /// The commit boundary must reseed after all staged map work: globals
+    /// install, logic installs, deferred team effects run, and only then is
+    /// the RNG reseeded — before the shadow rebuild exposes the world.
+    #[test]
+    fn staged_commit_reseeds_logic_rng_after_staged_map_work() {
+        let source = include_str!("host_authority.rs");
+        let start = source
+            .find("fn host_replace_staged_restore_world")
+            .expect("combined staged commit boundary");
+        let body = &source[start
+            ..source[start..]
+                .find("\n    pub(super) fn host_save_game_authority")
+                .map(|end| start + end)
+                .expect("end of combined staged commit boundary")];
+        let effects = body
+            .find("deferred_effects.execute_after_logic_commit()")
+            .expect("deferred team effects");
+        let reseed = body
+            .find("host_restore_staged_logic_rng(&mut self.game_logic")
+            .expect("commit-time logic RNG reseed");
+        let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
+        assert!(effects < reseed && reseed < shadow);
     }
 }

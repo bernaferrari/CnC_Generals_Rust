@@ -611,7 +611,19 @@ impl HostStructureToppleData {
         if hi <= lo {
             lo
         } else {
-            lo + (frame.wrapping_mul(1_103_515_245).wrapping_add(12_345) % (hi - lo + 1))
+            // C++ StructureToppleUpdate.cpp:208 GameClientRandomValue(lo, hi)
+            // -> RandomValue.cpp:189/193/196: `UnsignedInt delta = hi - lo + 1`
+            // is evaluated with 32-bit two's-complement wrap (MSVC x86);
+            // delta == 0 returns hi without consuming a draw, else the draw is
+            // reduced mod delta, reinterpreted as Int, and wrap-added to lo.
+            // delta wraps to 0 only for lo == 0 && hi == u32::MAX (reachable
+            // via INI `MaxToppleBurstDelay = 4294967295`), where C++ yields hi.
+            let delta = hi.wrapping_sub(lo).wrapping_add(1);
+            if delta == 0 {
+                hi
+            } else {
+                lo.wrapping_add(frame.wrapping_mul(1_103_515_245).wrapping_add(12_345) % delta)
+            }
         }
     }
 
@@ -666,7 +678,10 @@ impl HostStructureToppleData {
             );
             self.start_fx_played = true;
             self.next_burst_frame =
-                current_frame.saturating_add(self.burst_delay_frames(current_frame));
+                // C++ StructureToppleUpdate.cpp:208: `now + delay` is an
+                // UnsignedInt add that wraps (MSVC x86), incl. the
+                // delta-wrapped 0xFFFFFFFF delay.
+                current_frame.wrapping_add(self.burst_delay_frames(current_frame));
             self.last_polled_angle = self.accumulated_angle;
         }
         if !just_started
@@ -683,7 +698,8 @@ impl HostStructureToppleData {
                 self.delay_burst_z,
             );
             self.next_burst_frame =
-                current_frame.saturating_add(self.burst_delay_frames(current_frame));
+                // C++ StructureToppleUpdate.cpp:256: wrapping UnsignedInt add.
+                current_frame.wrapping_add(self.burst_delay_frames(current_frame));
         }
         if matches!(
             self.state,

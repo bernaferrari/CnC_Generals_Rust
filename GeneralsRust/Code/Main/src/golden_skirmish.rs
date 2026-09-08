@@ -24,9 +24,10 @@
 //! - `combat_store_damage_ok`: weapons keep WeaponStore/template damage (retail ranger ~5);
 //!   no slice-only damage floor (was 40).
 
-//! Wave 957: host_object/host_objects authority dual-read seal.
-use crate::authoritative_world::{AuthorityProbe, set_verification_single_authority};
-use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
+use crate::authoritative_world::AuthorityProbe;
+use crate::command_system::{
+    CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys,
+};
 use crate::game_logic::host_structure_economy_residual::COMMAND_CENTER_MAX_HEALTH;
 use crate::game_logic::{
     AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition, Weapon,
@@ -557,19 +558,18 @@ fn ensure_harvester(logic: &mut GameLogic, base: Vec3) -> Option<ObjectId> {
     if let Some(existing) = logic
         .host_objects()
         .values()
-        .find(|o| {
-            o.team == Team::USA
-                && o.is_alive()
-                && o.can_move()
-                && o.is_resource_collector()
-        })
+        .find(|o| o.team == Team::USA && o.is_alive() && o.can_move() && o.is_resource_collector())
         .map(|o| o.id)
     {
         return Some(existing);
     }
     let name = first_present_template(
         logic,
-        &["AmericaVehicleChinook", "USA_Chinook", "ChinaVehicleSupplyTruck"],
+        &[
+            "AmericaVehicleChinook",
+            "USA_Chinook",
+            "ChinaVehicleSupplyTruck",
+        ],
     )
     .unwrap_or_else(|| "GoldenHarvester".into());
     let pos = clamp_build_site(logic, base + Vec3::new(25.0, 0.0, 12.0));
@@ -594,7 +594,10 @@ fn stamp_supply_center_producer_set(logic: &mut GameLogic, id: ObjectId) {
     let is_usa_supply_center = logic
         .host_object(id)
         .map(|o| {
-            o.team == Team::USA && o.template_name.to_ascii_lowercase().contains("supplycenter")
+            o.team == Team::USA
+                && o.template_name
+                    .to_ascii_lowercase()
+                    .contains("supplycenter")
         })
         .unwrap_or(false);
     if !is_usa_supply_center {
@@ -1644,7 +1647,11 @@ fn run_synthetic_host_skirmish(
     let gatherer = logic
         .create_object("GoldenHarvester", Team::USA, Vec3::new(60.0, 0.0, 12.0))
         .or_else(|| {
-            logic.create_object("AmericaVehicleChinook", Team::USA, Vec3::new(60.0, 0.0, 12.0))
+            logic.create_object(
+                "AmericaVehicleChinook",
+                Team::USA,
+                Vec3::new(60.0, 0.0, 12.0),
+            )
         })
         .unwrap_or(dozer);
     // Retail SupplyPile authors stock via SupplyWarehouseDockUpdate
@@ -1670,7 +1677,10 @@ fn run_synthetic_host_skirmish(
     // carry + SupplyCenter deposit crediting the owner's Money (WorkerAIUpdate /
     // ChinookAIUpdate ferry, SupplyTruckAIUpdate::gainOneBox); require supplies
     // to actually move into player 0's cash.
-    let cash_at_gather = logic.get_player(0).map(|p| p.resources.supplies).unwrap_or(0);
+    let cash_at_gather = logic
+        .get_player(0)
+        .map(|p| p.resources.supplies)
+        .unwrap_or(0);
     let gathered = gather_engaged
         && run_until(logic, 1200, |g| {
             g.get_player(0)
@@ -1733,16 +1743,21 @@ fn run_synthetic_host_skirmish(
             vec![sc],
         );
         let up_result = system.execute_command(&up_cmd, logic);
-        let queued_on_producer = logic.host_object(sc).map(|o| {
-            o.building_data
-                .as_ref()
-                .map(|b| {
-                    b.production_queue
-                        .iter()
-                        .any(|i| i.is_upgrade() && i.template_name.eq_ignore_ascii_case("Upgrade_AmericaSupplyLines"))
-                })
-                .unwrap_or(false)
-        }).unwrap_or(false);
+        let queued_on_producer = logic
+            .host_object(sc)
+            .map(|o| {
+                o.building_data
+                    .as_ref()
+                    .map(|b| {
+                        b.production_queue.iter().any(|i| {
+                            i.is_upgrade()
+                                && i.template_name
+                                    .eq_ignore_ascii_case("Upgrade_AmericaSupplyLines")
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
         upgraded = up_result == CommandResult::Success
             && queued_on_producer
             && run_until(logic, 1200, |g| {
@@ -2466,7 +2481,6 @@ fn run_map_world_skirmish(
 /// Production-linked golden skirmish scenario.
 pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSkirmishResult {
     crate::gameworld_shadow::ensure_gate_damage_authority();
-    set_verification_single_authority(true);
     let (map_identity, map_exists) = resolve_map(map_override);
     let config = golden_skirmish_config(&map_identity);
     let slots_active = config.slots.iter().filter(|s| s.is_active).count();
@@ -2616,8 +2630,6 @@ pub fn run_golden_skirmish(map_override: Option<&str>, frames: u32) -> GoldenSki
         "partial".into()
     };
 
-    set_verification_single_authority(false);
-
     GoldenSkirmishResult {
         map_identity,
         map_loaded,
@@ -2706,7 +2718,6 @@ mod tests {
 
     fn host_construct_after_load_map_residual() {
         crate::gameworld_shadow::ensure_gate_damage_authority();
-        set_verification_single_authority(true);
         let (map_identity, map_exists) = resolve_map(None);
         if !map_exists {
             return;
@@ -2748,7 +2759,6 @@ mod tests {
     #[test]
     fn load_map_start_vision_allows_build_residual() {
         crate::gameworld_shadow::ensure_gate_damage_authority();
-        set_verification_single_authority(true);
         let (map_identity, map_exists) = resolve_map(None);
         if !map_exists {
             eprintln!("retail map absent — skip start vision residual");
@@ -2796,8 +2806,11 @@ mod tests {
     fn main_crate_vision_xz_plane_residual() {
         // Regression: update_main_crate_vision must feed shroud (x,z) so build
         // placement LBC_SHROUD matches unit vision on the gameplay XZ plane.
-        let src = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
-        let vision = src
+        // Wave 957 split GameLogic into game_logic/* modules; the vision feed
+        // now lives in world_objects/spawn_templates/vision.rs (the facade
+        // concat no longer carries it).
+        let vision_src = include_str!("game_logic/world_objects/spawn_templates/vision.rs");
+        let vision = vision_src
             .split("fn update_main_crate_vision")
             .nth(1)
             .and_then(|s| s.split("fn shroud_visibility_snapshot_for_team").next())
@@ -2807,7 +2820,8 @@ mod tests {
             "main-crate vision must map world XZ → shroud XY residual"
         );
         // load_map must apply starting vision before first InGame tick.
-        let load = src
+        let load_src = include_str!("game_logic/world_save/world_load.rs");
+        let load = load_src
             .split("pub fn load_map_with_progress")
             .nth(1)
             .and_then(|s| {
@@ -2819,12 +2833,14 @@ mod tests {
             load.contains("self.update_main_crate_vision()"),
             "load_map must reveal FOW around start units residual"
         );
+        let selection_src = include_str!("game_logic/world_scripts/add_object_selection.rs");
         assert!(
-            src.contains("fn relocate_host_ai_bases_to_map_starts")
-                && src.contains("relocate_host_ai_bases_to_map_starts()"),
+            selection_src.contains("fn relocate_host_ai_bases_to_map_starts")
+                && selection_src.contains("relocate_host_ai_bases_to_map_starts()"),
             "map load rebind must anchor AI soup on start structures residual"
         );
-        let build = src
+        let production_src = include_str!("game_logic/world_scripts/ui_production.rs");
+        let build = production_src
             .split("fn is_build_location_shroud_clear")
             .nth(1)
             .and_then(|s| s.split("pub fn is_location_legal_to_build").next())

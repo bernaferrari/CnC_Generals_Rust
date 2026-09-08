@@ -1938,13 +1938,28 @@ impl CnCGameEngine {
             warn!("W3DDisplay setDisplayMode device resize failed: {err:?}");
             return;
         }
-        let _ = self
-            .window
-            .request_inner_size(winit::dpi::PhysicalSize::new(mode.xres, mode.yres));
+        // C++ TheDisplay width/height is the logical client size; winit maps it
+        // to the physical backbuffer via scale_factor, so request LogicalSize.
+        let logical = winit::dpi::LogicalSize::new(f64::from(mode.xres), f64::from(mode.yres));
+        let _ = self.window.request_inner_size(logical);
         if let Err(err) = self.set_fullscreen(!mode.windowed) {
             warn!("W3DDisplay setDisplayMode fullscreen failed: {err:?}");
         }
-        self.resize(winit::dpi::PhysicalSize::new(mode.xres, mode.yres));
+        let scale = self.window.scale_factor().max(0.0001);
+        self.resize(logical.to_physical(scale));
+        // Sync the logical client size (C++ TheDisplay width/height) immediately
+        // so the UI renderer and window manager track the new mode this frame.
+        let size = self.window.inner_size();
+        if size.width > 0 && size.height > 0 {
+            let logical_w = ((size.width as f64) / scale).round().max(1.0) as u32;
+            let logical_h = ((size.height as f64) / scale).round().max(1.0) as u32;
+            let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+                renderer.set_screen_size(logical_w, logical_h);
+            });
+            game_client::gui::with_window_manager(|manager| {
+                manager.set_screen_size(logical_w as i32, logical_h as i32);
+            });
+        }
     }
 
     #[cfg(feature = "game_client")]
@@ -2503,10 +2518,11 @@ impl CnCGameEngine {
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
-        // Dual GameHUD residual: engine HUD + interactive UIManager HUD.
+        // Single rendered GameHUD: only `ui_manager.render()` draws a GameHUD
+        // (ui_manager.rs game_hud.render); engine `self.game_hud` is not drawn,
+        // so fanning out here duplicated every radar event/toast into two HUDs.
         // Resources/minimap/selection re-sync every render; events apply once
         // per LogicFrame inside apply_events_to_game_hud (same freeze is reused).
-        pres.apply_to_game_hud(&mut self.game_hud);
         pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
     }
 }

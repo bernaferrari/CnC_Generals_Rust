@@ -2369,6 +2369,18 @@ impl Recorder {
         self.mode == RecorderMode::Record
     }
 
+    /// True when a host shell (GameClient bridge or Main `record_tap`) feeds
+    /// this recorder from its own `TheCommandList` and therefore owns the
+    /// per-frame `MSG_LOGIC_CRC` posting plus the `updateRecord` flush
+    /// cadence. C++ has exactly one poster (`GameLogic::update`,
+    /// GameLogic.cpp:3625-3654) and one consumer (`processCommandList`,
+    /// GameLogic.cpp:3669); the GameLogic crate's own `update()` CRC site
+    /// must stay silent while an external bridge owns the series, or the
+    /// `.rep` stream receives two divergent CRC series.
+    pub fn logic_crc_posted_externally(&self) -> bool {
+        self.command_source.is_some()
+    }
+
     /// Get replay directory path
     /// Matches C++ RecorderClass::getReplayDir() from Recorder.cpp:1459-1466
     fn get_replay_dir(&self) -> PathBuf {
@@ -2697,6 +2709,19 @@ mod tests {
         assert_eq!(crc.read_crc(), 0x12345678);
         assert_eq!(crc.read_crc(), 0xABCDEF00);
         assert_eq!(crc.read_crc(), 0); // Empty returns 0
+    }
+
+    #[test]
+    fn test_logic_crc_posted_externally_tracks_command_source() {
+        // GameClient / Main record_tap install a command source when they own
+        // the MSG_LOGIC_CRC series; a bare recorder (headless/crate-only
+        // path) posts it itself via GameLogic::update.
+        let mut recorder = Recorder::new();
+        assert!(!recorder.logic_crc_posted_externally());
+        recorder.set_command_source(Some(Arc::new(|| Vec::new())));
+        assert!(recorder.logic_crc_posted_externally());
+        recorder.set_command_source(None);
+        assert!(!recorder.logic_crc_posted_externally());
     }
 
     #[test]

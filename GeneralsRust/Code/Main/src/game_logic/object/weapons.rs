@@ -835,16 +835,16 @@ impl Object {
         // damage in Weapon.ini; host paint stamps zero the Object copy for
         // the no-HP-damage residual, which must not feed chooseBest.
         let template_damage = gamelogic::weapon::with_weapon_store(|store| {
-            store
-                .find_weapon_template(name)
-                .map(|wt| wt.primary_damage)
+            store.find_weapon_template(name).map(|wt| wt.primary_damage)
         })
         .ok()
         .flatten()
         .filter(|d| *d > 0.0)
         .unwrap_or(weapon.damage);
-        let est =
-            crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(name, template_damage);
+        let est = crate::game_logic::weapon_bootstrap::host_estimate_weapon_from_name(
+            name,
+            template_damage,
+        );
         let dt = crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name);
         let victim = crate::game_logic::weapon_bootstrap::host_estimate_victim_from_object(
             target,
@@ -1198,9 +1198,32 @@ impl Object {
         }
     }
 
-    /// Record a successful discharge for PreAttackType PER_ATTACK bookkeeping.
+    /// Record a successful discharge for PreAttackType PER_ATTACK bookkeeping
+    /// plus the generic FiringTracker MEAN/FAST continuous-fire derivation.
+    ///
+    /// C++ has ONE FiringTracker::shotFired per shot (FiringTracker.cpp:60-160).
+    /// Attackers owned by a specialized continuous-fire lane (gattling tank,
+    /// minigunner, structure gattling) already had the shot's level/coast
+    /// derived by the lane; they must call
+    /// [`Object::record_shot_at_target_without_continuous_fire`] instead so
+    /// the generic derivation cannot clobber the lane's deadline or level.
     pub fn record_shot_at_target(&mut self, target_id: ObjectId) {
+        self.record_shot_engagement_bookkeeping(target_id);
+        self.update_continuous_fire_after_shot(target_id);
+    }
+
+    /// Engagement bookkeeping only (PER_ATTACK counter, stats, PER_SHOT
+    /// re-arm, shared reload sync) — no continuous-fire writes. Used by the
+    /// specialized gattling/minigunner lanes whose advance helper already
+    /// derived level/coast for the same shot.
+    pub fn record_shot_at_target_without_continuous_fire(&mut self, target_id: ObjectId) {
+        self.record_shot_engagement_bookkeeping(target_id);
+    }
+
+    fn record_shot_engagement_bookkeeping(&mut self, target_id: ObjectId) {
         let now = crate::game_logic::host_historic_bonus::logic_frame();
+        // C++ FiringTracker.cpp:83-99: same victim, or a target switch inside
+        // the coast window (pre-shot deadline, strict), keeps the count.
         let within_coast = self.continuous_fire_coast_until_frame != 0
             && now < self.continuous_fire_coast_until_frame;
         if self.consecutive_shot_target == Some(target_id) || within_coast {
@@ -1216,11 +1239,14 @@ impl Object {
         self.pre_attack_ready_at = 0.0;
         self.record_host_combat_attack();
         self.sync_shared_weapon_reload();
-        self.update_continuous_fire_after_shot(target_id);
     }
 
     /// C++ FiringTracker continuous-fire MEAN/FAST residual (non-gattling path).
-    /// Gattling buildings/tanks may overwrite level via specialized advance helpers.
+    /// Gattling buildings/tanks/minigunners overwrite level via specialized
+    /// advance helpers and must not run this generic derivation.
+    ///
+    /// Demotion is C++ coolDown (FiringTracker.cpp:111-131, 286-322): straight
+    /// to base AND restart — consecutive = 0, victim cleared.
     pub fn update_continuous_fire_after_shot(&mut self, target_id: ObjectId) {
         let one = self.continuous_fire_one_shots;
         let two = self.continuous_fire_two_shots;
@@ -1231,7 +1257,7 @@ impl Object {
         self.continuous_fire_victim = target_id.0;
         self.continuous_fire_consecutive = c;
         let level = self.continuous_fire_level;
-        self.continuous_fire_level = if level == 1 {
+        let new_level = if level == 1 {
             if c < one {
                 0
             } else if two != u32::MAX && c > two {
@@ -1246,6 +1272,15 @@ impl Object {
         } else {
             0
         };
+        self.continuous_fire_level = new_level;
+        if new_level < level {
+            // C++ coolDown (FiringTracker.cpp:319-321): "Start everything
+            // over" — the demoting shot leaves no count and no victim.
+            self.consecutive_shots_at_target = 0;
+            self.consecutive_shot_target = None;
+            self.continuous_fire_consecutive = 0;
+            self.continuous_fire_victim = 0;
+        }
         self.record_host_continuous_fire();
     }
 
@@ -1272,7 +1307,9 @@ impl Object {
             return;
         }
         let until = self.continuous_fire_coast_until_frame;
-        if until == 0 || frame < until {
+        // C++ FiringTracker.cpp:189: strict `now > m_frameToStartCooldown` —
+        // the deadline frame itself is still cool-free; cool one frame later.
+        if until == 0 || frame <= until {
             return;
         }
         // coolDown residual: clear MEAN/FAST straight to zero.
@@ -1720,8 +1757,12 @@ mod tests {
 
         attacker.continuous_fire_coast_until_frame = 0;
         attacker.record_shot_at_target(ObjectId(4));
-        assert_eq!(attacker.consecutive_shots_at_target, 1);
-        assert_eq!(attacker.consecutive_shot_target, Some(ObjectId(4)));
+        // C++ FiringTracker::shotFired (:111-131) + coolDown (:319-321):
+        // block 1 crossed '> ContinuousFireOne' into MEAN; this retargeted
+        // shot restarts at 1 < ContinuousFireOne, so it coolDown()s — the
+        // demoting shot leaves no count and no victim.
+        assert_eq!(attacker.consecutive_shots_at_target, 0);
+        assert_eq!(attacker.consecutive_shot_target, None);
     }
 
     #[test]

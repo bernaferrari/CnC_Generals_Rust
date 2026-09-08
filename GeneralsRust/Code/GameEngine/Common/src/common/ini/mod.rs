@@ -50,7 +50,6 @@ pub mod ini_science;
 // Batch 4 (UI/Shell parsers)
 pub mod ini_mouse;
 pub mod ini_online_chat_colors;
-pub mod ini_shell_menu_scheme;
 pub mod ini_window_transition;
 
 // Batch 5 (Critical gameplay parsers - newly implemented)
@@ -113,7 +112,7 @@ pub use ini_draw_group_info::{
 };
 pub use ini_game_data::{
     Coord2D, Coord3D, GlobalData, RGBColor, TimeOfDay, Weather, get_global_data,
-    parse_game_data_definition,
+    init_global_data, parse_game_data_definition,
 };
 pub use ini_map_cache::{
     MapCache, MapMetaData, MapMetaDataReader, Region3D, WinTimeStamp, parse_map_cache_definition,
@@ -199,11 +198,6 @@ pub use ini_online_chat_colors::{
     GSCOLOR_MAX, GSColorIndex, OnlineChatColors, get_online_chat_colors,
     get_online_chat_colors_mut, init_online_chat_colors, parse_online_chat_color_definition,
     register_online_chat_colors_parser,
-};
-pub use ini_shell_menu_scheme::{
-    ShellMenuScheme, ShellMenuSchemeImage, ShellMenuSchemeLine, ShellMenuSchemeManager,
-    get_shell_menu_scheme_manager, init_shell_menu_scheme_manager,
-    parse_shell_menu_scheme_definition,
 };
 pub use ini_window_transition::{
     TransitionGroup, TransitionStyle, TransitionWindow, WindowTransitionStore,
@@ -454,7 +448,6 @@ pub fn initialize_ini_systems() {
     ini_mouse::init_global_mouse_settings();
     ini_online_chat_colors::init_online_chat_colors();
     ini_online_chat_colors::register_online_chat_colors_parser();
-    ini_shell_menu_scheme::init_shell_menu_scheme_manager();
     ini_window_transition::init_window_transition_store();
 
     let _ = crate::game_network::game_info::set_map_players_provider(Arc::new(|map_name: &str| {

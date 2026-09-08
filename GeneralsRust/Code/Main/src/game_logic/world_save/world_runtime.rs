@@ -12,9 +12,8 @@ impl GameLogic {
         {
             self.stamp_live_bridge_decks_and_zones();
         }
-        // C++ AI::update → Pathfinder::processPathfindQueue (AI.cpp:332-339)
-        // runs before movement so a unit waits at least one frame (m_waitingForPath).
-        self.process_pathfind_queue();
+        // C++ AI::update → Pathfinder::processPathfindQueue drains inside
+        // update_simulation (every logic frame, live and test paths).
         self.step_simulation(LOGIC_FRAME_TIMESTEP, None);
     }
 

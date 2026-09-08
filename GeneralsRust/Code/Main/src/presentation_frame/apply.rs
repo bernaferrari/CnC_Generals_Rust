@@ -436,10 +436,13 @@ impl PresentationFrame {
         }
     }
 
+    /// C++ `W3DControlBar::drawPower`: bar ratio = produced-consumed over produced
+    /// (credits, power, max_power for GameHud::update_resources).
     pub fn hud_resource_triple(&self) -> (i32, i32, i32) {
         let credits = self.local_supplies as i32;
-        let power = self.local_power.max(0);
-        (credits, power, power.max(1))
+        let produced = self.local_power_produced.max(0);
+        let power = produced - self.local_power_consumed.max(0);
+        (credits, power, produced.max(1))
     }
 
     /// C++ `W3DRadar::renderObjectList`: skip when `getShroudedStatus > PARTIAL_CLEAR`.
@@ -452,6 +455,11 @@ impl PresentationFrame {
     pub fn hud_minimap_units(&self) -> Vec<(ObjectId, f32, f32, u8)> {
         // Wave 1109: minimap unit-dot residual excludes sold (alive dots only).
         // hq-cqosc: also skip fogged/shrouded enemies (C++ W3DRadar.cpp:636-638).
+        // C++ `W3DRadar::renderObjectList` normalizes world coords into the map
+        // extent (W3DRadar.cpp:596-718) before drawing dots.
+        let (world_min, world_max) = self.world_env.world_bounds_vec3();
+        let span_x = (world_max.x - world_min.x).max(1.0);
+        let span_z = (world_max.z - world_min.z).max(1.0);
         self.objects
             .iter()
             .filter(|o| !o.destroyed && !o.sold && Self::minimap_fow_allows(o))
@@ -462,7 +470,9 @@ impl PresentationFrame {
                     Team::GLA => 4u8,
                     Team::Neutral => 7u8,
                 };
-                (o.id, o.position.x, o.position.z, team_idx)
+                let nx = ((o.position.x - world_min.x) / span_x).clamp(0.0, 1.0);
+                let nz = ((o.position.z - world_min.z) / span_z).clamp(0.0, 1.0);
+                (o.id, nx, nz, team_idx)
             })
             .collect()
     }

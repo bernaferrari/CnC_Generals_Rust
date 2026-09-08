@@ -234,8 +234,11 @@ impl ForwardPass {
         material: &W3DMaterial,
     ) -> Result<MaterialPassClass> {
         let mut pass = MaterialPassClass::new();
-        let vertex_material = Arc::new(Self::build_vertex_material(material));
-        pass.vertex_material = Some(Arc::clone(&vertex_material));
+        // Simple single-material path: no mesh header, so the C++ default
+        // `lighting_enabled = true` applies (meshmdlio.cpp:1801).
+        let mut vertex_material = Self::build_vertex_material(material);
+        vertex_material.use_lighting = true;
+        pass.vertex_material = Some(Arc::new(vertex_material));
         pass.set_shader(Self::shader_for_material(material));
 
         if let Some(texture_name) = material_stage_texture(material, 0) {
@@ -325,6 +328,7 @@ impl ForwardPass {
             pass.set_texture(0, self.ensure_fallback_texture()?);
         }
         Self::assign_vertex_colors_for_pass(&mut pass, mesh, pass_index);
+        Self::configure_vertex_material_for_pass(&mut pass, mesh);
         Self::assign_mapper_for_pass(&mut pass, mesh, pass_index);
         pass.pass_index = pass_index;
         Ok(Some(pass))
@@ -476,6 +480,64 @@ impl ForwardPass {
         }
     }
 
+    /// MeshMatDescClass::Configure_Material parity (meshmatdesc.cpp:903-917
+    /// with meshmdlio.cpp:1800-1808): each pass owns a configured material —
+    /// dynamic lighting on unless the mesh is prelit-vertex, diffuse source
+    /// COLOR1 exactly when the pass carries a diffuse (DCG) vertex-color
+    /// array, emissive source COLOR1 when it carries a DIG array. The shared
+    /// cache material is cloned per pass, matching the C++ per-pass material
+    /// instances.
+    ///
+    /// Prelit detection: the mesh header flag is authoritative, but Main's
+    /// W3D loader currently drops `W3dMeshHeader3Struct::attrs`
+    /// (w3d_loader_parse.rs parses it and never stores it — `W3DMesh.header`
+    /// stays `None`). While the header is absent, a pass carrying a diffuse
+    /// vertex-color array is the loader-lane prelit signal: Generals exports
+    /// DCG arrays precisely on `W3D_MESH_FLAG_PRELIT_VERTEX` meshes, where the
+    /// array is the baked lighting. A populated header flag wins when it
+    /// exists, so authentic metadata is honoured once the loader carries it.
+    pub(super) fn configure_vertex_material_for_pass(
+        pass: &mut MaterialPassClass,
+        mesh: &crate::assets::models::W3DMesh,
+    ) {
+        let Some(material) = pass.vertex_material.as_ref().map(Arc::clone) else {
+            return;
+        };
+        let mut configured = (*material).clone();
+        let header_prelit = mesh
+            .header
+            .as_ref()
+            .map(|header| {
+                (header.attrs
+                    & ww3d_renderer_3d::w3d_format::W3D_MESH_FLAG_PRELIT_VERTEX)
+                    != 0
+            });
+        let pass_has_dcg = pass
+            .diffuse_vertex_colors
+            .as_ref()
+            .is_some_and(|colors| !colors.is_empty());
+        let prelit_vertex = match header_prelit {
+            Some(prelit) => prelit,
+            None => pass_has_dcg,
+        };
+        configured.use_lighting = !prelit_vertex;
+        configured.diffuse_color_source = if pass_has_dcg {
+            ww3d_renderer_3d::material_system::ColorSourceType::Color1
+        } else {
+            ww3d_renderer_3d::material_system::ColorSourceType::Material
+        };
+        configured.emissive_color_source = if pass
+            .illumination_vertex_colors
+            .as_ref()
+            .is_some_and(|colors| !colors.is_empty())
+        {
+            ww3d_renderer_3d::material_system::ColorSourceType::Color1
+        } else {
+            ww3d_renderer_3d::material_system::ColorSourceType::Material
+        };
+        pass.vertex_material = Some(Arc::new(configured));
+    }
+
     pub(super) fn assign_mapper_for_pass(
         pass: &mut MaterialPassClass,
         mesh: &crate::assets::models::W3DMesh,
@@ -581,7 +643,7 @@ impl ForwardPass {
         let raw = asset_manager
             .get_raw_texture(&texture_key)
             .ok_or_else(|| anyhow::anyhow!("Texture '{}' not cached", texture_name))?;
-        self.build_texture(texture_name, raw)
+        Self::build_texture(texture_name, raw)
     }
 
     pub(super) fn is_known_missing_texture(&self, texture_name: &str) -> bool {
@@ -670,7 +732,7 @@ impl ForwardPass {
 
     pub(super) fn create_fallback_texture(&self, texture_name: &str) -> Result<Arc<TextureClass>> {
         let raw = RawTexture::solid_color(texture_name.to_string(), 4, 4, [255, 0, 255, 255]);
-        self.build_texture(&raw.name, &raw)
+        Self::build_texture(&raw.name, &raw)
     }
 
     pub(super) fn ensure_fallback_texture(&mut self) -> Result<Arc<TextureClass>> {
@@ -682,24 +744,30 @@ impl ForwardPass {
         Ok(texture)
     }
 
-    pub(super) fn build_texture(
-        &self,
-        texture_name: &str,
-        raw: &RawTexture,
-    ) -> Result<Arc<TextureClass>> {
-        let format = if raw.has_alpha {
-            TextureFormat::Rgba8Unorm
-        } else {
-            TextureFormat::Rgba8Unorm
-        };
+    /// Decode and package an archive texture for the mesh bind path.
+    ///
+    /// Format: color textures upload as `Rgba8UnormSrgb`. The scene target is
+    /// `Bgra8UnormSrgb` and mesh pass textures are color content, so the sRGB
+    /// view format makes the sampler linearize the authored bytes exactly once
+    /// (lighting math linear, sRGB target re-encodes on store) — the C++
+    /// single gamma-correct path (dx8renderer.cpp:1771-1775). The previous
+    /// `Rgba8Unorm` choice sampled already-encoded bytes as linear and the
+    /// sRGB target re-encoded them again: gamma applied twice, washing every
+    /// unit texture toward white. Alpha content does not change the format —
+    /// sRGB governs the RGB channels only — so the former has_alpha branch
+    /// (which returned the same format in both arms) collapses into one
+    /// choice; `raw.has_alpha` stays on RawTexture for blend consumers.
+    fn build_texture(texture_name: &str, raw: &RawTexture) -> Result<Arc<TextureClass>> {
         // C++ W3DTextureLoad (W3DAssetManager) hands the rasterizer uncompressed
         // 32-bit surfaces. The mesh bind path (MeshRenderManager::
         // ensure_gpu_texture_view) can only upload 32-bit RGBA payloads — a DXT
         // payload fails its width*height*4 length guard and the pass falls back
-        // to the white missing-texture, which painted every compressed-DDS unit
-        // texture (AVChinook.dds / Housecolor2.dds from Textures.big) white.
-        // Decode block-compressed payloads to RGBA8 here, matching the
-        // asset-lane fallback in TextureManager::create_gpu_texture.
+        // to the missing-texture. Decode block-compressed payloads to RGBA8
+        // here, matching the asset-lane fallback in
+        // TextureManager::create_gpu_texture. Shipped-archive coverage:
+        // DXT1 (1975 files), DXT5 (1515), DXT3 (6); no DXT2/DXT4/paletted DDS
+        // exists in TexturesZH/TerrainZH/W3DZH/PatchZH .big, and the dds_loader
+        // FourCC table maps DXT2→BC2/DXT4→BC3 anyway if one ever surfaces.
         let data = match raw.dds_compression {
             Some(DdsCompression::Dxt1) => Some(
                 decode_dxt1(&raw.data, raw.width, raw.height)
@@ -717,7 +785,12 @@ impl ForwardPass {
         };
         let data = data.transpose()?.unwrap_or_else(|| raw.data.clone());
 
-        let mut texture = TextureClass::with_format(texture_name, raw.width, raw.height, format);
+        let mut texture = TextureClass::with_format(
+            texture_name,
+            raw.width,
+            raw.height,
+            TextureFormat::Rgba8UnormSrgb,
+        );
         texture
             .replace_pixels(data)
             .map_err(|e| anyhow::anyhow!("Failed to upload pixels for '{}': {e}", texture_name))?;
@@ -778,6 +851,111 @@ impl ForwardPass {
             crate::assets::models::BlendMode::Alpha => ShaderClass::get_alpha_shader(),
             crate::assets::models::BlendMode::Additive => ShaderClass::get_additive_shader(),
             crate::assets::models::BlendMode::Modulate => ShaderClass::get_opaque_shader(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod build_texture_tests {
+    use super::*;
+    use crate::assets::textures::RawTexture;
+
+    /// DXT1 is 8 bytes per 4x4 block; DXT3/DXT5 are 16 bytes per block.
+    fn solid_red_block(compression: DdsCompression) -> Vec<u8> {
+        match compression {
+            // color0 = red565, color1 = unused, all indices select color0.
+            DdsCompression::Dxt1 => {
+                let mut block = Vec::new();
+                block.extend_from_slice(&0xF800u16.to_le_bytes());
+                block.extend_from_slice(&0x0000u16.to_le_bytes());
+                block.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+                block
+            }
+            // Explicit 4-bit alpha nibbles all 0xF (opaque) + red color block.
+            DdsCompression::Dxt3 => {
+                let mut block = vec![0xFF; 8];
+                block.extend_from_slice(&0xF800u16.to_le_bytes());
+                block.extend_from_slice(&0x0000u16.to_le_bytes());
+                block.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+                block
+            }
+            // Interpolated alpha: a0 = a1 = 255, indices 0 + red color block.
+            DdsCompression::Dxt5 => {
+                let mut block = vec![0xFF, 0xFF];
+                block.extend_from_slice(&[0; 6]);
+                block.extend_from_slice(&0xF800u16.to_le_bytes());
+                block.extend_from_slice(&0x0000u16.to_le_bytes());
+                block.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+                block
+            }
+        }
+    }
+
+    fn raw_with(compression: Option<DdsCompression>, width: u32, height: u32) -> RawTexture {
+        let data = match compression {
+            Some(c) => solid_red_block(c)
+                .repeat((width.div_ceil(4) * height.div_ceil(4)) as usize),
+            None => vec![128, 128, 128, 255].repeat((width * height) as usize),
+        };
+        RawTexture {
+            name: String::new(),
+            width,
+            height,
+            data,
+            format: crate::assets::textures::TextureFormat::DDS,
+            has_alpha: false,
+            dds_compression: compression,
+        }
+    }
+
+    #[test]
+    fn color_textures_upload_as_srgb_for_single_gamma_correction() {
+        // Uncompressed payload: the format choice itself is the contract. The
+        // scene target is Bgra8UnormSrgb; uploading color bytes as Rgba8Unorm
+        // double-applied gamma and washed textures white.
+        let texture = ForwardPass::build_texture("plain", &raw_with(None, 4, 4))
+            .expect("uncompressed build");
+        assert_eq!(
+            texture.format,
+            TextureFormat::Rgba8UnormSrgb,
+            "color pass textures must sample linearized exactly once"
+        );
+    }
+
+    #[test]
+    fn dxt1_payload_decodes_to_32_bit_rgba_passing_the_bind_guard() {
+        // MeshRenderManager::ensure_gpu_texture_view only uploads payloads of
+        // exactly width*height*4 bytes — an undecoded DXT payload fails that
+        // guard and the unit would bind the missing texture. DXT1 is the most
+        // common unit-skin variant in the shipped archives (1975 files).
+        let texture = ForwardPass::build_texture("skin", &raw_with(Some(DdsCompression::Dxt1), 8, 4))
+            .expect("DXT1 build");
+        assert_eq!(texture.format, TextureFormat::Rgba8UnormSrgb);
+        assert_eq!(texture.raw_pixels().len(), 8 * 4 * 4);
+        // color0 = 0xF800 decodes to opaque red in the first pixel.
+        assert_eq!(&texture.raw_pixels()[..4], &[255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn dxt3_and_dxt5_payloads_decode_to_32_bit_rgba() {
+        // DXT3 (explicit alpha, 6 files) and DXT5 (interpolated alpha, 1515
+        // files) are the remaining shipped variants; both must decode to the
+        // 32-bit layout the mesh bind path accepts.
+        for compression in [DdsCompression::Dxt3, DdsCompression::Dxt5] {
+            let texture = ForwardPass::build_texture(
+                "skin_alpha",
+                &raw_with(Some(compression), 8, 8),
+            )
+            .unwrap_or_else(|e| panic!("{compression:?} build failed: {e}"));
+            assert_eq!(texture.format, TextureFormat::Rgba8UnormSrgb);
+            assert_eq!(texture.raw_pixels().len(), 8 * 8 * 4);
+            // First pixel keeps full alpha from its block encoding.
+            assert_eq!(texture.raw_pixels()[3], 255, "{compression:?} alpha");
+            assert_eq!(
+                &texture.raw_pixels()[..3],
+                &[255, 0, 0],
+                "{compression:?} color"
+            );
         }
     }
 }

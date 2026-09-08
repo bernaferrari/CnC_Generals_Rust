@@ -779,23 +779,51 @@ impl WeaponTemplate {
         // Play fire FX (C++ lines 889-941)
         // Get veterancy level from source object (C++ line 889)
         let veterancy = self.get_object_veterancy_level(source_obj);
-        // Fire FX handling (C++ lines 889-941)
-        // C++ calls: sourceObj->getDrawable()->handleWeaponFireFX(...)
+        // Fire FX handling (C++ Weapon.cpp:889-941).
+        // C++ lines 903-905: frames before the firing weapon's suspend-FX
+        // frame null the FX entirely (barrel recoil still plays).
+        let fx_suspended = TheGameLogic::get_frame()
+            < firing_weapon
+                .as_deref()
+                .map(crate::weapon::Weapon::get_suspend_fx_frame)
+                .unwrap_or(0);
+
+        // C++ lines 908-920: an undetected stealthed unit not locally
+        // controlled plays no fire FX at all — pretend the FX was handled so
+        // both the drawable muzzle call and the FXList fallback are skipped.
+        let mut stealth_suppressed = false;
+        if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
+            if let Ok(source_guard) = source_arc.read() {
+                if !source_guard.is_locally_controlled()
+                    && source_guard.test_status(ObjectStatusTypes::Stealthed)
+                    && !source_guard.test_status(ObjectStatusTypes::Detected)
+                    && !source_guard.test_status(ObjectStatusTypes::Disguised)
+                    && !source_guard.is_kind_of(KindOf::Mine)
+                    && !self.is_play_fx_when_stealthed()
+                {
+                    stealth_suppressed = true;
+                }
+            }
+        }
+
+        let mut handled_fire_fx = stealth_suppressed;
         // If a draw module fires at the FX bone it returns true and this
-        // origin fallback is skipped (Weapon.cpp:923-940).
-        let mut handled_fire_fx = false;
-        if let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) {
-            let drawable = source_obj
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_drawable());
-            if let Some(drawable) = drawable {
-                if let Ok(mut draw_guard) = drawable.write() {
-                    handled_fire_fx = draw_guard.handle_weapon_fire_fx(
-                        map_weapon_slot_to_common(weapon_slot),
-                        specific_barrel_to_use,
-                        &actual_victim_pos,
-                    );
+        // origin fallback is skipped (Weapon.cpp:923-940). C++ still calls the
+        // drawable with a null FX so barrel recoil plays (Weapon.cpp:899).
+        if !stealth_suppressed {
+            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
+                let drawable = source_arc
+                    .read()
+                    .ok()
+                    .and_then(|guard| guard.get_drawable());
+                if let Some(drawable) = drawable {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        handled_fire_fx = draw_guard.handle_weapon_fire_fx(
+                            map_weapon_slot_to_common(weapon_slot),
+                            specific_barrel_to_use,
+                            &actual_victim_pos,
+                        );
+                    }
                 }
             }
         }
@@ -807,10 +835,10 @@ impl WeaponTemplate {
             veterancy
         );
 
-        if !handled_fire_fx {
+        if !handled_fire_fx && !fx_suspended {
             if let Some(fx) = self.get_fire_fx(veterancy) {
-                if let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) {
-                    let _ = fx.do_fx_obj(&source_obj, None);
+                if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
+                    let _ = fx.do_fx_obj(&source_arc, None);
                 } else {
                     let _ = fx.do_fx_at_position(&source_pos);
                 }

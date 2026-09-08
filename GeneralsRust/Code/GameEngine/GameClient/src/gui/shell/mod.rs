@@ -14,7 +14,6 @@ pub mod main_menu;
 pub mod replay_controls;
 pub mod replay_menu;
 pub mod shell;
-pub mod shell_menu_scheme;
 
 // Re-export base shell types
 pub use base::{

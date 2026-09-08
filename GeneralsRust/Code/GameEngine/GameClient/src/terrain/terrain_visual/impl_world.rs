@@ -396,6 +396,9 @@ impl TerrainVisualImpl {
         let min_y = (grid_y - range).floor().max(0.0) as i32;
         let max_y = (grid_y + range).ceil().min(grid_cells_y) as i32;
 
+        // C++ stores preferredHeight in an UnsignedByte field
+        // (W3DWater.h:164 WaterMeshData), so the Real argument truncates.
+        let preferred_height = preferred_height.trunc().clamp(0.0, 255.0);
         for y in min_y..=max_y {
             for x in min_x..=max_x {
                 let motion =
@@ -582,6 +585,39 @@ impl TerrainVisualImpl {
             bib.highlight = false;
         }
         self.overlay.overlays_dirty = true;
+    }
+
+    /// C++ `W3DBibBuffer::addBib` dedupe plus a bounded placement-preview
+    /// session: the Object-kind bib set is exactly `owner_ids` (the current
+    /// blockers). Bibs added by earlier preview frames whose owners no longer
+    /// block are pruned, so re-adding per drag frame cannot grow the set
+    /// unboundedly (audit: accumulated stale bibs).
+    pub fn retain_placement_highlight_bibs(&mut self, owner_ids: &[u32]) {
+        let before = self.terrain_bibs.len();
+        self.terrain_bibs.retain(|bib| {
+            bib.owner_kind != TerrainBibOwnerKind::Object || owner_ids.contains(&bib.owner_id)
+        });
+        if self.terrain_bibs.len() != before {
+            self.overlay.overlays_dirty = true;
+        }
+    }
+
+    /// C++ `InGameUI::destroyPlacementIcons` (InGameUI.cpp:2933-2948) ends a
+    /// placement with `removeAllBibs`, and `W3DBibBuffer::removeHighlighting`
+    /// (W3DBibBuffer.cpp:266-272) clears highlight flags. Drawable-kind bibs
+    /// belong to the client place icons (which remove themselves), so this
+    /// clears the host-side Object-kind preview bibs and un-highlights the
+    /// rest — the live placement-end hook for commit/cancel.
+    pub fn clear_placement_highlight_bibs(&mut self) {
+        let before = self.terrain_bibs.len();
+        self.terrain_bibs
+            .retain(|bib| bib.owner_kind != TerrainBibOwnerKind::Object);
+        for bib in &mut self.terrain_bibs {
+            bib.highlight = false;
+        }
+        if self.terrain_bibs.len() != before {
+            self.overlay.overlays_dirty = true;
+        }
     }
 
     /// C++ `removeTreesAndPropsForConstruction`.

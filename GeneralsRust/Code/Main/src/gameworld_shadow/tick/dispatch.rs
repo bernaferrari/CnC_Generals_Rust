@@ -19,6 +19,12 @@ pub fn eager_apply_all_host_residuals_after_logic(
     shadow: &mut GameWorldShadow,
     logic: &mut crate::game_logic::GameLogic,
 ) {
+    // Scoped authority publication: the batch's deep-reader gates resolve
+    // against the driving instance's snapshot, and the previous thread
+    // snapshot is restored on exit (normal return or unwind). A foreign
+    // instance being constructed/configured during this window cannot
+    // perturb the batch's decisions, and the batch cannot perturb theirs.
+    with_gameworld_authority(*logic.gameworld_authority(), move || {
     let _ = eager_apply_host_fire_spawns_after_logic(shadow, logic);
     let _ = eager_apply_host_move_attack_after_logic(shadow, logic);
     let _ = eager_apply_host_damage_after_logic(shadow, logic);
@@ -95,4 +101,5 @@ pub fn eager_apply_all_host_residuals_after_logic(
     let _ = eager_apply_host_contain_after_logic(shadow, logic);
     let _ = eager_apply_host_ai_decision_after_logic(shadow, logic);
     let _ = eager_apply_host_spawn_after_logic(shadow, logic);
+    });
 }

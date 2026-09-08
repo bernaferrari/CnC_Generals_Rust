@@ -142,9 +142,16 @@ impl GameLogic {
         if kind == HostSuperweaponKind::ScudStorm {
             let _ = self.create_delivery_radius_decal(source_object, target_position);
         }
-        // C++ SpectreGunshipDeploymentUpdate::initiateIntent residual.
+        // C++ SpectreGunshipDeploymentUpdate::initiateIntent residual: the
+        // first passing deployment module spawns its GunshipTemplateName and
+        // OrbitTime (AirF_AmericaJetSpectreGunship1/2/3 per science tier;
+        // vanilla Solo 15000 ms).
         if kind == HostSuperweaponKind::SpectreGunship {
-            let _ = self.initiate_spectre_gunship_deployment(source_object, target_position);
+            let _ = self.initiate_spectre_gunship_deployment_with_tier(
+                source_object,
+                target_position,
+                spectre_tier,
+            );
         }
         // C++ OCLSpecialPower::doSpecialPowerAtLocation → ObjectCreationList::create.
         // Dedicated flight spawners already create the DeliverPayload transport
@@ -1450,6 +1457,35 @@ impl GameLogic {
         })
     }
 
+    /// The bound / produced gunship OBJECT for a strike source (CC caster or
+    /// the ship itself) — mirrors [`Self::spectre_orbit_gunship_position`].
+    /// C++ plays HowitzerFire / FireFX on the firing ship's object id.
+    fn spectre_orbit_bound_gunship_id(&self, source: ObjectId) -> Option<ObjectId> {
+        if let Some(obj) = self.objects.get(&source) {
+            if obj.spectre_gunship_update.is_some() {
+                return Some(source);
+            }
+            if let Some(gid) = obj
+                .spectre_gunship_deployment
+                .as_ref()
+                .and_then(|d| d.gunship_id)
+            {
+                if self.objects.get(&gid).is_some_and(|g| g.is_alive()) {
+                    return Some(gid);
+                }
+                return None;
+            }
+        }
+        self.objects
+            .values()
+            .find(|obj| {
+                obj.producer_id == Some(source)
+                    && obj.spectre_gunship_update.is_some()
+                    && obj.is_alive()
+            })
+            .map(|obj| obj.id)
+    }
+
     /// C++ `PartitionFilterLiveMapEnemies` / leftover `relationship_to`:
     /// real-team ENEMIES only. Disguise is not applied here — C++ uses
     /// `getRelationship` on the real object, then
@@ -1693,9 +1729,31 @@ impl GameLogic {
             .collect()
     }
 
+    /// Unfiltered alive non-air snapshot for the howitzer blast victim set.
+    ///
+    /// C++: the shell's EXPLOSION follows RadiusDamageAffects
+    /// ALLIES ENEMIES NEUTRALS — the acquire filters (stealth / fog / team)
+    /// gate TARGETING only, they do not shield blast victims. Aircraft are
+    /// exempt (SpectreHowitzerGun AntiAirborneVehicle/Infantry = No).
+    fn spectre_orbit_blast_positions(&self) -> Vec<(ObjectId, Vec3, Team, bool)> {
+        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
+        ids.into_iter()
+            .filter_map(|id| {
+                let obj = self.objects.get(&id)?;
+                let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let alive = obj.is_alive();
+                (!is_air && alive).then_some((id, obj.get_position(), obj.team, alive))
+            })
+            .collect()
+    }
+
     /// Tick residual Spectre orbit fields spawned at orbit insertion.
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
     pub(in super::super) fn update_spectre_orbit_fields(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            spectre_voice_rapid_fire_crossings, HostSpectreOrbitDamageStream,
+            SPECTRE_VOICE_RAPID_FIRE_SLOT,
+        };
         self.apply_pending_special_power_overrides();
         // C++ cease fire on isEffectivelyDead / cleanUp when the gunship is gone.
         // Do this before planning ticks so a dead gunship never lands another volley.
@@ -1740,10 +1798,11 @@ impl GameLogic {
             .advance_orbit_shoot_at(self.frame);
 
         let object_positions = self.spectre_orbit_filtered_positions();
+        let blast_positions = self.spectre_orbit_blast_positions();
 
         let plans = self
             .special_power_strikes
-            .plan_due_orbit_ticks(self.frame, &object_positions);
+            .plan_due_orbit_ticks(self.frame, &object_positions, &blast_positions);
         let frame = self.frame;
 
         for plan in plans {
@@ -1753,22 +1812,41 @@ impl GameLogic {
             let mut destroy_ids: Vec<(ObjectId, Team)> = Vec::new();
 
             for hit in &plan.hits {
-                let source_player =
-                    self.spectre_orbit_source_viewer(plan.source_object, plan.source_team);
-                if !self.spectre_orbit_target_allowed_by_id(
-                    plan.source_object,
-                    plan.source_team,
-                    source_player,
-                    hit.target_id,
-                ) {
-                    continue;
+                // Gattling acquire keeps the full C++ filter chain at apply
+                // time; the howitzer blast damages everything it planned —
+                // friendlies / neutrals / stealthed / fogged included
+                // (RadiusDamageAffects ALLIES ENEMIES NEUTRALS).
+                if hit.stream == HostSpectreOrbitDamageStream::Gattling {
+                    let source_player =
+                        self.spectre_orbit_source_viewer(plan.source_object, plan.source_team);
+                    if !self.spectre_orbit_target_allowed_by_id(
+                        plan.source_object,
+                        plan.source_team,
+                        source_player,
+                        hit.target_id,
+                    ) {
+                        continue;
+                    }
                 }
                 if let Some(target) = self.objects.get_mut(&hit.target_id) {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    // C++ SpectreHowitzerGun detonation: DamageType EXPLOSION,
+                    // DeathType EXPLODED (armor multipliers + death FX routing).
+                    // Gattling keeps its immediate residual path.
+                    let killed = match hit.stream {
+                        HostSpectreOrbitDamageStream::Howitzer => target
+                            .take_damage_from_immediate_typed_death(
+                                hit.damage,
+                                Some(plan.source_object),
+                                crate::game_logic::combat::DamageType::Explosive,
+                                crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                            ),
+                        HostSpectreOrbitDamageStream::Gattling => {
+                            target.take_damage_from_immediate(hit.damage, Some(plan.source_object))
+                        }
+                    };
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1782,6 +1860,27 @@ impl GameLogic {
                 self.mark_object_for_destruction(id, Some(killer_team));
             }
 
+            // C++ AI wide-acquire steer (:530-556): m_positionToShootAt snaps
+            // to the acquired position so the gattling wind and howitzer follow
+            // both track it. Applied before this tick's advance_orbit_strafe.
+            if let Some(acquired) = plan.wide_acquire_position {
+                if let Some(field) = self
+                    .special_power_strikes
+                    .orbit_fields_mut()
+                    .iter_mut()
+                    .find(|f| f.id == plan.field_id)
+                {
+                    field.position_to_shoot_at = acquired;
+                }
+            }
+
+            let prev_rapid_cues = self
+                .special_power_strikes
+                .orbit_fields()
+                .iter()
+                .find(|f| f.id == plan.field_id)
+                .map(|f| f.rapid_fire_voice_cues)
+                .unwrap_or(0);
             self.special_power_strikes.record_orbit_tick_complete(
                 plan.field_id,
                 total_damage,
@@ -1789,6 +1888,28 @@ impl GameLogic {
                 destroyed,
                 frame,
             );
+            // C++ FiringTracker.cpp:251-255 speedUp MEAN→FAST: one
+            // getPerUnitSound("VoiceRapidFire") per FAST entry, on the firing
+            // unit (object + position) — same dispatch the gattling lanes do.
+            let rapid_crossings = self
+                .special_power_strikes
+                .orbit_fields()
+                .iter()
+                .find(|f| f.id == plan.field_id)
+                .map(|f| {
+                    spectre_voice_rapid_fire_crossings(prev_rapid_cues, f.rapid_fire_voice_cues)
+                })
+                .unwrap_or(0);
+            for _ in 0..rapid_crossings {
+                self.queue_resolved_per_unit_sound(
+                    plan.source_object,
+                    SPECTRE_VOICE_RAPID_FIRE_SLOT,
+                    true,
+                    true,
+                    None,
+                    140,
+                );
+            }
         }
         self.special_power_strikes.advance_orbit_strafe(frame);
         self.spawn_spectre_gattling_strafe_smoke();
@@ -1982,7 +2103,7 @@ impl GameLogic {
                     };
                     // Retail: do + undo same frame (pulse reveal, not duration FOW).
                     shroud_mgr.do_shroud_reveal(&center, range, player_mask);
-                    shroud_mgr.undo_shroud_reveal(&center, range, player_mask);
+                    shroud_mgr.queue_undo_shroud_reveal(&center, range, player_mask, 0, frame);
                 }
             }
         }
@@ -1992,9 +2113,11 @@ impl GameLogic {
 
     /// C++ SpectreHowitzerShell ThingFactory Object residual (orbit howitzer ticks).
     pub fn spawn_spectre_howitzer_shell_objects_for_new_spawns(&mut self) {
+        use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::special_power_strikes::{
-            SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
-            SPECTRE_HOWITZER_SHELL_MAX_HEALTH, SPECTRE_HOWITZER_SHELL_OBJECT,
+            SPECTRE_HOWITZER_FIRE_FX, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
+            SPECTRE_HOWITZER_SHELL_MAX_HEALTH, SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES,
+            SPECTRE_HOWITZER_SHELL_OBJECT, SPECTRE_HOWITZER_SHELL_SCALE,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -2009,25 +2132,39 @@ impl GameLogic {
             t.add_kind_of(KindOf::Projectile)
                 .set_health(SPECTRE_HOWITZER_SHELL_MAX_HEALTH)
                 .set_cost(0, 0);
+            // Retail WeaponObjects.ini Scale = 0.6 on the shell drawable.
+            t.asset_scale = SPECTRE_HOWITZER_SHELL_SCALE;
             self.templates
                 .insert(SPECTRE_HOWITZER_SHELL_OBJECT.to_string(), t);
         }
+        // C++ DumbProjectileBehavior DEFAULT_MAX_LIFESPAN (10 s → 300f): the
+        // shell detonates at end of life even without a HeightDie impact
+        // (DumbProjectileBehavior.cpp:39-44, 561-565). HeightDie InitialDelay
+        // (30f) only arms the pad-safe ground kill.
         let expires = self
             .frame
-            .saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES.max(1));
+            .saturating_add(SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES);
+        let frame = self.frame;
         for (source, team, pos) in pending {
-            // C++ SpectreGunshipUpdate.cpp:585-586 — HowitzerFireSound on the
-            // gunship after createAndFireTempWeapon (StrategyCenter_ArtilleryRound).
+            let gunship_id = self.spectre_orbit_bound_gunship_id(source).unwrap_or(source);
             let gunship_pos = self
                 .objects
-                .get(&source)
+                .get(&gunship_id)
                 .map(|o| o.get_position())
                 .unwrap_or(pos);
-            self.queue_audio_event(
-                AudioEventRequest::new(SPECTRE_HOWITZER_FIRE_SOUND)
-                    .with_object(source)
-                    .with_position(gunship_pos)
-                    .with_priority(150),
+            // C++ SpectreGunshipUpdate.cpp:585-586 — per-unit
+            // getPerUnitSound("HowitzerFire") + setObjectID on the gunship,
+            // per shot. No fallback when the slot is unauthored.
+            self.queue_resolved_per_unit_sound(gunship_id, "HowitzerFire", true, true, None, 150);
+            // C++ Weapon.cpp:897-941 — FireFX WeaponFX_GenericTankGunNoTracer
+            // plays at the gunship on every shot.
+            let _ = self.combat_particles.spawn_named(
+                CombatParticleKind::WeaponMuzzleFlash,
+                SPECTRE_HOWITZER_FIRE_FX,
+                gunship_pos,
+                frame,
+                Some(gunship_id),
+                None,
             );
             if let Some(oid) = self.create_object(SPECTRE_HOWITZER_SHELL_OBJECT, team, pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
@@ -2045,28 +2182,66 @@ impl GameLogic {
         }
     }
 
+    /// Natural shell end (HeightDie impact or MaxLifespan detonate-at-end).
     pub fn update_spectre_howitzer_shell_objects(&mut self) {
+        use crate::game_logic::special_power_strikes::{
+            SPECTRE_HOWITZER_DETONATION_FX, SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
+            SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT, SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES,
+        };
         let frame = self.frame;
+        // (id, detonation position) for shells that naturally end this frame.
         let due: Vec<ObjectId> = self
             .objects
             .iter()
             .filter_map(|(id, o)| {
-                if o.spectre_howitzer_shell {
-                    if let Some(exp) = o.spectre_howitzer_shell_expires_frame {
-                        if exp <= frame {
-                            return Some(*id);
-                        }
-                    }
-                    // HeightDie residual: destroy near ground.
-                    if o.get_position().y <= 1.0 {
-                        return Some(*id);
-                    }
+                if !o.spectre_howitzer_shell {
+                    return None;
+                }
+                let Some(exp) = o.spectre_howitzer_shell_expires_frame else {
+                    return None;
+                };
+                // C++ DumbProjectileBehavior::update (:561-565): lifetime end
+                // demands detonation.
+                if exp <= frame {
+                    return Some(*id);
+                }
+                // C++ HeightDieUpdate with OnlyWhenMovingDown + InitialDelay:
+                // the pad-safe ground kill arms only after InitialDelay (30f)
+                // past spawn AND while the shell is descending.
+                let spawn_frame = exp.saturating_sub(SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES);
+                let descending = o.movement.velocity.y < 0.0;
+                if frame >= spawn_frame.saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES)
+                    && descending
+                    && o.get_position().y <= SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT
+                {
+                    return Some(*id);
                 }
                 None
             })
             .collect();
         for id in due {
+            // C++ DumbProjectileBehavior::detonate (:509-551): the detonation
+            // weapon FX (ProjectileDetonationFX FX_SpectreHowitzerExplosion)
+            // plays at the shell position and the projectile dies with
+            // DEATH_DETONATED — the InstantDeath GENERIC routing
+            // (FX_GenericMissileDeath, ALL -LASERED -DETONATED) never fires
+            // for a natural detonation; it stays reserved for damage kills.
+            let detonation_pos = self.objects.get(&id).map(|o| o.get_position());
+            if let Some(pos) = detonation_pos {
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(SPECTRE_HOWITZER_DETONATION_FX, pos);
+                // C++ Weapon.cpp:897-941 handleProjectileDetonation — the FX
+                // also registers in the host particle registry (visual parity).
+                let _ = self.combat_particles.spawn_named(
+                    crate::game_logic::combat_particles::CombatParticleKind::DeathExplosion,
+                    SPECTRE_HOWITZER_DETONATION_FX,
+                    pos,
+                    frame,
+                    Some(id),
+                    None,
+                );
+            }
             if let Some(o) = self.objects.get_mut(&id) {
+                o.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Detonated;
                 // Wave 752: under damage authority, do not zero host HP mid-frame
                 // (dual with GW HP writeback). Project lethal via damage log + flags.
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
@@ -2244,8 +2419,7 @@ impl GameLogic {
             t.armor_sets.push(crate::game_logic::HostArmorSet {
                 conditions: 0,
                 armor: Some(
-                    crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR
-                        .to_string(),
+                    crate::game_logic::host_armor_residual::HAZARDOUS_MATERIAL_ARMOR.to_string(),
                 ),
                 damage_fx: None,
             });

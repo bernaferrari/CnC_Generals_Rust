@@ -126,12 +126,14 @@ pub fn honesty_authority_matrix_default_on_source() -> bool {
         "production",
         "weapon",
     ];
-    gates.iter().all(|(n, f)| authority_fn_reads_context(src, n, f))
+    gates
+        .iter()
+        .all(|(n, f)| authority_fn_reads_context(src, n, f))
         && ctx.contains("pub struct GameWorldAuthority")
         && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")
-        && ctx_fields
-            .iter()
-            .all(|f| ctx.contains(&format!("pub {f}: bool")) && ctx.contains(&format!("{f}: false")))
+        && ctx_fields.iter().all(|f| {
+            ctx.contains(&format!("pub {f}: bool")) && ctx.contains(&format!("{f}: false"))
+        })
 }
 
 /// Source residual: engine couples shadow tick around host logic update.

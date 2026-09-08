@@ -145,6 +145,21 @@ pub fn presentation_view_from_shadow(
     presentation_view_from_gameworld(shadow.world(), local_player_index)
 }
 
+/// Entity count only (observe-path stamp): the same value as
+/// `presentation_view_from_shadow(shadow, _).entities.len()` without
+/// building per-entity views (each one clones the template name String).
+pub fn presentation_entity_count_from_shadow(shadow: &GameWorldShadow) -> usize {
+    presentation_entity_count_from_gameworld(shadow.world())
+}
+
+/// Entity count only for a bare GameWorld (see
+/// [`presentation_entity_count_from_shadow`]).
+pub fn presentation_entity_count_from_gameworld(world: &GameWorld) -> usize {
+    // `EntityStore::len()` and `EntityStore::iter()` read the same map, so
+    // this is exactly the view's `entities.len()`.
+    world.world().entity_count()
+}
+
 /// Apply the same damage amount to host object and mapped shadow entity; compare health.
 /// Host remains authoritative — this only proves mutation parity on the shadow.
 pub fn damage_parity_probe(

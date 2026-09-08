@@ -12,7 +12,6 @@ use game_engine::common::ini::ini_water::get_water_transparency;
 use game_engine::map_object::MAP_XY_FACTOR as MAP_XY;
 
 const NUM_BUMP_FRAMES: i32 = 32;
-const WATER_GRID_GRAVITY: f32 = 0.08;
 const WATER_GRID_DAMP: f32 = 0.93;
 const FEATHER_THICKNESS: f32 = 4.0;
 
@@ -118,10 +117,48 @@ impl TerrainVisualImpl {
         self.chunk_meshes.clear();
     }
 
-    pub fn set_shroud_overlay_r8(&mut self, width: i32, height: i32, cell_size: f32, data: &[u8]) {
-        self.init_shroud_overlay(width, height, cell_size, [0.0, 0.0]);
-        let n = self.overlay.shroud_cells.len().min(data.len());
-        self.overlay.shroud_cells[..n].copy_from_slice(&data[..n]);
+    /// Bulk-replace the shroud overlay from a presentation R8 payload.
+    ///
+    /// Live feed path (per presentation frame, `RenderPipeline::
+    /// update_minimap_fow_texture`): an identical payload is a no-op, and a
+    /// same-size update reuses the existing cell buffer — only the shroud
+    /// state changes, which `sync_shroud_dest_texture` re-uploads to the GPU
+    /// each terrain update. A real cell change also invalidates the terrain
+    /// chunk meshes, because terrain FOW darkening is baked into chunk vertex
+    /// diffuse (`shroud_alpha_at_world`) at bake time, mirroring how the
+    /// C++ `W3DShroud` destination texture feeds the per-object material
+    /// passes. Oversized payloads are truncated; undersized payloads are
+    /// rejected (fail-open: previous overlay state retained).
+    pub fn set_shroud_overlay_r8(
+        &mut self,
+        width: i32,
+        height: i32,
+        cell_size: f32,
+        origin: [f32; 2],
+        data: &[u8],
+    ) {
+        let width = width.max(0);
+        let height = height.max(0);
+        let expected = (width as usize).saturating_mul(height as usize);
+        if width == 0 || height == 0 || expected == 0 || data.len() < expected {
+            return;
+        }
+        let same_size = self.overlay.shroud_width == width
+            && self.overlay.shroud_height == height
+            && self.overlay.shroud_cells.len() == expected;
+        if same_size && self.overlay.shroud_cells.as_slice() == &data[..expected] {
+            // Identical payload: nothing to rebake, nothing to re-upload.
+            return;
+        }
+        if !same_size {
+            self.init_shroud_overlay(width, height, cell_size, origin);
+        } else {
+            self.overlay.shroud_cell_size = cell_size.max(1.0);
+            self.overlay.shroud_origin = origin;
+        }
+        self.overlay.shroud_cells[..expected].copy_from_slice(&data[..expected]);
+        // Terrain FOW darkening is baked into chunk vertex diffuse, so a
+        // real cell change must remesh the terrain chunks (see doc above).
         self.chunk_meshes.clear();
     }
 
@@ -226,6 +263,10 @@ impl TerrainVisualImpl {
         }
     }
 
+    /// C++ `WaterRenderObjClass::update` water-grid field step
+    /// (W3DWater.cpp:1220-1289): damped velocity, constant gravity*3 force
+    /// toward the preferred side, and a 1.0/1.0 at-rest snap. Height clamps
+    /// are NOT applied here (C++ clamps only in `changeGridHeight`).
     fn simulate_water_grid(&mut self, _dt: f32) {
         self.drain_leftover_water_velocity();
         if !self.water_grid_enabled {
@@ -235,10 +276,15 @@ impl TerrainVisualImpl {
         if cells_x < 1.0 || cells_y < 1.0 {
             return;
         }
+        const PREFERRED_HEIGHT_FUDGE: f32 = 1.0;
+        const AT_REST_VELOCITY_FUDGE: f32 = 1.0;
+        let gravity = get_global_data()
+            .map(|g| g.read().gravity)
+            .unwrap_or(-1.0);
         let max_x = cells_x as i32;
         let max_y = cells_y as i32;
-        let (min_h, max_h) = self.water_grid.height_clamps;
         let keys: Vec<(i32, i32)> = self.water_grid.point_motions.keys().copied().collect();
+        let mut any_motion = false;
         for key in keys {
             let (x, y) = key;
             if x < 0 || y < 0 || x > max_x || y > max_y {
@@ -256,23 +302,36 @@ impl TerrainVisualImpl {
                 .get(&key)
                 .copied()
                 .unwrap_or(0.0);
-            let mut velocity = motion.velocity;
-            velocity += (motion.preferred_height - height) * WATER_GRID_GRAVITY;
-            velocity *= WATER_GRID_DAMP;
-            let new_height = if min_h == 0.0 && max_h == 0.0 {
-                height + velocity
+            // C++ W3DWater.cpp:1248-1254: damp, then a constant sign force.
+            let mut velocity = motion.velocity * WATER_GRID_DAMP;
+            if height < motion.preferred_height {
+                velocity -= gravity * 3.0;
             } else {
-                (height + velocity).clamp(min_h, max_h)
-            };
-            self.water_grid.height_deltas.insert(key, new_height);
-            if let Some(m) = self.water_grid.point_motions.get_mut(&key) {
-                m.velocity = velocity;
-                if velocity.abs() < 0.001 && (new_height - motion.preferred_height).abs() < 0.01 {
+                velocity += gravity * 3.0;
+            }
+            let new_height = height + velocity;
+            if (new_height - motion.preferred_height).abs() < PREFERRED_HEIGHT_FUDGE
+                && velocity.abs() < AT_REST_VELOCITY_FUDGE
+            {
+                // C++ W3DWater.cpp:1263-1271: settle onto the preferred height.
+                self.water_grid
+                    .height_deltas
+                    .insert(key, motion.preferred_height);
+                if let Some(m) = self.water_grid.point_motions.get_mut(&key) {
+                    m.velocity = 0.0;
                     m.in_motion = false;
                 }
+            } else {
+                self.water_grid.height_deltas.insert(key, new_height);
+                if let Some(m) = self.water_grid.point_motions.get_mut(&key) {
+                    m.velocity = velocity;
+                }
+                any_motion = true;
             }
         }
-        self.overlay.water_grid_dirty = true;
+        if any_motion {
+            self.overlay.water_grid_dirty = true;
+        }
         self.overlay.bump_frame = (self.overlay.bump_frame + 1) % NUM_BUMP_FRAMES;
     }
 
@@ -319,7 +378,23 @@ impl TerrainVisualImpl {
             index_count: indices.len() as u32,
             texture_name: String::new(),
             jba: false,
+            river: false,
         }];
+    }
+
+
+    /// C++ `WaterRenderObjClass` creates its wave grid only for actual water
+    /// tables (W3DWater.cpp:2242-2343): a grid cell is wet when the water
+    /// plane stands above the terrain at any corner (shoreline cells keep
+    /// their sheet; dry land gets none). Without a height map the grid stays
+    /// enabled — there is no terrain to occlude it.
+    fn water_grid_cell_is_wet(&self, corners: &[[f32; 2]; 4], water_y: f32) -> bool {
+        match self.height_map.as_ref() {
+            None => true,
+            Some(height_map) => corners
+                .iter()
+                .any(|[x, z]| water_y > height_map.get_height_at(*x, *z)),
+        }
     }
 
     fn upload_water_grid_mesh(&mut self, device: &wgpu::Device) {
@@ -336,8 +411,41 @@ impl TerrainVisualImpl {
         let ny = cells_y as usize + 1;
         let base_y = self.water_grid.transform.w_axis.z;
         let origin = self.water_grid.transform.transform_point3(Vec3::ZERO);
+        // C++ renderWaterMesh (W3DWater.cpp:2242-2343): repeat-scaled UVs,
+        // sine-wobbled V scrolled by riverVOrigin, waterDiffuse color with
+        // alpha reduced by 0x20 for the wave mesh.
+        game_engine::common::ini::ini_water::initialize_water_settings();
+        let tod = get_global_data()
+            .map(|g| g.read().time_of_day as usize)
+            .unwrap_or(0);
+        let setting = game_engine::common::ini::ini_water::get_water_setting(
+            game_engine::common::ini::ini_water::TimeOfDay::from_index(tod),
+        )
+        .and_then(|lock| lock.read().ok().map(|g| g.clone()));
+        let water_diffuse = setting
+            .as_ref()
+            .map(|s| pack_water_setting_diffuse(s.surface_color))
+            .unwrap_or(0xffff_ffff);
+        let repeat = setting
+            .as_ref()
+            .map(|s| s.water_repeat_count.max(0) as f32)
+            .unwrap_or(6.0);
+        let grid_diffuse = {
+            let rgb = water_diffuse & 0x00ff_ffff;
+            let alpha = (water_diffuse >> 24).wrapping_sub(0x20) & 0xff;
+            rgb | (alpha << 24)
+        };
+        let u_scale = repeat / 128.0 * cell_size / 10.0 * 0.2;
+        let v_scale = u_scale;
+        let rv = self.overlay.river_v_origin;
+        let uv_cos_scale = 0.02 * (3.0 * rv).cos();
+        let sin_offset = 25.0 * rv;
+        let map_coeff = std::f32::consts::PI / (8.0 * MAP_XY);
         let mut patch = Vec::with_capacity(nx * ny);
         for j in 0..ny {
+            let y = j as f32 * cell_size;
+            let v1_offset = rv + j as f32 * v_scale
+                + uv_cos_scale * (sin_offset + y * map_coeff).sin();
             for i in 0..nx {
                 let h = self
                     .water_grid
@@ -351,15 +459,36 @@ impl TerrainVisualImpl {
                     x: wx,
                     y: base_y + h,
                     z: wz,
-                    c: 0xffff_ffff,
-                    tu: i as f32 * 0.15 + self.overlay.river_v_origin,
-                    tv: j as f32 * 0.15,
+                    c: grid_diffuse,
+                    tu: i as f32 * u_scale,
+                    tv: v1_offset,
                 });
             }
         }
         let mut indices = Vec::new();
         for j in 0..ny.saturating_sub(1) {
             for i in 0..nx.saturating_sub(1) {
+                // C++ W3DWater.cpp:2242-2343: the wave grid only exists over
+                // actual water tables — a dry cell gets no geometry instead
+                // of drawing a water sheet over land.
+                let corners = [
+                    [origin.x + i as f32 * cell_size, origin.z + j as f32 * cell_size],
+                    [
+                        origin.x + (i + 1) as f32 * cell_size,
+                        origin.z + j as f32 * cell_size,
+                    ],
+                    [
+                        origin.x + (i + 1) as f32 * cell_size,
+                        origin.z + (j + 1) as f32 * cell_size,
+                    ],
+                    [
+                        origin.x + i as f32 * cell_size,
+                        origin.z + (j + 1) as f32 * cell_size,
+                    ],
+                ];
+                if !self.water_grid_cell_is_wet(&corners, base_y) {
+                    continue;
+                }
                 let i0 = (j * nx + i) as u32;
                 let i1 = i0 + 1;
                 let i2 = i0 + nx as u32 + 1;
@@ -386,6 +515,7 @@ impl TerrainVisualImpl {
             index_count: indices.len() as u32,
             texture_name: String::new(),
             jba: false,
+            river: false,
         });
         self.overlay.water_grid_dirty = false;
     }
@@ -413,14 +543,7 @@ impl TerrainVisualImpl {
         .and_then(|lock| lock.read().ok().map(|g| g.clone()));
         let water_diffuse = water_set
             .as_ref()
-            .map(|s| {
-                let c = s.surface_color;
-                let r = c.0.round().clamp(0.0, 255.0) as u32;
-                let g = c.1.round().clamp(0.0, 255.0) as u32;
-                let b = c.2.round().clamp(0.0, 255.0) as u32;
-                let a = c.3.round().clamp(0.0, 255.0) as u32;
-                (a << 24) | (r << 16) | (g << 8) | b
-            })
+            .map(|s| pack_water_setting_diffuse(s.surface_color))
             .unwrap_or(0xffff_ffff);
         compute_standing_water_diffuse(
             standing_color,
@@ -464,6 +587,7 @@ impl TerrainVisualImpl {
                     Self::upload_water_overlay(device, "Polygon Water", &gpu, &indices)
                 {
                     mesh.jba = true;
+                    mesh.river = true;
                     self.polygon_water_meshes.push(mesh);
                 }
                 continue;
@@ -487,7 +611,7 @@ impl TerrainVisualImpl {
                         0.0
                     };
                     let (verts, indices) =
-                        bake_trapezoid_water(&quad, z_off, river_v, diffuse);
+                        bake_trapezoid_water(&quad, z_off, river_v, diffuse, feather);
                     if verts.is_empty() || indices.is_empty() {
                         continue;
                     }
@@ -528,11 +652,12 @@ impl TerrainVisualImpl {
             index_count: indices.len() as u32,
             texture_name: String::new(),
             jba: false,
+            river: false,
         })
     }
 
     fn upload_bib_meshes(&mut self) {
-        let Some(device) = self.device.as_ref() else {
+        let Some(device) = self.device.clone() else {
             self.bib_meshes.clear();
             return;
         };
@@ -540,6 +665,13 @@ impl TerrainVisualImpl {
             self.bib_meshes.clear();
             return;
         }
+        // C++ W3DBibBuffer::renderBibs (W3DBibBuffer.cpp:392-413): bibs draw
+        // alpha-blended through `detailAlphaShader` with TBBib.tga for normal
+        // bibs and TBRedBib.tga for highlight bibs (CLAMP addressing,
+        // :208-213). Resolve both before baking so the vertex tint/alpha can
+        // stand in for the missing art (this install ships neither TGA).
+        self.ensure_bib_texture_bind_groups();
+        let art_bound = self.bib_art_bound();
         let height_at = |x: f32, z: f32| {
             self.height_map
                 .as_ref()
@@ -547,32 +679,202 @@ impl TerrainVisualImpl {
                 .unwrap_or(0.0)
                 + ROAD_FLOAT_AMOUNT
         };
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
+        // C++ loadBibsInVertexAndIndexBuffers (W3DBibBuffer.cpp:126-156):
+        // per-bib UVs are (0,1) (1,1) (1,0) (0,0) in corner order.
+        const BIB_UVS: [[f32; 2]; 4] = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+        let mut normal_vertices = Vec::new();
+        let mut normal_indices = Vec::new();
+        let mut highlight_vertices = Vec::new();
+        let mut highlight_indices = Vec::new();
         for bib in &self.terrain_bibs {
-            let base = vertices.len() as u32;
-            let color = if bib.highlight {
-                [1.0, 1.0, 0.35]
+            let (vertices, indices) = if bib.highlight {
+                (&mut highlight_vertices, &mut highlight_indices)
             } else {
-                [0.95, 0.95, 0.95]
+                (&mut normal_vertices, &mut normal_indices)
             };
-            let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+            let base = vertices.len() as u32;
+            let (color, alpha) = bib_stand_in_appearance(bib.highlight, art_bound);
             for (i, corner) in bib.corners.iter().enumerate() {
                 let y = height_at(corner[0], corner[2]);
                 vertices.push(OverlayGpuVertex {
                     position: [corner[0], y, corner[2]],
                     color,
-                    tex_coords: uvs[i],
-                    road_width: 1.0,
+                    tex_coords: BIB_UVS[i],
+                    road_width: alpha,
                     diffuse: 0xffff_ffff,
                 });
             }
             indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
-        self.bib_meshes =
-            Self::upload_overlay_mesh(device, "Faction Bibs", &vertices, &indices)
-                .into_iter()
-                .collect();
+        let mut meshes = Vec::new();
+        if let Some(mut mesh) =
+            Self::upload_overlay_mesh(&device, "Faction Bibs", &normal_vertices, &normal_indices)
+        {
+            mesh.bib_highlight = false;
+            meshes.push(mesh);
+        }
+        if let Some(mut mesh) = Self::upload_overlay_mesh(
+            &device,
+            "Faction Bibs Highlight",
+            &highlight_vertices,
+            &highlight_indices,
+        ) {
+            mesh.bib_highlight = true;
+            meshes.push(mesh);
+        }
+        self.bib_meshes = meshes;
+    }
+
+    /// C++ `W3DPropBuffer::drawProps` renders every `TerrainPropRecord` as a
+    /// full W3D model; this port has no prop models, so each prop draws as a
+    /// crossed-card stand-in (two quads, the tree-buffer convention)
+    /// height-snapped to the terrain and tinted deterministically from the
+    /// prop name hash. Drawn through the alpha-blended overlay pipeline so
+    /// the cards read as scenery rather than collision geometry.
+    fn upload_prop_meshes(&mut self) {
+        const PROP_CARD_UVS: [[f32; 2]; 4] = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+        let Some(device) = self.device.as_ref() else {
+            self.prop_meshes.clear();
+            return;
+        };
+        if self.terrain_props.is_empty() {
+            self.prop_meshes.clear();
+            return;
+        }
+        let height_at = |x: f32, z: f32| {
+            self.height_map
+                .as_ref()
+                .map(|hm| hm.get_height_at(x, z))
+                .unwrap_or(0.0)
+        };
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for prop in &self.terrain_props {
+            let [px, _, pz] = prop.position;
+            let y = height_at(px, pz);
+            // C++ W3DPropBuffer scales each prop about its model size; the
+            // stand-in card derives its footprint from the same scale field.
+            let size = (prop.scale.max(0.1) * 10.0).min(40.0);
+            let half = size * 0.5;
+            let (sin, cos) = prop.angle.sin_cos();
+            // Deterministic tint: hash the model name into a green-brown band
+            // (rocks vs bushes) the way the tree buffer tints stand-ins.
+            let mut hash: u32 = 0x811c_9dc5;
+            for byte in prop.model_name.bytes() {
+                hash = hash.wrapping_mul(0x0100_0193).wrapping_add(byte as u32);
+            }
+            let t = (hash & 0xff) as f32 / 255.0;
+            let tint = [
+                0.30 + 0.20 * t,
+                0.34 + 0.16 * t,
+                0.22 + 0.10 * (1.0 - t),
+            ];
+            for axis in 0..2 {
+                let (dx, dz) = if axis == 0 {
+                    (cos * half, sin * half)
+                } else {
+                    (-sin * half, cos * half)
+                };
+                let corners = [
+                    [px - dx, y, pz - dz],
+                    [px + dx, y, pz + dz],
+                    [px + dx, y + size, pz + dz],
+                    [px - dx, y + size, pz - dz],
+                ];
+                let base = vertices.len() as u32;
+                for (i, corner) in corners.iter().enumerate() {
+                    vertices.push(OverlayGpuVertex {
+                        position: *corner,
+                        color: tint,
+                        tex_coords: PROP_CARD_UVS[i],
+                        road_width: 0.9,
+                        diffuse: 0xffff_ffff,
+                    });
+                }
+                indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
+        }
+        self.prop_meshes = Self::upload_overlay_mesh(device, "Terrain Props", &vertices, &indices)
+            .into_iter()
+            .collect();
+    }
+
+    /// True when at least one real bib TGA resolved (bind groups keyed
+    /// `bib_normal` / `bib_highlight` in `water_named_bind_groups`).
+    fn bib_art_bound(&self) -> bool {
+        self.water_named_bind_groups.contains_key("bib_highlight")
+            || self.water_named_bind_groups.contains_key("bib_normal")
+    }
+
+    /// C++ W3DBibBuffer constructor (W3DBibBuffer.cpp:208-213): TBBib.tga +
+    /// TBRedBib.tga with CLAMP addressing. Cached by name; retried only when
+    /// the bind groups are missing (map/device reset clears the cache).
+    fn ensure_bib_texture_bind_groups(&mut self) {
+        const BIB_TEXTURES: [(&str, &str); 2] = [
+            ("bib_normal", "TBBib.tga"),
+            ("bib_highlight", "TBRedBib.tga"),
+        ];
+        if BIB_TEXTURES
+            .iter()
+            .all(|(key, _)| self.water_named_bind_groups.contains_key(*key))
+        {
+            return;
+        }
+        let Some(device) = self.device.clone() else {
+            return;
+        };
+        let Some(layout) = self.road_texture_bind_group_layout.clone() else {
+            return;
+        };
+        let device = device.as_ref();
+        for (key, file) in BIB_TEXTURES {
+            if self.water_named_bind_groups.contains_key(key) {
+                continue;
+            }
+            let Some((texture, source)) =
+                self.load_first_available_named_overlay_texture(device, file)
+            else {
+                // Asset gap (documented): TBBib.tga / TBRedBib.tga are absent
+                // from this install. Without the real art the bib reads as
+                // the translucent stand-in tint baked into vertex color.
+                log::debug!("bib texture {file} not found ({key}); vertex-color fallback");
+                continue;
+            };
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            // C++ sets CLAMP addressing on both bib textures (:210-213).
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Faction Bib Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            });
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("Faction Bib {file} Bind Group")),
+                layout: layout.as_ref(),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
+            self.water_named_bind_groups.insert(
+                key.to_string(),
+                NamedWaterBind {
+                    _texture: texture,
+                    bind_group,
+                },
+            );
+            let _ = source;
+        }
     }
 
     fn upload_tank_track_meshes(&mut self) {
@@ -915,20 +1217,6 @@ impl TerrainVisualImpl {
                 .collect();
     }
 
-    fn rebuild_all_overlays(&mut self) {
-        self.upload_shoreline_meshes();
-        if let Some(device) = self.device.clone() {
-            self.upload_water_grid_mesh(device.as_ref());
-            let _ = self.sync_polygon_water_meshes(device.as_ref());
-        }
-        self.upload_bib_meshes();
-        self.upload_tank_track_meshes();
-        self.upload_custom_edge_meshes();
-        self.upload_smudge_mesh();
-        self.upload_flat_lod_meshes();
-        self.overlay.overlays_dirty = false;
-    }
-
     fn record_overlay_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
@@ -937,10 +1225,10 @@ impl TerrainVisualImpl {
             return;
         };
         let extra: Vec<&GpuRoadMesh> = self
-            .bib_meshes
+            .tank_track_meshes
             .iter()
-            .chain(self.tank_track_meshes.iter())
             .chain(self.custom_edge_meshes.iter())
+            .chain(self.prop_meshes.iter())
             .chain(self.flat_lod_meshes.iter())
             .chain(self.smudge_mesh.iter())
             .collect();
@@ -956,6 +1244,32 @@ impl TerrainVisualImpl {
                 }
             }
         }
+        // C++ W3DBibBuffer::renderBibs (W3DBibBuffer.cpp:404-412): normal
+        // bibs draw under TBBib.tga, then highlight bibs under TBRedBib.tga.
+        // Without resolved bib art the meshes fall back to the road bind
+        // group and the baked stand-in tint/alpha.
+        if !self.bib_meshes.is_empty() {
+            pass.set_pipeline(road_pipeline);
+            pass.set_bind_group(0, camera_bg, &[]);
+            for mesh in &self.bib_meshes {
+                let bib_bg = if mesh.bib_highlight {
+                    self.water_named_bind_groups
+                        .get("bib_highlight")
+                        .or_else(|| self.water_named_bind_groups.get("bib_normal"))
+                } else {
+                    self.water_named_bind_groups.get("bib_normal")
+                }
+                .map(|named| &named.bind_group)
+                .or(self.road_texture_bind_group.as_ref());
+                let Some(bg) = bib_bg else {
+                    continue;
+                };
+                pass.set_bind_group(1, bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+        }
         if let (Some(snow), Some(snow_bg), Some(snow_pipeline)) = (
             self.snow_mesh.as_ref(),
             self.snow_texture_bind_group.as_ref(),
@@ -969,18 +1283,74 @@ impl TerrainVisualImpl {
             pass.draw_indexed(0..snow.index_count, 0, 0..1);
         }
     }
+    fn rebuild_all_overlays(&mut self) {
+        self.upload_shoreline_meshes();
+        if let Some(device) = self.device.clone() {
+            self.upload_water_grid_mesh(device.as_ref());
+            let _ = self.sync_polygon_water_meshes(device.as_ref());
+        }
+        self.upload_bib_meshes();
+        self.upload_prop_meshes();
+        self.upload_tank_track_meshes();
+        self.upload_custom_edge_meshes();
+        self.upload_smudge_mesh();
+        self.upload_flat_lod_meshes();
+        self.overlay.overlays_dirty = false;
+    }
+    /// C++ sort-order parity: the shoreline feather tiles belong to the terrain
+    /// render (BaseHeightMap shoreline blend), drawn before scene objects.
+    pub fn record_shoreline_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        let (Some(water_pipeline), Some(camera_bg), Some(water_bg)) = (
+            self.water_pipeline.as_ref(),
+            self.terrain_camera_bind_group.as_ref(),
+            self.water_texture_bind_group.as_ref(),
+        ) else {
+            return;
+        };
+        if self.shoreline_meshes.is_empty() {
+            return;
+        }
+        pass.set_pipeline(water_pipeline);
+        pass.set_bind_group(0, camera_bg, &[]);
+        pass.set_bind_group(1, water_bg, &[]);
+        for mesh in &self.shoreline_meshes {
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+    }
 
-    fn record_extra_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    /// C++ `WaterRenderObjClass::renderWater` + `renderWaterMesh`: river strips
+    /// (drawRiverWater), standing-water trapezoids (drawTrapezoidWater) and the
+    /// animated water grid mesh. Rivers use the JBA river pixel shader with the
+    /// alpha-edge stage; trapezoids use the flat-water trapezoid shader.
+    pub fn record_extra_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         let Some(camera_bg) = self.terrain_camera_bind_group.as_ref() else {
             return;
         };
 
+        let river_pipeline = if self.water_additive_blend {
+            self.river_gpu
+                .river_additive_pipeline
+                .as_ref()
+                .or(self.river_gpu.pipeline.as_ref())
+        } else {
+            self.river_gpu.pipeline.as_ref()
+        };
+        let trapezoid_pipeline = if self.water_additive_blend {
+            self.river_gpu
+                .trapezoid_additive_pipeline
+                .as_ref()
+                .or(self.river_gpu.trapezoid_pipeline.as_ref())
+        } else {
+            self.river_gpu.trapezoid_pipeline.as_ref()
+        };
         if let (Some(river_pipeline), Some(river_bg)) = (
-            self.river_gpu.pipeline.as_ref(),
+            river_pipeline,
             self.river_gpu.bind_group.as_ref(),
         ) {
             let mut started = false;
-            for mesh in self.polygon_water_meshes.iter().filter(|m| m.jba) {
+            for mesh in self.polygon_water_meshes.iter().filter(|m| m.river) {
                 if !started {
                     pass.set_pipeline(river_pipeline);
                     pass.set_bind_group(0, camera_bg, &[]);
@@ -992,44 +1362,87 @@ impl TerrainVisualImpl {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
+        if let (Some(trapezoid_pipeline), Some(trapezoid_bg)) = (
+            trapezoid_pipeline,
+            self.river_gpu.trapezoid_bind_group.as_ref(),
 
-        let water_pipeline = if self.water_additive_blend {
-            self.water_additive_pipeline
-                .as_ref()
-                .or(self.water_pipeline.as_ref())
-        } else {
-            self.water_pipeline.as_ref()
-        };
-        let (Some(water_pipeline), Some(water_bg)) =
-            (water_pipeline, self.water_texture_bind_group.as_ref())
-        else {
-            return;
-        };
-        pass.set_pipeline(water_pipeline);
-        pass.set_bind_group(0, camera_bg, &[]);
-        pass.set_bind_group(1, water_bg, &[]);
-        for mesh in self
-            .shoreline_meshes
-            .iter()
-            .chain(self.polygon_water_meshes.iter().filter(|m| !m.jba))
-            .chain(self.water_grid_mesh.iter())
-        {
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        ) {
+            // C++ renderWaterMesh draws with setupFlatWaterShader (trapezoid
+            // shader); the trapezoid bind group carries `is_trapezoid = 1`
+            // (no river alpha-edge stage).
+            let mut started = false;
+            for mesh in self
+                .polygon_water_meshes
+                .iter()
+                .filter(|m| m.jba && !m.river)
+                .chain(self.water_grid_mesh.iter())
+            {
+                if !started {
+                    pass.set_pipeline(trapezoid_pipeline);
+                    pass.set_bind_group(0, camera_bg, &[]);
+                    pass.set_bind_group(1, trapezoid_bg, &[]);
+                    started = true;
+                }
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
         }
+    }
+}
+
+/// Vertex tint + alpha for a faction bib. With the C++ art (TBBib.tga /
+/// TBRedBib.tga, W3DBibBuffer.cpp:208-209) the texture carries everything and
+/// the tint stays white; without it the bib reads as a translucent stand-in —
+/// red for the placement highlight, pale for a normal bib — through the
+/// `detailAlphaShader`-style blend.
+fn bib_stand_in_appearance(highlight: bool, art_bound: bool) -> ([f32; 3], f32) {
+    match (highlight, art_bound) {
+        (true, false) => ([1.0, 0.2, 0.2], 0.45),
+        (true, true) => ([1.0, 1.0, 1.0], 1.0),
+        (false, false) => ([0.95, 0.93, 0.9], 0.45),
+        (false, true) => ([1.0, 1.0, 1.0], 1.0),
     }
 }
 
 const WATER_UV_FACTOR: f32 = 150.0;
 const HEIGHT_TO_USE: f32 = 0.5;
 
+/// C++ `loadSetting` packs `RGBAColorInt` as A<<24 | R<<16 | G<<8 | B with
+/// raw 0-255 channels. The parsed Water.ini value keeps the raw scale, but
+/// the not-yet-loaded INI default is a 0-1 float tuple — packing that raw
+/// produced (0,0,1,1) near-black water. Detect the 0-1 scale and rescale.
+/// Pathological 0-255 colors with every channel <= 1 do not occur in
+/// retail Water.ini (minimum channel is 32).
+fn pack_water_setting_diffuse(color: (f32, f32, f32, f32)) -> u32 {
+    let scaled = if color.0 <= 1.0 && color.1 <= 1.0 && color.2 <= 1.0 && color.3 <= 1.0 {
+        (
+            color.0 * 255.0,
+            color.1 * 255.0,
+            color.2 * 255.0,
+            color.3 * 255.0,
+        )
+    } else {
+        color
+    };
+    let r = scaled.0.round().clamp(0.0, 255.0) as u32;
+    let g = scaled.1.round().clamp(0.0, 255.0) as u32;
+    let b = scaled.2.round().clamp(0.0, 255.0) as u32;
+    let a = scaled.3.round().clamp(0.0, 255.0) as u32;
+    (a << 24) | (r << 16) | (g << 8) | b
+}
+
 /// C++ `WaterRenderObjClass::drawTrapezoidWater` — authored Z + world UVs.
+/// With `feather > 0` this is the C++ "WAVY_WATER" feather branch: per-layer
+/// alpha table (W3DWater.cpp:3152-3156), `z += (sin(phase)-1)*0.5` wave and
+/// wave-perturbed UVs (W3DWater.cpp:3178-3184); otherwise the flat branch
+/// (W3DWater.cpp:3230-3235).
 fn bake_trapezoid_water(
     points: &[[f32; 3]; 4],
     z_off: f32,
     v_origin: f32,
     diffuse: u32,
+    feather: i32,
 ) -> (Vec<crate::terrain::SeaPatchVertex>, Vec<u32>) {
     let origin = Vec3::new(points[0][0], points[0][1] + z_off, points[0][2]);
     let p1 = Vec3::new(points[1][0], points[1][1], points[1][2]);
@@ -1051,6 +1464,20 @@ fn bake_trapezoid_water(
     v_count = v_count.min(50);
     u_count += 1;
     v_count += 1;
+    // Feather layers swap the vertex alpha for the layer-count table and add
+    // the traveling wave to Z and UVs; flat water keeps the ini diffuse alpha.
+    let (vert_diffuse, feather_wave) = if feather > 0 {
+        let alpha: i32 = match feather {
+            5 => 80,
+            4 => 110,
+            3 => 140,
+            2 => 200,
+            _ => 255,
+        };
+        ((diffuse & 0x00ff_ffff) | ((alpha as u32) << 24), true)
+    } else {
+        (diffuse, false)
+    };
     let const_a = 0.02 * (11.0 * v_origin).cos();
     let const_b = 0.02 * (5.0 * v_origin).cos();
     let const_c = 25.0 * v_origin;
@@ -1064,13 +1491,27 @@ fn bake_trapezoid_water(
         for i in 0..u_count {
             let du = i as f32 * du_step;
             let vertex = origin + u_vec1 * du + v_vec1 * dv + (v_vec2 - v_vec1) * (dv * du);
-            let tu = vertex.x * oo_water + const_a * (const_c + vertex.x * const_d).sin();
-            let tv = vertex.z * oo_water + const_b * (const_c + vertex.z * const_d).sin();
+            // C++ feather branch: wave displaces Z and the wave height feeds
+            // back into U/V; flat branch: plain sine-scroll UVs.
+            let (tu, tv, y) = if feather_wave {
+                let wave = ((const_c + vertex.x * const_d).sin() - 1.0) * 0.5;
+                (
+                    vertex.x * oo_water + const_a * wave,
+                    vertex.z * oo_water + const_b * wave,
+                    vertex.y + wave,
+                )
+            } else {
+                (
+                    vertex.x * oo_water + const_a * (const_c + vertex.x * const_d).sin(),
+                    vertex.z * oo_water + const_b * (const_c + vertex.z * const_d).sin(),
+                    vertex.y,
+                )
+            };
             verts.push(crate::terrain::SeaPatchVertex {
                 x: vertex.x,
-                y: vertex.y,
+                y,
                 z: vertex.z,
-                c: diffuse,
+                c: vert_diffuse,
                 tu,
                 tv,
             });
@@ -1186,7 +1627,7 @@ mod tests {
             [80.0, 14.0, 80.0],
             [0.0, 16.0, 80.0],
         ];
-        let (verts, indices) = bake_trapezoid_water(&points, 0.0, 0.0, 0xffff_ffff);
+        let (verts, indices) = bake_trapezoid_water(&points, 0.0, 0.0, 0xffff_ffff, 0);
         assert!(!verts.is_empty());
         assert!(!indices.is_empty());
         assert!(
@@ -1249,6 +1690,45 @@ mod tests {
             !visual.water_grid_state().velocity_events.is_empty(),
             "leftover addWaterVelocity must drain onto the live water grid"
         );
+    }
+
+    /// The presentation R8 feed must land the payload in the shroud cells
+    /// (replacing the empty/1x1-fallback state), honour the projected origin
+    /// in world sampling, and treat an identical re-feed as a no-op state.
+    #[test]
+    fn shroud_overlay_r8_feed_replaces_fallback_state() {
+        let mut visual = TerrainVisualImpl::new();
+        assert!(
+            visual.shroud_alpha_at_world(0.0, 0.0) == 1.0,
+            "uninitialized overlay must fail open (fully visible)"
+        );
+
+        let (w, h) = (4i32, 3i32);
+        let mut payload = vec![255u8; (w * h) as usize];
+        payload[0] = 0; // shrouded
+        payload[1] = 128; // fogged
+        visual.set_shroud_overlay_r8(w, h, 40.0, [80.0, 40.0], &payload);
+
+        assert_eq!(visual.shroud_alpha_at_world(80.0, 40.0), 0.0);
+        assert_eq!(visual.shroud_alpha_at_world(120.0, 40.0), 128.0 / 255.0);
+        assert_eq!(visual.shroud_alpha_at_world(160.0, 80.0), 1.0);
+        // OOB clamps to the nearest cell instead of panicking.
+        assert_eq!(visual.shroud_alpha_at_world(-1000.0, -1000.0), 0.0);
+
+        // Identical re-feed: allowed and state-preserving (no panic, same
+        // sampling), which keeps the per-frame presentation feed cheap.
+        visual.set_shroud_overlay_r8(w, h, 40.0, [80.0, 40.0], &payload);
+        assert_eq!(visual.shroud_alpha_at_world(80.0, 40.0), 0.0);
+
+        // A real change flows through, including a resize.
+        let small = vec![64u8; 4];
+        visual.set_shroud_overlay_r8(2, 2, 40.0, [0.0, 0.0], &small);
+        assert_eq!(visual.shroud_alpha_at_world(0.0, 0.0), 64.0 / 255.0);
+        assert_eq!(visual.shroud_alpha_at_world(80.0, 40.0), 64.0 / 255.0);
+
+        // Undersized payload is rejected: previous overlay state retained.
+        visual.set_shroud_overlay_r8(4, 4, 40.0, [0.0, 0.0], &[0u8; 3]);
+        assert_eq!(visual.shroud_alpha_at_world(0.0, 0.0), 64.0 / 255.0);
     }
 }
 

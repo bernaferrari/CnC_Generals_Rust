@@ -445,7 +445,16 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
 /// as the geometry source for `pointInTrigger`. Skip names already present
 /// so `load_map_data` and this installer do not double-add.
 pub fn install_runtime_polygon_triggers(triggers: &[PolygonTrigger]) {
-    let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() else {
+    // Fast-sync fail-open contract (world_tests mod.rs
+    // fast_chunky_sync_fail_opens_when_legacy_globals_are_busy): when a
+    // startup worker still holds THE_TERRAIN_LOGIC, skip installation instead
+    // of blocking the sync (which would self-deadlock the sync's own held
+    // locks and stall every other pathfinding user).
+    let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().try_write() else {
+        log::warn!(
+            "install_runtime_polygon_triggers: THE_TERRAIN_LOGIC contended; skipping {} polygon trigger(s)",
+            triggers.len()
+        );
         return;
     };
     for trigger in triggers {

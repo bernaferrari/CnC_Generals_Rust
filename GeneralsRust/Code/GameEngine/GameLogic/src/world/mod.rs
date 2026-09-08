@@ -296,7 +296,8 @@ impl World {
                 let mut idx = e.path_index as usize;
                 if idx < e.path_waypoints.len() {
                     let wp = e.path_waypoints[idx];
-                    if horiz(px, pz, wp[0], wp[2]) < 5.0 {
+                    // C++ PATHFIND_CLOSE_ENOUGH = 1.0 (AIPathfind.h:24).
+                    if horiz(px, pz, wp[0], wp[2]) < 1.0 {
                         idx = idx.saturating_add(1);
                         e.path_index = idx.min(u16::MAX as usize) as u16;
                         if idx >= e.path_waypoints.len() {
@@ -347,8 +348,14 @@ impl World {
             };
             let desired_vx = dir_x * max_speed;
             let desired_vz = dir_z * max_speed;
-            // Host residual: acceleration ≈ 4× max_speed toward desired velocity.
-            let accel = (max_speed * 4.0).max(1.0);
+            // Host residual: acceleration clamped to the synced template
+            // acceleration (C++ Locomotor::getMaxAcceleration); the 4×
+            // max_speed heuristic only bounds the pre-sync fallback.
+            let accel = if e.move_accel.is_finite() && e.move_accel > 0.0 {
+                (max_speed * 4.0).max(1.0).min(e.move_accel)
+            } else {
+                (max_speed * 4.0).max(1.0)
+            };
             let max_dv = accel * dt;
             let mut vx = e.velocity[0];
             let mut vz = e.velocity[2];
@@ -373,9 +380,30 @@ impl World {
                 nx = tx;
                 nz = tz;
             }
-            let reached = horiz(nx, nz, tx, tz) < 2.0;
-            let orient = (-vz).atan2(vx);
-            e.transform = entities::Transform::new([nx, py, nz], orient);
+            let reached = horiz(nx, nz, tx, tz) < 1.0;
+            // C++ Locomotor::locoUpdateOrientation converges facing at
+            // getMaxTurnRate per second — no instant snap (the old atan2
+            // assignment let units flip 180° in one frame).
+            let desired_orient = (-vz).atan2(vx);
+            let turn_rate = if e.move_turn_rate.is_finite() && e.move_turn_rate > 0.0 {
+                e.move_turn_rate
+            } else {
+                // Residual not synced yet — permit convergence this frame.
+                f32::INFINITY
+            };
+            let mut dtheta = desired_orient - e.transform.orientation;
+            while dtheta > std::f32::consts::PI {
+                dtheta -= 2.0 * std::f32::consts::PI;
+            }
+            while dtheta < -std::f32::consts::PI {
+                dtheta += 2.0 * std::f32::consts::PI;
+            }
+            let new_orient = if dtheta.abs() <= turn_rate * dt {
+                desired_orient
+            } else {
+                e.transform.orientation + dtheta.signum() * turn_rate * dt
+            };
+            e.transform = entities::Transform::new([nx, py, nz], new_orient);
             e.moving = true;
 
             if reached {
@@ -1061,6 +1089,8 @@ pub enum WorldMutation {
         target: EntityId,
         velocity: [f32; 3],
         max_speed: f32,
+        accel: f32,
+        turn_rate: f32,
         path_index: u16,
         path_len: u16,
         path_waypoints: Vec<[f32; 3]>,
@@ -1513,9 +1543,39 @@ impl GameWorld {
         let pending = std::mem::take(&mut self.pending);
         let mut applied = 0;
         for item in pending {
-            if let Some(handle) = item.guard {
-                if self.inner.entities.resolve(handle).is_none() {
-                    continue;
+            match item.guard {
+                // Alive at enqueue: apply only while that exact occupant lives
+                // (C++ needs no such check — ObjectIDs are never reused,
+                // GameLogic.cpp:3816-3821; the Rust store's spawn_at can).
+                entity_generation::MutationGuard::Primary(handle) => {
+                    if self.inner.entities.resolve(handle).is_none() {
+                        continue;
+                    }
+                }
+                // No primary entity (spawn/player/projectile/AI channels):
+                // nothing to validate.
+                entity_generation::MutationGuard::Entityless => {}
+                // Primary id absent at enqueue: apply only to an occupant
+                // created at/after the generation recorded then, so id reuse
+                // cannot redirect the write to a pre-enqueue occupant.
+                entity_generation::MutationGuard::PrimaryAbsentAtEnqueue {
+                    id,
+                    next_generation,
+                } => {
+                    let fresh = self
+                        .inner
+                        .entities
+                        .live_generation(id)
+                        .is_some_and(|live| live >= next_generation);
+                    if !fresh {
+                        log::debug!(
+                            "skipped {:?}: primary id {} absent at enqueue and \
+                             live occupant predates recorded generation {next_generation}",
+                            item.mutation,
+                            id.get()
+                        );
+                        continue;
+                    }
                 }
             }
             let m = item.mutation;
@@ -2565,6 +2625,8 @@ impl GameWorld {
                     target,
                     velocity,
                     max_speed,
+                    accel,
+                    turn_rate,
                     path_index,
                     path_len,
                     path_waypoints,
@@ -2585,6 +2647,8 @@ impl GameWorld {
                     if let Some(e) = self.inner.entity_mut(target) {
                         e.velocity = velocity;
                         e.move_max_speed = max_speed;
+                        e.move_accel = accel;
+                        e.move_turn_rate = turn_rate;
                         e.path_index = path_index;
                         e.path_len = path_len;
                         e.path_waypoints = path_waypoints;
@@ -2944,6 +3008,12 @@ impl GameWorld {
 
     pub fn resolve_entity(&self, handle: EntityHandle) -> Option<&entities::Entity> {
         self.inner.entities.resolve(handle)
+    }
+
+    /// World epoch of this world's entity store (distinct per `GameWorld`;
+    /// test/diagnostic surface for the epoch-gated handle resolution).
+    pub fn entity_world_epoch(&self) -> u32 {
+        self.inner.entities.world_epoch()
     }
 
     pub fn allocate_player_with_name(

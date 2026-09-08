@@ -4,6 +4,7 @@
 //       from other subsystems. It can work things such as file reading, file writing,
 //       CRC computations etc
 
+use super::SaveGame::game_state::GameState;
 use crate::common::ini::ini_upgrade::get_upgrade_center;
 use crate::common::rts::science::{SCIENCE_INVALID, ScienceType, get_science_store};
 use crate::common::system::geometry::Matrix3D;
@@ -707,6 +708,17 @@ pub trait Snapshot: Send {
 
     /// Run save, load, or deep CRC check on this data structure
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus>;
+
+    /// Bridges that need GameState data must use the caller-provided reference —
+    /// get_game_state() self-deadlocks because the block loop holds the mutex.
+    fn xfer_with_state(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        state: &mut GameState,
+    ) -> Result<(), XferStatus> {
+        let _ = state;
+        self.xfer(xfer)
+    }
 
     /// Post process phase for loading save games
     fn load_post_process(&mut self) -> Result<(), XferStatus>;

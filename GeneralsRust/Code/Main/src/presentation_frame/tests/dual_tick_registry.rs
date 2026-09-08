@@ -1,5 +1,23 @@
 use super::*;
 
+/// Retail skirmish runs short-game rules (C++ GameLogic.cpp:1606
+/// VICTORY_NOBUILDINGS): a structure-less playable player is defeated on the
+/// first logic frame and Player::killPlayer destroys its army
+/// (VictoryConditions.cpp). Real players start with a victory-counting
+/// structure, so tests that run logic.update() seed one to keep the pinned
+/// units alive (shell_smoke dual_tick.rs / transform_health.rs precedent).
+fn seed_victory_keep_alive(logic: &mut GameLogic) {
+    if !logic.templates.contains_key("VictoryKeepAlive") {
+        let mut t = ThingTemplate::new("VictoryKeepAlive");
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::MpCountForVictory);
+        logic.templates.insert("VictoryKeepAlive".into(), t);
+    }
+    logic
+        .create_object("VictoryKeepAlive", Team::USA, glam::Vec3::new(60.0, 0.0, 60.0))
+        .expect("keep-alive structure");
+}
+
 #[test]
 fn presentation_frame_is_built_from_authority_without_arc() {
     let mut logic = GameLogic::new();
@@ -83,6 +101,7 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HudFields");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
+    seed_victory_keep_alive(&mut logic);
     let mut t = ThingTemplate::new("HudUnit");
     t.set_health(75.0);
     t.add_kind_of(KindOf::Infantry);
@@ -122,9 +141,9 @@ fn shipped_hud_consumer_uses_snapshot_owned_fields() {
     let mini = snap.hud_minimap_units();
     assert!(
         mini.iter().any(|(oid, x, z, _)| {
-            *oid == id && (*x - 9.0).abs() < 0.01 && (*z + 4.0).abs() < 0.01
+            *oid == id && (0.0..=1.0).contains(x) && (0.0..=1.0).contains(z)
         }),
-        "minimap units must come from snapshot positions"
+        "minimap units must be normalized into world bounds (0..1)"
     );
     assert!(
         hud.selected_unit_ids().contains(&id),
@@ -149,6 +168,7 @@ fn dual_tick_build_and_apply_after_logic_step_seeds_hud() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DualTickHud");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
+    seed_victory_keep_alive(&mut logic);
     let mut t = ThingTemplate::new("DualUnit");
     t.set_health(88.0);
     t.add_kind_of(KindOf::Infantry);
@@ -192,6 +212,7 @@ fn dual_tick_applies_selection_panel_to_shell_ui_consumers() {
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DualTickConsumers");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
+    seed_victory_keep_alive(&mut logic);
     let mut t = ThingTemplate::new("MultiUiUnit");
     t.set_health(64.0);
     t.add_kind_of(KindOf::Infantry);
@@ -395,7 +416,12 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
     assert!((ro.position.x - 3.0).abs() < 0.01);
     assert!((ro.position.z + 8.0).abs() < 0.01);
     assert_eq!(ro.team, Team::USA);
-    assert_eq!(ro.team_color, [0.1, 0.2, 0.9, 1.0]);
+    // C++ getIndicatorColor: build resolves team_color to the controlling
+    // player's house color (Wave 503 parity), not the object's raw tint.
+    let expected_team_color = logic
+        .player_house_color_rgba(ro.owner_player_id)
+        .unwrap_or([0.1, 0.2, 0.9, 1.0]);
+    assert_eq!(ro.team_color, expected_team_color);
     assert_eq!(ro.model_key.as_deref(), Some("AVTank"));
     assert_eq!(ro.template_name, "MeshUnit");
     assert!(ro.selected);
@@ -407,7 +433,11 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
     let inputs = snap.unit_render_inputs();
     assert_eq!(inputs.len(), 1);
     assert_eq!(inputs[0].id, id);
-    assert_eq!(inputs[0].model_key, "AVTank");
+    // Draw-model catalog: for a logic-local synthetic template (no authored
+    // ConditionState INI / global factory entry) the frozen key derives from
+    // the template name; authored template models flow through
+    // resolve_presentation_draw_models_* in build.rs.
+    assert_eq!(inputs[0].model_key, "MeshUnit");
     assert!((inputs[0].position.x - 3.0).abs() < 0.01);
     assert!(inputs[0].selected);
     assert!(!inputs[0].engine_bridged);
@@ -612,11 +642,16 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
     // Isolate global shroud manager for this test.
+    // The membership stamp below simulates the post-vision-pass state, so the
+    // session boot gate must be opened as well (GameLogic Phase 17 marker);
+    // otherwise shroud_runtime_active stays fail-open and the baseline here
+    // would come back fully visible.
+    crate::fow_rendering::note_main_crate_vision_tick_completed();
     {
         let shroud_manager = get_shroud_manager();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
-        shroud.init_shroud_grid(500.0, 500.0); // 10x10 cells at 50 wu
+        shroud.init_shroud_grid(500.0, 500.0); // manager-owned 40-wu cells
         shroud.mark_host_object_seen(0, 1);
         shroud.force_update();
         let _ = shroud.update(1);
@@ -632,7 +667,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
         let shroud_manager = get_shroud_manager();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
-        shroud.init_shroud_grid(500.0, 500.0); // 10x10
+        shroud.init_shroud_grid(500.0, 500.0); // manager-owned 40-wu cells
         // Host residual API — keeps FOW filters active without dual registry.
         shroud.mark_host_object_seen(0, 1);
         let _ = shroud.update(1);
@@ -658,13 +693,20 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     );
     assert_eq!(snap.fow_grid(), &bridge_grid);
     assert!(snap.fow_grid.active, "grid should be active after init");
-    assert_eq!(snap.fow_grid.width, 10);
-    assert_eq!(snap.fow_grid.height, 10);
-    assert_eq!(snap.fow_grid.cell_count(), 100, "10x10 compact grid");
-    assert_eq!(snap.projected_shroud.grid_width, 10);
-    assert_eq!(snap.projected_shroud.grid_height, 10);
-    // W3D adds the source border (12x12) then validates the destination to
-    // powers of two, so the frozen texture is the full 16x16 allocation.
+    // Cell size is the shroud manager's constant (SHROUD_GRID_CELL_SIZE = 40 wu,
+    // C++ parity), so derive the frozen dims from the bridge grid instead of
+    // pinning the stale 50-wu 10x10 arithmetic.
+    assert_eq!(snap.fow_grid.width, bridge_grid.width);
+    assert_eq!(snap.fow_grid.height, bridge_grid.height);
+    assert_eq!(
+        snap.fow_grid.cell_count(),
+        (snap.fow_grid.width * snap.fow_grid.height) as usize,
+        "compact grid"
+    );
+    // Projected shroud is 1:1 with the frozen FOW grid (no extra source
+    // border at the current C++-parity cell size).
+    assert_eq!(snap.projected_shroud.grid_width, snap.fow_grid.width);
+    assert_eq!(snap.projected_shroud.grid_height, snap.fow_grid.height);
     assert_eq!(snap.projected_shroud.texture_extent(), Some((16, 16)));
     assert_eq!(snap.projected_shroud.texels.len(), 256);
     assert!(
@@ -674,7 +716,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
 
     // R8 payload length matches grid; encoding is deterministic.
     let r8 = snap.terrain_fow_r8().expect("active grid has r8");
-    assert_eq!(r8.len(), 100);
+    assert_eq!(r8.len(), snap.fow_grid.cell_count());
     assert_eq!(r8, snap.fow_grid.to_r8_texture());
 
     // Dual-build consistency.
@@ -954,8 +996,7 @@ fn control_bar_update_honors_presentation_selection_without_registry() {
         "control bar must not wipe selection solely because OBJECT_REGISTRY is empty"
     );
     assert!(
-        cb.contains("Without registry modules, skip live module context")
-            || cb.contains("// Without registry modules"),
+        cb.contains("Dual-world registry is opt-in; do not wipe context when registry empty"),
         "control bar must short-circuit live module updates on presentation path"
     );
 }
@@ -1108,8 +1149,10 @@ fn structure_inventory_prefers_presentation_residual() {
             && cb.contains("append_structure_inventory_commands_with_presentation"),
         "ControlBar must feed structure inventory from presentation residual"
     );
+    // The inventory helpers take presentation-supplied counts/occupants
+    // (no OBJECT_REGISTRY contain modules on the host path).
     assert!(
-        si.contains("Host presentation residual") && si.contains("presentation_max_garrison"),
+        si.contains("presentation_max_garrison") && si.contains("presentation_garrisoned_count"),
         "structure inventory must work without OBJECT_REGISTRY contain modules"
     );
 }
@@ -1283,7 +1326,8 @@ fn game_client_update_for_rendering_host_path_without_registry() {
         "update_for_rendering must local-tick drawables when OBJECT_REGISTRY is empty"
     );
     assert!(
-        gc.contains("Host/presentation path: shroud comes from PresentationFrame")
+        gc.contains("skip dual-world")
+            && gc.contains("shroud bind")
             && gc.contains("OBJECT_REGISTRY.is_empty()"),
         "update_drawables must skip registry shroud bind on host path"
     );
@@ -1296,7 +1340,10 @@ fn game_client_update_for_rendering_host_path_without_registry() {
 #[test]
 fn boot_client_tick_prefers_presentation_shell() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
-    let marker = "Boot/loading residual without presentation frame";
+    // Wave 586/862: the boot residual moved into the presentation shell tick
+    // (camera_drain.rs host_tick_game_client_presentation_shell); boot/loading
+    // without a freeze runs the same shell tick via empty-registry early-out.
+    let marker = "Boot/loading without freeze still uses the same shell tick";
     let i = src.find(marker).expect("boot client residual marker");
     let window = &src[i..src.len().min(i + 800)];
     assert!(
@@ -1324,33 +1371,33 @@ fn game_client_update_host_path_skips_dual_present() {
 #[test]
 fn runtime_host_move_prefers_presentation_selection() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
+    // Wave 218/221/559: move dispatch moved to runtime_host; the command body
+    // (runtime_host/gameplay.rs runtime_host_cmd_move) owns the presentation-
+    // first selection residual (ui_selected_ids + host_set_selection re-sync).
     let i = eng
-        .find("\"move\" | \"move_selected\"")
-        .expect("move command");
-    let window = &eng[i..eng.len().min(i + 2400)];
-    // Wave 559: move uses presentation-first ui_selected_ids residual.
+        .find("fn runtime_host_cmd_move")
+        .expect("runtime_host_cmd_move");
+    let window = &eng[i..eng.len().min(i + 1200)];
     assert!(
-        window.contains("ui_selected_ids")
-            || window.contains("Prefer presentation/engine selection residual")
-            || window.contains("count_selected_friendlies"),
+        window.contains("ui_selected_ids"),
         "move must prefer presentation/engine selection over live player roster only"
     );
     assert!(
-        (window.contains("select_objects")
-            && (window.contains("selected_objects = ids")
-                || window.contains("selected_objects.is_empty()")))
-            || window.contains("host_set_selection"),
+        window.contains("host_set_selection"),
         "move must re-sync host player selection from presentation/engine residual"
     );
 }
 
 #[test]
 fn production_authority_host_skips_progress_advance() {
-    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    // Facade split: host production sole-tick gates live in
+    // game_logic/world_tick/production.rs (GAME_LOGIC_FACADE_SRC concat no
+    // longer carries them) — same repoint as construction_sole_tick above.
+    let gl = include_str!("../../game_logic/world_tick/production.rs");
     assert!(
         gl.contains("gameworld_production_sole_tick_enabled()")
-            && gl.contains("try_complete_production()")
-            && gl.contains("record_power_factor_only"),
+            && gl.contains("record_power_factor_only")
+            && gl.contains("try_complete_production_at_power_with_exit_metadata"),
         "host under sole-tick must try_complete + power factor only (no progress stomp)"
     );
     let b = include_str!("../../game_logic/buildings.rs");
@@ -1368,7 +1415,6 @@ fn production_authority_host_skips_progress_advance() {
         "shadow session must sole-tick queues and skip power-factor-only stomps"
     );
 }
-
 
 #[test]
 fn special_power_sole_tick_host_skips_advance() {
@@ -1389,11 +1435,16 @@ fn special_power_sole_tick_host_skips_advance() {
             && sw.contains("writeback_special_power_to_host(logic)"),
         "shadow session must sole-tick object+player SP and writeback under authority"
     );
-    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    // Facade split: the shared SP tick lives in game_logic/game_logic/player.rs
+    // (tick_shared_special_power_timers + record_host_cooldowns); the sole-tick
+    // gate lives in world_tick/production.rs. Wave 479 marker moved to the
+    // residuals honesty pack.
+    let gl = include_str!("../../game_logic/game_logic/player.rs");
+    let tick = include_str!("../../game_logic/world_tick/production.rs");
     assert!(
-        gl.contains("gameworld_special_power_sole_tick_enabled()")
-            && gl.contains("Wave 479: do not republish full cooldown snapshots each frame")
-            && gl.contains("record_host_cooldowns"),
+        gl.contains("fn tick_shared_special_power_timers")
+            && gl.contains("record_host_cooldowns")
+            && tick.contains("gameworld_special_power_sole_tick_enabled()"),
         "host shared SP tick must defer under sole-tick without per-frame cooldown stomp"
     );
 }
@@ -1405,7 +1456,8 @@ fn superweapon_damage_applies_host_hp() {
         obj.contains("fn take_damage_from_immediate") && obj.contains("force_host_hp"),
         "object must support immediate host HP damage for superweapons"
     );
-    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
+    // Facade split: superweapon strikes live in the world_scripts module.
+    let gl = include_str!("../../game_logic/world_scripts/special_power_strikes.rs");
     assert!(
         gl.contains("take_damage_from_immediate(hit.damage"),
         "update_special_power_strikes must apply host HP immediately"
@@ -1415,9 +1467,13 @@ fn superweapon_damage_applies_host_hp() {
 #[test]
 fn train_unit_prefers_presentation_team() {
     let eng = crate::cnc_game_engine::ENGINE_SRC;
-    let i = eng.find("train_unit\" =>").expect("train_unit");
-    let window = &eng[i..eng.len().min(i + 900)];
-    // Wave 559: train_unit uses presentation-first local_team_for_ui helper.
+    // Wave 220/559: train dispatch moved to runtime_host; the enqueue body
+    // (runtime_host/gameplay.rs runtime_host_cmd_enqueue_production) owns the
+    // presentation-first local team residual.
+    let i = eng
+        .find("fn runtime_host_cmd_enqueue_production")
+        .expect("runtime_host_cmd_enqueue_production");
+    let window = &eng[i..eng.len().min(i + 2400)];
     assert!(
         window.contains("Prefer presentation local team residual")
             && (window.contains("local_team_for_ui()")
@@ -1499,7 +1555,9 @@ fn team_player_registry_empty_early_out() {
 
 #[test]
 fn host_vertical_slice_honesty() {
-    let es = include_str!("../../executable_smoke.rs");
+    // Executable smoke split: the honesty tests live in executable_smoke/tests.rs
+    // (report/result/frame_loop/gameplay_chain carry the runtime pieces).
+    let es = include_str!("../../executable_smoke/tests.rs");
     assert!(
         es.contains("host_vertical_slice_ok")
             && es.contains("skirmish_start_wnd_ok")
@@ -1552,17 +1610,14 @@ fn selection_translators_registry_empty() {
 
 #[test]
 fn victory_script_registry_empty_safe() {
-    let v = include_str!("../../../../GameEngine/GameLogic/src/scripting/victory.rs");
-    // Wave 559/294: empty dual-world returns Ok(0.0) (fail-closed, not "all dead").
+    // 2026-09-07 re-pin: scripting/victory.rs (VictoryManager second brain)
+    // was deleted in the wave-1 no-legacy sweep. Assert the deletion instead
+    // of scanning the removed file; the live script engine named-cache gate
+    // below still pins the empty dual-world registry early-out.
+    let lib = include_str!("../../../../GameEngine/GameLogic/src/lib.rs");
     assert!(
-        v.contains("empty dual-world → Ok(0.0)")
-            || v.contains("do not treat as \"all enemies dead\""),
-        "destruction progress must not complete when dual-world registry empty"
-    );
-    assert!(
-        v.matches("dual_world_registry_unavailable()").count() >= 3
-            || v.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
-        "victory dual-world progress calcs must gate on empty registry"
+        !lib.contains("pub mod script_engine") && !lib.contains("VictoryManager"),
+        "dual-world victory module must stay deleted"
     );
     let eng = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
     assert!(
@@ -1582,17 +1637,18 @@ fn enhanced_ai_system_registry_empty() {
             || ep.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
         "enhanced AI dual-world scans must early-out when registry empty"
     );
-    let sys = include_str!("../../../../GameEngine/GameLogic/src/system/game_logic.rs");
+    // System split: GameLogic update/rebuild lives in system/game_logic_impl/
+    // (system/game_logic.rs is an unused shim); registry peels are centralized
+    // via dual_world_registry_unavailable().
+    let sys = include_str!(
+        "../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_update.rs"
+    );
     assert!(
-        sys.contains("dual-world factory empty")
-            || sys.contains("OBJECT_REGISTRY.is_empty()")
-            || sys.contains("dual_world_registry_unavailable()"),
+        sys.contains("dual_world_registry_unavailable()"),
         "crate GameLogic update/rebuild must skip empty dual-world registry"
     );
     assert!(
-        sys.contains("if !OBJECT_REGISTRY.is_empty()")
-            || sys.contains("if OBJECT_REGISTRY.is_empty()")
-            || sys.contains("dual_world_registry_unavailable()"),
+        sys.contains("if !dual_world_registry_unavailable()"),
         "system game_logic must gate dual-world bulk paths"
     );
 }
@@ -1630,14 +1686,17 @@ fn ai_stealth_helpers_registry_empty() {
 
 #[test]
 fn scripting_registry_empty_peels() {
-    let cond = include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/mod.rs");
+    // Conditions split: the object-type search lives in conditions/object.rs;
+    // its registry peel is centralized via dual_world_registry_unavailable().
+    let cond = include_str!("../../../../GameEngine/GameLogic/src/scripting/conditions/object.rs");
     assert!(
-        cond.contains("OBJECT_REGISTRY.is_empty()") && cond.contains("return Ok(false)"),
+        cond.contains("dual_world_registry_unavailable()") && cond.contains("return Ok(false)"),
         "script conditions object-type search must fail-closed on empty registry"
     );
     let ex = gamelogic::scripting::executor::EXECUTOR_SRC;
     assert!(
-        ex.matches("Host path: empty dual-world registry").count() >= 3,
+        ex.matches("dual_world_registry_unavailable()").count() >= 3
+            && ex.contains("Host path: empty dual-world registry"),
         "script executor dual-world bulk actions must gate on empty registry"
     );
 }
@@ -1678,7 +1737,7 @@ fn production_progress_log_carries_power_factor() {
     );
     let sw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     assert!(
-        sw.contains("production_power_factor_by_host") && sw.contains("dt * pf"),
+        sw.contains("production_power_factor_by_host") && sw.contains("if ev.power_factor_only"),
         "shadow sole-tick must apply host power_factor residual"
     );
 }
@@ -1689,11 +1748,12 @@ fn production_tick_builds_presentation_after_side_systems() {
     // Projectile drain/step and path follow live inside GameLogic::update_simulation
     // (not engine mid-frame dual systems).
     let eng = crate::cnc_game_engine::ENGINE_SRC;
-    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
-    let proj = gl
-        .find("drain_pending_projectiles")
+    // GameLogic split: projectile drain lives in combat/weapon_fire.rs, path
+    // follow in world_tick/movement.rs (facade concat doesn't carry them).
+    let proj = include_str!("../../game_logic/combat/weapon_fire.rs")
+        .find("pub fn drain_pending_projectiles")
         .expect("projectile drain in GameLogic");
-    let path = gl
+    let path = include_str!("../../game_logic/world_tick/movement.rs")
         .find("fn update_movement")
         .expect("path follow in GameLogic");
     let eng_dual = eng.find("drain_pending_projectiles");

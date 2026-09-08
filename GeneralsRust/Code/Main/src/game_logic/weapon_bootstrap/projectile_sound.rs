@@ -196,7 +196,8 @@ pub fn host_fire_sound_for_unit_slot(
     } else {
         primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
     };
-    wname.map(host_fire_sound_for_weapon_name)
+    wname
+        .map(host_fire_sound_for_weapon_name)
         .unwrap_or_default()
 }
 

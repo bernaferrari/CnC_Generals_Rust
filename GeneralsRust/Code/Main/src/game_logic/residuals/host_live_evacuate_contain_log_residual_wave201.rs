@@ -116,18 +116,43 @@ pub fn honesty_evacuate_uses_set_contained_by_source() -> bool {
         && body.contains("remove_occupant")
 }
 
+/// Production window of a multi-file source concat: drops `#[cfg(test)]
+/// mod NAME { ... }` bodies so scans see production code only. `mod name;`
+/// re-exports have no inline body and are kept (their files are not in the
+/// concat). Test-module bodies always close with a column-0 `}`.
+fn production_source_window(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut lines = src.lines().peekable();
+    while let Some(line) = lines.next() {
+        out.push_str(line);
+        out.push('\n');
+        let test_attr = line.trim_start().starts_with("#[cfg(test)]");
+        let inline_test_mod = lines.peek().map_or(false, |n: &&str| {
+            let t = n.trim_start();
+            t.starts_with("mod ") && t.ends_with('{')
+        });
+        if test_attr && inline_test_mod {
+            lines.next();
+            for inner in lines.by_ref() {
+                if inner == "}" {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Source residual: engine has zero production build_from_logic; uses build_for_engine.
 pub fn honesty_engine_build_for_engine_only_source() -> bool {
-    let eng = crate::cnc_game_engine::ENGINE_SRC;
-    // Production code (not test strings): map-load and preload use build_for_engine.
+    // Test bodies are cut structurally: selection freeze tests legitimately call
+    // build_from_logic under #[cfg(test)] and must not fail this production scan.
+    let eng = production_source_window(crate::cnc_game_engine::ENGINE_SRC);
+    // Production code: map-load and preload use build_for_engine.
     eng.contains("build_for_engine")
         && eng
             .lines()
-            .filter(|l| {
-                !l.trim_start().starts_with("//")
-                    && !l.contains("assert!")
-                    && !l.contains("contains(")
-            })
+            .filter(|l| !l.trim_start().starts_with("//"))
             .filter(|l| l.contains("build_from_logic"))
             .count()
             == 0

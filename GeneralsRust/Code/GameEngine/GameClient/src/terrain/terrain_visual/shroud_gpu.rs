@@ -266,7 +266,15 @@ impl TerrainVisualImpl {
         self.shroud_gpu.uploaded_len = cells.len();
     }
 
-    fn record_shroud_water_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+    /// C++ applies the shroud in a second pass over the same water geometry
+    /// right after drawing it (W3DWater.cpp:2906-2918 / 3314-3334). The
+    /// shoreline tiles ride the terrain pass, so they are only included when
+    /// `include_shoreline` is set.
+    fn record_shroud_water_pass<'pass>(
+        &'pass self,
+        pass: &mut RenderPass<'pass>,
+        include_shoreline: bool,
+    ) {
         let (Some(pipeline), Some(camera), Some(shroud)) = (
             self.shroud_gpu.water_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -274,16 +282,16 @@ impl TerrainVisualImpl {
         ) else {
             return;
         };
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, camera, &[]);
-        pass.set_bind_group(1, shroud, &[]);
         let meshes = self
             .water_plane
             .iter()
             .chain(self.water_track_meshes.iter())
-            .chain(self.shoreline_meshes.iter())
+            .chain(self.shoreline_meshes.iter().filter(|_| include_shoreline))
             .chain(self.polygon_water_meshes.iter())
             .chain(self.water_grid_mesh.iter());
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, camera, &[]);
+        pass.set_bind_group(1, shroud, &[]);
         for mesh in meshes {
             pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);

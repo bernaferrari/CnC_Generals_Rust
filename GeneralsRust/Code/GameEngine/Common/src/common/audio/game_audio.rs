@@ -158,6 +158,46 @@ where
     SOUND_PLAYBACK_HOOK.get().map(|hook| f(hook.as_ref()))
 }
 
+/// Session-wide play-failure reports (event name -> reason).
+///
+/// C++ surfaced missing audio with `DEBUG_ASSERTLOG("Missing Audio File:
+/// '%s'")` at `AudioFileCache::openFile` (MilesAudioManager.cpp:3134). The
+/// Rust play path previously discarded `hook.play` Err strings and unresolved
+/// addAudioEvent handles, so a fully mute game was log-identical to a working
+/// one. Each failing event name logs once per session (rate limit) instead of
+/// once per frame.
+static PLAY_FAILURE_REPORTS: LazyLock<Mutex<HashMap<AsciiString, AsciiString>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Report a TheAudio play failure for `event_name`, rate-limited to one
+/// `warn!` per event name per session. Returns true when this call logged.
+fn report_play_failure_once(event_name: &str, reason: &str) -> Bool {
+    let Ok(mut reports) = PLAY_FAILURE_REPORTS.lock() else {
+        return false;
+    };
+    if reports.contains_key(event_name) {
+        return false;
+    }
+    reports.insert(event_name.to_string(), reason.to_string());
+    log::warn!("TheAudio play failed {event_name}: {reason}");
+    true
+}
+
+#[cfg(test)]
+fn reset_play_failure_reports_for_tests() {
+    if let Ok(mut reports) = PLAY_FAILURE_REPORTS.lock() {
+        reports.clear();
+    }
+}
+
+#[cfg(test)]
+fn play_failure_report_reason_for_tests(event_name: &str) -> Option<AsciiString> {
+    PLAY_FAILURE_REPORTS
+        .lock()
+        .ok()
+        .and_then(|reports| reports.get(event_name).cloned())
+}
+
 fn with_audio_locality_resolver<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn AudioLocalityResolver) -> R,
@@ -759,6 +799,13 @@ impl AudioManager {
         }
 
         let Some(resolved_info) = audio_event.get_audio_event_info() else {
+            // C++ addAudioEvent returns AHSV_Error for unknown names
+            // (GameAudio.cpp:393-395); report once so a silent event name is
+            // visible in the log instead of a dropped handle.
+            report_play_failure_once(
+                audio_event.get_event_name(),
+                "addAudioEvent: event name unresolved",
+            );
             return AHSV_ERROR;
         };
         let sound_type = resolved_info.sound_type;
@@ -1634,6 +1681,10 @@ impl AudioManager {
 
     fn play_audio_event(&mut self, event: AudioEventRts) {
         let Some(info) = event.get_audio_event_info() else {
+            report_play_failure_once(
+                event.get_event_name(),
+                "playAudioEvent: unresolved event info",
+            );
             return;
         };
         let sound_type = info.sound_type;
@@ -1660,7 +1711,10 @@ impl AudioManager {
         let hook_result = with_sound_playback_hook(|hook| hook.play(&event));
         let play_ok = match hook_result {
             Some(Ok(())) | None => true,
-            Some(Err(_)) => false,
+            Some(Err(msg)) => {
+                report_play_failure_once(event.get_event_name(), &msg);
+                false
+            }
         };
         if !play_ok {
             return;
@@ -1695,6 +1749,10 @@ impl AudioManager {
             }
         }
         let Some(info) = event.get_audio_event_info() else {
+            report_play_failure_once(
+                event_to_play.get_event_name(),
+                "friend_forcePlayAudioEventRTS: unresolved event info",
+            );
             return;
         };
         match info.sound_type {
@@ -1725,7 +1783,10 @@ impl AudioManager {
         let hook_result = with_sound_playback_hook(|hook| hook.play(&event));
         let play_ok = match hook_result {
             Some(Ok(())) | None => true,
-            Some(Err(_)) => false,
+            Some(Err(msg)) => {
+                report_play_failure_once(event.get_event_name(), &msg);
+                false
+            }
         };
         if play_ok {
             self.audio_force_played.push(event);
@@ -2519,6 +2580,20 @@ impl AudioManager {
             .count()
     }
 
+    /// Queued AR_Play request count for a single event name (diagnostic
+    /// seam: did TheAudio accept this event?).
+    pub fn pending_play_request_count_for(&self, event_name: &str) -> usize {
+        self.audio_requests
+            .iter()
+            .filter(|request| {
+                request.request == RequestType::Play
+                    && request
+                        .get_pending_event()
+                        .is_some_and(|event| event.get_event_name() == event_name)
+            })
+            .count()
+    }
+
     pub fn fading_audio_count(&self) -> usize {
         self.fading_audio.len()
     }
@@ -3275,7 +3350,37 @@ pub fn load_audio_event_inis() {
         }
     }
 
+    if crate::common::ini::ini_audio_settings::get_audio_settings().is_none() {
+        // Retail AudioSettings.ini ships only inside INIZH.big
+        // (`Data\INI\AudioSettings.ini`). When the loose extract is absent
+        // or fails to parse, re-read the archive copy through the game file
+        // system — the real retail mix values (SampleCount3D = 25,
+        // Relative2DVolume = -10%, ...) — instead of leaving the compiled
+        // `AudioSettings::default()` table active.
+        if let Some(settings) = read_audio_settings_from_game_fs() {
+            let mut archive_ini = crate::common::ini::INI::new();
+            if let Err(err) =
+                archive_ini.with_inline_source(&settings, |ini| ini.parse_current_file())
+            {
+                eprintln!("Failed to parse archived AudioSettings.ini: {err}");
+            }
+        }
+    }
+
     apply_loaded_audio_settings_to_manager();
+}
+
+/// Read `Data/INI/AudioSettings.ini` through the engine file system (loose
+/// overrides first, then the mounted `.big` archives).
+fn read_audio_settings_from_game_fs() -> Option<String> {
+    let file_system = get_file_system();
+    let mut fs = file_system.lock().ok()?;
+    let mut file = fs.open_file(
+        "Data/INI/AudioSettings.ini",
+        FileAccess::READ.combine(FileAccess::BINARY),
+    )?;
+    let bytes = file.read_entire_and_close().ok()?;
+    String::from_utf8(bytes).ok()
 }
 
 /// Copy parsed AudioSettings.ini / MiscAudio.ini into the live AudioManager.
@@ -3362,5 +3467,53 @@ fn apply_loaded_audio_settings_to_manager() {
             "RadarNotifyInfiltrationSound",
             &src.radar_infiltration_sound,
         );
+    }
+}
+
+#[cfg(test)]
+mod audio_settings_archive_tests {
+    use super::*;
+    use crate::common::system::big_file_system::BigArchiveBackend;
+    use crate::common::system::file_system::FileSystemBackend as _;
+    use crate::common::system::local_file_system::LocalFileSystem;
+    use crate::common::system::subsystem_interface::SubsystemInterface as CommonSubsystemInterface;
+
+    fn assets_root() -> Option<std::path::PathBuf> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Main/assets");
+        root.join("INIZH.big").is_file().then_some(root)
+    }
+
+    /// (c) When the loose AudioSettings.ini fails to parse, the retail
+    /// archive copy (INIZH.big `Data\INI\AudioSettings.ini`) must drive the
+    /// live mix values instead of the compiled defaults.
+    #[test]
+    fn archived_audio_settings_apply_retail_mix_values() {
+        let Some(assets) = assets_root() else {
+            eprintln!("skipping: no INIZH.big under Main/assets");
+            return;
+        };
+        {
+            let file_system = get_file_system();
+            let mut guard = file_system.lock().expect("FileSystem lock");
+            let local: &mut LocalFileSystem = guard.ensure_backend(LocalFileSystem::new);
+            local.add_search_path(&assets);
+            let big: &mut BigArchiveBackend = guard.ensure_backend(BigArchiveBackend::new);
+            big.add_search_path(&assets);
+            big.reset();
+            guard.clear_cache();
+            let _ = CommonSubsystemInterface::init(&mut *guard);
+        }
+
+        load_audio_event_inis();
+
+        let settings = crate::common::ini::ini_audio_settings::get_audio_settings()
+            .expect("AudioSettings must be parsed (loose or archived)");
+        let settings = settings.read();
+        // Retail AudioSettings.ini (INIZH.big): SampleCount2D = 4,
+        // SampleCount3D = 25, StreamCount = 3.
+        assert_eq!(settings.sample_count_2d, 4);
+        assert_eq!(settings.sample_count_3d, 25);
+        assert_eq!(settings.stream_count, 3);
+        assert_eq!(settings.sounds_extension, "wav");
     }
 }

@@ -11,7 +11,7 @@ use ww3d_engine::FrameTiming;
 
 const LOGIC_FRAME_TIMESTEP: f32 = 1.0 / 30.0;
 
-use crate::game_logic::{GameLogic, Team};
+use crate::game_logic::GameLogic;
 use crate::presentation_frame::PresentationFrame;
 use crate::graphics::RenderPipeline;
 use crate::ui::{
@@ -148,20 +148,23 @@ impl MinimapFowIntegration {
         // Wave 952: collect unit dots from presentation freeze (no live get_objects dual-read).
         let mut unit_positions = Vec::new();
         if let Some(frame) = self.presentation_frame.as_ref() {
-            let local_team = frame.local_team;
             let selected = &frame.selected;
             for o in &frame.objects {
                 if o.destroyed {
                     continue;
                 }
                 let position = o.position;
-                let color = if o.team == local_team {
-                    UiColor::from_rgb(0, 255, 0)
-                } else if matches!(o.team, Team::Neutral) {
-                    UiColor::from_rgb(255, 255, 255)
-                } else {
-                    UiColor::from_rgb(255, 0, 0)
-                };
+                // C++ radar dots use the owner's indicator color (`Radar::addObject`
+                // → `obj->getIndicatorColor()`, W3DRadar.cpp:664). The presentation
+                // freeze carries that per-owner tint on every object, so use it
+                // instead of a self/neutral/enemy approximation.
+                let tint = o.team_color;
+                let color = UiColor::from_rgba(
+                    (tint[0] * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (tint[1] * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (tint[2] * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (tint[3] * 255.0).round().clamp(0.0, 255.0) as u8,
+                );
                 let is_selected = selected.contains(&o.id);
                 unit_positions.push((position, color, is_selected));
             }

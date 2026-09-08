@@ -18,9 +18,9 @@ use crate::gui::shell::main_menu::{DisplaySettings, get_main_menu};
 use crate::gui::{
     AnimationType, GLM_DOUBLE_CLICKED, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowWidget, queue_shell_operation, queue_shell_pop, queue_shell_push,
-    queue_shell_reverse_animate_window, queue_shell_shutdown_complete, queue_shell_window_animation,
-    queue_window_manager_op_deferred, show_shell_map_if_available, try_with_shell_mut,
-    with_window_manager, write_input_focus_response,
+    queue_shell_reverse_animate_window, queue_shell_shutdown_complete,
+    queue_shell_window_animation, queue_window_manager_op_deferred, show_shell_map_if_available,
+    try_with_shell_mut, with_window_manager, write_input_focus_response,
 };
 use crate::helpers::TheInGameUI;
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};

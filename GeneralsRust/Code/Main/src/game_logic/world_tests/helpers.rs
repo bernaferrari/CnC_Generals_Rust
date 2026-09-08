@@ -355,8 +355,7 @@ pub(super) fn ensure_test_tunnel_network_template(game_logic: &mut GameLogic) {
     // walks the OpenContain ExitStart/End path instead of the Idle drop, and
     // occupants stay DISABLED_HELD per TunnelContain::isGarrisonable FALSE.
     tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
-    tunnel.contain_module.slots =
-        Some(crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY);
+    tunnel.contain_module.slots = Some(crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY);
     game_logic
         .templates
         .insert("GLATunnelNetwork".to_string(), tunnel);
@@ -944,7 +943,6 @@ pub(super) fn ensure_eject_pilot_residual_fixture(game_logic: &mut GameLogic) {
     }
 }
 
-
 /// Author a retail `SpecialPower` module record on a hand-built template
 /// (OCLSpecialPower behavior + loaded SpecialPowerTemplate).  C++ refuses an
 /// any-unit fallback when the object carries no SpecialPowerModule
@@ -961,20 +959,22 @@ pub(super) fn author_superweapon_special_power_module(
     let Some(template) = game_logic.templates.get_mut(template_name) else {
         panic!("template {template_name} must exist before authoring its module");
     };
-    template.special_power_modules.push(SpecialPowerModuleMetadata {
-        source_index: 0,
-        module_tag: Some(format!("ModuleTag_{}", special_power_template)),
-        module_kind: SpecialPowerModuleKind::OclSpecialPower,
-        special_power_template: special_power_template.into(),
-        special_power_template_id: 1,
-        command_power: Some(command_power),
-        reload_time_frames,
-        required_science: None,
-        public_timer: false,
-        shared_n_sync: false,
-        shortcut_power: false,
-        update_module_starts_attack: false,
-        starts_paused: false,
-        scripted_special_power_only: false,
-    });
+    template
+        .special_power_modules
+        .push(SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some(format!("ModuleTag_{}", special_power_template)),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: special_power_template.into(),
+            special_power_template_id: 1,
+            command_power: Some(command_power),
+            reload_time_frames,
+            required_science: None,
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        });
 }

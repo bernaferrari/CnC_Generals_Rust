@@ -34,16 +34,43 @@
 use crate::game_logic::ObjectId as ObjectID;
 use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
 use log::{trace, warn};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Session boot gate: flipped by the logic-side vision feed (GameLogic Phase
+/// 17) after the first completed `update_main_crate_vision` pass of this
+/// process. The pass itself only aborts on a poisoned shroud-manager lock
+/// (process-fatal elsewhere), so completing the call is the "first successful
+/// vision tick" marker.
+static MAIN_CRATE_VISION_TICKED: AtomicBool = AtomicBool::new(false);
+
+/// Mark the first completed main-crate vision pass of this session.
+pub fn note_main_crate_vision_tick_completed() {
+    MAIN_CRATE_VISION_TICKED.store(true, Ordering::Relaxed);
+}
+
+#[inline]
+fn main_crate_vision_ticked() -> bool {
+    MAIN_CRATE_VISION_TICKED.load(Ordering::Relaxed)
+}
 
 fn shroud_runtime_active(
     shroud_mgr: &gamelogic::system::shroud_manager::ShroudManager,
     player_id: u32,
 ) -> bool {
-    // Host residual: ShroudManager::update() queries the gamelogic ObjectManager.
-    // Main GameLogic objects are not in that registry on the default host path, so an
-    // "update" can clear player_visible_objects and leave them empty while still bumping
-    // last_update_frame. That must NOT activate FOW filtering (would hide the whole world).
-    // Fail-open unless this player has real visible/explored object membership.
+    // Boot window: from process start until the first completed
+    // update_main_crate_vision pass, membership is not yet meaningful and the
+    // shroud grid may still be all-Hidden. Fail open (fully visible) so the
+    // world is not painted black before the first logic frame has revealed
+    // it. The gate is process-lifetime; across map resets the membership
+    // check below re-gates (cleared membership -> fail open) until the new
+    // map's vision pass repopulates it.
+    // After the first vision tick, derive strictly from real membership.
+    // Membership is written by the 30 Hz vision feed itself (clear +
+    // re-stamp every logic frame), so an empty set post-gate means either
+    // genuinely no lookers or a membership flush — not "FOW is broken".
+    if !main_crate_vision_ticked() {
+        return false;
+    }
     !shroud_mgr.get_visible_objects(player_id).is_empty()
         || !shroud_mgr.get_explored_objects(player_id).is_empty()
 }
@@ -1401,11 +1428,20 @@ mod tests {
 
 #[cfg(test)]
 mod host_fow_fail_open_tests {
+    use super::{
+        FOWRenderingBridge, PresentationFowGrid, note_main_crate_vision_tick_completed,
+        shroud_test_isolation_lock,
+    };
+
     #[test]
     fn host_fow_fail_open_without_object_membership() {
         let src = include_str!("fow_rendering.rs");
         let start = src.find("fn shroud_runtime_active").expect("fn");
-        let body = &src[start..src.len().min(start + 900)];
+        let body = &src[start..src.len().min(start + 1600)];
+        assert!(
+            body.contains("main_crate_vision_ticked()"),
+            "boot window: must fail open until the first vision tick of the session"
+        );
         assert!(
             body.contains("get_visible_objects(player_id)"),
             "must require visible membership"
@@ -1418,5 +1454,48 @@ mod host_fow_fail_open_tests {
             !body.contains("get_last_update_frame() > 0"),
             "last_update_frame alone must not activate FOW object filtering"
         );
+    }
+
+    /// After the session's first vision tick, the terrain snapshot must
+    /// derive from real membership + real shroud cells (fail closed), no
+    /// longer force fully-visible. Simulates the post-vision-pass state the
+    /// 30 Hz feed produces: membership stamped and looker circle revealed.
+    #[test]
+    fn terrain_snapshot_derives_from_membership_after_first_vision_tick() {
+        let _iso = shroud_test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        use gamelogic::common::Coord3D;
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+
+        // Simulate the completed vision pass (GameLogic Phase 17 stamp).
+        note_main_crate_vision_tick_completed();
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.clear_all();
+            mgr.init_shroud_grid(400.0, 400.0);
+            // Looker circle for player 0 (bit 0) + visible membership, the
+            // exact residuals update_main_crate_vision leaves behind.
+            mgr.do_shroud_reveal(&Coord3D::new(100.0, 0.0, 100.0), 80.0, 1);
+            mgr.mark_host_object_seen(0, 0x00c0_ffee);
+        }
+
+        let grid = FOWRenderingBridge::snapshot_terrain_grid(0, false);
+        assert!(grid.active, "post-vision-tick snapshot must be active");
+        assert_eq!(grid.cells.len(), 10 * 10);
+        assert!(grid.cells.contains(&PresentationFowGrid::CELL_VISIBLE));
+        assert!(grid.cells.contains(&PresentationFowGrid::CELL_HIDDEN));
+        let r8 = grid.to_r8_texture();
+        assert_eq!(r8.len(), grid.cells.len());
+        assert!(r8.contains(&PresentationFowGrid::R8_VISIBLE));
+        assert!(r8.contains(&PresentationFowGrid::R8_SHROUDED));
+
+        // Leave the process-global manager clean for sibling suites.
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.clear_all();
+        }
     }
 }

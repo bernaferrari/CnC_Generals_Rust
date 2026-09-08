@@ -505,21 +505,30 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Build Spectre orbit damage plans for all fields whose tick frame has arrived.
     ///
-    /// Wave 13 dual residual:
-    /// - Howitzer (`SpectreHowitzerGun`): PrimaryDamage **80** in PrimaryDamageRadius
-    ///   **25** around reticle + deterministic RandomOffsetForHowitzer residual.
-    /// - Gattling (`SpectreGattlingGun`): PrimaryDamage **90** to nearest living
-    ///   enemy in TargetingReticleRadius **25**. Wide AttackAreaRadius **200**
-    ///   auto-acquire is AI-only (C++ SpectreGunshipUpdate.cpp:530-556).
-    /// Both exclude source launcher and same-team friendlies.
-    /// Continuous-fire ROF residual advances on record_orbit_tick_complete.
-
-    /// SpectreHowitzerShell projectile residual honesty is recorded on each
-    /// howitzer tick (not full DumbProjectileBehavior Object / HeightDie flight).
+    /// Wave 13 dual residual, split by C++ stream:
+    /// - Howitzer (`SpectreHowitzerGun`): the shell's PrimaryDamage **80**
+    ///   EXPLOSION blast in PrimaryDamageRadius **25** around the gattling aim
+    ///   + deterministic RandomOffsetForHowitzer residual. C++ detonation
+    ///   follows RadiusDamageAffects **ALLIES ENEMIES NEUTRALS** (Weapon.ini)
+    ///   — friendlies and neutrals at the impact take damage too; aircraft are
+    ///   exempt (AntiAirborne*=No). `blast_positions` is the UNFILTERED
+    ///   alive non-air snapshot (stealth / fog / team are NOT gated — those
+    ///   filters acquire TARGETS only, they do not shield blast victims).
+    /// - Gattling (`SpectreGattlingGun`): PrimaryDamage **90** to the nearest
+    ///   living enemy in TargetingReticleRadius **25** through the full
+    ///   acquire filter chain (`filtered_positions`). Wide AttackAreaRadius
+    ///   **200** auto-acquire is AI-only (SpectreGunshipUpdate.cpp:530-556);
+    ///   a wide (non-reticle) acquire steers `m_positionToShootAt` onto the
+    ///   acquired position so both streams track it.
+    /// Both exclude the source launcher. Continuous-fire ROF residual advances
+    /// on record_orbit_tick_complete. SpectreHowitzerShell projectile residual
+    /// honesty is recorded on each howitzer tick (not full DumbProjectileBehavior
+    /// Object / HeightDie flight).
     pub fn plan_due_orbit_ticks(
         &self,
         current_frame: u32,
-        object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
+        filtered_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
+        blast_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
     ) -> Vec<HostSpectreOrbitTickPlan> {
         let mut plans = Vec::new();
         for field in &self.orbit_fields {
@@ -528,22 +537,49 @@ impl HostSpecialPowerStrikeRegistry {
             }
             let howitzer_due = field.is_due_howitzer(current_frame);
             let gattling_due = field.is_due_gattling(current_frame);
-            // Accumulate damage per target (howitzer AOE + gattling single-target).
-            let mut dmg_map: std::collections::BTreeMap<ObjectId, f32> =
-                std::collections::BTreeMap::new();
+            // One hit entry per (target, stream); howitzer blast and gattling
+            // pick are separate typed applications (C++ EXPLOSION vs GATTLING).
+            let mut hits: Vec<HostSpectreOrbitDamageHit> = Vec::new();
+            let mut add_damage = |hits: &mut Vec<HostSpectreOrbitDamageHit>,
+                                  target_id: ObjectId,
+                                  damage: f32,
+                                  stream: HostSpectreOrbitDamageStream| {
+                if let Some(h) = hits
+                    .iter_mut()
+                    .find(|h| h.target_id == target_id && h.stream == stream)
+                {
+                    h.damage += damage;
+                } else {
+                    hits.push(HostSpectreOrbitDamageHit {
+                        target_id,
+                        damage,
+                        field_id: field.id,
+                        stream,
+                    });
+                }
+            };
+            let mut wide_acquire_position: Option<Vec3> = None;
 
             if howitzer_due && field.howitzer_follow_ready() {
                 let off = spectre_howitzer_offset(field.howitzer_ticks);
                 let aim = field.gattling_aim();
                 let epicenter = Vec3::new(aim.x + off.x, aim.y, aim.z + off.z);
 
-                for &(id, pos, team, alive) in object_positions {
-                    if !alive || id == field.source_object || team == field.source_team {
+                // Unfiltered blast victim set: alive, non-air, ALL relationships
+                // (C++ RadiusDamageAffects ALLIES ENEMIES NEUTRALS), only the
+                // launcher itself excluded (Weapon.cpp:1330-1338 self-skip).
+                for &(id, pos, _, alive) in blast_positions {
+                    if !alive || id == field.source_object {
                         continue;
                     }
                     let dist = horizontal_distance(pos, epicenter);
                     if dist <= SPECTRE_HOWITZER_RADIUS {
-                        *dmg_map.entry(id).or_insert(0.0) += SPECTRE_ORBIT_DAMAGE_PER_TICK;
+                        add_damage(
+                            &mut hits,
+                            id,
+                            SPECTRE_ORBIT_DAMAGE_PER_TICK,
+                            HostSpectreOrbitDamageStream::Howitzer,
+                        );
                     }
                 }
             }
@@ -551,7 +587,7 @@ impl HostSpecialPowerStrikeRegistry {
             if gattling_due {
                 // C++: reticle (override) first; wide AttackAreaRadius only if
                 // controlling player is not PLAYER_HUMAN.
-                let cands: Vec<_> = object_positions
+                let cands: Vec<_> = filtered_positions
                     .iter()
                     .filter(|&&(id, _, team, alive)| {
                         alive && id != field.source_object && team != field.source_team
@@ -590,40 +626,52 @@ impl HostSpecialPowerStrikeRegistry {
                         SPECTRE_TARGETING_RETICLE_RADIUS,
                         fair,
                     );
-                let picked = reticle.or_else(|| {
-                    if self.spectre_wide_auto_acquire_allowed(field.source_object) {
-                        crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                            Some(field.source_object),
-                            wide_origin,
-                            cands,
-                            SPECTRE_ORBIT_RADIUS,
-                            fair,
-                        )
-                    } else {
-                        None
+                let wide =
+                    crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                        Some(field.source_object),
+                        wide_origin,
+                        cands,
+                        SPECTRE_ORBIT_RADIUS,
+                        fair,
+                    );
+                // C++ :530-556 — the wide search runs ONLY when the reticle
+                // found nothing, and only for non-human controllers.
+                let picked = match reticle {
+                    Some(pick) => Some((pick, false)),
+                    None => {
+                        if self.spectre_wide_auto_acquire_allowed(field.source_object) {
+                            wide.as_ref().map(|pick| (*pick, true))
+                        } else {
+                            None
+                        }
                     }
-                });
+                };
 
-                if let Some((id, _, _)) = picked {
-                    *dmg_map.entry(id).or_insert(0.0) += SPECTRE_GATTLING_DAMAGE;
+                if let Some(((id, _, _), from_wide)) = picked {
+                    add_damage(
+                        &mut hits,
+                        id,
+                        SPECTRE_GATTLING_DAMAGE,
+                        HostSpectreOrbitDamageStream::Gattling,
+                    );
+                    if from_wide {
+                        // C++ :550 — m_positionToShootAt = acquired position.
+                        wide_acquire_position = filtered_positions
+                            .iter()
+                            .find(|&&(vid, _, _, _)| vid == id)
+                            .map(|&(_, vpos, _, _)| vpos);
+                    }
                 }
             }
 
-            let hits: Vec<HostSpectreOrbitDamageHit> = dmg_map
-                .into_iter()
-                .filter(|(_, d)| *d > 0.0)
-                .map(|(target_id, damage)| HostSpectreOrbitDamageHit {
-                    target_id,
-                    damage,
-                    field_id: field.id,
-                })
-                .collect();
+            hits.retain(|h| h.damage > 0.0);
             plans.push(HostSpectreOrbitTickPlan {
                 field_id: field.id,
                 source_object: field.source_object,
                 source_team: field.source_team,
                 position: field.position,
                 hits,
+                wide_acquire_position,
             });
         }
         plans.sort_by_key(|p| p.field_id);
@@ -1191,7 +1239,12 @@ impl HostSpecialPowerStrikeRegistry {
                 applied = true;
             }
         }
-        let orbit_ids: Vec<u32> = self
+        // C++ setSpecialPowerOverridableDestination lives on the GUNSHIP's own
+        // SpectreGunshipUpdate — a click retargets that ONE ship. Host orbit
+        // fields are sourced from the caster CC, so a recast that leaves a
+        // prior ship orbiting yields several live fields per source; only the
+        // NEWEST field is the bound ship's (fields spawn in ship order).
+        let orbit_id: Option<u32> = self
             .orbit_fields
             .iter()
             .filter(|field| field.source_object == source && !field.is_expired(current_frame))
@@ -1200,8 +1253,8 @@ impl HostSpecialPowerStrikeRegistry {
                 (current.x - destination.x).abs() > 1e-4 || (current.z - destination.z).abs() > 1e-4
             })
             .map(|field| field.id)
-            .collect();
-        for field_id in orbit_ids {
+            .max();
+        if let Some(field_id) = orbit_id {
             if self.set_orbit_override_destination(field_id, destination, current_frame) {
                 applied = true;
             }

@@ -250,3 +250,4 @@ mod tests {
         assert_eq!(*calls.lock().unwrap(), vec![(fx.id(), 42, Some(77))]);
     }
 }
+

@@ -89,14 +89,17 @@ pub fn honesty_host_sole_authority_presentation_shell_lock_nav_commands_residual
 
 pub fn honesty_host_sole_authority_presentation_shell_lock_residual_pack_wave1084() -> bool {
     let aw = aw_source();
+    // Prod code only: the file's own tests pin the env plumbing's absence by
+    // name, so scanning the whole file would self-match.
+    let aw_prod = aw.split("#[cfg(test)]").next().unwrap_or(aw);
     let cnc = cnc_source();
     let es = es_source();
     let rp = rp_source();
     let cb = cb_source();
     let sx = sx_source();
-    let ok = aw.contains("fn dual_tick_policy")
-        && aw.contains("DualTickPolicy::AuthorityOnly")
-        && aw.contains("GENERALS_ALLOW_DUAL_TICK")
+    let ok = aw_prod.contains("fn dual_tick_policy")
+        && aw_prod.contains("DualTickPolicy::AuthorityOnly")
+        && !aw_prod.contains("GENERALS_ALLOW_DUAL_TICK")
         && cnc.contains("fn host_tick_game_client_presentation_shell")
         && cnc.contains("update_presentation_shell")
         && cnc.contains("update_drawables_local")

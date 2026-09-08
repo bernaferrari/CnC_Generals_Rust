@@ -47,44 +47,58 @@ fn falloff_weight(distance: f32, radius: f32, falloff: f32) -> f32 {
     }
 }
 
-/// C++ `TheGlobalData` sun used by `getStaticDiffuse` / `doTheLight`.
-/// Light position is C++ Z-up; chunk normals are wgpu Y-up (`x,z,y`).
-fn static_terrain_light_params() -> (Vec3, [f32; 3], [f32; 3]) {
+/// C++ `BaseHeightMapRenderObjClass::doTheLight` light inputs: the active
+/// global terrain lights (`TheGlobalData->m_terrainLightPos/Diffuse[i]` for
+/// `i < m_numGlobalLights`, `BaseHeightMap.cpp:556-566`) converted from C++
+/// Z-up to wgpu Y-up, plus the ambient of light 0 (`m_terrainAmbient[0]` —
+/// only the first terrain light contributes ambient, `BaseHeightMap.cpp:493`).
+pub(crate) fn current_global_terrain_lights() -> (Vec<(Vec3, [f32; 3])>, [f32; 3]) {
+    const MAX_LIGHTS: usize = 3; // C++ MAX_GLOBAL_LIGHTS
     if let Some(global) = game_engine::common::ini::get_global_data() {
         let data = global.read();
-        let pos = data.terrain_light_pos[0];
-        return (
-            Vec3::new(pos.x, pos.z, pos.y),
-            [
-                data.terrain_diffuse[0].r,
-                data.terrain_diffuse[0].g,
-                data.terrain_diffuse[0].b,
-            ],
-            [
-                data.terrain_ambient[0].r,
-                data.terrain_ambient[0].g,
-                data.terrain_ambient[0].b,
-            ],
-        );
+        let count = data.num_global_lights.clamp(0, MAX_LIGHTS as i32) as usize;
+        let lights = (0..count)
+            .map(|i| {
+                let pos = data.terrain_light_pos[i];
+                (
+                    Vec3::new(pos.x, pos.z, pos.y),
+                    [
+                        data.terrain_diffuse[i].r,
+                        data.terrain_diffuse[i].g,
+                        data.terrain_diffuse[i].b,
+                    ],
+                )
+            })
+            .collect();
+        let ambient = data.terrain_ambient[0];
+        return (lights, [ambient.r, ambient.g, ambient.b]);
     }
     let data = game_engine::common::global_data::read();
-    let pos = data.terrain_light_pos[0];
-    (
-        Vec3::new(pos[0], pos[2], pos[1]),
-        data.terrain_diffuse[0],
-        data.terrain_ambient[0],
-    )
+    let count = data.num_global_lights.clamp(0, MAX_LIGHTS as i32) as usize;
+    let lights = (0..count)
+        .map(|i| {
+            (
+                Vec3::new(
+                    data.terrain_light_pos[i][0],
+                    data.terrain_light_pos[i][2],
+                    data.terrain_light_pos[i][1],
+                ),
+                data.terrain_diffuse[i],
+            )
+        })
+        .collect();
+    (lights, data.terrain_ambient[0])
 }
 
 /// C++ `BaseHeightMapRenderObjClass::getStaticDiffuse` analog.
-/// Same N·L as roads (`terrain_static_diffuse_from_normal`) plus a 0.35 floor.
+/// Sums clamped N·L diffuse over all global lights like `doTheLight`
+/// (`BaseHeightMap.cpp:491-566`), plus a Rust-only 0.35 floor.
 fn static_diffuse_from_normal(normal: Vec3) -> [f32; 4] {
     const COLOR_FLOOR: f32 = 0.35;
-    let (light_pos, sun_color, ambient_color) = static_terrain_light_params();
+    let (lights, ambient_color) = current_global_terrain_lights();
     let mut color = super::terrain_visual::TerrainVisualImpl::terrain_static_diffuse_from_normal(
         normal,
-        light_pos,
-        sun_color,
+        &lights,
         ambient_color,
     );
     color[0] = color[0].max(COLOR_FLOOR);

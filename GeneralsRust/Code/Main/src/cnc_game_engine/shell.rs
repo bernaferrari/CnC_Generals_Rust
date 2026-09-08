@@ -289,6 +289,20 @@ impl CnCGameEngine {
             self.active_load_screen = Some(kind);
 
             let context = self.load_screen_init_context();
+            // C++ GameWindowManagerScript layouts always scale against the
+            // live display, not the CREATIONRESOLUTION default. Seed the WM
+            // screen size with the logical window size before creating the
+            // loading-screen layout, mirroring show_shell_menu, or the boot
+            // overlay scales against the 800x600 default and stays wrong.
+            {
+                let scale = self.window.scale_factor().max(0.0001);
+                let size = self.window.inner_size();
+                let logical_w = ((size.width as f64) / scale).round().max(1.0) as i32;
+                let logical_h = ((size.height as f64) / scale).round().max(1.0) as i32;
+                game_client::gui::with_window_manager(|manager| {
+                    manager.set_screen_size(logical_w, logical_h);
+                });
+            }
             if !game_client::gui::load_screen::init_load_screen(kind, &context) {
                 warn!(
                     "Failed to load {:?} load screen from .wnd assets; loading screen unavailable",

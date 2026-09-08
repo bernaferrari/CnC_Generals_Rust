@@ -230,13 +230,13 @@ impl Drawable for BasicDrawable {
 
         if self.terrain_decal_type != TerrainDecalType::None {
             if self.decal_opacity_fade_rate != 0.0 {
-                self.decal_opacity += self.decal_opacity_fade_rate;
                 if let Some(dm) = self.draw_modules.first_mut() {
                     dm.set_terrain_decal_opacity(self.decal_opacity);
                 }
                 if let Some(handle) = &self.terrain_decal_handle {
                     handle.set_opacity((self.decal_opacity.clamp(0.0, 1.0) * 255.0) as i32);
                 }
+                self.decal_opacity += self.decal_opacity_fade_rate;
                 if self.decal_opacity_fade_rate < 0.0 && self.decal_opacity <= 0.0 {
                     self.decal_opacity_fade_rate = 0.0;
                     self.decal_opacity = 0.0;

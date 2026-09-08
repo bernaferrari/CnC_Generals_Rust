@@ -18,7 +18,7 @@ use gamelogic::object::draw::{
 };
 use glam::{Mat4, Vec3};
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Once};
 use ww3d_assets::prototypes::HlodPrototype;
 
@@ -38,6 +38,33 @@ impl TerrainTrackHeightProvider for TerrainHeight {
 
 struct ProjectedDecalClient {
     handles: Mutex<HashMap<ObjectID, ShadowHandle>>,
+    /// Last decal opacity (0-255) per object; the source of truth for what a
+    /// visible decal shows (the drawable fades `decal_opacity` independently).
+    opacities: Mutex<HashMap<ObjectID, i32>>,
+    /// Objects whose decal is hidden because it is fully obscured by shroud.
+    shrouded: Mutex<HashSet<ObjectID>>,
+    /// Objects with shadow render disabled (C++ `enableShadowRender(false)`).
+    shadow_disabled: Mutex<HashSet<ObjectID>>,
+}
+
+impl ProjectedDecalClient {
+    /// Push the tracked decal opacity to the handle, gated by shroud and
+    /// shadow-render visibility. C++ fades `m_decalOpacity` regardless; shroud
+    /// culling and `enableShadowRender` only gate whether the decal renders.
+    fn sync_opacity(&self, object_id: ObjectID) {
+        let handles = self.handles.lock();
+        let Some(handle) = handles.get(&object_id) else {
+            return;
+        };
+        let opacity = if self.shrouded.lock().contains(&object_id)
+            || self.shadow_disabled.lock().contains(&object_id)
+        {
+            0
+        } else {
+            self.opacities.lock().get(&object_id).copied().unwrap_or(0)
+        };
+        handle.set_opacity(opacity);
+    }
 }
 
 impl TerrainDecalClient for ProjectedDecalClient {
@@ -70,10 +97,13 @@ impl TerrainDecalClient for ProjectedDecalClient {
 
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
-        handle.set_opacity((desc.opacity.clamp(0.0, 1.0) * 255.0) as i32);
+        self.opacities
+            .lock()
+            .insert(desc.object_id, (desc.opacity.clamp(0.0, 1.0) * 255.0) as i32);
         if let Some(prev) = self.handles.lock().insert(desc.object_id, handle) {
             prev.release();
         }
+        self.sync_opacity(desc.object_id);
     }
 
     fn set_size(&self, object_id: ObjectID, x: Real, y: Real) {
@@ -85,9 +115,10 @@ impl TerrainDecalClient for ProjectedDecalClient {
     }
 
     fn set_opacity(&self, object_id: ObjectID, opacity: Real) {
-        if let Some(handle) = self.handles.lock().get(&object_id) {
-            handle.set_opacity((opacity.clamp(0.0, 1.0) * 255.0) as i32);
-        }
+        self.opacities
+            .lock()
+            .insert(object_id, (opacity.clamp(0.0, 1.0) * 255.0) as i32);
+        self.sync_opacity(object_id);
     }
 
     fn set_pose(&self, object_id: ObjectID, position: Coord3D, angle: Real) {
@@ -99,21 +130,26 @@ impl TerrainDecalClient for ProjectedDecalClient {
 
     fn set_shrouded(&self, object_id: ObjectID, shrouded: bool) {
         if shrouded {
-            if let Some(handle) = self.handles.lock().get(&object_id) {
-                handle.set_opacity(0);
-            }
+            self.shrouded.lock().insert(object_id);
+        } else {
+            self.shrouded.lock().remove(&object_id);
         }
+        self.sync_opacity(object_id);
     }
 
     fn set_shadow_enabled(&self, object_id: ObjectID, enabled: bool) {
-        if !enabled {
-            if let Some(handle) = self.handles.lock().get(&object_id) {
-                handle.set_opacity(0);
-            }
+        if enabled {
+            self.shadow_disabled.lock().remove(&object_id);
+        } else {
+            self.shadow_disabled.lock().insert(object_id);
         }
+        self.sync_opacity(object_id);
     }
 
     fn release(&self, object_id: ObjectID) {
+        self.opacities.lock().remove(&object_id);
+        self.shrouded.lock().remove(&object_id);
+        self.shadow_disabled.lock().remove(&object_id);
         if let Some(handle) = self.handles.lock().remove(&object_id) {
             handle.release();
         }
@@ -262,6 +298,9 @@ pub fn ensure_logic_draw_hooks() {
     ONCE.call_once(|| {
         register_terrain_decal_client(Arc::new(ProjectedDecalClient {
             handles: Mutex::new(HashMap::new()),
+            opacities: Mutex::new(HashMap::new()),
+            shrouded: Mutex::new(HashSet::new()),
+            shadow_disabled: Mutex::new(HashSet::new()),
         }));
         register_terrain_track_client(Arc::new(TrackClient {
             by_object: Mutex::new(HashMap::new()),

@@ -2223,10 +2223,7 @@ fn inferno_fire_field_object_spawns_on_zone() {
     logic.update_inferno_fire_field_objects();
     logic.process_destroy_list();
     assert!(
-        !logic
-            .objects
-            .values()
-            .any(|o| o.inferno_fire_field),
+        !logic.objects.values().any(|o| o.inferno_fire_field),
         "FireFieldSmall should expire after DeletionUpdate lifetime"
     );
 }

@@ -72,6 +72,9 @@ impl GameClient {
             // No draw_display — Main RenderPipeline is sole present path.
             self.draw_drawable_icon_ui();
             self.draw_presentation_selection_residual();
+            // C++ TheInGameUI->update message/superweapon drains before postDraw.
+            self.drain_logic_hud_messages();
+            self.sync_superweapon_strip_from_logic();
             let _ = self.draw_live_ingame_hud();
 
             self.update_display_string_manager()?;
@@ -109,10 +112,11 @@ impl GameClient {
         // C++ line 735: TheDisplay->DRAW()
         self.draw_display()?;
 
-        // C++ W3DView::drawablePostDraw(): draw per-drawable icon UI after the
-        // 3D drawable pass and before post-draw shell/InGameUI updates.
         self.draw_drawable_icon_ui();
         self.draw_presentation_selection_residual();
+        // C++ TheInGameUI->update message/superweapon drains before postDraw.
+        self.drain_logic_hud_messages();
+        self.sync_superweapon_strip_from_logic();
         let _ = self.draw_live_ingame_hud();
 
 
@@ -736,7 +740,19 @@ impl GameClient {
         let mut set = create_model_condition_flags();
         let mut clear_all = create_model_condition_flags();
         let n = bit_names.len().min(128);
+        // C++ Drawable::setTimeOfDay owns NIGHT on the client
+        // (Drawable.cpp:4344-4356 rewrites m_conditionState in place); SNOW is
+        // set the same way and the logic sync never clears either. Keep both
+        // client-owned bits out of the wipe so restamping a presentation
+        // object cannot flash night/snow models for one frame.
+        const CLIENT_OWNED_CONDITION_BITS: [usize; 2] = [
+            ModelConditionFlags::NIGHT,
+            ModelConditionFlags::SNOW,
+        ];
         for i in 0..n {
+            if CLIENT_OWNED_CONDITION_BITS.contains(&i) {
+                continue;
+            }
             clear_all.set(i, true);
             if (e.model_condition_bits >> i) & 1 == 1 {
                 set.set(i, true);
@@ -960,6 +976,120 @@ impl GameClient {
             })
             .collect();
         ui.replace_superweapon_timers_from_presentation(&packed);
+    }
+
+    /// Host injection point for the InGameUI subsystem (creation order is
+    /// host-owned; tests install a default subsystem to observe the HUD).
+    pub fn set_in_game_ui_subsystem(
+        &mut self,
+        ui: Arc<Mutex<crate::core::subsystems::InGameUISubsystem>>,
+    ) {
+        self.subsystem_manager.in_game_ui = Some(ui);
+    }
+
+    /// The installed InGameUI subsystem, if any.
+    pub fn in_game_ui_subsystem(
+        &self,
+    ) -> Option<Arc<Mutex<crate::core::subsystems::InGameUISubsystem>>> {
+        self.subsystem_manager.in_game_ui.clone()
+    }
+
+    /// C++ InGameUI::addSuperweapon bridge (InGameUI.cpp:548-580): drain
+    /// GameLogic's TheInGameUI::add_superweapon store into the live client
+    /// superweapon strip, tick the countdown, and bridge the visible draw
+    /// entries into the presentation residual impl_draw renders each HUD
+    /// build. Runs from the client frame tick (dual-world and presentation
+    /// shell paths); C++ is same-process so this store did not exist there.
+    pub fn sync_superweapon_strip_from_logic(&mut self) {
+        let entries = gamelogic::helpers::TheInGameUI::superweapon_entries();
+        crate::gui::ingame_ui::live_superweapon_strip_sync(&entries, self.frame);
+        let Some(ui) = self.subsystem_manager.in_game_ui.clone() else {
+            return;
+        };
+        let Ok(mut guard) = ui.lock() else {
+            return;
+        };
+        let packed: Vec<crate::core::subsystems::PresentationSuperweaponTimerResidual> =
+            crate::gui::ingame_ui::live_superweapon_draw_entries()
+                .into_iter()
+                .map(|(name, countdown_text, ready)| {
+                    crate::core::subsystems::PresentationSuperweaponTimerResidual {
+                        name,
+                        countdown_text,
+                        ready,
+                    }
+                })
+                .collect();
+        guard.replace_superweapon_timers_from_presentation(&packed);
+    }
+
+    /// C++ `TheInGameUI->message` HUD bridge: drain GameLogic's displayed
+    /// message store into the drawn InGameUI-subsystem HUD messages with
+    /// GameText localization (VictoryConditions.cpp:174-176 pushes
+    /// `GUI:PlayerHasBeenDefeated` + player name; radar messages push
+    /// `RADAR:*` labels). The first local defeat also forces the radar on
+    /// and switches in-game chat to Everyone (VictoryConditions.cpp:200-215).
+    pub fn drain_logic_hud_messages(&mut self) {
+        let messages = gamelogic::helpers::TheInGameUI::drain_displayed_messages();
+        if messages.is_empty() {
+            return;
+        }
+        let Some(ui) = self.subsystem_manager.in_game_ui.clone() else {
+            return;
+        };
+        let Ok(mut guard) = ui.lock() else {
+            return;
+        };
+        for message in messages {
+            let (display, defeat) = Self::localize_logic_hud_message(&message);
+            guard.push_hud_message(display);
+            if defeat && gamelogic::helpers::TheVictoryConditions::is_local_defeat() {
+                // C++ VictoryConditions.cpp:212-213 (one-shot latch on the
+                // local player's elimination).
+                if let Ok(mut radar) =
+                    game_engine::common::system::radar::get_radar_system().write()
+                {
+                    radar.force_on(true);
+                }
+                let _ = crate::gui::callbacks::ingame_callbacks::set_in_game_chat_type(
+                    crate::gui::callbacks::ingame_callbacks::InGameChatType::Everyone,
+                );
+            }
+        }
+    }
+
+    /// Localize one GameLogic HUD message the way C++ `InGameUI::message`
+    /// does: the label is a GameText key; `GUI:PlayerHasBeenDefeated {name}`
+    /// substitutes the player name into the localized template. Returns the
+    /// display text and whether this is a defeat announcement.
+    fn localize_logic_hud_message(message: &str) -> (String, bool) {
+        const DEFEAT_LABEL: &str = "GUI:PlayerHasBeenDefeated";
+        if message == DEFEAT_LABEL {
+            return Self::localize_defeat_message("");
+        }
+        if let Some(rest) = message.strip_prefix(DEFEAT_LABEL) {
+            if rest.starts_with(' ') {
+                return Self::localize_defeat_message(rest.trim_start());
+            }
+        }
+        // Plain label-style strings ("RADAR:UnderAttack") localize through
+        // the same GameText seam the rest of the HUD uses; anything the
+        // string table does not know is displayed verbatim.
+        if message.contains(':') {
+            let (text, exists) = crate::game_text::GameText::fetch_with_exists(message);
+            if exists {
+                return (text, false);
+            }
+        }
+        (message.to_string(), false)
+    }
+
+    fn localize_defeat_message(name: &str) -> (String, bool) {
+        let template = crate::game_text::GameText::fetch("GUI:PlayerHasBeenDefeated");
+        if template.starts_with("MISSING:") {
+            return (format!("{name} has been defeated"), true);
+        }
+        (template.replace("%s", name), true)
     }
 
     /// Apply presentation cinematic text as a W3DDisplay caption residual.
@@ -1399,6 +1529,9 @@ impl GameClient {
         // Wave 980: weapon/UI residual peels companion.
         // Wave 978/980: presentation selection residual HUD (host empty dual-world InGameUI).
         self.draw_presentation_selection_residual();
+        // C++ TheInGameUI->update message/superweapon drains before postDraw.
+        self.drain_logic_hud_messages();
+        self.sync_superweapon_strip_from_logic();
         // C++ InGameUI::preDraw/postDraw + Drawable::drawIconUI submit.
         let _ = self.draw_live_ingame_hud();
 
@@ -1838,7 +1971,13 @@ impl GameClient {
             crate::effects::particle_manager::get_particle_system_manager_mut()
         {
             if let Some(manager) = manager_guard.as_mut() {
-                manager.update(self.local_player_id as i32, self.frame);
+                // C++ particle systems tick on logic frames: SystemLifetime is
+                // counted in logic frames (ParticleSys.cpp:2066-2081). The
+                // client frame above increments per render update, so passing
+                // it drains finite lifetimes at render rate (one-shot FX
+                // flickers out early). Pass the published logic frame; the
+                // manager de-duplicates repeats within one logic frame itself.
+                manager.update(self.local_player_id as i32, TheGameLogic::get_frame());
             }
         }
         crate::effects::update_tracer_fx(self.frame);

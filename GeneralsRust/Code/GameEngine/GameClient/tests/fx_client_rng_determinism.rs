@@ -85,10 +85,7 @@ fn fx_randomness_is_reproducible_from_same_client_seed() {
     );
     for (a, b) in emissions_a.iter().zip(&emissions_b) {
         assert_eq!(a.position, b.position, "same seed must reproduce position");
-        assert_eq!(
-            a.velocity, b.velocity,
-            "same seed must reproduce velocity"
-        );
+        assert_eq!(a.velocity, b.velocity, "same seed must reproduce velocity");
         assert!(
             a.position.coords.norm().is_finite() && a.velocity.norm().is_finite(),
             "emission samples must be finite"

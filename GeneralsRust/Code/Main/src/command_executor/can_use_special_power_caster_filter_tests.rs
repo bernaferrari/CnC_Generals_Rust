@@ -162,11 +162,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_special_power_at_object(
-                &[caster],
-                &SpecialPowerType::CashHack,
-                tank_id,
-            ),
+            exec.execute_special_power_at_object(&[caster], &SpecialPowerType::CashHack, tank_id,),
             CommandResult::InvalidCommand
         );
     }
@@ -178,11 +174,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_special_power_at_object(
-                &[caster],
-                &SpecialPowerType::Defector,
-                depot_id,
-            ),
+            exec.execute_special_power_at_object(&[caster], &SpecialPowerType::Defector, depot_id,),
             CommandResult::InvalidCommand
         );
     }
@@ -194,11 +186,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_special_power_at_object(
-                &[caster],
-                &SpecialPowerType::CashHack,
-                depot_id,
-            ),
+            exec.execute_special_power_at_object(&[caster], &SpecialPowerType::CashHack, depot_id,),
             CommandResult::Success
         );
     }
@@ -445,7 +433,10 @@ fn battleship_object_target_locks_object_not_position() {
 
 #[test]
 fn leftover_object_click_gates_match_action_manager() {
-    use crate::command_executor::special_power::{leftover_can_do_special_power, leftover_can_do_special_power_at_location, leftover_can_do_special_power_at_object};
+    use crate::command_executor::special_power::{
+        leftover_can_do_special_power, leftover_can_do_special_power_at_location,
+        leftover_can_do_special_power_at_object,
+    };
     use crate::command_system::SpecialPowerType;
     use gamelogic::common::Relationship;
 

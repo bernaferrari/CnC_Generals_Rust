@@ -29,10 +29,10 @@ use crate::assets::models::{W3DLoader, W3DModel};
 use crate::game_logic::ThingTemplate;
 use crate::release_candidate;
 use glam::{Mat4, Vec3};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 
 /// Sentinel model name for the diagnostic placeholder cube (matches GraphicsSystem).
 pub const PLACEHOLDER_MODEL_KEY: &str = "__fallback_cube__";
@@ -67,6 +67,15 @@ static RESOLVE_LOADED: AtomicUsize = AtomicUsize::new(0);
 static RESOLVE_PLACEHOLDER: AtomicUsize = AtomicUsize::new(0);
 static RESOLVE_MISSING: AtomicUsize = AtomicUsize::new(0);
 static LAST_PLACEHOLDER_KEYS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+/// Negative filesystem-lookup cache: canonical model keys whose W3D
+/// candidate path list was already probed on disk and found absent. The
+/// candidate list is derived purely from the key, so a session miss is
+/// permanent — probe once, never per frame.
+static FILESYSTEM_W3D_MISSES: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+/// Per-key count of real on-disk probes (negative-cache misses).
+static FILESYSTEM_W3D_MISS_PROBES: LazyLock<Mutex<HashMap<String, usize>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Honesty counters for mesh resolve outcomes (production + tests).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -173,7 +182,7 @@ pub fn known_non_default_mesh_scales() -> &'static [(&'static str, f32)] {
         ("CINE_GLAInfantryRPGTrooper", 0.8),
         // WeaponObjects.ini residual
         ("ClusterMine", 0.6),
-        ("SpectreHowitzerShell", 0.7),
+        ("SpectreHowitzerShell", 0.6),
         // NatureUnit.ini residual
         ("Tree01", 5.0),
         ("Tree02", 1.5),
@@ -1045,10 +1054,57 @@ pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
 }
 
 /// First existing filesystem W3D path for a model key, if any.
+///
+/// Negative lookups are cached per key: the candidate path list is static, so
+/// a miss costs exactly one on-disk probe per session instead of one per
+/// frame per unresolvable drawable.
 pub fn find_filesystem_w3d(model_key: &str) -> Option<PathBuf> {
-    filesystem_w3d_candidates(model_key)
+    let cache_key = model_key.to_ascii_lowercase();
+    if filesystem_w3d_miss_cached(&cache_key) {
+        return None;
+    }
+    let found = filesystem_w3d_candidates(model_key)
         .into_iter()
-        .find(|p| p.is_file())
+        .find(|p| p.is_file());
+    if found.is_none() {
+        record_filesystem_w3d_miss(&cache_key);
+    }
+    found
+}
+
+fn filesystem_w3d_miss_cached(cache_key: &str) -> bool {
+    FILESYSTEM_W3D_MISSES
+        .lock()
+        .map(|misses| misses.contains(cache_key))
+        .unwrap_or(false)
+}
+
+fn record_filesystem_w3d_miss(cache_key: &str) {
+    if let Ok(mut misses) = FILESYSTEM_W3D_MISSES.lock() {
+        misses.insert(cache_key.to_string());
+    }
+    if let Ok(mut probes) = FILESYSTEM_W3D_MISS_PROBES.lock() {
+        *probes.entry(cache_key.to_string()).or_insert(0) += 1;
+    }
+}
+
+/// True when this key was already probed on disk and found absent
+/// (negative-cache membership observable).
+pub fn filesystem_w3d_miss_cached_for_key(model_key: &str) -> bool {
+    filesystem_w3d_miss_cached(&model_key.to_ascii_lowercase())
+}
+
+/// Number of real filesystem probes recorded for this key this session.
+pub fn filesystem_w3d_miss_probe_count(model_key: &str) -> usize {
+    FILESYSTEM_W3D_MISS_PROBES
+        .lock()
+        .map(|probes| {
+            probes
+                .get(&model_key.to_ascii_lowercase())
+                .copied()
+                .unwrap_or(0)
+        })
+        .unwrap_or(0)
 }
 
 /// Neutral gray unit cube used when retail mesh bytes are missing.
@@ -1385,6 +1441,57 @@ pub fn mesh_asset_available(model_key: &str) -> bool {
 mod tests {
     use super::*;
     use crate::game_logic::{KindOf, ThingTemplate};
+
+    #[test]
+    fn failed_model_resolution_warns_once_and_probes_filesystem_once() {
+        // Unique key: nothing else in the suite resolves or probes it.
+        let key = "zzz_spam_dedup_probe_model";
+        let first = resolve_mesh_for_model_key(key, false);
+        assert!(
+            matches!(first, MeshResolveResult::Missing { .. }),
+            "absent residual key must stay fail-closed missing"
+        );
+        assert_eq!(
+            release_candidate::missing_w3d_warn_count(key),
+            1,
+            "first failed resolution emits exactly one MISSING_ASSET warn"
+        );
+        assert_eq!(
+            filesystem_w3d_miss_probe_count(key),
+            1,
+            "first failed resolution performs exactly one filesystem probe"
+        );
+
+        // The next frame re-resolves the same missing key: the negative
+        // caches must serve the miss with no new warn and no new probe.
+        let second = resolve_mesh_for_model_key(key, false);
+        assert!(matches!(second, MeshResolveResult::Missing { .. }));
+        assert_eq!(
+            release_candidate::missing_w3d_warn_count(key),
+            1,
+            "repeat resolution must not warn again"
+        );
+        assert_eq!(
+            filesystem_w3d_miss_probe_count(key),
+            1,
+            "repeat resolution must not re-probe the filesystem"
+        );
+        assert!(filesystem_w3d_miss_cached_for_key(key));
+    }
+
+    #[test]
+    fn empty_model_key_keeps_failing_without_uncached_probe_spam() {
+        let key = "";
+        for _ in 0..2 {
+            let result = resolve_mesh_for_model_key(key, false);
+            assert!(matches!(result, MeshResolveResult::Missing { .. }));
+        }
+        assert_eq!(
+            filesystem_w3d_miss_probe_count(""),
+            0,
+            "empty keys short-circuit before any filesystem probe"
+        );
+    }
 
     #[test]
     fn usa_ranger_template_resolves_non_empty_model_key() {

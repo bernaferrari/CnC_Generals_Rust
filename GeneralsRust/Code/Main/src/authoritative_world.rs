@@ -1,24 +1,12 @@
 //! Single-authority simulation control for match runtime.
 //!
 //! Production path is always [`DualTickPolicy::AuthorityOnly`]. The dual crate
-//! `GameLogic` tick is vestigial and is never entered.
+//! `GameLogic` tick machinery was removed (wave-1 no-legacy sweep); Main
+//! GameLogic is the sole authority.
 
 //! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::GameLogic;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-/// When true, dual-crate ticks are skipped and any attempted dual-tick error is fatal.
-static VERIFICATION_SINGLE_AUTHORITY: AtomicBool = AtomicBool::new(false);
-
-/// Enable single-authority verification mode (bridge failures must not be ignored).
-pub fn set_verification_single_authority(enabled: bool) {
-    VERIFICATION_SINGLE_AUTHORITY.store(enabled, Ordering::SeqCst);
-}
-
-pub fn verification_single_authority() -> bool {
-    VERIFICATION_SINGLE_AUTHORITY.load(Ordering::SeqCst)
-        || std::env::var_os("GENERALS_VERIFY_SINGLE_AUTHORITY").is_some()
-}
 
 /// Snapshot of authoritative match state for probes and golden checkpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,34 +62,17 @@ impl AuthorityProbe {
 }
 
 /// Result of one authoritative logic-frame tick policy decision.
+///
+/// Only [`DualTickPolicy::AuthorityOnly`] exists: the vestigial dual-tick
+/// variants and their env opt-in plumbing were deleted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DualTickPolicy {
     /// Only Main GameLogic advances; gamelogic crate is not ticked.
     AuthorityOnly,
-    /// Dual tick allowed; crate errors are non-fatal (legacy host mode).
-    DualLegacyNonFatal,
-    /// Dual tick attempted under verification; errors must abort.
-    DualVerificationFatal,
 }
 
 pub fn dual_tick_policy() -> DualTickPolicy {
     DualTickPolicy::AuthorityOnly
-}
-
-/// Apply the dual-tick policy after Main GameLogic has already advanced one frame.
-///
-/// Returns `Err` when verification mode would have ignored a crate failure, or when
-/// a dual tick is required to fail closed.
-///
-/// Empty-world crate ticks return `Ok(())` and must **not** be treated as a
-/// successful C++ `GameLogic.cpp` phase-order tick. `tick_gamelogic_crate`
-/// logs at debug and counts those no-ops; this helper does not panic on them.
-pub fn apply_post_authority_crate_tick(
-    policy: DualTickPolicy,
-    tick_crate: impl FnOnce() -> Result<(), String>,
-) -> Result<(), String> {
-    let _ = (policy, tick_crate);
-    Ok(())
 }
 
 /// Advance Main GameLogic by `frames` and collect probes each frame (production path).
@@ -124,24 +95,21 @@ mod tests {
     use crate::game_logic::{GameLogic, GameMode, Player, Team};
 
     #[test]
-    fn dual_tick_defaults_to_single_authority() {
-        // Clear env influence for this process-local check of default when env unset.
-        // We only assert the enum shape of the function; verification flag is explicit.
-        set_verification_single_authority(true);
+    fn dual_tick_policy_is_always_single_authority() {
         assert_eq!(dual_tick_policy(), DualTickPolicy::AuthorityOnly);
-        set_verification_single_authority(false);
     }
 
     #[test]
-    fn default_policy_is_authority_only_without_env() {
-        // Ensure verification flag off for this assertion.
-        set_verification_single_authority(false);
-        // Without GENERALS_ALLOW_DUAL_TICK in env, default is single authority.
-        if std::env::var_os("GENERALS_ALLOW_DUAL_TICK").is_none()
-            && std::env::var_os("GENERALS_VERIFY_SINGLE_AUTHORITY").is_none()
-        {
-            assert_eq!(dual_tick_policy(), DualTickPolicy::AuthorityOnly);
-        }
+    fn dual_tick_env_plumbing_is_deleted() {
+        let aw = include_str!("authoritative_world.rs");
+        let prod = aw.split("#[cfg(test)]").next().expect("prod");
+        assert!(
+            !prod.contains("GENERALS_ALLOW_DUAL_TICK")
+                && !prod.contains("GENERALS_VERIFY_SINGLE_AUTHORITY")
+                && !prod.contains("fn set_verification_single_authority")
+                && !prod.contains("fn apply_post_authority_crate_tick"),
+            "dual-tick env gating and apply helper were removed with the dual crate tick"
+        );
     }
 
     #[test]
@@ -174,36 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn authority_only_skips_crate_tick() {
-        let mut called = false;
-        apply_post_authority_crate_tick(DualTickPolicy::AuthorityOnly, || {
-            called = true;
-            Ok(())
-        })
-        .unwrap();
-        assert!(!called);
-    }
-
-    #[test]
-    fn vestigial_dual_policies_do_not_enter_crate_tick() {
-        let mut called = false;
-        apply_post_authority_crate_tick(DualTickPolicy::DualVerificationFatal, || {
-            called = true;
-            Err("boom".into())
-        })
-        .unwrap();
-        assert!(!called);
-        apply_post_authority_crate_tick(DualTickPolicy::DualLegacyNonFatal, || {
-            called = true;
-            Ok(())
-        })
-        .unwrap();
-        assert!(!called);
-    }
-
-    #[test]
     fn probe_advances_with_main_game_logic_only() {
-        set_verification_single_authority(true);
         let mut logic = GameLogic::new();
         logic.start_new_game(GameMode::Skirmish);
         logic.clear_all_players();
@@ -217,6 +156,5 @@ mod tests {
             probes.last().unwrap().player_count,
             logic.get_players().len()
         );
-        set_verification_single_authority(false);
     }
 }

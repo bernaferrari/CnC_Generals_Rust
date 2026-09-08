@@ -445,10 +445,7 @@ impl GameLogic {
         // skipped short hop or a truncated segment must still deliver the
         // requested destination so arrival-gated states (AI_MOVE_AND_EVACUATE,
         // RTB taxi) observe a real final waypoint instead of an empty path.
-        let last = full_path
-            .last()
-            .copied()
-            .unwrap_or(segment_start);
+        let last = full_path.last().copied().unwrap_or(segment_start);
         if horiz(last, destination) >= 0.01 {
             full_path.push(destination);
         }
@@ -498,6 +495,11 @@ impl GameLogic {
     /// C++ `AIGroup::friend_computeGroundPath` + per-member slot:
     /// one A* from the nearest member to `destination`, then each unit
     /// follows that spine with last waypoint = its formation/column goal.
+    /// C++ `friend_moveInfantryToPos` / `friend_moveVehicleToPos` per-node
+    /// column residual (AIGroup.cpp:897-1008): members march the spine in
+    /// laterally offset lanes (lane from the packed column index, corner
+    /// normals, alternating ±half-cell rank stagger, `farEnoughSqr` node
+    /// thinning) instead of one single-file line.
     pub fn assign_shared_group_paths(
         &mut self,
         goals: &[(ObjectId, Vec3)],
@@ -541,23 +543,225 @@ impl GameLogic {
         ) else {
             return false;
         };
+        // C++ group march direction = spine start → destination; the lateral
+        // lanes live on its normal (AIGroup.cpp:708-716 startVectorNormal).
+        let mut dir_vec = Vec3::new(destination.x - start.x, 0.0, destination.z - start.z);
+        let dir_len = dir_vec.length();
+        let dir = if dir_len > 1e-3 {
+            dir_vec /= dir_len;
+            dir_vec
+        } else {
+            Vec3::ZERO
+        };
+        let lanes = if dir == Vec3::ZERO {
+            std::collections::HashMap::new()
+        } else {
+            Self::group_march_lanes(&self.objects, goals, destination, (dir.x, dir.z))
+        };
         let mut any = false;
         for &(unit_id, goal) in goals {
             let Some(unit_start) = self.objects.get(&unit_id).map(|o| o.get_position()) else {
                 continue;
             };
-            let mut path = spine.clone();
-            if let Some(last) = path.last_mut() {
-                *last = goal;
-            } else {
-                path.push(goal);
-            }
+            let legacy_spine = || {
+                let mut path = spine.clone();
+                if let Some(last) = path.last_mut() {
+                    *last = goal;
+                } else {
+                    path.push(goal);
+                }
+                path
+            };
+            let path = match lanes.get(&unit_id) {
+                Some(&(column_delta, factor, infantry)) => {
+                    self.member_column_march_path(
+                        &spine,
+                        unit_start,
+                        goal,
+                        column_delta,
+                        factor,
+                        infantry,
+                        (dir.x, dir.z),
+                    )
+                    .unwrap_or_else(legacy_spine)
+                }
+                None => legacy_spine(),
+            };
 
             if self.apply_computed_unit_path(unit_id, unit_start, goal, path) {
                 any = true;
             }
         }
         any
+    }
+
+    /// Per-member marching lanes for a shared-spine group march.
+    ///
+    /// C++ assigns `columnDelta = 1 - curIndex/divisor` after sorting members
+    /// on the normal projection FAR_TO_NEAR (AIGroup.cpp:801-803, :1269-1272),
+    /// with `divisor = (unitsToPath+1)/numColumns` and lane count from group
+    /// size (3 columns infantry / 2 columns vehicles, min group sizes from
+    /// AIData.ini). The packed column goals encode the lane as
+    /// `destination + n*(delta*width + stagger)`, so descending goal-lateral
+    /// order reproduces the pack order and each member recovers the marching
+    /// lane its goal was packed into.
+    fn group_march_lanes(
+        objects: &std::collections::HashMap<ObjectId, Object>,
+        goals: &[(ObjectId, Vec3)],
+        destination: Vec3,
+        dir: (f32, f32),
+    ) -> std::collections::HashMap<ObjectId, (i32, i32, bool)> {
+        use crate::game_logic::host_ai_path_combat_residual_wave105::{
+            MIN_INFANTRY_FOR_GROUP_RESIDUAL, MIN_VEHICLES_FOR_GROUP_RESIDUAL,
+        };
+        let (nx, nz) = (-dir.1, dir.0);
+        let mut infantry: Vec<(ObjectId, f32)> = Vec::new();
+        let mut vehicles: Vec<(ObjectId, f32)> = Vec::new();
+        for &(id, goal) in goals {
+            let lateral = (goal.x - destination.x) * nx + (goal.z - destination.z) * nz;
+            if objects
+                .get(&id)
+                .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
+            {
+                infantry.push((id, lateral));
+            } else {
+                vehicles.push((id, lateral));
+            }
+        }
+        let mut out = std::collections::HashMap::new();
+        for (list, num_columns, min_count) in [
+            (&mut infantry, 3_i32, MIN_INFANTRY_FOR_GROUP_RESIDUAL),
+            (&mut vehicles, 2_i32, MIN_VEHICLES_FOR_GROUP_RESIDUAL),
+        ] {
+            let n = list.len() as i32;
+            if n < min_count.max(1) {
+                // C++ m_minInfantry/m_minVehiclesForGroup gate: too few
+                // members of this kind → no column pass for them.
+                continue;
+            }
+            list.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            let divisor = ((n + 1) / num_columns).max(1);
+            let half = num_columns / 2;
+            // Rank stagger counter per lane (C++ columnFactor, :897-907).
+            let mut lane_counts = [0_i32; 3];
+            for (i, &(id, _)) in list.iter().enumerate() {
+                let mut column_delta = 1 - (i as i32 / divisor);
+                if num_columns == 2 && column_delta == 0 {
+                    // C++ 2-column vehicles keep off the center line
+                    // (AIGroup.cpp:1271-1272).
+                    column_delta = -1;
+                }
+                column_delta = column_delta.clamp(-half, half);
+                let factor = lane_counts[(column_delta + 1) as usize];
+                lane_counts[(column_delta + 1) as usize] += 1;
+                out.insert(id, (column_delta, factor, num_columns == 3));
+            }
+        }
+        out
+    }
+
+    /// C++ per-node column walk (AIGroup.cpp:897-965): thin the spine at
+    /// `farEnoughSqr` = (PATH_DIAMETER_IN_CELLS=6 cells)², offset each kept
+    /// node laterally by `columnDelta` lanes along the corner normal
+    /// (`PATHFIND_CELL_SIZE_F*2.1/halfNumColumns` infantry, `*1.5` vehicles),
+    /// stagger alternate ranks ±half a cell, and keep only nodes that make
+    /// forward progress. Returns None when the spine is too short to thin.
+    fn member_column_march_path(
+        &self,
+        spine: &[Vec3],
+        unit_start: Vec3,
+        goal: Vec3,
+        column_delta: i32,
+        factor: i32,
+        infantry: bool,
+        dir: (f32, f32),
+    ) -> Option<Vec<Vec3>> {
+        const CELL: f32 = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        let far_enough_sqr = (6.0 * CELL) * (6.0 * CELL);
+        let lane_width = if infantry { CELL * 2.1 } else { CELL * 1.5 };
+        let dist_sqr = |a: Vec3, b: Vec3| {
+            (a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z)
+        };
+        if spine.len() < 2 {
+            return None;
+        }
+        let spine_start = *spine.first()?;
+        // C++ startNode: first spine node past farEnoughSqr of the start
+        // (AIGroup.cpp:673-682).
+        let mut node = spine
+            .iter()
+            .position(|p| dist_sqr(*p, spine_start) > far_enough_sqr)?;
+        let (wmin, wmax) = self.world_bounds();
+        let clamp_map = |mut p: Vec3| {
+            p.x = p.x.clamp(wmin.x + CELL, wmax.x - CELL);
+            p.z = p.z.clamp(wmin.z + CELL, wmax.z - CELL);
+            p
+        };
+        let mut prev_idx = 0_usize;
+        let mut prev_pos = unit_start;
+        let mut path: Vec<Vec3> = Vec::new();
+        while node < spine.len() {
+            // C++ nextNode: first successor past farEnoughSqr of the current
+            // node (:917-924); none → the walk stops (:925).
+            let Some(next) = (node + 1..spine.len())
+                .find(|&j| dist_sqr(spine[j], spine[node]) > far_enough_sqr)
+            else {
+                break;
+            };
+            let corner_x = spine[next].x - spine[prev_idx].x;
+            let corner_z = spine[next].z - spine[prev_idx].z;
+            let clen = (corner_x * corner_x + corner_z * corner_z).sqrt();
+            if clen > 1e-4 {
+                // C++ cornerVectorNormal = left normal of the corner vector
+                // (:926-929).
+                let cn_x = -corner_z / clen;
+                let cn_z = corner_x / clen;
+                let mut dest = spine[node];
+                // Lateral lane offset plus alternating ±half-cell rank
+                // stagger (:935-944).
+                let lateral = lane_width * column_delta as f32
+                    + if factor & 1 == 1 { 0.5 * CELL } else { -0.5 * CELL };
+                dest.x += lateral * cn_x;
+                dest.z += lateral * cn_z;
+                dest = clamp_map(dest);
+                // Only keep nodes that make forward progress (:952-955).
+                let cx = dest.x - prev_pos.x;
+                let cz = dest.z - prev_pos.z;
+                if corner_x * cx + corner_z * cz > 0.0 {
+                    path.push(dest);
+                    prev_pos = dest;
+                }
+            }
+            node += 1; // C++ advances one optimized link (:956).
+            // previousNode lags: last node before `node` past farEnoughSqr
+            // of it (:958-964).
+            if node < spine.len() {
+                let mut k = prev_idx + 1;
+                while k < node {
+                    if dist_sqr(spine[k], spine[node]) > far_enough_sqr {
+                        prev_idx = k;
+                    }
+                    k += 1;
+                }
+            }
+        }
+        if path.is_empty() {
+            return None;
+        }
+        // C++ tail trim (:991-1003): drop trailing nodes the goal does not
+        // lie ahead of; keep at least one en-route node.
+        while path.len() > 1 {
+            let last = *path.last().unwrap();
+            let gx = goal.x - last.x;
+            let gz = goal.z - last.z;
+            if dir.0 * gx + dir.1 * gz <= 0.0 {
+                path.pop();
+            } else {
+                break;
+            }
+        }
+        path.push(goal);
+        Some(path)
     }
 
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
@@ -1017,5 +1221,87 @@ impl GameLogic {
     #[cfg(test)]
     pub fn append_unit_waypoint_for_test(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
         self.append_unit_waypoint(unit_id, waypoint)
+    }
+}
+
+#[cfg(test)]
+mod group_lane_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, GridPos, KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    fn ranger(id: u32, pos: Vec3) -> Object {
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut unit = Object::new(tmpl, ObjectId(id), Team::USA);
+        unit.set_position(pos);
+        unit
+    }
+
+    /// C++ `friend_moveInfantryToPos` per-node column offsets
+    /// (AIGroup.cpp:897-1008): a 12-infantry group must march the shared
+    /// spine in 3 lateral lanes (lane width 2.1 cells, ±half-cell rank
+    /// stagger) instead of one single-file line.
+    #[test]
+    fn shared_group_paths_march_in_lateral_lanes() {
+        let mut logic = GameLogic::new();
+        let destination = Vec3::new(0.0, 0.0, 420.0);
+        // Bend the spine: wall the direct north route so A* detours east.
+        for x in -25..10 {
+            logic
+                .pathfinding_system
+                .grid
+                .set_blocked(GridPos::new(x, 10), true);
+        }
+        let mut goals: Vec<(ObjectId, Vec3)> = Vec::new();
+        for i in 0..12_i32 {
+            let id = ObjectId(8600 + i as u32);
+            logic.objects.insert(
+                id,
+                ranger(8600 + i as u32, Vec3::new((i as f32 - 5.5) * 6.0, 0.0, 5.0)),
+            );
+            // pack_column_kind-style column goal: destination + n*(delta*2.2
+            // cells + stagger), n = (-dir.z, dir.x) for the north march.
+            let column_delta = 1 - i / 4; // 4×+1, 4×0, 4×-1
+            let stagger = if i % 2 == 1 { 10.0 } else { 0.0 };
+            let lateral = column_delta as f32 * 22.0 + stagger;
+            goals.push((id, Vec3::new(-lateral, 0.0, 420.0)));
+        }
+        assert!(logic.assign_shared_group_paths(&goals, destination));
+
+        let firsts: Vec<Vec3> = (8600..8612_u32)
+            .filter_map(|i| {
+                logic
+                    .host_object(ObjectId(i))
+                    .map(|o| o.movement.path.first().copied())
+                    .flatten()
+            })
+            .collect();
+        assert_eq!(firsts.len(), 12, "every member must receive a path");
+        // Within a lane the alternating stagger keeps nodes ≤ 10 apart;
+        // adjacent lanes are 2.1 cells (21) apart, so cross-lane pairs are
+        // ≥ 11 apart. 3 lanes × C(4,2) = 18 within-lane pairs exactly.
+        let mut within_lane = 0_usize;
+        for a in 0..firsts.len() {
+            for b in (a + 1)..firsts.len() {
+                let d = firsts[a].distance(firsts[b]);
+                if d <= 10.5 {
+                    within_lane += 1;
+                } else {
+                    assert!(
+                        d >= 11.0,
+                        "adjacent lanes must differ by ~lane width, d={d}, firsts={firsts:?}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            within_lane, 18,
+            "12-unit group must occupy exactly 3 lateral lanes, firsts={firsts:?}"
+        );
+        // The member goal stays the terminal node of its lane path.
+        for (id, goal) in &goals {
+            let path = &logic.host_object(*id).unwrap().movement.path;
+            assert_eq!(path.last().unwrap(), goal);
+        }
     }
 }

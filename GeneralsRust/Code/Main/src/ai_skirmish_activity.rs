@@ -116,18 +116,8 @@ fn ensure_human_templates(logic: &mut GameLogic) {
     // (FactionBuilding.ini `Object GLABarracks` et al.): without the bit the
     // skirmish NO_BUILDINGS victory rule defeats every player on frame 0.
     for (name, kind, mp_count, hp) in [
-        (
-            "HumanCC",
-            KindOf::CommandCenter,
-            true,
-            2000.0,
-        ),
-        (
-            "HumanRanger",
-            KindOf::Infantry,
-            false,
-            120.0,
-        ),
+        ("HumanCC", KindOf::CommandCenter, true, 2000.0),
+        ("HumanRanger", KindOf::Infantry, false, 120.0),
     ] {
         if logic.templates.contains_key(name) {
             continue;
@@ -153,7 +143,9 @@ fn ensure_human_templates(logic: &mut GameLogic) {
 /// (C++ AIPlayer::queueDozer AIPlayer.cpp:3128-3171) and can never start a
 /// structure.
 fn seed_gla_skirmish_start(logic: &mut GameLogic) {
-    if let Some(id) = logic.create_object("GLA_CommandCenter", Team::GLA, Vec3::new(100.0, 0.0, 100.0)) {
+    if let Some(id) =
+        logic.create_object("GLA_CommandCenter", Team::GLA, Vec3::new(100.0, 0.0, 100.0))
+    {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.status.under_construction = false;
             obj.construction_percent = 1.0;
@@ -252,7 +244,6 @@ pub fn run_medium_ai_skirmish_activity(frames: u32) -> AiSkirmishActivityResult 
         }
     }
     seed_gla_skirmish_start(&mut logic);
-
 
     let ai_players = logic.host_ai_player_count();
     let difficulty = logic.get_ai_status(1).unwrap_or_else(|| "missing".into());
@@ -441,6 +432,133 @@ mod tests {
             format_ai_activity_report(&result)
         );
     }
+    #[test]
+    #[ignore = "temporary probe"]
+    fn probe_load_map_activity_stall() {
+        let (map_identity, map_path) = resolve_skirmish_map_path();
+        let config = golden_skirmish_config(&map_identity);
+        let mut logic = GameLogic::new();
+        let config_applied = apply_skirmish_config(&mut logic, &config).is_ok();
+        eprintln!("PROBE config_applied={config_applied}");
+        logic.ensure_ai_faction_templates(Team::USA);
+        logic.ensure_ai_faction_templates(Team::GLA);
+        ensure_human_templates(&mut logic);
+        if let Some(path) = &map_path {
+            let s = path.to_string_lossy();
+            let ok = logic.load_map(&s) || logic.load_map(&map_identity);
+            eprintln!("PROBE map_loaded={ok}");
+        }
+        let _ = logic.create_object("HumanCC", Team::USA, Vec3::new(-100.0, 0.0, -100.0));
+        let _ = logic.create_object("HumanRanger", Team::USA, Vec3::new(-90.0, 0.0, -90.0));
+        seed_gla_skirmish_start(&mut logic);
+
+        let dump = |tag: &str, logic: &GameLogic| {
+            let Some(ai) = logic.ai_manager.ai_players.get(&1) else {
+                eprintln!("PROBE {tag}: no ai player 1");
+                return;
+            };
+            eprintln!(
+                "PROBE {tag}: t={:.2} act={} nbt={:.2} ntqt={:.2} ntt={:.2} bq={}",
+                logic.get_total_play_time(),
+                ai.activity_count,
+                ai.next_building_time,
+                ai.next_team_queue_time,
+                ai.next_team_time,
+                ai.building_queue.len(),
+            );
+            for b in &ai.building_queue {
+                eprintln!(
+                    "  PAD {} pos={:?} obj={:?} built={} prio={} auto={} destroyed={:?}",
+                    b.template_name, b.position, b.object_id, b.is_built, b.is_priority,
+                    b.automatic_build, b.destroyed_at_time
+                );
+            }
+            eprintln!(
+                "  team_queue={} ready_queue={} active={}",
+                ai.team_queue.len(),
+                ai.team_ready_queue.len(),
+                ai.is_active
+            );
+        };
+        dump("t0", &logic);
+        for frame in 0..150 {
+            logic.update();
+            if (frame + 1) % 25 == 0 {
+                dump(&format!("f{}", frame + 1), &logic);
+            }
+        }
+        eprintln!(
+            "PROBE final: activity={} structures={} units_or_queue={}",
+            logic.host_ai_activity_count(),
+            count_ai_structures(&logic),
+            count_ai_units_or_queue(&logic)
+        );
+    }
+
+    #[test]
+    #[ignore = "temporary probe"]
+    fn probe_airborne_hunting_gates() {
+        use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
+        use crate::game_logic::{KindOf, Player, ThingTemplate, Weapon};
+        use crate::game_logic::AbleToAttackType;
+
+        let mut game_logic = GameLogic::new();
+        game_logic.add_player(Player::new(1, Team::USA, "USA AI", false));
+        game_logic.add_player(Player::new(2, Team::USA, "Human", true));
+
+        let mut aa_t = ThingTemplate::new("QuadCannon");
+        aa_t.add_kind_of(KindOf::Vehicle);
+        aa_t.add_kind_of(KindOf::Attackable);
+        game_logic.templates.insert("QuadCannon".into(), aa_t);
+        let mut jet_t = ThingTemplate::new("Raptor");
+        jet_t.add_kind_of(KindOf::Vehicle);
+        jet_t.add_kind_of(KindOf::Aircraft);
+        jet_t.add_kind_of(KindOf::Attackable);
+        game_logic.templates.insert("Raptor".into(), jet_t);
+
+        let aa = game_logic
+            .create_object("QuadCannon", Team::USA, Vec3::ZERO)
+            .expect("aa");
+        if let Some(o) = game_logic.host_object_mut(aa) {
+            o.owner_player_id = Some(1);
+            o.weapon = Some(Weapon {
+                range: 200.0,
+                damage: 10.0,
+                can_target_air: true,
+                can_target_ground: true,
+                ..Default::default()
+            });
+        }
+        let jet = game_logic
+            .create_object("Raptor", Team::GLA, Vec3::new(25.0, 20.0, 0.0))
+            .expect("jet");
+        if let Some(o) = game_logic.host_object_mut(jet) {
+            o.status.airborne_target = true;
+        }
+
+        let mut gates = |tag: &str, hunting: bool| {
+            if let Some(o) = game_logic.host_object_mut(aa) {
+                o.hunting = hunting;
+            }
+            let refuses = game_logic.computer_refuses_non_hunt_airborne_chase(aa, jet);
+            let can_atk = game_logic.host_object(aa).map(|o| o.can_attack());
+            let able = game_logic.get_able_to_attack_specific_object(
+                aa,
+                jet,
+                AbleToAttackType::NewTarget,
+                false,
+            );
+            let decision = AIDecisionSystem::should_attack(&game_logic, aa, jet);
+            eprintln!(
+                "PROBE {tag}: hunting={hunting} refuses={refuses} can_attack={can_atk:?} able={able:?} decision={decision:?}"
+            );
+        };
+        gates("nonhunt", false);
+        gates("hunt", true);
+        let _ = AttackDecision::Hold;
+    }
+
+
 
     #[test]
     fn medium_ai_activity_grows_across_update_windows() {

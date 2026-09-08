@@ -1236,20 +1236,20 @@ fn troop_crawler_residual_transport_load_unload() {
             game_logic.process_commands();
         }
     }
-        // C++ TransportContain files riders out one per exit-door window
-        // (TransportContain.cpp exit-busy + AIExitState poll); the evac
-        // streams over frames. Drain the stream before asserting.
-        for _ in 0..120 {
-            let count = game_logic
-                .host_object(crawler_id)
-                .map(|c| c.transport_count())
-                .unwrap_or(0);
-            if count == 0 {
-                break;
-            }
-            game_logic.frame += 1;
-            game_logic.drain_pending_transport_exits_for_test();
+    // C++ TransportContain files riders out one per exit-door window
+    // (TransportContain.cpp exit-busy + AIExitState poll); the evac
+    // streams over frames. Drain the stream before asserting.
+    for _ in 0..120 {
+        let count = game_logic
+            .host_object(crawler_id)
+            .map(|c| c.transport_count())
+            .unwrap_or(0);
+        if count == 0 {
+            break;
         }
+        game_logic.frame += 1;
+        game_logic.drain_pending_transport_exits_for_test();
+    }
     {
         let crawler = game_logic.host_object(crawler_id).expect("crawler");
         assert_eq!(
@@ -1320,10 +1320,7 @@ fn troop_crawler_residual_transport_load_unload() {
         assert!(unit.can_move());
         // C++ OpenContain::exitObjectViaDoor → aiFollowPath: an exiting rider
         // walks out (Moving); Idle only after the walk completes.
-        assert!(matches!(
-            unit.ai_state,
-            AIState::Idle | AIState::Moving
-        ));
+        assert!(matches!(unit.ai_state, AIState::Idle | AIState::Moving));
     }
     {
         let crawler = game_logic.host_object(crawler_id).expect("empty");

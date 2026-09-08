@@ -1779,7 +1779,6 @@ fn heal_and_attack_writes_never_invent_heal_or_fire_sfx() {
     );
 }
 
-
 #[test]
 fn capture_building_button_uses_ready_and_in_use() {
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};

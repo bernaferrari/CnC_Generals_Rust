@@ -516,7 +516,7 @@ fn guard_mode_without_pursuit_and_flying_only_are_stored() {
 
 #[test]
 fn command_button_maps_guard_modes() {
-    use crate::command_system::{command_type_from_button_name, CommandType};
+    use crate::command_system::{CommandType, command_type_from_button_name};
     use crate::game_logic::GuardMode;
 
     let g = command_type_from_button_name("Command_Guard").unwrap();
@@ -1040,11 +1040,27 @@ fn post_fire_override_steers_live_beam_and_spectre_orbit() {
             .iter()
             .find(|f| f.source_object == id)
             .expect("live spectre orbit");
+        // C++ SpectreGunshipUpdate.cpp:405-440: the orbit epicenter stays on
+        // the fixed initial target; a click only drags the reticle, clamped
+        // to AttackAreaRadius - TargetingReticleRadius = 175 of that center.
         assert!(
-            (orbit.position.x - click.x).abs() < 0.01 && (orbit.position.z - click.z).abs() < 0.01,
-            "spectre orbit {:?} != click {:?}",
-            orbit.position,
-            click
+            (orbit.position.x - fire_pos.x).abs() < 0.01
+                && (orbit.position.z - fire_pos.z).abs() < 0.01,
+            "orbit epicenter must not move: {:?}",
+            orbit.position
+        );
+        let clamped = crate::game_logic::special_power_strikes::clamp_spectre_override_destination(
+            fire_pos,
+            click,
+            crate::game_logic::special_power_strikes::SPECTRE_ORBIT_RADIUS,
+            crate::game_logic::special_power_strikes::SPECTRE_TARGETING_RETICLE_RADIUS,
+        );
+        assert!(
+            (orbit.override_destination.x - clamped.x).abs() < 0.01
+                && (orbit.override_destination.z - clamped.z).abs() < 0.01,
+            "orbit override {:?} != clamped click {:?}",
+            orbit.override_destination,
+            clamped
         );
     }
     logic.update_special_power_strikes();
@@ -1073,11 +1089,26 @@ fn post_fire_override_steers_live_beam_and_spectre_orbit() {
         .iter()
         .find(|f| f.source_object == id)
         .expect("live spectre orbit");
+    // Post-tick the epicenter is still the initial target; the reticle stays
+    // clamped to the ring edge (C++ SpectreGunshipUpdate.cpp:405-440).
     assert!(
-        (orbit.position.x - click.x).abs() < 0.01 && (orbit.position.z - click.z).abs() < 0.01,
-        "spectre orbit {:?} != click {:?}",
-        orbit.position,
-        click
+        (orbit.position.x - fire_pos.x).abs() < 0.01
+            && (orbit.position.z - fire_pos.z).abs() < 0.01,
+        "orbit epicenter must not move: {:?}",
+        orbit.position
+    );
+    let clamped = crate::game_logic::special_power_strikes::clamp_spectre_override_destination(
+        fire_pos,
+        click,
+        crate::game_logic::special_power_strikes::SPECTRE_ORBIT_RADIUS,
+        crate::game_logic::special_power_strikes::SPECTRE_TARGETING_RETICLE_RADIUS,
+    );
+    assert!(
+        (orbit.override_destination.x - clamped.x).abs() < 0.01
+            && (orbit.override_destination.z - clamped.z).abs() < 0.01,
+        "orbit override {:?} != clamped click {:?}",
+        orbit.override_destination,
+        clamped
     );
 }
 
@@ -1140,11 +1171,26 @@ fn spectre_gunship_click_steers_producer_orbit_and_override_target() {
         .iter()
         .find(|f| f.source_object == caster)
         .expect("caster orbit");
+    // C++ SpectreGunshipUpdate.cpp:405-440: the producer's orbit epicenter is
+    // the fixed initial target; the click only re-clamps the reticle.
     assert!(
-        (orbit.position.x - click.x).abs() < 0.01 && (orbit.position.z - click.z).abs() < 0.01,
-        "producer orbit {:?} != click {:?}",
-        orbit.position,
-        click
+        (orbit.position.x - fire_pos.x).abs() < 0.01
+            && (orbit.position.z - fire_pos.z).abs() < 0.01,
+        "producer orbit epicenter must not move: {:?}",
+        orbit.position
+    );
+    let clamped = crate::game_logic::special_power_strikes::clamp_spectre_override_destination(
+        fire_pos,
+        click,
+        crate::game_logic::special_power_strikes::SPECTRE_ORBIT_RADIUS,
+        crate::game_logic::special_power_strikes::SPECTRE_TARGETING_RETICLE_RADIUS,
+    );
+    assert!(
+        (orbit.override_destination.x - clamped.x).abs() < 0.01
+            && (orbit.override_destination.z - clamped.z).abs() < 0.01,
+        "producer orbit override {:?} != clamped click {:?}",
+        orbit.override_destination,
+        clamped
     );
     let flight = logic
         .host_object(gunship)
@@ -1529,11 +1575,13 @@ fn special_power_uses_single_source_object() {
         let _ = res; // routing exercised; SharedSyncedTimer may mirror team-wide.
     }
     // Caster still owns the module entry after cast routing.
-    assert!(logic
-        .host_object(caster)
-        .unwrap()
-        .special_power_cooldowns
-        .contains_key(&SpecialPowerType::SpySatellite));
+    assert!(
+        logic
+            .host_object(caster)
+            .unwrap()
+            .special_power_cooldowns
+            .contains_key(&SpecialPowerType::SpySatellite)
+    );
 }
 
 #[test]

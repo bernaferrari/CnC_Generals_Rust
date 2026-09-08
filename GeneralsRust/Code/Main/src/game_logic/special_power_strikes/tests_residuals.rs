@@ -666,7 +666,12 @@ fn particle_uplink_manual_drive_and_outer_nodes_residual_honesty() {
 fn post_fire_object_override_applies_to_live_beam_and_orbit() {
     // Given: live PUC beam + Spectre orbit after fire.
     // When: the source object's override destination is applied on the strike tick.
-    // Then: beam manual aim and orbit center follow that click.
+    // Then: the beam manual aim follows the click, but the Spectre orbit
+    // EPICENTER STAYS at the strike target — C++ latches m_initialTargetPosition
+    // once (.cpp:177/185) and setSpecialPowerOverridableDestination (:268-283)
+    // writes ONLY m_overrideTargetDestination, clamped to
+    // AttackAreaRadius - TargetingReticleRadius = 175 around the fixed center
+    // (:422-439).
     let mut reg = HostSpecialPowerStrikeRegistry::new();
     let source = ObjectId(7);
     let fire_pos = Vec3::new(40.0, 0.0, 10.0);
@@ -687,8 +692,54 @@ fn post_fire_object_override_applies_to_live_beam_and_orbit() {
         .iter()
         .find(|f| f.id == orbit_id)
         .expect("orbit");
-    assert!((orbit.position.x - click.x).abs() < 0.01);
-    assert!((orbit.position.z - click.z).abs() < 0.01);
+    // Epicenter NEVER moves with a retarget click.
+    assert!((orbit.position.x - fire_pos.x).abs() < 0.01);
+    assert!((orbit.position.z - fire_pos.z).abs() < 0.01);
+    // The reticle is dragged to the 175 constraint ring edge toward the click.
+    let clamped = clamp_spectre_override_destination(
+        fire_pos,
+        click,
+        SPECTRE_ORBIT_RADIUS,
+        SPECTRE_TARGETING_RETICLE_RADIUS,
+    );
+    assert!((orbit.override_destination.x - clamped.x).abs() < 0.01);
+    assert!((orbit.override_destination.z - clamped.z).abs() < 0.01);
+    let dx = orbit.override_destination.x - fire_pos.x;
+    let dz = orbit.override_destination.z - fire_pos.z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    assert!(
+        (dist - SPECTRE_OVERRIDE_CONSTRAINT_RADIUS).abs() < 0.05,
+        "far click must drag the reticle to the ring edge (got {dist})"
+    );
+    // The aim chain is NOT snapped: gattling aim only walks after the click
+    // via advance_orbit_strafe, and shoot-at refreshes on howitzer-rate gates.
+}
+
+#[test]
+fn orbit_override_click_retargets_only_the_bound_ship_field() {
+    // C++ setSpecialPowerOverridableDestination is per-gunship: a recast that
+    // leaves a prior ship orbiting yields two live fields, and a click must
+    // retarget ONLY the newest (bound) ship's field.
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let source = ObjectId(7);
+    let fire_pos = Vec3::new(40.0, 0.0, 10.0);
+    let old_id = reg.spawn_orbit_field(source, Team::USA, fire_pos, 0, 1);
+    let new_id = reg.spawn_orbit_field(source, Team::USA, fire_pos, 0, 2);
+    let click = Vec3::new(60.0, 0.0, 30.0); // inside the 175 constraint ring
+    assert!(reg.apply_source_override_destination(source, click, 1));
+    let old = &reg.orbit_fields()
+        .iter()
+        .find(|f| f.id == old_id)
+        .expect("old field")
+        .override_destination;
+    assert!((old.x - fire_pos.x).abs() < 0.01 && (old.z - fire_pos.z).abs() < 0.01);
+    let new = reg
+        .orbit_fields()
+        .iter()
+        .find(|f| f.id == new_id)
+        .expect("new field")
+        .override_destination;
+    assert!((new.x - click.x).abs() < 0.01 && (new.z - click.z).abs() < 0.01);
 }
 
 #[test]
@@ -724,6 +775,11 @@ fn spectre_howitzer_shell_projectile_residual_honesty() {
     let spawn = reg.orbit_fields()[0].spawn_frame;
 
     // First howitzer tick spawns SpectreHowitzerShell residual honesty.
+    // C++ :573/609-623 — the howitzer only fires once the strafe wind settles
+    // past HowitzerFollowLag, so wind the aim first.
+    for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
+        reg.advance_orbit_strafe(spawn);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
     {
         let f = &reg.orbit_fields()[0];
@@ -742,9 +798,11 @@ fn spectre_howitzer_shell_projectile_residual_honesty() {
     assert!(reg.honesty_howitzer_shell_ok());
     assert!(reg.honesty_howitzer_shell_dumb_projectile_ok());
     assert!(reg.honesty_howitzer_ok());
-
     // Second howitzer residual tick accumulates shell counters.
     let next = spawn + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES;
+    for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
+        reg.advance_orbit_strafe(next);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, next);
     {
         let f = &reg.orbit_fields()[0];
@@ -1312,6 +1370,12 @@ fn spectre_howitzer_shell_model_draw_residual_honesty() {
     let spawn = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_shell_model_draw_ok());
     // One howitzer tick residual.
+    // C++ FollowLag 12f (SpectreGunshipUpdate.cpp:596-623): the howitzer may
+    // fire only after the gattling has actually been firing — wind the aim
+    // counter past the lag before the tick.
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn);
     {
         let f = &reg.orbit_fields()[0];
@@ -1530,6 +1594,10 @@ fn spectre_howitzer_shell_object_params_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_shell_object_params_ok());
+    // C++ FollowLag 12f wind before the howitzer tick (see model-draw test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -1584,6 +1652,10 @@ fn spectre_howitzer_shell_lasered_ocl_residual_honesty() {
     reg.record_impact_complete(id, 0.0, 0, 0);
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
+    // C++ FollowLag 12f wind before the howitzer tick (see model-draw test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];
@@ -1685,6 +1757,10 @@ fn spectre_howitzer_shell_loft_flight_residual_honesty() {
     let field_id = reg.orbit_fields()[0].id;
     let spawn_f = reg.orbit_fields()[0].spawn_frame;
     assert!(!reg.honesty_howitzer_shell_loft_flight_ok());
+    // C++ FollowLag 12f wind before the howitzer tick (see model-draw test).
+    for _ in 0..13 {
+        reg.advance_orbit_strafe(spawn_f);
+    }
     reg.record_orbit_tick_complete(field_id, 80.0, 1, 0, spawn_f);
     {
         let f = &reg.orbit_fields()[0];

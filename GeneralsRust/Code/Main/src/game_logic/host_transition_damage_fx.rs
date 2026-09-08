@@ -592,15 +592,23 @@ pub fn parse_transition_loc_attr(raw: &str) -> HostTransitionLoc {
     }
 }
 
-/// Leftover `get_local_effect_pos` + `convert_bone_pos_to_world_pos` in host space.
-pub fn leftover_named_slot_world_pos(
+/// Leftover `get_local_effect_pos` + `convert_bone_pos_to_world_pos` in host
+/// space, plus the resolved slot world matrix (host Y-up) for oriented FX
+/// dispatch.
+///
+/// C++ `FXList.cpp:711-728` feeds `convertBonePosToWorldPos(&bonePos[i],
+/// &boneMtx[i], &p, &m)` into `doFXPos(m_fx, &p, &m, ...)` so nested
+/// `FXListAtBonePos` nuggets keep the bone orientation. The matrix is `Some`
+/// only when the live owner object resolved the slot transform; without a
+/// live object there is no bone matrix and callers dispatch positionally.
+pub fn leftover_named_slot_world_transform(
     loc: Option<&HostTransitionLoc>,
     owner: u32,
     host_pos: glam::Vec3,
     yaw: f32,
     model: &str,
     scale: f32,
-) -> glam::Vec3 {
+) -> (glam::Vec3, Option<glam::Mat4>) {
     let loc = loc.cloned().unwrap_or_default();
     let particle = loc.as_particle();
     let leftover_owner = gamelogic::helpers::TheGameLogic::find_object_by_id(owner);
@@ -618,20 +626,48 @@ pub fn leftover_named_slot_world_pos(
     };
     if let Some(obj) = leftover_guard.as_deref() {
         let world = obj.convert_bone_pos_to_world_pos(Some(&leftover_local), None);
-        let translation = world.w_axis;
-        return leftover_to_host_local(gamelogic::common::Coord3D::new(
-            translation.x,
-            translation.y,
-            translation.z,
-        ));
+        let host = leftover_to_host_mat4(world);
+        return (host.w_axis.truncate(), Some(host));
     }
     let host_local = leftover_to_host_local(leftover_local);
     let (sin, cos) = leftover_yaw.sin_cos();
-    glam::Vec3::new(
+    let pos = glam::Vec3::new(
         host_pos.x + host_local.x * cos - host_local.z * sin,
         host_pos.y + host_local.y,
         host_pos.z + host_local.x * sin + host_local.z * cos,
-    )
+    );
+    (pos, None)
+}
+
+/// Leftover `get_local_effect_pos` + `convert_bone_pos_to_world_pos` in host space.
+pub fn leftover_named_slot_world_pos(
+    loc: Option<&HostTransitionLoc>,
+    owner: u32,
+    host_pos: glam::Vec3,
+    yaw: f32,
+    model: &str,
+    scale: f32,
+) -> glam::Vec3 {
+    leftover_named_slot_world_transform(loc, owner, host_pos, yaw, model, scale).0
+}
+
+/// `FXList::doFXPos` at the slot world pos, oriented by the resolved slot bone
+/// world matrix when one exists (C++ `FXList.cpp:711-728` passes the bone
+/// matrix so `FXListAtBonePos` nuggets keep the bone orientation); positional
+/// fallback when no bone matrix resolved.
+fn dispatch_transition_fx_list(name: &str, world: glam::Vec3, matrix: Option<glam::Mat4>) {
+    if let Some(matrix) = matrix {
+        let _ = crate::game_logic::dispatch_fx_list_at_pos_oriented(
+            name,
+            world,
+            None,
+            0.0,
+            0.0,
+            Some(matrix),
+        );
+    } else {
+        let _ = crate::game_logic::dispatch_fx_list_at_pos(name, world);
+    }
 }
 
 /// Leftover `play_fx_for_state` FXList/OCL: `doFXPos` / OCL create at bone/loc world pos.
@@ -644,12 +680,18 @@ pub fn play_transition_event_fx_ocl(
     scale: f32,
 ) {
     if let Some(fx) = ev.fx_name.as_deref() {
-        let world =
-            leftover_named_slot_world_pos(ev.fx_locs.first(), owner, host_pos, yaw, model, scale);
-        let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, world);
+        let (world, matrix) = leftover_named_slot_world_transform(
+            ev.fx_locs.first(),
+            owner,
+            host_pos,
+            yaw,
+            model,
+            scale,
+        );
+        dispatch_transition_fx_list(fx, world, matrix);
     }
     for (i, fx) in ev.extra_fx_names.iter().enumerate() {
-        let world = leftover_named_slot_world_pos(
+        let (world, matrix) = leftover_named_slot_world_transform(
             ev.fx_locs.get(i + 1),
             owner,
             host_pos,
@@ -657,7 +699,7 @@ pub fn play_transition_event_fx_ocl(
             model,
             scale,
         );
-        let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, world);
+        dispatch_transition_fx_list(fx, world, matrix);
     }
     for (i, ocl) in ev.ocl_names.iter().enumerate() {
         let world =
@@ -824,6 +866,14 @@ fn leftover_local_effect_pos(
 
 fn leftover_to_host_local(pos: gamelogic::common::Coord3D) -> glam::Vec3 {
     glam::Vec3::new(pos.x, pos.z, pos.y)
+}
+
+/// Leftover Z-up `Matrix3D` → host Y-up `Mat4`.
+///
+/// `host_to_leftover_mat4` conjugates by the Y/Z-swap permutation (`P * M * P`,
+/// an involution), so the same function converts leftover matrices back to host.
+fn leftover_to_host_mat4(leftover: glam::Mat4) -> glam::Mat4 {
+    crate::game_logic::host_to_leftover_mat4(leftover)
 }
 
 fn leftover_local_effect_pos_live(
@@ -1576,6 +1626,27 @@ mod tests {
             1.0,
         );
         assert!((world - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
+    }
+
+    #[test]
+    fn slot_transform_without_live_object_stays_positional() {
+        // Audit-11 #9: no live owner -> no bone matrix resolves, so the FX
+        // dispatch must fall back to positional doFXPos (matrix None).
+        let loc = HostTransitionLoc {
+            bone: None,
+            loc: [1.0, 2.0, 8.0],
+            random_bone: false,
+        };
+        let (world, matrix) = leftover_named_slot_world_transform(
+            Some(&loc),
+            0,
+            glam::Vec3::new(10.0, 0.0, 4.0),
+            0.0,
+            "",
+            1.0,
+        );
+        assert!((world - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
+        assert!(matrix.is_none());
     }
 
     #[test]

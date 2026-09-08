@@ -99,13 +99,12 @@ pub fn honesty_projectile_ai_channel_api_source() -> bool {
 pub fn honesty_projectile_ai_authority_default_on_source() -> bool {
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let ctx = include_str!("../../game_logic/game_logic/gameworld_authority.rs");
-    let gate_reads_context = |fn_name: &str, field: &str| {
-        match src.find(&format!("pub fn {fn_name}")) {
+    let gate_reads_context =
+        |fn_name: &str, field: &str| match src.find(&format!("pub fn {fn_name}")) {
             Some(i) => src[i..src.len().min(i + 300)]
                 .contains(&format!("current_gameworld_authority().{field}")),
             None => false,
-        }
-    };
+        };
     gate_reads_context("gameworld_projectile_authority_enabled", "projectile")
         && gate_reads_context("gameworld_ai_decision_authority_enabled", "ai_decision")
         && ctx.contains("pub const DEFAULT_OFF: GameWorldAuthority")

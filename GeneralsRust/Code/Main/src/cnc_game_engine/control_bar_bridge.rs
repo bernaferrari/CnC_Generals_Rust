@@ -1,4 +1,4 @@
-//! Delivery of live GameClient Control Bar actions into Main's offline world.
+//! Delivery of live GameClient Control Bar actions into Main's host world.
 //!
 //! GameClient keeps the original C++ message-stream route for standalone use.
 //! The executable deliberately has a different, Rust-owned simulation world,
@@ -92,25 +92,6 @@ fn host_control_bar_request_allowed_in_state(
             ))
 }
 
-/// Network/replay modes stay on the crate GameMessage route.
-///
-/// AGENTS.md defers GameNetwork until non-network parity is done; the live
-/// product match is offline Skirmish (or SinglePlayer campaign). C++
-/// `ControlBar::processCommand` (ControlBarCommandProcessing.cpp) appends
-/// the same `MSG_*` for every mode — Rust only hosts the offline world.
-#[inline]
-fn host_control_bar_bridge_is_network_or_replay(mode: Option<crate::game_logic::GameMode>) -> bool {
-    matches!(
-        mode,
-        Some(
-            crate::game_logic::GameMode::Multiplayer
-                | crate::game_logic::GameMode::Internet
-                | crate::game_logic::GameMode::Lan
-                | crate::game_logic::GameMode::Replay
-        )
-    )
-}
-
 #[inline]
 fn host_control_bar_bridge_is_offline_product_mode(
     mode: Option<crate::game_logic::GameMode>,
@@ -155,17 +136,11 @@ impl CnCGameEngine {
             return;
         }
 
-        // Multiplayer/replay ownership remains deferred (AGENTS.md). Switch
-        // the client back to its own legacy route rather than silently
-        // applying commands to an offline-only host world.
-        if host_control_bar_bridge_is_network_or_replay(self.host_match_game_mode) {
-            warn!(
-                "Control Bar host bridge is offline-only; restoring the legacy route for this session"
-            );
-            game_client::gui::control_bar::set_host_control_bar_bridge_enabled(false);
-            return;
-        }
-
+        // C++ `ControlBar::processCommand` appends the same `MSG_*` for every
+        // game mode (ControlBarCommandProcessing.cpp:161-884), so the host
+        // executor drains published requests mode-agnostically. Nothing here
+        // may disable the bridge or swallow a queued request: the first click
+        // of a LAN/Internet session is a command like any other.
         for published in requests {
             // A popup can own a pause while the runtime is in Paused.  Its
             // acknowledgement must reach Main, but every world-mutating
@@ -1418,10 +1393,55 @@ mod tests {
     }
 
     #[test]
-    fn host_bridge_is_offline_skirmish_product_scope_not_network() {
-        // AGENTS.md: GameNetwork deferred. Live match is Skirmish/SinglePlayer.
-        // C++ ControlBarCommandProcessing.cpp appends MSG_* in every mode;
-        // Rust host_tick_control_bar_bridge only mutates the offline world.
+    fn host_bridge_drains_requests_in_every_game_mode_without_disabling() {
+        // C++ ControlBarCommandProcessing.cpp:161-884 appends the same MSG_*
+        // for every game mode; the host executor is the single authority for
+        // all of them. No drain may lazily disable the bridge or swallow
+        // already-published requests — that is what made every later cameo
+        // button dead in a LAN-lobby-launched match.
+        let tick = include_str!("control_bar_bridge.rs");
+        let start = tick
+            .find("pub(crate) fn host_tick_control_bar_bridge")
+            .expect("host_tick_control_bar_bridge");
+        let body = &tick[start..];
+        let end = body.find("\n    fn ").unwrap_or(body.len().min(2500));
+        let body = &body[..end];
+        assert!(
+            !body.contains("set_host_control_bar_bridge_enabled"),
+            "the drain must never disable the bridge; mode parity is C++ behavior"
+        );
+        assert!(
+            !body.contains("host_control_bar_bridge_is_network_or_replay"),
+            "the drain must not be mode-coupled"
+        );
+        let production = tick.split("\nmod tests").next().unwrap_or(tick);
+        assert!(
+            !production.contains("fn host_control_bar_bridge_is_network_or_replay"),
+            "the retired network/replay gate must stay deleted"
+        );
+        let state_guard = body
+            .find("if !in_game && !paused_popup_ack_only")
+            .expect("only the out-of-world state guard may refuse requests");
+        let drain_loop = body
+            .find("for published in requests")
+            .expect("published requests are drained");
+        let applied = body
+            .find("self.host_apply_control_bar_request(")
+            .expect("each drained request reaches the host executor");
+        assert!(
+            state_guard < drain_loop && drain_loop < applied,
+            "after the state guard, every published request must be applied — a Multiplayer/Lan/Internet click is executed, not dropped"
+        );
+        assert!(
+            !body.contains("self.host_match_game_mode"),
+            "the drain itself must not branch on the match mode"
+        );
+    }
+
+    #[test]
+    fn physical_evidence_latch_keeps_offline_product_scope() {
+        // The acceptance latch is narrower than command delivery: only
+        // physical input during an offline product match may promote it.
         use crate::game_logic::GameMode;
         assert!(host_control_bar_bridge_is_offline_product_mode(Some(
             GameMode::Skirmish
@@ -1445,35 +1465,6 @@ mod tests {
             GameMode::Shell
         )));
         assert!(!host_control_bar_bridge_is_offline_product_mode(None));
-
-        assert!(host_control_bar_bridge_is_network_or_replay(Some(
-            GameMode::Multiplayer
-        )));
-        assert!(host_control_bar_bridge_is_network_or_replay(Some(
-            GameMode::Replay
-        )));
-        assert!(!host_control_bar_bridge_is_network_or_replay(Some(
-            GameMode::Skirmish
-        )));
-        assert!(!host_control_bar_bridge_is_network_or_replay(Some(
-            GameMode::SinglePlayer
-        )));
-
-        let tick = include_str!("control_bar_bridge.rs");
-        let start = tick
-            .find("pub(crate) fn host_tick_control_bar_bridge")
-            .expect("host_tick_control_bar_bridge");
-        let body = &tick[start..];
-        let end = body.find("\n    fn ").unwrap_or(body.len().min(2500));
-        let body = &body[..end];
-        assert!(
-            body.contains("host_control_bar_bridge_is_network_or_replay"),
-            "live drain must refuse network/replay rather than mutate the offline host world"
-        );
-        assert!(
-            body.contains("set_host_control_bar_bridge_enabled(false)"),
-            "network/replay must restore the crate GameMessage fallback"
-        );
     }
 
     #[test]
@@ -1967,8 +1958,9 @@ mod tests {
                 && !apply.contains("host_cancel_production_and_sync_hud"),
             "live cancel must keep productionID/index identity, not template first-match"
         );
+        let production_src = src.split("\nmod tests").next().unwrap();
         assert!(
-            !src.contains("production_id: _"),
+            !production_src.contains("production_id: _"),
             "QueueCancel must not discard production_id"
         );
     }
@@ -1992,8 +1984,9 @@ mod tests {
                 && apply.contains("EXIT requires occupant object id"),
             "EXIT must queue the occupant, not the container dump-all"
         );
+        let production_src = src.split("\nmod tests").next().unwrap();
         assert!(
-            !src.contains("exit_object_id: _"),
+            !production_src.contains("exit_object_id: _"),
             "DirectCommand must not discard exit_object_id"
         );
     }

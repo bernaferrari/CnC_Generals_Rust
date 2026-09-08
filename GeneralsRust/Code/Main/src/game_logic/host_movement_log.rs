@@ -9,6 +9,10 @@ pub struct HostMovementEvent {
     pub object: ObjectId,
     pub velocity: [f32; 3],
     pub max_speed: f32,
+    /// Host Movement::acceleration residual (template, synced).
+    pub accel: f32,
+    /// Host Movement::turn_rate residual (rad/sec, template, synced).
+    pub turn_rate: f32,
     pub path_index: u16,
     pub path_len: u16,
     /// Waypoints truncated for channel volume.
@@ -38,6 +42,8 @@ pub fn record(
     object: ObjectId,
     velocity: Vec3,
     max_speed: f32,
+    accel: f32,
+    turn_rate: f32,
     path_index: usize,
     path: &[Vec3],
     waiting_for_path: bool,
@@ -60,6 +66,8 @@ pub fn record(
             object,
             velocity: [velocity.x, velocity.y, velocity.z],
             max_speed,
+            accel,
+            turn_rate,
             path_index: path_index.min(u16::MAX as usize) as u16,
             path_len: path.len().min(u16::MAX as usize) as u16,
             path_waypoints,

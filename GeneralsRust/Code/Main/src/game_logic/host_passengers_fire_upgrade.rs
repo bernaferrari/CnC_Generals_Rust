@@ -64,8 +64,8 @@ pub fn should_enable_passengers_fire(upgrade: &str, template_name: &str) -> bool
     if overlord_upgrade {
         return crate::game_logic::host_overlord_addons::is_overlord_tank_template(template_name);
     }
-    let helix_upgrade = u.contains("helixbattlebunker")
-        || (u.contains("helix_bunker") && u.contains("battle"));
+    let helix_upgrade =
+        u.contains("helixbattlebunker") || (u.contains("helix_bunker") && u.contains("battle"));
     if helix_upgrade {
         let n = template_name.to_ascii_lowercase();
         return n.contains("helix")

@@ -733,7 +733,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let env_contrib = environment_rgb * (specular_tint * env_specular);
     let emissive = layers.emissive * emissive_scale;
 
-    var color_rgb = base_contrib + specular + env_contrib + emissive;
+    // cube_mask bit 10: VertexMaterialClass::UseLighting (D3DRS_LIGHTING,
+    // vertmaterial.cpp:919). Prelit meshes carry baked vertex colors
+    // (lighting OFF, COLOR1 on — meshmdlio.cpp:1801-1808) and render the
+    // fixed-function D3DRS_LIGHTING=FALSE output: no dynamic light or
+    // specular terms.
+    let lighting_enabled = (model.texture_stage_mask.w & (1u << 10u)) != 0u;
+    var color_rgb = select(
+        layers.diffuse + env_contrib + emissive,
+        base_contrib + specular + env_contrib + emissive,
+        lighting_enabled
+    );
     color_rgb = clamp(color_rgb * alpha_override, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
     var object_color = vec4<f32>(color_rgb, clamp(layers.alpha * alpha_scale, 0.0, 1.0));
 

@@ -281,6 +281,7 @@ pub struct TerrainVisualImpl {
     snow_texture_bind_group: Option<BindGroup>,
     snow_texture_name: String,
     snow_texture_is_fallback: bool,
+    prop_meshes: Vec<GpuRoadMesh>,
     smudge_mesh: Option<GpuRoadMesh>,
     flat_lod_meshes: Vec<GpuRoadMesh>,
 }
@@ -305,12 +306,18 @@ struct GpuWaterPlane {
     index_count: u32,
     texture_name: String,
     jba: bool,
+    /// C++ drawRiverWater (setupJbaWaterShader + river pixel shader) when true;
+    /// drawTrapezoidWater (setupFlatWaterShader + trapezoid pixel shader) when false.
+    river: bool,
 }
 
 struct GpuRoadMesh {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
+    /// Faction-bib split (C++ renderBibs W3DBibBuffer.cpp:404-412): highlight
+    /// bibs draw with the TBRedBib.tga bind group after the normal TBBib set.
+    bib_highlight: bool,
 }
 
 struct GpuTreeMesh {

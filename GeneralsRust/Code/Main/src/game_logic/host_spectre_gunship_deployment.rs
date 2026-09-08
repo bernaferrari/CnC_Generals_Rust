@@ -31,7 +31,9 @@ use crate::game_logic::host_deliver_payload::{
     RESIDUAL_MAP_EXTENT_MAX_X, RESIDUAL_MAP_EXTENT_MAX_Z, RESIDUAL_MAP_EXTENT_MIN_X,
     RESIDUAL_MAP_EXTENT_MIN_Z, find_closest_edge_point_residual,
 };
-use crate::game_logic::special_power_strikes::SPECTRE_GUNSHIP_ORBIT_RADIUS;
+use crate::game_logic::special_power_strikes::{
+    SpectreGunshipScienceTier, SPECTRE_GUNSHIP_ORBIT_RADIUS,
+};
 
 /// Retail AttackAreaRadius residual.
 pub const SPECTRE_DEPLOY_ATTACK_AREA_RADIUS: f32 = 200.0;
@@ -41,6 +43,20 @@ pub const SPECTRE_GUNSHIP_TEMPLATE: &str = "AmericaJetSpectreGunship";
 pub const SPECTRE_GUNSHIP_TEMPLATE_AIRF1: &str = "AirF_AmericaJetSpectreGunship1";
 pub const SPECTRE_GUNSHIP_TEMPLATE_AIRF2: &str = "AirF_AmericaJetSpectreGunship2";
 pub const SPECTRE_GUNSHIP_TEMPLATE_AIRF3: &str = "AirF_AmericaJetSpectreGunship3";
+
+/// C++ AirF command center carries three SpectreGunshipDeploymentUpdate
+/// modules (RequiredScience SCIENCE_SpectreGunship1/2/3); the first passing
+/// module spawns ITS GunshipTemplateName (AirF_AmericaJetSpectreGunship1/2/3,
+/// OrbitTime 10000/15000/20000 ms). Vanilla USA keeps the ungated
+/// AmericaJetSpectreGunship. The resolved science tier selects the module.
+pub fn airf_gunship_template_for_tier(tier: SpectreGunshipScienceTier) -> &'static str {
+    match tier {
+        SpectreGunshipScienceTier::Level1 => SPECTRE_GUNSHIP_TEMPLATE_AIRF1,
+        SpectreGunshipScienceTier::Level2 => SPECTRE_GUNSHIP_TEMPLATE_AIRF2,
+        SpectreGunshipScienceTier::Level3 => SPECTRE_GUNSHIP_TEMPLATE_AIRF3,
+    }
+}
+
 /// Special power template peel.
 pub const SPECTRE_SPECIAL_POWER_TEMPLATE: &str = "SuperweaponSpectreGunship";
 /// Preferred flight altitude residual when locomotor height unavailable.
@@ -110,12 +126,11 @@ impl Default for HostSpectreGunshipDeploymentData {
 impl HostSpectreGunshipDeploymentData {
     pub fn for_template(template_name: &str) -> Option<Self> {
         if is_spectre_deployment_host(template_name) {
-            let mut d = Self::default();
-            let n = template_name.to_ascii_lowercase();
-            if n.contains("airf") || n.contains("airforce") {
-                d.gunship_template_name = SPECTRE_GUNSHIP_TEMPLATE_AIRF2.into();
-            }
-            Some(d)
+            // C++ GunshipTemplateName comes from the deployment MODULE that
+            // passes its RequiredScience gate — resolved per cast in
+            // initiate_spectre_gunship_deployment via
+            // [`airf_gunship_template_for_tier`]. No AirF2 hardcode here.
+            Some(Self::default())
         } else {
             None
         }
@@ -392,5 +407,25 @@ mod tests {
             GunshipCreateLocType::from_ini("CREATE_AT_EDGE_NEAR_SOURCE"),
             GunshipCreateLocType::EdgeNearSource
         );
+    }
+
+    #[test]
+    fn science_tier_selects_airf_module_template() {
+        // C++: the first passing deployment module spawns ITS
+        // GunshipTemplateName — AirF modules gate on
+        // SCIENCE_SpectreGunship1/2/3; vanilla USA keeps the ungated template.
+        assert_eq!(
+            airf_gunship_template_for_tier(SpectreGunshipScienceTier::Level1),
+            SPECTRE_GUNSHIP_TEMPLATE_AIRF1
+        );
+        assert_eq!(
+            airf_gunship_template_for_tier(SpectreGunshipScienceTier::Level2),
+            SPECTRE_GUNSHIP_TEMPLATE_AIRF2
+        );
+        assert_eq!(
+            airf_gunship_template_for_tier(SpectreGunshipScienceTier::Level3),
+            SPECTRE_GUNSHIP_TEMPLATE_AIRF3
+        );
+        assert!(is_spectre_deployment_host("AirF_AmericaCommandCenter"));
     }
 }

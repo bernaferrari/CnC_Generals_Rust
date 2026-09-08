@@ -350,7 +350,11 @@ mod tests {
         apply_from_lifecycle_tail(&bytes, &mut logic).expect("v2 apply must not fail");
         let remaining = logic
             .get_player(1)
-            .and_then(|p| p.shared_special_power_cooldowns.get(&SpecialPowerType::ParticleCannon).copied())
+            .and_then(|p| {
+                p.shared_special_power_cooldowns
+                    .get(&SpecialPowerType::ParticleCannon)
+                    .copied()
+            })
             .expect("cooldown restored");
         assert!((remaining - 77.5).abs() < 1e-4);
     }

@@ -131,7 +131,10 @@ pub fn honesty_host_game_client_menu_shell_helper_source_markers_residual_wave58
         residual_action_store(ResidualHostGameClientMenuShellHelperAction::SourceMarkers);
         return false;
     };
-    let body_ok = body.contains("Wave 588")
+    // Re-pinned 2026-09-07: the in-body wave tag merged into the shared
+    // "Wave 587/588" device-tick comment; the standalone "Wave 588" tag now
+    // lives at the call site (pinned by collect_source below).
+    let body_ok = body.contains("Wave 587/588")
         && body.contains("ensure_shell_visible")
         && body.contains("update_input")
         && body.contains("update_pre_draw_ui")

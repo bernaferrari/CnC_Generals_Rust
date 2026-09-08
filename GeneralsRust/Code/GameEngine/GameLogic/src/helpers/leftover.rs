@@ -56,6 +56,9 @@ struct SuperweaponEntry {
     power_name: String,
     object_id: ObjectID,
     template_id: u32,
+    /// C++ `SuperweaponInfo` countdown source: the owning module's ready
+    /// frame at attach, or frame + ReloadTime for a fresh full recharge.
+    ready_frame: UnsignedInt,
 }
 
 static IN_GAME_UI_STATE: Lazy<RwLock<InGameUIState>> =
@@ -198,6 +201,19 @@ impl TheInGameUI {
         object_id: ObjectID,
         template: &SpecialPowerTemplate,
     ) {
+        // C++ addSuperweapon (InGameUI.cpp:548-580): the strip counts down
+        // from the owning module's ready frame. A live module wins; a fresh
+        // attach without one starts a full recharge (frame + ReloadTime).
+        let ready_frame = crate::object::registry::OBJECT_REGISTRY
+            .get_object(object_id)
+            .and_then(|obj| {
+                obj.read().ok().and_then(|guard| {
+                    guard.with_special_power_module_interface_by_name(&power_name, |sp| {
+                        sp.get_ready_frame()
+                    })
+                })
+            })
+            .unwrap_or_else(|| TheGameLogic::get_frame() + template.get_reload_time());
         if let Ok(mut state) = IN_GAME_UI_STATE.write() {
             state.superweapons.retain(|entry| {
                 !(entry.player_index == player_index
@@ -209,8 +225,31 @@ impl TheInGameUI {
                 power_name,
                 object_id,
                 template_id: template.get_id(),
+                ready_frame,
             });
         }
+    }
+
+    /// Snapshot the superweapon strip entries (player index, power name,
+    /// object id, ready frame). GameClient reconciles its InGameUI countdown
+    /// strip against this each frame, mirroring the C++ same-process
+    /// `m_superweapons` map (addSuperweapon / removeSuperweapon).
+    pub fn superweapon_entries() -> Vec<(Int, String, ObjectID, UnsignedInt)> {
+        if let Ok(state) = IN_GAME_UI_STATE.read() {
+            return state
+                .superweapons
+                .iter()
+                .map(|entry| {
+                    (
+                        entry.player_index,
+                        entry.power_name.clone(),
+                        entry.object_id,
+                        entry.ready_frame,
+                    )
+                })
+                .collect();
+        }
+        Vec::new()
     }
 
     pub fn remove_superweapon(
@@ -827,9 +866,11 @@ impl TheEva {
     pub fn set_should_play(event: EvaEvent) -> Result<(), GameError> {
         let state = Self::state();
         let mut guard = state.lock().map_err(|_| GameError::LockError)?;
-        if guard.enabled {
-            guard.queued.push(event);
-        }
+        // C++ Eva.cpp:339-345 latches the flag regardless of m_enabled; the
+        // disabled update (Eva.cpp:267-269) returns before the flag clear, so
+        // alerts raised while disabled fire on re-enable. set_enabled(false)
+        // clears the pending set (Eva.cpp:371-377).
+        guard.queued.push(event);
         Ok(())
     }
 

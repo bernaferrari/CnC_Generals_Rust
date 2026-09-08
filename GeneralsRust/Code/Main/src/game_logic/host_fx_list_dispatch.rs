@@ -171,17 +171,20 @@ fn publish_host_fx_object_pose(
 
 fn host_object_is_shrouded_for_local(id: u32) -> bool {
     use gamelogic::common::types::ObjectShroudStatus;
+    // C++ PartitionManager.cpp:3017-3023 fails closed: a negative player index
+    // or a missing cell reports SHROUDED. An unanswerable query here must
+    // suppress host FX, never leak it.
     let player = gamelogic::player::player_list()
         .read()
         .ok()
         .map(|list| list.get_local_player_index())
         .unwrap_or(-1);
     if player < 0 {
-        return false;
+        return true;
     }
     let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
     let Ok(shroud) = shroud_manager.lock() else {
-        return false;
+        return true;
     };
     match shroud.get_host_object_shroud_status(player as u32, id) {
         Some(status) => (status as u8) >= (ObjectShroudStatus::Fogged as u8),
@@ -496,7 +499,7 @@ mod tests {
         let bust = bunker
             .find("fn apply_bunker_buster_to_target")
             .expect("apply_bunker_buster_to_target");
-            let bust_body = &bunker[bust..bust + 6200];
+        let bust_body = &bunker[bust..bust + 6200];
         assert!(
             bust_body.contains("BUNKER_BUSTER_DETONATION_FX"),
             "bust must play leftover DetonationFX on the bunker"

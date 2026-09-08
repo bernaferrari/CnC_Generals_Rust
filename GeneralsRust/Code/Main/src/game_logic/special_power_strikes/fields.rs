@@ -393,25 +393,24 @@ impl HostSpectreOrbitField {
         }
     }
 
-    /// C++ `setSpecialPowerOverridableDestination` + update split
-    /// (SpectreGunshipUpdate.cpp:268-282, 400-439).
+    /// C++ `setSpecialPowerOverridableDestination` + update clamp split
+    /// (SpectreGunshipUpdate.cpp:268-283, 422-439).
     ///
-    /// The click steers the orbit CENTER (`m_initialTargetPosition`, host
-    /// `position`) via satellite `aiMoveToPosition` — unclamped. The CLAMP
-    /// applies only to the reticle (`m_overrideTargetDestination`, host
-    /// `override_destination`) against that initial target with
+    /// The click writes ONLY `m_overrideTargetDestination` (host
+    /// `override_destination`); the update clamps it against the FIXED
+    /// `m_initialTargetPosition` (host `position`) with
     /// `constraintRadius = AttackAreaRadius - TargetingReticleRadius`.
+    /// The epicenter never moves, and the gattling / howitzer aim chain is
+    /// NOT snapped — `m_positionToShootAt` re-evaluates on the howitzer-rate
+    /// gate (.cpp:496) and `m_gattlingTargetPosition` walks there at
+    /// StrafingIncrement (.cpp:609-623).
     pub fn apply_override_destination(&mut self, destination: Vec3) {
-        self.position = destination;
         self.override_destination = clamp_spectre_override_destination(
             self.position,
             destination,
             SPECTRE_ORBIT_RADIUS,
             SPECTRE_TARGETING_RETICLE_RADIUS,
         );
-        // The gattling / howitzer aim chain follows the new orbit epicenter.
-        self.gattling_target_position = destination;
-        self.position_to_shoot_at = destination;
     }
 
     /// C++ lagged gattling / howitzer aim. Falls back to the orbit epicenter.
@@ -487,21 +486,28 @@ pub fn spectre_gattling_interval_frames(consecutive_shots: u32) -> u32 {
         .max(1.0) as u32
 }
 
-/// Residual howitzer ContinuousFire ROF interval frames for consecutive shots.
+/// Effective orbit howitzer cadence — FIXED every 9 frames.
 ///
-/// Host base uses HowitzerFiringRate residual **9** frames; MEAN 150% →
-/// floor(9/1.5)=6; FAST 200% → floor(9/2)=4.
-pub fn spectre_howitzer_interval_frames(consecutive_shots: u32) -> u32 {
-    let mult = if consecutive_shots > SPECTRE_HOWITZER_CONTINUOUS_FIRE_TWO {
-        SPECTRE_HOWITZER_FAST_ROF_MULT
-    } else if consecutive_shots > SPECTRE_HOWITZER_CONTINUOUS_FIRE_ONE {
-        SPECTRE_HOWITZER_MEAN_ROF_MULT
-    } else {
-        1.0
-    };
-    ((SPECTRE_ORBIT_TICK_INTERVAL_FRAMES as f32) / mult)
-        .floor()
-        .max(1.0) as u32
+/// C++ truth (SpectreGunshipUpdate.cpp:493, 583): the fire gate is
+/// `frame % HowitzerFiringRate(300 ms → 9f) < 1` and each shot calls
+/// `createAndFireTempWeapon` — a FRESH temp weapon per shot. The
+/// `SpectreHowitzerGun` template's ContinuousFire fields therefore NEVER
+/// engage: there is no ROF ramp on the orbit howitzer. The MEAN (150% → 6f)
+/// / FAST (200% → 4f) multipliers and the consecutive / level counters stay
+/// as documented honesty residuals only (`SPECTRE_HOWITZER_*`).
+pub fn spectre_howitzer_interval_frames(_consecutive_shots: u32) -> u32 {
+    SPECTRE_ORBIT_TICK_INTERVAL_FRAMES
+}
+
+/// Which Spectre orbit residual stream produced this hit (transient plan tag).
+///
+/// C++: howitzer = the shell's 25-radius `SpectreHowitzerGun` EXPLOSION blast
+/// (RadiusDamageAffects ALLIES ENEMIES NEUTRALS, aircraft exempt); gattling =
+/// single-target `SpectreGattlingGun` acquire behind the full filter chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostSpectreOrbitDamageStream {
+    Howitzer,
+    Gattling,
 }
 
 /// Damage application plan for a single Spectre orbit victim this tick.
@@ -510,6 +516,7 @@ pub struct HostSpectreOrbitDamageHit {
     pub target_id: ObjectId,
     pub damage: f32,
     pub field_id: u32,
+    pub stream: HostSpectreOrbitDamageStream,
 }
 
 /// Result of resolving one Spectre orbit field's damage tick.
@@ -520,6 +527,11 @@ pub struct HostSpectreOrbitTickPlan {
     pub source_team: crate::game_logic::Team,
     pub position: Vec3,
     pub hits: Vec<HostSpectreOrbitDamageHit>,
+    /// C++ AI wide-acquire steer (SpectreGunshipUpdate.cpp:530-556): when the
+    /// reticle had no valid target and the non-human wide search acquired one,
+    /// `m_positionToShootAt` snaps to the acquired position so both streams
+    /// track it. `None` for human-controlled ships and reticle picks.
+    pub wide_acquire_position: Option<Vec3>,
 }
 
 /// Residual Particle Uplink continuous beam field spawned when charge residual

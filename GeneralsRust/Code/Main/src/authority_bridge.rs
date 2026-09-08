@@ -28,7 +28,12 @@ fn host_templates(logic: &mut GameLogic) {
     for (name, kinds, hp) in [
         (
             "HostCC",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
+            &[
+                KindOf::Structure,
+                KindOf::CommandCenter,
+                KindOf::Selectable,
+                KindOf::MpCountForVictory,
+            ][..],
             500.0,
         ),
         (
@@ -38,7 +43,12 @@ fn host_templates(logic: &mut GameLogic) {
         ),
         (
             "HostEnemy",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
+            &[
+                KindOf::Structure,
+                KindOf::CommandCenter,
+                KindOf::Selectable,
+                KindOf::MpCountForVictory,
+            ][..],
             200.0,
         ),
     ] {
@@ -62,7 +72,12 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
     for (name, kinds, hp) in [
         (
             "HostCC",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
+            &[
+                KindOf::Structure,
+                KindOf::CommandCenter,
+                KindOf::Selectable,
+                KindOf::MpCountForVictory,
+            ][..],
             500.0,
         ),
         (
@@ -72,7 +87,12 @@ pub fn run_host_only_combat_victory() -> (bool, String) {
         ),
         (
             "HostEnemy",
-            &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable, KindOf::MpCountForVictory][..],
+            &[
+                KindOf::Structure,
+                KindOf::CommandCenter,
+                KindOf::Selectable,
+                KindOf::MpCountForVictory,
+            ][..],
             200.0,
         ),
     ] {
@@ -166,6 +186,14 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
     let cfg = golden_skirmish_config("PresConsumer");
     let _ = apply_skirmish_config(&mut logic, &cfg);
     host_templates(&mut logic);
+    // Keep-alive structure (run_host_only_combat_victory precedent): the
+    // trailing GameLogic::update victory probe applies the skirmish
+    // NO_BUILDINGS rule and destroys a structure-less playable player's army
+    // on frame 0-1, which used to leave this frame empty
+    // (credits=0 objects=0 minimap=0 panel_hp=0).
+    let _cc = logic
+        .create_object("HostCC", Team::USA, Vec3::ZERO)
+        .expect("keep-alive command center");
     let id = logic
         .create_object("HostRanger", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("ranger");

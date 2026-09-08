@@ -58,7 +58,8 @@ impl GameLogic {
         let leftover_from = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
         let leftover_dest =
             gamelogic::common::Coord3D::new(destination.x, destination.z, destination.y);
-        let ai_store = gamelogic::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = gamelogic::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(pf) = pf.read() {
                     let _ = pf.move_allies_away_from_destination_for(

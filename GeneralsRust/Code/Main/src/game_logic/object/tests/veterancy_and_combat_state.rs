@@ -2381,7 +2381,11 @@ fn continuous_fire_coasts_down_after_idle() {
         assert_eq!(a.continuous_fire_coast_until_frame, 110);
         a.tick_continuous_fire_coast(109);
         assert_eq!(a.continuous_fire_level, 1);
+        // C++ FiringTracker.cpp:189: strict `now > m_frameToStartCooldown` —
+        // the deadline frame itself is still cool-free; cool one frame later.
         a.tick_continuous_fire_coast(110);
+        assert_eq!(a.continuous_fire_level, 1);
+        a.tick_continuous_fire_coast(111);
         assert_eq!(a.continuous_fire_level, 0);
         assert_eq!(a.consecutive_shots_at_target, 0);
         let (_, _, rof, _, _) = a.weapon_bonus_fields();
@@ -2420,6 +2424,83 @@ fn continuous_fire_mean_rof_after_threshold() {
         assert_eq!(a.continuous_fire_level, 2);
         let (_, _, rof2, _, _) = a.weapon_bonus_fields();
         assert!((rof2 - 3.0).abs() < 0.01, "FAST ROF 300% got {rof2}");
+    }
+}
+
+#[test]
+fn continuous_fire_demotion_resets_consecutive_and_victim() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("CFD_V");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(100.0);
+    logic.templates.insert("CFD_V".to_string(), tpl);
+    let id = logic.create_object("CFD_V", Team::USA, Vec3::ZERO).unwrap();
+    let tgt = ObjectId(9);
+    {
+        let a = logic.host_object_mut(id).unwrap();
+        a.continuous_fire_one_shots = 2;
+        a.continuous_fire_two_shots = 5;
+        // Stale MEAN state from an earlier engagement.
+        a.continuous_fire_level = 1;
+        a.continuous_fire_consecutive = 4;
+        a.continuous_fire_victim = 55;
+        // Fresh engagement: count restarts at 1 < one → C++ coolDown demotes.
+        a.record_shot_at_target(tgt);
+        assert_eq!(a.continuous_fire_level, 0);
+        // FiringTracker.cpp:319-321: count and victim restart together.
+        assert_eq!(a.consecutive_shots_at_target, 0);
+        assert_eq!(a.consecutive_shot_target, None);
+        assert_eq!(a.continuous_fire_consecutive, 0);
+        assert_eq!(a.continuous_fire_victim, 0);
+        // Promotion keeps the count (C++ speedUp does not reset).
+        a.record_shot_at_target(tgt);
+        a.record_shot_at_target(tgt);
+        a.record_shot_at_target(tgt);
+        assert_eq!(a.continuous_fire_level, 1);
+        assert_eq!(a.consecutive_shots_at_target, 3);
+        assert_eq!(a.consecutive_shot_target, Some(tgt));
+        assert_eq!(a.continuous_fire_consecutive, 3);
+        assert_eq!(a.continuous_fire_victim, tgt.0);
+    }
+}
+
+#[test]
+fn specialized_lanes_keep_generic_bookkeeping_without_continuous_fire() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("CFL_V");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.add_kind_of(KindOf::Selectable);
+    tpl.set_health(100.0);
+    logic.templates.insert("CFL_V".to_string(), tpl);
+    let id = logic.create_object("CFL_V", Team::USA, Vec3::ZERO).unwrap();
+    let tgt = ObjectId(11);
+    {
+        let a = logic.host_object_mut(id).unwrap();
+        a.continuous_fire_one_shots = 2;
+        a.continuous_fire_two_shots = 5;
+        a.continuous_fire_coast_frames = 10;
+        // Specialized-lane-owned state: coast armed while at base level —
+        // the generic stamp zeroes exactly this.
+        a.continuous_fire_coast_until_frame = 200;
+        a.continuous_fire_level = 0;
+        a.pre_attack_ready_at = 5.0;
+        a.record_shot_at_target_without_continuous_fire(tgt);
+        // Generic derivation must not touch lane-owned state...
+        assert_eq!(a.continuous_fire_coast_until_frame, 200);
+        assert_eq!(a.continuous_fire_level, 0);
+        assert_eq!(a.continuous_fire_consecutive, 0);
+        assert_eq!(a.continuous_fire_victim, 0);
+        // ...but PER_ATTACK bookkeeping still advances.
+        assert_eq!(a.consecutive_shot_target, Some(tgt));
+        assert_eq!(a.consecutive_shots_at_target, 1);
+        assert_eq!(a.pre_attack_ready_at, 0.0);
     }
 }
 

@@ -336,6 +336,12 @@ fn xfer_cave_system_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
 
 fn xfer_polygon_triggers(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     let terrain = get_terrain_logic();
+    // Scoped: the write guard MUST drop before pathfinder_new_map_after_
+    // polygon_load below — it re-acquires get_terrain_logic().read() and std
+    // RwLock read-under-write on the same thread self-deadlocks (C++ had no
+    // locks here; GameLogic.cpp:4880 runs pathfinder newMap after restore).
+    let is_load = xfer.get_xfer_mode() == XferMode::Load;
+    {
     let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
     let list = terrain_guard.get_trigger_areas_mut();
     let sanity = list.len() as UnsignedInt;
@@ -367,6 +373,9 @@ fn xfer_polygon_triggers(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
                 return Err(XferStatus::InvalidData);
             }
         }
+    }
+    }
+    if is_load {
         pathfinder_new_map_after_polygon_load();
     }
     Ok(())

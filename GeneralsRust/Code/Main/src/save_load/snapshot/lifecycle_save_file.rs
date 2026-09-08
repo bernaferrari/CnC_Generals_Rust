@@ -81,9 +81,10 @@ fn save_file_roundtrip_survives_unpaused_cooldown_and_keeps_weapon_clip() {
     manager.init().expect("init");
 
     let mut source = GameLogic::new();
-    source
-        .templates
-        .insert("LifecycleCannon".to_string(), ThingTemplate::new("LifecycleCannon"));
+    source.templates.insert(
+        "LifecycleCannon".to_string(),
+        ThingTemplate::new("LifecycleCannon"),
+    );
     let id = source
         .create_object("LifecycleCannon", Team::USA, Vec3::new(4.0, 0.0, 6.0))
         .expect("create");
@@ -103,7 +104,11 @@ fn save_file_roundtrip_survives_unpaused_cooldown_and_keeps_weapon_clip() {
     }
 
     manager
-        .save_game("lifecycle_clip_rt", &source, &save_info("lifecycle_clip_rt"))
+        .save_game(
+            "lifecycle_clip_rt",
+            &source,
+            &save_info("lifecycle_clip_rt"),
+        )
         .expect("save");
 
     let mut loaded = GameLogic::new();

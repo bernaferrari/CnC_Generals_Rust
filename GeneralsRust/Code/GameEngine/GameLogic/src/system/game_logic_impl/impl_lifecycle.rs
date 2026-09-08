@@ -675,8 +675,17 @@ impl GameLogic {
 
     /// Set random seed (for restoring from snapshot)
     /// Matches C++ GameLogic::setRandomSeed
+    ///
+    /// Bug fix (audit): recording the seed alone left the backing ADC logic
+    /// stream stale — a snapshot restore resumed on the pre-restore state.
+    /// Reseed through the Common entry point with the same derivation a
+    /// global init uses (RandomValue.cpp:150-174): a published scoped owner
+    /// adopts it immediately, and the driving instance adopts it at the next
+    /// tick boundary via the base-seed broadcast. `random_seed` stays the
+    /// recorded base seed.
     pub fn set_random_seed(&mut self, seed: u64) {
         self.random_seed = seed;
+        game_engine::common::random_value::init_game_logic_random(seed as u32);
     }
 
     /// Iterate over all objects in the game

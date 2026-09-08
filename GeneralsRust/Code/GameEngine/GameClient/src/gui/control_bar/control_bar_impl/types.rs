@@ -13,6 +13,8 @@ const LOGICFRAMES_PER_SECOND: u32 = 30;
 pub enum ControlBarStage {
     #[default]
     Default,
+    /// Squished just for experienced players (ControlBar.h:618).
+    Squished,
     Low,
     Hidden,
 }
@@ -224,8 +226,6 @@ pub fn clear_host_production_pause_requests() {
 pub struct ControlBar {
     context: Arc<RwLock<ControlBarContext>>,
     window_manager: Option<Arc<WindowManager>>,
-    scheme_manager: Option<Arc<dyn ControlBarSchemeManager>>,
-    resizer: Option<Arc<dyn ControlBarResizer>>,
     current_window: Option<Arc<GameWindow>>,
     is_animating: bool,
     animation_start_time: Instant,
@@ -285,6 +285,10 @@ pub struct ControlBar {
     last_displayed_money: i32,
     /// Presentation CanMake residual (template → CANMAKE_* ordinal).
     presentation_can_make: Vec<(String, u32)>,
+    /// C++ ControlBar::init runs switchToContext(CB_CONTEXT_NONE) once
+    /// (ControlBar.cpp:1262); the port latches the same one-shot entry
+    /// evaluation for the first live update tick after reset.
+    ingame_entry_context_applied: bool,
     /// Live-host getCommandAvailability residual (OBJECT_REGISTRY empty).
     presentation_availability: PresentationAvailabilityResidual,
 
@@ -310,62 +314,3 @@ struct ButtonState {
     check_like_active: bool,
 }
 
-pub trait ControlBarSchemeManager: Send + Sync {
-    fn load_scheme(&self, scheme_name: &str) -> Result<(), Box<dyn std::error::Error>>;
-    fn get_scheme(&self) -> Option<Arc<ControlBarScheme>>;
-    fn set_scheme(&mut self, scheme: Arc<ControlBarScheme>);
-}
-
-pub trait ControlBarResizer: Send + Sync {
-    fn resize(&self, width: u32, height: u32) -> Result<(), Box<dyn std::error::Error>>;
-    fn get_optimal_size(&self) -> (u32, u32);
-}
-
-#[derive(Debug, Clone)]
-pub struct ControlBarScheme {
-    pub name: String,
-    pub images: HashMap<String, String>,
-    pub animations: HashMap<String, ControlBarAnimation>,
-    pub layout: ControlBarLayout,
-}
-
-#[derive(Debug, Clone)]
-pub struct ControlBarAnimation {
-    pub frames: Vec<String>,
-    pub frame_duration: Duration,
-    pub loop_animation: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ControlBarLayout {
-    pub command_buttons: Vec<ButtonLayout>,
-    pub info_panels: Vec<PanelLayout>,
-    pub construction_queue: QueueLayout,
-}
-
-#[derive(Debug, Clone)]
-pub struct ButtonLayout {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub command_name: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct PanelLayout {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub panel_type: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct QueueLayout {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    pub max_visible_items: u32,
-}

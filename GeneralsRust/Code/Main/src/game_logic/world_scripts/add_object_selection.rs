@@ -510,6 +510,9 @@ impl GameLogic {
         self.ensure_ai_faction_templates(team);
         self.ai_manager.add_ai_player(player_id, team, difficulty);
         crate::ai::AIManager::apply_ctor_can_build_units(self, player_id);
+        // C++ AISkirmishPlayer ctor runs after the AIPlayer base ctor and
+        // re-enables production (AISkirmishPlayer.cpp:61).
+        crate::ai::AIManager::apply_skirmish_can_build_units(self, player_id);
     }
 
     /// After `load_map` wipes world objects, rebind host AI rebuild soup and
@@ -618,18 +621,27 @@ impl GameLogic {
         // Prefer real WeaponStore / LocomotorStore stats (seeded/INI).
         let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
         let _ = super::super::locomotor_bootstrap::ensure_host_locomotor_store();
-        fn structure(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
+        // `vision` is the retail Object INI VisionRange for the object
+        // (FactionBuilding.ini / faction unit INIs). Buildings author
+        // ShroudClearingRange == VisionRange; units leave it at the -1
+        // default so it resolves to VisionRange.
+        fn structure(name: &str, kinds: &[KindOf], hp: f32, cost: u32, vision: f32) -> ThingTemplate {
             let mut t = ThingTemplate::new(name);
             t.set_health(hp);
             t.set_cost(cost, 0);
             t.build_time = 0.05;
+            t.sight_range = vision;
+            t.shroud_clearing_range = vision;
             for k in kinds {
                 t.add_kind_of(*k);
             }
             t
         }
-        fn unit(name: &str, kinds: &[KindOf], hp: f32, cost: u32) -> ThingTemplate {
-            let mut t = structure(name, kinds, hp, cost);
+        fn unit(name: &str, kinds: &[KindOf], hp: f32, cost: u32, vision: f32) -> ThingTemplate {
+            let mut t = structure(name, kinds, hp, cost, vision);
+            // Retail units do not author ShroudClearingRange; the -1 default
+            // resolves to VisionRange in resolved_shroud_clearing_range().
+            t.shroud_clearing_range = -1.0;
             // Host combat: bind retail Weapon.ini name when known so create_object
             // resolves via WeaponStore (seed/INI). Do not set explicit
             // primary_weapon(Weapon::default()) — that short-circuits the store.
@@ -660,10 +672,11 @@ impl GameLogic {
             hp: f32,
             cost: u32,
             build_time: f32,
+            vision: f32,
         ) -> ThingTemplate {
-            let mut t = unit(name, kinds, hp, cost);
+            let mut t = unit(name, kinds, hp, cost, vision);
             // These are the retail Object INI values.  The loaded Object
-            // catalog wins via entry().or_insert_with below; this only keeps
+            // catalog wins via the insert pass below; this only keeps
             // a headless skirmish's typed SupplyCenter production path alive.
             t.build_time = build_time;
             t.primary_weapon = None;
@@ -679,12 +692,15 @@ impl GameLogic {
                     &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
                     2000.0,
                     2000,
+                    // FactionBuilding.ini VisionRange / ShroudClearingRange.
+                    300.0,
                 ),
                 structure(
                     "AmericaCommandCenter",
                     &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
                     2000.0,
                     2000,
+                    300.0,
                 ),
                 structure(
                     "USA_SupplyCenter",
@@ -697,6 +713,7 @@ impl GameLogic {
                     ],
                     1000.0,
                     1500,
+                    200.0,
                 ),
                 structure(
                     "AmericaSupplyCenter",
@@ -709,30 +726,35 @@ impl GameLogic {
                     ],
                     1000.0,
                     1500,
+                    200.0,
                 ),
                 structure(
                     "USA_PowerPlant",
                     &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
                     800.0,
                     800,
+                    200.0,
                 ),
                 structure(
                     "AmericaPowerPlant",
                     &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
                     800.0,
                     800,
+                    200.0,
                 ),
                 structure(
                     "USA_Barracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     1000.0,
                     500,
+                    200.0,
                 ),
                 structure(
                     "AmericaBarracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     1000.0,
                     500,
+                    200.0,
                 ),
                 structure(
                     "USA_WarFactory",
@@ -744,6 +766,7 @@ impl GameLogic {
                     ],
                     1200.0,
                     1500,
+                    200.0,
                 ),
                 structure(
                     "AmericaWarFactory",
@@ -755,30 +778,35 @@ impl GameLogic {
                     ],
                     1200.0,
                     1500,
+                    200.0,
                 ),
                 unit(
                     "USA_Ranger",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     120.0,
                     100,
+                    100.0,
                 ),
                 unit(
                     "AmericaInfantryRanger",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     120.0,
                     100,
+                    100.0,
                 ),
                 unit(
                     "USA_Humvee",
                     &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
                     300.0,
                     400,
+                    150.0,
                 ),
                 unit(
                     "AmericaVehicleHumvee",
                     &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
                     300.0,
                     400,
+                    150.0,
                 ),
                 collector(
                     "AmericaVehicleChinook",
@@ -791,6 +819,7 @@ impl GameLogic {
                     300.0,
                     1200,
                     10.0,
+                    300.0,
                 ),
                 {
                     let mut d = unit(
@@ -798,6 +827,7 @@ impl GameLogic {
                         &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
                         300.0,
                         1000,
+                        200.0,
                     );
                     // Workers are not combat units — clear default weapon.
                     d.primary_weapon = None;
@@ -815,6 +845,7 @@ impl GameLogic {
                         &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
                         300.0,
                         1000,
+                        200.0,
                     );
                     d.primary_weapon = None;
                     d.secondary_weapon = None;
@@ -829,12 +860,14 @@ impl GameLogic {
                     &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
                     2000.0,
                     2000,
+                    300.0,
                 ),
                 structure(
                     "ChinaCommandCenter",
                     &[KindOf::Structure, KindOf::CommandCenter, KindOf::Selectable],
                     2000.0,
                     2000,
+                    300.0,
                 ),
                 structure(
                     "China_SupplyCenter",
@@ -847,6 +880,7 @@ impl GameLogic {
                     ],
                     1000.0,
                     1500,
+                    200.0,
                 ),
                 structure(
                     "ChinaSupplyCenter",
@@ -859,30 +893,35 @@ impl GameLogic {
                     ],
                     1000.0,
                     1500,
+                    200.0,
                 ),
                 structure(
                     "China_PowerPlant",
                     &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
                     800.0,
                     800,
+                    200.0,
                 ),
                 structure(
                     "ChinaPowerPlant",
                     &[KindOf::Structure, KindOf::PowerPlant, KindOf::Selectable],
                     800.0,
                     800,
+                    200.0,
                 ),
                 structure(
                     "China_Barracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     1000.0,
                     500,
+                    200.0,
                 ),
                 structure(
                     "ChinaBarracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     1000.0,
                     500,
+                    200.0,
                 ),
                 structure(
                     "China_WarFactory",
@@ -894,6 +933,7 @@ impl GameLogic {
                     ],
                     1200.0,
                     1500,
+                    200.0,
                 ),
                 structure(
                     "ChinaWarFactory",
@@ -905,18 +945,21 @@ impl GameLogic {
                     ],
                     1200.0,
                     1500,
+                    200.0,
                 ),
                 unit(
                     "China_RedGuard",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     100.0,
                     80,
+                    100.0,
                 ),
                 unit(
                     "ChinaInfantryRedguard",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     100.0,
                     80,
+                    100.0,
                 ),
                 collector(
                     "ChinaVehicleSupplyTruck",
@@ -924,6 +967,7 @@ impl GameLogic {
                     300.0,
                     600,
                     10.0,
+                    150.0,
                 ),
             ],
             Team::GLA => vec![
@@ -937,6 +981,7 @@ impl GameLogic {
                     ],
                     1800.0,
                     500,
+                    300.0,
                 ),
                 structure(
                     "GLACommandCenter",
@@ -948,6 +993,7 @@ impl GameLogic {
                     ],
                     1800.0,
                     500,
+                    300.0,
                 ),
                 structure(
                     "GLA_SupplyStash",
@@ -960,6 +1006,7 @@ impl GameLogic {
                     ],
                     900.0,
                     300,
+                    200.0,
                 ),
                 structure(
                     "GLASupplyStash",
@@ -972,6 +1019,7 @@ impl GameLogic {
                     ],
                     900.0,
                     300,
+                    200.0,
                 ),
                 structure(
                     "GLA_ArmsDealer",
@@ -983,6 +1031,7 @@ impl GameLogic {
                     ],
                     1100.0,
                     400,
+                    200.0,
                 ),
                 structure(
                     "GLAArmsDealer",
@@ -994,36 +1043,42 @@ impl GameLogic {
                     ],
                     1100.0,
                     400,
+                    200.0,
                 ),
                 structure(
                     "GLA_Barracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     900.0,
                     200,
+                    200.0,
                 ),
                 structure(
                     "GLABarracks",
                     &[KindOf::Structure, KindOf::FSBarracks, KindOf::Selectable],
                     900.0,
                     200,
+                    200.0,
                 ),
                 unit(
                     "GLA_Soldier",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     100.0,
                     80,
+                    150.0,
                 ),
                 unit(
                     "GLAInfantryRebel",
                     &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
                     100.0,
                     80,
+                    150.0,
                 ),
                 unit(
                     "GLA_Technical",
                     &[KindOf::Vehicle, KindOf::Selectable, KindOf::Attackable],
                     250.0,
                     300,
+                    150.0,
                 ),
                 collector(
                     "GLAInfantryWorker",
@@ -1037,6 +1092,7 @@ impl GameLogic {
                     100.0,
                     200,
                     3.0,
+                    100.0,
                 ),
             ],
             Team::Neutral => vec![],
@@ -1049,7 +1105,26 @@ impl GameLogic {
             if t.is_kind_of(KindOf::Structure) {
                 t.add_kind_of(KindOf::MpCountForVictory);
             }
-            self.templates.entry(t.name.clone()).or_insert_with(|| t);
+            match self.templates.get_mut(&t.name) {
+                Some(existing) => {
+                    // Retail vision floor: a curated starter that is still
+                    // blind (VisionRange 0) keeps every host binding but
+                    // gains the authored VisionRange so the shroud look pass
+                    // can register it. Without it a real-map skirmish start
+                    // never reveals even the owner's base and every AI build
+                    // fails LBC_SHROUD forever (frozen economy). Authored
+                    // non-zero values always win.
+                    if existing.sight_range <= 0.0 {
+                        existing.sight_range = t.sight_range;
+                    }
+                    if t.shroud_clearing_range > 0.0 && existing.shroud_clearing_range <= 0.0 {
+                        existing.shroud_clearing_range = t.shroud_clearing_range;
+                    }
+                }
+                None => {
+                    self.templates.insert(t.name.clone(), t);
+                }
+            }
         }
     }
 
@@ -1123,7 +1198,8 @@ impl GameLogic {
         // --- Initialize the gamelogic crate AI subsystem ---
         // the_ai singleton (pathfinder, groups) and the AiIntegrationManager
         // must be initialized before any AI player updates run.
-        let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
+        let ai_store = the_ai();
+        if let Ok(mut ai) = ai_store.write() {
             ai.init();
             log::info!("the_ai singleton initialized for skirmish");
         }
@@ -1461,5 +1537,118 @@ impl GameLogic {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod vision_floor_tests {
+    use super::*;
+
+    /// Retail FactionBuilding.ini VisionRange / ShroudClearingRange pairs the
+    /// host AI catalog must carry. A blind entry (sight 0) can never register
+    /// a shroud looker, so with fog-of-war on every AI build dies on
+    /// LBC_SHROUD and the skirmish economy freezes (live start_game evidence).
+    #[test]
+    fn ai_faction_templates_carry_retail_vision() {
+        let cases: &[(Team, &[(&str, f32)])] = &[
+            (
+                Team::USA,
+                &[
+                    ("USA_CommandCenter", 300.0),
+                    ("AmericaCommandCenter", 300.0),
+                    ("USA_SupplyCenter", 200.0),
+                    ("AmericaSupplyCenter", 200.0),
+                    ("USA_PowerPlant", 200.0),
+                    ("AmericaPowerPlant", 200.0),
+                    ("USA_Barracks", 200.0),
+                    ("AmericaBarracks", 200.0),
+                    ("USA_WarFactory", 200.0),
+                    ("AmericaWarFactory", 200.0),
+                    ("USA_Ranger", 100.0),
+                    ("AmericaInfantryRanger", 100.0),
+                    ("USA_Humvee", 150.0),
+                    ("AmericaVehicleHumvee", 150.0),
+                    ("AmericaVehicleChinook", 300.0),
+                    ("USA_Dozer", 200.0),
+                    ("AmericaVehicleDozer", 200.0),
+                ],
+            ),
+            (
+                Team::China,
+                &[
+                    ("China_CommandCenter", 300.0),
+                    ("ChinaCommandCenter", 300.0),
+                    ("China_SupplyCenter", 200.0),
+                    ("ChinaSupplyCenter", 200.0),
+                    ("China_PowerPlant", 200.0),
+                    ("ChinaPowerPlant", 200.0),
+                    ("China_Barracks", 200.0),
+                    ("ChinaBarracks", 200.0),
+                    ("China_WarFactory", 200.0),
+                    ("ChinaWarFactory", 200.0),
+                    ("China_RedGuard", 100.0),
+                    ("ChinaInfantryRedguard", 100.0),
+                    ("ChinaVehicleSupplyTruck", 150.0),
+                ],
+            ),
+            (
+                Team::GLA,
+                &[
+                    ("GLA_CommandCenter", 300.0),
+                    ("GLACommandCenter", 300.0),
+                    ("GLA_SupplyStash", 200.0),
+                    ("GLASupplyStash", 200.0),
+                    ("GLA_ArmsDealer", 200.0),
+                    ("GLAArmsDealer", 200.0),
+                    ("GLA_Barracks", 200.0),
+                    ("GLABarracks", 200.0),
+                    ("GLA_Soldier", 150.0),
+                    ("GLAInfantryRebel", 150.0),
+                    ("GLA_Technical", 150.0),
+                    ("GLAInfantryWorker", 100.0),
+                ],
+            ),
+        ];
+        for (team, entries) in cases {
+            let mut logic = GameLogic::new();
+            logic.ensure_ai_faction_templates(*team);
+            for (name, vision) in *entries {
+                let template = logic
+                    .templates
+                    .get(*name)
+                    .unwrap_or_else(|| panic!("{team:?} catalog entry {name} missing"));
+                assert_eq!(
+                    template.sight_range, *vision,
+                    "{team:?} {name} must carry its retail VisionRange"
+                );
+                let resolved = template.resolved_shroud_clearing_range();
+                assert_eq!(
+                    resolved, *vision,
+                    "{team:?} {name} must clear shroud out to its vision"
+                );
+            }
+        }
+    }
+
+    /// A curated starter that already exists keeps every host binding but, when
+    /// still blind, gains the retail vision floor; an authored non-zero vision
+    /// is never overridden.
+    #[test]
+    fn blind_existing_entry_gains_vision_floor_authored_value_wins() {
+        let mut logic = GameLogic::new();
+        let mut blind = ThingTemplate::new("GLACommandCenter");
+        blind.set_health(1800.0);
+        logic.templates.insert("GLACommandCenter".into(), blind);
+        let mut authored = ThingTemplate::new("GLASupplyStash");
+        authored.sight_range = 123.0;
+        logic.templates.insert("GLASupplyStash".into(), authored);
+
+        logic.ensure_ai_faction_templates(Team::GLA);
+
+        let cc = logic.templates.get("GLACommandCenter").expect("cc");
+        assert_eq!(cc.sight_range, 300.0, "blind entry gains retail vision");
+        assert_eq!(cc.resolved_shroud_clearing_range(), 300.0);
+        let stash = logic.templates.get("GLASupplyStash").expect("stash");
+        assert_eq!(stash.sight_range, 123.0, "authored vision wins");
     }
 }

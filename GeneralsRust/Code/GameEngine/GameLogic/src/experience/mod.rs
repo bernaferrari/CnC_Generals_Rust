@@ -1,46 +1,47 @@
-//! Complete Experience and Veterancy System
+//! Experience and Veterancy System (C++ ExperienceTracker).
 //!
-//! This module provides the full veterancy and experience tracking system matching
-//! the C++ implementation from Command & Conquer Generals Zero Hour.
+//! # Components
 //!
-//! # System Components
+//! - **ExperienceTracker** (`tracker.rs`): direct port of the C++
+//!   `ExperienceTracker` owned by every Object — level, current experience,
+//!   sink forwarding, scalar, and the `xfer` layout
+//!   (ExperienceTracker.cpp:222-245). Veterancy thresholds always come from
+//!   the owner template (`getTemplate()->getExperienceRequired`,
+//!   ExperienceTracker.cpp:75, 91, 106, 152, 192); the degraded fail-closed
+//!   fallback used only when the owner template is unresolvable is documented
+//!   on [`ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED`].
+//! - **ExperienceRequirements** (`requirements.rs`): container for explicit
+//!   threshold arrays. Its `default_requirements` table is a Rust-only
+//!   degraded placeholder, not C++ data.
+//! - **Promotion visuals** (`visual.rs`): Rust presentation helper for the
+//!   level-change edge trigger (C++ edge-triggers
+//!   `Object::onVeterancyLevelChanged`, ExperienceTracker.cpp:161-165);
+//!   actual C++ feedback is data-driven (2D level-gain animation from
+//!   GlobalData, Object.cpp:3126-3140).
 //!
-//! - **ExperienceTracker**: Lightweight per-object experience tracking
-//! - **VeterancyBonuses**: Stat multipliers and special abilities per level
-//! - **Experience Gain**: From damage dealt, kills, crates, and upgrades
-//! - **Visual/Audio Feedback**: Promotion effects and UI updates
+//! # Deliberately absent (non-parity code removed — do not re-add without a
+//! C++ citation)
 //!
-//! # Veterancy Levels
+//! C++ has no damage-based XP, no squad XP sharing, no cost-scaled XP
+//! thresholds, and no hardcoded veterancy stat multipliers:
+//! - Kill XP comes from the victim template's experience-value table via
+//!   scoreTheKill; there is no `onDamageDealt` XP.
+//! - Veterancy stat effects are data-driven: WeaponSet/WeaponBonus
+//!   conditions (Object.cpp:3091-3124), health bonus from GlobalData
+//!   `m_healthBonus` (ActiveBody.cpp:1442-1450), armor sets
+//!   (ActiveBody.cpp:1455-1477).
+//! - Sink forwarding scales by the source scalar unconditionally
+//!   (ExperienceTracker.cpp:133).
 //!
-//! - **Regular (0)**: No bonuses
-//! - **Veteran (1)**: +25% damage, +10% armor, +25% sight
-//! - **Elite (2)**: +50% damage, +25% armor, +50% sight, +50% speed
-//! - **Heroic (3)**: +100% damage, +50% armor, +100% sight, +100% speed, self-heal
-//!
-//! # Experience Formulas (matching C++ exactly)
-//!
-//! ```text
-//! XP from damage = damage_dealt * 0.1
-//! XP for kill = target_cost * 0.5
-//! Veteran at: object_cost XP
-//! Elite at: object_cost * 3 XP
-//! Heroic at: object_cost * 6 XP
-//!
-//! Damage bonus = base_damage * (1.0 + level * 0.25)
-//! Armor multiplier = 1.0 - (level * 0.1)  [takes less damage]
-//! Speed bonus = base_speed * (1.0 + level * 0.25)
-//! ```
+//! The former `ExperienceGainManager` / `VeterancyBonuses` /
+//! stat-calculator subsystems encoded the opposite behaviors (cost-scaled
+//! thresholds, fixed +25%/−10%/+25% multipliers, gated sink scaling, squad
+//! sharing) and were removed.
 
-mod bonuses;
-mod gain;
-mod integration;
 mod requirements;
 mod tracker;
 mod visual;
 
-pub use bonuses::*;
-pub use gain::*;
-pub use integration::*;
 pub use requirements::*;
 pub use tracker::*;
 pub use visual::*;

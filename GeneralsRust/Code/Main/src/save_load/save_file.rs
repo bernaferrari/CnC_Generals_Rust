@@ -896,6 +896,11 @@ impl SaveFileManager {
         set_pending_save_game_mode(Some(cpp_game_mode_from_live(game_logic.game_mode())));
         crate::save_load::stamp_player_team_chunks(game_logic);
 
+        // C++ GameState::saveGame (GameState.cpp:534) makes sure the save
+        // directory exists at save time; our atomic flow writes into
+        // save_directory/temp first, so that directory must exist too.
+        std::fs::create_dir_all(&self.temp_directory)?;
+
         // Save to temporary file first
         let write_result = self.save_to_file(&temp_path, &world_snapshot, save_info);
         set_pending_save_game_mode(None);
@@ -1575,7 +1580,8 @@ impl SaveFileManager {
         let (snapshot, path) = decode_bincode_world_snapshot(payload)?;
         match path {
             BincodeWorldSnapshotDecodePath::Current => {}
-            BincodeWorldSnapshotDecodePath::LegacyPreV20V19
+            BincodeWorldSnapshotDecodePath::LegacyPreV22V21
+            | BincodeWorldSnapshotDecodePath::LegacyPreV20V19
             | BincodeWorldSnapshotDecodePath::LegacyPreV19V18
             | BincodeWorldSnapshotDecodePath::LegacyPreV18V17
             | BincodeWorldSnapshotDecodePath::LegacyPreV17V16

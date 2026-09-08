@@ -29,12 +29,12 @@ pub use authority::{
 };
 pub use crate_tick::{
     AICommand, AudioEventRequest, FixedStepDiagnostics, GameMode, PendingSpecialAbility,
-    PlayerStatistics, SimTimingSnapshot, crate_empty_noop_tick_count, tick_gamelogic_crate,
+    PlayerStatistics, SimTimingSnapshot,
 };
-pub(self) use crate_tick::{CRATE_EMPTY_NOOP_TICKS, GAME_LOGIC, note_crate_empty_noop_if_any};
+pub(self) use crate_tick::GAME_LOGIC;
+pub use gameworld_authority::{GameWorldAuthority, current_gameworld_authority};
 pub(crate) use host::PathfindingHeightSamples;
 pub use host::{GameLogic, RuntimeWeatherState};
-pub use gameworld_authority::{GameWorldAuthority, current_gameworld_authority};
 pub(self) use player::{
     AirfieldHealingInfo, AirfieldParkingSpace, FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL,
     HostHeliTakeoffOrLanding, ObjectSellInfo, REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC,

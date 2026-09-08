@@ -1511,6 +1511,10 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
         crate::game_logic::Team::GLA,
     );
     let _ = crate::game_logic::host_owner_log::drain();
+    // The radar-notification store is the process-global TheInGameUI analog;
+    // clear stale entries from sibling tests so this probe sees only the
+    // events its own freeze produces (same isolation as the owner drain).
+    let _ = crate::game_logic::radar_notifications::global_radar_notifications().drain();
     let mut frame = PresentationFrame::build_from_logic(&logic, 0);
     let mut hud = crate::ui::GameHUD::new();
     let before = hud.message_count_for_test();

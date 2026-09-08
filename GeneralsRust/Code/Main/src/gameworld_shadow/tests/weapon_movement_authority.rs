@@ -126,8 +126,7 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     let speed = 30.0;
 
     let golden = {
-        let _env = AuthorityEnvGuard::lock()
-            .set("GENERALS_GAMEWORLD_SHADOW", "0");
+        let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
         let mut logic = GameLogic::new();
         let cfg = golden_skirmish_config("MvGold");
         apply_skirmish_config(&mut logic, &cfg).expect("cfg");

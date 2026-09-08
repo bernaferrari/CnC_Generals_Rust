@@ -667,6 +667,18 @@ impl GameLogic {
             placement_angle,
         );
 
+        // C++ GLASneakAttackTunnelNetworkStart FireWeaponUpdate multi-pulse
+        // residual (Small + 2× Big).  Scheduled here, at the production
+        // queue site, so the raw registry insert stays Xfer-pure and save/
+        // load round trips persist exactly the caller-visible pending list.
+        self.host_sneak_attacks.schedule_shockwave_pulses(
+            id,
+            source_object,
+            source_team,
+            source_owner_player_id,
+            target_position,
+            frame,
+        );
         // C++ OCL_CreateSneakAttackTunnelStart residual (Start object, Lifetime 5000ms).
         let _ = self.spawn_sneak_attack_tunnel_start(
             id,

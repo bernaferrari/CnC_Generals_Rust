@@ -532,53 +532,53 @@ fn populate_layout_for_command(
         let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
         let center = center.read().expect("UpgradeCenter poisoned");
         let upgrade_name = command_button.upgrade.clone();
-            if let Some(template) = center.find_template(&upgrade_name.into()) {
-                let has_upgrade = player_guard
-                    .as_ref()
-                    .and_then(|guard| {
-                        gamelogic::upgrade::center::with_upgrade_center(|center| {
-                            center.find_upgrade(command_button.upgrade.as_str())
-                        })
-                        .map(|upgrade| guard.has_upgrade_complete(upgrade.as_ref()))
+        if let Some(template) = center.find_template(&upgrade_name.into()) {
+            let has_upgrade = player_guard
+                .as_ref()
+                .and_then(|guard| {
+                    gamelogic::upgrade::center::with_upgrade_center(|center| {
+                        center.find_upgrade(command_button.upgrade.as_str())
                     })
-                    .unwrap_or(false);
-                let missing_science = player_guard.as_ref().is_some_and(|guard| {
-                    command_button
-                        .sciences_ids
-                        .iter()
-                        .any(|st| !guard.has_science(*st))
-                });
-                if has_upgrade && (is_player_upgrade || is_object_upgrade) {
-                    if !command_button.purchased_label.is_empty() {
-                        description = GameText::fetch(&command_button.purchased_label);
-                    } else {
-                        description = GameText::fetch("TOOLTIP:AlreadyUpgradedDefault");
-                    }
-                } else if !command_button.conflicting_label.is_empty() && has_upgrade {
-                    description = GameText::fetch(&command_button.conflicting_label);
+                    .map(|upgrade| guard.has_upgrade_complete(upgrade.as_ref()))
+                })
+                .unwrap_or(false);
+            let missing_science = player_guard.as_ref().is_some_and(|guard| {
+                command_button
+                    .sciences_ids
+                    .iter()
+                    .any(|st| !guard.has_science(*st))
+            });
+            if has_upgrade && (is_player_upgrade || is_object_upgrade) {
+                if !command_button.purchased_label.is_empty() {
+                    description = GameText::fetch(&command_button.purchased_label);
                 } else {
-                    cost_value = match player_guard.as_ref() {
-                        Some(guard) => leftover_upgrade_cost(&command_button.upgrade)
-                            .max(template.requirements.cost as i32),
-                        None => template.requirements.cost as i32,
-                    };
-                    let _ = player_guard.as_ref();
-                    if cost_value > 0 {
-                        let template_text = GameText::fetch("TOOLTIP:Cost");
-                        cost = format_template(&template_text, &[cost_value.to_string()]);
-                    }
-                    if missing_science {
-                        let req_template = GameText::fetch("CONTROLBAR:Requirements");
-                        leftover_append_line(
-                            &mut description,
-                            &format_template(
-                                &req_template,
-                                &[GameText::fetch("CONTROLBAR:GeneralsPromotion")],
-                            ),
-                        );
-                    }
+                    description = GameText::fetch("TOOLTIP:AlreadyUpgradedDefault");
+                }
+            } else if !command_button.conflicting_label.is_empty() && has_upgrade {
+                description = GameText::fetch(&command_button.conflicting_label);
+            } else {
+                cost_value = match player_guard.as_ref() {
+                    Some(guard) => leftover_upgrade_cost(&command_button.upgrade)
+                        .max(template.requirements.cost as i32),
+                    None => template.requirements.cost as i32,
+                };
+                let _ = player_guard.as_ref();
+                if cost_value > 0 {
+                    let template_text = GameText::fetch("TOOLTIP:Cost");
+                    cost = format_template(&template_text, &[cost_value.to_string()]);
+                }
+                if missing_science {
+                    let req_template = GameText::fetch("CONTROLBAR:Requirements");
+                    leftover_append_line(
+                        &mut description,
+                        &format_template(
+                            &req_template,
+                            &[GameText::fetch("CONTROLBAR:GeneralsPromotion")],
+                        ),
+                    );
                 }
             }
+        }
     }
 
     let name_id =

@@ -303,7 +303,6 @@ impl PathfindingGrid {
                 .all(|c| self.cell_type(*c) == PathfindCellType::Obstacle)
     }
 
-
     /// Leftover `ZoneManager::build_surface_combiners` (GROUND+WATER / GROUND+CLIFF).
     pub(super) fn build_surface_combiners(&mut self) {
         let mut max_z = 0u16;
@@ -1455,13 +1454,15 @@ impl PathfindingGrid {
                 }
             }
         } else if bits.pos_unit != 0 || (bits.fixed & !friend) != 0 {
-            if crusher_level == 0 || crusher_level <= {
-                if bits.pos_unit != 0 {
-                    bits.pos_crushable
-                } else {
-                    bits.crushable
+            if crusher_level == 0
+                || crusher_level <= {
+                    if bits.pos_unit != 0 {
+                        bits.pos_crushable
+                    } else {
+                        bits.crushable
+                    }
                 }
-            } {
+            {
                 return None;
             }
         }
@@ -1511,10 +1512,8 @@ impl PathfindingGrid {
             // stamp wins (updatePos iterates units in frame order).
             occ.occ_pos_unit.insert(key, unit_id);
             occ.occ_pos_player.insert(key, bit);
-            occ.occ_pos_flags.insert(
-                key,
-                (moving as u8) | ((infantry as u8) << 1),
-            );
+            occ.occ_pos_flags
+                .insert(key, (moving as u8) | ((infantry as u8) << 1));
             occ.occ_pos_crushable.insert(key, crushable_level);
             if infantry {
                 *occ.occ_infantry_mask.entry(key).or_insert(0) |= bit;

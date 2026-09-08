@@ -43,7 +43,9 @@ impl GameLogic {
         let mut instance = Self {
             // C++ engine-init order (GameEngine.cpp:468-481): the upgrade
             // center and AI stores exist before the world that owns them.
-            engine_stores: gamelogic::system::engine_stores::new_for_world_installed(),
+            // Construction is inert (no active-slot write); Main installs
+            // the bundle at the explicit world-start boundaries below.
+            engine_stores: gamelogic::system::engine_stores::new_for_world(),
             attack_priority_sets: std::collections::HashMap::new(),
             team_common_attack_targets: std::collections::HashMap::new(),
             guard_next_enemy_scan: HashMap::new(),
@@ -497,6 +499,12 @@ impl GameLogic {
                 crate::game_logic::host_projectile_stream::ProjectileStreamRegistry::new(),
             pending_patriot_assists: Vec::new(),
             stealth_detector_rate_scans: 0,
+            // Same seeded defaults the Common global statics use at first
+            // use (INITIAL_SEED words, base seed 0): any pre-game reseed
+            // broadcast (menus/skirmish) is adopted at the first tick.
+            logic_random: game_engine::common::random_value::RandomState::default(),
+            logic_base_seed: 0,
+
             is_paused: false,
             sim_time_seconds: 0.0,
             accumulated_time: 0.0,
@@ -677,13 +685,25 @@ impl GameLogic {
         // Fresh instance = clean authority barrier: deep readers on this thread
         // see this instance's (default-off) switches, never a prior test's.
         instance.publish_gameworld_authority_context();
+        // World-start boundary: make this world's bundle the ambient store
+        // context (C++ single-world engine) — unless a runtime world stage
+        // owns the thread. A staged candidate must not displace the live
+        // world's resolution between the stage's `begin` and the candidate's
+        // own start_new_game boundary; it installs there instead (reset()).
+        if !gamelogic::runtime_world_transaction::world_runtime_staging_active() {
+            instance.install_as_active_stores();
+        }
         GameLogic::register_leftover_object_create_overrides_overlay();
         // C++ TheGameLogic::clearGameData tears per-world shroud down with the
         // world (ThePartitionManager::reset + ThePlayerList::reset destroy
         // PartitionData shroudedness and each Player's Shroud). The residual
         // process-global ShroudManager bridge must not leak a previous
         // world's object-shroud entries into this one (Object IDs recycle).
-        gamelogic::system::shroud_manager::get_shroud_manager()
+        // Reset through this world's own bundle explicitly — the constructor
+        // no longer installs it globally first.
+        instance
+            .engine_stores
+            .shroud()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .reset_for_new_game();
@@ -713,15 +733,23 @@ impl GameLogic {
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
+        // start_new_game boundary (world_runtime.rs) routes through here: a
+        // world starting a game becomes the ambient store context. Staged
+        // candidates install at this same boundary — after the stage's
+        // `begin` took the live contents out, one step later than the
+        // constructor used to install them, still before any map/snapshot
+        // work reads the legacy funnels.
+        self.install_as_active_stores();
         crate::assets::clear_live_draw_playback();
         // Same per-world shroud teardown as GameLogic::new — start_new_game /
         // clearGameData route through here (C++ GameLogic.cpp newGame calls
-        // clearGameData before rebuilding the player list).
-        gamelogic::system::shroud_manager::get_shroud_manager()
+        // clearGameData before rebuilding the player list). Explicitly on
+        // this world's own bundle, the twin of the constructor-path reset.
+        self.engine_stores
+            .shroud()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .reset_for_new_game();
-
         self.objects.clear();
         self.hunt_next_enemy_scan.clear();
         self.host_view_dirty.clear();
@@ -1103,6 +1131,16 @@ impl GameLogic {
         self.patriot_assist_lasers.clear();
         self.pending_patriot_assists.clear();
         self.stealth_detector_rate_scans = 0;
+        // New-game reset: re-derive this instance's logic RNG from the base
+        // seed the Common global was last seeded with — the same derivation
+        // the global init uses (RandomValue.cpp:150-174 seedRandom). Menus
+        // reseed the Common stream before a new game (C++ MainMenu.cpp:318 /
+        // MapSelectMenu.cpp:57 InitRandom parity); C++ GameLogic::reset
+        // itself never reseeds (GameLogic.cpp:419-463), so no extra Common
+        // reseed is issued here.
+        let logic_base = game_engine::common::random_value::get_game_logic_random_seed();
+        self.logic_random.seed_random(logic_base);
+        self.logic_base_seed = logic_base;
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;

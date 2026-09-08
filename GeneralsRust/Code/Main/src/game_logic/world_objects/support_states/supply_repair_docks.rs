@@ -576,7 +576,9 @@ impl GameLogic {
         let Some(center) = self.objects.get(&center_id) else {
             return false;
         };
-        if !center.is_alive() || !center.is_constructed() {
+        // C++ canTransferSuppliesAt refuses under-construction and being-sold
+        // destinations (ActionManager.cpp:199-206).
+        if !center.is_alive() || !center.is_constructed() || center.status.sold {
             return false;
         }
         let is_center = center.thing.template.dock_kind

@@ -292,6 +292,11 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
     {
         let o = logic.host_object_mut(oid).expect("o");
         o.movement.max_speed = 60.0;
+        // The movement residual now carries the synced Locomotor acceleration
+        // (C++ getMaxAcceleration) and the GameWorld integrator clamps its
+        // velocity ramp to it. Arm a retail-scale acceleration so the ten
+        // authority frames exercise a marching pose, not a ramp from standstill.
+        o.movement.acceleration = 240.0;
         o.move_to(glam::Vec3::new(50.0, 0.0, 0.0));
         o.record_host_movement();
     }
@@ -310,7 +315,11 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         logic.templates.insert("VictoryKeepAlive".into(), t);
     }
     let _keep_alive = logic
-        .create_object("VictoryKeepAlive", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+        .create_object(
+            "VictoryKeepAlive",
+            Team::USA,
+            glam::Vec3::new(30.0, 0.0, 0.0),
+        )
         .expect("keep-alive structure");
     let before = logic.host_objects().get(&oid).expect("o").get_position().x;
     let mut shadow = GameWorldShadow::new(64);
@@ -1212,7 +1221,11 @@ fn stale_engine_id_does_not_skip_host_movement() {
         logic.templates.insert("VictoryKeepAlive".into(), t);
     }
     let _keep_alive = logic
-        .create_object("VictoryKeepAlive", Team::USA, glam::Vec3::new(300.0, 0.0, 300.0))
+        .create_object(
+            "VictoryKeepAlive",
+            Team::USA,
+            glam::Vec3::new(300.0, 0.0, 300.0),
+        )
         .expect("keep-alive structure");
     let id = logic
         .create_object("MoveBrU", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))

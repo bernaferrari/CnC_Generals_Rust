@@ -1,3 +1,17 @@
+/// C++ GameLogic.cpp:3607 — `TheCommandList->containsMessageOfType(MSG_CLEAR_GAME_DATA)`.
+///
+/// The Rust command-list counterpart is the shared common message stream
+/// (record_tap routes ClearGameData there; quit_menu_bridge/dispatch consume
+/// it). Peek only — consumption stays at Main's `host_consume_clear_game_data`
+/// boundary (Main step.rs:18-28 mirrors this helper for the host tick).
+fn stream_contains_clear_game_data() -> bool {
+    let stream = game_engine::common::message_stream::get_message_stream();
+    let stream = stream.read().unwrap_or_else(|e| e.into_inner());
+    stream.contains_message_of_type(
+        &game_engine::common::message_stream::GameMessageType::ClearGameData,
+    )
+}
+
 impl GameLogic {
     /// **THE MAIN GAME LOOP** - Execute one simulation frame
     ///
@@ -90,6 +104,10 @@ impl GameLogic {
 
         self.frame = frame;
         self.game_time = frame as f32 * FIXED_DELTA_TIME;
+        // Scoped in-update frame: every frame read inside this update (script
+        // engine Phase 1, object helpers Phase 6b, evaluators) resolves THIS
+        // frame without re-locking the singleton (self-deadlock otherwise).
+        let _in_update_frame = crate::system::game_logic::enter_update_frame(frame);
 
         trace!("GameLogic::update(frame={}) - Begin update cycle", frame);
 
@@ -120,9 +138,28 @@ impl GameLogic {
         // C++: Bool freezeTime = TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished()
         // C++: if (freezeTime) { ... return; }
         if self.is_time_frozen() {
-            trace!("GameLogic::update - Time frozen, skipping frame");
-            self.is_in_update = false;
-            return Ok(());
+            // C++ GameLogic.cpp:3606-3613 — a pending MSG_CLEAR_GAME_DATA
+            // force-unfreezes and FALLS THROUGH to the full update so the
+            // clear-game dispatch can run on this frame.
+            // containsMessageOfType only peeks: the message stays queued for
+            // Main's host_consume_clear_game_data dispatch.
+            if stream_contains_clear_game_data() {
+                // C++ ScriptEngine::forceUnfreezeTime (ScriptEngine.cpp:8455-8464)
+                // is a debug-DLL no-op; the repo deliberately clears the
+                // script freeze instead (Main step.rs:255-259 clears the same
+                // term on the host tick). The camera-view freeze ends on its
+                // own when the movement finishes — C++ does not clear the
+                // view freeze here either.
+                if let Ok(mut engine_guard) = get_script_engine().write() {
+                    if let Some(engine) = engine_guard.as_mut() {
+                        engine.do_unfreeze_time();
+                    }
+                }
+            } else {
+                trace!("GameLogic::update - Time frozen, skipping frame");
+                self.is_in_update = false;
+                return Ok(());
+            }
         }
 
         // C++: if (m_gamePaused) { return; } — paused game skips simulation
@@ -148,8 +185,25 @@ impl GameLogic {
         // then TheStatsCollector->update(); TheRecorder->UPDATE();
         let current_crc_interval =
             game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt;
+        // Single-series gate: when a host shell bridge (GameClient / Main
+        // `record_tap`) owns the recorder command source, it also owns the
+        // per-frame MSG_LOGIC_CRC post and the `updateRecord` flush cadence
+        // (Main `step.rs` posts from the live host tick). Posting here too
+        // would emit a second, divergent CRC stream into the same recorder;
+        // C++ has exactly one poster (GameLogic.cpp:3625-3654). This
+        // crate-local path stays the sole poster for headless/crate-only
+        // runs, where no external bridge is installed.
+        let external_crc_post =
+            game_engine::common::recorder::with_recorder(|recorder| {
+                recorder.logic_crc_posted_externally()
+            })
+            .unwrap_or(false);
         let mut posted_logic_crc = None;
-        if self.frame > 0 && self.frame % current_crc_interval == 0 {
+        if !external_crc_post
+            && current_crc_interval > 0
+            && self.frame > 0
+            && self.frame % current_crc_interval == 0
+        {
             self.crc_cache = self.compute_crc();
             let playback = game_engine::common::recorder::with_recorder(|recorder| {
                 recorder.is_playback()
@@ -170,14 +224,16 @@ impl GameLogic {
         game_engine::common::stats_collector::with_stats_collector_mut(|collector| {
             collector.update();
         });
-        game_engine::common::recorder::with_recorder_mut(|recorder| {
-            recorder.set_current_frame(self.frame);
-            recorder.update();
-            if let Some(crc) = posted_logic_crc {
-                // C++ GameLogicDispatch.cpp:1940-1946 — live CRC compares after recorded enqueue.
-                recorder.notify_logic_crc(crc, 0);
-            }
-        });
+        if !external_crc_post {
+            game_engine::common::recorder::with_recorder_mut(|recorder| {
+                recorder.set_current_frame(self.frame);
+                recorder.update();
+                if let Some(crc) = posted_logic_crc {
+                    // C++ GameLogicDispatch.cpp:1940-1946 — live CRC compares after recorded enqueue.
+                    recorder.notify_logic_crc(crc, 0);
+                }
+            });
+        }
 
 
         // Clear frame events and reset temporary flags
@@ -1027,9 +1083,20 @@ impl GameLogic {
         // look/unlook driver. Deferred here so no object read guard is held
         // while `handle_partition_cell_maintenance` mutates the object.
         for obj_id in cell_changed {
-            let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |object_guard| {
+            // C++ walks the live object list by pointer — no registry, no
+            // lock (GameLogic.h:386-397). Mirror the collision loop above:
+            // GameLogic-owned lookup first, registry fallback, so a registry
+            // store miss while the GameLogic lock is held does not silently
+            // skip shroud look/unlook maintenance.
+            let Some(obj_arc) = self
+                .find_object_by_id(obj_id)
+                .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
+            else {
+                continue;
+            };
+            if let Ok(mut object_guard) = obj_arc.write() {
                 object_guard.handle_partition_cell_maintenance();
-            });
+            }
         }
 
         // Update physics engine (terrain-aware simulation)
@@ -1231,8 +1298,10 @@ impl GameLogic {
     /// C++ checks `TheTacticalView->isTimeFrozen()`,
     /// `TheScriptEngine->isTimeFrozenDebug()`, and
     /// `TheScriptEngine->isTimeFrozenScript()`. When any of these are true,
-    /// the update returns early (unless a MSG_CLEAR_GAME_DATA is in the
-    /// command list, which forces an unfreeze).
+    /// `update()` returns early — unless the shared message stream holds a
+    /// pending MSG_CLEAR_GAME_DATA (C++ GameLogic.cpp:3606-3613), in which
+    /// case `update()` clears the script freeze term and falls through to
+    /// the full update. This predicate only reports the freeze state.
     fn is_time_frozen(&self) -> bool {
         if get_camera_view_bridge()
             .map(|view| {
@@ -1587,5 +1656,118 @@ mod empty_world_tick_tests {
             1,
             "empty-world GameLogic::update must still do m_frame++"
         );
+    }
+}
+
+#[cfg(test)]
+mod clear_game_data_freeze_escape_tests {
+    use super::*;
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::scripting::engine::{get_script_engine, initialize_script_engine};
+    use game_engine::common::message_stream::{GameMessageType, get_message_stream};
+    use std::sync::Mutex;
+
+    /// The clear-game check reads the process-global message stream and the
+    /// process-global script engine, so these tests serialize against each
+    /// other (other suites already mutate both mid-run).
+    static STREAM_LOCK: Mutex<()> = Mutex::new(());
+
+    fn drop_pending_clear_game_data() {
+        let stream = get_message_stream();
+        let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
+        stream.clear_messages();
+    }
+
+    fn post_clear_game_data() {
+        let stream = get_message_stream();
+        let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
+        stream.append_message(GameMessageType::ClearGameData);
+    }
+
+    /// Freeze the process-global script engine — the only freeze source
+    /// observable without a registered camera-view bridge.
+    fn freeze_global_script_time() {
+        let _ = initialize_script_engine();
+        let engine = get_script_engine();
+        let mut guard = engine.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(engine) = guard.as_mut() {
+            engine.do_freeze_time();
+        }
+    }
+
+    fn global_script_time_frozen() -> bool {
+        let engine = get_script_engine();
+        let guard = engine.read().unwrap_or_else(|e| e.into_inner());
+        guard
+            .as_ref()
+            .map(|engine| engine.is_time_frozen())
+            .unwrap_or(false)
+    }
+
+    fn unfreeze_global_script_time() {
+        let engine = get_script_engine();
+        let mut guard = engine.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(engine) = guard.as_mut() {
+            engine.do_unfreeze_time();
+        }
+    }
+
+    /// C++ GameLogic.cpp:3614-3616 — frozen with no pending ClearGameData:
+    /// phase-1 scripts ran, but terrain/commands/modules and `m_frame++`
+    /// never do.
+    #[test]
+    fn frozen_without_clear_game_data_returns_early() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        freeze_global_script_time();
+
+        OBJECT_REGISTRY.clear();
+        let mut logic = GameLogic::new();
+        assert!(logic.is_time_frozen(), "script freeze must be observable");
+        logic.update(0).expect("frozen frame still returns Ok");
+        assert_eq!(
+            logic.get_frame(),
+            0,
+            "frozen frame must not advance m_frame (C++ GameLogic.cpp:3614-3616)"
+        );
+        // Restore the shared engine and stream for other suites.
+        unfreeze_global_script_time();
+        drop_pending_clear_game_data();
+    }
+
+    /// C++ GameLogic.cpp:3606-3613 — while frozen, a pending
+    /// MSG_CLEAR_GAME_DATA force-unfreezes and falls through to the full
+    /// update (the frame advances via the normal guarded increment).
+    /// containsMessageOfType only peeks: the message stays queued for Main's
+    /// host_consume_clear_game_data dispatch.
+    #[test]
+    fn frozen_with_pending_clear_game_data_falls_through() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        post_clear_game_data();
+        freeze_global_script_time();
+
+        OBJECT_REGISTRY.clear();
+        let mut logic = GameLogic::new();
+        logic.update(0).expect("clear-game escape still returns Ok");
+
+        assert_eq!(
+            logic.get_frame(),
+            1,
+            "clear-game escape must fall through to the full update (m_frame++)"
+        );
+        assert!(
+            !global_script_time_frozen(),
+            "force-unfreeze must persist (C++ ScriptEngine::forceUnfreezeTime; Main step.rs:255-259)"
+        );
+        let stream = get_message_stream();
+        let stream = stream.read().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            stream.contains_message_of_type(&GameMessageType::ClearGameData),
+            "containsMessageOfType peeks; Main's dispatch consumes the message"
+        );
+        drop(stream);
+        // Leave the shared stream clean for other suites.
+        drop_pending_clear_game_data();
     }
 }

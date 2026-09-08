@@ -759,7 +759,9 @@ fn script_radar_event_reaches_ui_ping() {
     // It posts no InGameUI text message and no host radar-message entry.
     let radar_system = game_engine::common::system::radar::get_radar_system();
     let radar = radar_system.read().expect("radar");
-    let loc = radar.get_last_event_loc().expect("script radar event must reach TheRadar");
+    let loc = radar
+        .get_last_event_loc()
+        .expect("script radar event must reach TheRadar");
     // host_world_to_radar_coord maps world (x, z) → radar (x, y).
     assert!((loc.x - 42.0).abs() < 0.01, "radar event x, got {}", loc.x);
     assert!((loc.y - 0.0).abs() < 0.01, "radar event y, got {}", loc.y);

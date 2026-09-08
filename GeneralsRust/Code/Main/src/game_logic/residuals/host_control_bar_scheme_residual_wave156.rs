@@ -140,27 +140,28 @@ mod tests {
         assert!(honesty_control_bar_scheme_residual_pack_wave156());
     }
 
-    #[cfg(feature = "game_client")]
+    /// Wave 2: the fabricated GameClient DefaultControlBarSchemeManager and
+    /// its `simulate_*` peels were deleted. The live path is the INI
+    /// ControlBarSchemeManager (Common ini_control_bar_scheme.rs) that the
+    /// in-game control bar reads; exercise its retail 8x6 resolution.
     #[test]
-    fn simulate_control_bar_scheme_prepare_default_residual_live() {
-        use game_client::gui::control_bar::{
-            CONTROL_BAR_SCHEME_NAMES_8X6, ResidualControlBarSchemeAction,
-            residual_control_bar_scheme_has_current, residual_control_bar_scheme_last_action,
-            residual_control_bar_scheme_loaded_count, simulate_control_bar_scheme_prepare_default,
-        };
+    fn live_ini_manager_resolves_retail_8x6_schemes() {
+        use game_engine::common::ini::ini_control_bar_scheme::ControlBarSchemeManager;
+
+        let mut manager = ControlBarSchemeManager::new();
+        for name in CONTROL_BAR_SCHEME_NAMES_8X6_WAVE156 {
+            manager.new_control_bar_scheme(name.to_string());
+        }
+        assert_eq!(manager.count(), CONTROL_BAR_SCHEME_8X6_COUNT_WAVE156);
+
+        assert!(manager.set_active_scheme_for_side("America").is_ok());
         assert_eq!(
-            CONTROL_BAR_SCHEME_NAMES_8X6,
-            CONTROL_BAR_SCHEME_NAMES_8X6_WAVE156
+            manager.get_active_scheme().map(|scheme| scheme.name.as_str()),
+            Some("america8x6")
         );
-        assert!(
-            simulate_control_bar_scheme_prepare_default(),
-            "load America+Observer residual must latch"
-        );
-        assert!(residual_control_bar_scheme_has_current());
-        assert!(residual_control_bar_scheme_loaded_count() >= 2);
-        assert_eq!(
-            residual_control_bar_scheme_last_action(),
-            ResidualControlBarSchemeAction::Get
-        );
+        assert!(manager.set_active_scheme_for_side("Observer").is_ok());
+        // Fail-closed: an unknown side leaves no active scheme.
+        assert!(manager.set_active_scheme_for_side("NoSide").is_err());
+        assert!(manager.get_active_scheme().is_none());
     }
 }

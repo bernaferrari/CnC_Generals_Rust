@@ -874,7 +874,7 @@ pub fn leftover_template_shadow_size(
                         .iter()
                         .find_map(|(k, v)| {
                             k.eq_ignore_ascii_case(key)
-                                .then(|| v.parse::<f32>().ok())
+                                .then(|| leftover_parse_real_residual(v))
                                 .flatten()
                         })
                         .unwrap_or(0.0)
@@ -888,6 +888,108 @@ pub fn leftover_template_shadow_size(
         }
     }
     (0.0, 0.0)
+}
+
+/// Robust residual real parse for lossy INI attribute maps: retail rows carry
+/// trailing `;` token noise (`ShadowSizeX = 14;`) that plain `f32::parse`
+/// rejects. C++ INI tokenizing strips these before field parsing.
+fn leftover_parse_real_residual(v: &str) -> Option<f32> {
+    v.trim()
+        .trim_matches(|c: char| c == ';' || c == ',')
+        .split_whitespace()
+        .next()
+        .and_then(|token| token.parse::<f32>().ok())
+        .filter(|value| value.is_finite())
+}
+
+/// C++ `W3DProjectedShadowManager::addShadow` (W3DProjectedShadow.cpp:1638-1649):
+/// with no authored ShadowSize the decal extent is the render object's
+/// object-space bounding box `Extent * 2`; the template GeometryInfo
+/// major/minor radii are those half-extents. Minor falls back to major
+/// (C++ `GeometryInfo` ctor). Zero/negative radii yield no extent.
+pub fn leftover_template_shadow_geometry_extent_from_radii(major: f32, minor: f32) -> (f32, f32) {
+    let major = major.max(0.0);
+    if major <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let minor = if minor > 0.0 { minor } else { major };
+    (major * 2.0, minor * 2.0)
+}
+
+/// Resolve the bounding-geometry decal extent for `template_name` (factory
+/// template first, then the lossy INI attribute map). `(0, 0)` when nothing is
+/// authored; `leftover_template_blob_shadow_size` owns the never-zero floor.
+pub fn leftover_template_shadow_geometry_extent(template_name: &str) -> (f32, f32) {
+    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
+        if let Some(factory) = guard.as_ref() {
+            if let Some(tmpl) = factory.find_template(template_name, false) {
+                let geom = tmpl.get_template_geometry_info();
+                let extent =
+                    leftover_template_shadow_geometry_extent_from_radii(geom.width, geom.depth);
+                if extent.0 > 0.0 || extent.1 > 0.0 {
+                    return extent;
+                }
+            }
+        }
+    }
+    if let Some(mgr) = crate::assets::get_asset_manager() {
+        if let Ok(m) = mgr.lock() {
+            if let Some(def) = m.get_object_definition(template_name) {
+                let parse = |key: &str| {
+                    def.attributes
+                        .iter()
+                        .find_map(|(k, v)| {
+                            k.eq_ignore_ascii_case(key)
+                                .then(|| leftover_parse_real_residual(v))
+                                .flatten()
+                        })
+                        .unwrap_or(0.0)
+                };
+                let extent = leftover_template_shadow_geometry_extent_from_radii(
+                    parse("GeometryMajorRadius"),
+                    parse("GeometryMinorRadius"),
+                );
+                if extent.0 > 0.0 || extent.1 > 0.0 {
+                    return extent;
+                }
+            }
+        }
+    }
+    (0.0, 0.0)
+}
+
+/// Retail blob-disc world extent from resolved template data. DECAL-family
+/// shadows author a world-space ShadowSize (infantry 14x14); VOLUME-family
+/// retail rows put a minimum sun-elevation angle in ShadowSizeX
+/// (AmericaVehicle.ini "; minimum elevation angle above horizon") — C++ renders
+/// those as stencil volumes, never decals, so the extent must come from the
+/// bounding geometry. Terminal floor is C++
+/// `W3DProjectedShadowManager::createDecalShadow`'s `defaultWidth * 2` = 20
+/// world units (W3DProjectedShadow.cpp:1913, 1971-1976). Never returns (0, 0).
+pub fn leftover_template_blob_shadow_size_for(
+    bits: u32,
+    decal_size: (f32, f32),
+    geometry_extent: (f32, f32),
+) -> (f32, f32) {
+    let decal_family = crate::game_logic::host_enum_table_residual::SHADOW_DECAL
+        | crate::game_logic::host_enum_table_residual::SHADOW_ALPHA_DECAL
+        | crate::game_logic::host_enum_table_residual::SHADOW_ADDITIVE_DECAL;
+    if bits & decal_family != 0 && (decal_size.0 > 0.0 || decal_size.1 > 0.0) {
+        return decal_size;
+    }
+    if geometry_extent.0 > 0.0 || geometry_extent.1 > 0.0 {
+        return geometry_extent;
+    }
+    (20.0, 20.0)
+}
+
+/// Resolve the retail blob-disc extent from live template sources. Used by the
+/// presentation blob-decal collector; never returns (0, 0).
+pub fn leftover_template_blob_shadow_size(template_name: &str) -> (f32, f32) {
+    let bits = leftover_template_shadow_type(template_name, 0);
+    let decal_size = leftover_template_shadow_size(template_name, 0.0, 0.0);
+    let geometry_extent = leftover_template_shadow_geometry_extent(template_name);
+    leftover_template_blob_shadow_size_for(bits, decal_size, geometry_extent)
 }
 
 /// Resolve Object INI `Shadow` bits. Authored live bits win; else leftover factory / INI.
@@ -914,7 +1016,7 @@ pub fn leftover_template_shadow_type(template_name: &str, authored: u32) -> u32 
                     .find_map(|(k, v)| k.eq_ignore_ascii_case("Shadow").then_some(v.as_str()))
                 {
                     return crate::game_logic::host_enum_table_residual::parse_shadow_type_bits(
-                        raw,
+                        &raw.replace([',', ';'], " "),
                     );
                 }
             }
@@ -951,7 +1053,7 @@ pub fn leftover_template_shadow_offset(
                         .iter()
                         .find_map(|(k, v)| {
                             k.eq_ignore_ascii_case(key)
-                                .then(|| v.parse::<f32>().ok())
+                                .then(|| leftover_parse_real_residual(v))
                                 .flatten()
                         })
                         .unwrap_or(0.0)
@@ -1432,5 +1534,82 @@ mod tests {
         assert_eq!(BATTLE_MASTER_PROJECTILE, "BattleMasterTankShell");
         assert!(BATTLE_MASTER_HORDE_EXACT_MATCH);
         assert!((BATTLE_MASTER_NUCLEAR_LOCOMOTOR_SPEED - 35.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn retail_unit_ini_shadow_parse_and_blob_sizing() {
+        use crate::game_logic::host_enum_table_residual::{SHADOW_DECAL, SHADOW_VOLUME};
+        use game_engine::common::thing::thing_factory::ThingFactory;
+        use std::{fs, path::PathBuf};
+
+        // Extracted retail INIs are an optional build input (mirrors
+        // GameEngine/Common/tests/thing_factory_retail.rs); assert when present.
+        let object_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../windows_game/extracted_big_files_v2/INI/Object");
+        let Ok(infantry) = fs::read_to_string(object_dir.join("AmericaInfantry.ini")) else {
+            return;
+        };
+        let Ok(vehicles) = fs::read_to_string(object_dir.join("AmericaVehicle.ini")) else {
+            return;
+        };
+        let mut factory = ThingFactory::new();
+        assert!(factory.load_ini_text(&infantry) >= 1);
+        assert!(factory.load_ini_text(&vehicles) >= 1);
+
+        // Retail infantry: Shadow = SHADOW_DECAL, ShadowSize 14x14 world extent.
+        let ranger = factory
+            .find_template("AmericaInfantryRanger", false)
+            .expect("retail ranger template");
+        let ranger_bits = ranger.get_shadow_type().bits() as u32;
+        assert_eq!(ranger_bits & SHADOW_DECAL, SHADOW_DECAL);
+        let ranger_geom = ranger.get_template_geometry_info();
+        let ranger_size = leftover_template_blob_shadow_size_for(
+            ranger_bits,
+            (ranger.get_shadow_size_x(), ranger.get_shadow_size_y()),
+            leftover_template_shadow_geometry_extent_from_radii(
+                ranger_geom.width,
+                ranger_geom.depth,
+            ),
+        );
+        assert_eq!(ranger_size, (14.0, 14.0));
+
+        // Retail Crusader: Shadow = SHADOW_VOLUME with ShadowSizeX = 45 — a
+        // minimum sun-elevation angle, not a world size; geometry BOX 15/10 wins.
+        let crusader = factory
+            .find_template("AmericaTankCrusader", false)
+            .expect("retail crusader template");
+        let crusader_bits = crusader.get_shadow_type().bits() as u32;
+        assert_eq!(crusader_bits & SHADOW_VOLUME, SHADOW_VOLUME);
+        let crusader_geom = crusader.get_template_geometry_info();
+        let crusader_size = leftover_template_blob_shadow_size_for(
+            crusader_bits,
+            (crusader.get_shadow_size_x(), crusader.get_shadow_size_y()),
+            leftover_template_shadow_geometry_extent_from_radii(
+                crusader_geom.width,
+                crusader_geom.depth,
+            ),
+        );
+        assert_eq!(crusader_size, (30.0, 20.0));
+    }
+
+    #[test]
+    fn blob_shadow_size_never_zero_without_authored_shadow_size() {
+        use crate::game_logic::host_enum_table_residual::{SHADOW_DECAL, SHADOW_VOLUME};
+        // DECAL bits with no sizes anywhere: the createDecalShadow floor decides.
+        let (sx, sy) = leftover_template_blob_shadow_size_for(SHADOW_DECAL, (0.0, 0.0), (0.0, 0.0));
+        assert!((sx - 20.0).abs() < 0.01 && (sy - 20.0).abs() < 0.01);
+        // VOLUME bits must ignore the elevation-angle ShadowSizeX (45) and take geometry.
+        let (sx, sy) =
+            leftover_template_blob_shadow_size_for(SHADOW_VOLUME, (45.0, 0.0), (30.0, 20.0));
+        assert_eq!((sx, sy), (30.0, 20.0));
+        // Zero/negative geometry half-extents yield no extent (caller floors it).
+        assert_eq!(
+            leftover_template_shadow_geometry_extent_from_radii(0.0, -4.0),
+            (0.0, 0.0)
+        );
+        // Unknown template through live sources (no factory/INI entry): the
+        // createDecalShadow default keeps the disc measurable.
+        let (sx, sy) = leftover_template_blob_shadow_size("NoSuchTemplateAnyWhere123");
+        assert!((sx - 20.0).abs() < 0.01 && (sy - 20.0).abs() < 0.01);
     }
 }

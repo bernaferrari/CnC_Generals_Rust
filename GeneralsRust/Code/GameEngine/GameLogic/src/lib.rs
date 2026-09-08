@@ -33,8 +33,6 @@
 //! - Scripting engine integration
 //! - Object management and lifecycle
 //!
-//! `runtime/ai.rs` (`AiRuntime`) is **telemetry-only** — it emits
-//! `SimulationEvent::AiDiagnostics` and is not a C++ AI behavior port.
 
 // Public modules
 pub mod action_manager;
@@ -47,7 +45,6 @@ pub mod contain_module_overrides;
 pub mod game_logic;
 pub mod modules;
 pub mod object;
-pub mod script_engine;
 pub mod scripting;
 pub mod weapon;
 
@@ -106,10 +103,7 @@ pub mod transport;
 
 // Internal/common modules
 pub mod common;
-pub mod logic;
 pub mod prelude;
-/// High-level orchestration. `runtime::ai` is diagnostics, not C++ `AI`.
-pub mod runtime;
 
 pub mod runtime_world_transaction;
 
@@ -176,7 +170,7 @@ pub use system::network_bridge_stub::{BridgeStatistics, NetworkCommandBridge};
 pub use scripting::{
     ActionRegistry, ConditionRegistry, EventFilter, EventManager, GameEvent, GameEventType,
     GameStateContext, Script, ScriptContext, ScriptPriority, ScriptResult, ScriptTrigger,
-    ScriptValue, ScriptingEngine, VictoryCondition, VictoryManager, get_script_engine,
+    ScriptValue, ScriptingEngine, get_script_engine,
 };
 
 pub use team::get_team_factory;

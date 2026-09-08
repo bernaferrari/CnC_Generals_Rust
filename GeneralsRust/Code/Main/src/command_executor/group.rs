@@ -375,13 +375,9 @@ impl<'a> CommandExecutor<'a> {
             if !o.is_alive() || o.contained_by.is_some() {
                 continue;
             }
-            if o.is_kind_of(KindOf::Infantry)
-                || o.object_type == ObjectType::Infantry
-            {
+            if o.is_kind_of(KindOf::Infantry) || o.object_type == ObjectType::Infantry {
                 num_infantry += 1;
-            } else if o.is_kind_of(KindOf::Vehicle)
-                && !o.is_kind_of(KindOf::Aircraft)
-            {
+            } else if o.is_kind_of(KindOf::Vehicle) && !o.is_kind_of(KindOf::Aircraft) {
                 num_vehicles += 1;
             }
         }
@@ -403,10 +399,9 @@ impl<'a> CommandExecutor<'a> {
             if !Self::member_has_ai_update(o) {
                 continue;
             }
-            let is_infantry = o.is_kind_of(KindOf::Infantry)
-                || o.object_type == ObjectType::Infantry;
-            let is_vehicle = o.is_kind_of(KindOf::Vehicle)
-                && !o.is_kind_of(KindOf::Aircraft);
+            let is_infantry =
+                o.is_kind_of(KindOf::Infantry) || o.object_type == ObjectType::Infantry;
+            let is_vehicle = o.is_kind_of(KindOf::Vehicle) && !o.is_kind_of(KindOf::Aircraft);
             if !is_infantry && !is_vehicle {
                 continue;
             }
@@ -440,7 +435,10 @@ impl<'a> CommandExecutor<'a> {
             .unwrap_or(0);
         if fid0 != 0
             && units.iter().all(|&id| {
-                self.game_logic.host_object(id).map(|o| o.formation_id == fid0).unwrap_or(false)
+                self.game_logic
+                    .host_object(id)
+                    .map(|o| o.formation_id == fid0)
+                    .unwrap_or(false)
             })
         {
             close_enough = true;
@@ -451,8 +449,12 @@ impl<'a> CommandExecutor<'a> {
             let mut center_vehicle = center;
             let mut best_d2 = f32::INFINITY;
             for &id in units {
-                let Some(o) = self.game_logic.host_object(id) else { continue };
-                if !o.is_alive() || o.contained_by.is_some() || !Self::member_has_ai_update(o)
+                let Some(o) = self.game_logic.host_object(id) else {
+                    continue;
+                };
+                if !o.is_alive()
+                    || o.contained_by.is_some()
+                    || !Self::member_has_ai_update(o)
                     || o.is_kind_of(KindOf::Aircraft)
                 {
                     continue;
@@ -466,7 +468,9 @@ impl<'a> CommandExecutor<'a> {
             }
             let mut is_passable = true;
             for &id in units {
-                let Some(o) = self.game_logic.host_object(id) else { continue };
+                let Some(o) = self.game_logic.host_object(id) else {
+                    continue;
+                };
                 if !o.is_kind_of(KindOf::Infantry) && o.object_type != ObjectType::Infantry {
                     continue;
                 }

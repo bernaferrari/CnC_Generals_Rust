@@ -496,7 +496,6 @@ fn special_power_tick_records_host_special_power_log() {
         "events {:?}",
         events
     );
-
 }
 
 #[test]

@@ -61,35 +61,36 @@ fn vs_main(vertex: WaterVertex) -> VertexOutput {
     return out;
 }
 
+// C++ m_riverWaterPixelShader / m_trapezoidWaterPixelShader distilled:
+// mul r0, v0, t0            -> base = vertex diffuse * river albedo
+// mad r0.rgb, t1, t2, r0    -> sparkle * noise added to RGB
+// river only: t3 (alpha edge) tints RGB and scales alpha.
+// The V scroll lives in the baked vertex coordinate
+// (-m_riverVOrigin + vScale*i + wobble, W3DWater.cpp:2834-2841), NOT here —
+// the vertex phase is recomputed every frame from river_v_origin.
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let river_uv = in.tex_coords + vec2<f32>(0.0, river.river_v_origin);
-    let t0 = textureSample(river_texture, river_sampler, river_uv);
+    let t0 = textureSample(river_texture, river_sampler, in.tex_coords);
     let t1 = textureSample(sparkle_texture, river_sampler, in.tex_coords);
-    // C++ stage 2: camera-space world XZ * NOISE_REPEAT_FACTOR + m_riverVOrigin.
+    // C++ stage 2: camera-space world XZ * NOISE_REPEAT_FACTOR + m_riverVOrigin
+    // (setupJbaWaterShader texture transform, W3DWater.cpp:229-233).
     let noise_uv = in.world_position.xz * river.noise_repeat
         + vec2<f32>(river.river_v_origin, river.river_v_origin);
     let t2 = textureSample(noise_texture, river_sampler, noise_uv);
-    let t3 = textureSample(alpha_edge_texture, river_sampler, in.tex_coords);
 
-    let lit = max(in.color, vec3<f32>(0.28));
-    // mul r0, v0, t0
-    var rgb = lit * t0.rgb;
-    var alpha = clamp(max(t0.a, 0.45) * max(in.alpha, 0.45), 0.0, 1.0);
+    var rgb = in.color * t0.rgb;
+    var alpha = clamp(t0.a * in.alpha, 0.0, 1.0);
 
     if (river.is_trapezoid > 0.5) {
         // trapezoid: mad r0.rgb, t1, t2, r0
         rgb = rgb + t1.rgb * t2.rgb;
     } else {
         // river: add r0.rgb, r0, t3 ; mul r0.a, r0, t3 ; add r0.rgb, r0, t1*t2
+        let t3 = textureSample(alpha_edge_texture, river_sampler, in.tex_coords);
         rgb = rgb + t3.rgb;
         alpha = alpha * saturate(max(t3.a, t3.r));
         rgb = rgb + t1.rgb * t2.rgb;
     }
 
-    let view = normalize(camera.position - in.world_position);
-    let n = vec3<f32>(0.0, 1.0, 0.0);
-    let fresnel = pow(1.0 - saturate(dot(view, n)), 3.0);
-    rgb = rgb + vec3<f32>(river.reflection) * fresnel;
     return vec4<f32>(rgb, alpha);
 }

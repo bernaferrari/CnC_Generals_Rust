@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use gamelogic::ai::pathfind_astar::{
-    AStarPathfinder, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
+    AStarPathfinder, COST_DIAGONAL, GridCoord, PathfindCellType, PathfindLayerEnum,
 };
 use gamelogic::ai::pathfind_complete::{
     LAYER_Z_CLOSE_ENOUGH_F, MAX_PATH_ITERATIONS, PATHFIND_QUEUE_LEN, SURFACE_AIR, SURFACE_CLIFF,

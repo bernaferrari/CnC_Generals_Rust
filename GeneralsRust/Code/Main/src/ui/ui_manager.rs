@@ -404,8 +404,19 @@ impl UIManager {
         self.drain_screen_pending_events();
     }
 
+    /// Count queued UI sound-effect events (`PlaySoundEffectPath`): menu
+    /// click / hover / transition sounds. Used to avoid double-playing a
+    /// click sound for one press.
+    fn queued_ui_sound_event_count(&self) -> usize {
+        self.event_queue
+            .iter()
+            .filter(|event| matches!(event, UIEvent::PlaySoundEffectPath(_)))
+            .count()
+    }
+
     /// Handle mouse clicks
     pub fn handle_mouse_click(&mut self, x: i32, y: i32, button: MouseButton) -> bool {
+        let ui_sound_events_before = self.queued_ui_sound_event_count();
         let handled = match self.current_screen {
             Some(Screen::Title) => {
                 // Any click on title screen goes to main menu
@@ -478,8 +489,22 @@ impl UIManager {
             }
             _ => false,
         };
-
         self.drain_screen_pending_events();
+        // C++ `GadgetPushButtonInput` GWM_LEFT_UP (`GadgetPushButton.cpp:
+        // 138-141`) plays `GUIClick` on every button release. Host screens
+        // are not shell gadgets, so the manager supplies it — but only when
+        // this press did not already queue a UI click sound (menu-layer
+        // BUTTON_CLICK or the transition sound), keeping the C++
+        // one-click-sound-per-press behavior. Disabled shell buttons keep
+        // their gadget-layer GUIClickDisabled
+        // (`window_impl_core.rs`); host menus report disabled controls as
+        // unhandled.
+        if handled
+            && matches!(button, MouseButton::Left)
+            && self.queued_ui_sound_event_count() == ui_sound_events_before
+        {
+            let _ = crate::assets::audio::play_sound_through_the_audio("GUIClick");
+        }
         handled
     }
 
@@ -1071,5 +1096,82 @@ mod tests {
         manager.queue_event(UIEvent::RestartMission);
         manager.update(1.0 / 30.0).unwrap();
         assert_eq!(manager.current_screen, None);
+    }
+
+    /// Register a minimal GUIClick event on THE_AUDIO so
+    /// `play_sound_through_the_audio("GUIClick")` resolves and queues a play
+    /// request observable via `pending_play_request_count_for`.
+    fn register_gui_click_on_the_audio() {
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let mut guard = manager.lock().expect("THE_AUDIO lock");
+        guard.register_audio_event_info(game_engine::common::audio::AudioEventInfo {
+            sound_type: game_engine::common::audio::AudioType::SoundEffect,
+            control: 0,
+            audio_name: "GUIClick".to_string(),
+            volume: 0.8,
+            ..Default::default()
+        });
+    }
+
+    #[test]
+    fn handled_host_click_without_own_sound_plays_gui_click() {
+        // C++ GadgetPushButton.cpp:138-141 plays GUIClick on every button
+        // LeftUp. Host screens (victory/options/HUD fallback) queue no click
+        // sound of their own, so the manager plays GUIClick through TheAudio
+        // (same helper as the hud.rs letter-hotkey path).
+        register_gui_click_on_the_audio();
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let mut ui = UIManager::new(1024, 768);
+        ui.set_victory(0);
+        while ui.pop_event().is_some() {}
+
+        let before = manager
+            .lock()
+            .expect("THE_AUDIO lock")
+            .pending_play_request_count_for("GUIClick");
+        assert!(
+            ui.handle_mouse_click(100, 100, MouseButton::Left),
+            "victory screen consumes the click"
+        );
+        let after = manager
+            .lock()
+            .expect("THE_AUDIO lock")
+            .pending_play_request_count_for("GUIClick");
+        assert!(
+            after > before,
+            "host click must queue a GUIClick audio event ({before} -> {after})"
+        );
+    }
+
+    #[test]
+    fn click_that_already_queued_a_click_sound_does_not_double_play() {
+        // Menus and screen transitions already queue their own click sound
+        // for the press; GUIClick must not stack a second one (C++ buttons
+        // play exactly one click sound per LeftUp).
+        register_gui_click_on_the_audio();
+        let manager = game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        let mut ui = UIManager::new(1024, 768);
+        ui.transition_to_screen(Screen::Title);
+        while ui.pop_event().is_some() {}
+
+        let before = manager
+            .lock()
+            .expect("THE_AUDIO lock")
+            .pending_play_request_count_for("GUIClick");
+        assert!(ui.handle_mouse_click(512, 384, MouseButton::Left));
+        assert!(
+            ui.event_queue
+                .iter()
+                .any(|event| matches!(event, UIEvent::PlaySoundEffectPath(_))),
+            "the title click queues the transition click sound"
+        );
+        let after = manager
+            .lock()
+            .expect("THE_AUDIO lock")
+            .pending_play_request_count_for("GUIClick");
+        assert_eq!(
+            after, before,
+            "a press that already queued a click sound must not also play GUIClick"
+        );
     }
 }

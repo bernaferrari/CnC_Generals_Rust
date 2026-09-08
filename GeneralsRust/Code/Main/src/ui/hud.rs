@@ -56,17 +56,23 @@ pub struct MiniMap {
 }
 
 impl MiniMap {
-    pub fn new(x: i32, y: i32) -> Self {
+    pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
         Self {
             position: (x, y),
-            size: (layout::MINIMAP_SIZE, layout::MINIMAP_SIZE),
+            size: (width, height),
             visible: true,
-            map_data: vec![0; (layout::MINIMAP_SIZE * layout::MINIMAP_SIZE) as usize],
+            map_data: vec![0; (width * height) as usize],
             unit_positions: Vec::new(),
             beacon_positions: Vec::new(),
             viewport_rect: (0.0, 0.0, 1.0, 1.0),
             hovered: false,
         }
+    }
+
+    /// Resize after a display change (reallocates the simplified map data).
+    pub fn set_size(&mut self, width: u32, height: u32) {
+        self.size = (width, height);
+        self.map_data = vec![0; (width * height) as usize];
     }
 
     pub fn update_units(&mut self, units: &[(ObjectId, f32, f32, u8)]) {
@@ -123,6 +129,26 @@ impl MiniMap {
             None
         }
     }
+}
+
+/// Authored LeftHUD minimap rect anchored bottom-left (ControlBar.wnd:
+/// (7,443)-(174,595) on the 800x600 creation res): x ≈ 7*mult with
+/// y = screen height - 152*mult.
+fn minimap_position(width: u32, height: u32) -> (i32, i32) {
+    let mult_x = width as f32 / 800.0;
+    let mult_y = height as f32 / 600.0;
+    (
+        (7.0 * mult_x).round() as i32,
+        height as i32 - (layout::MINIMAP_HEIGHT as f32 * mult_y).round() as i32,
+    )
+}
+
+/// Authored LeftHUD 167x152 size scaled by the 800x600 creation-res multiplier.
+fn minimap_size(width: u32, height: u32) -> (u32, u32) {
+    (
+        (layout::MINIMAP_WIDTH as f32 * width as f32 / 800.0).round() as u32,
+        (layout::MINIMAP_HEIGHT as f32 * height as f32 / 600.0).round() as u32,
+    )
 }
 
 fn slugify_label(name: &str) -> String {
@@ -638,14 +664,50 @@ impl Default for GameHUD {
 impl GameHUD {
     /// Apply presentation ControlBar unit-command residual (Command_* names).
     pub fn apply_presentation_unit_commands(&mut self, commands: &[crate::ui::UnitCommandButton]) {
-        self.command_buttons.clear();
-        if commands.is_empty() {
-            return;
-        }
         let button_size = 48u32;
         let spacing = 4u32;
+        // Wrap at 7 buttons per row inside the authored 140px command bar
+        // (14 ButtonCommand slots = two rows); a single row overflows
+        // 800-wide windows (C++ ControlBar.cpp:2177-2188).
         let start_x = (self.screen_size.0 / 2) as i32 - 200;
-        let start_y = self.screen_size.1 as i32 - 60;
+        let start_y = self.screen_size.1 as i32 - layout::CONTROL_BAR_HEIGHT as i32;
+        let row_pitch = (button_size + spacing) as i32;
+        // apply_to_game_hud re-applies the last presentation freeze every
+        // render frame; clear+rebuild reset per-button hover state each frame
+        // (hover/flash flicker on the command strip). Diff the derived
+        // projection and rebuild only when the command list changed.
+        let unchanged = commands.len() == self.command_buttons.len()
+            && commands
+                .iter()
+                .zip(self.command_buttons.iter())
+                .enumerate()
+                .all(|(i, (cmd, btn))| {
+                    btn.command == cmd.command_name
+                        && btn.position
+                            == (
+                                start_x + (i % layout::COMMAND_BUTTONS_PER_ROW) as i32 * row_pitch,
+                                start_y + (i / layout::COMMAND_BUTTONS_PER_ROW) as i32 * row_pitch,
+                            )
+                        && btn.size == (button_size, button_size)
+                        && btn.icon.as_str()
+                            == if cmd.button_image.is_empty() {
+                                cmd.command_name.as_str()
+                            } else {
+                                cmd.button_image.as_str()
+                            }
+                        && btn.enabled == (cmd.enabled && !cmd.command_name.is_empty())
+                        && btn.not_ready
+                            == (cmd.availability == crate::ui::UnitCommandAvailability::NotReady)
+                        && btn.active
+                            == (cmd.availability == crate::ui::UnitCommandAvailability::Active)
+                        && btn.button_image == cmd.button_image
+                        && btn.overlay_image == cmd.overlay_image
+                        && btn.exit_object_id == cmd.exit_object_id
+                });
+        if unchanged {
+            return;
+        }
+        self.command_buttons.clear();
         for (i, cmd) in commands.iter().enumerate() {
             let hotkey = if cmd.command_name.is_empty() {
                 None
@@ -659,7 +721,10 @@ impl GameHUD {
             };
             self.command_buttons.push(CommandButton {
                 command: cmd.command_name.clone(),
-                position: (start_x + i as i32 * (button_size + spacing) as i32, start_y),
+                position: (
+                    start_x + (i % layout::COMMAND_BUTTONS_PER_ROW) as i32 * row_pitch,
+                    start_y + (i / layout::COMMAND_BUTTONS_PER_ROW) as i32 * row_pitch,
+                ),
                 size: (button_size, button_size),
                 icon,
                 hotkey,
@@ -739,13 +804,12 @@ impl GameHUD {
     /// Create new game HUD
     pub fn new() -> Self {
         let screen_size = (1024, 768);
+        let (minimap_w, minimap_h) = minimap_size(screen_size.0, screen_size.1);
+        let (minimap_x, minimap_y) = minimap_position(screen_size.0, screen_size.1);
 
         Self {
             resource_display: ResourceDisplay::new(10, 10),
-            minimap: MiniMap::new(
-                screen_size.0 as i32 - layout::MINIMAP_SIZE as i32 - 10,
-                screen_size.1 as i32 - layout::MINIMAP_SIZE as i32 - 10,
-            ),
+            minimap: MiniMap::new(minimap_x, minimap_y, minimap_w, minimap_h),
             construction_panel: ConstructionPanel::new(
                 10,
                 screen_size.1 as i32 - layout::HUD_PANEL_HEIGHT as i32,
@@ -1217,17 +1281,14 @@ impl GameHUD {
     pub fn resize(&mut self, width: u32, height: u32) {
         self.screen_size = (width, height);
 
-        // Reposition components
-        self.minimap.position = (
-            width as i32 - layout::MINIMAP_SIZE as i32 - 10,
-            height as i32 - layout::MINIMAP_SIZE as i32 - 10,
-        );
-        self.minimap_panel.set_screen_pos(
-            self.minimap.position.0 as f32,
-            self.minimap.position.1 as f32,
-        );
-        self.minimap_panel.width = layout::MINIMAP_SIZE as f32;
-        self.minimap_panel.height = layout::MINIMAP_SIZE as f32;
+        // Reposition components — authored LeftHUD bottom-left rect.
+        let (minimap_w, minimap_h) = minimap_size(width, height);
+        let (minimap_x, minimap_y) = minimap_position(width, height);
+        self.minimap.position = (minimap_x, minimap_y);
+        self.minimap.set_size(minimap_w, minimap_h);
+        self.minimap_panel.set_screen_pos(minimap_x as f32, minimap_y as f32);
+        self.minimap_panel.width = minimap_w as f32;
+        self.minimap_panel.height = minimap_h as f32;
 
         self.construction_panel.position = (10, height as i32 - layout::HUD_PANEL_HEIGHT as i32);
     }
@@ -1295,12 +1356,13 @@ impl GameHUD {
         if self.selected_units.is_empty() {
             return;
         }
-
-        // Add common unit commands
+        // Same 7-per-row wrap inside the authored command bar as the
+        // presentation strip above.
         let button_size = 48u32;
         let spacing = 4u32;
         let start_x = (self.screen_size.0 / 2) as i32 - 200;
-        let start_y = self.screen_size.1 as i32 - 60;
+        let start_y = self.screen_size.1 as i32 - layout::CONTROL_BAR_HEIGHT as i32;
+        let row_pitch = (button_size + spacing) as i32;
 
         let commands = [
             ("Move", "move_icon", Some(KeyCode::M)),
@@ -1308,11 +1370,13 @@ impl GameHUD {
             ("Stop", "stop_icon", Some(KeyCode::S)),
             ("Guard", "guard_icon", Some(KeyCode::G)),
         ];
-
         for (i, (command, icon, hotkey)) in commands.iter().enumerate() {
             self.command_buttons.push(CommandButton {
                 command: command.to_string(),
-                position: (start_x + i as i32 * (button_size + spacing) as i32, start_y),
+                position: (
+                    start_x + (i % layout::COMMAND_BUTTONS_PER_ROW) as i32 * row_pitch,
+                    start_y + (i / layout::COMMAND_BUTTONS_PER_ROW) as i32 * row_pitch,
+                ),
                 size: (button_size, button_size),
                 icon: icon.to_string(),
                 hotkey: *hotkey,
@@ -1671,7 +1735,7 @@ mod tests {
 
     #[test]
     fn test_minimap_coordinates() {
-        let minimap = MiniMap::new(100, 100);
+        let minimap = MiniMap::new(100, 100, 167, 152);
 
         // Test click within minimap bounds
         let world_coords = minimap.world_coords_from_click(150, 150);
@@ -1707,7 +1771,12 @@ mod tests {
 
     #[test]
     fn game_hud_does_not_invent_game_started_or_power_low_overlay() {
-        let src = include_str!("hud.rs");
+        // Scan only the production slice: this test's own assertion literals
+        // live in the same file and would self-match a whole-file include_str
+        // (same reason construction_panel_does_not_invent_faction_cameos
+        // splits at #[cfg(test)]).
+        let full = include_str!("hud.rs");
+        let src = full.split("#[cfg(test)]").next().unwrap_or(full);
         assert!(
             !src.contains("Game started - Good luck, Commander!")
                 && !src.contains("hud.message.game_started")
@@ -1907,9 +1976,10 @@ mod tests {
         let mut hud = GameHUD::new();
         hud.initialize().expect("init");
         hud.construction_panel.pending_structure_placement = Some("AmericaPowerPlant".into());
-        // Click center of default minimap (bottom-right of 1024x768).
-        let mx = 1024 - 10 - 64;
-        let my = 768 - 10 - 64;
+        // Click the center of the authored minimap rect (bottom-left LeftHUD
+        // 167x152 at the 800x600 creation res — ControlBar.wnd (7,443)-(174,595)).
+        let mx = hud.minimap.position.0 + hud.minimap.size.0 as i32 / 2;
+        let my = hud.minimap.position.1 + hud.minimap.size.1 as i32 / 2;
         let ev = hud
             .handle_mouse_click(mx, my, MouseButton::Left)
             .expect("place event");
@@ -2137,6 +2207,40 @@ mod tests {
         assert_eq!(hud.command_buttons[2].exit_object_id, Some(7));
         assert!(hud.command_buttons[2].not_ready);
         assert!(!hud.command_buttons[2].active);
+    }
+
+    #[test]
+    fn apply_presentation_unit_commands_diff_preserves_hover_when_unchanged() {
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        let move_cmd = crate::ui::UnitCommandButton {
+            command_name: "Command_Move".into(),
+            enabled: true,
+            ..Default::default()
+        };
+        hud.apply_presentation_unit_commands(&[move_cmd.clone()]);
+        assert_eq!(hud.command_buttons.len(), 1);
+        hud.handle_mouse_move(
+            hud.command_buttons[0].position.0 + 2,
+            hud.command_buttons[0].position.1 + 2,
+        );
+        assert!(hud.command_buttons[0].hovered);
+        // The last presentation freeze is re-applied every render frame; an
+        // unchanged list must keep per-button hover state (no clear+rebuild).
+        hud.apply_presentation_unit_commands(&[move_cmd.clone()]);
+        assert!(
+            hud.command_buttons[0].hovered,
+            "re-applying an unchanged command list must not reset hover"
+        );
+        // A changed list rebuilds and resets hover on the fresh buttons.
+        hud.apply_presentation_unit_commands(&[crate::ui::UnitCommandButton {
+            command_name: "Command_Move".into(),
+            enabled: false,
+            ..Default::default()
+        }]);
+        assert_eq!(hud.command_buttons.len(), 1);
+        assert!(!hud.command_buttons[0].hovered);
+        assert!(!hud.command_buttons[0].enabled);
     }
 
     #[test]

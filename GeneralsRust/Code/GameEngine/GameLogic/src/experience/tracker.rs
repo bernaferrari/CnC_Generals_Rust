@@ -1,7 +1,13 @@
-//! ExperienceTracker - Core experience tracking (matches C++ ExperienceTracker.h/cpp)
+//! ExperienceTracker - Core experience tracking (C++ ExperienceTracker.h/cpp)
 //!
-//! This is the lightweight tracker that each Object owns to track its experience
-//! points and veterancy level. It matches the C++ implementation exactly.
+//! This is the lightweight tracker that each Object owns to track its
+//! experience points and veterancy level. The state machine (gain, level
+//! evaluation, sink forwarding, scalar, xfer layout) is a direct port of the
+//! C++ ExperienceTracker class. Veterancy thresholds always come from the
+//! owner template (C++ `getTemplate()->getExperienceRequired`,
+//! ExperienceTracker.cpp:75, 91, 106, 152, 192); the degraded fail-closed
+//! fallback used only when the owner template cannot be resolved is
+//! documented on [`ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED`].
 
 use crate::common::types::{ObjectID, VeterancyLevel};
 use crate::common::{Xfer, XferMode, XferVersion};
@@ -46,7 +52,17 @@ impl ExperienceTracker {
     /// Invalid object ID constant
     pub const INVALID_ID: ObjectID = 0;
 
-    /// Default experience thresholds for each veterancy level.
+    /// Rust-only degraded/test threshold table — NOT a C++ value.
+    ///
+    /// C++ always consults the owner template
+    /// (`getTemplate()->getExperienceRequired`, ExperienceTracker.cpp:75, 91,
+    /// 106, 152, 192) and has no global default table. This constant is the
+    /// fail-closed stand-in used only where the owner template cannot be
+    /// resolved (Wave-420 empty dual-world registry, missing template, or
+    /// tests): promotions then fall back to one fixed conservative table
+    /// instead of fabricating per-unit cost-scaled values. Production code
+    /// should keep the owner template resolvable so this fallback never
+    /// fires.
     pub const DEFAULT_EXPERIENCE_REQUIRED: [i32; 4] = [0, 100, 300, 600];
 
     /// Create a new experience tracker for an object
@@ -161,6 +177,9 @@ impl ExperienceTracker {
         Some(owner_guard.get_template().is_trainable())
     }
 
+    /// Fail-closed degraded threshold lookup: prefer the caller-supplied
+    /// table, then the fixed degraded table, and never fabricate cost-scaled
+    /// values (no C++ counterpart — see `DEFAULT_EXPERIENCE_REQUIRED`).
     fn fallback_experience_required(experience_required: &[i32], level_index: usize) -> i32 {
         experience_required
             .get(level_index)
@@ -178,10 +197,14 @@ impl ExperienceTracker {
             .unwrap_or_else(|| Self::fallback_experience_required(experience_required, level_index))
     }
 
-    /// Set veterancy level using default experience requirements
+    /// Set veterancy level explicitly using the degraded threshold table.
     ///
-    /// Convenience method that uses DEFAULT_EXPERIENCE_REQUIRED.
-    /// This is used for explicit setting (e.g., from crates or scripts).
+    /// C++ `setVeterancyLevel` reads
+    /// `getTemplate()->getExperienceRequired` (ExperienceTracker.cpp:82-95)
+    /// and has no default table; this convenience supplies
+    /// `DEFAULT_EXPERIENCE_REQUIRED`, so prefer
+    /// `set_veterancy_level_with_requirements` with template thresholds
+    /// wherever the owner template is resolvable.
     /// Returns the old level if it changed.
     pub fn set_veterancy_level(&mut self, new_level: VeterancyLevel) -> Option<VeterancyLevel> {
         self.set_veterancy_level_with_requirements(new_level, &Self::DEFAULT_EXPERIENCE_REQUIRED)

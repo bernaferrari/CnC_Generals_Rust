@@ -1511,6 +1511,14 @@ mod main_menu_shell_borrow_residual_tests {
                 border2.borrow().is_hidden(),
                 "C++ dropDownWindows[DROPDOWN_MAIN] winHide(TRUE)"
             );
+
+            let border = manager
+                .find_window_by_name("MainMenu.wnd:MapBorder")
+                .expect("MapBorder");
+            assert!(
+                !border.borrow().is_hidden(),
+                "C++ MainMenuInit 525-526 loops dropDownWindows[1..]; MapBorder (DROPDOWN_SINGLE) stays visible"
+            );
             let ruler = manager
                 .find_window_by_name("MainMenu.wnd:MainMenuRuler")
                 .expect("MainMenuRuler");
@@ -1530,7 +1538,6 @@ mod main_menu_shell_borrow_residual_tests {
             // RecentSave 486,116.
             for (x, y, label) in [
                 (644, 134, "SOLO PLAY"),
-                (644, 294, "Skirmish"),
                 (486, 116, "RecentSave"),
             ] {
                 let hit = manager.get_window_under_cursor(x, y, false);
@@ -1757,5 +1764,137 @@ mod main_menu_shell_borrow_residual_tests {
             )),
             "SKIRMISH must queue PushShellScreen(SkirmishGameOptionsMenu.wnd)"
         );
+    }
+
+    #[test]
+    fn single_player_menu_transition_drives_every_group_window_to_end_state() {
+        // GameWindowTransitionsStyles.cpp:77-133 group semantics: every window
+        // in `MainMenuSinglePlayerMenu` hides at transition start and reaches
+        // its authored end visibility (unhidden) at the final frame, so
+        // ButtonSkirmish is hittable once the dropdown finishes opening —
+        // without any hand-maintained unhide name list.
+        use crate::gui::game_window::WindowStatus;
+        use crate::gui::window_manager::with_window_manager;
+
+        const GROUP_WINDOWS: &[&str] = &[
+            "MainMenu.wnd:MapBorder",
+            "MainMenu.wnd:ButtonUSA",
+            "MainMenu.wnd:ButtonGLA",
+            "MainMenu.wnd:ButtonChina",
+            "MainMenu.wnd:ButtonChallenge",
+            "MainMenu.wnd:ButtonSkirmish",
+            "MainMenu.wnd:ButtonSingleBack",
+            "MainMenu.wnd:WinFactionSkirmish",
+            "MainMenu.wnd:WinFactionTraining",
+            "MainMenu.wnd:WinFactionUS",
+            "MainMenu.wnd:WinFactionChina",
+            "MainMenu.wnd:WinFactionGLA",
+        ];
+
+        with_window_manager(|manager| {
+            manager.reset();
+            // Load retail WindowTransitions.ini (MainMenuSinglePlayerMenu).
+            manager.init();
+            let parent = manager
+                .create_window(None, 0, 0, 800, 600)
+                .expect("MainMenuParent");
+            parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
+            for (i, name) in GROUP_WINDOWS.iter().enumerate() {
+                // create_window_with_id so window_by_id is keyed by the WND
+                // name key the transition lookup uses (set_id does not re-key).
+                let win = manager
+                    .create_window_with_id(
+                        Some(&parent),
+                        540,
+                        100 + (i as i32) * 40,
+                        208,
+                        36,
+                        NameKeyGenerator::name_to_key(name) as i32,
+                    )
+                    .expect(name);
+                win.borrow_mut().set_name(name);
+                let _ = win.borrow_mut().hide(false);
+                let _ = win.borrow_mut().enable(true);
+            }
+            manager.transition_set_group("MainMenuSinglePlayerMenu", false);
+            for name in GROUP_WINDOWS {
+                let win = manager.find_window_by_name(name).expect(name);
+                assert!(
+                    win.borrow().is_hidden(),
+                    "{name} must be hidden at transition start"
+                );
+            }
+        });
+
+        with_window_manager(|manager| {
+            // Longest window: ButtonSingleBack BUTTONFLASH frameDelay 10 + 15.
+            for _ in 0..64 {
+                manager.update();
+                if manager.transitions_finished() {
+                    break;
+                }
+            }
+            assert!(
+                manager.transitions_finished(),
+                "MainMenuSinglePlayerMenu must complete within 64 frames"
+            );
+            for name in GROUP_WINDOWS {
+                let win = manager.find_window_by_name(name).expect(name);
+                assert!(
+                    !win.borrow().is_hidden(),
+                    "{name} must reach its authored end visibility (unhidden)"
+                );
+            }
+            // ButtonSkirmish is GROUP_WINDOWS[4]: rect (540,260,208,36).
+            let hit = manager
+                .get_window_under_cursor(644, 278, false)
+                .map(|w| w.borrow().get_name().to_string());
+            assert_eq!(
+                hit.as_deref(),
+                Some("MainMenu.wnd:ButtonSkirmish"),
+                "ButtonSkirmish must be hittable after the SP transition completes"
+            );
+        });
+    }
+
+    #[test]
+    fn transition_calls_inside_nested_wm_borrow_survive_the_queue_drain() {
+        use crate::gui::window_manager::with_window_manager;
+
+        with_window_manager(|manager| {
+            manager.reset();
+            manager.init();
+            let border = manager
+                .create_window_with_id(
+                    None,
+                    0,
+                    0,
+                    800,
+                    600,
+                    NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32,
+                )
+                .expect("MapBorder");
+            border.borrow_mut().set_name("MainMenu.wnd:MapBorder");
+            // Start visible so a silently dropped transition stays visible.
+            let _ = border.borrow_mut().hide(false);
+        });
+
+        let menu = MainMenu::new();
+        // Gadget-callback conditions: the button handler fires while the WM is
+        // already mutably borrowed. The old `with_window_manager` path was a
+        // fail-closed no-op here; the queued op must run after the drain.
+        with_window_manager(|_outer| {
+            menu.transition_set_group("MainMenuSinglePlayerMenu", true);
+        });
+
+        with_window_manager(|manager| {
+            let border = manager
+                .find_window_by_name("MainMenu.wnd:MapBorder")
+                .expect("MapBorder");
+            assert!(
+                border.borrow().is_hidden(),
+                "queued transition must run after the nested borrow drains (group init hides at start)"
+            );
+        });
     }
 }

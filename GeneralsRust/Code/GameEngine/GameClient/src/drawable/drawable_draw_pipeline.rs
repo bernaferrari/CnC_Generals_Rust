@@ -10,8 +10,8 @@
 //! populates the RenderBridge with DrawSubmissions.
 
 use bytemuck::{Pod, Zeroable};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use wgpu::util::DeviceExt;
 
 use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId, get_render_bridge};
@@ -145,6 +145,39 @@ pub fn with_drawable_pipeline<R>(
     DRAWABLE_PIPELINE.get().map(f)
 }
 
+/// Decoded RGBA8 pixels the host archive provider hands the legacy lane.
+#[derive(Debug, Clone)]
+pub struct DecodedTexturePixels {
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Host-side resolver for authored W3D texture names (archive-backed).
+pub type DrawableTextureProvider =
+    Arc<dyn Fn(&str) -> Option<DecodedTexturePixels> + Send + Sync>;
+
+static DRAWABLE_TEXTURE_PROVIDER: LazyLock<Mutex<Option<DrawableTextureProvider>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// Register the host archive texture resolver (C++ WW3DAssetManager::Get_Texture
+/// parity). GameClient cannot reach the BIG archives itself, so Main installs a
+/// provider at pipeline lifecycle; without it authored skins can never bind.
+pub fn set_drawable_texture_provider(provider: Option<DrawableTextureProvider>) {
+    *DRAWABLE_TEXTURE_PROVIDER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = provider;
+}
+
+fn resolve_drawable_texture_pixels(name: &str) -> Option<DecodedTexturePixels> {
+    let provider = DRAWABLE_TEXTURE_PROVIDER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()?;
+    (provider)(name)
+}
+
 /// Main pipeline struct for rendering drawable geometry via wgpu.
 pub struct DrawableDrawPipeline {
     device: Arc<wgpu::Device>,
@@ -172,6 +205,8 @@ pub struct DrawableDrawPipeline {
     texture_bind_groups: HashMap<String, wgpu::BindGroup>,
     default_texture_bind_group: wgpu::BindGroup,
     texture_sampler: wgpu::Sampler,
+    /// Names the archive provider could not resolve — warn-once set.
+    failed_textures: HashSet<String>,
 }
 
 impl DrawableDrawPipeline {
@@ -377,7 +412,12 @@ impl DrawableDrawPipeline {
             cache: None,
         });
 
-        // --- Transparent pipeline ---
+        // C++ MissingTexture parity (missingtexture.cpp:60-98): the legacy
+        // lane's last-resort texture is bright MAGENTA, never white — a white
+        // fallback masquerades as an untextured unit instead of a failure.
+        let default_texture = Self::create_solid_texture(&device, &queue, [255, 0, 255, 255]);
+        let default_texture_bind_group =
+            Self::create_texture_bind_group(&device, &texture_bgl, &sampler, &default_texture);
         let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Drawable Transparent Pipeline"),
             layout: Some(&pipeline_layout),
@@ -431,6 +471,7 @@ impl DrawableDrawPipeline {
             texture_bind_groups: HashMap::new(),
             default_texture_bind_group,
             texture_sampler: sampler,
+            failed_textures: HashSet::new(),
         })
     }
 
@@ -503,7 +544,7 @@ impl DrawableDrawPipeline {
     }
 
     /// Draw a single DrawSubmission.
-    fn draw_submission(&self, pass: &mut wgpu::RenderPass, drained: &DrainedDrawSubmission) {
+    fn draw_submission(&mut self, pass: &mut wgpu::RenderPass, drained: &DrainedDrawSubmission) {
         let submission = &drained.submission;
         // Update per-object uniform
         let color_tint = object_color_tint(&submission.render_state);
@@ -526,21 +567,116 @@ impl DrawableDrawPipeline {
         // For now this works because the queue writes are ordered relative to submits.
 
         let key = submission.model_name.to_lowercase();
-        let mesh = if let Some(mesh) = self.mesh_cache.get(&key) {
-            mesh
-        } else {
+        // Clone the cheap Arc buffer handles out so the lazy texture resolve
+        // below can take &mut self while the mesh cache stays borrowed.
+        let Some((texture_name, vertex_buffer, index_buffer, index_count)) = self
+            .mesh_cache
+            .get(&key)
+            .map(|mesh| {
+                (
+                    mesh.texture_name.clone(),
+                    mesh.vertex_buffer.clone(),
+                    mesh.index_buffer.clone(),
+                    mesh.index_count,
+                )
+            })
+        else {
             return;
         };
-        let texture_bind_group = mesh
-            .texture_name
-            .as_ref()
-            .and_then(|name| self.texture_bind_groups.get(&name.to_lowercase()))
-            .unwrap_or(&self.default_texture_bind_group);
-
-        pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        let texture_bind_group: &wgpu::BindGroup = match texture_name.as_deref() {
+            Some(name) => {
+                // First visible use resolves through the host archive provider
+                // (C++ WW3DAssetManager::Get_Texture); hits and misses both cache.
+                self.ensure_texture_bind_group(name);
+                self.texture_bind_groups
+                    .get(&name.trim().to_lowercase())
+                    .unwrap_or(&self.default_texture_bind_group)
+            }
+            None => &self.default_texture_bind_group,
+        };
+        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         pass.set_bind_group(2, texture_bind_group, &[]);
-        pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        pass.draw_indexed(0..index_count, 0, 0..1);
+    }
+
+    /// Resolve one authored texture through the host archive provider on first
+    /// use, then cache the bind group. Unresolvable names warn exactly once
+    /// (`MISSING_ASSET:<name>`) and fall back to the magenta default — the
+    /// legacy lane never reverts to a white bind.
+    fn ensure_texture_bind_group(&mut self, name: &str) {
+        let key = name.trim().to_lowercase();
+        if key.is_empty()
+            || self.texture_bind_groups.contains_key(&key)
+            || self.failed_textures.contains(&key)
+        {
+            return;
+        }
+        match resolve_drawable_texture_pixels(name) {
+            Some(pixels) => {
+                if !self.upload_texture_pixels(&key, &pixels) {
+                    self.failed_textures.insert(key.clone());
+                    log::warn!(
+                        "MISSING_ASSET:{name} (drawable lane texture upload failed; magenta fallback)"
+                    );
+                }
+            }
+            None => {
+                self.failed_textures.insert(key.clone());
+                log::warn!(
+                    "MISSING_ASSET:{name} (drawable lane texture unresolved; magenta fallback)"
+                );
+            }
+        }
+    }
+
+    /// Upload decoded RGBA8 pixels as `Rgba8UnormSrgb` (the lane's sRGB
+    /// contract) and cache the resulting bind group under `key`.
+    fn upload_texture_pixels(&mut self, key: &str, pixels: &DecodedTexturePixels) -> bool {
+        if pixels.rgba.is_empty() || pixels.width == 0 || pixels.height == 0 {
+            return false;
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&format!("Drawable Lane Texture: {key}")),
+            size: wgpu::Extent3d {
+                width: pixels.width,
+                height: pixels.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels.rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * pixels.width),
+                rows_per_image: Some(pixels.height),
+            },
+            wgpu::Extent3d {
+                width: pixels.width,
+                height: pixels.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let bind_group = Self::create_texture_bind_group(
+            &self.device,
+            &self.texture_bgl,
+            &self.texture_sampler,
+            &texture,
+        );
+        self.texture_bind_groups.insert(key.to_string(), bind_group);
+        true
     }
 
     /// Insert a mesh into the cache. Call during asset loading.
@@ -607,49 +743,14 @@ impl DrawableDrawPipeline {
         let image = image::load_from_memory(texture_data)?;
         let rgba = image.to_rgba8();
         let (width, height) = rgba.dimensions();
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&format!("Drawable Texture: {name}")),
-            size: wgpu::Extent3d {
+        self.upload_texture_pixels(
+            &name.trim().to_lowercase(),
+            &DecodedTexturePixels {
+                rgba: rgba.into_raw(),
                 width,
                 height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * width),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
             },
         );
-
-        let bind_group = Self::create_texture_bind_group(
-            &self.device,
-            &self.texture_bgl,
-            &self.texture_sampler,
-            &texture,
-        );
-        self.texture_bind_groups
-            .insert(name.to_lowercase(), bind_group);
         Ok(())
     }
 

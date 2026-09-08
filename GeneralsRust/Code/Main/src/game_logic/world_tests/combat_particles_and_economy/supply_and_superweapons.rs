@@ -538,7 +538,9 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         .create_object_for_player("AmericaVehicleChinook", 1, Vec3::new(20.5, 0.0, 0.0))
         .expect("china collector");
     {
-        let collector = logic.host_object_mut(own_collector_id).expect("collector mut");
+        let collector = logic
+            .host_object_mut(own_collector_id)
+            .expect("collector mut");
         collector.set_stored_supplies(75);
         collector.set_ai_state(AIState::ReturningResources);
         collector.supply_truck_state = SupplyTruckState::DockingCenter;
@@ -680,7 +682,9 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::AnthraxBomb);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::AnthraxBomb);
         caster.special_power_cooldown = 10.0;
     }
 
@@ -755,9 +759,7 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         game_logic.frame = f;
         game_logic.update_special_power_strikes();
         game_logic.update_anthrax_bomb_flights();
-        if detonation_frame.is_none()
-            && game_logic.anthrax_bomb_flight_reg.detonations >= 1
-        {
+        if detonation_frame.is_none() && game_logic.anthrax_bomb_flight_reg.detonations >= 1 {
             detonation_frame = Some(f);
         }
         if let (Some(d), None) = (detonation_frame, tox_after_first_tick) {
@@ -920,7 +922,9 @@ fn radar_scan_does_not_queue_superweapon_strike() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::RadarScan);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::RadarScan);
     }
 
     game_logic.queue_command(GameCommand {
@@ -988,7 +992,9 @@ fn radar_scan_special_power_reveals_fow() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::RadarScan);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::RadarScan);
     }
 
     // Far from caster so unit vision does not already clear the cell.
@@ -1108,7 +1114,9 @@ fn spy_satellite_does_not_queue_superweapon_strike() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::SpySatellite);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::SpySatellite);
     }
 
     game_logic.queue_command(GameCommand {
@@ -1178,7 +1186,9 @@ fn spy_satellite_special_power_reveals_fow() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::SpySatellite);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::SpySatellite);
     }
 
     // Far from caster so unit vision does not already clear the cell.
@@ -1324,7 +1334,9 @@ fn cia_intelligence_does_not_queue_superweapon_strike() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::CiaIntelligence);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::CiaIntelligence);
     }
     // Enemy unit so residual has a vision-spy target.
     let _enemy = game_logic
@@ -1454,7 +1466,9 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::CiaIntelligence);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::CiaIntelligence);
     }
 
     // Far enemy so caster vision does not already clear the cell.
@@ -1837,7 +1851,9 @@ fn firewall_does_not_queue_superweapon_strike() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::FireWall);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::FireWall);
     }
 
     game_logic.queue_command(GameCommand {
@@ -1898,7 +1914,9 @@ fn firewall_special_power_applies_line_fire_damage() {
         caster.special_power_cooldown_remaining = 0.0;
         // create_object pre-arms the module ReloadTime on the per-power
         // map; simulate a fully recharged caster like C++ isReady.
-        caster.special_power_cooldowns.remove(&SpecialPowerType::FireWall);
+        caster
+            .special_power_cooldowns
+            .remove(&SpecialPowerType::FireWall);
         caster.thing.template.armor = 0.0;
     }
 
@@ -2064,8 +2082,7 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
         // RATIONALIZE_ATTACK_RANGE) undersizes the authored range by 1/4 of a
         // pathfind cell: 300 - 2.5 = 297.5 effective.
         assert!(
-            (w.range
-                - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
+            (w.range - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
                 .abs()
                 < 1.0,
             "InfernoCannonGun effective AttackRange 297.5, got {}",
@@ -2920,7 +2937,10 @@ fn production_upgrade_researches_on_building_queue_residual() {
     );
 
     // A regular logic frame must not instant-complete a 30-second Upgrade.ini
-    // entry.  Advance the remaining research time explicitly afterwards.
+    // entry.  Advance the remaining research time explicitly afterwards: the
+    // live path clamps fixed-step catch-up to 6 steps per drive frame and
+    // drops the excess (UI freeze residual), so the headless budget variant
+    // — which keeps the carry-over — is the explicit research-time driver.
     logic.update();
 
     assert!(
@@ -2930,7 +2950,7 @@ fn production_upgrade_researches_on_building_queue_residual() {
             .unwrap_or(true),
         "FlashBang must remain queued after one 1/30s logic frame"
     );
-    logic.update_with_dt(30.0);
+    logic.update_with_dt_budget(30.0, 910);
 
     assert!(
         logic

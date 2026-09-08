@@ -212,24 +212,32 @@ impl Object {
             }
         }
 
+        // Helpers run against this object directly. They must not re-find their
+        // owner through the global singleton (TheGameLogic::find_object_by_id),
+        // which never returns in isolated/local-instance contexts and would hang
+        // this update loop.
+        let body = self.get_body_module();
+
         if let Some(helper) = &self.subdual_damage_helper {
             if let Ok(mut guard) = helper.lock() {
-                let _ = guard.update(current_frame);
+                let _ = guard.update_in_owner(current_frame, body.as_ref());
             }
         }
 
-        if let Some(helper) = &self.status_damage_helper {
+        let status_helper = self.status_damage_helper.clone();
+        if let Some(helper) = status_helper {
             if let Ok(mut guard) = helper.lock() {
                 if guard.has_active_status() && guard.get_frame_to_heal() <= current_frame {
-                    let _ = guard.update(current_frame);
+                    let _ = guard.update_in_owner(current_frame, self);
                 }
             }
         }
 
-        if let Some(helper) = &self.temp_weapon_bonus_helper {
+        let temp_helper = self.temp_weapon_bonus_helper.clone();
+        if let Some(helper) = temp_helper {
             if let Ok(mut guard) = helper.lock() {
                 if guard.has_active_bonus() && guard.get_frame_to_remove() <= current_frame {
-                    let _ = guard.update(current_frame);
+                    let _ = guard.update_in_owner(current_frame, self);
                 }
             }
         }

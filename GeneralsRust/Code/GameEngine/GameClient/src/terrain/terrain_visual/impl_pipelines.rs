@@ -389,10 +389,13 @@ impl TerrainVisualImpl {
                     unclipped_depth: false,
                     conservative: false,
                 },
+                // C++ water shaders are PASS_LEQUAL (SC_ALPHA_BLEND /
+                // PresetAlphaShader family, W3DWater.cpp:107-131): water must
+                // z-test against the whole scene it renders after.
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
                     depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),

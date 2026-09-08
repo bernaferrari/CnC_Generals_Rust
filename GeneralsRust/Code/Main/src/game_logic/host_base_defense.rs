@@ -2403,7 +2403,9 @@ pub fn gattling_building_air_weapon(level: GattlingFireLevel, has_chain_guns: bo
 ///
 /// Mirrors C++ `FiringTracker::shotFired` with building thresholds
 /// ContinuousFireOne=1 / ContinuousFireTwo=5.
-/// Returns `(new_level, consecutive, entered_fast)`.
+/// Returns `(new_level, consecutive, entered_fast)`. A demotion is C++
+/// coolDown (FiringTracker.cpp:319-321): it returns `consecutive == 0` —
+/// the caller must clear the stored victim along with the count.
 pub fn gattling_building_on_shot_fired(
     previous_level: GattlingFireLevel,
     previous_consecutive: u32,
@@ -2430,7 +2432,10 @@ pub fn gattling_building_on_shot_fired(
     match previous_level {
         GattlingFireLevel::Mean => {
             if consecutive < GATTLING_BUILDING_CONTINUOUS_FIRE_ONE {
-                level = GattlingFireLevel::Base;
+                // C++ coolDown: straight to base, count and victim restart
+                // (FiringTracker.cpp:319-321). consecutive == 0 marks the
+                // reset; callers must clear the stored victim too.
+                return (GattlingFireLevel::Base, 0, false);
             } else if consecutive > GATTLING_BUILDING_CONTINUOUS_FIRE_TWO {
                 level = GattlingFireLevel::Fast;
                 entered_fast = true;
@@ -2438,8 +2443,9 @@ pub fn gattling_building_on_shot_fired(
         }
         GattlingFireLevel::Fast => {
             if consecutive < GATTLING_BUILDING_CONTINUOUS_FIRE_TWO {
-                // C++ coolDown: straight to zero from FAST.
-                level = GattlingFireLevel::Base;
+                // C++ coolDown: straight to zero from FAST, count and victim
+                // restart (FiringTracker.cpp:126-129, 319-321).
+                return (GattlingFireLevel::Base, 0, false);
             }
         }
         GattlingFireLevel::Base => {
@@ -2453,6 +2459,11 @@ pub fn gattling_building_on_shot_fired(
 }
 
 /// Next coast-until frame after a shot (next possible shot frame + coast residual).
+///
+/// `level` must be the FIRED shot's level (pre-promotion): C++ stamps
+/// `m_frameToStartCooldown = getPossibleNextShotFrame() + coast`
+/// (FiringTracker.cpp:106-110) where the next-shot frame was computed with the
+/// bonus at fire time — speedUp runs after firing (Weapon.cpp:2645-2647).
 pub fn gattling_building_coast_until_after_shot(
     current_frame: u32,
     level: GattlingFireLevel,
@@ -2471,6 +2482,33 @@ pub fn gattling_building_has_chain_guns(applied_upgrades: &HashSet<String>) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gattling_building_demotion_resets_consecutive() {
+        // FAST with consecutive < Two (5) demotes straight to base and
+        // restarts the count (C++ coolDown, FiringTracker.cpp:319-321).
+        let (lvl, c, _) = gattling_building_on_shot_fired(
+            GattlingFireLevel::Fast,
+            0,
+            Some(1),
+            Some(1),
+            10,
+            100,
+        );
+        assert_eq!(lvl, GattlingFireLevel::Base);
+        assert_eq!(c, 0);
+    }
+
+    #[test]
+    fn gattling_building_coast_deadline_uses_fired_level_delay() {
+        // FiringTracker.cpp:106-110 + Weapon.cpp:2645-2647: the deadline keeps
+        // the FIRED shot's (pre-promotion) next-shot delay.
+        // Spin-up shot fired at BASE (8f) while promoting to MEAN:
+        assert_eq!(
+            gattling_building_coast_until_after_shot(100, GattlingFireLevel::Base),
+            100 + 8 + GATTLING_BUILDING_COAST_FRAMES
+        );
+    }
 
     #[test]
     fn patriot_scatter_vs_infantry_peels() {

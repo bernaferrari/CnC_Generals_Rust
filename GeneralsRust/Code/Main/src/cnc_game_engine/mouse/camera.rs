@@ -1,6 +1,15 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+/// C++ `InGameUI::createCommandHint` `MSG_DO_MOVETO_HINT` cursor sub-case
+/// (`InGameUI.cpp:2595-2607`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MoveToHintCursorClass {
+    GenericInvalid,
+    Selecting,
+    MoveTo,
+}
+
 impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn handle_mouse_wheel(
         &mut self,
@@ -506,22 +515,17 @@ impl CnCGameEngine {
             return Vec3::ZERO;
         }
 
-        // C++ W3DView.cpp:1779 scrollBy unprojects screen corners
-        // (SCROLL_RESOLUTION=250). World step grows with camera height.
-        // Vertical screen delta is pre-multiplied by view aspect.
-        let mut forward = self.camera_target - self.camera_position;
-        forward.y = 0.0;
-        if forward.length_squared() <= f32::EPSILON {
-            return Vec3::ZERO;
-        }
-        let forward = forward.normalize();
-        let right = Vec3::new(forward.z, 0.0, -forward.x);
-        let height = (self.camera_position - self.camera_target)
-            .length()
-            .max(1.0);
+        // C++ W3DView.cpp:1779 scrollBy unprojects the view corner and the
+        // scroll offset (SCROLL_RESOLUTION=250, vertical pre-multiplied by the
+        // tactical-view aspect) through the live camera, so the world step
+        // follows the real FOV and pitch instead of a height heuristic.
         let (view_w, view_h) = self.tactical_viewport_size();
-        let aspect = view_w / view_h.max(1.0);
-        lookat_scroll_world_delta(screen_scroll, forward, right, height, aspect)
+        lookat_scroll_world_delta(
+            screen_scroll,
+            self.view_matrix,
+            self.projection_matrix,
+            (view_w, view_h),
+        )
     }
 
     /// C++ View::zoomIn/Out: change height-above-ground by 10wu per detent
@@ -884,9 +888,34 @@ impl CnCGameEngine {
             Some(crate::command_system::CommandType::CaptureBuilding { .. }) => {
                 ("CaptureBuilding", CursorIcon::Cell)
             }
-            Some(crate::command_system::CommandType::MoveTo { .. })
-            | Some(crate::command_system::CommandType::DoSalvage { .. })
-            | Some(crate::command_system::CommandType::AttackMoveTo { .. }) => {
+            Some(crate::command_system::CommandType::MoveTo { .. }) => {
+                // C++ InGameUI.cpp:2595-2607 MSG_DO_MOVETO_HINT sub-branches:
+                // non-selectable drawable under a lone selected structure →
+                // GENERIC_INVALID; own selectable (non-mine) → SELECTING;
+                // otherwise MOVETO.
+                match self.moveto_hint_cursor_class(hover) {
+                    MoveToHintCursorClass::GenericInvalid => {
+                        ("GenericInvalid", CursorIcon::NotAllowed)
+                    }
+                    MoveToHintCursorClass::Selecting => ("Select", CursorIcon::Pointer),
+                    MoveToHintCursorClass::MoveTo => ("Move", CursorIcon::AllScroll),
+                }
+            }
+            Some(crate::command_system::CommandType::AttackMoveTo { .. }) => {
+                // C++ InGameUI.cpp:2610-2614 — SELECTING over own selectables,
+                // ATTACKMOVETO otherwise (Move carries the residual icon here).
+                if matches!(
+                    self.moveto_hint_cursor_class(hover),
+                    MoveToHintCursorClass::Selecting
+                ) {
+                    ("Select", CursorIcon::Pointer)
+                } else {
+                    ("Move", CursorIcon::AllScroll)
+                }
+            }
+            Some(crate::command_system::CommandType::DoSalvage { .. }) => {
+                // C++ InGameUI.cpp:2680-2682 — MSG_DO_SALVAGE_HINT → MOVETO
+                // unconditionally, with no drawable sub-branches.
                 ("Move", CursorIcon::AllScroll)
             }
             Some(crate::command_system::CommandType::AddWaypoint { .. }) => {
@@ -904,6 +933,58 @@ impl CnCGameEngine {
             }
         }
     }
+
+    /// C++ `InGameUI::createCommandHint` `MSG_DO_MOVETO_HINT` cursor class
+    /// (`InGameUI.cpp:2595-2607`). `drawSelectable` is the
+    /// `CanSelectDrawable(draw, FALSE)` legality of the drawable under the
+    /// cursor (any team); `srcObj` exists only when exactly one drawable is
+    /// selected. A `None` hover behaves as a non-selectable target because
+    /// the rally branch above already owns the empty-ground case.
+    fn moveto_hint_cursor_class(&self, hover: Option<ObjectId>) -> MoveToHintCursorClass {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return MoveToHintCursorClass::MoveTo;
+        };
+        let object = hover.and_then(|id| frame.objects.iter().find(|o| o.id == id));
+        let draw_selectable = object.is_some_and(|o| {
+            !o.destroyed
+                && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+        });
+        if !draw_selectable {
+            let selected = self.ui_selected_ids(self.current_player_id);
+            let src_is_local_structure = selected.len() == 1
+                && selected.first().is_some_and(|src| {
+                    frame.objects.iter().any(|o| {
+                        o.id == *src
+                            && frame.is_owned_by_local(o)
+                            && (o.is_structure
+                                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                    o,
+                                    crate::game_logic::KindOf::Structure,
+                                ))
+                    })
+                });
+            return if src_is_local_structure {
+                MoveToHintCursorClass::GenericInvalid
+            } else {
+                MoveToHintCursorClass::MoveTo
+            };
+        }
+        let obj_locally_controlled = object.is_some_and(|o| frame.is_owned_by_local(o));
+        // C++ `obj->isKindOf(KINDOF_MINE)` — own mines keep the move cursor.
+        let obj_is_mine = object.is_some_and(|o| {
+            o.has_mine
+                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Mine,
+                )
+        });
+        if obj_locally_controlled && !obj_is_mine {
+            MoveToHintCursorClass::Selecting
+        } else {
+            MoveToHintCursorClass::MoveTo
+        }
+    }
+
 
     pub(in crate::cnc_game_engine) fn lookat_input_enabled(&self) -> bool {
         #[cfg(feature = "game_client")]

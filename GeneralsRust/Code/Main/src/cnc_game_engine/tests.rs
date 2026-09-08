@@ -390,8 +390,8 @@ fn render_ui_state_prefers_presentation_without_live_update() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     // Wave 591: real consumer lives in host_build_render_ui_state_from_presentation.
     // Prefer last production def (tests may embed the signature string).
-    let marker =
-        "fn host_build_render_ui_state_from_presentation(&mut self) -> crate::ui::GameUIState";
+    // Re-pinned 2026-09-07: signature reformatted multi-line; match the def.
+    let marker = "fn host_build_render_ui_state_from_presentation(";
     let mut i = None;
     let mut from = 0usize;
     while let Some(rel) = src[from..].find(marker) {
@@ -444,7 +444,7 @@ fn presentation_path_ticks_drawables_like_cpp() {
 fn show_shell_menu_sets_shell_active_for_wnd_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     let i = src.find("fn show_shell_menu").expect("show_shell_menu");
-    let body = &src[i..src.len().min(i + 2200)];
+    let body = &src[i..src.len().min(i + 3200)];
     assert!(
         body.contains("SubsystemInterface::init"),
         "show_shell_menu must init Shell before push (TLS starts uninitialized)"
@@ -509,18 +509,20 @@ fn match_start_presentation_seed_uses_shadow_overlay() {
 }
 
 #[test]
-fn apply_presentation_to_huds_dual_no_recurse_residual() {
+fn apply_presentation_to_huds_single_rendered_hud() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     let marker = "fn apply_presentation_to_huds(";
-    let i = src.find(marker).expect("dual HUD apply helper");
-    let body = &src[i..src.len().min(i + 450)];
-    assert!(
-        body.contains("pres.apply_to_game_hud(&mut self.game_hud)"),
-        "must apply presentation freeze to engine GameHUD"
-    );
+    let i = src.find(marker).expect("HUD apply helper");
+    let body = &src[i..src.len().min(i + 900)];
+    // One rendered HUD, one apply: `ui_manager.render()` draws GameHUD; the
+    // engine-instance HUD is never drawn, so applying to it duplicated events.
     assert!(
         body.contains("pres.apply_to_game_hud(self.ui_manager.game_hud_mut())"),
-        "must apply presentation freeze to UIManager GameHUD"
+        "must apply presentation freeze to the rendered UIManager GameHUD"
+    );
+    assert!(
+        !body.contains("pres.apply_to_game_hud(&mut self.game_hud)"),
+        "must not fan out to the un-rendered engine GameHUD"
     );
     // Body must not recurse into itself (stack overflow residual).
     let after_sig = match body.split_once('{') {
@@ -621,8 +623,15 @@ fn create_temp_test_dir(prefix: &str) -> std::path::PathBuf {
 
 #[test]
 fn startup_deferred_budget_is_disabled() {
-    let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
+    // Re-pinned 2026-09-07: only non-Menu play disables the deferred budget.
+    // C++ AssetManager is async; a Menu budget of 0 flips allow_sync_model_loads
+    // and 271 missing W3Ds beachball the render thread (hq-fq1h), so Menu
+    // (even with no startup frame yet) always budgets >= 4.
+    let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::InGame, None, 0);
     assert_eq!(budget, 0);
+    let menu_no_frame =
+        CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
+    assert_eq!(menu_no_frame, 4);
 }
 
 #[test]

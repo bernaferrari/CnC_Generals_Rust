@@ -3077,8 +3077,31 @@ impl GameLogic {
                         attacker.release_weapon_lock(WeaponLockType::LockedTemporarily);
                     }
                     if let Some(tid) = attacker.target {
-                        attacker.record_shot_at_target(tid);
-                        attacker.stamp_continuous_fire_coast(self.frame);
+                        // C++ has one FiringTracker::shotFired per shot
+                        // (FiringTracker.cpp:60-160). Attackers owned by a
+                        // specialized continuous-fire lane already had this
+                        // shot's level/coast derived above (advance_gattling_
+                        // / advance_minigunner_continuous_fire). Re-running
+                        // the generic derivation would overwrite the lane's
+                        // coast deadline (frame + coast, losing the fired
+                        // shot's next-shot delay term) and zero it at base
+                        // level — disarming retarget retention and spinning
+                        // the lane down early. Keep only engagement
+                        // bookkeeping for those lanes.
+                        let specialized_lane =
+                            crate::game_logic::host_gattling_tank::is_gattling_tank_template(
+                                &attacker.template_name,
+                            ) || crate::game_logic::host_minigunner::is_minigunner_template(
+                                &attacker.template_name,
+                            ) || crate::game_logic::host_base_defense::is_gattling_cannon_structure(
+                                &attacker.template_name,
+                            );
+                        if specialized_lane {
+                            attacker.record_shot_at_target_without_continuous_fire(tid);
+                        } else {
+                            attacker.record_shot_at_target(tid);
+                            attacker.stamp_continuous_fire_coast(self.frame);
+                        }
                         attacker.stamp_auto_reload_when_idle_from_slot(slot, self.frame);
                     }
                     // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.

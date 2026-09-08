@@ -755,9 +755,8 @@ fn residual_acquire_query_source() {
             .find("fn find_object_at_position")
             .expect("engine find_object_at_position");
         // Prefer the InGame/engine pick (not test helpers): scan for boot residual marker.
-        let body =
-            rust_fn_body(eng, "host_find_object_at_position")
-                .expect("engine host_find_object_at_position");
+        let body = rust_fn_body(eng, "host_find_object_at_position")
+            .expect("engine host_find_object_at_position");
         assert!(
             body.contains("pick_object_id_at_world_from_presentation")
                 || body.contains("pick_best_priority_residual_target"),
@@ -999,7 +998,10 @@ fn residual_acquire_query_source() {
     }
     // Dozer bored service residual + battle-drone master repair.
     // (BattleDroneAIUpdate doRepairLogic heals only its slaver — no acquire scan.)
-    for name in ["find_dozer_bored_repair_target", "find_dozer_bored_mine_target"] {
+    for name in [
+        "find_dozer_bored_repair_target",
+        "find_dozer_bored_mine_target",
+    ] {
         let i = src
             .find(&format!("fn {name}"))
             .or_else(|| src.find(&format!("pub fn {name}")))

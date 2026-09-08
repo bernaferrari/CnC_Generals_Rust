@@ -462,7 +462,9 @@ impl<'a> CommandExecutor<'a> {
         let mut extra_stop: Vec<ObjectId> = Vec::new();
         let mut hive_ids = extra_stop.clone();
         for &uid in units {
-            let Some(unit) = self.game_logic.host_object(uid) else { continue };
+            let Some(unit) = self.game_logic.host_object(uid) else {
+                continue;
+            };
             let has_ai = unit.can_move()
                 && !(unit.is_kind_of(KindOf::Immobile) || unit.is_kind_of(KindOf::Structure));
             if !has_ai {

@@ -250,14 +250,27 @@ impl TerrainVisualImpl {
                             hm.get_packed_terrain_tile_at_world(position.x, position.z);
                         let (ix, iy) = height_map_cell_at_world(hm, position.x, position.z);
                         let blend_i = hm.get_blend_tile_index(ix, iy);
-                        let other_packed = if blend_i != 0 {
-                            hm.blended_tiles.get(blend_i as usize).map(|blend| {
-                                (blend.blend_ndx >> 2).max(0) as u32
-                            })
+                        let blend = if blend_i != 0 {
+                            hm.blended_tiles.get(blend_i as usize)
                         } else {
                             None
                         };
-                        (packed, blend_i, other_packed)
+                        let other_packed =
+                            blend.map(|blend| (blend.blend_ndx >> 2).max(0) as u32);
+                        // Vertex fraction inside the cell for the C++
+                        // per-corner alpha table (cell_uv_at_world math).
+                        let scale = if hm.scale.abs() > f32::EPSILON {
+                            hm.scale
+                        } else {
+                            gamelogic::common::types::MAP_XY_FACTOR
+                        };
+                        let frac_x = (position.x / scale + hm.border_size as f32
+                            - ix as f32)
+                            .clamp(0.0, 1.0);
+                        let frac_y = (position.z / scale + hm.border_size as f32
+                            - iy as f32)
+                            .clamp(0.0, 1.0);
+                        (packed, blend, other_packed, frac_x, frac_y)
                     });
 
                     let base_weights = self.texture_system.generate_texture_weights(
@@ -267,41 +280,68 @@ impl TerrainVisualImpl {
                         &self.texture_rules,
                     );
 
-                    let blended = if let Some((packed, blend_i, other_packed)) = tile_sample {
-                        let base_id = bound_texture_id_for_source_tile(
-                            packed,
-                            &self.source_tile_classes,
-                            &self.texture_system,
-                            &stable_texture_ids,
-                            &shared_slot_map,
-                        );
-                        if blend_i != 0 {
-                            let other_id = other_packed.and_then(|other| {
-                                bound_texture_id_for_source_tile(
-                                    other,
-                                    &self.source_tile_classes,
-                                    &self.texture_system,
-                                    &stable_texture_ids,
-                                    &shared_slot_map,
-                                )
-                            });
-                            match (base_id, other_id) {
-                                (Some(a), Some(b)) if a != b => {
-                                    TextureWeights::blend_two(a, b, 0.5)
+                    let blended =
+                        if let Some((packed, blend, other_packed, frac_x, frac_y)) = tile_sample
+                        {
+                            let base_id = bound_texture_id_for_source_tile(
+                                packed,
+                                &self.source_tile_classes,
+                                &self.texture_system,
+                                &stable_texture_ids,
+                                &shared_slot_map,
+                            );
+                            if blend.is_some() {
+                                let other_id = other_packed.and_then(|other| {
+                                    bound_texture_id_for_source_tile(
+                                        other,
+                                        &self.source_tile_classes,
+                                        &self.texture_system,
+                                        &stable_texture_ids,
+                                        &shared_slot_map,
+                                    )
+                                });
+                                match (base_id, other_id) {
+                                    (Some(a), Some(b)) if a != b => {
+                                        // C++ getAlphaUVData
+                                        // (WorldHeightMap.cpp:2042-2134): the
+                                        // blend tile covers the cell with a
+                                        // directional per-corner alpha; the
+                                        // flat 50/50 painted band-shaped 50%
+                                        // stripes on every blend edge.
+                                        let alpha = blend
+                                            .map(|flags| {
+                                                directional_blend_alpha(flags, frac_x, frac_y)
+                                            })
+                                            .unwrap_or(0.5);
+                                        TextureWeights::blend_two(
+                                            a,
+                                            b,
+                                            (1.0 - alpha).clamp(0.0, 1.0),
+                                        )
+                                    }
+                                    (Some(a), _) => TextureWeights::single(a),
+                                    (_, Some(b)) => TextureWeights::single(b),
+                                    _ => self.texture_system.blend_textures_at_position(
+                                        position,
+                                        height,
+                                        normal,
+                                        vertex.tex_coords,
+                                        &base_weights,
+                                        &self.texture_rules,
+                                    ),
                                 }
-                                (Some(a), _) => TextureWeights::single(a),
-                                (_, Some(b)) => TextureWeights::single(b),
-                                _ => self.texture_system.blend_textures_at_position(
+                            } else if let Some(id) = base_id {
+                                TextureWeights::single(id)
+                            } else {
+                                self.texture_system.blend_textures_at_position(
                                     position,
                                     height,
                                     normal,
                                     vertex.tex_coords,
                                     &base_weights,
                                     &self.texture_rules,
-                                ),
+                                )
                             }
-                        } else if let Some(id) = base_id {
-                            TextureWeights::single(id)
                         } else {
                             self.texture_system.blend_textures_at_position(
                                 position,
@@ -311,19 +351,7 @@ impl TerrainVisualImpl {
                                 &base_weights,
                                 &self.texture_rules,
                             )
-                        }
-                    } else {
-                        self.texture_system.blend_textures_at_position(
-                            position,
-                            height,
-                            normal,
-                            vertex.tex_coords,
-                            &base_weights,
-                            &self.texture_rules,
-                        )
-                    };
-
-
+                        };
 
                     vertex_weights.push(blended);
                 }
@@ -481,13 +509,37 @@ impl TerrainVisualImpl {
     ) -> [TextureId; MAX_TEXTURES_PER_CHUNK] {
         let mut selected_textures: Vec<TextureId> = Vec::new();
 
-        // Bind map texture classes first so adjacent firstTile/numTiles classes
-        // land on different TextureId keys (not tile%4).
-        for class in &self.source_tile_classes {
+        // C++ composes every texture class into one combiner atlas
+        // (WorldHeightMap::getTerrainTexture), so all classes stay addressable.
+        // The live path binds only MAX_TEXTURES_PER_CHUNK slots per chunk, so
+        // rank the map's classes by actual tile usage instead of taking the
+        // first four in map order — a >4-class map no longer collapses every
+        // under-represented class onto the fallback slot.
+        let mut class_usage: HashMap<usize, u32> = HashMap::new();
+        if let Some(height_map) = self.height_map.as_ref() {
+            for &tile_ndx in &height_map.tile_ndxes {
+                let packed_tile = ((tile_ndx >> 2).max(0)) as u32;
+                if let Some(class_idx) =
+                    texture_class_index_from_ndx(packed_tile, &self.source_tile_classes)
+                {
+                    *class_usage.entry(class_idx).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut ranked_classes: Vec<usize> = class_usage.keys().copied().collect();
+        ranked_classes.sort_by(|a, b| {
+            class_usage[b]
+                .cmp(&class_usage[a])
+                .then_with(|| self.source_tile_classes[*a].first_tile.cmp(&self.source_tile_classes[*b].first_tile))
+        });
+
+        let mut selected_textures: Vec<TextureId> = Vec::new();
+        for class_idx in &ranked_classes {
             if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
                 break;
             }
-            if let Some(texture_id) = self.texture_id_for_class_name(&class.name) {
+            let class_name = &self.source_tile_classes[*class_idx].name;
+            if let Some(texture_id) = self.texture_id_for_class_name(class_name) {
                 if selected_textures
                     .iter()
                     .all(|candidate| *candidate != texture_id)
@@ -497,6 +549,8 @@ impl TerrainVisualImpl {
             }
         }
 
+        // Classes the map never places still keep their rule/textures eligible
+        // (paint rules, fallback terrain) before the global first-texture sink.
         for rule in &self.texture_rules {
             if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
                 break;
@@ -609,9 +663,9 @@ impl TerrainVisualImpl {
                 .map(|height_map| height_map.get_height_at(x, y))
                 .unwrap_or(0.0)
         };
-        let sun_direction = self.sun_direction;
-        let sun_color = self.sun_color;
-        let ambient_color = self.ambient_color;
+        // C++ updateSegLighting/getStaticDiffuse read TheGlobalData live and
+        // shade with every global light (doTheLight), not just light 0.
+        let (global_lights, ambient_color) = super::chunk::current_global_terrain_lights();
 
 
 
@@ -683,8 +737,7 @@ impl TerrainVisualImpl {
                             Self::apply_road_vertex_static_diffuse(
                                 &mut gpu_vertices,
                                 height_map,
-                                sun_direction,
-                                sun_color,
+                                &global_lights,
                                 ambient_color,
                             );
                             let gpu_indices: Vec<u32> =
@@ -733,8 +786,7 @@ impl TerrainVisualImpl {
                 Self::apply_road_vertex_static_diffuse(
                     &mut gpu_vertices,
                     height_map,
-                    sun_direction,
-                    sun_color,
+                    &global_lights,
                     ambient_color,
                 );
                 if let Some(mesh) = Self::upload_overlay_mesh(
@@ -808,6 +860,7 @@ impl TerrainVisualImpl {
                 usage: wgpu::BufferUsages::INDEX,
             }),
             index_count: indices.len() as u32,
+            bib_highlight: false,
         })
     }
 
@@ -817,8 +870,7 @@ impl TerrainVisualImpl {
     fn apply_road_vertex_static_diffuse(
         vertices: &mut [OverlayGpuVertex],
         height_map: Option<&HeightMap>,
-        sun_direction: Vec3,
-        sun_color: [f32; 3],
+        global_lights: &[(Vec3, [f32; 3])],
         ambient_color: [f32; 3],
     ) {
         const COLOR_FLOOR: f32 = 0.35;
@@ -828,8 +880,7 @@ impl TerrainVisualImpl {
                 .unwrap_or(Vec3::Y);
             let lit = Self::terrain_static_diffuse_from_normal(
                 normal,
-                sun_direction,
-                sun_color,
+                global_lights,
                 ambient_color,
             );
             vertex.color = [
@@ -881,11 +932,24 @@ impl TerrainVisualImpl {
         self.record_road_draws(pass);
         self.record_overlay_draws(pass);
         self.record_tree_draws(pass);
-        self.record_water_draws(pass);
-        self.record_extra_water_draws(pass);
-        self.record_shroud_water_pass(pass);
+        // C++ shoreline blend tiles render inside the terrain pass; the water
+        // surfaces themselves are sort level 2 (W3DWater.cpp:1019) and move to
+        // the post-scene water pass (record_water_scene_draws).
+        self.record_shoreline_draws(pass);
+        self.record_shroud_water_pass(pass, true);
         self.record_shroud_tree_pass(pass);
         self.record_shroud_bridge_pass(pass);
+    }
+
+    /// C++ static sort level 2: the whole water scene renders after opaque
+    /// objects and shadows (W3DScene.cpp:833 Render_And_Clear_Static_Sort_Lists).
+    /// GlobalData sea plane (drawSea) + water tracks + polygon rivers/trapezoids
+    /// (renderWater) + water grid mesh (renderWaterMesh), then the shroud pass
+    /// over the same geometry.
+    pub fn record_water_scene_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        self.record_water_draws(pass);
+        self.record_extra_water_draws(pass);
+        self.record_shroud_water_pass(pass, false);
     }
 
     pub fn record_chunk_depth_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
@@ -2005,6 +2069,13 @@ impl TerrainVisualImpl {
             self.water_plane = None;
             return Ok(());
         }
+        // C++ Render() only draws the GlobalData-extent sea plane for
+        // WATER_TYPE_2_PVSHADER (drawSea, W3DWater.cpp:1540-1543); the shipped
+        // WATER_TYPE_0 path renders polygon-trigger water only.
+        if global.water_type != 2 {
+            self.water_plane = None;
+            return Ok(());
+        }
 
         // C++ WaterRenderObjClass::getClippedWaterPlane (W3DWater.cpp:1735-1738)
         // spans local [0..m_dx] x [0..m_dy] at m_level, then Set_Position
@@ -2016,7 +2087,7 @@ impl TerrainVisualImpl {
         let max_x = global.water_position_x + global.water_extent_x;
         let max_z = global.water_position_y + global.water_extent_y;
         // Tile 15×15 patches across GlobalData extents (do not stretch one sheet).
-        let (standing_color, additive, standing_tex) = {
+        let (_standing_color, additive, standing_tex) = {
             game_engine::common::ini::ini_water::initialize_water_settings();
             game_engine::common::ini::ini_water::get_water_transparency()
                 .and_then(|lock| lock.read().ok().map(|g| {
@@ -2040,36 +2111,15 @@ impl TerrainVisualImpl {
         );
         let water_set = game_engine::common::ini::ini_water::get_water_setting(tod)
             .and_then(|lock| lock.read().ok().map(|g| g.clone()));
-        let water_diffuse = water_set
+        // C++ type-2 sea vertices use the ini TransparentDiffuseColor directly
+        // (generateVertexBuffer, W3DWater.cpp:667), not the standing-light blend.
+        let packed = water_set
             .as_ref()
-            .map(|s| pack_water_rgba_int(s.surface_color))
+            .map(|s| pack_water_rgba_int(s.transparent_diffuse_color))
             .unwrap_or(0xffff_ffff);
-        let packed = compute_standing_water_diffuse(
-            standing_color,
-            water_diffuse,
-            self.ambient_color,
-            &[WaterTerrainLight {
-                light_pos: [self.sun_direction.x, self.sun_direction.z, self.sun_direction.y],
-                diffuse: self.sun_color,
-            }],
-        );
 
         let (mut patch_vertices, list_indices) =
             bake_water_tiles_world(min_x, min_z, max_x, max_z, water_y, packed);
-        if let Some(setting) = water_set.as_ref() {
-            let time_ms = self.time * 1000.0;
-            let repeat = if setting.water_repeat_count > 0 {
-                setting.water_repeat_count as f32 / 16.0
-            } else {
-                1.0
-            };
-            let su = setting.u_scroll_per_ms * time_ms;
-            let sv = setting.v_scroll_per_ms * time_ms;
-            for vertex in &mut patch_vertices {
-                vertex.tu = vertex.tu * repeat + su;
-                vertex.tv = vertex.tv * repeat + sv;
-            }
-        }
         if patch_vertices.is_empty() || list_indices.is_empty() {
             self.water_plane = None;
             return Ok(());
@@ -2093,6 +2143,7 @@ impl TerrainVisualImpl {
             index_count: list_indices.len() as u32,
             texture_name: standing_tex,
             jba: false,
+            river: false,
         });
 
         Ok(())
@@ -2126,6 +2177,9 @@ impl TerrainVisualImpl {
         &self,
         mesh: &ExtraBlendDrawMesh,
     ) -> Vec<TerrainVertex> {
+        // C++ extra-blend tiles bake through getStaticDiffuse (doTheLight):
+        // every global light contributes clamped N·L diffuse.
+        let (global_lights, ambient_color) = super::chunk::current_global_terrain_lights();
         mesh.vertices
             .iter()
             .map(|vertex| {
@@ -2137,9 +2191,8 @@ impl TerrainVisualImpl {
                     .unwrap_or(Vec3::Y);
                 let mut color = Self::terrain_static_diffuse_from_normal(
                     normal,
-                    self.sun_direction,
-                    self.sun_color,
-                    self.ambient_color,
+                    &global_lights,
+                    ambient_color,
                 );
                 color[3] = vertex.color[3];
                 color = Self::bake_terrain_vertex_dynamic_light(
@@ -2395,6 +2448,68 @@ fn height_map_cell_at_world(hm: &HeightMap, world_x: f32, world_z: f32) -> (i32,
     let y = ((world_z / scale).floor() as i32 + hm.border_size).clamp(0, max_y);
     (x, y)
 }
+/// C++ `WorldHeightMap::getAlphaUVData` (WorldHeightMap.cpp:2042-2134) corner
+/// coverage table: 255 = the blend texture covers the corner, 0 = the base
+/// texture shows. `BlendTileInfo.inverted` packs INVERTED_MASK 0x1 /
+/// FLIPPED_MASK 0x2 (TileData.h:27-28). Returns the blend-texture coverage
+/// (0..1) at the vertex sitting at fraction (fx, fy) inside the cell, with
+/// corner 0=(x0,z0), 1=(x1,z0), 2=(x1,z1), 3=(x0,z1) matching the C++
+/// U/V corner ordering. Edge gradients stand in for the alpha-edge texture
+/// art (the diagonal alpha halves across the cell, flipped covers invert);
+/// `longDiagonal` doubles the gradient so the blend spans the whole cell.
+/// `customBlendEdgeClass >= 0` disables the alpha blend entirely (C++ :2023).
+fn directional_blend_alpha(
+    blend: &crate::terrain::textures::BlendTileInfo,
+    fx: f32,
+    fy: f32,
+) -> f32 {
+    if blend.custom_blend_edge_class >= 0 {
+        return 0.0;
+    }
+    let inverted = blend.inverted & 0x1 != 0;
+    let flipped = blend.inverted & 0x2 != 0;
+    let (fx, fy) = if flipped {
+        (1.0 - fx, 1.0 - fy)
+    } else {
+        (fx, fy)
+    };
+    let mut alpha = 0.0_f32;
+    if blend.horiz != 0 {
+        // C++ :2062-2070 — half-plane across X; inverted covers the x0 edge.
+        alpha = alpha.max(if inverted { 1.0 - fx } else { fx });
+    }
+    if blend.vert != 0 {
+        // C++ :2071-2079 — half-plane across Z; inverted covers the z0 edge.
+        alpha = alpha.max(if inverted { 1.0 - fy } else { fy });
+    }
+    if blend.right_diagonal != 0 {
+        // C++ :2080-2096 — triangle to corner 1 (inverted) or 2.
+        let tri = if inverted {
+            (fx + (1.0 - fy) - 1.0).clamp(0.0, 1.0)
+        } else {
+            (fx + fy - 1.0).clamp(0.0, 1.0)
+        };
+        alpha = alpha.max(if blend.long_diagonal != 0 {
+            (tri * 2.0).min(1.0)
+        } else {
+            tri
+        });
+    }
+    if blend.left_diagonal != 0 {
+        // C++ :2097-2114 — triangle to corner 0 (inverted) or 3.
+        let tri = if inverted {
+            (1.0 - fx - fy).clamp(0.0, 1.0)
+        } else {
+            (fy - fx).clamp(0.0, 1.0)
+        };
+        alpha = alpha.max(if blend.long_diagonal != 0 {
+            (tri * 2.0).min(1.0)
+        } else {
+            tri
+        });
+    }
+    alpha.clamp(0.0, 1.0)
+}
 
 fn unique_bound_texture_ids(
     stable_ids: &[TextureId; MAX_TEXTURES_PER_CHUNK],
@@ -2405,6 +2520,7 @@ fn unique_bound_texture_ids(
         if !shared_slot_map.contains_key(&id) {
             continue;
         }
+
         if unique.iter().all(|existing| *existing != id) {
             unique.push(id);
         }
@@ -2591,6 +2707,100 @@ mod splat_texture_class_tests {
             bound_texture_id_for_source_tile(99, &classes, &textures, &stable, &slot_map),
             None
         );
+    }
+}
+mod directional_blend_alpha_tests {
+    use super::*;
+    use crate::terrain::textures::{BlendTileInfo, FLIPPED_MASK, INVERTED_MASK};
+
+    fn blend() -> BlendTileInfo {
+        let mut b = BlendTileInfo::new();
+        // Parsed maps write -1 when no custom edge is authored
+        // (map_terrain.rs:176-177); customBlendEdgeClass >= 0 means
+        // "custom edge, no alpha blend" (C++ WorldHeightMap.cpp:2023-2027).
+        b.custom_blend_edge_class = -1;
+        b
+    }
+
+
+    /// Corner fractions: corner 0=(0,0), 1=(1,0), 2=(1,1), 3=(0,1).
+    #[test]
+    fn horiz_blend_covers_one_x_edge_like_cpp() {
+        // C++ :2062-2070 — uninverted horiz sets alpha[1]=alpha[2]=255 (the
+        // x1 edge); inverted sets alpha[0]=alpha[3]=255 (the x0 edge).
+        let mut b = blend();
+        b.horiz = 1;
+        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 1.0, 1.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 0.0, 0.0), 0.0);
+        b.inverted = INVERTED_MASK as u8;
+        assert_eq!(directional_blend_alpha(&b, 0.0, 0.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 0.0, 1.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 1.0, 0.5), 0.0);
+    }
+
+    #[test]
+    fn vert_blend_covers_one_z_edge_like_cpp() {
+        // C++ :2071-2079 — uninverted vert sets alpha[2]=alpha[3]=255.
+        let mut b = blend();
+        b.vert = 1;
+        assert_eq!(directional_blend_alpha(&b, 0.0, 1.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 0.0);
+        b.inverted = INVERTED_MASK as u8;
+        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 0.5, 1.0), 0.0);
+    }
+
+    #[test]
+    fn diagonal_blends_ramp_across_the_cell() {
+        // C++ :2080-2096 — uninverted right diagonal covers corner 2.
+        let mut b = blend();
+        b.right_diagonal = 1;
+        assert_eq!(directional_blend_alpha(&b, 1.0, 1.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 0.0, 0.0), 0.0);
+        assert!((directional_blend_alpha(&b, 1.0, 0.0) - 0.0).abs() < 1.0e-6);
+        // C++ :2081-2085 — inverted right diagonal covers corner 1.
+        b.inverted = INVERTED_MASK as u8;
+        assert_eq!(directional_blend_alpha(&b, 1.0, 0.0), 1.0);
+        assert_eq!(directional_blend_alpha(&b, 0.0, 1.0), 0.0);
+        // C++ :2097-2114 — left diagonal covers corner 3 (or 0 inverted).
+        let mut l = blend();
+        l.left_diagonal = 1;
+        assert_eq!(directional_blend_alpha(&l, 0.0, 1.0), 1.0);
+        assert_eq!(directional_blend_alpha(&l, 1.0, 0.0), 0.0);
+        l.inverted = INVERTED_MASK as u8;
+        assert_eq!(directional_blend_alpha(&l, 0.0, 0.0), 1.0);
+    }
+
+    #[test]
+    fn long_diagonal_widens_the_ramp_across_the_cell() {
+        let mut b = blend();
+        b.right_diagonal = 1;
+        let plain = directional_blend_alpha(&b, 0.75, 0.5);
+        b.long_diagonal = 1;
+        let long = directional_blend_alpha(&b, 0.75, 0.5);
+        assert!((plain - 0.25).abs() < 1.0e-6);
+        assert!((long - 0.5).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn flipped_blends_swap_the_axes_before_evaluating() {
+        // FLIPPED_MASK (TileData.h:28) mirrors the cell before the table.
+        let mut b = blend();
+        b.horiz = 1;
+        b.inverted = FLIPPED_MASK as u8;
+        // Flipped (fx,fy)=(0.2,0.8) evaluates (0.8,0.2): uninverted → fx=0.8.
+        assert!((directional_blend_alpha(&b, 0.2, 0.8) - 0.8).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn custom_edge_class_disables_the_alpha_blend() {
+        // C++ :2023-2027 — customBlendEdgeClass >= 0: no alpha, no flip.
+        let mut b = blend();
+        b.horiz = 1;
+        b.right_diagonal = 1;
+        b.custom_blend_edge_class = 3;
+        assert_eq!(directional_blend_alpha(&b, 1.0, 1.0), 0.0);
     }
 }
 

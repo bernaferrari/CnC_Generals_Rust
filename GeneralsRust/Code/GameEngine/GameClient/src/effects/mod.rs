@@ -59,7 +59,6 @@ pub mod ray_effects;
 pub mod runtime_fx;
 pub mod shadow_system;
 pub mod tracer_fx;
-pub mod weather;
 pub mod weather_complete;
 
 use nalgebra::{Point3, Vector3};

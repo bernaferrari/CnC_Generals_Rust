@@ -86,6 +86,9 @@ fn produce_trace(mut scenario: FixtureScenario) -> TraceDump {
     for frame in 1..=scenario.final_frame {
         for _ in 0..scenario.rng_draws_per_frame {
             let _ = get_game_logic_random_value(0, i32::MAX);
+            // Boundary range on purpose: hi - lo + 1 wraps to 0x80000000
+            // (C++ RandomValue.cpp:189), exercising the MSVC-wrapped delta
+            // path; one draw is still consumed per call, exactly as C++ :196.
         }
         let rng_seed = get_game_logic_random_seed_state();
         let mut commands: Vec<TraceCommand> = scenario

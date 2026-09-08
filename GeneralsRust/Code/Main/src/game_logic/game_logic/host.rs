@@ -11,11 +11,13 @@ use super::*;
 
 pub struct GameLogic {
     /// GameLogic-owned engine stores (C++ TheUpgradeCenter / TheAI context).
-    /// Installed as the active bundle on construction so every
-    /// `the_ai()` / `get_upgrade_center()` access in this world resolves
-    /// here; uninstalled on drop (see `impl Drop for GameLogic`).
-    pub(crate) engine_stores:
-        std::sync::Arc<gamelogic::system::engine_stores::EngineStores>,
+    /// Created inertly and installed as the active bundle at the world-start
+    /// boundaries (`GameLogic::new` outside a staged restore, `reset` for
+    /// staged candidates, staged-world commit); on world drop the bundle is
+    /// popped from the active stack, reinstating the bundle this one
+    /// displaced (see `install_as_active_stores` and
+    /// `impl Drop for GameLogic`).
+    pub(crate) engine_stores: std::sync::Arc<gamelogic::system::engine_stores::EngineStores>,
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
@@ -36,7 +38,8 @@ pub struct GameLogic {
     /// GameWorld shadow last-writer authority switches (per-instance context;
     /// replaces the retired `GENERALS_GAMEWORLD_*_AUTHORITY` env flags).
     /// Defaults all-off: host `GameLogic` is the sole writer (C++ single store).
-    pub(crate) gameworld_authority: crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority,
+    pub(crate) gameworld_authority:
+        crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority,
     /// Objects in the world.
     ///
     /// Own field (not a method on `&mut GameLogic`) so ticks can
@@ -1038,6 +1041,20 @@ pub struct GameLogic {
     /// StealthDetectorUpdate DetectionRate residual scans performed.
     pub(super) stealth_detector_rate_scans: u32,
 
+    /// Driving-instance logic-RNG state (scoped-owner migration aid).
+    ///
+    /// Published as the Common logic-stream owner for every fixed-step batch
+    /// (`step_simulation_with_budget`), so logic draws during this world's
+    /// tick consume this instance instead of the process-global fallback.
+    /// C++ parity: one `theGameLogicSeed` ADC state serves the driving
+    /// GameLogic (RandomValue.cpp:150-174) — only the logic stream is
+    /// sync-critical; client/audio streams stay global.
+    pub(crate) logic_random: game_engine::common::random_value::RandomState,
+    /// Base seed `logic_random` was last (re)seeded from. Tracks the Common
+    /// base-seed broadcast so recorder/skirmish/snapshot-restore reseeds are
+    /// adopted at the next tick boundary.
+    pub(crate) logic_base_seed: u32,
+
     /// Game paused state
     pub(super) is_paused: bool,
 
@@ -1319,12 +1336,27 @@ pub struct GameLogic {
     /// C++ startNewGame installs MultiplayerScripts.scb when numTeams > 1.
     pub(super) install_multiplayer_scripts: bool,
 }
+impl GameLogic {
+    /// Make this world's engine-store bundle the ambient resolution target
+    /// (C++ single-world engine: the world being started or committed is THE
+    /// world). Idempotent per bundle — a live world resetting itself must
+    /// not push a duplicate active-stack entry.
+    pub(crate) fn install_as_active_stores(&self) {
+        let bundle = Arc::clone(&self.engine_stores);
+        if gamelogic::system::engine_stores::is_active(&bundle) {
+            return;
+        }
+        gamelogic::system::engine_stores::install_active(bundle);
+    }
+}
 
 impl Drop for GameLogic {
     fn drop(&mut self) {
         // C++ TheUpgradeCenter/TheAI live and die with the owning world.
-        // Deactivate this world's bundle only if a newer world has not
-        // already replaced it as the active store context.
+        // Pop this world's bundle only while it still heads the active
+        // stack; the bundle it displaced is reinstated, and a world that
+        // died while a newer one was live only drops its buried entry so no
+        // later pop can reinstate it.
         gamelogic::system::engine_stores::uninstall_active_if_current(&self.engine_stores);
     }
 }

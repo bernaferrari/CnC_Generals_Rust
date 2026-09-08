@@ -243,6 +243,14 @@ pub struct FrozenWeaponVisualImpulse {
     pub recoil_dir: f32,
     pub source_orientation: f32,
     pub target_pos: [f32; 3],
+    /// C++ `Weapon::getWeaponSpeed()`: the frozen FireFX playback speed
+    /// carried into `Drawable::handleWeaponFireFX` and `FXList::doFXPos`
+    /// (Weapon.cpp:923-940); Tracer nuggets use it as their primary speed.
+    pub weapon_speed: f32,
+    /// C++ `Weapon::getPrimaryDamageRadius(bonus)`: the frozen FireFX radius
+    /// carried to `doFXPos` so `UseCallersRadius` nuggets scale on the fire
+    /// path exactly as they do on detonation.
+    pub damage_radius: f32,
     /// C++ `isContactWeapon()`: contact weapons fall back at `targetPos`.
     pub is_contact_weapon: bool,
 }
@@ -254,6 +262,8 @@ impl Default for FrozenWeaponVisualImpulse {
             recoil_dir: 0.0,
             source_orientation: 0.0,
             target_pos: [0.0; 3],
+            weapon_speed: 0.0,
+            damage_radius: 0.0,
             is_contact_weapon: false,
         }
     }
@@ -612,6 +622,8 @@ mod tests {
             recoil_dir: 0.0,
             source_orientation: 0.0,
             target_pos: [1.0, 0.0, 0.0],
+            weapon_speed: 0.0,
+            damage_radius: 0.0,
             is_contact_weapon: false,
         };
         let angle = impulse.object_relative_recoil_angle();

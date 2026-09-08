@@ -719,7 +719,10 @@ fn update_skirmish_game_options(state: &SkirmishGameOptionsState) {
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
-    let is_skirmish = meta.as_ref().map(|meta| meta.is_multiplayer).unwrap_or(true);
+    let is_skirmish = meta
+        .as_ref()
+        .map(|meta| meta.is_multiplayer)
+        .unwrap_or(true);
 
     // C++ SkirmishGameOptionsMenu.cpp:1228-1240 (updateSkirmishGameOptions):
     // GadgetStaticTextSetText(textEntryMapDisplay, md->m_displayName), falling

@@ -2239,6 +2239,17 @@ impl AssetManager {
         self.texture_manager.clear_cache();
     }
 
+    /// Clear only the known-missing negative model cache.
+    ///
+    /// Late-provider recovery: archive providers can finish mounting after
+    /// early startup load attempts already failed (RenderPipeline::initialize
+    /// installs the archive pass-texture provider late). Dropping the
+    /// negative cache lets those keys re-attempt resolution through the real
+    /// loader without evicting the positive model cache.
+    pub fn clear_missing_model_cache(&mut self) {
+        self.missing_model_keys.clear();
+    }
+
     /// Check if a texture is already loaded in cache
     pub fn get_cached_texture(&self, texture_name: &str) -> Option<&GPUTexture> {
         if !self.initialized {
@@ -2620,6 +2631,35 @@ mod tests {
     };
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn clear_missing_model_cache_reenables_late_load_attempts() {
+        let mut manager = AssetManager::new().expect("asset manager");
+        let key = "zzz_late_provider_retry_probe";
+
+        // First attempt really tries the loader, fails, and blacklists the key.
+        let _ = manager.load_w3d_model(key);
+        let repeat = manager
+            .load_w3d_model(key)
+            .expect_err("absent key must keep failing")
+            .to_string();
+        assert!(
+            repeat.contains("known-missing"),
+            "repeat failure must hit the negative cache: {repeat}"
+        );
+
+        // Late-provider recovery: clearing the negative cache must re-enable
+        // real load attempts instead of returning the known-missing shortcut.
+        manager.clear_missing_model_cache();
+        let retried = manager
+            .load_w3d_model(key)
+            .expect_err("absent key must still fail")
+            .to_string();
+        assert!(
+            !retried.contains("known-missing"),
+            "cache clear must re-attempt the real loader: {retried}"
+        );
+    }
 
     fn weapon_barrel_topology_cache_model(name: &str, barrel_count: u8) -> W3DModel {
         let mut model = W3DModel::new(name.to_string());

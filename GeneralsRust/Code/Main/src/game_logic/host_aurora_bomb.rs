@@ -1124,9 +1124,7 @@ mod tests {
             "ally beyond primary+flame radius must not take residual damage"
         );
         // Mid at 80: inside primary r100 → FULL primary + full flame 5.
-        assert!(
-            (mid.damage - (AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE)).abs() < 0.1
-        );
+        assert!((mid.damage - (AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE)).abs() < 0.1);
         assert!(
             (epic.damage - (AURORA_FUEL_AIR_DAMAGE + AURORA_FUEL_AIR_FLAME_DAMAGE)).abs() < 0.1
         );

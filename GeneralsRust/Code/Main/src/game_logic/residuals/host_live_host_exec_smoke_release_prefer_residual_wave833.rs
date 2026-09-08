@@ -55,12 +55,8 @@ fn shell_base_source() -> &'static str {
         include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/mod.rs"),
         include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/types.rs"),
         include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/scheme.rs"),
-        include_str!(
-            "../../../../GameEngine/GameClient/src/gui/shell/base/animate_window.rs"
-        ),
-        include_str!(
-            "../../../../GameEngine/GameClient/src/gui/shell/base/shell_lifecycle.rs"
-        ),
+        include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/animate_window.rs"),
+        include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/shell_lifecycle.rs"),
         include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/shell_ops.rs"),
         include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/tests.rs"),
         include_str!("../../../../GameEngine/GameClient/src/gui/shell/base/residual.rs")

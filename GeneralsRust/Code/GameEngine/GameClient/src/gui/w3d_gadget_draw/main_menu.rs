@@ -344,7 +344,6 @@ pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceDa
     menu.draw();
 }
 
-
 /// C++ W3DControlBar.cpp:661-667 — `W3DNoDraw` has an EMPTY body (the
 /// `W3DGameWinDefaultDraw` call is commented out): a NoDraw window renders
 /// NOTHING even when it carries IMAGE status + draw-data images. Those images

@@ -56,13 +56,14 @@ pub struct MultiplayerColorDefinition {
 
 impl MultiplayerColorDefinition {
     pub fn new(name: AsciiString) -> Self {
+        // C++ MultiplayerColorDefinition ctor: RGB + packed color are white.
         Self {
             name,
             tooltip_name: AsciiString::new(),
-            rgb_value: 0,
-            rgb_night_value: 0,
-            color: 0,
-            night_color: 0,
+            rgb_value: 0x00FF_FFFF,
+            rgb_night_value: 0x00FF_FFFF,
+            color: 0xFFFF_FFFF,
+            night_color: 0xFFFF_FFFF,
         }
     }
 
@@ -75,11 +76,12 @@ impl MultiplayerColorDefinition {
     }
 
     pub fn set_color(&mut self, color: u32) {
-        self.color = color;
+        // C++ setColor: rgb.getAsInt() | (0xFF << 24)
+        self.color = color | 0xFF00_0000;
     }
 
     pub fn set_night_color(&mut self, night_color: u32) {
-        self.night_color = night_color;
+        self.night_color = night_color | 0xFF00_0000;
     }
 
     pub fn get_color(&self) -> u32 {
@@ -119,6 +121,11 @@ pub struct MultiplayerSettings {
     pub show_random_start_pos: bool,        // ShowRandomStartPos
     pub show_random_color: bool,            // ShowRandomColor
     pub num_colors: i32,
+    /// C++ `m_randomColor` / `m_observerColor` (ctor white).
+    pub random_color: MultiplayerColorDefinition,
+    pub observer_color: MultiplayerColorDefinition,
+    pub default_starting_money: Money,
+    pub got_default_starting_money: bool,
 }
 
 impl MultiplayerSettings {

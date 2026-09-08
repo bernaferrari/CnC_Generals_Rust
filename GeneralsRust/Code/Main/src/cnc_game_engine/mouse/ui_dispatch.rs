@@ -242,7 +242,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::control_bar::{
-                with_host_control_bar_input_provenance, HostControlBarInputProvenance,
+                HostControlBarInputProvenance, with_host_control_bar_input_provenance,
             };
             use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
             let msg = match (button, pressed) {
