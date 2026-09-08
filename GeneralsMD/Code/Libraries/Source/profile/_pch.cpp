@@ -1,0 +1,11 @@
+/////////////////////////////////////////////////////////////////////////EA-V1
+// $File: //depot/GeneralsMD/Staging/code/Libraries/Source/profile/_pch.cpp $
+// $Author: mhoffe $
+// $Revision: #1 $
+// $DateTime: 2003/07/03 11:55:26 $
+//
+// ©2003 Electronic Arts
+//
+// Precompiled header (module internal)
+//////////////////////////////////////////////////////////////////////////////
+#include "_pch.h"

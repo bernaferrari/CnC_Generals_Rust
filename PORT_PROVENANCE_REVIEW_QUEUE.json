@@ -8088,9 +8088,9 @@
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
+              "cargo_reachable": false,
               "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/list.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/list.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/List.cpp",
@@ -8622,7 +8622,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/save_game/game_state.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/SaveGame/game_state.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/SaveGame/GameState.cpp",
@@ -8803,7 +8803,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/save_game/game_state_map.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/SaveGame/game_state_map.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/SaveGame/GameStateMap.cpp",
@@ -9249,7 +9249,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/xfer.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/xfer.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/Xfer.cpp",
@@ -9525,7 +9525,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/xfer_load.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/xfer_load.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/XferLoad.cpp",
@@ -9585,7 +9585,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/xfer_save.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/xfer_save.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/XferSave.cpp",
@@ -137068,7 +137068,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "d73291c430f165ff1412af581878c09835dcfe9707dc5531a084af4fe49093f8",
+  "provenance_input_digest": "b93fed41617ba3b239d4f75504f28db16d63f485166fea6d58f99c081e1e0e00",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
