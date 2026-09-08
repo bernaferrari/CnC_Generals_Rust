@@ -176,21 +176,35 @@ impl MultiplayerSettings {
     }
 
     pub fn add_starting_money_choice(&mut self, money: Money, is_default: bool) {
-        let settings = MultiplayerStartingMoneySettings { money, is_default };
+        let settings = MultiplayerStartingMoneySettings { money: money.clone(), is_default };
         self.starting_money_choices.push(settings);
+        if is_default {
+            self.default_starting_money = money;
+            self.got_default_starting_money = true;
+        }
     }
 
     pub fn get_num_colors(&self) -> i32 {
         self.color_definitions.len() as i32
     }
 
+    /// C++ MultiplayerSettings::getColor — RANDOM (-1) / OBSERVER (-2) are
+    /// ctor-white specials, not list misses.
     pub fn get_color_value(&self, index: i32) -> Option<u32> {
+        const PLAYERTEMPLATE_RANDOM: i32 = -1;
+        const PLAYERTEMPLATE_OBSERVER: i32 = -2;
+        if index == PLAYERTEMPLATE_RANDOM {
+            return Some(self.random_color.get_color());
+        }
+        if index == PLAYERTEMPLATE_OBSERVER {
+            return Some(self.observer_color.get_color());
+        }
         if index < 0 {
             return None;
         }
-
-        let index = index as usize;
-        self.color_definitions.get(index).map(|def| def.get_color())
+        self.color_definitions
+            .get(index as usize)
+            .map(|def| def.get_color())
     }
 
     pub fn get_color_value_by_name(&self, name: &str) -> Option<u32> {
@@ -585,5 +599,14 @@ mod tests {
         settings.add_starting_money_choice(money, true);
         assert_eq!(settings.starting_money_choices.len(), 1);
         assert!(settings.starting_money_choices[0].is_default);
+    }
+
+    #[test]
+    fn get_color_value_random_and_observer_are_ctor_white() {
+        let settings = MultiplayerSettings::new();
+        assert_eq!(settings.get_color_value(-1), Some(0xFFFF_FFFF));
+        assert_eq!(settings.get_color_value(-2), Some(0xFFFF_FFFF));
+        assert_eq!(settings.get_color_value(-3), None);
+        assert_eq!(settings.get_color_value(0), None);
     }
 }
