@@ -60,3 +60,6 @@ rust-project.json
 **/target/
 **/debug/
 **/release/
+
+# Authored launcher sources, not Cargo build output.
+!/Code/Tools/Launcher/Toolkit/Debug/

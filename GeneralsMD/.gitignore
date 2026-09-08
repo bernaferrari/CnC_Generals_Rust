@@ -3,17 +3,26 @@
 [Rr]un
 
 # Build output folders
-[Rr]elease*
-[Pp]rofile*
-[Ii]nternal*
-[Dd]ebug*
-[Hh]ybrid*
+[Rr]elease*/
+[Pp]rofile*/
+[Ii]nternal*/
+[Dd]ebug*/
+[Hh]ybrid*/
 [Ee]nglish
 [Ff]rench
 [Gg]erman
 [Ss]panish
 Max4Release
 Max4Hybrid
+
+# These names also identify original source directories. Keep their authored
+# files while nested Debug/Release build-output directories remain ignored.
+!/Code/GameEngine/Source/GameClient/System/Debug Displayers/
+!/Code/Libraries/Source/debug/
+!/Code/Libraries/Source/debug/debug_dlg/
+!/Code/Libraries/Source/profile/
+!/Code/Tools/DebugWindow/
+!/Code/Tools/Launcher/Toolkit/Debug/
 
 # Explicitly ignore these as the depo already contains prebuilt 3rd party .lib files
 /Code/gameengine/Lib/GameEngine.lib
