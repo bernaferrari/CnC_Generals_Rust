@@ -288,11 +288,14 @@ async fn main() {
     // =========================================================================
     // PHASE 7: SINGLE INSTANCE CHECK (matches WinMain.cpp:1001-1026)
     // =========================================================================
-    if !generals_main::single_instance::create_generals_mutex() {
-        warn!("Another instance of Generals is already running");
-        cleanup_and_exit();
-        std::process::exit(0);
-    }
+    let _instance_guard = match generals_main::single_instance::create_generals_mutex() {
+        Ok(guard) => guard,
+        Err(err) => {
+            warn!("Could not acquire Generals single-instance lock: {err}");
+            cleanup_and_exit();
+            return;
+        }
+    };
     debug!("Single instance mutex created");
 
     // =========================================================================
@@ -435,8 +438,8 @@ fn cleanup_and_exit() {
     // =========================================================================
     // STEP 2: Close Single Instance Mutex
     // =========================================================================
-    // Mutex is automatically closed when process exits (handled by OS)
-    debug!("Single instance mutex will be released on exit");
+    // The entry point keeps its guard through cleanup, then drops it.
+    debug!("Single instance mutex remains held through cleanup");
 
     // =========================================================================
     // STEP 3: Shutdown Subsystems
