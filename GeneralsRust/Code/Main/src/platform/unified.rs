@@ -41,7 +41,7 @@ impl GameMessageHandler {
     pub fn new() -> Self {
         Self {
             is_windowed: true,
-            is_app_active: true,
+            is_app_active: false,
             quit_requested: false,
             audio_has_focus: true,
             cursor_locked: false,
@@ -341,5 +341,14 @@ impl WindowMessageHandler for GameMessageHandler {
 
     fn is_quit_requested(&self) -> bool {
         self.quit_requested
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn handler_starts_inactive_like_winmain_before_first_activation() {
+        let handler = super::GameMessageHandler::new();
+        assert!(!handler.is_app_active);
     }
 }
