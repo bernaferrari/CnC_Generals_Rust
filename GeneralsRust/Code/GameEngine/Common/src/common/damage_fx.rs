@@ -215,15 +215,11 @@ impl DamageFXStore {
         }
     }
 
-    /// Initialize the store
-    pub fn init(&mut self) {
-        // Initialization logic would go here
-    }
+    /// C++ DamageFXStore::init is empty.
+    pub fn init(&mut self) {}
 
-    /// Reset the store
-    pub fn reset(&mut self) {
-        self.dfx_map.clear();
-    }
+    /// C++ DamageFXStore::reset is empty — definitions survive match reset.
+    pub fn reset(&mut self) {}
 
     /// Update the store (per-frame update)
     pub fn update(&mut self) {
@@ -378,8 +374,12 @@ mod tests {
         // NameKeyGenerator::name_to_key is case sensitive; a different case should not match.
         assert!(store.find_damage_fx("tankexplosion").is_none());
 
+        store.init();
         store.reset();
-        assert!(store.find_damage_fx("TankExplosion").is_none());
+        assert!(
+            store.find_damage_fx("TankExplosion").is_some(),
+            "C++ DamageFXStore::init/reset do not clear the map"
+        );
     }
 
     struct NamedFx(&'static str);

@@ -119,7 +119,19 @@ impl NameKeyGenerator {
         state.reset();
     }
 
-    /// Convert a name string to a key (case-sensitive, matches `nameToKey`).
+    /// Convert a name string to a key (case-sensitive, matches C++
+    /// `NameKeyGenerator::nameToKey`).
+    ///
+    /// Parity citation (`GeneralsMD/Code/GameEngine/Source/Common/
+    /// NameKeyGenerator.cpp`): `nameToKey` hashes with `calcHashForString`
+    /// (no case folding) and matches existing entries with `strcmp`, so
+    /// `"Foo"` and `"foo"` receive distinct keys. Only `nameToLowercaseKey`
+    /// folds case (`calcHashForLowercaseString` + `_stricmp`). Do NOT
+    /// lowercase here: every insertion/lookup pair built on this API
+    /// (DamageFXStore, LocomotorStore, PlayerTemplate, FunctionLexicon,
+    /// Dict/data-chunk IO) is symmetric on exact-match semantics, and
+    /// folding case would merge C++-distinct keys and shift allocation
+    /// order away from the legacy engine.
     pub fn name_to_key(name: &str) -> NameKeyType {
         let mut state = NAME_KEY_STATE
             .lock()
@@ -160,6 +172,9 @@ impl NameKeyGenerator {
 /// Global name key generator instance (placeholder for legacy API parity).
 pub static THE_NAME_KEY_GENERATOR: NameKeyGenerator = NameKeyGenerator;
 
+/// C++ `calcHashForString` (`lowercase == false`) / `calcHashForLowercaseString`
+/// (`lowercase == true`) from NameKeyGenerator.cpp: `result = (result << 5) +
+/// result + byte` with unsigned 32-bit wraparound, then `% SOCKET_COUNT`.
 fn calc_hash(name: &str, lowercase: bool) -> usize {
     let mut result: u32 = 0;
     for byte in name.bytes() {
@@ -220,5 +235,39 @@ mod tests {
         let key = NameKeyGenerator::name_to_key("SpectreGunshipUpdate");
         let name = NameKeyGenerator::key_to_name(key).unwrap();
         assert_eq!(name, "SpectreGunshipUpdate");
+    }
+
+    #[test]
+    fn reset_allocates_sequential_ids_from_one() {
+        // C++ NameKeyGenerator::init/reset sets m_nextID = 1; nameToKey increments.
+        // Hold the catalog lock so parallel tests cannot steal IDs mid-assert.
+        let mut state = NAME_KEY_STATE
+            .lock()
+            .expect("NameKeyGenerator mutex poisoned");
+        state.reset();
+        assert_eq!(state.name_to_key("First"), 1);
+        assert_eq!(state.name_to_key("Second"), 2);
+        assert_eq!(state.name_to_key("Third"), 3);
+        assert_eq!(state.name_to_key("First"), 1);
+        assert!(state.key_to_name(0).is_none());
+        assert!(state.key_to_name(999999).is_none());
+    }
+
+    #[test]
+    fn name_to_key_is_case_sensitive_unlike_lowercase_api() {
+        // C++ nameToKey uses strcmp; nameToLowercaseKey uses _stricmp
+        // and a lowercase hash, so mixed-case and lower usually differ.
+        reset();
+        let foo = NameKeyGenerator::name_to_key("Foo");
+        let foo_lower = NameKeyGenerator::name_to_key("foo");
+        assert_ne!(foo, foo_lower);
+        assert_eq!(
+            NameKeyGenerator::name_to_key_lowercase("Foo"),
+            NameKeyGenerator::name_to_key_lowercase("foo")
+        );
+        assert_ne!(
+            NameKeyGenerator::name_to_key("ControlBar"),
+            NameKeyGenerator::name_to_key_lowercase("controlbar")
+        );
     }
 }

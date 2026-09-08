@@ -40,30 +40,11 @@
         ],
         "review_input": "PORT_PROVENANCE_REVIEWED.json"
       },
-      "id": "game_engine-common-2a5255328318",
+      "id": "game_engine-common-b1a1f51b6714",
       "scope": "game_engine",
       "subsystem": "Common",
       "unit_count": 15,
       "units": [
-        {
-          "blockers": [
-            "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
-          ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/bit_flags.rs"
-            }
-          ],
-          "entry_id": "game_engine:Source/Common/BitFlags.cpp",
-          "source": {
-            "path": "GeneralsMD/Code/GameEngine/Source/Common/BitFlags.cpp",
-            "sha256": "1b46f7c6f40c065ef8b7dec420b0f12d26a2eb2b994ce7589c19a522a9daa2d2",
-            "symbols": []
-          }
-        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -195,170 +176,6 @@
               {
                 "line": 276,
                 "name": "DamageFXStore::update"
-              }
-            ]
-          }
-        },
-        {
-          "blockers": [
-            "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
-          ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs"
-            }
-          ],
-          "entry_id": "game_engine:Source/Common/Dict.cpp",
-          "source": {
-            "path": "GeneralsMD/Code/GameEngine/Source/Common/Dict.cpp",
-            "sha256": "d07123dcf3cbe6f0c9f70a07a82ddb96266dbf1ac81b41cd6605564db7947076",
-            "symbols": [
-              {
-                "line": 20,
-                "name": "Dict::DictPair::copyFrom"
-              },
-              {
-                "line": 48,
-                "name": "Dict::DictPair::clear"
-              },
-              {
-                "line": 67,
-                "name": "Dict::DictPair::setNameAndType"
-              },
-              {
-                "line": 79,
-                "name": "Dict::validate"
-              },
-              {
-                "line": 92,
-                "name": "Dict::findPairByKey"
-              },
-              {
-                "line": 118,
-                "name": "Dict::ensureUnique"
-              },
-              {
-                "line": 169,
-                "name": "Dict::clear"
-              },
-              {
-                "line": 176,
-                "name": "Dict::releaseData"
-              },
-              {
-                "line": 227,
-                "name": "Dict::getType"
-              },
-              {
-                "line": 237,
-                "name": "Dict::getBool"
-              },
-              {
-                "line": 252,
-                "name": "Dict::getInt"
-              },
-              {
-                "line": 267,
-                "name": "Dict::getReal"
-              },
-              {
-                "line": 282,
-                "name": "Dict::getAsciiString"
-              },
-              {
-                "line": 297,
-                "name": "Dict::getUnicodeString"
-              },
-              {
-                "line": 312,
-                "name": "Dict::getNthBool"
-              },
-              {
-                "line": 327,
-                "name": "Dict::getNthInt"
-              },
-              {
-                "line": 342,
-                "name": "Dict::getNthReal"
-              },
-              {
-                "line": 357,
-                "name": "Dict::getNthAsciiString"
-              },
-              {
-                "line": 372,
-                "name": "Dict::getNthUnicodeString"
-              },
-              {
-                "line": 387,
-                "name": "Dict::setPrep"
-              },
-              {
-                "line": 404,
-                "name": "Dict::sortPairs"
-              },
-              {
-                "line": 434,
-                "name": "Dict::setBool"
-              },
-              {
-                "line": 444,
-                "name": "Dict::setInt"
-              },
-              {
-                "line": 454,
-                "name": "Dict::setReal"
-              },
-              {
-                "line": 464,
-                "name": "Dict::setAsciiString"
-              },
-              {
-                "line": 474,
-                "name": "Dict::setUnicodeString"
-              },
-              {
-                "line": 484,
-                "name": "Dict::remove"
-              },
-              {
-                "line": 502,
-                "name": "Dict::copyPairFrom"
-              }
-            ]
-          }
-        },
-        {
-          "blockers": [
-            "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
-          ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs"
-            }
-          ],
-          "entry_id": "game_engine:Source/Common/DiscreteCircle.cpp",
-          "source": {
-            "path": "GeneralsMD/Code/GameEngine/Source/Common/DiscreteCircle.cpp",
-            "sha256": "c13579bf25f474e67e463512e8b0e782c512eb34c234749552ee566892ee1ddc",
-            "symbols": [
-              {
-                "line": 36,
-                "name": "DiscreteCircle::drawCircle"
-              },
-              {
-                "line": 47,
-                "name": "DiscreteCircle::generateEdgePairs"
-              },
-              {
-                "line": 74,
-                "name": "DiscreteCircle::removeDuplicates"
               }
             ]
           }
@@ -1004,52 +821,7 @@
               }
             ]
           }
-        }
-      ]
-    },
-    {
-      "acceptance": {
-        "commands": [
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
-            "--repo-root",
-            "."
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "python3",
-            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
-            "--repo-root",
-            ".",
-            "--verify-generated"
-          ],
-          [
-            "git",
-            "diff",
-            "--check"
-          ]
-        ],
-        "requirements": [
-          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
-          "Record only reachable production Rust destinations that own the behavior.",
-          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
-          "Keep symbol/range and behavioral proof claims separate from path review.",
-          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
-        ],
-        "review_input": "PORT_PROVENANCE_REVIEWED.json"
-      },
-      "id": "game_engine-common-c0fde415668e",
-      "scope": "game_engine",
-      "subsystem": "Common",
-      "unit_count": 11,
-      "units": [
+        },
         {
           "blockers": [
             "unreviewed_mapping",
@@ -1169,7 +941,52 @@
               }
             ]
           }
-        },
+        }
+      ]
+    },
+    {
+      "acceptance": {
+        "commands": [
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_tracking.py",
+            "--repo-root",
+            "."
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "python3",
+            "GeneralsRust/Code/Main/scripts/generate_port_review_queue.py",
+            "--repo-root",
+            ".",
+            "--verify-generated"
+          ],
+          [
+            "git",
+            "diff",
+            "--check"
+          ]
+        ],
+        "requirements": [
+          "Inspect every listed C++ unit and candidate; never approve by stem alone.",
+          "Record only reachable production Rust destinations that own the behavior.",
+          "Do not treat tests, shims, telemetry, or deferred GameNetwork as implementation.",
+          "Keep symbol/range and behavioral proof claims separate from path review.",
+          "Ownership blockers only clear with complete valid ownership records: every symbol occurrence assigned, ranges exact, hashes current."
+        ],
+        "review_input": "PORT_PROVENANCE_REVIEWED.json"
+      },
+      "id": "game_engine-common-a7a7576ab078",
+      "scope": "game_engine",
+      "subsystem": "Common",
+      "unit_count": 8,
+      "units": [
         {
           "blockers": [
             "unreviewed_mapping",
@@ -46206,7 +46023,7 @@
             {
               "cargo_reachable": true,
               "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/script_actions.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/script_actions.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/ScriptActions.cpp",
@@ -47407,7 +47224,7 @@
             {
               "cargo_reachable": true,
               "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/script_conditions.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/script_conditions.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/ScriptConditions.cpp",
@@ -47828,32 +47645,7 @@
             {
               "cargo_reachable": true,
               "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/mod.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/script_actions.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/script_conditions.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/script_engine.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/scripts.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/victory_conditions.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/script_engine.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/ScriptEngine.cpp",
@@ -48466,7 +48258,7 @@
             {
               "cargo_reachable": true,
               "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/script_engine/scripts.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/scripting/scripts.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/ScriptEngine/Scripts.cpp",
@@ -137276,12 +137068,12 @@
       ]
     }
   ],
-  "provenance_input_digest": "97ba96af165f96b4cd67f00dad44e17235a735f6a8154acfed63af129bea086e",
+  "provenance_input_digest": "855327c46a03408781a9013255a56a9b8d7ac8e2243c6a3212d13c8df6ab365a",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
     "packets": 141,
-    "unique_units": 1384,
-    "unreviewed_required_translation_units": 1384
+    "unique_units": 1381,
+    "unreviewed_required_translation_units": 1381
   }
 }

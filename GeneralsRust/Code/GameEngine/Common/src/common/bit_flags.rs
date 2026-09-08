@@ -17,6 +17,12 @@ use bit_vec::BitVec;
 /// Model condition flags bit names
 pub struct ModelConditionFlags;
 
+/// First bit after the optional C++ ALLOW_SURRENDER slot.
+#[cfg(feature = "allow_surrender")]
+const AFTER_OPTIONAL_SURRENDER: usize = 81;
+#[cfg(not(feature = "allow_surrender"))]
+const AFTER_OPTIONAL_SURRENDER: usize = 80;
+
 impl ModelConditionFlags {
     pub const TOPPLED: usize = 0;
     pub const FRONTCRUSHED: usize = 1;
@@ -98,45 +104,47 @@ impl ModelConditionFlags {
     pub const POWER_PLANT_UPGRADED: usize = 77;
     pub const CLIMBING: usize = 78;
     pub const SOLD: usize = 79;
+    // C++ BitFlags.cpp inserts SURRENDER only under ALLOW_SURRENDER. Default ZH
+    // builds omit that slot, so RAPPELLING is bit 80 (not 81).
     #[cfg(feature = "allow_surrender")]
     pub const SURRENDER: usize = 80;
-    pub const RAPPELLING: usize = 81;
-    pub const ARMED: usize = 82;
-    pub const POWER_PLANT_UPGRADING: usize = 83;
-    pub const SPECIAL_CHEERING: usize = 84;
-    pub const CONTINUOUS_FIRE_SLOW: usize = 85;
-    pub const CONTINUOUS_FIRE_MEAN: usize = 86;
-    pub const CONTINUOUS_FIRE_FAST: usize = 87;
-    pub const RAISING_FLAG: usize = 88;
-    pub const CAPTURED: usize = 89;
-    pub const EXPLODED_FLAILING: usize = 90;
-    pub const EXPLODED_BOUNCING: usize = 91;
-    pub const SPLATTED: usize = 92;
-    pub const USING_WEAPON_A: usize = 93;
-    pub const USING_WEAPON_B: usize = 94;
-    pub const USING_WEAPON_C: usize = 95;
-    pub const PREORDER: usize = 96;
-    pub const CENTER_TO_LEFT: usize = 97;
-    pub const LEFT_TO_CENTER: usize = 98;
-    pub const CENTER_TO_RIGHT: usize = 99;
-    pub const RIGHT_TO_CENTER: usize = 100;
-    pub const RIDER1: usize = 101; // Kris: Added these for different combat-bike riders, but feel free to use these for anything.
-    pub const RIDER2: usize = 102;
-    pub const RIDER3: usize = 103;
-    pub const RIDER4: usize = 104;
-    pub const RIDER5: usize = 105;
-    pub const RIDER6: usize = 106;
-    pub const RIDER7: usize = 107;
-    pub const RIDER8: usize = 108;
-    pub const STUNNED_FLAILING: usize = 109; // Daniel Teh's idea, added by Lorenzen, 5/28/03
-    pub const STUNNED: usize = 110;
-    pub const SECOND_LIFE: usize = 111;
-    pub const JAMMED: usize = 112;
-    pub const ARMORSET_CRATEUPGRADE_ONE: usize = 113;
-    pub const ARMORSET_CRATEUPGRADE_TWO: usize = 114;
-    pub const USER_1: usize = 115;
-    pub const USER_2: usize = 116;
-    pub const DISGUISED: usize = 117;
+    pub const RAPPELLING: usize = AFTER_OPTIONAL_SURRENDER;
+    pub const ARMED: usize = AFTER_OPTIONAL_SURRENDER + 1;
+    pub const POWER_PLANT_UPGRADING: usize = AFTER_OPTIONAL_SURRENDER + 2;
+    pub const SPECIAL_CHEERING: usize = AFTER_OPTIONAL_SURRENDER + 3;
+    pub const CONTINUOUS_FIRE_SLOW: usize = AFTER_OPTIONAL_SURRENDER + 4;
+    pub const CONTINUOUS_FIRE_MEAN: usize = AFTER_OPTIONAL_SURRENDER + 5;
+    pub const CONTINUOUS_FIRE_FAST: usize = AFTER_OPTIONAL_SURRENDER + 6;
+    pub const RAISING_FLAG: usize = AFTER_OPTIONAL_SURRENDER + 7;
+    pub const CAPTURED: usize = AFTER_OPTIONAL_SURRENDER + 8;
+    pub const EXPLODED_FLAILING: usize = AFTER_OPTIONAL_SURRENDER + 9;
+    pub const EXPLODED_BOUNCING: usize = AFTER_OPTIONAL_SURRENDER + 10;
+    pub const SPLATTED: usize = AFTER_OPTIONAL_SURRENDER + 11;
+    pub const USING_WEAPON_A: usize = AFTER_OPTIONAL_SURRENDER + 12;
+    pub const USING_WEAPON_B: usize = AFTER_OPTIONAL_SURRENDER + 13;
+    pub const USING_WEAPON_C: usize = AFTER_OPTIONAL_SURRENDER + 14;
+    pub const PREORDER: usize = AFTER_OPTIONAL_SURRENDER + 15;
+    pub const CENTER_TO_LEFT: usize = AFTER_OPTIONAL_SURRENDER + 16;
+    pub const LEFT_TO_CENTER: usize = AFTER_OPTIONAL_SURRENDER + 17;
+    pub const CENTER_TO_RIGHT: usize = AFTER_OPTIONAL_SURRENDER + 18;
+    pub const RIGHT_TO_CENTER: usize = AFTER_OPTIONAL_SURRENDER + 19;
+    pub const RIDER1: usize = AFTER_OPTIONAL_SURRENDER + 20; // Kris: combat-bike riders
+    pub const RIDER2: usize = AFTER_OPTIONAL_SURRENDER + 21;
+    pub const RIDER3: usize = AFTER_OPTIONAL_SURRENDER + 22;
+    pub const RIDER4: usize = AFTER_OPTIONAL_SURRENDER + 23;
+    pub const RIDER5: usize = AFTER_OPTIONAL_SURRENDER + 24;
+    pub const RIDER6: usize = AFTER_OPTIONAL_SURRENDER + 25;
+    pub const RIDER7: usize = AFTER_OPTIONAL_SURRENDER + 26;
+    pub const RIDER8: usize = AFTER_OPTIONAL_SURRENDER + 27;
+    pub const STUNNED_FLAILING: usize = AFTER_OPTIONAL_SURRENDER + 28;
+    pub const STUNNED: usize = AFTER_OPTIONAL_SURRENDER + 29;
+    pub const SECOND_LIFE: usize = AFTER_OPTIONAL_SURRENDER + 30;
+    pub const JAMMED: usize = AFTER_OPTIONAL_SURRENDER + 31;
+    pub const ARMORSET_CRATEUPGRADE_ONE: usize = AFTER_OPTIONAL_SURRENDER + 32;
+    pub const ARMORSET_CRATEUPGRADE_TWO: usize = AFTER_OPTIONAL_SURRENDER + 33;
+    pub const USER_1: usize = AFTER_OPTIONAL_SURRENDER + 34;
+    pub const USER_2: usize = AFTER_OPTIONAL_SURRENDER + 35;
+    pub const DISGUISED: usize = AFTER_OPTIONAL_SURRENDER + 36;
 
     pub const BIT_NAMES: &'static [&'static str] = &[
         "TOPPLED",
@@ -567,4 +575,61 @@ pub fn create_armor_set_flags() -> ArmorSetBitFlags {
 /// Create weapon set flags
 pub fn create_weapon_set_flags() -> WeaponSetBitFlags {
     BitFlags::new(WeaponSetFlags::BIT_NAMES)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_condition_constants_match_bit_name_list() {
+        // C++ ModelConditionFlags::s_bitNameList is the authority for bit
+        // indices. Named constants must land on the same slot as BIT_NAMES.
+        let names = ModelConditionFlags::BIT_NAMES;
+        assert_eq!(names[ModelConditionFlags::SOLD], "SOLD");
+        assert_eq!(names[ModelConditionFlags::RAPPELLING], "RAPPELLING");
+        assert_eq!(names[ModelConditionFlags::ARMED], "ARMED");
+        assert_eq!(names[ModelConditionFlags::DISGUISED], "DISGUISED");
+        assert_eq!(names[ModelConditionFlags::STUNNED], "STUNNED");
+        assert_eq!(names[ModelConditionFlags::USING_WEAPON_A], "USING_WEAPON_A");
+        #[cfg(not(feature = "allow_surrender"))]
+        {
+            assert_eq!(ModelConditionFlags::RAPPELLING, 80);
+            assert_eq!(ModelConditionFlags::DISGUISED, 116);
+            assert_eq!(names[80], "RAPPELLING");
+            assert!(!names.contains(&"SURRENDER"));
+        }
+        #[cfg(feature = "allow_surrender")]
+        {
+            assert_eq!(names[ModelConditionFlags::SURRENDER], "SURRENDER");
+            assert_eq!(ModelConditionFlags::RAPPELLING, 81);
+        }
+    }
+
+    #[test]
+    fn armor_set_name_list_matches_cpp() {
+        assert_eq!(
+            ArmorSetFlags::BIT_NAMES,
+            &[
+                "VETERAN",
+                "ELITE",
+                "HERO",
+                "PLAYER_UPGRADE",
+                "WEAK_VERSUS_BASEDEFENSES",
+                "SECOND_LIFE",
+                "CRATE_UPGRADE_ONE",
+                "CRATE_UPGRADE_TWO",
+            ]
+        );
+        assert_eq!(ArmorSetFlags::CRATE_UPGRADE_TWO, 7);
+    }
+
+    #[test]
+    fn set_bit_by_name_uses_list_index() {
+        let mut flags = create_model_condition_flags();
+        assert!(flags.set_bit_by_name("RAPPELLING"));
+        assert!(flags.test(ModelConditionFlags::RAPPELLING));
+        assert!(!flags.test(ModelConditionFlags::ARMED));
+        assert!(!flags.set_bit_by_name("NOT_A_REAL_FLAG"));
+    }
 }
