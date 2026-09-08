@@ -25,6 +25,59 @@ End
 }
 
 #[test]
+fn locomotor_rows_accept_all_source_set_tokens_and_reject_unknown() {
+    let valid = [
+        "SET_NORMAL",
+        "SET_NORMAL_UPGRADED",
+        "SET_FREEFALL",
+        "SET_WANDER",
+        "SET_PANIC",
+        "SET_TAXIING",
+        "SET_SUPERSONIC",
+        "SET_SLUGGISH",
+    ];
+    let body = valid
+        .iter()
+        .map(|set| format!("  Locomotor = {set} None"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut parser = IniParser::new();
+    parser
+        .parse_ini_content(&format!("Object Loco\n{body}\nEnd\n"), "valid.ini")
+        .expect("all source locomotor set tokens are valid");
+
+    let mut lowercase_parser = IniParser::new();
+    lowercase_parser
+        .parse_ini_content(
+            &format!("Object Lower\n{}\nEnd\n", body.to_ascii_lowercase()),
+            "lower.ini",
+        )
+        .expect("C++ scanIndexList is case-insensitive");
+    assert_eq!(
+        lowercase_parser
+            .get_definition("Lower")
+            .unwrap()
+            .locomotor_sets
+            .len(),
+        valid.len()
+    );
+
+    let mut parser = IniParser::new();
+    let error = parser
+        .parse_ini_content(
+            "Object Loco\n Locomotor = SET_NOT_A_SET Foo\nEnd\n",
+            "bad.ini",
+        )
+        .expect_err("unknown source locomotor set must fail");
+    assert!(error.to_string().contains("invalid Locomotor set token"));
+    let mut parser = IniParser::new();
+    let error = parser
+        .parse_ini_content("Object Loco\n Locomotor =\nEnd\n", "empty.ini")
+        .expect_err("missing source locomotor set must fail");
+    assert!(error.to_string().contains("missing Locomotor set token"));
+}
+
+#[test]
 fn display_name_label_is_translated_via_game_text() {
     game_engine::common::language::Language::register_localized_string(
         "OBJECT:AmericaRanger",

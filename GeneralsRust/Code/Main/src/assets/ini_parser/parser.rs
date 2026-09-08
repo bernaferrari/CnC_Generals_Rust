@@ -641,9 +641,27 @@ impl IniParser {
                         "locomotor" => {
                             let mut fields = value.split_whitespace();
                             let Some(set_name) = fields.next() else {
-                                obj.attributes.insert(key.to_string(), value.to_string());
-                                continue;
+                                return Err(anyhow::anyhow!(
+                                    "missing Locomotor set token in {}",
+                                    filename
+                                ));
                             };
+                            if !matches!(
+                                set_name.to_ascii_uppercase().as_str(),
+                                "SET_NORMAL"
+                                    | "SET_NORMAL_UPGRADED"
+                                    | "SET_FREEFALL"
+                                    | "SET_WANDER"
+                                    | "SET_PANIC"
+                                    | "SET_TAXIING"
+                                    | "SET_SUPERSONIC"
+                                    | "SET_SLUGGISH"
+                            ) {
+                                return Err(anyhow::anyhow!(
+                                    "invalid Locomotor set token '{}' in {}",
+                                    set_name, filename
+                                ));
+                            }
                             let locomotor_names = fields.map(str::to_string).collect::<Vec<_>>();
                             obj.locomotor_sets.push(LocomotorSetDefinition {
                                 set_name: set_name.to_string(),
