@@ -139,6 +139,120 @@ pub enum KeyCode {
     Unknown,
 }
 
+impl KeyCode {
+    /// DirectInput identity used by the original Keyboard status-array scan.
+    /// Keep this separate from Rust discriminants (also used for key names).
+    /// Unknown input has no device identity and cannot arbitrate a repeat.
+    const fn repeat_scan_code(self) -> Option<u8> {
+        Some(match self {
+            Self::F1 => 0x3b,             // DIK_F1
+            Self::F2 => 0x3c,             // DIK_F2
+            Self::F3 => 0x3d,             // DIK_F3
+            Self::F4 => 0x3e,             // DIK_F4
+            Self::F5 => 0x3f,             // DIK_F5
+            Self::F6 => 0x40,             // DIK_F6
+            Self::F7 => 0x41,             // DIK_F7
+            Self::F8 => 0x42,             // DIK_F8
+            Self::F9 => 0x43,             // DIK_F9
+            Self::F10 => 0x44,            // DIK_F10
+            Self::F11 => 0x57,            // DIK_F11
+            Self::F12 => 0x58,            // DIK_F12
+            Self::Num1 => 0x02,           // DIK_1
+            Self::Num2 => 0x03,           // DIK_2
+            Self::Num3 => 0x04,           // DIK_3
+            Self::Num4 => 0x05,           // DIK_4
+            Self::Num5 => 0x06,           // DIK_5
+            Self::Num6 => 0x07,           // DIK_6
+            Self::Num7 => 0x08,           // DIK_7
+            Self::Num8 => 0x09,           // DIK_8
+            Self::Num9 => 0x0a,           // DIK_9
+            Self::Num0 => 0x0b,           // DIK_0
+            Self::A => 0x1e,              // DIK_A
+            Self::B => 0x30,              // DIK_B
+            Self::C => 0x2e,              // DIK_C
+            Self::D => 0x20,              // DIK_D
+            Self::E => 0x12,              // DIK_E
+            Self::F => 0x21,              // DIK_F
+            Self::G => 0x22,              // DIK_G
+            Self::H => 0x23,              // DIK_H
+            Self::I => 0x17,              // DIK_I
+            Self::J => 0x24,              // DIK_J
+            Self::K => 0x25,              // DIK_K
+            Self::L => 0x26,              // DIK_L
+            Self::M => 0x32,              // DIK_M
+            Self::N => 0x31,              // DIK_N
+            Self::O => 0x18,              // DIK_O
+            Self::P => 0x19,              // DIK_P
+            Self::Q => 0x10,              // DIK_Q
+            Self::R => 0x13,              // DIK_R
+            Self::S => 0x1f,              // DIK_S
+            Self::T => 0x14,              // DIK_T
+            Self::U => 0x16,              // DIK_U
+            Self::V => 0x2f,              // DIK_V
+            Self::W => 0x11,              // DIK_W
+            Self::X => 0x2d,              // DIK_X
+            Self::Y => 0x15,              // DIK_Y
+            Self::Z => 0x2c,              // DIK_Z
+            Self::Left => 0xcb,           // DIK_LEFT
+            Self::Right => 0xcd,          // DIK_RIGHT
+            Self::Up => 0xc8,             // DIK_UP
+            Self::Down => 0xd0,           // DIK_DOWN
+            Self::Home => 0xc7,           // DIK_HOME
+            Self::End => 0xcf,            // DIK_END
+            Self::PageUp => 0xc9,         // DIK_PRIOR
+            Self::PageDown => 0xd1,       // DIK_NEXT
+            Self::Space => 0x39,          // DIK_SPACE
+            Self::Enter => 0x1c,          // DIK_RETURN
+            Self::Tab => 0x0f,            // DIK_TAB
+            Self::Backspace => 0x0e,      // DIK_BACK
+            Self::Delete => 0xd3,         // DIK_DELETE
+            Self::Insert => 0xd2,         // DIK_INSERT
+            Self::Escape => 0x01,         // DIK_ESCAPE
+            Self::Pause => 0xc5,          // DIK_PAUSE
+            Self::PrintScreen => 0xb7,    // DIK_SYSRQ
+            Self::LeftShift => 0x2a,      // DIK_LSHIFT
+            Self::RightShift => 0x36,     // DIK_RSHIFT
+            Self::LeftCtrl => 0x1d,       // DIK_LCONTROL
+            Self::RightCtrl => 0x9d,      // DIK_RCONTROL
+            Self::LeftAlt => 0x38,        // DIK_LMENU
+            Self::RightAlt => 0xb8,       // DIK_RMENU
+            Self::LeftMeta => 0xdb,       // DIK_LWIN
+            Self::RightMeta => 0xdc,      // DIK_RWIN
+            Self::NumPad0 => 0x52,        // DIK_NUMPAD0
+            Self::NumPad1 => 0x4f,        // DIK_NUMPAD1
+            Self::NumPad2 => 0x50,        // DIK_NUMPAD2
+            Self::NumPad3 => 0x51,        // DIK_NUMPAD3
+            Self::NumPad4 => 0x4b,        // DIK_NUMPAD4
+            Self::NumPad5 => 0x4c,        // DIK_NUMPAD5
+            Self::NumPad6 => 0x4d,        // DIK_NUMPAD6
+            Self::NumPad7 => 0x47,        // DIK_NUMPAD7
+            Self::NumPad8 => 0x48,        // DIK_NUMPAD8
+            Self::NumPad9 => 0x49,        // DIK_NUMPAD9
+            Self::NumPadAdd => 0x4e,      // DIK_ADD
+            Self::NumPadSubtract => 0x4a, // DIK_SUBTRACT
+            Self::NumPadMultiply => 0x37, // DIK_MULTIPLY
+            Self::NumPadDivide => 0xb5,   // DIK_DIVIDE
+            Self::NumPadDecimal => 0x53,  // DIK_DECIMAL
+            Self::NumPadEnter => 0x9c,    // DIK_NUMPADENTER
+            Self::CapsLock => 0x3a,       // DIK_CAPITAL
+            Self::NumLock => 0x45,        // DIK_NUMLOCK
+            Self::ScrollLock => 0x46,     // DIK_SCROLL
+            Self::Minus => 0x0c,          // DIK_MINUS
+            Self::Plus => 0x0d,           // DIK_EQUALS
+            Self::LeftBracket => 0x1a,    // DIK_LBRACKET
+            Self::RightBracket => 0x1b,   // DIK_RBRACKET
+            Self::Semicolon => 0x27,      // DIK_SEMICOLON
+            Self::Quote => 0x28,          // DIK_APOSTROPHE
+            Self::Grave => 0x29,          // DIK_GRAVE
+            Self::Backslash => 0x2b,      // DIK_BACKSLASH
+            Self::Slash => 0x35,          // DIK_SLASH
+            Self::Comma => 0x33,          // DIK_COMMA
+            Self::Period => 0x34,         // DIK_PERIOD
+            Self::Unknown => return None,
+        })
+    }
+}
+
 impl From<WinitKeyCode> for KeyCode {
     fn from(winit_key: WinitKeyCode) -> Self {
         match winit_key {
@@ -307,7 +421,8 @@ impl KeyState {
 
 /// C++ `Keyboard::KEY_REPEAT_DELAY` — first repeat after 10 input frames.
 pub const KEY_REPEAT_DELAY: u32 = 10;
-/// Subsequent repeats fire every 2 input frames (`sequence = frame - (DELAY + 2)`).
+/// Original sequence backdating offset (`sequence = frame - (DELAY + 2)`).
+/// This makes the next frame eligible; the C++ two-frame comment is inaccurate.
 pub const KEY_REPEAT_INTERVAL: u32 = 2;
 /// Input frame rate used to convert millisecond repeat config to frames.
 const KEY_REPEAT_INPUT_HZ: u32 = 30;
@@ -328,7 +443,7 @@ pub struct KeyboardState {
     modifiers: KeyModifiers,
     /// First-repeat delay in input frames (C++ KEY_REPEAT_DELAY = 10)
     repeat_delay_frames: u32,
-    /// Subsequent-repeat interval in input frames (C++ 2)
+    /// Sequence backdating offset beyond the delay (C++ 2)
     repeat_interval_frames: u32,
     /// Input frame counter incremented by `update_repeat`
     input_frame: u32,
@@ -351,7 +466,7 @@ impl KeyboardState {
     }
 
     /// Set key repeat configuration. Milliseconds are converted at 30Hz to
-    /// match C++ frame-based `KEY_REPEAT_DELAY` / 2-frame interval.
+    /// configure the delay and sequence backdating offset used by the repeat loop.
     pub fn set_repeat_config(&mut self, delay: Duration, interval: Duration) {
         self.repeat_delay_frames = duration_to_repeat_frames(delay);
         self.repeat_interval_frames = duration_to_repeat_frames(interval);
@@ -486,19 +601,21 @@ impl KeyboardState {
     /// C++ `Keyboard::checkKeyRepeat`: first fire when
     /// `(inputFrame - sequence) > KEY_REPEAT_DELAY` (10), then the repeating
     /// key's sequence is set to `inputFrame - (DELAY + 2)` so the next fire
-    /// is 2 frames later. Only one key repeats per input frame.
+    /// is the very next frame. Only one key repeats per input frame, selected
+    /// in original numeric scan-code order, independent of map insertion order.
     pub fn update_repeat(&mut self, _now: Instant) -> Vec<KeyCode> {
         self.input_frame = self.input_frame.wrapping_add(1);
 
-        let mut candidate = None;
-        for (&key, &sequence) in &self.key_sequences {
-            if self.is_key_down(key)
-                && self.input_frame.wrapping_sub(sequence) > self.repeat_delay_frames
-            {
-                candidate = Some(key);
-                break;
-            }
-        }
+        let candidate = self
+            .key_sequences
+            .iter()
+            .filter(|(key, sequence)| {
+                self.is_key_down(**key)
+                    && self.input_frame.wrapping_sub(**sequence) > self.repeat_delay_frames
+            })
+            .filter_map(|(&key, _)| key.repeat_scan_code().map(|scan| (scan, key)))
+            .min_by_key(|(scan, _)| *scan)
+            .map(|(_, key)| key);
 
         let Some(key) = candidate else {
             return Vec::new();
@@ -964,6 +1081,40 @@ impl SubsystemInterface for Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeat_uses_original_scan_order_then_rearms_remaining_key() {
+        for keys in [[KeyCode::A, KeyCode::Q], [KeyCode::Q, KeyCode::A]] {
+            let mut keyboard = Keyboard::new();
+            for key in keys {
+                keyboard.handle_key_simple(key, true);
+            }
+            for _ in 0..10 {
+                assert!(keyboard.update().is_empty());
+            }
+            // DIK_Q (0x10) precedes DIK_A (0x1e), unlike enum order.
+            assert_eq!(keyboard.update(), vec![KeyCode::Q]);
+            assert_eq!(keyboard.update(), vec![KeyCode::Q]);
+            keyboard.handle_key_simple(KeyCode::Q, false);
+            for _ in 0..10 {
+                assert!(keyboard.update().is_empty());
+            }
+            assert_eq!(keyboard.update(), vec![KeyCode::A]);
+        }
+    }
+
+    #[test]
+    fn repeat_delay_survives_input_frame_wraparound() {
+        let mut keyboard = Keyboard::new();
+        keyboard.state.input_frame = u32::MAX - 5;
+        keyboard.handle_key_simple(KeyCode::NumPadEnter, true);
+        for _ in 0..10 {
+            assert!(keyboard.update().is_empty());
+        }
+        assert_eq!(keyboard.update(), vec![KeyCode::NumPadEnter]);
+        assert_eq!(keyboard.state.input_frame, 5);
+        assert_eq!(keyboard.update(), vec![KeyCode::NumPadEnter]);
+    }
 
     #[test]
     fn focus_reset_clears_only_owned_keys_and_preserves_input_clock() {
