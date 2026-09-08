@@ -50,6 +50,501 @@
       "destinations": [
         "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_group/mod.rs"
       ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/BitFlags.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/bit_flags.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/DiscreteCircle.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs"
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/Dict.cpp",
+      "destinations": [
+        "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs"
+      ]
+    }
+  ],
+  "ownership": [
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/BitFlags.cpp",
+      "source_sha256": "1b46f7c6f40c065ef8b7dec420b0f12d26a2eb2b994ce7589c19a522a9daa2d2",
+      "symbols": [],
+      "source_ranges": [
+        {
+          "start_line": 1,
+          "end_line": 166,
+          "path": "GeneralsRust/Code/GameEngine/Common/src/common/bit_flags.rs",
+          "sha256": "5bae1bdfde1db4937317a32403d16b2a6f1e54119052896254bc1846b8f0e3c9"
+        }
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/DiscreteCircle.cpp",
+      "source_sha256": "c13579bf25f474e67e463512e8b0e782c512eb34c234749552ee566892ee1ddc",
+      "symbols": [
+        {
+          "name": "DiscreteCircle::drawCircle",
+          "line": 36,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
+              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "symbols": [
+                "draw_circle"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "DiscreteCircle::generateEdgePairs",
+          "line": 47,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
+              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "symbols": [
+                "generate_edge_pairs"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "DiscreteCircle::removeDuplicates",
+          "line": 74,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
+              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "symbols": [
+                "remove_duplicates"
+              ],
+              "deviation": null
+            }
+          ]
+        }
+      ],
+      "source_ranges": [
+        {
+          "start_line": 1,
+          "end_line": 90,
+          "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
+          "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9"
+        }
+      ]
+    },
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/Dict.cpp",
+      "source_sha256": "d07123dcf3cbe6f0c9f70a07a82ddb96266dbf1ac81b41cd6605564db7947076",
+      "symbols": [
+        {
+          "name": "Dict::DictPair::copyFrom",
+          "line": 20,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "copy_from"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::DictPair::clear",
+          "line": 48,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "release_data"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::DictPair::setNameAndType",
+          "line": 67,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "set_prep"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::validate",
+          "line": 79,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "validate"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::findPairByKey",
+          "line": 92,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "find_pair_by_key"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::ensureUnique",
+          "line": 118,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "ensure_unique"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::clear",
+          "line": 169,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "clear"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::releaseData",
+          "line": 176,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "release_data"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getType",
+          "line": 227,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_type"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getBool",
+          "line": 237,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_bool"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getInt",
+          "line": 252,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_int"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getReal",
+          "line": 267,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_real"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getAsciiString",
+          "line": 282,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_ascii_string"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getUnicodeString",
+          "line": 297,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_unicode_string"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getNthBool",
+          "line": 312,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_nth_bool"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getNthInt",
+          "line": 327,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_nth_int"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getNthReal",
+          "line": 342,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_nth_real"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getNthAsciiString",
+          "line": 357,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_nth_ascii_string"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::getNthUnicodeString",
+          "line": 372,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "get_nth_unicode_string"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::setPrep",
+          "line": 387,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "set_prep"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::sortPairs",
+          "line": 404,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "sort_pairs"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::setBool",
+          "line": 434,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "set_bool"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::setInt",
+          "line": 444,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "set_int"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::setReal",
+          "line": 454,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "set_real"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::setAsciiString",
+          "line": 464,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "set_ascii_string"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::setUnicodeString",
+          "line": 474,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "set_unicode_string"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::remove",
+          "line": 484,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "remove"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
+          "name": "Dict::copyPairFrom",
+          "line": 502,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+              "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298",
+              "symbols": [
+                "copy_pair_from"
+              ],
+              "deviation": null
+            }
+          ]
+        }
+      ],
+      "source_ranges": [
+        {
+          "start_line": 1,
+          "end_line": 518,
+          "path": "GeneralsRust/Code/GameEngine/Common/src/common/dict.rs",
+          "sha256": "dac2f5cf21f8951b8f95c84f1593fc30c11befe2b9a95cd849762c235aea0298"
+        }
+      ]
     }
   ]
 }

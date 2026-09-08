@@ -38,6 +38,16 @@ impl DiscreteCircle {
         self.edges.len() as i32 / 2
     }
 
+    /// Matches C++ DiscreteCircle::getEdges.
+    pub fn get_edges(&self) -> &[HorzLine] {
+        &self.edges
+    }
+
+    /// Matches C++ DiscreteCircle::getEdgeCount.
+    pub fn get_edge_count(&self) -> i32 {
+        self.edges.len() as i32
+    }
+
     /// Iterate every scan-line of the circle, calling `callback(x_start, x_end, y_pos)`.
     /// Matches C++ DiscreteCircle::drawCircle — upper half + mirrored lower half.
     pub fn draw_circle<F>(&self, mut callback: F)
@@ -77,16 +87,23 @@ impl DiscreteCircle {
     }
 
     /// Remove consecutive edges sharing the same y position (Bresenham artefact).
-    /// Matches C++ DiscreteCircle::removeDuplicates.
+    /// Matches C++ DiscreteCircle::removeDuplicates: erase the *first* of each
+    /// same-y pair so the last (typically wider) span survives.
     fn remove_duplicates(&mut self) {
         let mut write = 0;
-        for read in 1..self.edges.len() {
-            if self.edges[read].y_pos != self.edges[write].y_pos {
-                write += 1;
-                self.edges[write] = self.edges[read];
+        let mut read = 0;
+        while read < self.edges.len() {
+            let mut last = read;
+            while last + 1 < self.edges.len()
+                && self.edges[last + 1].y_pos == self.edges[read].y_pos
+            {
+                last += 1;
             }
+            self.edges[write] = self.edges[last];
+            write += 1;
+            read = last + 1;
         }
-        self.edges.truncate(write + 1);
+        self.edges.truncate(write);
     }
 }
 
@@ -126,6 +143,96 @@ mod tests {
         let mut rows = Vec::new();
         c.draw_circle(|xs, xe, y| rows.push((xs, xe, y)));
         assert_eq!(rows, vec![(0, 0, 0)]);
+    }
+
+    #[test]
+    fn remove_duplicates_keeps_last_same_y_span() {
+        // C++ erase(it) drops the first of each consecutive same-y pair, so
+        // radius 5's top row is the last Bresenham span (-2..2), not (0..0).
+        let c = DiscreteCircle::new(0, 0, 5);
+        assert_eq!(
+            c.get_edges(),
+            &[
+                HorzLine {
+                    x_start: -2,
+                    x_end: 2,
+                    y_pos: 5
+                },
+                HorzLine {
+                    x_start: -3,
+                    x_end: 3,
+                    y_pos: 4
+                },
+                HorzLine {
+                    x_start: -4,
+                    x_end: 4,
+                    y_pos: 3
+                },
+                HorzLine {
+                    x_start: -5,
+                    x_end: 5,
+                    y_pos: 2
+                },
+                HorzLine {
+                    x_start: -5,
+                    x_end: 5,
+                    y_pos: 1
+                },
+                HorzLine {
+                    x_start: -5,
+                    x_end: 5,
+                    y_pos: 0
+                },
+            ]
+        );
+        let mut rows = Vec::new();
+        c.draw_circle(|xs, xe, y| rows.push((xs, xe, y)));
+        assert_eq!(
+            rows,
+            vec![
+                (-2, 2, 5),
+                (-2, 2, -5),
+                (-3, 3, 4),
+                (-3, 3, -4),
+                (-4, 4, 3),
+                (-4, 4, -3),
+                (-5, 5, 2),
+                (-5, 5, -2),
+                (-5, 5, 1),
+                (-5, 5, -1),
+                (-5, 5, 0),
+            ]
+        );
+        assert_eq!(c.get_edge_count(), 6);
+    }
+
+    #[test]
+    fn offset_center_mirrors_about_y_center() {
+        let c = DiscreteCircle::new(10, 20, 8);
+        let mut rows = Vec::new();
+        c.draw_circle(|xs, xe, y| rows.push((xs, xe, y)));
+        assert_eq!(
+            rows,
+            vec![
+                (8, 12, 28),
+                (8, 12, 12),
+                (6, 14, 27),
+                (6, 14, 13),
+                (5, 15, 26),
+                (5, 15, 14),
+                (4, 16, 25),
+                (4, 16, 15),
+                (3, 17, 24),
+                (3, 17, 16),
+                (2, 18, 23),
+                (2, 18, 17),
+                (2, 18, 22),
+                (2, 18, 18),
+                (2, 18, 21),
+                (2, 18, 19),
+                (2, 18, 20),
+            ]
+        );
     }
 
     #[test]

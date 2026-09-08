@@ -10,13 +10,13 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::common::audio::AudioEventRts;
 use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
+use crate::common::audio::AudioEventRts;
 use crate::common::game_common::ObjectShroudStatus;
-use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
+use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
 use crate::common::ini::ini_fx_list::{
-    FXNugget, fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store,
-    record_dispatched_fx_nugget,
+    fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store, record_dispatched_fx_nugget,
+    FXNugget,
 };
 
 /// Damage types enum
@@ -64,6 +64,47 @@ pub enum DamageType {
 
 /// Level count for different damage intensities
 pub const LEVEL_COUNT: usize = 4;
+
+/// C++ `MAX_BONE_POINTS` in FXListAtBonePosFXNugget (FXList.cpp:732).
+pub const FX_LIST_AT_BONE_POS_MAX_BONE_POINTS: usize = 40;
+
+/// Bone-point query matching C++
+/// `Drawable::getCurrentClientBonePositions(name, start, pos[], mtx[], max)`:
+/// `start == 0` is the unadorned bone name only, `start >= 1` walks
+/// `Name01`.. up to `max_bones` points. Each entry is (bonePos, boneMtx
+/// column-major 4x4).
+pub type FxBonePosQuery =
+    fn(object_id: u32, bone_name: &str, start: i32, max_bones: usize) -> Vec<([f32; 3], [f32; 16])>;
+
+static FX_BONE_POS_RUNTIME: OnceCell<RwLock<Option<FxBonePosQuery>>> = OnceCell::new();
+
+/// Register the live client bone-point query (C++ FXList.cpp:711-728).
+pub fn register_fx_bone_pos_runtime(query: FxBonePosQuery) {
+    if let Ok(mut slot) = FX_BONE_POS_RUNTIME
+        .get_or_init(|| RwLock::new(None))
+        .write()
+    {
+        *slot = Some(query);
+    }
+}
+
+pub fn clear_fx_bone_pos_runtime() {
+    if let Ok(mut slot) = FX_BONE_POS_RUNTIME
+        .get_or_init(|| RwLock::new(None))
+        .write()
+    {
+        *slot = None;
+    }
+}
+
+pub fn fx_bone_pos_runtime() -> Option<FxBonePosQuery> {
+    FX_BONE_POS_RUNTIME
+        .get_or_init(|| RwLock::new(None))
+        .read()
+        .ok()
+        .and_then(|slot| *slot)
+}
+
 pub const DAMAGE_NUM_TYPES: usize = 38;
 
 /// FX list reference (stores FX list name for lazy resolution against FXListStore).
@@ -193,6 +234,41 @@ impl DamageFX {
         }
     }
 
+    /// C++ `FXListAtBonePosFXNugget::doFXObj` (FXList.cpp:681-735): walk the
+    /// victim's `BoneName` then `BoneName01`..`BoneName40` bone points and run
+    /// the nested FXList at each bone. Returns false when no bone runtime is
+    /// registered or the victim exposes no bones (caller falls back).
+    fn execute_fx_list_at_bones(
+        &self,
+        nested: &str,
+        bone_name: &str,
+        victim: Option<&dyn Object>,
+    ) -> bool {
+        if bone_name.is_empty() {
+            return false;
+        }
+        let Some(query) = fx_bone_pos_runtime() else {
+            return false;
+        };
+        let Some(victim) = victim else {
+            return false;
+        };
+        let mut any = false;
+        for start in [0, 1] {
+            let bones = query(
+                victim.get_id(),
+                bone_name,
+                start,
+                FX_LIST_AT_BONE_POS_MAX_BONE_POINTS,
+            );
+            for _ in bones {
+                self.execute_fx_list(nested, None, Some(victim));
+                any = true;
+            }
+        }
+        any
+    }
+
     fn dispatch_nugget(
         &self,
         nugget: &FXNugget,
@@ -204,10 +280,19 @@ impl DamageFX {
             FXNugget::Sound { name } => {
                 self.play_sound_nugget(name.as_str(), source, victim);
             }
-            FXNugget::FXListAtBonePos { fx_name, .. } => {
+            FXNugget::FXListAtBonePos {
+                fx_name, bone_name, ..
+            } => {
                 let nested = fx_name.as_str();
                 if !nested.is_empty() && !nested.eq_ignore_ascii_case("None") {
-                    self.execute_fx_list(nested, source, victim);
+                    // C++ FXList.cpp:690-696 — doFxAtBones(primary, 0) then
+                    // (primary, 1) walking BoneName, BoneName01…BoneName40.
+                    if !self.execute_fx_list_at_bones(nested, bone_name.as_str(), victim) {
+                        // No bone runtime / no bones (headless): C++ drawable
+                        // absence also yields nothing; keep the prior center
+                        // dispatch so Sound nuggets still fire.
+                        self.execute_fx_list(nested, source, victim);
+                    }
                 }
             }
             FXNugget::Tracer { .. }
@@ -216,9 +301,11 @@ impl DamageFX {
             | FXNugget::ViewShake { .. }
             | FXNugget::TerrainScorch { .. }
             | FXNugget::ParticleSystem { .. } => {
-                // Visuals are owned by the GameClient FXList::doFXObj runner when
-                // registered. Common still visits every nugget (C++ FXList.cpp:799-803)
-                // so DamageFX is no longer Sound-only when the runner is absent.
+                // C++ runs these in FXList.cpp:799-803 (Tracer 137-191,
+                // RayEffect 260-288, LightPulse 304-338, ViewShake 341-381,
+                // TerrainScorch 384-441, ParticleSystem 474-662); every kind
+                // visits here and is recorded. Rendering stays owned by the
+                // registered GameClient FXList::doFXObj runner.
             }
         }
     }
@@ -638,15 +725,11 @@ impl DamageFXStore {
         }
     }
 
-    /// Initialize the damage FX store
-    pub fn init(&mut self) {
-        self.damage_fx_map.clear();
-    }
+    /// C++ DamageFXStore::init is empty — parsed definitions survive.
+    pub fn init(&mut self) {}
 
-    /// Reset the damage FX store
-    pub fn reset(&mut self) {
-        self.damage_fx_map.clear();
-    }
+    /// C++ DamageFXStore::reset is empty — the map is not a per-match table.
+    pub fn reset(&mut self) {}
 
     /// Update the damage FX store (called per frame)
     pub fn update(&mut self) {
@@ -853,8 +936,8 @@ mod tests {
         // C++ DamageFX.cpp:73 → FXList::doFXObj (FXList.cpp:794-804).
         use crate::common::ascii_string::AsciiString;
         use crate::common::ini::ini_fx_list::{
-            CameraShakeType, DispatchedFxNugget, FXList, ScorchType, clear_fx_list_obj_runtime,
-            get_fx_list_store_mut, take_dispatched_fx_nuggets,
+            clear_fx_list_obj_runtime, get_fx_list_store_mut, take_dispatched_fx_nuggets,
+            CameraShakeType, DispatchedFxNugget, FXList, ScorchType,
         };
 
         clear_fx_list_obj_runtime();
@@ -904,7 +987,7 @@ mod tests {
         let victim = test_object("Victim", 2);
         damage_fx.do_damage_fx(DamageType::Explosion, 50.0, Some(&source), Some(&victim));
 
-        let dispatched = take_dispatched_fx_nuggets();
+        let dispatched = crate::common::ini::ini_fx_list::take_dispatched_fx_nuggets();
         assert!(
             dispatched
                 .iter()
@@ -980,5 +1063,26 @@ mod tests {
         if let Some(store) = get_damage_fx_store() {
             assert!(store.find_damage_fx("global_test").is_some());
         }
+    }
+
+    #[test]
+    fn init_and_reset_do_not_wipe_parsed_fx() {
+        // C++ DamageFX.cpp:266-273 — init/reset are empty; the catalog is not
+        // a per-match table. dispatch_armor_damage_fx used to call
+        // init_global_damage_fx_store on every hit, which wiped INI FX.
+        let mut store = DamageFXStore::new();
+        store.add_damage_fx("TankExplosion".to_string(), DamageFX::new());
+        store.init();
+        store.reset();
+        assert!(store.find_damage_fx("TankExplosion").is_some());
+
+        init_global_damage_fx_store();
+        if let Some(mut global) = get_damage_fx_store_mut() {
+            global.add_damage_fx("SurviveInit".to_string(), DamageFX::new());
+            global.init();
+            global.reset();
+        }
+        let global = get_damage_fx_store().expect("global store");
+        assert!(global.find_damage_fx("SurviveInit").is_some());
     }
 }
