@@ -2666,7 +2666,7 @@ mod tests {
         let mut listbox =
             ListBox::new(7, 0, 0, 100, 36).with_selection_mode(SelectionMode::Multiple);
         for i in 0..8 {
-            listbox.add_item_with_id(i, format!("Row {i}"));
+            listbox.add_item_with_id(i, &format!("Row {i}"));
         }
         assert_eq!(listbox.scroll_offset(), 0);
 

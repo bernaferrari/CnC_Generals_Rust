@@ -2449,8 +2449,11 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client.set_frame(self.game_logic.frame);
         // Wave 587: process Main-injected device state before shell UI residual.
-        // inject_game_client_* already wrote THE_MOUSE/THE_KEYBOARD from OS events;
+        // inject_game_client_* already wrote this client's devices from OS events;
         // update_input only runs Keyboard/Mouse::update bookkeeping (no second OS poll).
+        if let Err(err) = self.game_client.update_input() {
+            log::trace!("GameClient input update failed: {err}");
+        }
         // Wave 586: presentation freeze residual when a frame is installed.
         // C++ `GameClient::update` freezes the per-Drawable update/shroud
         // loop for script/tactical freezes *and* ordinary game pause. The

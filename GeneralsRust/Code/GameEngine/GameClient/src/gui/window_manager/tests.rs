@@ -1894,7 +1894,6 @@ fn os_click_named_window_rejects_when_another_window_covers_hit() {
 }
 
 #[test]
-#[test]
 fn os_wnd_widget_under_cursor_name_returns_enabled_gadget() {
     use crate::gui::shell::main_menu::os_wnd_widget_under_cursor_name;
 

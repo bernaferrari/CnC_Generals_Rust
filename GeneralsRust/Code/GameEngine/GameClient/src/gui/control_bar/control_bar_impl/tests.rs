@@ -359,7 +359,6 @@ mod tests {
         const IMAGE: &str = "SNTestRightHudArt";
         crate::display::image::get_mapped_image_collection()
             .write()
-            .expect("mapped image collection")
             .add_image(crate::display::image::Image::with_name(IMAGE));
         let _ = crate::gui::with_window_manager(|manager| {
             let win = manager.create_window(None, 0, 0, 139, 109).expect("RightHUD");

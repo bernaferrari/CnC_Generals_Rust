@@ -888,6 +888,17 @@ impl Keyboard {
         &mut self.state
     }
 
+    /// Clear held keys at a focus transition without restarting repeat time.
+    /// C++ Keyboard::resetKeys preserves m_inputFrame; subsystem reset is a
+    /// separate lifecycle operation. Caps-lock/platform layout parity is
+    /// tracked separately from these held-key modifiers.
+    pub fn reset_pressed_keys(&mut self) {
+        self.state.key_states.clear();
+        self.state.key_sequences.clear();
+        self.state.modifiers = KeyModifiers::empty();
+        self.state.last_key_pressed = None;
+    }
+
     /// Update keyboard state for current frame
     pub fn update(&mut self) -> Vec<KeyCode> {
         if !self.enabled {
@@ -950,23 +961,32 @@ impl SubsystemInterface for Keyboard {
     }
 }
 
-/// Global Keyboard residual (C++ TheKeyboard parity) for Main OS inject without dual ownership.
-static THE_KEYBOARD: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Keyboard>>> =
-    std::sync::OnceLock::new();
-
-pub fn the_keyboard() -> &'static std::sync::Arc<std::sync::Mutex<Keyboard>> {
-    THE_KEYBOARD.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(Keyboard::new())))
-}
-
-pub fn with_keyboard<R>(f: impl FnOnce(&mut Keyboard) -> R) -> R {
-    let keyboard = the_keyboard();
-    let mut guard = keyboard.lock().unwrap_or_else(|e| e.into_inner());
-    f(&mut guard)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focus_reset_clears_only_owned_keys_and_preserves_input_clock() {
+        let mut first = crate::core::subsystems::create_keyboard();
+        let mut second = crate::core::subsystems::create_keyboard();
+        first.handle_key_simple(KeyCode::LeftCtrl, true);
+        first.handle_key_simple(KeyCode::A, true);
+        second.handle_key_simple(KeyCode::RightShift, true);
+        for _ in 0..5 {
+            first.update();
+        }
+        assert!(!second.state().is_key_down(KeyCode::A));
+        first.reset_pressed_keys();
+        assert!(first.state().pressed_keys().is_empty());
+        assert!(first.state().modifiers().is_empty());
+        assert_eq!(first.state.input_frame, 5);
+        assert!(second.state().is_key_down(KeyCode::RightShift));
+        assert!(second.state().modifiers().contains(KeyModifiers::SHIFT));
+        for _ in 0..20 {
+            assert!(first.update().is_empty());
+        }
+        assert_eq!(first.state.input_frame, 25);
+    }
 
     #[test]
     fn test_key_state_transitions() {

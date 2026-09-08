@@ -356,8 +356,8 @@ impl GameClient {
         log::debug!("Initializing input subsystems");
 
         // Create keyboard
-        let keyboard = create_keyboard();
-        keyboard.lock().unwrap_or_else(|e| e.into_inner()).init()?;
+        let mut keyboard = create_keyboard();
+        keyboard.init()?;
         self.subsystem_manager.input_keyboard = Some(keyboard);
 
         // Create mouse

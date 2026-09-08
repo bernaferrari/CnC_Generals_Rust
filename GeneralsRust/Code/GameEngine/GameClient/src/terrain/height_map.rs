@@ -832,7 +832,12 @@ impl HeightMap {
         if let Some((info, class_min_u_px, class_max_v_px, v_factor)) = remap {
             let min_u_class = class_min_u_px / texture_width;
             let max_v_class = class_max_v_px / tex_height;
-            uv.u = [info.u0 + min_u_class, info.u1 + min_u_class, info.u2 + min_u_class, info.u3 + min_u_class];
+            uv.u = [
+                info.u0 + min_u_class,
+                info.u1 + min_u_class,
+                info.u2 + min_u_class,
+                info.u3 + min_u_class,
+            ];
             uv.v = [
                 info.v0 * v_factor + max_v_class,
                 info.v1 * v_factor + max_v_class,
@@ -2082,6 +2087,7 @@ mod tests {
         // tileNdx=0 → the minV..midY quadrant (y's are flipped, C++ :1623);
         // U = [minU, midX, midX, minU], V = [maxV, maxV, minV, minV]
         // = [0.5, 0.5, 0.4375, 0.4375].
+        let uv = HeightMap::uv_for_tile_atlas(0, false, (128, 192), 512.0, 512.0, None);
         assert!((uv.u[0] - 128.0 / 512.0).abs() < 1.0e-6);
         assert!((uv.u[1] - 160.0 / 512.0).abs() < 1.0e-6);
         assert!((uv.v[2] - 224.0 / 512.0).abs() < 1.0e-6);

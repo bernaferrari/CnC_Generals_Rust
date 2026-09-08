@@ -1613,7 +1613,7 @@ fn bake_river_strip(
 }
 
 #[cfg(test)]
-mod tests {
+mod overlay_gpu_tests {
     use super::{
         bake_river_strip, bake_trapezoid_water, TerrainVisualImpl, WATER_UV_FACTOR,
     };

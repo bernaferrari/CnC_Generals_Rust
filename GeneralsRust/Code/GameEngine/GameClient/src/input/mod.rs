@@ -64,7 +64,7 @@ use crate::system::SubsystemInterface;
 // Re-export main types for convenience
 pub use events::{InputEvent, InputEventFilter, InputEventType};
 pub use gamepad::{GamepadAxis, GamepadButton, GamepadId, GamepadManager, GamepadState};
-pub use keyboard::{KeyCode, KeyState, Keyboard, KeyboardState, the_keyboard, with_keyboard};
+pub use keyboard::{KeyCode, KeyState, Keyboard, KeyboardState};
 pub use manager::InputManager;
 pub use mouse::{
     CursorTooltipState, Mouse, MouseButton, MouseCursor, MouseDelta, MouseState, the_mouse,

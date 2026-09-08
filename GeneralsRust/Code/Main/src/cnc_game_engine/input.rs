@@ -5,7 +5,7 @@ fn reset_pressed_keys_for_focus_event(
     keys: &mut HashSet<Key>,
     event: &Event<()>,
     owned_window: winit::window::WindowId,
-) {
+) -> bool {
     // WinMain.cpp WM_SETFOCUS / WM_KILLFOCUS both reset Keyboard keys.
     // Main's command and camera paths read this instance-owned set, separate
     // from the input subsystem notified by WindowMessageProcessor.
@@ -15,6 +15,9 @@ fn reset_pressed_keys_for_focus_event(
     } if *window_id == owned_window)
     {
         keys.clear();
+        true
+    } else {
+        false
     }
 }
 
@@ -84,7 +87,12 @@ impl CnCGameEngine {
 
     /// Process platform-specific window events through message handler
     pub fn process_platform_event(&mut self, event: &Event<()>) -> Result<bool> {
-        reset_pressed_keys_for_focus_event(&mut self.keys_pressed, event, self.window.id());
+        let reset_keys =
+            reset_pressed_keys_for_focus_event(&mut self.keys_pressed, event, self.window.id());
+        #[cfg(feature = "game_client")]
+        if reset_keys {
+            self.game_client.reset_keyboard_keys();
+        }
         self.message_processor.process_event(event)
     }
 

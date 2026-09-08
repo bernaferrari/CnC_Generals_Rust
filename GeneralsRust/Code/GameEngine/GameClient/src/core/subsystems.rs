@@ -2939,12 +2939,10 @@ impl SubsystemInterface for VideoPlayerSubsystem {
 
 impl VideoPlayerInterface for VideoPlayerSubsystem {}
 
-pub type KeyboardHandle = Arc<Mutex<crate::input::Keyboard>>;
 pub type MouseHandle = Arc<Mutex<crate::input::Mouse>>;
 
-pub fn create_keyboard() -> KeyboardHandle {
-    // Share THE_KEYBOARD so Main OS inject and GameClient::update_input tick the same device.
-    crate::input::keyboard::the_keyboard().clone()
+pub fn create_keyboard() -> crate::input::Keyboard {
+    crate::input::Keyboard::new()
 }
 
 pub fn create_mouse() -> MouseHandle {

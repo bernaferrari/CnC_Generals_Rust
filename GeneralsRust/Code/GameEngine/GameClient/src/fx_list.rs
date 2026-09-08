@@ -2245,9 +2245,8 @@ mod tests {
             .unwrap_or(-1);
 
         {
-            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-                .lock()
-                .expect("shroud");
+            let shroud_handle = gamelogic::system::shroud_manager::get_shroud_manager();
+            let mut shroud = shroud_handle.lock().expect("shroud");
             *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
             shroud.init_shroud_grid(500.0, 500.0);
         }
@@ -2279,9 +2278,8 @@ mod tests {
         );
 
         {
-            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
-                .lock()
-                .expect("shroud");
+            let shroud_handle = gamelogic::system::shroud_manager::get_shroud_manager();
+            let mut shroud = shroud_handle.lock().expect("shroud");
             shroud.do_shroud_reveal(&pos, 75.0, 1);
         }
         list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
@@ -2347,4 +2345,3 @@ mod tests {
         assert_eq!(pulses[0].pos, [1.0, 2.0, 3.0]);
     }
 }
-
