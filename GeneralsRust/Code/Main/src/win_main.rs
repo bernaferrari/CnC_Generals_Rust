@@ -141,10 +141,14 @@ pub unsafe fn win_main(
     }
 
     // Create mutex to prevent multiple instances - exactly like C++
-    if !create_generals_mutex() {
-        cleanup_and_exit();
-        return 0;
-    }
+    let _instance_guard = match crate::single_instance::create_generals_mutex() {
+        Ok(guard) => guard,
+        Err(err) => {
+            error!("Could not acquire Generals single-instance lock: {err}");
+            cleanup_and_exit();
+            return 0;
+        }
+    };
 
     // Notify launcher of game start (matching C++ CopyProtect::notifyLauncher)
     if let Err(e) = notify_launcher_game_start() {
@@ -211,12 +215,6 @@ unsafe fn init_memory_manager() -> Result<(), anyhow::Error> {
 // SAFETY: parity wrapper; version init is safe Rust.
 unsafe fn init_version() {
     crate::version::initialize_version_system_with_copy_protection();
-}
-
-/// Create Generals mutex - equivalent to C++ GeneralsMutex creation
-// SAFETY: parity wrapper over single_instance::create_generals_mutex
-unsafe fn create_generals_mutex() -> bool {
-    crate::single_instance::create_generals_mutex()
 }
 
 /// Synchronous GameMain wrapper - equivalent to C++ GameMain call

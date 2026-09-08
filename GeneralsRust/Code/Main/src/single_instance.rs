@@ -15,10 +15,10 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 use anyhow::{Context, Result};
-use log::{error, info, warn};
+use log::info;
 use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
@@ -32,38 +32,19 @@ pub struct SingleInstanceGuard {
     process_id: u32,
 }
 
-static GENERALS_MUTEX_GUARD: OnceLock<Mutex<Option<SingleInstanceGuard>>> = OnceLock::new();
-
-fn generals_mutex_guard_slot() -> &'static Mutex<Option<SingleInstanceGuard>> {
-    GENERALS_MUTEX_GUARD.get_or_init(|| Mutex::new(None))
-}
-
 impl SingleInstanceGuard {
     /// Create a new single instance guard
     /// Returns Ok(guard) if this is the only instance, Err if another instance exists
     pub fn new(application_name: &str) -> Result<Self> {
         let lock_file_path = Self::get_lock_file_path(application_name)?;
 
-        // Check if lock file already exists and is active
-        if lock_file_path.exists() {
-            if let Err(e) = Self::check_existing_instance(&lock_file_path) {
-                // If we can't verify the existing instance, remove stale lock file
-                info!("Removing stale lock file: {}", e);
-                let _ = std::fs::remove_file(&lock_file_path);
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Another instance of {} is already running",
-                    application_name
-                ));
-            }
-        }
-
-        // Create and lock the file
-        let lock_file = Self::create_lock_file(&lock_file_path)?;
+        // The OS lock is the authority, as with C++ CreateMutex. Never unlink
+        // a supposedly stale file: another process may already lock its inode.
+        let mut lock_file = Self::create_lock_file(&lock_file_path)?;
         let process_id = Self::get_current_process_id();
 
         // Write process information to lock file
-        Self::write_lock_info(&lock_file_path, process_id)?;
+        Self::write_lock_info(&mut lock_file, process_id)?;
 
         info!("Single instance lock acquired: {:?}", lock_file_path);
         info!("Process ID: {}", process_id);
@@ -91,12 +72,11 @@ impl SingleInstanceGuard {
 
     /// Create and lock the lock file
     fn create_lock_file(path: &PathBuf) -> Result<File> {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)
-            .context("Failed to create lock file")?;
+        let mut options = OpenOptions::new();
+        options.create(true).write(true).truncate(false);
+        #[cfg(windows)]
+        options.share_mode(0);
+        let file = options.open(path).context("Failed to create lock file")?;
 
         // Platform-specific file locking
         #[cfg(unix)]
@@ -116,15 +96,14 @@ impl SingleInstanceGuard {
 
         #[cfg(windows)]
         {
-            // On Windows, the file being opened exclusively should be sufficient
-            // In a full implementation, you might use LockFile() API
+            // share_mode(0) above holds exclusive access until this file closes.
         }
 
         Ok(file)
     }
 
     /// Write process information to the lock file
-    fn write_lock_info(lock_file_path: &PathBuf, process_id: u32) -> Result<()> {
+    fn write_lock_info(lock_file: &mut File, process_id: u32) -> Result<()> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -135,87 +114,11 @@ impl SingleInstanceGuard {
             process_id, timestamp
         );
 
-        std::fs::write(lock_file_path, info)?;
+        // Mutate only after acquiring exclusion, through the locked descriptor.
+        lock_file.set_len(0)?;
+        lock_file.write_all(info.as_bytes())?;
 
         Ok(())
-    }
-
-    /// Check if an existing instance is actually running
-    fn check_existing_instance(lock_file_path: &PathBuf) -> Result<()> {
-        let content =
-            std::fs::read_to_string(lock_file_path).context("Failed to read lock file")?;
-
-        // Parse PID from lock file
-        let process_id = Self::parse_pid_from_lock_file(&content)?;
-
-        // Check if process is actually running
-        if Self::is_process_running(process_id) {
-            Ok(()) // Process is running
-        } else {
-            Err(anyhow::anyhow!("Process {} is not running", process_id))
-        }
-    }
-
-    /// Parse process ID from lock file content
-    fn parse_pid_from_lock_file(content: &str) -> Result<u32> {
-        for line in content.lines() {
-            if line.starts_with("PID: ") {
-                let pid_str = line.strip_prefix("PID: ").unwrap_or("");
-                return pid_str.parse().context("Invalid PID in lock file");
-            }
-        }
-        Err(anyhow::anyhow!("No PID found in lock file"))
-    }
-
-    /// Check if a process with the given ID is running
-    fn is_process_running(process_id: u32) -> bool {
-        #[cfg(unix)]
-        {
-            // On Unix, use kill with signal 0 to test if process exists
-            // SAFETY: kill with signal 0 performs an existence check; pid
-            // fits i32 by construction (parsed from u32 lock content).
-            let result = unsafe { libc::kill(process_id as i32, 0) };
-            if result == 0 {
-                return true;
-            }
-
-            // EPERM means the process exists but we do not have permission to signal it.
-            matches!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::EPERM)
-            )
-        }
-
-        #[cfg(windows)]
-        {
-            // On Windows, try to open the process handle
-            use std::os::windows::io::AsRawHandle;
-            use std::ptr;
-
-            // SAFETY: OpenProcess/CloseHandle pair on a pid from the lock
-            // file; handle is closed immediately on success.
-            unsafe {
-                let handle = winapi::um::processthreadsapi::OpenProcess(
-                    winapi::um::winnt::PROCESS_QUERY_INFORMATION,
-                    0, // Don't inherit handle
-                    process_id,
-                );
-
-                if handle != ptr::null_mut() {
-                    winapi::um::handleapi::CloseHandle(handle);
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            // Fallback: assume process is running to be safe
-            warn!("Process check not implemented for this platform");
-            true
-        }
     }
 
     /// Get the current process ID
@@ -236,15 +139,10 @@ impl SingleInstanceGuard {
 
 impl Drop for SingleInstanceGuard {
     fn drop(&mut self) {
-        // Remove lock file when guard is dropped
-        if let Err(e) = std::fs::remove_file(&self.lock_file_path) {
-            error!(
-                "Failed to remove lock file {:?}: {}",
-                self.lock_file_path, e
-            );
-        } else {
-            info!("Single instance lock released: {:?}", self.lock_file_path);
-        }
+        // Closing lock_file releases exclusion, including after process death.
+        // Keep the inode: unlinking allows a competing opener to lock a new
+        // file while another process still holds the previous one.
+        info!("Single instance lock released: {:?}", self.lock_file_path);
     }
 }
 
@@ -307,100 +205,22 @@ pub fn initialize_single_instance_protection() -> Result<SingleInstanceGuard> {
 /// Initialize single instance protection with copy protection integration
 /// This version integrates with the copy protection system
 pub fn initialize_single_instance_protection_with_copy_protection() -> Result<SingleInstanceGuard> {
-    use crate::copy_protection;
-
-    const APP_NAME: &str = "CnCGeneralsZeroHour";
-
-    // First check if copy protection allows multiple instances
-    if copy_protection::is_development_mode() {
-        info!("Development mode: Allowing multiple instances");
+    let guard = initialize_single_instance_protection()?;
+    if crate::copy_protection::is_copy_protection_enabled() {
+        crate::copy_protection::notify_launcher()?;
     }
-
-    match acquire_single_instance_lock(APP_NAME) {
-        Ok(guard) => {
-            info!("Single instance protection initialized with copy protection integration");
-
-            // Notify copy protection system that we have acquired single instance lock
-            if copy_protection::is_copy_protection_enabled() {
-                if let Err(e) = copy_protection::notify_launcher() {
-                    warn!(
-                        "Failed to notify copy protection of single instance lock: {}",
-                        e
-                    );
-                }
-            }
-
-            Ok(guard)
-        }
-        Err(e) => {
-            // In development mode, we might want to allow override
-            if copy_protection::is_development_mode() {
-                info!("Development mode: Multiple instance detected; proceeding with dev lock");
-                info!("Original lock error: {}", e);
-
-                // Try to create a development instance with different name
-                let dev_app_name = format!("{}_dev_{}", APP_NAME, std::process::id());
-                match acquire_single_instance_lock(&dev_app_name) {
-                    Ok(guard) => {
-                        info!("Created development single instance lock: {}", dev_app_name);
-                        return Ok(guard);
-                    }
-                    Err(dev_e) => {
-                        info!("Failed to create development instance lock: {}", dev_e);
-                    }
-                }
-            }
-
-            show_multiple_instance_message();
-            Err(e)
-        }
-    }
+    Ok(guard)
 }
 
-/// Create Generals mutex (matching C++ GeneralsMutex creation)
-/// This is the function called from win_main.rs to replace create_generals_mutex
-pub fn create_generals_mutex() -> bool {
-    let mut guard_slot = match generals_mutex_guard_slot().lock() {
-        Ok(slot) => slot,
-        Err(_) => {
-            error!("Failed to acquire single-instance mutex state lock");
-            return false;
-        }
-    };
-
-    if guard_slot.is_some() {
-        info!("Generals mutex already active for this process");
-        return true;
-    }
-
-    match initialize_single_instance_protection_with_copy_protection() {
-        Ok(guard) => {
-            *guard_slot = Some(guard);
-            info!("Generals mutex created successfully");
-            true
-        }
-        Err(e) => {
-            error!("Failed to create Generals mutex: {}", e);
-            false
-        }
-    }
-}
-
-/// Release the global Generals mutex guard.
-///
-/// Primarily used by controlled shutdown paths and tests.
-pub fn release_generals_mutex() {
-    if let Ok(mut slot) = generals_mutex_guard_slot().lock() {
-        if slot.take().is_some() {
-            info!("Generals mutex released");
-        }
-    }
+/// Acquire the original unconditional single-instance exclusion. The entry
+/// point owns the returned guard through game execution and cleanup.
+pub fn create_generals_mutex() -> Result<SingleInstanceGuard> {
+    initialize_single_instance_protection()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[test]
     fn test_single_instance_guard_creation() {
@@ -418,56 +238,90 @@ mod tests {
     }
 
     #[test]
+    fn locked_file_with_incomplete_metadata_still_excludes_another_instance() {
+        let name = format!("generals_lock_metadata_{}", std::process::id());
+        let guard = SingleInstanceGuard::new(&name).unwrap();
+        // A second launcher can observe the first between flock and metadata
+        // publication. PID text is not the authority for a held OS lock.
+        guard.lock_file.set_len(0).unwrap();
+        assert!(SingleInstanceGuard::new(&name).is_err());
+    }
+
+    #[test]
+    fn lock_holder_subprocess() {
+        let Ok(name) = std::env::var("GENERALS_LOCK_TEST_NAME") else {
+            return;
+        };
+        let _guard = SingleInstanceGuard::new(&name).unwrap();
+        println!("lock-acquired");
+        std::io::stdout().flush().unwrap();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+    }
+
+    #[test]
+    fn another_process_is_excluded_and_process_death_releases_the_lock() {
+        use std::io::{BufRead, BufReader};
+        use std::process::{Child, Command, Stdio};
+        struct Holder(Child);
+        impl Drop for Holder {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let name = format!("generals_process_lock_{}", std::process::id());
+        let mut holder = Holder(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "single_instance::tests::lock_holder_subprocess",
+                    "--nocapture",
+                ])
+                .env("GENERALS_LOCK_TEST_NAME", &name)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap(),
+        );
+        let mut output = BufReader::new(holder.0.stdout.take().unwrap());
+        loop {
+            let mut line = String::new();
+            assert_ne!(
+                output.read_line(&mut line).unwrap(),
+                0,
+                "holder exited before acquiring lock"
+            );
+            if line.contains("lock-acquired") {
+                break;
+            }
+        }
+        assert!(SingleInstanceGuard::new(&name).is_err());
+        // Force termination rather than running the Rust guard destructor.
+        holder.0.kill().unwrap();
+        holder.0.wait().unwrap();
+        let _replacement = SingleInstanceGuard::new(&name).unwrap();
+    }
+
+    #[test]
     fn test_guard_cleanup() {
         let lock_path = {
             let guard = SingleInstanceGuard::new("test_app_cleanup").unwrap();
             guard.get_instance_lock_file_path().clone()
         }; // Guard is dropped here
 
-        // Small delay to ensure file system operations complete
-        std::thread::sleep(Duration::from_millis(10));
-
-        // Lock file should be cleaned up
-        assert!(!lock_path.exists());
+        // Metadata may remain, but the OS lock must be released immediately.
+        assert!(lock_path.exists());
+        let _next = SingleInstanceGuard::new("test_app_cleanup").unwrap();
     }
 
     #[test]
-    fn test_process_id_parsing() {
-        let content = "Command & Conquer Generals Zero Hour\nPID: 12345\nStarted: 1234567890\n";
-        let pid = SingleInstanceGuard::parse_pid_from_lock_file(content).unwrap();
-        assert_eq!(pid, 12345);
-    }
-
-    #[test]
-    fn test_create_generals_mutex_retains_guard() {
-        release_generals_mutex();
-
-        assert!(
-            create_generals_mutex(),
-            "first create_generals_mutex call should acquire and retain guard"
-        );
-        assert!(
-            create_generals_mutex(),
-            "second create_generals_mutex call should detect existing retained guard"
-        );
-
-        release_generals_mutex();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_is_process_running_detects_current_pid() {
-        assert!(SingleInstanceGuard::is_process_running(std::process::id()));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_is_process_running_rejects_impossible_pid() {
-        let current = std::process::id();
-        let candidate = current
-            .saturating_add(10_000_000)
-            .min((i32::MAX - 1) as u32);
-        assert!(candidate > 0);
-        assert!(!SingleInstanceGuard::is_process_running(candidate));
+    fn caller_owned_guard_releases_exclusion_on_drop() {
+        let name = format!("generals_scoped_lock_{}", std::process::id());
+        let guard = acquire_single_instance_lock(&name).unwrap();
+        assert!(acquire_single_instance_lock(&name).is_err());
+        drop(guard);
+        let _next = acquire_single_instance_lock(&name).unwrap();
     }
 }
