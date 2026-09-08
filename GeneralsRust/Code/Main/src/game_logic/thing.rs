@@ -1804,6 +1804,10 @@ pub struct ThingTemplate {
     /// C++ `chooseGoodLocomotorFromCurrentSet` picks one by cell surface.
     #[serde(default)]
     pub locomotor_set_names: Vec<String>,
+    /// None identifies legacy/catalog-less templates; Some retains authored rows,
+    /// including an explicitly empty set, without consulting an ambient catalog.
+    #[serde(default)]
+    pub authored_locomotor_sets: Option<Vec<crate::game_logic::host_upgrade_module_residuals::AuthoredLocomotorSet>>,
     /// C++ CreateCrateDieModuleData::m_crateNameList residual (CrateData names).
     #[serde(default)]
     pub create_crate_data: Vec<String>,
@@ -2043,6 +2047,7 @@ impl ThingTemplate {
             fire_weapon_when_dead_behaviors: Vec::new(),
             locomotor_name: None,
             locomotor_set_names: Vec::new(),
+            authored_locomotor_sets: None,
             create_crate_data: Vec::new(),
             armor_sets: Vec::new(),
             subdual_damage_cap: 0.0,

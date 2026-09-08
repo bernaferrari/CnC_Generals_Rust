@@ -100,10 +100,12 @@ pub const COMBAT_BIKE_CLIFF_LOCOMOTOR: &str = "CombatBikeCliffLocomotor";
 pub const COMBAT_BIKE_TERRORIST_GROUND_LOCOMOTOR: &str = "CombatBikeTerroristGroundLocomotor";
 /// Retail SET_SLUGGISH cliff member of GLAVehicleCombatBike.
 pub const COMBAT_BIKE_TERRORIST_CLIFF_LOCOMOTOR: &str = "CombatBikeTerroristCliffLocomotor";
-/// Retail SET_TAXIING residual for jets / chinooks on the ground.
-pub const AIRPLANE_TAXIING_LOCOMOTOR: &str = "AirplaneTaxiingLocomotor";
+/// Retail jet SET_TAXIING template.
+pub const AIRPLANE_TAXIING_LOCOMOTOR: &str = "BasicJetTaxiLocomotor";
 /// Retail Raptor / Stealth taxiing template.
-pub const RAPTOR_TAXIING_LOCOMOTOR: &str = "RaptorTaxiingLocomotor";
+pub const RAPTOR_TAXIING_LOCOMOTOR: &str = AIRPLANE_TAXIING_LOCOMOTOR;
+/// Retail helicopter SET_TAXIING template.
+pub const HELICOPTER_TAXIING_LOCOMOTOR: &str = "BasicHelicopterTaxiLocomotor";
 /// Retail SET_SUPERSONIC residual for Raptor / Stealth attack dash.
 pub const RAPTOR_SUPERSONIC_LOCOMOTOR: &str = "RaptorSupersonicLocomotor";
 /// Retail SET_SUPERSONIC residual for Aurora attack dash.
@@ -1408,18 +1410,18 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
         (
             AIRPLANE_TAXIING_LOCOMOTOR,
             "GROUND",
-            "WHEELS",
-            "25",
-            "40",
-            "90",
-            Some("50"),
+            "TREADS",
+            "50",
+            "100",
+            "180",
+            Some("999999"),
         ),
         (
-            RAPTOR_TAXIING_LOCOMOTOR,
+            HELICOPTER_TAXIING_LOCOMOTOR,
             "GROUND",
-            "WHEELS",
-            "25",
-            "40",
+            "TREADS",
+            "30",
+            "30",
             "90",
             Some("50"),
         ),
@@ -1466,7 +1468,12 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
         if let Some(brake) = braking {
             props.insert("Braking".to_string(), brake.to_string());
         }
+        if name == HELICOPTER_TAXIING_LOCOMOTOR {
+            props.insert("AccelerationDamaged".to_string(), "8".to_string());
+            props.insert("TurnRateDamaged".to_string(), "60".to_string());
+        }
         if surfaces == "GROUND" {
+            props.insert("MinTurnSpeed".to_string(), "0".to_string());
             props.insert("MinSpeed".to_string(), "0".to_string());
             props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
         }

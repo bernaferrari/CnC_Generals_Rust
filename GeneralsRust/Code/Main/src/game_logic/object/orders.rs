@@ -146,6 +146,14 @@ impl Object {
     /// C++ AIUpdateInterface::setLocomotorUpgrade residual.
     pub fn set_locomotor_upgrade(&mut self, enabled: bool) {
         self.locomotor_upgrade = enabled;
+        if self.jet_ai.cur_locomotor_set.as_deref().is_none_or(|set| {
+            set == "SET_NORMAL" || set == "SET_NORMAL_UPGRADED"
+        }) {
+            crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+                self,
+                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
+            );
+        }
     }
 
     /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.

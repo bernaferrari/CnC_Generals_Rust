@@ -840,7 +840,7 @@ impl Object {
         &mut self,
         cell_type: gamelogic::ai::pathfind_astar::PathfindCellType,
     ) {
-        if self.locomotor_set_names.len() < 2 {
+        if self.locomotor_set_names.len() < 2 && self.thing.template.authored_locomotor_sets.is_none() {
             let fallback = crate::game_logic::locomotor_bootstrap::locomotor_set_names_for_unit(
                 &self.thing.template.name,
             );

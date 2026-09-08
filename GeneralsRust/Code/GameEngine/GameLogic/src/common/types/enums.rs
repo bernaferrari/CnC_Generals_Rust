@@ -210,7 +210,7 @@ pub enum RadarPriorityType {
 pub use game_engine::common::game_common::CommandSourceType;
 
 /// Locomotor set selection (`LocomotorSetType` in C++).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[repr(i32)]
 pub enum LocomotorSetType {
     Invalid = -1,

@@ -615,47 +615,29 @@ impl GameLogic {
 
         Self::apply_authored_weapon_set_create_policy(&mut template, definition);
 
-        // SET_NORMAL Locomotor name from Object INI when present; else known host map.
-        // A RiderChange container needs the unambiguous source SET_NORMAL
-        // primary that was validated with its roster above.  It must never
-        // inherit the last raw outer Locomotor row (normally SET_SLUGGISH on
-        // a Combat Bike) merely because the legacy attributes map is lossy.
-        if definition_has_rider_change_contain(definition) {
-            if let Some(lname) = rider_change_normal_locomotors
-                .as_deref()
-                .and_then(|names| names.first())
-            {
-                template.set_locomotor_name(lname);
-            }
-        } else if let Some(raw) = Self::object_definition_attr(definition, "locomotor") {
-            // Formats: "SET_NORMAL BasicHumanLocomotor" or "SET_NORMAL A B" (take first).
-            let mut parts = raw.split_whitespace();
-            let first = parts.next().unwrap_or("");
-            let loco = if first.eq_ignore_ascii_case("SET_NORMAL")
-                || first.eq_ignore_ascii_case("SET_NORMAL_UPGRADED")
-                || first.eq_ignore_ascii_case("SET_PANIC")
-                || first.eq_ignore_ascii_case("SET_TAXIING")
-                || first.eq_ignore_ascii_case("SET_FREEFALL")
-            {
-                parts.next()
-            } else if !first.is_empty() {
-                Some(first)
-            } else {
-                None
-            };
-            if let Some(lname) = loco {
-                template.set_locomotor_name(lname);
-            }
-        } else if let Some(lname) =
-            super::super::super::locomotor_bootstrap::locomotor_name_for_unit(template_name)
-        {
-            template.set_locomotor_name(lname);
-        }
-        apply_locomotor_set_names_from_definition(
-            &mut template,
-            rider_change_normal_locomotors.as_deref(),
-            Self::object_definition_attr(definition, "locomotor").as_deref(),
-        );
+        // C++ AIUpdateInterface constructs its first set with SET_NORMAL.
+        // The raw attribute map only retains the final row and cannot select it.
+        use crate::game_logic::host_upgrade_module_residuals::{
+            AuthoredLocomotorSet, HostLocomotorSetKind, locomotor_set_kind_from_token,
+        };
+        let sets: Vec<_> = definition.locomotor_sets.iter().filter_map(|row| {
+            let kind = locomotor_set_kind_from_token(&row.set_name)?;
+            Some(AuthoredLocomotorSet {
+                kind,
+                members: row.locomotor_names.iter()
+                    .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"))
+                    .cloned().collect(),
+            })
+        }).collect();
+        let normal = sets.iter().find(|row| row.kind == HostLocomotorSetKind::Normal);
+        let names = if definition_has_rider_change_contain(definition) {
+            rider_change_normal_locomotors.as_deref().unwrap_or(&[])
+        } else {
+            normal.map(|row| row.members.as_slice()).unwrap_or(&[])
+        };
+        template.locomotor_name = names.first().cloned();
+        template.locomotor_set_names = names.to_vec();
+        template.authored_locomotor_sets = Some(sets);
 
         // Combat unit KindOf from object type / kindof string so store weapons can attach.
         let otype = definition.object_type.to_ascii_lowercase();

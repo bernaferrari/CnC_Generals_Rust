@@ -359,22 +359,31 @@ pub fn should_apply_locomotor_set_upgrade(template_name: &str, upgrade: &str) ->
     }
 }
 
-/// C++ `LocomotorSetType` residual used by `chooseLocomotorSet`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostLocomotorSetKind {
-    Normal,
-    NormalUpgraded,
-    Panic,
-    Wander,
-    Taxiing,
-    Supersonic,
-    Sluggish,
+/// The canonical C++ set ordinal, shared with GameLogic.
+pub use gamelogic::common::types::LocomotorSetType as HostLocomotorSetKind;
+
+/// Object-owned, declaration-ordered members of one authored Locomotor row.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuthoredLocomotorSet {
+    pub kind: HostLocomotorSetKind,
+    pub members: Vec<String>,
+}
+
+pub fn locomotor_set_kind_from_token(token: &str) -> Option<HostLocomotorSetKind> {
+    [HostLocomotorSetKind::Normal, HostLocomotorSetKind::NormalUpgraded,
+     HostLocomotorSetKind::Freefall, HostLocomotorSetKind::Wander,
+     HostLocomotorSetKind::Panic, HostLocomotorSetKind::Taxiing,
+     HostLocomotorSetKind::Supersonic, HostLocomotorSetKind::Sluggish]
+        .into_iter().find(|kind| locomotor_set_kind_token(*kind).eq_ignore_ascii_case(token))
 }
 
 /// C++ `TheLocomotorSetNames` token for `getCurLocomotorSetType`.
 pub fn locomotor_set_kind_token(kind: HostLocomotorSetKind) -> &'static str {
     match kind {
-        HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => "SET_NORMAL",
+        HostLocomotorSetKind::Invalid => "INVALID_LOCOMOTORSET",
+        HostLocomotorSetKind::Normal => "SET_NORMAL",
+        HostLocomotorSetKind::NormalUpgraded => "SET_NORMAL_UPGRADED",
+        HostLocomotorSetKind::Freefall => "SET_FREEFALL",
         HostLocomotorSetKind::Panic => "SET_PANIC",
         HostLocomotorSetKind::Wander => "SET_WANDER",
         HostLocomotorSetKind::Taxiing => "SET_TAXIING",
@@ -470,7 +479,11 @@ pub fn locomotor_name_for_set_kind(
                     .unwrap_or(crate::game_logic::locomotor_bootstrap::CHINOOK_LOCOMOTOR)
             }
             HostLocomotorSetKind::Taxiing => {
-                crate::game_logic::locomotor_bootstrap::AIRPLANE_TAXIING_LOCOMOTOR
+                if t.contains("chinook") {
+                    crate::game_logic::locomotor_bootstrap::HELICOPTER_TAXIING_LOCOMOTOR
+                } else {
+                    crate::game_logic::locomotor_bootstrap::AIRPLANE_TAXIING_LOCOMOTOR
+                }
             }
             _ => return None,
         });
@@ -571,8 +584,11 @@ fn seed_set_switch_locomotor(name: &str) {
         "WanderHumanLocomotor" => ("10", "100", "350", "10", "50", None, "TWO_LEGS"),
         "NuclearOverlordLocomotor" => ("30", "15", "60", "30", "15", None, "TREADS"),
         "NuclearBattleMasterLocomotor" => ("35", "1000", "180", "32", "1000", None, "TREADS"),
-        "AirplaneTaxiingLocomotor" | "RaptorTaxiingLocomotor" => {
-            ("25", "40", "90", "25", "40", Some("50"), "WHEELS")
+        "BasicJetTaxiLocomotor" => {
+            ("50", "100", "180", "50", "100", Some("999999"), "TREADS")
+        }
+        "BasicHelicopterTaxiLocomotor" => {
+            ("30", "30", "90", "30", "8", Some("50"), "TREADS")
         }
         _ => return,
     };
@@ -580,6 +596,14 @@ fn seed_set_switch_locomotor(name: &str) {
     props.insert("Speed".to_string(), speed.to_string());
     props.insert("Acceleration".to_string(), accel.to_string());
     props.insert("TurnRate".to_string(), turn_deg.to_string());
+    if name == "BasicHelicopterTaxiLocomotor" {
+        props.insert("TurnRateDamaged".to_string(), "60".to_string());
+    } else {
+        props.insert("TurnRateDamaged".to_string(), turn_deg.to_string());
+    }
+    if name == "BasicJetTaxiLocomotor" || name == "BasicHelicopterTaxiLocomotor" {
+        props.insert("MinTurnSpeed".to_string(), "0".to_string());
+    }
     props.insert("SpeedDamaged".to_string(), speed_dmg.to_string());
     props.insert("AccelerationDamaged".to_string(), accel_dmg.to_string());
     props.insert("Surfaces".to_string(), "GROUND".to_string());
@@ -605,9 +629,8 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         "NuclearBattleMasterLocomotor" => (35.0, 1000.0, 180.0, 32.0, 1000.0, LOCO_BIGNUM_BRAKE),
         "BattleMasterLocomotor" => (25.0, 1000.0, 180.0, 25.0, 1000.0, LOCO_BIGNUM_BRAKE),
         "OverlordLocomotor" => (20.0, 15.0, 60.0, 20.0, 15.0, LOCO_BIGNUM_BRAKE),
-        "AirplaneTaxiingLocomotor" | "RaptorTaxiingLocomotor" => {
-            (25.0, 40.0, 90.0, 25.0, 40.0, 50.0)
-        }
+        "BasicJetTaxiLocomotor" => (50.0, 100.0, 180.0, 50.0, 100.0, 999999.0),
+        "BasicHelicopterTaxiLocomotor" => (30.0, 30.0, 90.0, 30.0, 8.0, 50.0),
         "RaptorSupersonicLocomotor" => (250.0, 180.0, 90.0, 250.0, 180.0, LOCO_BIGNUM_BRAKE),
         "AuroraSupersonicLocomotor" => (320.0, 200.0, 80.0, 320.0, 200.0, LOCO_BIGNUM_BRAKE),
         "MIGSupersonicLocomotor" => (230.0, 160.0, 90.0, 230.0, 160.0, LOCO_BIGNUM_BRAKE),
@@ -631,7 +654,7 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         acceleration: accel,
         acceleration_damaged: accel_dmg,
         turn_rate: turn,
-        turn_rate_damaged: turn,
+        turn_rate_damaged: if name == "BasicHelicopterTaxiLocomotor" { 60.0 * DEG_TO_RAD } else { turn },
         braking,
         locomotor_surfaces,
     })
@@ -715,7 +738,45 @@ pub fn apply_locomotor_set_kind(
     obj: &mut crate::game_logic::object::Object,
     kind: HostLocomotorSetKind,
 ) -> bool {
-    obj.jet_ai.cur_locomotor_set = Some(locomotor_set_kind_token(kind).to_string());
+    let kind = if kind == HostLocomotorSetKind::Normal && obj.locomotor_upgrade {
+        HostLocomotorSetKind::NormalUpgraded
+    } else {
+        kind
+    };
+    let token = locomotor_set_kind_token(kind);
+    if obj.jet_ai.cur_locomotor_set.as_deref() == Some(token) {
+        return true;
+    }
+    if let Some(sets) = &obj.thing.template.authored_locomotor_sets {
+        let Some(row) = sets.iter().find(|row| row.kind == kind) else {
+            return false;
+        };
+        let names = row.members.clone();
+        // Resolve every member before changing live state. C++ rejects unknown
+        // templates while parsing the row, before chooseLocomotorSet runs.
+        if names.iter().any(|name| {
+            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name).is_none()
+        }) {
+            return false;
+        }
+        let selected = crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+            &names, obj.locomotor_surfaces | crate::game_logic::object::LOCO_SURFACE_AIR,
+        ).or_else(|| crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+            &names, crate::game_logic::object::LOCO_SURFACE_GROUND,
+        ));
+        obj.locomotor_set_names = names;
+        obj.cur_locomotor_name = selected.clone();
+        obj.jet_ai.cur_locomotor_set = Some(token.to_string());
+        if let Some(name) = selected {
+            if let Some(binding) = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(&name) {
+                crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(obj, &binding);
+            }
+        }
+        obj.precise_z_pos = false;
+        obj.no_slow_down_as_approaching_dest = false;
+        obj.ultra_accurate = false;
+        return true;
+    }
     let swap = locomotor_set_swap_for_kind(&obj.template_name, kind).or_else(|| {
         if obj.is_kind_of(crate::game_logic::KindOf::Infantry)
             || obj.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed)
@@ -735,6 +796,9 @@ pub fn apply_locomotor_set_kind(
         return false;
     };
     apply_swap_fields(obj, &swap);
+    obj.locomotor_set_names = vec![swap.locomotor_name.to_string()];
+    obj.cur_locomotor_name = Some(swap.locomotor_name.to_string());
+    obj.jet_ai.cur_locomotor_set = Some(token.to_string());
     true
 }
 
@@ -767,13 +831,6 @@ pub fn apply_locomotor_set_upgrade(
         return false;
     }
     obj.set_locomotor_upgrade(true);
-    let swap =
-        locomotor_set_swap_for_kind(&obj.template_name, HostLocomotorSetKind::NormalUpgraded)
-            .or_else(|| locomotor_upgrade_set(upgrade, &obj.template_name));
-    let Some(swap) = swap else {
-        return true;
-    };
-    apply_swap_fields(obj, &swap);
     true
 }
 
@@ -783,6 +840,108 @@ pub const ARMORSET_PLAYER_UPGRADE: u8 = 1; // after ARMORSET_VETERAN=0 in residu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_locomotor_taxi_values_match_retail_jets_and_helicopters() {
+        for (name, locomotor, speed, acceleration, turn_degrees, braking) in [
+            ("AmericaJetRaptor", "BasicJetTaxiLocomotor", 50.0, 100.0, 180.0, 999999.0),
+            ("ChinaJetMIG", "BasicJetTaxiLocomotor", 50.0, 100.0, 180.0, 999999.0),
+            ("AmericaVehicleChinook", "BasicHelicopterTaxiLocomotor", 30.0, 30.0, 90.0, 50.0),
+        ] {
+            let taxi = locomotor_set_swap_for_kind(name, HostLocomotorSetKind::Taxiing).unwrap();
+            assert_eq!(taxi.locomotor_name, locomotor);
+            assert!((taxi.max_speed - speed).abs() < 0.01);
+            assert!((taxi.acceleration - acceleration).abs() < 0.01);
+            assert!((taxi.turn_rate - turn_degrees * DEG_TO_RAD).abs() < 0.001);
+            assert!((taxi.braking - braking).abs() < 0.1);
+        }
+    }
+
+    #[test]
+    fn authored_locomotor_runtime_template_starts_with_normal_not_last_row() {
+        let mut parser = crate::assets::IniParser::new();
+        parser.parse_ini_content(r#"
+Object AuthoredAircraft
+  KindOf = AIRCRAFT SELECTABLE
+  Behavior = JetAIUpdate ModuleTag_AI
+  End
+  Locomotor = SET_NORMAL RaptorJetLocomotor
+  Locomotor = SET_TAXIING BasicJetTaxiLocomotor
+End
+"#, "authored_locomotor.ini").unwrap();
+        let template = crate::game_logic::GameLogic::build_template_from_object_definition(
+            "AuthoredAircraft", parser.get_definition("AuthoredAircraft").unwrap(), None,
+        );
+        assert_eq!(template.locomotor_name.as_deref(), Some("RaptorJetLocomotor"));
+        assert_eq!(template.locomotor_set_names, vec!["RaptorJetLocomotor"]);
+    }
+
+    #[test]
+    fn authored_locomotor_sets_are_instance_owned_and_missing_switch_is_inert() {
+        use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+        let mut template = ThingTemplate::new("AmericaJetRaptor");
+        template.authored_locomotor_sets = Some(vec![
+            AuthoredLocomotorSet { kind: HostLocomotorSetKind::Normal,
+                members: vec!["RaptorJetLocomotor".into()] },
+            AuthoredLocomotorSet { kind: HostLocomotorSetKind::Taxiing,
+                members: vec!["BasicJetTaxiLocomotor".into()] },
+        ]);
+        let mut first = Object::new(template.clone(), ObjectId(101), Team::USA);
+        let mut second = Object::new(template, ObjectId(102), Team::USA);
+        second.thing.template.authored_locomotor_sets.as_mut().unwrap()[1].members =
+            vec!["BasicHelicopterTaxiLocomotor".into()];
+        assert!(apply_locomotor_set_kind(&mut first, HostLocomotorSetKind::Taxiing));
+        assert!(apply_locomotor_set_kind(&mut second, HostLocomotorSetKind::Taxiing));
+        assert_eq!(first.cur_locomotor_name.as_deref(), Some("BasicJetTaxiLocomotor"));
+        assert_eq!(second.cur_locomotor_name.as_deref(), Some("BasicHelicopterTaxiLocomotor"));
+        assert!((first.movement.max_speed - 50.0).abs() < 0.01);
+        assert!((second.movement.max_speed - 30.0).abs() < 0.01);
+        assert!(!apply_locomotor_set_kind(&mut first, HostLocomotorSetKind::Supersonic));
+        assert_eq!(first.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
+        assert_eq!(first.cur_locomotor_name.as_deref(), Some("BasicJetTaxiLocomotor"));
+        first.precise_z_pos = true;
+        assert!(apply_locomotor_set_kind(&mut first, HostLocomotorSetKind::Taxiing));
+        assert!(first.precise_z_pos, "same-set selection must not reinitialize the locomotor");
+        assert!(apply_locomotor_set_kind(&mut first, HostLocomotorSetKind::Normal));
+        assert_eq!(first.cur_locomotor_name.as_deref(), Some("RaptorJetLocomotor"));
+    }
+
+    #[test]
+    fn authored_locomotor_upgrade_waits_until_normal_is_selected() {
+        use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+        let mut template = ThingTemplate::new("AuthoredWorker");
+        template.authored_locomotor_sets = Some(vec![
+            AuthoredLocomotorSet { kind: HostLocomotorSetKind::Normal,
+                members: vec!["FastHumanLocomotor".into()] },
+            AuthoredLocomotorSet { kind: HostLocomotorSetKind::NormalUpgraded,
+                members: vec!["WorkerShoesLocomotor".into()] },
+            AuthoredLocomotorSet { kind: HostLocomotorSetKind::Panic,
+                members: vec!["PanicHumanLocomotor".into()] },
+        ]);
+        let mut worker = Object::new(template, ObjectId(103), Team::GLA);
+        assert!(apply_locomotor_set_kind(&mut worker, HostLocomotorSetKind::Panic));
+        worker.set_locomotor_upgrade(true);
+        assert_eq!(worker.jet_ai.cur_locomotor_set.as_deref(), Some("SET_PANIC"));
+        assert!(apply_locomotor_set_kind(&mut worker, HostLocomotorSetKind::Normal));
+        assert_eq!(worker.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL_UPGRADED"));
+        assert_eq!(worker.cur_locomotor_name.as_deref(), Some("WorkerShoesLocomotor"));
+        worker.set_locomotor_upgrade(false);
+        assert_eq!(worker.jet_ai.cur_locomotor_set.as_deref(), Some("SET_NORMAL"));
+        assert_eq!(worker.cur_locomotor_name.as_deref(), Some("FastHumanLocomotor"));
+    }
+
+    #[test]
+    fn authored_locomotor_set_tokens_preserve_all_original_ordinals() {
+        for (ordinal, token) in ["SET_NORMAL", "SET_NORMAL_UPGRADED", "SET_FREEFALL",
+            "SET_WANDER", "SET_PANIC", "SET_TAXIING", "SET_SUPERSONIC", "SET_SLUGGISH"]
+            .into_iter().enumerate() {
+            let kind = locomotor_set_kind_from_token(token).unwrap();
+            assert_eq!(kind as i32, ordinal as i32);
+            assert_eq!(locomotor_set_kind_token(kind), token);
+        }
+        assert_eq!(HostLocomotorSetKind::Invalid as i32, -1);
+        assert!(locomotor_set_kind_from_token("SET_UNKNOWN").is_none());
+    }
 
     #[test]
     fn cost_reduction_multiplies_0_9() {
@@ -1028,8 +1187,8 @@ mod tests {
         let dash =
             locomotor_set_swap_for_kind("AmericaJetRaptor", HostLocomotorSetKind::Supersonic)
                 .expect("SET_SUPERSONIC");
-        assert_eq!(taxi.locomotor_name, "RaptorTaxiingLocomotor");
-        assert!((taxi.max_speed - 25.0).abs() < 0.05);
+        assert_eq!(taxi.locomotor_name, "BasicJetTaxiLocomotor");
+        assert!((taxi.max_speed - 50.0).abs() < 0.05);
         assert!(
             (taxi.max_speed - cruise.max_speed).abs() > 1.0,
             "taxi must be slower than cruise"
@@ -1060,7 +1219,7 @@ mod tests {
             HostLocomotorSetKind::Taxiing
         ));
         assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
-        assert!((jet.movement.max_speed - 25.0).abs() < 0.05);
+        assert!((jet.movement.max_speed - 50.0).abs() < 0.05);
         assert!(apply_locomotor_set_kind(
             &mut jet,
             HostLocomotorSetKind::Supersonic
