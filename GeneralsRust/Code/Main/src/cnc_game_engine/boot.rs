@@ -173,8 +173,11 @@ impl CnCGameEngine {
         // No direct wgpu initialization needed - graphics system handles this
 
         // Initialize platform-specific message handling
-        let message_handler = create_platform_message_handler();
+        let initial_fullscreen = window.fullscreen().is_some();
+        let message_handler =
+            crate::platform::create_platform_message_handler_for_mode(!initial_fullscreen);
         let mut message_processor = WindowMessageProcessor::new(message_handler);
+        message_processor.set_fullscreen(initial_fullscreen);
         message_processor.attach_window(window.clone());
 
         // Initialize audio system unless disabled

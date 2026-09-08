@@ -106,12 +106,10 @@ pub const AIRPLANE_TAXIING_LOCOMOTOR: &str = "BasicJetTaxiLocomotor";
 pub const RAPTOR_TAXIING_LOCOMOTOR: &str = AIRPLANE_TAXIING_LOCOMOTOR;
 /// Retail helicopter SET_TAXIING template.
 pub const HELICOPTER_TAXIING_LOCOMOTOR: &str = "BasicHelicopterTaxiLocomotor";
-/// Retail SET_SUPERSONIC residual for Raptor / Stealth attack dash.
-pub const RAPTOR_SUPERSONIC_LOCOMOTOR: &str = "RaptorSupersonicLocomotor";
-/// Retail SET_SUPERSONIC residual for Aurora attack dash.
-pub const AURORA_SUPERSONIC_LOCOMOTOR: &str = "AuroraSupersonicLocomotor";
-/// Retail SET_SUPERSONIC residual for MIG attack dash.
-pub const MIG_SUPERSONIC_LOCOMOTOR: &str = "MIGSupersonicLocomotor";
+/// Retail Aurora flight sets; Raptors and MiGs do not author a supersonic set.
+pub const AURORA_NORMAL_LOCOMOTOR: &str = "AuroraJetLocomotor";
+pub const AURORA_SUPERSONIC_LOCOMOTOR: &str = "AuroraJetSupersonicLocomotor";
+pub const AURORA_SLUGGISH_LOCOMOTOR: &str = "AuroraJetSluggishLocomotor";
 
 /// Retail AmericaVehiclePOWTruck residual.
 pub const POW_TRUCK_LOCOMOTOR: &str = "POWTruckLocomotor";
@@ -1425,33 +1423,6 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
             "90",
             Some("50"),
         ),
-        (
-            RAPTOR_SUPERSONIC_LOCOMOTOR,
-            "AIR",
-            "WINGS",
-            "250",
-            "180",
-            "90",
-            None,
-        ),
-        (
-            AURORA_SUPERSONIC_LOCOMOTOR,
-            "AIR",
-            "WINGS",
-            "320",
-            "200",
-            "80",
-            None,
-        ),
-        (
-            MIG_SUPERSONIC_LOCOMOTOR,
-            "AIR",
-            "WINGS",
-            "230",
-            "160",
-            "90",
-            None,
-        ),
     ] {
         if store_has(name) {
             continue;
@@ -1490,6 +1461,105 @@ fn seed_exact_aircraft_set_switch_locomotors() -> usize {
             Err(error) => log::warn!(
                 "Host LocomotorStore: cannot parse aircraft set locomotor {name}: {error}"
             ),
+        }
+    }
+    added + seed_aurora_flight_locomotors()
+}
+
+/// Authored Aurora flight definitions share their physical/presentation fields.
+/// Source: retail Locomotor.ini AuroraJet{,Sluggish,Supersonic}Locomotor.
+fn seed_aurora_flight_locomotors() -> usize {
+    let mut added = 0;
+    for (
+        name,
+        speed,
+        damaged_speed,
+        minimum,
+        turn,
+        damaged_turn,
+        accel,
+        damaged_accel,
+        braking,
+        minimum_turn,
+    ) in [
+        (
+            AURORA_NORMAL_LOCOMOTOR,
+            "180",
+            "120",
+            "60",
+            "180",
+            "90",
+            "180",
+            "120",
+            "10",
+            "120",
+        ),
+        (
+            AURORA_SLUGGISH_LOCOMOTOR,
+            "150",
+            "100",
+            "100",
+            "90",
+            "60",
+            "90",
+            "60",
+            "90",
+            "60",
+        ),
+        (
+            AURORA_SUPERSONIC_LOCOMOTOR,
+            "480",
+            "240",
+            "60",
+            "180",
+            "90",
+            "480",
+            "240",
+            "10",
+            "180",
+        ),
+    ] {
+        if store_has(name) {
+            continue;
+        }
+        let props: HashMap<String, String> = [
+            ("Surfaces", "AIR"),
+            ("Speed", speed),
+            ("SpeedDamaged", damaged_speed),
+            ("MinSpeed", minimum),
+            ("TurnRate", turn),
+            ("TurnRateDamaged", damaged_turn),
+            ("Acceleration", accel),
+            ("AccelerationDamaged", damaged_accel),
+            ("Lift", "120"),
+            ("LiftDamaged", "80"),
+            ("Braking", braking),
+            ("MinTurnSpeed", minimum_turn),
+            ("PreferredHeight", "100"),
+            ("AllowAirborneMotiveForce", "Yes"),
+            ("ZAxisBehavior", "SURFACE_RELATIVE_HEIGHT"),
+            ("CirclingRadius", "100"),
+            ("Appearance", "WINGS"),
+            ("PitchInDirectionOfZVelFactor", "1.0"),
+            ("PitchStiffness", "0.5"),
+            ("RollStiffness", "0.4"),
+            ("PitchDamping", "0.9"),
+            ("RollDamping", "0.8"),
+            ("ForwardVelocityPitchFactor", "0"),
+            ("LateralVelocityRollFactor", "0.2"),
+            ("Apply2DFrictionWhenAirborne", "Yes"),
+            ("AirborneTargetingHeight", "30"),
+            ("LocomotorWorksWhenDead", "Yes"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        match parse_locomotor_template_definition(name, &props) {
+            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+                Ok(()) => added += 1,
+                Err(error) => log::warn!("Cannot seed Aurora locomotor {name}: {error}"),
+            },
+            Err(error) => log::warn!("Cannot parse Aurora locomotor {name}: {error}"),
         }
     }
     added

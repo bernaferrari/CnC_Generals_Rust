@@ -559,7 +559,12 @@ impl CnCGameEngine {
         // Finish a parked UI start after status has published `state=Loading`.
         // Must run before boot Loading→Menu release so a live match start is
         // not discarded. Still calls `host_load_map_or_default` (does not skip).
-        if let Some(pending) = self.pending_match_start.take() {
+        if let Some(mut pending) = self.pending_match_start.take() {
+            #[cfg(feature = "game_client")]
+            if !self.advance_cpp_load_screen_prelude(&mut pending) {
+                self.pending_match_start = Some(pending);
+                return Ok(());
+            }
             info!(
                 "Loading parked match start: mode={:?} map={}",
                 pending.request.mode, pending.request.map

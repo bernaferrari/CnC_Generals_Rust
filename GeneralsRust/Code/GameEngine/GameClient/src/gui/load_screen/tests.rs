@@ -156,6 +156,9 @@ mod tests {
     #[test]
     fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("Team:3", "Team Three");
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
@@ -206,7 +209,7 @@ mod tests {
         );
         assert_eq!(
             window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextTeam1"),
-            "Team:3"
+            "Team Three"
         );
         assert_eq!(
             window_text_color(&wm, "MultiplayerLoadScreen.wnd:StaticTextPlayer0"),
@@ -252,6 +255,7 @@ mod tests {
             &wm,
             "MultiplayerLoadScreen.wnd:StaticTextPlayer2"
         ));
+        Language::clear_localized_strings();
     }
 
     #[test]
@@ -2712,5 +2716,80 @@ mod tests {
                 .map(|image| image.name),
             Some("PlayerPortrait".to_string())
         );
+    }
+
+    #[test]
+    fn nonblocking_campaign_presents_last_frame_then_background_before_audio() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_single_player_load_screen_audio_state();
+        clear_load_screen_presentation_pump();
+        with_single_player_load_screen_state(|state| {
+            state.prelude_state = LoadScreenPreludeState::Movie;
+            state.movie_prelude_active = true;
+            state.movie_label = "TraceCampaign".into();
+        });
+        let (_, trace) = with_window_video_manager(|manager| {
+            super::super::window_video_manager::load_movie_tests::insert(
+                manager,
+                usize::MAX,
+                "TraceCampaign",
+            )
+        });
+        begin_nonblocking_load_screen_prelude(LoadScreenKind::SinglePlayer);
+        let observed = Rc::new(RefCell::new(Vec::new()));
+        let hook_observed = observed.clone();
+        let hook_trace = trace.clone();
+        register_load_screen_presentation_pump(move || {
+            let closed = hook_trace
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(op, _)| *op == "close");
+            let (state, ambient) = with_single_player_load_screen_state(|state| {
+                (state.prelude_state, state.ambient_loop_handle)
+            });
+            hook_observed.borrow_mut().push((closed, state, ambient));
+        });
+        assert!(matches!(
+            advance_load_screen_prelude(LoadScreenKind::SinglePlayer, true),
+            LoadScreenPreludeStepResult::Pending {
+                presentation_needed: true,
+                ..
+            }
+        ));
+        pump_load_screen_prelude_presentation(LoadScreenKind::SinglePlayer);
+        assert!(matches!(
+            advance_load_screen_prelude(LoadScreenKind::SinglePlayer, true),
+            LoadScreenPreludeStepResult::Finished {
+                outcome: LoadScreenPreludeOutcome::Complete,
+                presentation_needed: false
+            }
+        ));
+        assert_eq!(
+            *observed.borrow(),
+            vec![
+                (false, LoadScreenPreludeState::Movie, 0),
+                (false, LoadScreenPreludeState::Movie, 0),
+                (true, LoadScreenPreludeState::Movie, 0),
+            ]
+        );
+        assert_eq!(
+            *trace.lock().unwrap(),
+            vec![
+                ("decompress", 0),
+                ("render", 0),
+                ("next", 0),
+                ("decompress", 1),
+                ("render", 1),
+                ("next", 1),
+                ("close", 2)
+            ]
+        );
+        assert_eq!(
+            with_single_player_load_screen_state(|state| state.prelude_state),
+            LoadScreenPreludeState::Complete
+        );
+        clear_load_screen_presentation_pump();
+        reset_single_player_load_screen_audio_state();
     }
 }

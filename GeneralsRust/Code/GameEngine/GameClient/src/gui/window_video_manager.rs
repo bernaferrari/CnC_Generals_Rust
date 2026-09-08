@@ -692,3 +692,254 @@ mod tests {
         assert_eq!(manager.get_win_state(&window), WindowVideoState::Play);
     }
 }
+
+/// C++ load-screen loops have distinct inactive behavior for campaign and Challenge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoadMovieAction {
+    Present,
+    AdvanceHidden,
+    Skip,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoadMovieStep {
+    Waiting,
+    Skipped,
+    Complete,
+    Advanced {
+        frame_index: i32,
+        completed: bool,
+        presented: bool,
+    },
+}
+
+impl WindowVideoManager {
+    pub(crate) fn hold_load_movie(&mut self, name: &str) {
+        if let Some(video) = self
+            .playing_videos
+            .values_mut()
+            .find(|video| video.movie_name.eq_ignore_ascii_case(name))
+        {
+            // The load-screen driver advances this stream explicitly. Generic
+            // window updates must not consume a second frame between its steps.
+            video.state = WindowVideoState::Pause;
+        }
+    }
+
+    pub(crate) fn finish_load_movie(&mut self, name: &str, discard: bool) {
+        let key = self
+            .playing_videos
+            .iter()
+            .find_map(|(key, video)| video.movie_name.eq_ignore_ascii_case(name).then_some(*key));
+        if let Some(key) = key {
+            if discard {
+                self.playing_videos.remove(&key); // Drop closes the stream and clears its window buffer.
+            } else if let Some(video) = self.playing_videos.get_mut(&key) {
+                video.state = WindowVideoState::Pause;
+            }
+        }
+    }
+
+    /// One iteration of LoadScreen.cpp's movie loop, for the selected stream only.
+    /// Readiness is checked once, before focus-dependent work. The final frame is
+    /// the loop boundary (`frameIndex < frameCount - 1`), not a wrap back to zero.
+    pub(crate) fn advance_load_movie(
+        &mut self,
+        name: &str,
+        action: LoadMovieAction,
+    ) -> LoadMovieStep {
+        let Some(video) = self
+            .playing_videos
+            .values_mut()
+            .find(|video| video.movie_name.eq_ignore_ascii_case(name))
+        else {
+            return LoadMovieStep::Complete;
+        };
+        let Some(stream) = video.video_stream.as_mut() else {
+            return LoadMovieStep::Complete;
+        };
+        if stream.frame_index() >= stream.frame_count().saturating_sub(1) {
+            return LoadMovieStep::Complete;
+        }
+        if !stream.is_frame_ready() {
+            return LoadMovieStep::Waiting;
+        }
+        match action {
+            LoadMovieAction::Skip => return LoadMovieStep::Skipped,
+            LoadMovieAction::Present => {
+                let Some(buffer) = &video.video_buffer else {
+                    return LoadMovieStep::Complete;
+                };
+                stream.frame_decompress();
+                stream.frame_render(&mut *buffer.lock());
+                stream.frame_next();
+            }
+            LoadMovieAction::AdvanceHidden => {
+                stream.frame_next();
+                stream.frame_decompress();
+            }
+        }
+        LoadMovieStep::Advanced {
+            frame_index: stream.frame_index(),
+            completed: stream.frame_index() >= stream.frame_count().saturating_sub(1),
+            presented: action == LoadMovieAction::Present,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod load_movie_tests {
+    use super::*;
+    use crate::video_buffer::VideoBuffer;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    struct TraceStream {
+        frame: i32,
+        ready: Arc<AtomicBool>,
+        trace: Arc<Mutex<Vec<(&'static str, i32)>>>,
+    }
+    impl VideoStreamInterface for TraceStream {
+        fn next(&self) -> Option<&dyn VideoStreamInterface> {
+            None
+        }
+        fn next_mut(&mut self) -> Option<&mut dyn VideoStreamInterface> {
+            None
+        }
+        fn update(&mut self) {
+            panic!("the owner must step frames explicitly");
+        }
+        fn close(self: Box<Self>) {
+            self.trace.lock().unwrap().push(("close", self.frame));
+        }
+        fn is_frame_ready(&self) -> bool {
+            self.ready.load(Ordering::SeqCst)
+        }
+        fn frame_decompress(&mut self) {
+            self.trace.lock().unwrap().push(("decompress", self.frame));
+        }
+        fn frame_render(&mut self, _: &mut dyn VideoBuffer) {
+            self.trace.lock().unwrap().push(("render", self.frame));
+        }
+        fn frame_next(&mut self) {
+            self.trace.lock().unwrap().push(("next", self.frame));
+            self.frame = (self.frame + 1) % 3;
+        }
+        fn frame_index(&self) -> i32 {
+            self.frame
+        }
+        fn frame_count(&self) -> i32 {
+            3
+        }
+        fn frame_goto(&mut self, index: i32) {
+            self.frame = index;
+        }
+        fn height(&self) -> i32 {
+            1
+        }
+        fn width(&self) -> i32 {
+            1
+        }
+    }
+
+    pub(crate) fn insert(
+        manager: &mut WindowVideoManager,
+        key: usize,
+        name: &str,
+    ) -> (Arc<AtomicBool>, Arc<Mutex<Vec<(&'static str, i32)>>>) {
+        let ready = Arc::new(AtomicBool::new(true));
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let mut video = WindowVideo::new();
+        video.movie_name = name.into();
+        video.state = WindowVideoState::Play;
+        video.video_buffer = Some(VideoBufferHandle::new(SoftwareVideoBuffer::new(
+            VideoBufferType::X8R8G8B8,
+        )));
+        video.video_stream = Some(Box::new(TraceStream {
+            frame: 0,
+            ready: ready.clone(),
+            trace: trace.clone(),
+        }));
+        manager.playing_videos.insert(key, video);
+        (ready, trace)
+    }
+
+    #[test]
+    fn load_movie_single_player_waits_then_skips_without_decoding_after_focus_loss() {
+        let mut manager = WindowVideoManager::new();
+        let (ready, trace) = insert(&mut manager, 1, "Campaign");
+        manager.hold_load_movie("Campaign");
+        assert_eq!(manager.playing_videos[&1].state, WindowVideoState::Pause);
+        ready.store(false, Ordering::SeqCst);
+        assert_eq!(
+            manager.advance_load_movie("Campaign", LoadMovieAction::Skip),
+            LoadMovieStep::Waiting
+        );
+        assert!(trace.lock().unwrap().is_empty());
+        ready.store(true, Ordering::SeqCst);
+        assert_eq!(
+            manager.advance_load_movie("Campaign", LoadMovieAction::Present),
+            LoadMovieStep::Advanced {
+                frame_index: 1,
+                completed: false,
+                presented: true,
+            }
+        );
+        trace.lock().unwrap().clear();
+        assert_eq!(
+            manager.advance_load_movie("Campaign", LoadMovieAction::Skip),
+            LoadMovieStep::Skipped
+        );
+        assert!(trace.lock().unwrap().is_empty());
+        manager.finish_load_movie("Campaign", true);
+        assert_eq!(*trace.lock().unwrap(), vec![("close", 1)]);
+        assert!(!manager.is_movie_playing("Campaign"));
+    }
+
+    #[test]
+    fn load_movie_challenge_preserves_inactive_decoder_order_and_final_frame_boundary() {
+        let mut manager = WindowVideoManager::new();
+        let (_, selected) = insert(&mut manager, 1, "Challenge");
+        let (_, unrelated) = insert(&mut manager, 2, "Portrait");
+        assert_eq!(
+            manager.advance_load_movie("Challenge", LoadMovieAction::Present),
+            LoadMovieStep::Advanced {
+                frame_index: 1,
+                completed: false,
+                presented: true,
+            }
+        );
+        assert_eq!(
+            *selected.lock().unwrap(),
+            vec![("decompress", 0), ("render", 0), ("next", 0)]
+        );
+        selected.lock().unwrap().clear();
+        assert_eq!(
+            manager.advance_load_movie("Challenge", LoadMovieAction::AdvanceHidden),
+            LoadMovieStep::Advanced {
+                frame_index: 2,
+                completed: true,
+                presented: false,
+            }
+        );
+        assert_eq!(
+            *selected.lock().unwrap(),
+            vec![("next", 1), ("decompress", 2)]
+        );
+        assert!(unrelated.lock().unwrap().is_empty());
+        selected.lock().unwrap().clear();
+        assert_eq!(
+            manager.advance_load_movie("Challenge", LoadMovieAction::Present),
+            LoadMovieStep::Complete
+        );
+        assert!(
+            selected.lock().unwrap().is_empty(),
+            "the original loop excludes its final frame"
+        );
+        manager.finish_load_movie("Challenge", false);
+        assert!(manager.movie_progress("Challenge").is_some());
+        assert_eq!(manager.playing_videos[&1].state, WindowVideoState::Pause);
+    }
+}

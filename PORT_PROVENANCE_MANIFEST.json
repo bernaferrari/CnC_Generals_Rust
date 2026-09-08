@@ -140878,7 +140878,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "de228fd4140f9d493868861c6ae2af42063d0bfa876c52e54aae7dc3b2cac186",
+  "input_digest": "1436b8d56d0ed731e7a74a733fd070956b98bf501e842ee979785995e6eb84b7",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -144132,11 +144132,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 590,
+        "end_line": 613,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs",
-      "sha256": "5e0cc80c251de79ad8623162a55d510a6cc364f1dd56a29f5046535f9a10f14d",
+      "sha256": "b07508b2d01fc6cde271146446d8c81a42628b3b9903fb37f77a15b4835dccc7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -144324,11 +144324,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 274,
+        "end_line": 288,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/name_key_generator.rs",
-      "sha256": "c2777b2282c8a29a02a5326458b07dc43df89df842ff7269016335cf2e5e038e",
+      "sha256": "a96b0fc4f48ac9b0d539564f1f45bb4006ef4db0bd408dd9ad473e788833d378",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -150008,11 +150008,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 491,
+        "end_line": 634,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/load_screen/api.rs",
-      "sha256": "a2ffe7c9db13561adb7c152c3388d3c65535e15efca671760f3545bef1a766ba",
+      "sha256": "eb009abb0b8c7146e3f535c4008fa883e5a19dee2e5048f57761eb08693c1b0d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

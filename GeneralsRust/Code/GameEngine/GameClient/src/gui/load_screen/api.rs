@@ -106,6 +106,149 @@ pub fn init_load_screen(kind: LoadScreenKind, context: &LoadScreenInitContext) -
     })
 }
 
+/// Result of one pre-map step. The event-loop owner retains the start request
+/// while Pending and delivers native events before calling again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadScreenPreludeStepResult {
+    Pending {
+        retry_after: Duration,
+        presentation_needed: bool,
+    },
+    Finished {
+        outcome: LoadScreenPreludeOutcome,
+        presentation_needed: bool,
+    },
+}
+
+/// Hand movie advancement to the nonblocking driver before the first Loading tick.
+pub fn begin_nonblocking_load_screen_prelude(kind: LoadScreenKind) {
+    let movie = match kind {
+        LoadScreenKind::SinglePlayer => {
+            with_single_player_load_screen_state(|state| state.movie_label.clone())
+        }
+        LoadScreenKind::Challenge => {
+            with_challenge_load_screen_state(|state| state.background_movie_label.clone())
+        }
+        _ => return,
+    };
+    with_window_video_manager(|manager| manager.hold_load_movie(&movie));
+}
+
+pub fn advance_load_screen_prelude(
+    kind: LoadScreenKind,
+    focused: bool,
+) -> LoadScreenPreludeStepResult {
+    use super::window_video_manager::{LoadMovieAction, LoadMovieStep};
+    let (state, movie) = match kind {
+        LoadScreenKind::SinglePlayer => with_single_player_load_screen_state(|state| {
+            (state.prelude_state, state.movie_label.clone())
+        }),
+        LoadScreenKind::Challenge => with_challenge_load_screen_state(|state| {
+            (state.prelude_state, state.background_movie_label.clone())
+        }),
+        _ => {
+            return LoadScreenPreludeStepResult::Finished {
+                outcome: LoadScreenPreludeOutcome::NotRequired,
+                presentation_needed: false,
+            };
+        }
+    };
+    clear_load_screen_cursor_tooltip();
+    if state != LoadScreenPreludeState::Movie {
+        let step = with_window_manager(|wm| match kind {
+            LoadScreenKind::SinglePlayer => advance_single_player_load_screen_prelude(wm),
+            LoadScreenKind::Challenge => advance_challenge_load_screen_prelude(wm),
+            _ => unreachable!(),
+        });
+        // The low-memory/voice-delay loop has its own clock-driven progress.
+        let presentation_needed = state == LoadScreenPreludeState::VoiceDelay;
+        return match step {
+            LoadScreenPreludeStep::Pending(retry_after) => LoadScreenPreludeStepResult::Pending {
+                retry_after,
+                presentation_needed,
+            },
+            LoadScreenPreludeStep::Finished(outcome) => LoadScreenPreludeStepResult::Finished {
+                outcome,
+                presentation_needed,
+            },
+        };
+    }
+    let action = if focused {
+        LoadMovieAction::Present
+    } else if kind == LoadScreenKind::SinglePlayer {
+        LoadMovieAction::Skip
+    } else {
+        LoadMovieAction::AdvanceHidden
+    };
+    let step = with_window_video_manager(|manager| manager.advance_load_movie(&movie, action));
+    let (outcome, presentation_needed) = match step {
+        LoadMovieStep::Waiting => {
+            return LoadScreenPreludeStepResult::Pending {
+                retry_after: LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL,
+                presentation_needed: false,
+            };
+        }
+        LoadMovieStep::Skipped => (Some(LoadScreenPreludeOutcome::Skipped), false),
+        LoadMovieStep::Complete => (Some(LoadScreenPreludeOutcome::Complete), false),
+        LoadMovieStep::Advanced {
+            frame_index,
+            completed,
+            presented,
+        } => {
+            if kind == LoadScreenKind::Challenge && presented {
+                let previous = with_challenge_load_screen_state(|state| state.current_frame);
+                with_window_manager(|wm| {
+                    activate_challenge_pieces_through_windows(wm, previous, frame_index)
+                });
+                with_challenge_load_screen_state(|state| state.current_frame = frame_index);
+            }
+            (
+                completed.then_some(LoadScreenPreludeOutcome::Complete),
+                presented,
+            )
+        }
+    };
+    if let Some(outcome) = outcome {
+        // Present the last decoded frame before releasing the campaign buffer.
+        // The original loop draws that frame before its stream-close postlude.
+        if presentation_needed {
+            pump_load_screen_prelude_presentation(kind);
+        }
+        with_window_video_manager(|manager| {
+            manager.finish_load_movie(&movie, kind == LoadScreenKind::SinglePlayer)
+        });
+        if kind == LoadScreenKind::SinglePlayer {
+            // This final static-background draw is outside the focus gate and
+            // precedes hiding the percentage and starting ambient audio.
+            pump_load_screen_presentation();
+        }
+        gamelogic::system::game_logic::set_fp_mode();
+        match kind {
+            LoadScreenKind::SinglePlayer => {
+                with_window_manager(|wm| complete_single_player_load_screen_prelude(wm, outcome))
+            }
+            LoadScreenKind::Challenge => complete_challenge_load_screen_prelude(outcome),
+            _ => unreachable!(),
+        }
+        LoadScreenPreludeStepResult::Finished {
+            outcome,
+            presentation_needed: false,
+        }
+    } else {
+        LoadScreenPreludeStepResult::Pending {
+            retry_after: LOAD_SCREEN_PRELUDE_MOVIE_IDLE_INTERVAL,
+            presentation_needed,
+        }
+    }
+}
+
+pub fn pump_load_screen_prelude_presentation(kind: LoadScreenKind) {
+    finish_load_screen_update();
+    if kind == LoadScreenKind::Challenge {
+        pump_challenge_load_screen_audio();
+    }
+}
+
 /// Run the C++ campaign/Challenge `LoadScreen::init` prelude before the map
 /// initializer starts.  This deliberately pumps only the already-installed
 /// WindowManager/display callback and FP mode; it never re-enters winit or the

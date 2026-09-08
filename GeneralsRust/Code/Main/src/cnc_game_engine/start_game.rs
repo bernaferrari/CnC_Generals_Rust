@@ -545,11 +545,12 @@ impl CnCGameEngine {
         info!("host_start_game_from_ui: load screen prepared");
         self.transition_to_state(GameState::Loading);
         info!("host_start_game_from_ui: state=Loading");
-        // C++ SinglePlayerLoadScreen/ChallengeLoadScreen consume their
-        // authored prelude before session and map work.  This is a direct
-        // WindowManager/display pump, not a re-entrant host event dispatch.
+        // Prelude playback is advanced by subsequent Loading ticks, allowing
+        // winit to deliver focus/close events before the next decoder step.
         #[cfg(feature = "game_client")]
-        self.run_cpp_load_screen_prelude();
+        if let Some(kind) = self.active_load_screen {
+            game_client::gui::load_screen::begin_nonblocking_load_screen_prelude(kind);
+        }
         // Park the blocking map load for the next Loading tick. Runtime-host
         // publishes status after each command (run_loop.rs); returning here
         // lets smoke observe `state=Loading` instead of remaining on Menu while
@@ -567,6 +568,7 @@ impl CnCGameEngine {
                 player_template,
             },
             interactive_start_from_menu,
+            prelude_retry_at: std::time::Instant::now(),
         });
         info!("host_start_game_from_ui: parked match start for next Loading tick");
     }
