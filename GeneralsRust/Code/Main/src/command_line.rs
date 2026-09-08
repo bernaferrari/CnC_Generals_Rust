@@ -93,7 +93,8 @@ impl CommandLineArgs {
 
     /// C++ WinMain only triggers the DX bootstrap path when `-DX` is the second token.
     pub fn wants_dx_stack_dump_from_args(args: &[String]) -> bool {
-        args.len() > 2 && args[1].eq_ignore_ascii_case("-dx")
+        // WinMain uses strcmp here, unlike its case-insensitive -win preparse.
+        args.len() > 2 && args[1] == "-DX"
     }
 
     /// Parse command line arguments from a vector of strings
@@ -968,6 +969,14 @@ mod tests {
             "-DX".to_string(),
             "0x1000".to_string(),
         ]));
+        for arguments in [
+            vec!["generals", "-dx", "0x1000"],
+            vec!["generals", "-Dx", "0x1000"],
+            vec!["generals", "-win", "-DX", "0x1000"],
+        ] {
+            let args = arguments.into_iter().map(String::from).collect::<Vec<_>>();
+            assert!(!CommandLineArgs::wants_dx_stack_dump_from_args(&args));
+        }
     }
 
     #[test]

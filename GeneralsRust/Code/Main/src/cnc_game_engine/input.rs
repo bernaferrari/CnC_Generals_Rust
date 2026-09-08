@@ -1,6 +1,23 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+fn reset_pressed_keys_for_focus_event(
+    keys: &mut HashSet<Key>,
+    event: &Event<()>,
+    owned_window: winit::window::WindowId,
+) {
+    // WinMain.cpp WM_SETFOCUS / WM_KILLFOCUS both reset Keyboard keys.
+    // Main's command and camera paths read this instance-owned set, separate
+    // from the input subsystem notified by WindowMessageProcessor.
+    if matches!(event, Event::WindowEvent {
+        window_id,
+        event: WindowEvent::Focused(_),
+    } if *window_id == owned_window)
+    {
+        keys.clear();
+    }
+}
+
 /// Origin of a mouse-button event that reaches [`CnCGameEngine::handle_mouse_button_input`].
 ///
 /// `Physical` is a real OS `WindowEvent::MouseInput`. `Injected` is a host
@@ -67,6 +84,7 @@ impl CnCGameEngine {
 
     /// Process platform-specific window events through message handler
     pub fn process_platform_event(&mut self, event: &Event<()>) -> Result<bool> {
+        reset_pressed_keys_for_focus_event(&mut self.keys_pressed, event, self.window.id());
         self.message_processor.process_event(event)
     }
 
@@ -2534,6 +2552,37 @@ mod tests {
     use winit::keyboard::{KeyCode, PhysicalKey};
 
     #[test]
+    fn focus_transitions_release_camera_keys_and_modifiers_for_only_the_owner() {
+        use super::{
+            Event, HashSet, Key, NamedKey, WindowEvent, reset_pressed_keys_for_focus_event,
+        };
+        let window = winit::window::WindowId::from(1);
+        let other_window = winit::window::WindowId::from(2);
+        let held = HashSet::from([
+            Key::Named(NamedKey::ArrowUp),
+            Key::Named(NamedKey::Control),
+            Key::Named(NamedKey::Shift),
+            Key::Named(NamedKey::Alt),
+        ]);
+        for focused in [false, true] {
+            let mut keys = held.clone();
+            let event = Event::WindowEvent {
+                window_id: window,
+                event: WindowEvent::Focused(focused),
+            };
+            reset_pressed_keys_for_focus_event(&mut keys, &event, other_window);
+            assert_eq!(keys, held);
+            reset_pressed_keys_for_focus_event(&mut keys, &Event::AboutToWait, window);
+            assert_eq!(keys, held);
+            reset_pressed_keys_for_focus_event(&mut keys, &event, window);
+            assert!(
+                keys.is_empty(),
+                "focus={focused} must release all held keys"
+            );
+        }
+    }
+
+    #[test]
     fn alternate_mouse_preserves_cpp_world_button_roles_and_lmb_targeting_priority() {
         // C++ CommandXlat/SelectionXlat: classic mode gives LMB the context
         // route and RMB cancel/deselect; Alternate Mouse restores the modern
@@ -2601,8 +2650,9 @@ mod tests {
             "CREATE/SELECT/ADD/VIEW_TEAM must die under DISABLE_INPUT"
         );
         let wheel = src
-            .find("WindowEvent::MouseWheel")
-            .map(|i| &src[i..src.len().min(i + 520)])
+            .split_once("WindowEvent::MouseWheel")
+            .and_then(|(_, tail)| tail.split_once("\n            _ => false,"))
+            .map(|(branch, _)| branch)
             .expect("mouse wheel dispatch");
         assert!(
             wheel.contains("lookat_input_enabled()") && wheel.contains("handle_mouse_wheel(delta)"),
@@ -2636,7 +2686,9 @@ mod tests {
         let start = src
             .find("C++ WindowXlat.cpp:186-192")
             .expect("WindowXlat placement keep");
-        let body = &src[start..src.len().min(start + 900)];
+        let (body, _) = src[start..]
+            .split_once("\n        if in_world && !wnd_used")
+            .expect("end of HUD-consumed release branch");
         assert!(
             body.contains("is_placement_anchored")
                 && body.contains("handle_left_release")
@@ -2656,7 +2708,9 @@ mod tests {
         let start = src
             .find("fn handle_mouse_button_input")
             .expect("handle_mouse_button_input");
-        let body = &src[start..src.len().min(start + 1100)];
+        let (body, _) = src[start..]
+            .split_once("\n    /// Move the logical cursor")
+            .expect("end of mouse button input function");
         assert!(
             body.contains("look_at_host_mouse_locked")
                 && body.contains("look_at_host_is_scrolling")
