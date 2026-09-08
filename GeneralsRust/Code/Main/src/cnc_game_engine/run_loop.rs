@@ -96,6 +96,41 @@ fn average_fps_tracker() -> std::sync::MutexGuard<'static, AverageFpsTracker> {
     TRACKER.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// WndProc records activation before CreateGameEngine applies it. Keep that
+/// pre-engine state with the window's boot operation, rather than a global.
+struct StartupWindowFocus {
+    window_id: winit::window::WindowId,
+    latest: Option<bool>,
+}
+
+impl StartupWindowFocus {
+    fn new(window_id: winit::window::WindowId) -> Self {
+        Self {
+            window_id,
+            latest: None,
+        }
+    }
+
+    fn observe(&mut self, event: &Event<()>) {
+        if let Event::WindowEvent {
+            window_id,
+            event: WindowEvent::Focused(focused),
+        } = event
+        {
+            if *window_id == self.window_id {
+                self.latest = Some(*focused);
+            }
+        }
+    }
+
+    fn take_event(&mut self) -> Option<Event<()>> {
+        self.latest.take().map(|focused| Event::WindowEvent {
+            window_id: self.window_id,
+            event: WindowEvent::Focused(focused),
+        })
+    }
+}
+
 /// Run the actual C&C game
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
@@ -109,6 +144,7 @@ pub async fn run_cnc_game(
     let mut pending_window_attributes = Some(window_attributes);
     let mut window: Option<Arc<Window>> = None;
     let mut pending_engine_window: Option<Arc<Window>> = None;
+    let mut startup_focus: Option<StartupWindowFocus> = None;
     let mut engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>> = None;
     let mut engine_init_started_at: Option<Instant> = None;
     let mut engine_init_last_log_at: Option<Instant> = None;
@@ -434,12 +470,16 @@ pub async fn run_cnc_game(
                 );
             }
             created_window.request_redraw();
+            startup_focus = Some(StartupWindowFocus::new(created_window.id()));
             window = Some(created_window.clone());
             pending_engine_window = Some(created_window);
             return;
         }
 
         if engine.is_none() {
+            if let Some(startup_focus) = startup_focus.as_mut() {
+                startup_focus.observe(&event);
+            }
             match event {
                 Event::WindowEvent { ref event, window_id } => {
                     if let Some(current_window) = window.as_ref() {
@@ -529,6 +569,15 @@ pub async fn run_cnc_game(
                                 engine_init_started_at = None;
                                 engine_init_last_log_at = None;
                                 let mut new_engine = new_engine;
+                                if let Some(event) = startup_focus
+                                    .as_mut()
+                                    .and_then(StartupWindowFocus::take_event)
+                                {
+                                    if let Err(err) = new_engine.process_platform_event(&event) {
+                                        error!("Failed to apply startup window focus: {err}");
+                                    }
+                                }
+                                startup_focus = None;
                                 if let Some(bridge) = runtime_host_bridge.as_mut() {
                                     let snapshot = new_engine.runtime_host_status_snapshot();
                                     bridge.publish_runtime(&snapshot);
@@ -1062,6 +1111,83 @@ impl CnCGameEngine {
 mod tests {
     use super::{DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL, execute_wait_deadline};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn startup_focus_retains_latest_owner_event_until_engine_install() {
+        use super::StartupWindowFocus;
+        use crate::platform::{WindowMessageProcessor, create_platform_message_handler};
+        use winit::{
+            event::{Event, WindowEvent},
+            window::WindowId,
+        };
+
+        let owner = WindowId::from(11);
+        let other = WindowId::from(22);
+        for events in [
+            vec![],
+            vec![true],
+            vec![false],
+            vec![true, false],
+            vec![false, true],
+        ] {
+            let mut pending = StartupWindowFocus::new(owner);
+            let mut other_pending = StartupWindowFocus::new(other);
+            let mut processor = WindowMessageProcessor::new(create_platform_message_handler());
+            for &focused in &events {
+                let event = Event::WindowEvent {
+                    window_id: owner,
+                    event: WindowEvent::Focused(focused),
+                };
+                pending.observe(&event);
+                other_pending.observe(&event);
+                assert!(
+                    !processor.is_active(),
+                    "engine has not received boot state yet"
+                );
+            }
+            pending.observe(&Event::AboutToWait);
+            pending.observe(&Event::WindowEvent {
+                window_id: other,
+                event: WindowEvent::Focused(true),
+            });
+            assert!(other_pending.take_event().is_none());
+            if let Some(event) = pending.take_event() {
+                processor.process_event(&event).unwrap();
+            }
+            assert_eq!(
+                processor.is_active(),
+                events.last().copied().unwrap_or(false)
+            );
+            assert!(
+                pending.take_event().is_none(),
+                "transfer once, before first frame"
+            );
+        }
+    }
+
+    #[test]
+    fn live_boot_applies_retained_focus_before_publishing_engine() {
+        // Structural guard complements the executable state-transfer test.
+        let source = include_str!("run_loop.rs");
+        let boot = source
+            .split("        if engine.is_none() {")
+            .nth(1)
+            .unwrap()
+            .split("        let Some(current_window)")
+            .next()
+            .unwrap();
+        assert!(boot.contains("startup_focus.observe(&event)"));
+        let apply = boot
+            .find("new_engine.process_platform_event(&event)")
+            .unwrap();
+        assert!(
+            apply
+                < boot
+                    .find("new_engine.runtime_host_status_snapshot()")
+                    .unwrap()
+        );
+        assert!(apply < boot.find("engine = Some(new_engine)").unwrap());
+    }
 
     #[test]
     fn windowed_present_cap_is_cpp_default_max_fps_45() {
